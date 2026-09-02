@@ -74,6 +74,8 @@ market-job-no-order = job { $job }: no order
 ## Bank
 
 bank-loan-not-positive = the loan must be positive
+bank-no-citizenship = one borrows from the city one belongs to, and you belong to none (D-281)
+bank-city-line-exhausted = the credit line of «{ $city }» with the capital is exhausted: { $free } ₭ free. The line is raised by trades on its land (D-193)
 bank-over-limit = that much is not lent: { $available } ₭ available out of a { $limit } ₭ limit ({ $reason })
 bank-loan-closed = this loan is already closed
 bank-nothing-to-pay-with = nothing to pay with
@@ -109,14 +111,14 @@ bank-why-council = a decision of the Council of Cities ({ $city }); the algorith
 
 bank-why-limit-base = base { $money }
 bank-why-limit-turnover = turnover { $money } over { NUMBER($days, maximumFractionDigits: 2) } days
-bank-why-limit-repaid = { $money } repaid before
+bank-why-limit-interest = { $money } of interest paid
 bank-why-limit-no-overdue = a record without arrears
 bank-why-limit-trust = trust { NUMBER($trust, maximumFractionDigits: 0) }% from reports
 
 bank-why-offer-key = key rate { NUMBER($key, minimumFractionDigits: 2, maximumFractionDigits: 2) }%
-bank-why-offer-no-citizenship = key rate { NUMBER($key, minimumFractionDigits: 2, maximumFractionDigits: 2) }% + { NUMBER($premium, minimumFractionDigits: 2, maximumFractionDigits: 2) }% for risk: without citizenship you borrow from the capital directly (D-175)
+bank-why-offer-no-citizenship = no loan at all: one borrows from the city one belongs to, and you belong to none (D-281)
 bank-why-offer-city = key rate { NUMBER($key, minimumFractionDigits: 2, maximumFractionDigits: 2) }% + city margin { NUMBER($margin, minimumFractionDigits: 2, maximumFractionDigits: 2) }% ({ $city }); { $free } ₭ free on the line
-bank-why-offer-line-exhausted = key rate { NUMBER($key, minimumFractionDigits: 2, maximumFractionDigits: 2) }% + { NUMBER($premium, minimumFractionDigits: 2, maximumFractionDigits: 2) }% for risk: the line of city { $city } is exhausted — { $permitted } ₭ allowed against turnover, { $free } ₭ free. The line is raised by trades on its land (D-193)
+bank-why-offer-line-exhausted = key rate { NUMBER($key, minimumFractionDigits: 2, maximumFractionDigits: 2) }% + a { NUMBER($margin, minimumFractionDigits: 2, maximumFractionDigits: 2) }% margin, but there is nothing to borrow right now: the line of «{ $city }» is exhausted — { $permitted } ₭ allowed against turnover, { $free } ₭ free. The line is raised by trades on its land (D-193)
 
 ## Transfers
 

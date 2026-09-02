@@ -32,6 +32,7 @@ event-utility-cut_off = node cut off for non-payment
 event-transport-broke = wagon broke apart
 event-road-laid = road laid
 event-deed-sold = deed sold
+event-land-reclaimed = the city took its location back
 event-city-grant_paid = settlement grant paid
 event-estate-site_ready = the build is done: the house waits for its owner
 

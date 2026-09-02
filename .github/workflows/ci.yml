@@ -182,10 +182,16 @@ jobs:
       # stranger's URL cannot invent Prometheus series, and that a broken
       # database never reaches the reader. None of that shows on the page, so
       # nothing but a test can say it broke.
-      # Lint borrows the server's ruleset, like `tools` does. Only `check`:
-      # `format` would rewrite files this change never touched, and a wholesale
-      # reformat is its own commit, not a rider on this one.
-      - run: uvx ruff check --config ../backend/pyproject.toml .
+      # Lint borrows the server's ruleset, like `tools` does -- but through
+      # `landing/ruff.toml` rather than `--config`, which would bypass it. The
+      # file adds one setting the server's copy cannot give from here: which
+      # imports are ours. Without it `app` and `stats` sorted one way under
+      # this job and another way for anyone linting from the repository root,
+      # so a run in the wrong folder produced a "fix" that fails here.
+      #
+      # Only `check`: `format` would rewrite files this change never touched,
+      # and a wholesale reformat is its own commit, not a rider on this one.
+      - run: uvx ruff check .
       - run: uv pip install --system -r requirements.txt pytest httpx
       - run: pytest -q test_app.py
         env:

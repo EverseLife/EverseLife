@@ -18,6 +18,7 @@
 # --- city plots (D-089) -------------------------------------------------------
 
 city-land-not-civic = this is not a city plot
+city-land-not-a-plot = “{ $node }” is not a plot to hand out but the city's own location: a city gives out plots, not itself
 city-land-taken = the plot is already someone's
 city-land-dead = a dead body disposes of no plots
 city-land-cede-on-foot = a plot is handed over on foot: walk up to it
@@ -75,7 +76,7 @@ city-option-requires = option “{ $option }” requires an answer to “{ $requ
 city-charter-sealed = the charter of this city does not change: it decided so itself
 city-about-too-long = the city's word is longer than { $limit } characters: a card is read in ten seconds
 
-# --- citizenship (D-160, D-184) -----------------------------------------------
+# --- citizenship (D-160, D-281) -----------------------------------------------
 
 city-already-citizen-here = you are a citizen of this city already
 city-citizenship-is-one = citizenship is one per person: leave the former city first
@@ -84,7 +85,8 @@ city-already-citizen = { $who } is a citizen already
 city-no-application = there is no application from this person
 city-already-in-a-city = { $who } belongs to a city already
 city-not-a-citizen-anywhere = you belong to no city
-city-bound-by-printing = citizenship came as a condition of printing and holds until { $until } UTC. You took that term when you chose the city's door
+city-leave-in-debt = a loan of yours is still open: the city answers for its borrowers, and citizenship is given up only once it is settled
+city-found-while-citizen = a city is founded by somebody who belongs to none: leave your former city first
 city-not-a-citizen-here = { $who } is not a citizen of this city
 
 # --- votes and council (D-163, D-164) -----------------------------------------
@@ -162,6 +164,7 @@ estate-site-no-strength = not enough strength: the build takes { NUMBER($need, m
 estate-site-already-started = the build has already started
 estate-site-not-ready = the house is not ready yet: the build is under way
 
+estate-deed-not-a-plot = “{ $node }” is the city's own location and not a plot: such a paper is not traded
 estate-deed-not-yours = the deed is not yours: what you sell is your own
 estate-deed-not-on-sale = the deed is not up for sale
 estate-deed-own = your own deed is not for buying
@@ -190,6 +193,7 @@ estate-land-buy-dead = a dead body does not buy
 estate-land-buy-on-foot = a plot is bought on foot: walk up to it
 estate-land-taken = the plot is already someone's
 estate-land-not-civic = this is not city land: outside a city it is neither sold nor claimed, yet anyone may work and build there
+estate-land-not-a-plot = “{ $node }” is not a plot for sale but the city's own location: a city sells plots, not itself
 estate-land-not-vacant = the node is not empty: the price list sells neither buildings nor the city's veins
 estate-land-city-missing = the node is attached to a city that does not exist
 estate-land-permit = “{ $city }” does not sell land to everyone: code law build_permit is “{ $permit }”. Join the citizens
@@ -229,7 +233,7 @@ access-no-holder = { $land ->
     }
 access-not-yours = the location is not yours: the door is the holder's to command
 access-self-in-list = you are not kept on your own lists: the holder always enters
-access-barred = “{ $node }” is someone else's location, and the holder does not let you in. You may pass through it, but not stop; a dispute over entry is settled by a claim
+access-barred = “{ $node }” is someone else's location, and the holder does not let you in. You may pass through it, but not stop; only the holder can let you in
 
 # --- the Net (D-222) ----------------------------------------------------------
 

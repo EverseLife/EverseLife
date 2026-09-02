@@ -32,6 +32,7 @@ event-utility-cut_off = узел отключён за неуплату
 event-transport-broke = повозка разбилась
 event-road-laid = дорога уложена
 event-deed-sold = бумага продана
+event-land-reclaimed = город забрал свою локацию
 event-city-grant_paid = подъёмные выплачены
 event-estate-site_ready = стройка готова: дом ждёт хозяина
 

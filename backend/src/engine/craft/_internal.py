@@ -52,7 +52,7 @@ from src.models.world import Node
 from src.units import (
     MINUTES_PER_HOUR,
     PERCENT,
-    SECONDS_PER_HOUR,
+    SECONDS_PER_MINUTE,
     amount,
     amount_float,
 )
@@ -238,7 +238,7 @@ async def _prepare_write(
     scale = constants[R.QUALITY_SCALE]
     memory = _material_quality(picks, scale.max)
     quality = scale.clamp(memory - constants[R.CARRIER_WRITE_WEAR])
-    minutes = write_seconds(constants, memory) * units / (SECONDS_PER_HOUR / MINUTES_PER_HOUR)
+    minutes = write_seconds(constants, memory) * units / SECONDS_PER_MINUTE
     forecast = Plan(
         output=proc.output,
         units=units,
@@ -549,4 +549,4 @@ def _num(value: float) -> Decimal:
 
 def _seconds(minutes: float) -> Decimal:
     """Work left, as the batch stores it: seconds of the master's presence."""
-    return Decimal(str(minutes * SECONDS_PER_HOUR / MINUTES_PER_HOUR))
+    return Decimal(str(minutes * SECONDS_PER_MINUTE))

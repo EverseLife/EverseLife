@@ -18,11 +18,19 @@ from src.constants import Constants
 from src.constants import registry as R
 from src.engine import city as town
 from src.engine import events, ledger
-from src.engine.bank._base import BankError, NothingToRepay, TooMuch, key_rate, reserve_account
+from src.engine.bank._base import (
+    BankError,
+    NothingToRepay,
+    NotOurs,
+    TooMuch,
+    key_rate,
+    reserve_account,
+)
 from src.engine.bank.line import city_line, city_margin
-from src.engine.bank.trust import personal_turnover, repaid_total, trust
+from src.engine.bank.trust import interest_paid_total, personal_turnover, trust
 from src.engine.errors import Says
 from src.models.bank import Loan, LoanState
+from src.models.city import City
 from src.models.event import EventKind
 from src.models.identity import Identity
 from src.models.ledger import (
@@ -30,6 +38,13 @@ from src.models.ledger import (
     PostingReason,
 )
 from src.units import MONEY_SCALE, PERCENT, money, money_str
+
+#: One order for taking loan rows, and every place that locks more than one
+#: keeps to it: the daily collection (`collect`) and the prison's work-off
+#: (`prison_credit`) meet on the same debtor from a worker and from a player's
+#: command, and two orders is a deadlock (`Loan.id` is a random uuid, so no
+#: business order agrees with it by accident).
+LOAN_ORDER = Loan.id
 
 
 async def borrow(
@@ -43,16 +58,34 @@ async def borrow(
 ) -> Loan:
     """Take a loan. Money comes from the reserve; the shortfall is printed (D-087).
 
-    The loan goes through the city of citizenship (D-175): the rate is key plus
-    city margin, and the loan takes up the city's credit line with the capital.
-    No citizenship or line exhausted -- a direct loan from the capital at the
-    worse rate.
+    The loan goes through the city of citizenship and **only** through it
+    (D-175, D-281): the rate is key plus the city margin, and the loan takes up
+    the city's credit line with the capital. No citizenship -- no loan; the
+    line exhausted -- no loan either. The direct loan from the capital at the
+    risk premium is gone: the capital lends against a line, and a person
+    belonging to nowhere puts up none.
     """
 
     moment = now or datetime.now(UTC)
     total = money(amount)
     if total <= 0:
         raise BankError(key="bank-loan-not-positive")
+
+    #: Three remainders, three rows, one direction: person, then their
+    #: citizenship, then the city. The free room under the personal limit is a
+    #: remainder like a purse, and a loan adds a row rather than changing one,
+    #: so what is locked for it is the borrower themselves (CLAUDE.md). The
+    #: citizenship is taken held because `city.leave` reads that same row held:
+    #: a loan and an exit cannot cross, and the city is never left answering
+    #: for the debt of somebody who has already walked out. Nothing anywhere
+    #: takes these three the other way round, so nothing deadlocks.
+    await session.execute(select(Identity.id).where(Identity.id == who.id).with_for_update())
+    entry = await town.citizenship(session, who.id, hold=True)
+    if entry is None:
+        raise NotOurs(key="bank-no-citizenship")
+    city = await town.by_id(session, entry.city_id)
+    if city is None:  # pragma: no cover -- citizenship into nowhere is a bug
+        raise NotOurs(key="bank-no-citizenship")
 
     limit_, reason = await credit_limit(session, constants, who.id, now=moment)
     available = limit_ - await debt_of(session, who.id)
@@ -67,26 +100,23 @@ async def borrow(
             inner={"reason": reason},
         )
 
-    #: The city of citizenship and its line. The line shrinks smoothly: exactly
-    #: the remainder is available, and a "take everything before the cutoff"
-    #: run hits arithmetic.
-    city = None
-    margin = 0.0
-    entry = await town.citizenship(session, who.id)
-    if entry is not None:
-        candidate = await town.by_id(session, entry.city_id)
-        if candidate is not None:
-            _, _, free = await city_line(session, constants, candidate, now=moment)
-            if total <= free:
-                city = candidate
-                margin = city_margin(constants, catalog, candidate)
+    #: The city's line is the third remainder and one for the whole city
+    #: (D-175): since D-281 it is the loan's only brake -- past it there is no
+    #: dearer loan from the capital any more, there is nothing -- so two
+    #: citizens must not both read it free. The row serialises them, and the
+    #: loser rereads a line that already carries the winner's loan. The same
+    #: lock the treasury's own borrowing takes (`works_city.credit`).
+    await session.execute(select(City.id).where(City.id == city.id).with_for_update())
+    _, _, free = await city_line(session, constants, city, now=moment)
+    if total > free:
+        raise TooMuch(
+            key="bank-city-line-exhausted",
+            city=city.name,
+            free=money_str(max(0, free)),
+        )
 
-    if city is not None:
-        rate_value = await key_rate(session, constants) + margin
-    else:
-        #: A direct loan from the capital: the way out for non-citizens and
-        #: residents of cut-off cities, but at the top of the risk range (D-175).
-        rate_value = await key_rate(session, constants) + constants[R.BANK_RISK_PREMIUM].max
+    margin = city_margin(constants, catalog, city)
+    rate_value = await key_rate(session, constants) + margin
 
     #: The reserve is a steriliser: first we spend already existing TC, and
     #: print only the shortfall. Printing shows as a separate posting and in telemetry.
@@ -119,7 +149,7 @@ async def borrow(
         principal=total,
         outstanding=total,
         rate=rate_value,
-        city_id=None if city is None else city.id,
+        city_id=city.id,
         margin=margin,
         printed=printed,
         taken_at=moment,
@@ -136,7 +166,7 @@ async def borrow(
         amount=total,
         rate=rate_value,
         printed=printed,
-        city=None if city is None else city.name,
+        city=city.name,
         margin=margin,
     )
     return loan
@@ -193,6 +223,7 @@ async def repay(
     ask why: money accepted, debt reduced.
     """
     moment = now or datetime.now(UTC)
+    await _locked(session, loan)
     if loan.state is not LoanState.OPEN:
         raise NothingToRepay(key="bank-loan-closed")
     await accrue(session, constants, loan, now=moment)
@@ -220,6 +251,17 @@ async def repay(
         closed=loan.state is LoanState.REPAID,
     )
     return payment
+
+
+async def _locked(session: AsyncSession, loan: Loan) -> None:
+    """Take the loan's row under this transaction and re-read it.
+
+    Outstanding, accrued and paid are money (CLAUDE.md): they are changed by
+    read-modify-write, so without the row two payers both see the same debt
+    and both settle it in full -- the ledger moves twice the money, and since
+    D-280 the doubled `interest_paid` also buys a limit that was never earned.
+    """
+    await session.refresh(loan, with_for_update=True)
 
 
 async def _settle(session: AsyncSession, loan: Loan, account, payment: int) -> None:
@@ -329,14 +371,37 @@ async def collect(
     share = constants[R.DEBT_WORKOFF_RATE] / PERCENT
     withheld = 0
 
+    #: Every row this pass will settle, taken at once and in `LOAN_ORDER`. One
+    #: at a time deadlocks on a debtor with two loans: the pass holds the first
+    #: loan and their account and walks on to the second, while the debtor's
+    #: own payment holds that second loan and waits for the same account.
+    #: Postgres then kills one of them, and what reaches the player is a raw
+    #: deadlock instead of a refusal.
+    #:
+    #: Overdue is asked in SQL rather than in the loop: a pass that locked
+    #: every open loan in the world would hold up payment for debtors who owe
+    #: nothing overdue at all, for as long as the whole walk takes.
+    since = moment - timedelta(days=constants[R.DEBT_GRACE_PERIOD])
     loans = (
-        (await session.execute(select(Loan).where(Loan.state == LoanState.OPEN))).scalars().all()
+        (
+            await session.execute(
+                select(Loan)
+                #: A treasury loan (D-248) has no identity to withhold from:
+                #: the city's discipline is its line -- occupied until repaid.
+                #: Left out here, so nothing waits on the capital's rows.
+                .where(
+                    Loan.state == LoanState.OPEN,
+                    Loan.identity_id.is_not(None),
+                    Loan.serviced_at < since,
+                )
+                .order_by(LOAN_ORDER)
+                .with_for_update()
+            )
+        )
+        .scalars()
+        .all()
     )
     for loan in loans:
-        #: A treasury loan (D-248) has no identity to withhold from: the
-        #: city's discipline is its line -- occupied until repaid.
-        if loan.identity_id is None:
-            continue
         if not overdue(constants, loan, moment):
             continue
         await accrue(session, constants, loan, now=moment)
@@ -374,9 +439,15 @@ async def credit_limit(
 ) -> tuple[int, list[Says]]:
     """Credit limit and what it is made of -- public, like the rate (D-030).
 
-    Base from the vault, plus a share of sales turnover, plus a share of what
-    was repaid, times trust and record. Labour, not the calendar: time in game
-    is the cheapest thing to farm (D-173).
+    Base from the vault, plus a share of sales turnover, plus a multiple of the
+    interest paid, times trust and record. Labour, not the calendar: time in
+    game is the cheapest thing to farm (D-173).
+
+    History is measured by **servicing**, not by the round trip (D-280): the
+    sum of repaid principal was free to run up -- borrow and repay in the same
+    second, interest for zero time is zero, and the limit lifted itself by its
+    own bootstraps. Interest is paid money, and it is only paid by whoever
+    carried the debt through real time.
 
     The parts are named rather than worded (D-251 wave IV): the same list is
     read by the bank window and quoted by the refusal of too large a loan, and
@@ -385,11 +456,11 @@ async def credit_limit(
     moment = now or datetime.now(UTC)
     base_ = money(constants[R.BANK_UNSECURED_LIMIT])
     turnover = await personal_turnover(session, constants, identity_id, now=moment)
-    returned_ = await repaid_total(session, identity_id)
+    serviced = await interest_paid_total(session, identity_id)
     limit_ = (
         base_
         + int(turnover * constants[R.CREDIT_TURNOVER_SHARE] / PERCENT)
-        + int(returned_ * constants[R.CREDIT_REPAID_SHARE] / PERCENT)
+        + int(serviced * constants[R.CREDIT_INTEREST_SHARE] / PERCENT)
     )
     #: Money travels as a formatted string (D-190): the sentence puts it in
     #: as it was written, it does not write it itself.
@@ -399,13 +470,15 @@ async def credit_limit(
             "bank-why-limit-turnover",
             {"money": money_str(turnover), "days": constants[R.CREDIT_WINDOW]},
         ),
-        Says("bank-why-limit-repaid", {"money": money_str(returned_)}),
+        Says("bank-why-limit-interest", {"money": money_str(serviced)}),
     ]
 
-    #: The record is a multiplier, not a base: a bonus for a history without overdue.
+    #: The record is a multiplier, not a base: a bonus for a history without
+    #: overdue. It opens on the first interest paid, not on the first loan
+    #: closed (D-280): a closure costing nothing bought the multiplier too.
     loans = await loans_of(session, identity_id)
     no_overdue = not any(overdue(constants, loan, moment) for loan in loans)
-    if returned_ > 0 and no_overdue:
+    if serviced > 0 and no_overdue:
         limit_ = int(limit_ * (1 + constants[R.CREDIT_NO_OVERDUE_BONUS] / PERCENT))
         reasons.append(Says("bank-why-limit-no-overdue"))
 
@@ -441,16 +514,36 @@ async def prison_credit(
         return 0
 
     debtor = await session.get(Identity, debtor_identity_id)
-    loans = sorted(await loans_of(session, debtor_identity_id), key=lambda loan: loan.taken_at)
+    #: The debtor's rows, taken at once and in `LOAN_ORDER` -- the same order
+    #: the daily collection takes them in. Locking them one by one in the order
+    #: they were taken is the other half of a deadlock: `Loan.id` is a random
+    #: uuid, so "oldest first" and "by id" disagree about half the time, and
+    #: the collection runs in the worker while this runs in a player's command.
+    held = (
+        (
+            await session.execute(
+                select(Loan)
+                .where(Loan.identity_id == debtor_identity_id, Loan.state == LoanState.OPEN)
+                .order_by(LOAN_ORDER)
+                .with_for_update()
+            )
+        )
+        .scalars()
+        .all()
+    )
+    #: Locked by id, paid oldest first: the order of the queue is a rule of the
+    #: bank (D-174), the order of locking is a rule of the database.
     credited = 0
     remainder = cost
-    for loan in loans:
+    for loan in sorted(held, key=lambda one: one.taken_at):
         if remainder <= 0:
             break
         payment = min(remainder, loan.outstanding)
         if payment <= 0:
             continue
-        await repay(
+        #: What was actually paid, not what was meant to be: under the lock the
+        #: two agree, but `repay` is the one that knows.
+        paid = await repay(
             session,
             constants,
             debtor,
@@ -459,8 +552,8 @@ async def prison_credit(
             from_account=treasury,
             now=moment,
         )
-        credited += payment
-        remainder -= payment
+        credited += paid
+        remainder -= paid
     if credited > 0:
         await events.record(
             session,

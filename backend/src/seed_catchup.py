@@ -171,7 +171,14 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
             .scalars()
             .first()
         )
-        if first is not None:
+        #: Somebody who already belongs to **another** city is not made the
+        #: founder of this one: founding is entering a citizenship, and there
+        #: is one to a person (D-281). Their own city's citizen is fine -- the
+        #: door gives it, and the first player usually came out of this very
+        #: printer. Otherwise the seat stays empty until somebody living takes
+        #: it: the catch-up does not decide that for them.
+        home = None if first is None else await town.citizenship(session, first.id)
+        if first is not None and (home is None or home.city_id == city.id):
             await town.install_founder(session, city, first)
     elif await town.citizenship(session, city.founder_identity_id) is None:
         #: A founder from before D-195 was a stranger in their own city: no
@@ -287,6 +294,15 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
     #: servers replaying one world lay the same ground (D-007).
     await _soil(session, constants, scenario)
 
+    #: City locations handed out as if they were plots (D-282). The allotment
+    #: asked only whether the node was the city's and free, and the capital's
+    #: core answers both -- so a signature at the town hall could turn the
+    #: centre of the city into somebody's yard, and a yard has a door. The
+    #: door is gone from such a node now (`engine.access`), but the title is
+    #: not: the holder still pays land tax on the city's core and may build a
+    #: house across it. It comes back here.
+    await _return_city_locations(session)
+
     #: Floors above the ground as nodes of their own (D-247). A house raised
     #: before that rule holds all its storeys in one node, so its upper floors
     #: are open here and the stairs cut to them. Everything that stood and lay
@@ -372,6 +388,25 @@ async def _accounts_catch_up(session: AsyncSession) -> None:
             accounts.apply_profile(identity, acct["profile"])
         log.info("account assigned in catch-up: %s -> %s", name, acct["email"])
     await session.flush()
+
+
+async def _return_city_locations(session: AsyncSession) -> None:
+    """Give the city back its own locations (D-282).
+
+    Only what is not a plot: an allotted or bought plot is its holder's, door
+    and all, and nothing here touches it. What comes back is the core, the
+    market, the administration -- the places a city works from, which were
+    never anybody's to hold.
+    """
+    taken = 0
+    cities = (await session.execute(select(City))).scalars().all()
+    for city in cities:
+        for node in await town.territory(session, city):
+            if await town.reclaim(session, node, city):
+                taken += 1
+                log.info("city location returned to %s: %s", city.name, node.key)
+    if taken:
+        await session.flush()
 
 
 async def _soil(session: AsyncSession, constants, scenario: seed_world.Scenario) -> None:

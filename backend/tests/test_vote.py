@@ -676,6 +676,63 @@ async def test_council_approves_law_instead_of_citizens(
     assert (city.laws or {}).get(LAW) == VALUE
 
 
+async def test_a_seat_without_citizenship_does_not_vote(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A council seat is a citizen's seat (D-281).
+
+    The vote belongs to citizens (D-160), and the council was the hole in that:
+    its member kept voting in a city they had left. The row itself stays --
+    who sat when is a matter for the court -- but it stops speaking, and with
+    it goes the right to propose a law.
+    """
+    city, core, ruler, body = await _with_council(
+        session, catalog, seats=2, how=vote.APPOINTED_COUNCIL
+    )
+    city.charter = {**city.charter, vote.APPROVAL: vote.BY_COUNCIL}
+    await session.flush()
+    councillor, _ = await _resident(session, core, city, "Советник")
+    await vote.appoint_to_council(session, city, ruler, councillor)
+
+    poll = await _convene(session, constants, catalog, city, ruler, body)
+    await town.leave(session, councillor)
+
+    assert not await vote.in_council(session, city, councillor.id)
+    assert not await vote.may_propose(session, city, councillor.id)
+    with pytest.raises(vote.NoVoice):
+        await vote.cast(session, city, councillor, poll, True)
+
+
+async def test_a_gone_councillor_does_not_lock_the_quorum(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The circle and the quorum are one number (D-164, D-281).
+
+    A seat whose holder left the city cannot vote, so counting it into the
+    electorate would lock the chamber: a council of two with a quorum of the
+    whole would wait for ever on a vote nobody can cast.
+    """
+    city, core, ruler, body = await _with_council(
+        session, catalog, seats=2, how=vote.APPOINTED_COUNCIL
+    )
+    city.charter = {**city.charter, vote.APPROVAL: vote.BY_COUNCIL, vote.QUORUM: "share"}
+    city.charter_params = {**city.charter_params, vote.QUORUM: 100}
+    await session.flush()
+    staying, _ = await _resident(session, core, city, "Оставшийся")
+    leaving, _ = await _resident(session, core, city, "Ушедший")
+    await vote.appoint_to_council(session, city, ruler, staying)
+    await vote.appoint_to_council(session, city, ruler, leaving)
+    await town.leave(session, leaving)
+
+    poll = await _convene(session, constants, catalog, city, ruler, body)
+    assert poll.electorate == 1, "в круг идут места, за которыми стоит гражданин"
+
+    await vote.cast(session, city, staying, poll, True)
+    await _bring(session, poll)
+    assert poll.state is VoteState.PASSED
+    assert (city.laws or {}).get(LAW) == VALUE
+
+
 async def test_council_member_proposes_law_without_laws_right(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:

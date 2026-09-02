@@ -71,8 +71,6 @@ class JobKind(StrEnum):
     SHIP_KEEL = "ship.keel"
     #: A ship's passage: undocked here, docks there when the term is up (D-201).
     SHIP_FLIGHT = "ship.flight"
-    #: Leaving citizenship: the declaration is filed, the term is up (D-160).
-    CITIZENSHIP_EXIT = "city.citizenship_exit"
     #: Vote tally: the term is up, the result applies itself (D-161).
     VOTE_CLOSE = "city.vote_close"
     #: Term of office is up: the office is vacated by itself (D-163).

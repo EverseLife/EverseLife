@@ -13,11 +13,10 @@
  */
 
 import type { Look } from "../../api";
-import { when } from "../../clock";
 import { t } from "../../locale";
 import { Refusal, useActions, useSession } from "../../actions";
 
-/** Citizenship: one per person, entry by charter, exit with a delay (D-160).
+/** Citizenship: one per person, entry by charter, exit at once (D-160, D-281).
  *
  * One joins in the administration -- where the city makes every decision
  * (D-155) -- so the section stands in this window, first: for a visitor the
@@ -43,10 +42,6 @@ export function Citizenship({ look }: { look: Look }) {
     invite: "ui-admin-admission-invite",
   };
   const admission = t(order_[city.admission] ?? city.admission);
-  //: Citizenship taken as a print condition cannot be given up before the term (D-184).
-  const linked = Boolean(
-    own?.bound_until && new Date(own.bound_until) > new Date(),
-  );
 
   return (
     <section>
@@ -55,14 +50,6 @@ export function Citizenship({ look }: { look: Look }) {
       {own ? (
         <p>
           {t("ui-admin-citizenship-in")} <b>{own.city}</b>
-          {own.leaving_at && (
-            <> · {t("ui-admin-citizenship-leaving", { when: when(own.leaving_at) })}</>
-          )}
-          {/* Обязательство, принятое при печати (D-184): срок виден заранее,
-              а не открывается отказом при попытке выйти. */}
-          {linked && (
-            <> · {t("ui-admin-citizenship-bound", { when: when(own.bound_until) })}</>
-          )}
         </p>
       ) : (
         <p className="note">{t("ui-admin-citizenship-none")}</p>
@@ -92,18 +79,20 @@ export function Citizenship({ look }: { look: Look }) {
         </span>
       </div>
 
-      {own && !own.leaving_at && (
+      {/* Выход мгновенный, и держит его одно — непогашенный кредит (D-281).
+          Кнопка от этого не гаснет: долг живёт в банке, а не в look, и
+          выводить его сюда значило бы возить в каждом взгляде то, что нужно
+          раз в жизни (D-225). Не рассчитавшемуся отвечает отказ. */}
+      {own && (
         <div className="row">
           <button
             onClick={() => act(() => session.send("city.leave", {}))}
-            disabled={busy || linked}
-            title={linked ? t("ui-admin-leave-bound-title") : t("ui-admin-leave-title")}
+            disabled={busy}
+            title={t("ui-admin-leave-title")}
           >
             {t("ui-admin-leave")}
           </button>
-          <span className="note">
-            {linked ? t("ui-admin-leave-bound-note") : t("ui-admin-leave-note")}
-          </span>
+          <span className="note">{t("ui-admin-leave-note")}</span>
         </div>
       )}
     </section>

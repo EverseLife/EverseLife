@@ -313,10 +313,12 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
     if shaking_at is not None:
         seen["node"]["shaking_at"] = shaking_at.isoformat()
     #: Both lists, and only to the holder: whom they let into a shut location
-    #: and whom they let in nowhere (D-204). The door belongs to the plot and
-    #: not to a floor of the house on it (D-247): one shuts the way in, and the
-    #: way in is downstairs.
-    if node.owner_identity_id == identity.id and estate.storey_of(node) is None:
+    #: and whom they let in nowhere (D-204). Whether there is a door here at all
+    #: is the engine's question, asked of the engine (`access.has_door`): it is
+    #: the plot that has one, not a floor of the house on it (D-247) and not a
+    #: city's own location (D-282). Half of that rule used to live here, and the
+    #: window drew a gate switch whose every button refused.
+    if node.owner_identity_id == identity.id and access.has_door(node):
         seen["node"]["door"] = {
             "allowed": await access.roster(db, node, allowed=True),
             "barred": await access.roster(db, node, allowed=False),
@@ -423,14 +425,15 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
     seen["citizenship"] = None
     if own_ is not None:
         native = await town.by_id(db, own_.city_id)
+        #: No date of a filed exit and no term of a print obligation: the exit
+        #: is instant and unannounced (D-281), and nothing holds a citizenship
+        #: but an open loan -- which the bank window already says, and the
+        #: refusal says at the moment it matters. `since` stays: it is the date
+        #: the residency census runs from, and the only thing about a
+        #: citizenship there is to show besides the city.
         seen["citizenship"] = {
             "city": None if native is None else native.name,
             "since": own_.since.isoformat(),
-            "leaving_at": (None if own_.leaving_at is None else own_.leaving_at.isoformat()),
-            #: An obligation accepted as a print condition (D-184): citizenship
-            #: does not lapse before this date. It must be shown in advance --
-            #: the person must not learn about the term from a refusal.
-            "bound_until": (None if own_.bound_until is None else own_.bound_until.isoformat()),
         }
     #: Founding a city (D-023, D-159): shown only where it is possible at all --
     #: on your own planet node outside a foreign city. The list of what is

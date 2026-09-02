@@ -10,9 +10,11 @@ house without a door is not a house.
 
 The rules are four, and they are all here:
 
-* the door belongs to the location and to its holder. Land outside a city has no
-  owner (D-198), so it has no door either -- there is nothing to shut and
-  nobody to shut it;
+* **the door is a property of the plot, not of the city** (D-199). Land outside
+  a city has no owner (D-198), so it has no door either -- there is nothing to
+  shut and nobody to shut it; and a city's own location -- its core with the
+  printer, its market, its administration -- has none either, whoever holds the
+  title to it. A city location is entered by everyone;
 * **shutting stops entry, not passage** (D-204). A route goes straight through a
   shut location: the refusal comes to whoever tries to arrive, not to whoever
   builds a path. Otherwise one holder's will could cut a neighbour off from
@@ -25,8 +27,10 @@ The rules are four, and they are all here:
   would be a way to take a body away, and death with no way out is forbidden
   (P6). A guest walks out on their own.
 
-Whether a name in a list is *fair* is not the engine's business: it carries out
-the holder's will, and injustice is contested by a suit (D-166).
+Whether a name in a list is *fair* is not the engine's business, and it is
+nobody else's either: entry is the holder's to decide and there is no court
+above that decision. A door is not a wrong to be undone -- it is what holding a
+plot means.
 """
 
 from __future__ import annotations
@@ -38,7 +42,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.engine.errors import Refusal
 from src.models.identity import Body, Identity
-from src.models.world import Node, NodePass, storey_of
+from src.models.world import Node, NodePass, is_plot, storey_of
 
 
 class AccessError(Refusal):
@@ -54,8 +58,37 @@ class Barred(AccessError):
 
 
 def _held(node: Node) -> bool:
-    """Whether there is anybody at all whose door this is."""
-    return node.owner_identity_id is not None
+    """Whether there is anybody at all whose door this is.
+
+    Two facts, not one. A holder there must be -- and the location must be a
+    **plot**, one of those the authority hands out inside its rings (D-089).
+    The gate is a property of the plot, not of the city (D-199): the core with
+    the printer, the market, the administration are the city's own places, and
+    a title over one of them is a title, not a door. Otherwise one allotment
+    signed by one office would shut the capital's centre to everybody -- and
+    the printer people come back to life at is in it.
+
+    Outside a city there is no title at all (D-198), so a node with a holder
+    and no city over it is a hull's compartment or a floor of a house: those
+    are their holder's whole, and the plot mark says nothing about them.
+    """
+    if node.owner_identity_id is None:
+        return False
+    if node.owner_city_id is not None:
+        return is_plot(node)
+    return True
+
+
+def has_door(node: Node) -> bool:
+    """Whether this location has a door at all -- to shut, to list, to refuse at.
+
+    The one place the question is answered. It used to be answered twice: the
+    window that draws the gate and the two list fields asked "is it mine and is
+    it ground", and the engine asked something else -- so on a city location
+    still standing in somebody's name the holder was shown a switch and two
+    fields where every button refuses.
+    """
+    return storey_of(node) is None and _held(node)
 
 
 async def require_holder(session: AsyncSession, node: Node, identity: Identity) -> None:

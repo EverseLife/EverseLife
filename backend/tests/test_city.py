@@ -24,6 +24,7 @@ from src.engine import energy, ledger, world
 from src.models.city import Power
 from src.models.event import Event, EventKind
 from src.models.ledger import AccountKind
+from src.models.world import PLOT
 from src.units import money
 
 # --- offices and powers ------------------------------------------------------
@@ -321,7 +322,7 @@ async def test_city_hands_out_plots(session: AsyncSession, catalog: Catalog) -> 
         "Участок",
         area_m2=100,
         parent=await session.get(type(core), core.parent_id),
-        properties={"plot": True},
+        properties={PLOT: True},
     )
     plot.owner_city_id = city.id
     await session.flush()
@@ -335,6 +336,57 @@ async def test_city_hands_out_plots(session: AsyncSession, catalog: Catalog) -> 
     other, _ = await _resident(session, core, "Второй")
     with pytest.raises(world.LandError):
         await world.grant_node(session, plot, other)
+
+
+async def test_the_city_hands_out_plots_not_itself(session: AsyncSession, catalog: Catalog) -> None:
+    """The core, the market, the town hall are not land in the queue (D-199).
+
+    Allotment asked two things -- the node is the city's and nobody holds it
+    yet -- and the capital's core answers both. The window never offered it:
+    it lists only marked plots. The wire had no such rule, so one command with
+    the core's key made the city's centre somebody's yard, and the yard's
+    holder shut the gate on everybody: the market, the administration and the
+    printer people come back to life at went behind one person's door.
+    """
+    city, core = await _capital(session, catalog)
+    president, president_body = await _resident(session, core, "Президент")
+    await town.install_founder(session, city, president)
+    resident, _ = await _resident(session, core, "Житель")
+
+    assert core.owner_city_id == city.id, "the core is the city's own node"
+    with pytest.raises(town.CityError):
+        await town.allot(session, president, city, core, resident, body=president_body)
+    assert core.owner_identity_id is None
+
+
+async def test_the_former_holder_is_told_the_city_took_its_location_back(
+    session: AsyncSession, catalog: Catalog
+) -> None:
+    """A title, a house and a door gone with no word said would be the world
+    changing behind somebody's back (D-282, D-226).
+
+    The only trace used to be `deed.retired`, which names no actor -- so the
+    push addressed nobody, and if the node carried no paper at all nothing was
+    written down. `cede` records its own event with the person who chose it;
+    this is the case where the person did not choose.
+    """
+    city, core = await _capital(session, catalog)
+    holder, _ = await _resident(session, core, "Захвативший")
+    core.owner_identity_id = holder.id
+    await session.flush()
+
+    assert await town.reclaim(session, core, city) is True
+
+    told = (
+        (await session.execute(select(Event).where(Event.kind == EventKind.LAND_RECLAIMED.value)))
+        .scalars()
+        .all()
+    )
+    assert len(told) == 1
+    assert told[0].actor_identity_id == holder.id, "бывшему хозяину говорят поимённо"
+    assert told[0].node_id == core.id
+    #: And the second pass finds nothing: the catch-up runs at every deploy.
+    assert await town.reclaim(session, core, city) is False
 
 
 # --- narrow rights and presence (D-155) --------------------------------------
@@ -479,3 +531,83 @@ async def test_city_land_taken_by_law_code(session: AsyncSession, catalog: Catal
 
     city.laws = {**city.laws, "build_permit": "все"}
     assert town.may_take_city_land(catalog, city, False), "город вправе открыться"
+
+
+# --- the treasury and other people's debts (D-280) ---------------------------
+
+
+async def _turnover(session: AsyncSession, node, sum_: float) -> None:
+    """A deal on the city's ground: its line with the capital is measured by
+    it (D-175), and since D-281 a city with no line lends nothing at all."""
+    from datetime import UTC, datetime, timedelta
+
+    from src.models.market import Order, OrderSide, Trade
+    from src.units import amount as _amount
+
+    seller = await world.create_identity(session, f"Купец-{uuid.uuid4().hex[:6]}")
+    order = Order(
+        node_id=node.id,
+        identity_id=seller.id,
+        side=OrderSide.SELL,
+        type_key="bread",
+        tier="common",
+        price=money(sum_),
+        amount_total=_amount(1),
+        amount_left=0,
+        expires_at=datetime.now(UTC) + timedelta(days=1),
+    )
+    session.add(order)
+    await session.flush()
+    session.add(
+        Trade(
+            node_id=node.id,
+            sell_order_id=order.id,
+            type_key="bread",
+            tier="common",
+            price=money(sum_),
+            amount=_amount(1),
+        )
+    )
+    await session.flush()
+
+
+async def test_treasury_bails_out_only_its_own(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Its own line or its own citizen, and nobody else's.
+
+    The treasury used to settle any loan by number, and since D-280 every such
+    payment buys the debtor a credit limit -- so a city could raise a
+    stranger's limit with public money, and take its share of the margin back
+    on top.
+    """
+    from src.api.commands.city import _city_bail
+    from src.api.registry import Refused
+    from src.engine import bank
+
+    city, core = await _capital(session, catalog, funds=1000)
+    await _turnover(session, core, 1000)
+    president, _ = await _resident(session, core, "Президент")
+    await town.install_founder(session, city, president)
+
+    #: A debtor of somebody else's city: since D-281 only one's own city lends,
+    #: so a stranger's loan is a stranger's city's line, never this one's.
+    elsewhere, far_core = await _capital(session, catalog)
+    await _turnover(session, far_core, 1000)
+    stranger, stranger_body = await _resident(session, far_core, "Чужой")
+    await town.join(session, stranger_body, elsewhere)
+    debt = await bank.borrow(session, constants, catalog, stranger, 100)
+    assert debt.city_id == elsewhere.id, "заём лёг на линию чужого города"
+    await session.flush()
+
+    state = {"identity_id": president.id}
+    with pytest.raises(Refused):
+        await _city_bail(state, session, {"city": core.key, "loan": str(debt.id)})
+    assert debt.outstanding == money(100), "казна не заплатила по чужому займу"
+
+    #: Its own citizen -- the city stands for them, and that is what a city is for.
+    own, own_body = await _resident(session, core, "Свой")
+    await town.join(session, own_body, city)
+    mine = await bank.borrow(session, constants, catalog, own, 50)
+    paid = await _city_bail(state, session, {"city": core.key, "loan": str(mine.id)})
+    assert paid["paid"] > 0

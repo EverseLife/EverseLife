@@ -49,6 +49,7 @@ cmd-no-such-order = no such listing
 cmd-no-such-reservation = no such reservation
 cmd-no-such-book-order = no such order
 cmd-no-such-loan = no such loan
+cmd-loan-not-ours = this loan is not the city's: the treasury pays on its own line or for its own citizen
 cmd-no-such-case = no such case
 cmd-no-such-office = no such office
 cmd-no-such-work-order = no such work order

@@ -36,7 +36,7 @@ from src.models.emission import EmissionState
 from src.models.identity import Identity
 from src.models.justice import Case
 from src.models.vote import Vote
-from src.models.world import Node
+from src.models.world import Node, is_plot
 
 
 @command("city.found")
@@ -76,10 +76,14 @@ async def _city_join(state: dict, db: AsyncSession, message: dict) -> dict:
 
 @command("city.leave")
 async def _city_leave(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Declare leaving. Citizenship lapses after `city.exit_delay` (D-160)."""
+    """Leave the city. At once, and only an open loan holds it (D-281).
+
+    Remote, like a vote (D-161): belonging is a record about the person, and
+    one does not walk to the hall to stop being of a city.
+    """
     identity = await _identity(state, db)
-    entry = await town.leave(db, current(), identity)
-    return {"leaves_at": entry.leaving_at.isoformat()}
+    city = await town.leave(db, identity)
+    return {"left": None if city is None else city.name}
 
 
 @command("city.invite")
@@ -123,7 +127,6 @@ async def _city_citizens(state: dict, db: AsyncSession, message: dict) -> dict:
             {
                 "name": None if who is None else who.name,
                 "since": entry.since.isoformat(),
-                "leaving_at": (None if entry.leaving_at is None else entry.leaving_at.isoformat()),
             }
         )
     orders = []
@@ -319,6 +322,22 @@ async def _city_cases(state: dict, db: AsyncSession, message: dict) -> dict:
     }
 
 
+async def _ours(db: AsyncSession, city, loan: Loan) -> bool:
+    """Whether this loan is the city's business: its line, or its citizen.
+
+    A loan issued through the city sits on its line with the capital (D-175),
+    and repaying it frees that line. A citizen's direct loan from the capital
+    does not, but the city may still stand for its own -- that is what a city
+    is for (D-160).
+    """
+    if loan.city_id == city.id:
+        return True
+    if loan.identity_id is None:
+        return False
+    entry = await town.citizenship(db, loan.identity_id)
+    return entry is not None and entry.city_id == city.id
+
+
 @command("city.bail")
 async def _city_bail(state: dict, db: AsyncSession, message: dict) -> dict:
     """The city repays a citizen's debt from the treasury (D-175): frees its own line.
@@ -334,6 +353,12 @@ async def _city_bail(state: dict, db: AsyncSession, message: dict) -> dict:
     loan = await db.get(Loan, uuid.UUID(message["loan"]))
     if loan is None:
         raise Refused(key="cmd-no-such-loan")
+    #: Its own line or its own citizen, and no one else's (D-280). The treasury
+    #: used to settle any loan by number, and under D-280 every such payment
+    #: also buys the debtor a credit limit -- so a city could raise a stranger's
+    #: limit with public money, and get its share of the margin back on top.
+    if not await _ours(db, city, loan):
+        raise Refused(key="cmd-loan-not-ours")
     treasury = await town.treasury(db, city)
     paid = await bank.repay(
         db,
@@ -376,10 +401,10 @@ async def _city_survey(state: dict, db: AsyncSession, message: dict) -> dict:
             "name": node.name,
             "area": float(node.area_m2),
             "owner": None if node.owner_identity_id is None else str(node.owner_identity_id),
-            "free": node.owner_identity_id is None and bool(node.properties.get("plot")),
+            "free": node.owner_identity_id is None and is_plot(node),
         }
         for node in plots
-        if node.properties.get("plot")
+        if is_plot(node)
     ]
     summary["citizens"] = await _citizens(db)
     #: The mint (D-270): the flag and the counter travel only with the capital

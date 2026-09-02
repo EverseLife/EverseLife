@@ -166,11 +166,15 @@ export function Bank({ busy, act }: Props) {
           <Why said={bank.limit_why} />
         </div>
         {/* Своя ставка называется до кнопки, а не после (D-193): она зависит
-            от запрошенной суммы, поэтому стоит вплотную к полю. */}
+            от запрошенной суммы, поэтому стоит вплотную к полю. Пусто — ставки
+            нет вовсе: занимают только у города своего гражданства (D-281), и
+            «0,00 %» рядом с «кредита нет» читалось бы как даровые деньги. */}
         {bank.your_rate !== undefined && (
           <div className="fact">
             <span className="fact-name">{t("ui-bank-your-rate")}</span>
-            <span className="fact-val lead">{Number(bank.your_rate).toFixed(2)}%</span>
+            <span className="fact-val lead">
+              {bank.your_rate === null ? "—" : `${Number(bank.your_rate).toFixed(2)}%`}
+            </span>
             <Why said={bank.your_rate_why} />
           </div>
         )}

@@ -21,7 +21,7 @@ from src.engine.errors import Refusal
 from src.models.farm import Plot, PlotState
 from src.models.identity import Body, BodyState
 from src.models.world import Node
-from src.units import SCALE_MAX, SCALE_MIN, SECONDS_PER_HOUR
+from src.units import SCALE_MAX, SCALE_MIN, SECONDS_PER_HOUR, SECONDS_PER_MINUTE
 
 #: The name of water in `build/recipes.json` -- carried by hand where there is no river.
 WATER = "water"
@@ -170,12 +170,29 @@ def plow_minutes(constants: Constants, plot: Plot) -> float:
     return constants[R.FARM_PLOW_TIME_PER_M2] * float(plot.area_m2)
 
 
-def plow_done_minutes(plot: Plot, moment: datetime) -> float:
-    """What is ploughed by now: the banked minutes and the run under way."""
-    done = float(plot.plow_done_minutes)
+def plow_banked(plot: Plot, moment: datetime) -> Decimal:
+    """What is ploughed by now, to the last hundredth: the bank and the run at it.
+
+    Exact because the bank is written from it, and a float minute is not: the
+    eighth honest pause of six seconds adds `0.1` to a bank of `0.7` and gets
+    `0.7999999999999999`, which stored downwards is `0.79`. The hundredth is
+    worked for and not kept, and the bank stays behind for good.
+    """
+    done = Decimal(str(plot.plow_done_minutes))
     if plot.plow_since is not None:
-        done += max(0.0, (moment - plot.plow_since).total_seconds() / 60)
+        ran = max(0.0, (moment - plot.plow_since).total_seconds())
+        done += Decimal(str(ran)) / Decimal(str(SECONDS_PER_MINUTE))
     return done
+
+
+def plow_progress_minutes(plot: Plot, moment: datetime) -> float:
+    """What is ploughed by now, for shares and remainders: a float will do.
+
+    Deliberately not named after the column. Writing `plot.plow_done_minutes`
+    from a float is what cost the bank a hundredth a pause -- the bank is
+    written from `plow_banked`, and nothing here rounds back into it.
+    """
+    return float(plow_banked(plot, moment))
 
 
 def plow_paused(plot: Plot) -> bool:

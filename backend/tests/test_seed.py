@@ -29,6 +29,7 @@ from src.constants import Catalog, ConstantError, Constants, current_catalog, di
 from src.constants import registry as R
 from src.constants.catalog import ItemKind
 from src.engine import (
+    access,
     death,
     estate,
     events,
@@ -41,12 +42,12 @@ from src.engine import (
     travel,
     world,
 )
+from src.engine import city as town
 from src.models.city import City
-from src.models.estate import Building
+from src.models.estate import Building, Deed
 from src.models.event import Event, EventKind
 from src.models.inventory import Container, ContainerKind, Item
-from src.models.world import Layer, Node, Planet, Vein
-from src.runtime import CITY_NAME_LIMIT
+from src.models.world import Layer, Node, NodePass, Planet, Vein
 from src.seed import CORE, seed
 from src.seed_surfaces import PYROXIS_FIELDS, PYROXIS_PLATEAU, pyroxis_field_key
 
@@ -461,6 +462,46 @@ async def test_a_plot_of_an_old_world_gets_its_soil(capital: Node, session: Asyn
     assert again.properties == before
 
 
+async def test_a_city_location_handed_out_comes_back(capital: Node, session: AsyncSession) -> None:
+    """A world where the core was allotted as a plot gets it back (D-282).
+
+    Allotment asked only whether the node was the city's and free, and the
+    capital's core answers both -- so one signature at the town hall made the
+    centre of the capital somebody's yard, and a yard has a door. The door is
+    gone from such a node now, but the title would stay: land tax on the city's
+    core, machines placed there by its holder, and one house across the whole
+    of it (D-279).
+    """
+    core = await session.scalar(select(Node).where(Node.key == "terra.capital.core"))
+    assert core is not None
+    holder = await world.create_identity(session, "Захвативший ядро")
+    #: Back to how a world of before D-282 holds it: title, gate and a list.
+    await world.grant_node(session, core, holder)
+    core.gated = True
+    session.add(NodePass(node_id=core.id, identity_id=holder.id, allowed=True))
+    await session.flush()
+
+    await seed(session)
+
+    await session.refresh(core)
+    assert core.owner_identity_id is None, "ядро вернулось городу"
+    assert core.gated is False, "у городской локации не бывает ворот"
+    assert await access.listed(session, core) == []
+    assert (
+        await session.scalar(select(func.count()).select_from(Deed).where(Deed.node_id == core.id))
+        == 0
+    )
+
+    #: And a plot is not touched by the same pass: it is its holder's, door and all.
+    lot = await session.scalar(select(Node).where(Node.key == "terra.capital.lot1"))
+    await world.grant_node(session, lot, holder)
+    await session.flush()
+    await seed(session)
+    await session.refresh(lot)
+    assert lot.owner_identity_id == holder.id, "участок остаётся за хозяином"
+    assert await town.reclaim(session, lot, await town.of_node(session, lot)) is False
+
+
 async def test_a_tall_house_of_an_old_world_gets_its_floors(
     capital: Node, session: AsyncSession
 ) -> None:
@@ -666,32 +707,3 @@ async def test_the_seed_leaves_a_yard_around_a_rural_hearth(
     assert laid["terra.field.lay"] == 10, "очаг у реки — это очаг, а не стена поперёк луга"
     assert laid["terra.city.lay"] == 260, "в городе застройка и есть участок"
     assert await estate.free_ground(session, field) > 350
-
-
-def test_a_city_of_the_layout_is_named_within_the_ceiling() -> None:
-    """A vault node the seed founds a city on carries a name the engine allows.
-
-    Needs no world: the question is about the layout the vault ships, which is
-    the one thing the two repositories both see. The vault bounds these names
-    at its own end (`WORLD_CITY_NAME_LIMIT` in its `tools/world.py`) and keeps
-    its own copy of the number, because its build reads `data/` and CI copies
-    only `build/*.json` back -- neither side can import the other's constant.
-    This is the other end of that copy.
-
-    Measured against `CITY_NAME_LIMIT` rather than the Net's: the two are equal
-    today, but `test_city_founding` pins only `CITY_NAME_LIMIT <= NET_NAME_LIMIT`,
-    so the city's own ceiling is the smaller one and the Net's follows from it.
-    Getting this wrong would leave the gap the check was written to close --
-    a seeded city named past what a player is allowed to type, whose official
-    channel (`city.found` opens it straight from the model) is one
-    `net.channel.create` would have refused.
-    """
-    over = [
-        spec
-        for spec in seed_world.load_scenario().nodes
-        if spec.city and len(str(spec.name)) > CITY_NAME_LIMIT
-    ]
-    assert not over, (
-        "a city name becomes a channel name: "
-        f"{[(s.key, len(str(s.name))) for s in over]} over {CITY_NAME_LIMIT}"
-    )

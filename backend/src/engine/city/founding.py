@@ -34,7 +34,7 @@ from src.engine.city._base import (
     NotReady,
     NotYours,
 )
-from src.engine.city.citizen import _enrol_founder
+from src.engine.city.citizen import AlreadyCitizen, _enrol_founder, citizenship
 from src.engine.city.land import _retire_deed
 from src.engine.city.lookup import by_node, territory
 from src.engine.city.office import _office
@@ -92,12 +92,12 @@ async def found(
     prints the complaint and writes `world.json` regardless.
 
     What is promised is narrower and is pinned: the layout that actually
-    arrives here carries city names within the ceiling, checked by
-    `test_a_city_of_the_layout_is_named_within_the_ceiling` in `test_seed`.
-    The vault keeps its own copy of the number because neither repository can
+    arrives here carries city names within the ceiling, and no two of them
+    alike -- both measured over `load_scenario()` in `test_seed_world`. The
+    vault keeps its own copies of those rules because neither repository can
     import the other -- its build reads `data/`, and CI copies only
     `build/*.json` back -- but both can see the layout, so that is what the
-    test measures.
+    tests measure.
     """
     existing_ = await by_node(session, node.id)
     if existing_ is not None:
@@ -251,6 +251,13 @@ async def establish(
         raise CityError(key="city-found-already-city")
     if node.owner_city_id is not None:
         raise CityError(key="city-found-already-civic")
+    #: Founding is entering a citizenship like any other, and there is one to a
+    #: person (D-281): a citizen of another city leaves it first -- which, with
+    #: a loan open, means settling up. The check stands here rather than at the
+    #: enrolment three steps down, because by then the city exists: a founding
+    #: refused halfway would leave a city standing with no founder in it.
+    if await citizenship(session, body.identity_id) is not None:
+        raise AlreadyCitizen(key="city-found-while-citizen")
 
     shortfall = await missing_for_foundation(session, node)
     if shortfall:
@@ -312,8 +319,9 @@ async def install_founder(session: AsyncSession, city: City, who: Identity) -> O
     )
     #: Founding makes the founder a citizen of this city (D-195). Otherwise the
     #: ruler is a stranger at home: no vote (the franchise is for citizens), a
-    #: newcomer's rate at the bank, a visitor's duties. Any previous
-    #: citizenship ends -- there is one per person (D-160).
+    #: newcomer's rate at the bank, a visitor's duties. A citizenship of
+    #: another city is **not** ended here any more but refuses the founding
+    #: outright (D-281): one leaves before entering, and founding is entering.
     await _enrol_founder(session, city, who)
     await session.flush()
     await events.record(

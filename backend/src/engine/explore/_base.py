@@ -14,6 +14,12 @@ from src.constants import Catalog
 from src.engine import ruins
 from src.engine.errors import Refusal
 
+#: The mark of a city plot (D-089): land, whatever else it is, so it carries
+#: soil like any other (D-246). Spelled in `models.world`, because the door
+#: reads it there too (D-199, D-282), and re-exported here so the search keeps
+#: saying it in its own words.
+from src.models.world import PLOT  # noqa: F401
+
 #: The vault operation from which the engine learns what is mined in this world at all.
 MINING_OPERATION = "mining"
 
@@ -53,10 +59,6 @@ WOODS = "woods"
 STONES = "stones"
 MEADOW = "meadow"
 
-#: The mark of a city plot: a node the authority hands out inside its rings
-#: (D-089). Land, whatever else it is -- so it carries soil like any other
-#: (D-246).
-PLOT = "plot"
 #: Nobody's land beyond the walls. A city plot is not it.
 WILD = "wild"
 

@@ -26,12 +26,12 @@ from __future__ import annotations
 
 import asyncio
 import os
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import text
+from sqlalchemy import event, text
 from sqlalchemy.exc import DatabaseError
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -242,15 +242,22 @@ def own_plot(session: AsyncSession):
     Title to land is issued by a city, so the plot first becomes civic and only
     then somebody's. Tests used to call `world.claim_node` -- taking wild land
     on foot -- and that road no longer exists.
+
+    And marked as a plot, which is what the fixture's name has always claimed:
+    a city hands out plots, never its own locations, and only a plot has a door
+    (D-282).
     """
     import uuid
 
     from src.engine import world
+    from src.models.world import PLOT
 
     async def give(node, identity):
         if node.owner_city_id is None:
             node.owner_city_id = uuid.uuid4()
-            await session.flush()
+        if not (node.properties or {}).get(PLOT):
+            node.properties = {**(node.properties or {}), PLOT: True}
+        await session.flush()
         return await world.grant_node(session, node, identity)
 
     return give
@@ -277,3 +284,34 @@ def _slow(monkeypatch: pytest.MonkeyPatch, module: object, name: str, delay: flo
         return result
 
     monkeypatch.setattr(module, name, held)
+
+
+class Counter:
+    """How many statements the database was actually asked to run.
+
+    Shared by the files that measure round trips -- the memory of one command
+    (`test_remember.py`) and the budget of the commonest one
+    (`test_query_budget.py`): the technique is the suite's, not one domain's.
+    """
+
+    def __init__(self, session: AsyncSession) -> None:
+        self.count = 0
+        #: `get_bind` on an async session already hands back the sync engine
+        #: the driver runs on -- that is where statements are seen.
+        self._engine = session.get_bind()
+        event.listen(self._engine, "before_cursor_execute", self._seen)
+
+    def _seen(self, *args: object) -> None:
+        self.count += 1
+
+    def stop(self) -> None:
+        event.remove(self._engine, "before_cursor_execute", self._seen)
+
+
+@pytest.fixture
+def counted(session: AsyncSession) -> Iterator[Counter]:
+    meter = Counter(session)
+    try:
+        yield meter
+    finally:
+        meter.stop()

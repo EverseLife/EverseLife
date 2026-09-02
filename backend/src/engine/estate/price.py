@@ -28,7 +28,7 @@ from src.models.estate import Deed
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState
 from src.models.ledger import AccountKind, PostingReason
-from src.models.world import Edge, Layer, Node, Vein
+from src.models.world import Edge, Layer, Node, Vein, is_plot
 from src.runtime import LAND_ABOUT_LIMIT, LAND_NAME_LIMIT
 from src.units import (
     PERCENT,
@@ -370,7 +370,7 @@ async def is_vacant(session: AsyncSession, constants: Constants, node: Node) -> 
     if await built_area(session, node) > 0:
         return False
     #: The city's transit gate is a common road, not a plot (D-176).
-    if (node.properties or {}).get("exit"):
+    if (node.properties or {}).get(travel.EXIT):
         return False
     _, occupied = await slots(session, constants, node)
     if occupied > 0:
@@ -404,6 +404,13 @@ async def buy(
         raise NotForSale(key="estate-land-taken")
     if node.owner_city_id is None:
         raise NotForSale(key="estate-land-not-civic")
+    #: A plot, and not simply a node the city owns (D-282). `is_vacant` below
+    #: asks about machines, veins and the gate, not about plot-ness -- so a
+    #: city location whose machines were taken down or whose vein ran out
+    #: became buyable, and the city sold its own centre for coin. The same
+    #: rule as the allotment's, and this is the other door into it.
+    if not is_plot(node):
+        raise NotForSale(key="estate-land-not-a-plot", node=node.name)
     if not await is_vacant(session, constants, node):
         raise NotForSale(key="estate-land-not-vacant")
 
