@@ -59,7 +59,7 @@ from src.models.event import EventKind
 from src.models.identity import Body, BodyState
 from src.models.job import Job, JobKind, JobState
 from src.models.world import Node, Surface
-from src.units import MINUTES_PER_HOUR
+from src.units import MINUTES_PER_HOUR, SECONDS_PER_MINUTE
 
 
 async def pending(session: AsyncSession, body: Body) -> Job | None:
@@ -338,10 +338,10 @@ async def returned(session: AsyncSession, job: Job) -> None:
         step = constants[R.TRAVEL_CITY_STEP]
         seconds = dice.uniform(step.min, step.max)
         coverage = Surface.PAVED
-        minutes = seconds / MINUTES_PER_HOUR
+        minutes = seconds / SECONDS_PER_MINUTE
     else:
         seconds = travel.frontier_seconds(constants, travel.reach_of(found))
-        minutes = seconds / MINUTES_PER_HOUR
+        minutes = seconds / SECONDS_PER_MINUTE
         #: Snow is walked, not driven (D-232), and `Surface.TRAIL` is exactly
         #: that: two to three times longer than a road, and no vehicle passes.
         #: It is the slowest surface the world has, and the walk to a city

@@ -16,6 +16,7 @@ import contextlib
 import uuid
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 
 import pytest
 from sqlalchemy import select
@@ -30,6 +31,7 @@ from src.engine.farm import plot as plot_
 from src.models.farm import Plot, PlotState
 from src.models.identity import Body
 from src.models.job import Job, JobKind, JobState
+from src.units import ROUND_MINUTES, SECONDS_PER_MINUTE
 
 
 async def test_ploughing_goes_by_job(
@@ -161,6 +163,68 @@ async def test_a_pause_banks_no_more_than_the_whole(
         session, constants, body, plot=plot, now=started + timedelta(minutes=whole * 3)
     )
     assert float(strip.plow_done_minutes) == pytest.approx(whole)
+
+
+async def _cycled_pause(
+    session: AsyncSession,
+    constants: Constants,
+    body: Body,
+    plot: Plot,
+    *,
+    every: timedelta,
+    times: int,
+) -> tuple[float, float]:
+    """Plough and pause `times` over, `every` apart: what is banked, what was worked."""
+    started = moment = datetime.now(UTC)
+    strip = plot
+    for _ in range(times):
+        await farm.plow(session, constants, body, plot, now=moment)
+        moment += every
+        strip = await farm.plow_pause(session, constants, body, plot=plot, now=moment)
+    worked = (moment - started).total_seconds() / SECONDS_PER_MINUTE
+    return float(strip.plow_done_minutes), worked
+
+
+async def test_a_pause_banks_no_more_than_the_time_worked(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """Cycling the pause ploughs no faster than the clock, and no slower for free.
+
+    The bank holds whole hundredths of a minute, and rounding it to the
+    nearest rounded a third of a second up to a whole one: cycling the pause
+    between 0.3 and 0.6 s ploughed at up to twice real time. Downwards the
+    loop can only lose -- so the honest pace is checked too, or "the pause
+    banks nothing at all" would pass this just as well.
+    """
+    times = 20
+    #: What each pause may drop: the last hundredth it cannot store.
+    slack = times * float(Decimal(1).scaleb(-ROUND_MINUTES))
+    _, _, body = await _farmstead(session)
+
+    #: Quicker than the bank's own hundredth: never more than was worked.
+    quick = await farm.mark(session, constants, body, name="грядка", area=10)
+    banked, worked = await _cycled_pause(
+        session, constants, body, quick, every=timedelta(seconds=0.35), times=times
+    )
+    assert banked <= worked
+
+    #: At an honest pace: what was worked, less the hundredths dropped.
+    steady = await farm.mark(session, constants, body, name="вторая", area=10)
+    banked, worked = await _cycled_pause(
+        session, constants, body, steady, every=timedelta(seconds=6), times=times
+    )
+    assert banked <= worked
+    assert banked == pytest.approx(worked, abs=slack)
+
+
+def test_the_bank_is_kept_at_the_scale_it_is_written_with() -> None:
+    """`ROUND_MINUTES` and the column's scale are one number in two places.
+
+    Widening `Numeric(10, 2)` alone would leave the pause rounding to the old
+    hundredth: no failure, only a bank quietly coarser than the column it
+    sits in.
+    """
+    assert Plot.__table__.c.plow_done_minutes.type.scale == ROUND_MINUTES
 
 
 async def test_the_plough_pauses_only_on_its_own_strip(

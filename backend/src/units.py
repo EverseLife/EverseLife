@@ -93,8 +93,16 @@ TRACE_POINTS = 24
 SKY_MEMO_PER_DAY = 144
 SKY_CURVE_MEMO = 512
 SKY_CALENDAR_MEMO = 64
+#: Column scales, not presentation: the two below say how wide the row is, not
+#: how a summary reads. Changing one alone leaves the code rounding coarser or
+#: finer than the column it writes to, and nothing objects -- so a scale tied
+#: to a single column is pinned to it by a test.
 #: Quality is stored to a hundredth of a point (`Numeric(6, 2)` columns).
 ROUND_QUALITY = 2
+#: Banked minutes of work are stored to a hundredth (`Numeric(10, 2)`): the
+#: plough keeps its progress across a pause (D-277). The column's scale, not
+#: balance -- how long the ploughing takes lies in `farm.plow_time_per_m2`.
+ROUND_MINUTES = 2
 
 #: Argon2id takes memory in KiB, while `pow.memory_per_session` is given in MB.
 KIB_PER_MIB = 1024
