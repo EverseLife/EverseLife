@@ -423,10 +423,12 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
     seen["citizenship"] = None
     if own_ is not None:
         native = await town.by_id(db, own_.city_id)
-        #: Two keys and no third: the exit is instant and unannounced (D-281),
-        #: so there is no date of a filed declaration to show and no term the
-        #: print held one by. What does hold -- an open loan -- the bank window
-        #: already says, and the refusal says it at the moment it matters.
+        #: No date of a filed exit and no term of a print obligation: the exit
+        #: is instant and unannounced (D-281), and nothing holds a citizenship
+        #: but an open loan -- which the bank window already says, and the
+        #: refusal says at the moment it matters. `since` stays: it is the date
+        #: the residency census runs from, and the only thing about a
+        #: citizenship there is to show besides the city.
         seen["citizenship"] = {
             "city": None if native is None else native.name,
             "since": own_.since.isoformat(),

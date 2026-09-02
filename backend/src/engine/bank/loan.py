@@ -30,6 +30,7 @@ from src.engine.bank.line import city_line, city_margin
 from src.engine.bank.trust import personal_turnover, repaid_total, trust
 from src.engine.errors import Says
 from src.models.bank import Loan, LoanState
+from src.models.city import City
 from src.models.event import EventKind
 from src.models.identity import Identity
 from src.models.ledger import (
@@ -88,9 +89,15 @@ async def borrow(
             inner={"reason": reason},
         )
 
-    #: The city's line. It shrinks smoothly: exactly the remainder is
-    #: available, and a "take everything before the cutoff" run hits
-    #: arithmetic rather than a special case.
+    #: The line check is read-then-insert, and since D-281 the line is the
+    #: loan's only brake -- past it there is no dearer loan from the capital
+    #: any more, there is nothing. Two citizens of one city borrowing at once
+    #: must not both see it free: the city row serialises them, and the loser
+    #: rereads a line that already carries the winner's loan. The same lock
+    #: the treasury's own borrowing takes (`works_city.credit`), and taken
+    #: **after** the citizen row -- one direction only, so two people leaving
+    #: and borrowing in a pair cannot deadlock.
+    await session.execute(select(City.id).where(City.id == city.id).with_for_update())
     _, _, free = await city_line(session, constants, city, now=moment)
     if total > free:
         raise TooMuch(

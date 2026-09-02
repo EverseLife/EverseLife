@@ -336,7 +336,6 @@ BANK_RATE_REVIEW_PERIOD = Num("bank.rate_review_period")
 BANK_RATE_FLOOR = Num("bank.rate_floor")
 BANK_RATE_CAP = Num("bank.rate_cap")
 BANK_RATE_STEP_MAX = Num("bank.rate_step_max")
-BANK_RISK_PREMIUM = Span("bank.risk_premium")
 BANK_UNSECURED_LIMIT = Num("bank.unsecured_limit")
 #: Ceiling of the city bank's margin above the key rate (D-175).
 BANK_CITY_MARGIN_CAP = Num("bank.city_margin_cap")
