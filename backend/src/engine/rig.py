@@ -127,6 +127,9 @@ async def place(
     node = await session.get(Node, body.node_id)
     yard = await world.node_container(session, node)
     item.container_id = yard.id
+    #: And stands (D-278): a rig is put up on its vein the way a machine is put
+    #: up in a house, and it drills only standing.
+    item.installed = True
 
     rig = RigRow(
         item_id=item.id,

@@ -352,7 +352,7 @@ async def profile(
         #:
         #: Off the hold already read: asking room by room was a query apiece,
         #: and `ship.view` answers for a whole fleet at once.
-        "bridge": any(thing.type_key in consoles for thing in things),
+        "bridge": any(thing.type_key in consoles and thing.installed for thing in things),
         #: The pier it cast off from, if it has ever cast off: what a turn-back
         #: aims at, and what the button names. The name alone -- the key would
         #: be a second way to say the same thing, and `ship.recall` takes no

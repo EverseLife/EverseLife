@@ -201,6 +201,7 @@ rig-liquid-no-room = nowhere to pour “{ NAME($goods) }”: bring a vessel with
 
 auto-dead-works = a dead body does not work
 auto-not-an-automat = “{ NAME($goods) }” is not an automat
+auto-not-installed = “{ NAME($goods) }” lies rather than stands: an automat works put up
 auto-not-here = the automat is not here: a programme is loaded on the spot
 auto-not-entitled = automats are programmed on one's own ground
 auto-recipe-unknown = you do not know the recipe “{ NAME($goods) }”: an automat is not a library, learn it first

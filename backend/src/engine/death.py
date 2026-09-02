@@ -198,6 +198,8 @@ async def die(
             continue
         thing.amount = left
         thing.container_id = yard.id
+        #: Loot lies (D-278): a machine out of a dead hand is cargo on the ground.
+        thing.installed = False
         #: "In damaged form": condition drops by the same share as the amount
         #: survived. The vault gives no second number for this.
         thing.condition = Decimal(str(float(thing.condition) * share))
@@ -293,6 +295,7 @@ async def printers(
                 .where(
                     Container.kind == ContainerKind.NODE,
                     Item.type_key.in_(world.station_names(PRINTER)),
+                    Item.installed.is_(True),
                 )
                 .distinct()
             )
@@ -381,6 +384,7 @@ async def order(
         .where(
             Item.container_id == yard.id,
             Item.type_key.in_(world.station_names(PRINTER)),
+            Item.installed.is_(True),
         )
         .limit(1)
     )

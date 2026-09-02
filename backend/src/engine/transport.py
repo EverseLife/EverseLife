@@ -375,6 +375,8 @@ async def spill(session: AsyncSession, vehicle: Item, node: Node) -> int:
     things = await cargo_items(session, vehicle)
     for thing in things:
         thing.container_id = yard.id
+        #: Spilt, a machine lies (D-278): a broken cart puts nothing up.
+        thing.installed = False
         await world.stack_up(session, thing)
     await session.flush()
     return len(things)

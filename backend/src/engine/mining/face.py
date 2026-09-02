@@ -437,6 +437,7 @@ async def abandon(session: AsyncSession, body: Body, *, now: datetime | None = N
                 await session.delete(thing)
                 continue
             thing.container_id = yard.id
+            thing.installed = False
             #: Two heaps of the same ore lying in the same place are one heap (D-214).
             await world_engine.stack_up(session, thing)
         face.state = SessionState.LEFT
@@ -586,6 +587,7 @@ async def _prison_workoff(
     for item in items:
         haul += amount_float(item.amount)
         item.container_id = yard.id
+        item.installed = False
         await world_engine.stack_up(session, item)
     await session.flush()
     return haul

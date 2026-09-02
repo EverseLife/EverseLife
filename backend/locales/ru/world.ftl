@@ -198,6 +198,7 @@ rig-liquid-no-room = «{ NAME($goods) }» слить некуда: нужна т
 
 auto-dead-works = мёртвое тело не работает
 auto-not-an-automat = «{ NAME($goods) }» — не автомат
+auto-not-installed = «{ NAME($goods) }» лежит, а не стоит: автомат работает установленным
 auto-not-here = автомат стоит не здесь: программу загружают на месте
 auto-not-entitled = автоматы программируют на своей земле
 auto-recipe-unknown = рецепт «{ NAME($goods) }» вам неизвестен: автомат — не библиотека, сначала изучите его

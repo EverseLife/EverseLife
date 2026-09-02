@@ -191,6 +191,10 @@ async def spawn(
         #: claim about work that was not done, and it is read by the market
         #: and by reputation; the actor is named in the event below instead.
         maker_identity_id=None,
+        #: Printed onto the floor, a portable machine lies there as cargo
+        #: (D-278): putting it up is the tester's own move, like everybody's.
+        #: Said at the grant, so every piece of a stack of prints lies.
+        installed=False if underfoot and not catalog.recipes.built(name) else None,
     )
     if liquid.is_liquid(catalog, name):
         item = await _poured(session, catalog, body, item, name)

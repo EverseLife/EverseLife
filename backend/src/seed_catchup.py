@@ -21,7 +21,7 @@ import random
 import uuid
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src import seed_parts as parts
@@ -32,6 +32,7 @@ from src.constants.catalog import ItemKind
 from src.engine import account as accounts
 from src.engine import city as town
 from src.engine import death, energy, estate, explore, places, props, ship, tick, travel, utility
+from src.engine.world.things import stands
 from src.models.city import City
 from src.models.estate import Building, Deed
 from src.models.event import Event, EventKind
@@ -254,6 +255,16 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
     stale = (await session.execute(select(Item).where(Item.type_key.in_(renamed)))).scalars().all()
     for machine in stale:
         machine.type_key = renamed[machine.type_key]
+    #: Written out before the statement below reads the keys: a machine still
+    #: under its old name would be laid down as cargo.
+    await session.flush()
+
+    #: Standing or lying (D-278): the migration stood up everything in a node's
+    #: store, and it knows containers, not the catalog -- so a heap of ore
+    #: stands beside the workbench. The catalog is here: the heaps lie back
+    #: down, or a fresh heap of the same ore would never fold into the old one
+    #: (D-214). A lying heap stays lying: idempotent.
+    await _lie_down_cargo(session)
 
     #: Surfaces of Pyroxis and Aurora (D-230): a world laid out while the other
     #: planets were bare dots in the sky gets somewhere to fly to.
@@ -312,6 +323,36 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
     await tick.ensure_scheduled(session)
     await utility.ensure_scheduled(session)
     await session.flush()
+
+
+async def _lie_down_cargo(session: AsyncSession) -> int:
+    """Lay down what stood up by the D-278 migration and is not a machine.
+
+    One statement over the node stores rather than a walk over every standing
+    thing of the world: after the first deploy the walk would be every machine
+    there is, for nothing. Returns how many heaps lay down -- nought the
+    second time, which is what makes it idempotent.
+    """
+    standing = sorted(name for name in current_catalog().recipes.names() if stands(name))
+    #: An empty list would turn `NOT IN` into "everything", and every hall,
+    #: printer and terminal of the world would lie down: a catalog with no
+    #: standing kinds is a broken vault build, and the deploy stops here.
+    if not standing:
+        raise RuntimeError("the catalog names no standing kinds: refusing to lay the world down")
+    laid = await session.execute(
+        update(Item)
+        .where(
+            Item.installed.is_(True),
+            Item.type_key.not_in(standing),
+            Item.container_id.in_(select(Container.id).where(Container.kind == ContainerKind.NODE)),
+        )
+        .values(installed=False)
+        .execution_options(synchronize_session="fetch")
+    )
+    count = laid.rowcount or 0
+    if count:
+        log.info("laid down as cargo: %s heaps stood up by the migration", count)
+    return count
 
 
 async def _accounts_catch_up(session: AsyncSession) -> None:

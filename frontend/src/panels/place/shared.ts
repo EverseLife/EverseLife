@@ -41,6 +41,7 @@
 import type { RecipeBook } from "../../api";
 import * as api from "../../api";
 import type { Look } from "../../api";
+import { recipeKind } from "../../classes";
 
 
 export type Props = {
@@ -116,11 +117,7 @@ export function gatherSigns(look: Look, book: RecipeBook | null): string[] {
 
 /** What in the hands is equipment of this kind: the kind comes from vault data (D-090). */
 export function placeable(look: Look, book: RecipeBook | null, kind: "station" | "furniture") {
-  return look.inventory.filter((thing) =>
-    (book?.recipes ?? []).some(
-      (r) => (r.id ?? r.name) === thing.goods && r.kind === kind,
-    ),
-  );
+  return look.inventory.filter((thing) => recipeKind(book, thing.goods) === kind);
 }
 
 

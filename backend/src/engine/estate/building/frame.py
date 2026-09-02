@@ -223,8 +223,9 @@ async def split(session: AsyncSession, node: Node) -> tuple[list[Item], list[Ite
     materials back from a demolition need to know nothing about surfaces: they
     put things in the node, and on a bare plot the node **is** the open sky.
 
-    Machines, furniture and chests are in neither heap: they stand rather than
-    lie, and pay for their place by slots (D-106, D-181).
+    What **stands** -- a machine, a piece of furniture, a chest put up -- is in
+    neither heap: it pays for its place by slots (D-106, D-181). The same
+    workbench dropped on the floor is in the indoor heap, by weight (D-278).
     """
     catalog = current_catalog()
     #: The storey one stands on, not the whole house (D-247): upstairs the roof
@@ -236,7 +237,11 @@ async def split(session: AsyncSession, node: Node) -> tuple[list[Item], list[Ite
     #: Through `node_things`, not `node_container`: the estimates and the looks
     #: come this way, and a read must not make a yard row (CLAUDE.md).
     for thing in await world.node_things(session, node):
-        if _equipment(catalog, thing.type_key) or storage.is_storage(catalog, thing.type_key):
+        #: What **stands** is not in either heap; a machine dropped on the
+        #: floor lies there as cargo, by weight, like a sack (D-278).
+        if thing.installed and (
+            _equipment(catalog, thing.type_key) or storage.is_storage(catalog, thing.type_key)
+        ):
             continue
         (inside if roofed and not thing.outdoors else outside).append(thing)
     return inside, outside
@@ -350,7 +355,9 @@ async def slots(session: AsyncSession, constants: Constants, node: Node) -> tupl
             recipe = book.recipe(thing.type_key)
         except Exception:  # noqa: BLE001 -- raw material at the machine has no recipe
             continue
-        if recipe.kind in (ItemKind.STATION, ItemKind.FURNITURE):
+        #: Only what was put up takes a place (D-278): a machine lying on the
+        #: floor is cargo and pays by weight.
+        if recipe.kind in (ItemKind.STATION, ItemKind.FURNITURE) and thing.installed:
             occupied += 1
     return in_total, occupied
 

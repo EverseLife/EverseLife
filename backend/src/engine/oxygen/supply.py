@@ -161,6 +161,7 @@ async def _charge_aboard(session: AsyncSession, constants: Constants, ship: Ship
                     Container.kind == ContainerKind.NODE,
                     Container.owner_id.in_([room.id for room in rooms]),
                     Item.type_key.in_(world.station_names(energy.BATTERY)),
+                    Item.installed.is_(True),
                 )
             )
         )

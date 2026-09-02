@@ -29,6 +29,7 @@ from src.engine.estate._base import (
     storey_of,
 )
 from src.engine.estate.building.frame import (
+    built_area,
     free_ground,
     height_of,
     hold_ground,
@@ -305,8 +306,9 @@ async def raise_house(
 
     #: The floors above the ground open with the house (D-247): each is a node
     #: of its own, and a stair leads from the one below. The ground floor is the
-    #: plot itself, so a one-storey house opens nothing. Floors are the plot's,
-    #: so a second house that reaches higher simply carries them further up.
+    #: plot itself, so a one-storey house opens nothing. One house per plot
+    #: (D-279): its height is the height the plot has, until the house is taken
+    #: down and another is raised -- how a standing house grows is OQ-115.
     await open_storeys(session, constants, node)
 
     await events.record(
@@ -361,6 +363,9 @@ async def construct(
     #: which is true of a third floor and explains nothing.
     if storey_of(node) is not None:
         raise EstateError(key="estate-build-not-on-storey")
+    #: One house per plot (05-domain-model, D-279): no second beside the first.
+    if await built_area(session, node) > 0 or await planned_footprint(session, node) > 0:
+        raise EstateError(key="estate-build-house-stands")
     nobodys = node.owner_identity_id is None and node.owner_city_id is None
     if (
         not nobodys

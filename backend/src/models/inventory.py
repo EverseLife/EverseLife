@@ -19,7 +19,7 @@ import uuid
 from datetime import datetime
 from enum import StrEnum
 
-from sqlalchemy import BigInteger, CheckConstraint, ForeignKey, Index, Numeric, Uuid
+from sqlalchemy import BigInteger, CheckConstraint, ForeignKey, Index, Numeric, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.db.base import Base, created_column, enum_column, uuid_pk
@@ -151,6 +151,14 @@ class Item(Base):
     #: Until when it is taken. The stamp insures against eternal occupancy if
     #: the batch vanishes past its job.
     busy_until: Mapped[datetime | None] = mapped_column(nullable=True)
+
+    #: Standing in the building it was put up in (D-278): a machine or a piece
+    #: of furniture placed by `station.place` -- counted in the slots, worked
+    #: at, shown among the machines. False, it lies as cargo wherever it is:
+    #: in the hands, on the floor, in a hold. Only the placeable kinds read it.
+    installed: Mapped[bool] = mapped_column(
+        nullable=False, default=False, server_default=text("false")
+    )
 
     #: Dish kind: the combination decides the kind, not the quality (D-128).
     #: Dietary variety is counted by kind (D-105). Empty for non-food.

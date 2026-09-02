@@ -25,13 +25,14 @@ import { stationsOf, varietyText, type Look, type Thing } from "../api";
 import { Refusal, useActions, useBook, useNames, useSession } from "../actions";
 import { flavorText, goodsName, slotName, tierName, type Names } from "../names";
 import { t } from "../locale";
+import { mayInstall } from "../building";
 import { Rule } from "../Rule";
 import { Amount } from "../Amount";
 import { DropZone } from "../DragMove";
 import { GoodsMark } from "../Glyph";
 import { CHEST_ANY, chestOf, grip, noDrag } from "../drag";
 import { chosen, tally } from "../amounts";
-import { TERMINAL, classOf, firstOfClass } from "../classes";
+import { TERMINAL, classOf, firstOfClass, isGear } from "../classes";
 import { fill, isVessel } from "../liquids";
 import {
   GROUPINGS,
@@ -101,6 +102,9 @@ export function Inventory({ look }: Props) {
   //: the window still asked for one's own land, and a guest in the capital
   //: could neither unload nor pick up what fell).
   const mayDropHere = Boolean(look.floor?.open);
+  //: Whether a machine from the hands can be put up here at all (D-106, D-278):
+  //: one's own building, a roof, a place left. One answer for the whole list.
+  const standable = mayInstall(look);
   //: Which of the two surfaces this place actually has (D-244). A plot with no
   //: house has no floor; a house grown over the whole plot leaves no ground.
   //: Offering the half that is not there collects a refusal after the click.
@@ -396,6 +400,20 @@ export function Inventory({ look }: Props) {
                                 {t("ui-inventory-wipe")}
                               </button>
                             </>
+                          )}
+                          {/* Putting up is not putting down (D-278): a machine
+                              dropped on the floor is cargo; put up it takes a
+                              place and works. Two moves, two buttons -- and the
+                              two drop zones of the place say the same. */}
+                          {standable && isGear(book, thing.goods) && (
+                            <button
+                              role="menuitem"
+                              onClick={() => send("station.place", { item: thing.id })}
+                              disabled={busy}
+                              title={t("ui-inventory-install-hint")}
+                            >
+                              {t("ui-inventory-install")}
+                            </button>
                           )}
                           <button
                             role="menuitem"

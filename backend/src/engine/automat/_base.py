@@ -83,6 +83,9 @@ async def _machine_here(session: AsyncSession, body: Body, item: Item) -> Node:
     await travel.require_here(session, body)
     if item.type_key not in world.station_names(AUTOMAT):
         raise NotAnAutomat(key="auto-not-an-automat", goods=item.type_key)
+    #: Put up, not lying (D-278): a machine on the floor as cargo works nothing.
+    if not item.installed:
+        raise NotAnAutomat(key="auto-not-installed", goods=item.type_key)
     node = await session.get(Node, body.node_id)
     if node is None:  # pragma: no cover -- a body without a node is a bug
         raise AutomatError(key="auto-body-off-node")

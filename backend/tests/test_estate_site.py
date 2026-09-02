@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
@@ -66,12 +67,14 @@ async def _fill(session: AsyncSession, constants: Constants, catalog: Catalog, b
 
 
 async def test_a_site_holds_the_ground(session: AsyncSession, constants: Constants) -> None:
-    """Laid, the site has spent its footprint: a second house has no room."""
+    """Laid, the site has spent its footprint -- the ground it spoke for is
+    counted taken (D-218) -- and a plot holds one house (D-279): a second is
+    not laid beside it while the first is a site."""
     node, _, body = await _plot(session, area=100)
     site = await estate.lay_site(session, constants, body, node, 60)
     assert site.state is SiteState.GATHERING and site.needed
     assert await estate.free_ground(session, node) == pytest.approx(40)
-    with pytest.raises(estate.NoRoom):
+    with pytest.raises(estate.EstateError):
         await estate.lay_site(session, constants, body, node, 60)
     assert any(
         work.get("site") == str(site.id) for work in await estate.under_construction(session, node)
@@ -253,10 +256,26 @@ async def test_two_starts_at_once_spend_the_strength_once(
     _slow(monkeypatch, site_module, "enqueue")
     node, _, owner = await _plot(session, area=100)
     sites = []
-    for _ in range(2):
-        site = await estate.lay_site(session, constants, owner, node, 20)
-        await _fill(session, constants, catalog, owner, site)
-        sites.append(site.id)
+    first = await estate.lay_site(session, constants, owner, node, 20)
+    await _fill(session, constants, catalog, owner, first)
+    sites.append(first.id)
+    #: A plot holds one house (D-279), so the second site is written straight
+    #: into the table: the race under test is the start's, not the laying's.
+    second = BuildSite(
+        node_id=node.id,
+        owner_identity_id=owner.identity_id,
+        footprint_m2=20,
+        floors=1,
+        kind=first.kind,
+        needed=dict(first.needed),
+        brought={},
+        state=SiteState.GATHERING,
+        laid_at=datetime.now(UTC),
+    )
+    session.add(second)
+    await session.flush()
+    await _fill(session, constants, catalog, owner, second)
+    sites.append(second.id)
     cost = estate.start_stamina(constants, sites and await estate.site_of(session, sites[0]))
     owner.stamina = Decimal(str(cost * 1.5))
     body_id = owner.id

@@ -29,6 +29,8 @@ them in separate windows.
 
 from __future__ import annotations
 
+from sqlalchemy import select
+from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, current
@@ -115,31 +117,51 @@ async def may_build(session: AsyncSession, body: Body, node: Node) -> bool:
 
 
 async def place(session: AsyncSession, catalog: Catalog, body: Body, item: Item) -> Item:
-    """Place a machine or furniture from the hands into the node's building.
+    """Put a machine or furniture up in the node's building: from the hands, or
+    off the floor it lies on (D-278).
 
     In person: machines are not teleported. Requires a building with free
     room: a machine takes area, and it does not stand in a yard under the open
-    sky (D-106).
+    sky (D-106). Putting up is what makes a thing a machine here -- dropped on
+    the floor it is cargo, however heavy: it takes no slot, nobody works at
+    it, and the scene does not see it (D-278). A station built in place never
+    comes this way: it stands where the batch made it (`craft.batch.finish`),
+    and the slots answer to it after the fact -- a furnace has no hands to
+    pass through.
     """
 
     if body.state is not BodyState.ALIVE:
         raise StationError(key="station-dead-places")
     await travel.require_here(session, body)
 
-    pocket = await world.body_container(session, body)
-    if item.container_id != pocket.id:
-        raise StationError(key="station-not-in-hands")
-    if not placeable(catalog, item.type_key):
-        raise NotStation(key="station-not-placeable", goods=item.type_key)
-
     node = await session.get(Node, body.node_id)
     if node is None:  # pragma: no cover
         raise StationError(key="station-body-off-node")
+    pocket = await world.body_container(session, body)
+    #: The thing's own row is taken first: two hands putting up one machine
+    #: from the same floor must not both read it lying. And it may be gone
+    #: -- picked up, burnt, fallen with the house -- between the look and the
+    #: click: that is the world's ordinary answer, said in words (D-011), not
+    #: a failed refresh. The name is read first: a failed refresh leaves none.
+    named = item.type_key
+    try:
+        await session.refresh(item, with_for_update=True)
+    except InvalidRequestError as gone:
+        raise StationError(key="thing-gone", goods=named) from gone
+    yard_now = await world.node_yard(session, node)
+    lying = yard_now is not None and item.container_id == yard_now.id and not item.installed
+    if item.container_id != pocket.id and not lying:
+        raise StationError(key="station-not-in-hands")
+    if not placeable(catalog, item.type_key):
+        raise NotStation(key="station-not-placeable", goods=item.type_key)
     if not await may_build(session, body, node):
         raise NotYours(key="station-node-not-yours")
 
     #: The building is capacity: `build.slots_per_area` m2 per thing. No
-    #: building -- no room; the yard stays a yard.
+    #: building -- no room; the yard stays a yard. The plot row is taken for
+    #: the transaction first: two hands putting up into the last place must
+    #: not both count it free (CLAUDE.md, the remainder rule).
+    await session.execute(select(Node.id).where(Node.id == node.id).with_for_update())
     constants = current()
     in_total, occupied = await estate.slots(session, constants, node)
     if in_total <= 0:
@@ -155,6 +177,7 @@ async def place(session: AsyncSession, catalog: Catalog, body: Body, item: Item)
     #: from the yard still bears the mark it was put down with, and left on it
     #: the thing would stand in the house and be spared by its collapse.
     item.outdoors = False
+    item.installed = True
     await session.flush()
 
     await events.record(
@@ -183,6 +206,10 @@ async def take(session: AsyncSession, catalog: Catalog, body: Body, item: Item) 
     yard = await world.node_container(session, node)
     if item.container_id != yard.id:
         raise StationError(key="station-not-in-node")
+    #: What lies is picked up like any cargo (`storage.pick`); this door is for
+    #: what stands (D-278).
+    if not item.installed:
+        raise StationError(key="station-not-installed", goods=item.type_key)
     #: Named before the general refusal: a relic **is** machinery, and being
     #: told it is "not a workstation" would read as a bug rather than as the
     #: rule that the Forerunners' things stay where they were found (D-232).
@@ -209,6 +236,7 @@ async def take(session: AsyncSession, catalog: Catalog, body: Body, item: Item) 
     #: In the hands there is no sky to be under: the mark means nothing here,
     #: and a stale one would travel back out with the thing (D-244).
     item.outdoors = False
+    item.installed = False
     await session.flush()
 
     await events.record(

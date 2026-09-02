@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
+from typing import NamedTuple
 
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -52,11 +53,14 @@ async def heated(session: AsyncSession, constants: Constants, node: Node) -> boo
     are read in **one** query rather than one apiece, and the yards are read
     without being created: a read may not write (review 2026-08-23).
     """
-    here = (await _standing(session, [node])).get(node.id, frozenset())
-    if here & _class_names(BRAZIER) and here & frozenset(constants[R.ENERGY_FUEL_ENERGY]):
+    here = (await _yards(session, [node])).get(node.id, _EMPTY)
+    #: The brazier stands; its fuel lies in a heap beside it (D-278).
+    if here.stands & _class_names(BRAZIER) and here.lies & frozenset(
+        constants[R.ENERGY_FUEL_ENERGY]
+    ):
         return True
     if await _stove_works(
-        session, constants, node, here, _class_names(PLANT) | _class_names(HEATER)
+        session, constants, node, here.stands, _class_names(PLANT) | _class_names(HEATER)
     ):
         return True
     #: The plant reaches one node further -- its own and every neighbour's.
@@ -66,10 +70,10 @@ async def heated(session: AsyncSession, constants: Constants, node: Node) -> boo
     neighbours = await _neighbours(session, node)
     if not neighbours:
         return False
-    standing = await _standing(session, neighbours)
+    yards = await _yards(session, neighbours)
     for other in neighbours:
         if await _stove_works(
-            session, constants, other, standing.get(other.id, frozenset()), _class_names(PLANT)
+            session, constants, other, yards.get(other.id, _EMPTY).stands, _class_names(PLANT)
         ):
             return True
     return False
@@ -103,10 +107,22 @@ async def _stove_works(
     return await energy.relic_power(session, constants, node) > 0
 
 
-async def _standing(
-    session: AsyncSession, nodes: Sequence[Node]
-) -> dict[uuid.UUID, frozenset[str]]:
-    """What stands in each of these nodes, by name, in one query.
+class _Yard(NamedTuple):
+    """What a node holds, by name: what stands in it, and what lies in it (D-278)."""
+
+    stands: frozenset[str]
+    lies: frozenset[str]
+
+
+_EMPTY = _Yard(frozenset(), frozenset())
+
+
+async def _yards(session: AsyncSession, nodes: Sequence[Node]) -> dict[uuid.UUID, _Yard]:
+    """What stands and what lies in each of these nodes, by name, in one query.
+
+    Both halves at once, because warmth asks both: a stove heats only put up
+    (D-278) -- one lying in its crate warms nobody -- while the fuel it burns
+    lies in a heap beside it, and a heap never stands.
 
     Read straight off the containers instead of through `world.thing_kinds`:
     that one creates the yard where a node has none, and warmth is asked for
@@ -117,19 +133,23 @@ async def _standing(
         return {}
     ids = tuple(sorted(node.id for node in nodes))
 
-    async def read() -> dict[uuid.UUID, frozenset[str]]:
+    async def read() -> dict[uuid.UUID, _Yard]:
         rows = await session.execute(
-            select(Container.owner_id, Item.type_key)
+            select(Container.owner_id, Item.type_key, Item.installed)
             .join(Item, Item.container_id == Container.id)
             .where(Container.kind == ContainerKind.NODE, Container.owner_id.in_(ids))
             .distinct()
         )
-        found: dict[uuid.UUID, set[str]] = {}
-        for owner_id, type_key in rows:
-            found.setdefault(owner_id, set()).add(type_key)
-        return {owner: frozenset(names) for owner, names in found.items()}
+        standing: dict[uuid.UUID, set[str]] = {}
+        lying: dict[uuid.UUID, set[str]] = {}
+        for owner_id, type_key, installed in rows:
+            (standing if installed else lying).setdefault(owner_id, set()).add(type_key)
+        return {
+            owner: _Yard(frozenset(standing.get(owner, ())), frozenset(lying.get(owner, ())))
+            for owner in standing.keys() | lying.keys()
+        }
 
-    return await remember(session, ("frost_standing", ids), read)
+    return await remember(session, ("frost_yards", ids), read)
 
 
 async def _grid_alive(session: AsyncSession, constants: Constants, node: Node) -> bool:

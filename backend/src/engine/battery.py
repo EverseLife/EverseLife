@@ -193,7 +193,13 @@ async def batteries_in(session: AsyncSession, node: Node) -> list[Item]:
     to carry off. In id order, like every other write-off over a node's yard.
     """
     yard = await world.node_container(session, node)
-    return await stock.locked_stacks(session, yard.id, world.station_names(BATTERY))
+    #: The cells put up in the house (D-278): one dropped on the floor is cargo
+    #: and feeds nothing until somebody stands it.
+    return [
+        cell
+        for cell in await stock.locked_stacks(session, yard.id, world.station_names(BATTERY))
+        if cell.installed
+    ]
 
 
 async def batteries_carried(session: AsyncSession, body: Body) -> list[Item]:

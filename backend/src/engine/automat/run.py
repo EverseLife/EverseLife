@@ -91,7 +91,7 @@ async def advance(
         await session.flush()
         return 0.0
     yard = await world.node_container(session, node)
-    if machine.container_id != yard.id:
+    if machine.container_id != yard.id or not machine.installed:
         #: Carried away from its node: a machine works only where it stands.
         row.counted_at = moment
         await session.flush()

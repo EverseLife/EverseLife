@@ -43,11 +43,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants
 from src.constants import registry as R
-from src.engine import events, luck, travel
+from src.engine import events, luck, travel, world
 from src.engine.errors import Refusal
 from src.models.chat import ChatGroup, ChatMember, ChatMessage, Utterance
 from src.models.identity import Body, BodyState, Identity
-from src.models.inventory import Container, ContainerKind, Item
 from src.models.world import Node
 from src.runtime import CHAT_BUFFER, CHAT_TEXT_LIMIT
 
@@ -391,25 +390,10 @@ async def _place_modifier(constants: Constants, session: AsyncSession, node: Nod
     if node.properties.get("library") and "library" in table:
         return table["library"]
 
-    where = (
-        await session.execute(
-            select(Container).where(
-                Container.kind == ContainerKind.NODE, Container.owner_id == node.id
-            )
-        )
-    ).scalar_one_or_none()
-    if where is not None:
-        stations = (
-            (
-                await session.execute(
-                    select(Item.type_key).where(Item.container_id == where.id).distinct()
-                )
-            )
-            .scalars()
-            .all()
-        )
-        for station in stations:
-            modifier = table.get(station.lower())
-            if modifier is not None:
-                return modifier
+    #: What stands (D-278), read without making a yard: a tavern's noise is its
+    #: counter's, and a counter lying in its crate is a crate.
+    for station in await world.thing_kinds(session, node):
+        modifier = table.get(station.lower())
+        if modifier is not None:
+            return modifier
     return 1.0

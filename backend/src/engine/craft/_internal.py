@@ -327,6 +327,8 @@ async def _pick_station(
                 .where(
                     Item.container_id == where.id,
                     Item.type_key.in_(station_names(name)),
+                    #: Put up, not lying (D-278): nobody works at cargo.
+                    Item.installed.is_(True),
                 )
                 .order_by(Item.quality.desc())
             )

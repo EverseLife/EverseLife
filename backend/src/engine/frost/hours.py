@@ -162,6 +162,8 @@ async def tick_fires(session: AsyncSession, constants: Constants, *, hours: floa
             .where(
                 Item.type_key.in_(tuple(_class_names(BRAZIER))),
                 Container.id.in_(yards),
+                #: Put up, not lying (D-278): a brazier on its side burns nothing.
+                Item.installed.is_(True),
             )
             .group_by(Container.id, Node.id)
             .order_by(Node.parent_id.nulls_last(), Node.id)

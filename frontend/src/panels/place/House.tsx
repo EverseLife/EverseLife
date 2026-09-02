@@ -333,7 +333,9 @@ export function House({
 
       {/* Ничью землю за городом строит всякий пришедший (D-198): окно нужно и
           там, иначе правило есть, а руки к нему не приложить. */}
-      {buildable && free > 0 && (
+      {/* One house per plot (D-279): where one stands or a site is laid, the
+          form is gone -- a plot grows by storeys, not by a second house. */}
+      {buildable && free > 0 && home.area === 0 && going.length === 0 && (
         <>
           <div className="row">
             {/* Тип решает три вещи разом (D-218): состав, цену следующего этажа

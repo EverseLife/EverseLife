@@ -539,8 +539,9 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
     #: window with it -- and a house covering the whole plot leaves no yard.
     seen["floor"] = {
         "space": await estate.space(db, constants, node),
-        #: Only what lies loose: machines, furniture and chests have their own
-        #: windows and pay for their place differently (D-106, D-181).
+        #: Only what lies loose: what stands -- machines, furniture, chests put
+        #: up -- has its own windows and pays for its place differently
+        #: (D-106, D-181); a machine dropped here is cargo among the rest (D-278).
         "things": [thing for thing in shown if thing["id"] in loose],
         #: Whether this one may reach the floor at all: everybody inside may.
         "open": await access.may_enter(db, node, identity.id),

@@ -167,7 +167,7 @@ async def life_support(
     systems = sum(
         amount_float(thing.amount)
         for thing in await _aboard(session, ship, things)
-        if thing.type_key in world.station_names(LIFE_SUPPORT)
+        if thing.type_key in world.station_names(LIFE_SUPPORT) and thing.installed
     )
     return int(systems * constants[R.SHIP_LIFE_SUPPORT_CREW])
 
@@ -186,7 +186,9 @@ async def tanks_of(session: AsyncSession, ship: Ship) -> list[Container]:
         Container.kind == ContainerKind.NODE, Container.owner_id.in_([node.id for node in nodes])
     )
     tanks = select(Item.id).where(
-        Item.container_id.in_(yards), Item.type_key.in_(world.station_names(TANK))
+        Item.container_id.in_(yards),
+        Item.type_key.in_(world.station_names(TANK)),
+        Item.installed.is_(True),
     )
     rows = await session.execute(
         select(Container)

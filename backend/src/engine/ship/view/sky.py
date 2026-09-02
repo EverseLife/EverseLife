@@ -158,6 +158,7 @@ async def ports(session: AsyncSession) -> list[Node]:
                 .where(
                     Container.kind == ContainerKind.NODE,
                     Item.type_key.in_(world.station_names(SPACEPORT)),
+                    Item.installed.is_(True),
                 )
                 .distinct()
             )

@@ -22,7 +22,6 @@ citizenship to finish a founding they should not have been running.
 
 from __future__ import annotations
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
@@ -40,14 +39,13 @@ from src.engine.city.land import _retire_deed
 from src.engine.city.lookup import by_node, territory
 from src.engine.city.office import _office
 from src.engine.errors import Says
-from src.engine.world import node_container, station_names
+from src.engine.world import station_names
 from src.models.city import (
     City,
     Office,
 )
 from src.models.event import EventKind
 from src.models.identity import BodyState, Identity
-from src.models.inventory import Item
 from src.models.world import Layer, Node
 
 
@@ -150,16 +148,8 @@ def foundation_needs() -> tuple[tuple[str, tuple[str, ...]], ...]:
 async def missing_for_foundation(session: AsyncSession, node: Node) -> tuple[str, ...]:
     """What the node lacks to become a city. Empty -- founding is possible."""
 
-    yard = await node_container(session, node)
-    costs = set(
-        (
-            await session.execute(
-                select(Item.type_key).where(Item.container_id == yard.id).distinct()
-            )
-        )
-        .scalars()
-        .all()
-    )
+    #: What stands (D-278): a hall lying in its crate founds nothing.
+    costs = set(await world.thing_kinds(session, node))
     return tuple(role for role, with_what in foundation_needs() if not set(with_what) & costs)
 
 

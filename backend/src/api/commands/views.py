@@ -145,6 +145,10 @@ async def _bench(
 
     out: list[dict[str, Any]] = []
     for item in items:
+        #: What stands (D-278): a machine lying on the floor is in the floor's
+        #: list, as the cargo it is until somebody puts it up.
+        if not item.installed:
+            continue
         #: A relic has no recipe -- nobody made it -- but it is machinery all
         #: the same, and the scene of a Forerunner city is built out of exactly
         #: those (D-232). Furniture it never is.
@@ -235,7 +239,8 @@ async def _storages(db: AsyncSession, constants, node: Node, body: Body) -> list
     out: list[dict[str, Any]] = []
     for thing in things:
         limit = storage.capacity(catalog, thing.type_key)
-        if not limit:
+        #: A chest lying on the floor is cargo, not a store (D-278).
+        if not limit or not thing.installed:
             continue
         out.append(
             {

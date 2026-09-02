@@ -137,6 +137,7 @@ estate-unknown-kind = “{ KIND($kind) }” is not a building type; you build fr
 estate-build-dead = a dead body does not build
 estate-build-on-foot = you build on foot: walk up to the plot
 estate-build-not-on-storey = this is a storey, not a plot: a house is built on the ground — go down to the yard
+estate-build-house-stands = a house already stands on the plot, or a site is laid: a second is not laid beside it
 estate-build-not-yours = the plot is not yours: you build at home
 estate-build-no-floors = a house without floors is a pit
 estate-build-not-on-pyroxis = nothing is built on Pyroxis: quakes bring structures down faster than they go up. Housing here is aboard a ship

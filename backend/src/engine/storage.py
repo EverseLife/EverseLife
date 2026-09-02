@@ -254,11 +254,12 @@ class NoRoom(StorageError):
 
 
 async def lying(session: AsyncSession, node: Node, *, indoors: bool = True) -> list[Item]:
-    """What lies loose on one of the node's two surfaces -- goods, not equipment.
+    """What lies loose on one of the node's two surfaces.
 
-    Machines and furniture stand indoors too, but they are shown by their own
-    windows and pay for their place by slots (D-106). `indoors` picks the
-    surface: the floor of the house, or the open ground beside it (D-244).
+    What stands -- a machine or a chest put up -- is shown by its own window
+    and pays for its place by slots (D-106); a machine dropped here lies among
+    the sacks (D-278). `indoors` picks the surface: the floor of the house, or
+    the open ground beside it (D-244).
     """
 
     inside, outside = await estate.split(session, node)
@@ -405,6 +406,11 @@ async def pick(
     #: wagon, an exoskeleton and a market would otherwise carry off a furnace.
     if catalog.recipes.built(item.type_key):
         raise StorageError(key="storage-built-in-place", goods=item.type_key)
+    #: What stands is taken up by `station.take`, and that door asks whose the
+    #: place is (D-278); off the floor comes only what lies -- otherwise a guest
+    #: would pocket the host's workbench past the owner's door.
+    if item.installed:
+        raise StorageError(key="storage-standing", goods=item.type_key)
 
     #: Fuel lying where a fuel plant stands is loaded, not stored (D-189):
     #: the station burns from this very container, so the pile IS its tank,

@@ -352,17 +352,9 @@ async def cross(
         raise BreedError(key="breed-dead-sows")
     await travel.require_here(session, body)
 
-    node = await world.node_container(session, await _node(session, body))
-    machines = (
-        (
-            await session.execute(
-                select(Item.type_key).where(Item.container_id == node.id).distinct()
-            )
-        )
-        .scalars()
-        .all()
-    )
-    if not set(machines) & set(world.station_names(NURSERY)):
+    #: What stands (D-278): a nursery lying in its crate breeds nothing.
+    machines = await world.thing_kinds(session, await _node(session, body))
+    if not machines & set(world.station_names(NURSERY)):
         raise NoNursery(key="breed-no-nursery", station=NURSERY)
 
     cultivar_a = await _variety_of(session, seeds_a)

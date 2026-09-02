@@ -135,6 +135,7 @@ estate-unknown-kind = «{ KIND($kind) }» — не тип здания; стро
 estate-build-dead = мёртвое тело не строит
 estate-build-on-foot = строят ногами: дойдите до участка
 estate-build-not-on-storey = это этаж, а не участок: дом строят на земле — спуститесь во двор
+estate-build-house-stands = на участке уже стоит дом или заложена площадка: второй рядом не закладывают
 estate-build-not-yours = участок не ваш: строят у себя
 estate-build-no-floors = дом без этажей — это яма
 estate-build-not-on-pyroxis = на Пироксисе не строят: землетрясения рушат постройки быстрее, чем их ставят. Жильё здесь — борт корабля

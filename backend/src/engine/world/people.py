@@ -134,6 +134,8 @@ async def printer_nodes(session: AsyncSession) -> Sequence[Node]:
                 .where(
                     Container.kind == ContainerKind.NODE,
                     Item.type_key.in_(station_names(BIOPRINTER)),
+                    #: Put up, not lying (D-278): nobody is printed out of a crate.
+                    Item.installed.is_(True),
                 )
                 .distinct()
             )

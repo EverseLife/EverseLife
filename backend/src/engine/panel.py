@@ -86,7 +86,14 @@ async def blind(session: AsyncSession, city: City) -> bool:
         if yard is None:
             continue
         costs = await session.scalar(
-            select(Item.id).where(Item.container_id == yard.id, Item.type_key == town.HALL).limit(1)
+            select(Item.id)
+            .where(
+                Item.container_id == yard.id,
+                Item.type_key == town.HALL,
+                #: Put up, not lying (D-278): a hall on the floor is a crate.
+                Item.installed.is_(True),
+            )
+            .limit(1)
         )
         if costs is not None and not await utility.cut_off(session, node):
             return False

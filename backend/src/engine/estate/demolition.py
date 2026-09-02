@@ -259,6 +259,8 @@ async def finish_demolish(session: AsyncSession, job: Job) -> None:
             thing.container_id = yard.id
             #: Out under the sky: the roof it stood under has been taken apart.
             thing.outdoors = True
+            #: And lying (D-278): what stood in the room is cargo once the room is gone.
+            thing.installed = False
         await session.flush()
     await close_storeys(session, node, rooms)
 

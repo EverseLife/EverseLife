@@ -112,7 +112,10 @@ async def _has_bridge(session: AsyncSession, ship: Ship) -> bool:
     business, and a twenty-room hull was twenty queries for one boolean.
     """
     consoles = frozenset(world.station_names(BRIDGE))
-    return any(thing.type_key in consoles for thing in await _things(session, ship))
+    #: Put up, not lying (D-278): a console in its crate commands nothing.
+    return any(
+        thing.type_key in consoles and thing.installed for thing in await _things(session, ship)
+    )
 
 
 async def _commanded_by(session: AsyncSession, body: Body, ship: Ship) -> None:

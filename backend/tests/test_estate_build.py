@@ -223,9 +223,11 @@ async def test_started_sites_hold_their_ground(
 
     await estate.construct(session, constants, body, plot, 80)
     assert await estate.planned_footprint(session, plot) == pytest.approx(80)
-    #: Nothing stands yet, and still there is no room: the first site holds it.
+    #: Nothing stands yet, and still there is no second house: the first
+    #: site holds the plot -- one house per plot (D-279), and the ground it
+    #: spoke for is counted taken (D-218) for whatever else asks.
     assert await estate.built_area(session, plot, ground=True) == 0
-    with pytest.raises(estate.NoRoom):
+    with pytest.raises(estate.EstateError):
         await estate.construct(session, constants, body, plot, 30)
 
 

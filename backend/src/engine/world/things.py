@@ -38,7 +38,8 @@ from sqlalchemy import select
 from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.constants import current_catalog
+from src.constants import ConstantError, current_catalog
+from src.constants.catalog import ItemKind
 from src.db.base import remember
 from src.engine import events, goods
 from src.engine.errors import Refusal
@@ -50,6 +51,26 @@ from src.models.world import Node
 from src.units import AMOUNT_SCALE
 from src.units import amount as to_amount
 from src.units import amount as to_units
+
+
+def stands(type_key: str) -> bool:
+    """Whether a thing of this kind **stands** when it appears in a node's
+    store (D-278): a machine, a piece of furniture, or a relic.
+
+    Not `station.placeable`, though the two overlap: that one is what a hand
+    puts up and takes down, and a relic of the Forerunners is not in it --
+    it has no recipe and is machinery all the same (D-232), standing where it
+    was found. This is the seed's, the batch's and the catch-up's question:
+    what was granted to stand, before any hand touched it.
+    """
+    book = current_catalog().recipes
+    if book.is_relic(type_key):
+        return True
+    try:
+        return book.recipe(type_key).kind in (ItemKind.STATION, ItemKind.FURNITURE)
+    except ConstantError:
+        #: A raw material has no recipe, and that is normal: it lies.
+        return False
 
 
 def station_names(thing_class: str) -> tuple[str, ...]:
@@ -163,8 +184,12 @@ async def thing_kinds(session: AsyncSession, node: Node) -> frozenset[str]:
         yard = await node_yard(session, node)
         if yard is None:
             return frozenset()
+        #: What **stands** (D-278): a machine lying on the floor as cargo does
+        #: not make the place a workshop, a hall or a port.
         rows = await session.execute(
-            select(Item.type_key).where(Item.container_id == yard.id).distinct()
+            select(Item.type_key)
+            .where(Item.container_id == yard.id, Item.installed.is_(True))
+            .distinct()
         )
         return frozenset(row[0] for row in rows)
 
@@ -241,6 +266,8 @@ async def move_stack(
     if qty >= item.amount:
         item.container_id = target.id
         item.outdoors = outdoors
+        #: Moved, a thing lies (D-278): only `station.place` stands it up again.
+        item.installed = False
         landed = item
     else:
         item.amount -= qty
@@ -299,6 +326,9 @@ SAMENESS = (
     #: thing: folding them would move half a heap indoors, out of the rain and
     #: out of the reach of a collapse.
     "outdoors",
+    #: Standing or lying (D-278): a cell put up in the house and one dropped
+    #: beside it are two things, and folding them would stand the second up.
+    "installed",
     "spoils_at",
     "flavor",
     "roles_filled",
@@ -406,13 +436,21 @@ async def grant_item(
     origin: str,
     maker_identity_id: uuid.UUID | None = None,
     made_node_id: uuid.UUID | None = None,
+    installed: bool | None = None,
 ) -> Item:
     """Put an item into a container.
 
     `origin` is mandatory and lands in the event: any appearance of matter in
     the world must have a named ground -- mining, harvest, craft, a debugging
     script. There is no anonymous arrival (pillar P1).
+
+    `installed` -- whether a machine or a piece of furniture **stands** where
+    it is granted (D-278). Left unsaid, a placeable thing granted into a
+    node's store stands: the seed's machines, a relic, a station built in
+    place -- they were put there to stand. Whoever means "lying" says so.
     """
+    if installed is None:
+        installed = container.kind is ContainerKind.NODE and stands(type_key)
 
     #: Matter arrives in whole pieces where the thing is counted (D-212): three
     #: quarters of an ingot is no ingot, and the fourth quarter is not ours to
@@ -440,6 +478,7 @@ async def grant_item(
             maker_identity_id=maker_identity_id,
             made_at=datetime.now(UTC) if maker_identity_id else None,
             made_node_id=made_node_id,
+            installed=installed,
         )
         session.add(item)
         await session.flush()

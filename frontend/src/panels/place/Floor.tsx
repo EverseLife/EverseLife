@@ -7,11 +7,13 @@
 import { useState } from "react";
 import { Amount } from "../../Amount";
 import { chosen, tally } from "../../amounts";
-import { useNames, useSession } from "../../actions";
+import { useBook, useNames, useSession } from "../../actions";
 import { DropZone } from "../../DragMove";
 import { grip, noDrag } from "../../drag";
 import { t } from "../../locale";
 import { flavorText, goodsName } from "../../names";
+import { mayInstall } from "../../building";
+import { isGear } from "../../classes";
 import type { Props, Surface } from "./shared";
 
 
@@ -28,6 +30,7 @@ import type { Props, Surface } from "./shared";
 export function Floor({ look, busy, act, where = "floor" }: Props & { where?: Surface }) {
   const session = useSession();
   const names = useNames();
+  const book = useBook();
   const [parts, setParts] = useState<Record<string, number | null>>({});
   const indoors = where === "floor";
   const floor = indoors ? look.floor : look.ground;
@@ -50,6 +53,10 @@ export function Floor({ look, busy, act, where = "floor" }: Props & { where?: Su
   //: has slots at all.
   const gear = indoors ? (look.floor?.space.slots_used ?? 0) : 0;
   const open = rights.open !== false;
+  //: A machine lying here is cargo until it is put up (D-278): the holder of
+  //: the place -- or anyone, on nobody's land -- stands it from the floor,
+  //: while the building has a place for it.
+  const standable = mayInstall(look);
 
   return (
     <section>
@@ -145,6 +152,16 @@ export function Floor({ look, busy, act, where = "floor" }: Props & { where?: Su
                         title={t("ui-place-floor-pick-hint")}
                       >
                         {t("ui-place-floor-pick")}
+                      </button>
+                    )}
+                    {standable && isGear(book, thing.goods) && (
+                      <button
+                        className="quiet"
+                        onClick={() => act(() => session.send("station.place", { item: thing.id }))}
+                        disabled={busy}
+                        title={t("ui-place-floor-install-hint")}
+                      >
+                        {t("ui-place-floor-install")}
                       </button>
                     )}
                   </td>

@@ -213,8 +213,13 @@ async def produce(
     heat = 0.0
     for node in nodes:
         yard = await world.node_container(session, node)
+        #: What stands (D-278): a wheel lying in the yard turns nothing.
         machines = (
-            (await session.execute(select(Item).where(Item.container_id == yard.id)))
+            (
+                await session.execute(
+                    select(Item).where(Item.container_id == yard.id, Item.installed.is_(True))
+                )
+            )
             .scalars()
             .all()
         )
@@ -349,6 +354,7 @@ async def relic_power(
                     Node.parent_id == city.id,
                     Container.kind == ContainerKind.NODE,
                     Item.type_key.in_(world.station_names(REACTOR)),
+                    Item.installed.is_(True),
                 )
                 .group_by(Node.id)
             )
@@ -403,6 +409,7 @@ async def cities_with_power(session: AsyncSession, constants: Constants) -> set[
             .where(
                 Container.kind == ContainerKind.NODE,
                 Item.type_key.in_(world.station_names(REACTOR)),
+                Item.installed.is_(True),
             )
             .distinct()
         )
@@ -440,7 +447,7 @@ async def plant_view(session: AsyncSession, constants: Constants, node: Node) ->
     #: A look at the station, so the yard is read and not made for the look.
     machines = await world.node_things(session, node)
     plant_names = set(world.station_names(FUEL_PLANT))
-    plants = [thing for thing in machines if thing.type_key in plant_names]
+    plants = [thing for thing in machines if thing.type_key in plant_names and thing.installed]
     if not plants:
         return None
 

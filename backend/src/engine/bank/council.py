@@ -20,12 +20,11 @@ from src.engine import events
 from src.engine.bank._base import NotCouncilTime, OutOfCorridor, key_rate
 from src.engine.bank.rate import _emission_share, compute_rate, inflation
 from src.engine.errors import Says
-from src.engine.world import node_container
+from src.engine.world import thing_kinds
 from src.models.bank import RateDecision
 from src.models.city import City, Power
 from src.models.event import EventKind
 from src.models.identity import Identity
-from src.models.inventory import Item
 from src.models.world import Node
 
 
@@ -58,17 +57,8 @@ async def _children(session: AsyncSession, node) -> list:
 
 async def _has_hall(session: AsyncSession, town, node) -> bool:
 
-    yard = await node_container(session, node)
-    names = (
-        (
-            await session.execute(
-                select(Item.type_key).where(Item.container_id == yard.id).distinct()
-            )
-        )
-        .scalars()
-        .all()
-    )
-    return town.HALL in names
+    #: What stands (D-278): the council sits in a hall that is put up.
+    return town.HALL in await thing_kinds(session, node)
 
 
 async def locked_until(session: AsyncSession) -> datetime | None:

@@ -115,6 +115,7 @@ station-dead-places = a dead body puts nothing down
 station-dead-takes = a dead body carries nothing away
 station-body-off-node = the body is outside the node
 station-not-in-hands = this thing is not in hand
+station-not-installed = “{ NAME($goods) }” lies here rather than stands: what lies is picked up off the floor, what stands is taken up
 station-not-in-node = this thing is not in this node
 station-not-placeable = “{ NAME($goods) }” is neither a station nor furniture: what goes into a building is equipment
 station-not-a-station = “{ NAME($goods) }” is neither a station nor furniture

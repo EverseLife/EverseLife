@@ -52,6 +52,7 @@ async def terminal(session: AsyncSession, node: Node) -> Item:
             .where(
                 Item.container_id == where.id,
                 Item.type_key.in_(station_names(TERMINAL)),
+                Item.installed.is_(True),
             )
             #: Deterministic (D-215 allows a second terminal): the capacity
             #: check locks THE terminal row, and two loads locking two
@@ -316,6 +317,8 @@ async def _move(
         take = min(left, item.amount)
         if take == item.amount:
             item.container_id = target.id
+            #: Handed over, a machine lies (D-278): whoever bought it puts it up.
+            item.installed = False
             await world.stack_up(session, item)
         else:
             #: The split-off part is the same thing: same mark, shelf life, dish

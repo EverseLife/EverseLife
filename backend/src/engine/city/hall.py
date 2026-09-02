@@ -59,6 +59,7 @@ async def require_at_hall(session: AsyncSession, body, city: City) -> None:
         .where(
             Item.container_id == yard.id,
             Item.type_key.in_(world.station_names(HALL)),
+            Item.installed.is_(True),
         )
         .limit(1)
     )

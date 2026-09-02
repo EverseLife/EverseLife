@@ -170,6 +170,10 @@ async def _finish_make(
             flavor=batch.flavor,
             roles_filled=batch.roles_filled,
             recipe_key=batch.recipe_key,
+            #: A station built in place stands where it was made (D-268); a
+            #: portable one left at the bench lies there as cargo until somebody
+            #: puts it up (D-278).
+            installed=catalog.recipes.built(batch.output),
         )
         session.add(fresh)
         #: Loose output joins a stack it is indistinguishable from (D-214) --

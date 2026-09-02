@@ -217,9 +217,12 @@ async def _liquid_pour(state: dict, db: AsyncSession, message: dict) -> dict:
 
 @command("station.place")
 async def _station_place(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Place a machine in the node. In person and only at your own place (D-150)."""
+    """Put a machine up in the node: from the hands, or off the floor it lies on
+    (D-150, D-278). In person and only at your own place."""
     body = await _alive(state, db)
-    item = await _own_item(db, body, message["item"])
+    item = await db.get(Item, uuid.UUID(message["item"]))
+    if item is None:
+        raise Refused(key="cmd-no-such-item")
     await station.place(db, current_catalog(), body, item)
     return {"placed": item.type_key}
 

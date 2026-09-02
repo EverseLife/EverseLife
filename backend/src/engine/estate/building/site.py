@@ -48,7 +48,12 @@ from src.engine.estate.building.build import (
     kinds,
     raise_house,
 )
-from src.engine.estate.building.frame import free_ground, hold_ground, planned_footprint
+from src.engine.estate.building.frame import (
+    built_area,
+    free_ground,
+    hold_ground,
+    planned_footprint,
+)
 from src.engine.jobs import enqueue
 from src.models.estate import Building, BuildSite, SiteState
 from src.models.event import EventKind
@@ -135,6 +140,11 @@ async def lay(
         raise EstateError(key="estate-build-on-foot")
     if storey_of(node) is not None:
         raise EstateError(key="estate-build-not-on-storey")
+    #: One house per plot (05-domain-model, D-279): a second is not laid
+    #: beside the first, nor while the first is still a site. The height is
+    #: chosen here, at the laying; how a standing house grows is OQ-115.
+    if await built_area(session, node) > 0 or await planned_footprint(session, node) > 0:
+        raise EstateError(key="estate-build-house-stands")
     nobodys = node.owner_identity_id is None and node.owner_city_id is None
     if not nobodys and node.owner_identity_id != body.identity_id:
         raise EstateError(key="estate-build-not-yours")

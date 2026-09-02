@@ -163,6 +163,7 @@ async def _bed_here(session: AsyncSession, constants: Constants, body: Body) -> 
         .where(
             Item.container_id == where.id,
             Item.type_key.in_(world.station_names(BED)),
+            Item.installed.is_(True),
         )
         .limit(1)
     )

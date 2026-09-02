@@ -47,6 +47,21 @@ export function isBuilt(book: RecipeBook | null, name: string): boolean {
   return Boolean(book?.recipes?.some((one) => (one.id ?? one.name) === name && one.built));
 }
 
+/** The vault's kind of a thing's recipe ("station", "furniture", ...), or
+ *  `null` for a material, which has none. One lookup for every question
+ *  about what a thing is (D-090, D-225). */
+export function recipeKind(book: RecipeBook | null, name: string): string | null {
+  return book?.recipes?.find((one) => (one.id ?? one.name) === name)?.kind ?? null;
+}
+
+/** Whether a thing of this kind is put up rather than put down (D-278): a
+ *  machine or a piece of furniture -- what `station.place` accepts, and so
+ *  what the "install" button is offered for. */
+export function isGear(book: RecipeBook | null, name: string): boolean {
+  const kind = recipeKind(book, name);
+  return kind === "station" || kind === "furniture";
+}
+
 /** The class of a thing, or `null` when it has none. */
 export function classOf(book: RecipeBook | null, name: string): string | null {
   const classes: Record<string, string[]> = book?.classes ?? {};
