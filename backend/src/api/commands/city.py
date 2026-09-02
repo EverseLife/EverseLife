@@ -36,7 +36,7 @@ from src.models.emission import EmissionState
 from src.models.identity import Identity
 from src.models.justice import Case
 from src.models.vote import Vote
-from src.models.world import PLOT, Node
+from src.models.world import Node
 
 
 @command("city.found")
@@ -376,10 +376,10 @@ async def _city_survey(state: dict, db: AsyncSession, message: dict) -> dict:
             "name": node.name,
             "area": float(node.area_m2),
             "owner": None if node.owner_identity_id is None else str(node.owner_identity_id),
-            "free": node.owner_identity_id is None and bool(node.properties.get(PLOT)),
+            "free": node.owner_identity_id is None and bool(node.properties.get("plot")),
         }
         for node in plots
-        if node.properties.get(PLOT)
+        if node.properties.get("plot")
     ]
     summary["citizens"] = await _citizens(db)
     #: The mint (D-270): the flag and the counter travel only with the capital
