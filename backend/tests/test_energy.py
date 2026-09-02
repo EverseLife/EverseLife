@@ -29,7 +29,7 @@ from src.models.energy import EnergyPool
 from src.models.inventory import Item
 from src.models.ledger import AccountKind
 from src.models.world import Layer
-from src.units import PERCENT, ROUND_CHARGE, ROUND_ENERGY, amount, money_str
+from src.units import PERCENT, ROUND_CHARGE, ROUND_ENERGY, amount, money, money_str
 
 
 async def _city(session: AsyncSession, *, river: bool = False):
@@ -261,6 +261,83 @@ async def test_a_pour_too_thin_to_write_is_refused_not_served(
     with pytest.raises(energy.NotEnough):
         await energy.charge_battery(session, constants, body, cell, 0.0004)
     assert Decimal(pool.stored) == before
+
+
+async def test_settling_often_does_not_stop_the_leak(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """A cell settled every second still leaks over the hour.
+
+    The charge is kept to a thousandth, so a leak thinner than that cannot be
+    written -- and the stamp used to move regardless, throwing those seconds
+    away. Every command touching a cell settles it, so a cell in steady use
+    never leaked at all.
+    """
+    capital, yard, identity, body = await _city(session)
+    pocket = await world.body_container(session, body)
+    cell = await world.grant_item(session, pocket, energy.BATTERY, quality=55, origin="тест")
+    started = datetime.now(UTC)
+    cell.charge = Decimal("400")
+    cell.charged_at = started
+    await session.flush()
+
+    #: Settled once a second across an hour, then read.
+    for tick in range(3600):
+        await energy.settle_charge(session, constants, cell, now=started + timedelta(seconds=tick))
+    settled_often = float(cell.charge)
+
+    #: The same hour, left alone and settled once.
+    other = await world.grant_item(session, pocket, energy.BATTERY, quality=55, origin="тест")
+    other.charge = Decimal("400")
+    other.charged_at = started
+    await session.flush()
+    settled_once = await energy.settle_charge(
+        session, constants, other, now=started + timedelta(hours=1)
+    )
+
+    #: Within the thousandth the column can tell apart.
+    assert settled_often == pytest.approx(settled_once, abs=0.001)
+    #: And the hour really did cost something, or the test proves nothing.
+    assert settled_once < 400
+
+
+async def test_the_bill_is_for_what_the_cell_actually_holds(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """Payer, pool, cell and journal say one number.
+
+    The bill used to be issued on the asked-for figure while the row kept the
+    rounded one, so the payer and the cell disagreed by up to half a
+    thousandth in whichever direction the rounding fell.
+    """
+    capital, yard, identity, body = await _city(session)
+    pool = await energy.pool_of(session, constants, yard)
+    pool.stored = Decimal("400")
+    pool.counted_at = datetime.now(UTC)
+    pocket = await world.body_container(session, body)
+    cell = await world.grant_item(session, pocket, energy.BATTERY, quality=55, origin="тест")
+    cell.charge = Decimal("0")
+    cell.charged_at = datetime.now(UTC)
+    await session.flush()
+
+    from src.models.ledger import PostingReason
+
+    account = await ledger.account_for(session, AccountKind.IDENTITY, identity.id)
+    genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
+    await ledger.transfer(
+        session,
+        PostingReason.GENESIS,
+        debit=genesis.id,
+        credit=account.id,
+        amount=money(100),
+        memo={},
+    )
+
+    #: An amount that does not sit on the column's grid.
+    given = await energy.charge_battery(session, constants, body, cell, 1.0015)
+    await session.flush()
+    await session.refresh(cell)
+    assert float(cell.charge) == pytest.approx(given)
 
 
 async def test_the_pool_never_hands_out_energy_it_kept(
