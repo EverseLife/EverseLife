@@ -221,23 +221,38 @@ async def nodes_with_station(
     Nodes without a yard, and nodes whose machines only lie on the floor, are
     simply absent from the answer: what counts is what **stands** (D-278), the
     same as in `thing_kinds`.
+
+    Remembered per command like its neighbours, keyed by the set asked about:
+    `world.doors` and `spawn_point` ask `is_door` of every printer in the world,
+    and each of those reaches a city's core.
     """
-    kinds = frozenset(station_names(thing_class))
-    here = [node.id for node in nodes]
-    if not here or not kinds:
+    #: The ids are the question and the memo's key both, and a node added but
+    #: not flushed has none yet -- `uuid_pk` fills it in on the flush. The one
+    #: below `remember` does is too late: the key is built before it. The
+    #: per-node path never had to think about this because `node_yard` reads
+    #: through `remember`, whose flush comes before the id is asked for.
+    if session.new or session.dirty or session.deleted:
+        await session.flush()
+    here = tuple(sorted(node.id for node in nodes))
+    if not here:
         return frozenset()
-    rows = await session.execute(
-        select(Container.owner_id)
-        .join(Item, Item.container_id == Container.id)
-        .where(
-            Container.kind == ContainerKind.NODE,
-            Container.owner_id.in_(here),
-            Item.type_key.in_(kinds),
-            Item.installed.is_(True),
+
+    async def find() -> frozenset[uuid.UUID]:
+        rows = await session.execute(
+            select(Container.owner_id)
+            .join(Item, Item.container_id == Container.id)
+            .where(
+                Container.kind == ContainerKind.NODE,
+                Container.owner_id.in_(here),
+                Item.type_key.in_(station_names(thing_class)),
+                #: Put up, not lying (D-278) -- the same rule `thing_kinds` reads by.
+                Item.installed.is_(True),
+            )
+            .distinct()
         )
-        .distinct()
-    )
-    return frozenset(rows.scalars())
+        return frozenset(rows.scalars())
+
+    return await remember(session, ("nodes_with_station", thing_class, here), find)
 
 
 async def is_library(session: AsyncSession, node: Node) -> bool:

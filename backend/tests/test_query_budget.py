@@ -76,6 +76,11 @@ LOOK_BUDGET_ON_ROADS = 80
 #: to add. Zero: the count is a count, not a walk over the reader's world.
 PER_CHANNEL_BUDGET = 0
 
+#: The same, for one more node a city owns. Its own constant and not the Net's:
+#: they are different questions, and a day when the Net earns a query of slack
+#: is not a day the city walk earns ten.
+PER_NODE_BUDGET = 0
+
 
 @pytest.fixture(autouse=True)
 def _fresh_map():
@@ -278,7 +283,7 @@ async def _city_of_size(session: AsyncSession, catalog: Catalog, *, plots: int):
         )
         plot.owner_city_id = city.id
     await session.flush()
-    return city
+    return city, core
 
 
 async def test_finding_the_core_does_not_grow_with_the_city(
@@ -292,8 +297,8 @@ async def test_finding_the_core_does_not_grow_with_the_city(
     thirteen nodes and a city grows with every plot bought, so the walk had no
     ceiling at all. One query answers about the whole territory now.
     """
-    small = await _city_of_size(session, catalog, plots=1)
-    large = await _city_of_size(session, catalog, plots=11)
+    small, small_core = await _city_of_size(session, catalog, plots=1)
+    large, large_core = await _city_of_size(session, catalog, plots=11)
 
     async def cost(city) -> tuple[int, object]:
         meter = Counter(session)
@@ -306,10 +311,11 @@ async def test_finding_the_core_does_not_grow_with_the_city(
 
     thin, one = await cost(small)
     fat, other = await cost(large)
-    #: The core is still found, and it is the node with the printer.
-    assert one is not None and other is not None
+    #: The core is still found, and it is the node the printer stands in -- not
+    #: merely some node. Counting queries would pass on a wrong answer too.
+    assert one is small_core and other is large_core
 
-    assert fat - thin <= PER_CHANNEL_BUDGET * 10, (
+    assert fat - thin <= PER_NODE_BUDGET * 10, (
         f"поиск ядра стоит {thin} запросов на городе из двух узлов и {fat} на городе из двенадцати"
     )
 
