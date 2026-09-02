@@ -1,44 +1,52 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Nurlan Urazkulov
 
-"""Citizenship: who belongs to a city, and how they come and go (D-160).
+"""Citizenship: who belongs to a city, and how they come and go (D-160, D-281).
 
-One citizenship per person, and the city decides who gets it -- by an open
-door, by an application, or by invitation, according to its own charter. The
-engine holds the rule that there is exactly one, and refuses everything that
-would make a second.
+One citizenship per person. It begins in one of three ways -- the door a
+newcomer chose gives it outright, the city admits by its charter, or a founder
+takes his own city's -- and the engine holds the rule that there is exactly
+one, refusing everything that would make a second. The door is the usual way
+now: a person who never chose to belong anywhere is the exception, not the
+rule (D-281).
+
+Going is the mirror of that and just as short: one asks, and it is over --
+except while a loan is open. The city answers for its borrowers on the
+capital's line (D-175), so the debtor settles up first; nothing else holds,
+and no delay is served.
 
 Three functions live here that used to sit elsewhere, and the moves are the
 whole reason this file is a file. `_enrol_founder` was among the offices,
-because a founder is given a post at the same moment; `bind` was among the
-laws, because it reads the charter's print conditions; `describe` was there
-too, though it reads no law at all -- it writes the city's own text and is
-guarded by the right to admit people. Leaving the first two where they were is
-what made the city's four sections a cycle instead of a stack: offices reached
-down into citizenship, laws reached down into citizenship, and citizenship
-reached back up into both.
+because a founder is given a post at the same moment; the door's enrolment was
+among the laws, because it used to read the charter's print conditions;
+`describe` was there too, though it reads no law at all -- it writes the
+city's own text and is guarded by the right to admit people. Leaving the first
+two where they were is what made the city's four sections a cycle instead of a
+stack: offices reached down into citizenship, laws reached down into
+citizenship, and citizenship reached back up into both.
 """
 
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.constants import Catalog, Constants
-from src.constants import registry as R
 from src.engine import events, travel
 from src.engine.city._base import (
     CityError,
     NotAllowed,
 )
 from src.engine.city.hall import require_at_hall
-from src.engine.city.law import spawn_terms
 from src.engine.city.lookup import by_id
 from src.engine.city.office import require
-from src.engine.jobs import enqueue, handler
+
+#: The loan table read straight from the models, and that is the layering
+#: rather than a shortcut: the exit asks the bank a question (`is anything
+#: owed`), but `engine.bank` already names `engine.city` -- an import back
+#: would close a cycle for one `select`. Models sit below both.
+from src.models.bank import Loan, LoanState
 from src.models.city import (
     Citizen,
     CitizenshipRequest,
@@ -47,7 +55,6 @@ from src.models.city import (
 )
 from src.models.event import EventKind
 from src.models.identity import Identity
-from src.models.job import Job, JobKind
 from src.runtime import CITY_ABOUT_LIMIT
 
 #: The charter question "how are citizens admitted" and its options (`laws.json`).
@@ -65,8 +72,13 @@ class AlreadyCitizen(CityError):
     """One citizenship per person: leave the previous city first."""
 
 
-class Bound(CityError):
-    """The term of the obligation taken at printing has not expired yet (D-184)."""
+class InDebt(CityError):
+    """A loan is open: one does not leave the city owing it money (D-281).
+
+    The city answers for its borrowers on its line with the capital (D-175),
+    and a citizenship dropped over an open loan would leave the city holding
+    the debt of somebody who is no longer its business.
+    """
 
 
 def admission(city: City) -> str:
@@ -74,11 +86,31 @@ def admission(city: City) -> str:
     return str((city.charter or {}).get(ADMISSION) or OPEN)
 
 
-async def citizenship(session: AsyncSession, identity_id: uuid.UUID) -> Citizen | None:
-    """The identity's citizenship, if any. There is one -- that is how the record works."""
+async def citizenship(
+    session: AsyncSession, identity_id: uuid.UUID, *, hold: bool = False
+) -> Citizen | None:
+    """The identity's citizenship, if any. There is one -- that is how the record works.
+
+    `hold` locks the row for the transaction, and only two callers ask for it:
+    leaving, which deletes it, and borrowing, which must not be issued to
+    somebody walking out the door. Reading does not write and does not lock
+    (D-225): the digest asks this on every look.
+    """
+    stmt = select(Citizen).where(Citizen.identity_id == identity_id)
+    if hold:
+        stmt = stmt.with_for_update()
+    return (await session.execute(stmt)).scalar_one_or_none()
+
+
+async def owes(session: AsyncSession, identity_id: uuid.UUID) -> bool:
+    """Whether this person has a loan still open. The exit's one condition (D-281)."""
     return (
-        await session.execute(select(Citizen).where(Citizen.identity_id == identity_id))
-    ).scalar_one_or_none()
+        await session.execute(
+            select(Loan.id)
+            .where(Loan.identity_id == identity_id, Loan.state == LoanState.OPEN)
+            .limit(1)
+        )
+    ).first() is not None
 
 
 async def is_citizen(session: AsyncSession, identity_id: uuid.UUID, city: City) -> bool:
@@ -204,48 +236,46 @@ async def admit(session: AsyncSession, by: Identity, city: City, who: Identity) 
     return await _enroll(session, city, who.id, why=APPLICATION, by=by.id)
 
 
-async def leave(
-    session: AsyncSession,
-    constants: Constants,
-    identity: Identity,
-    *,
-    now: datetime | None = None,
-) -> Citizen:
-    """Declare leaving. Citizenship lapses after `city.exit_delay` (D-160).
+async def leave(session: AsyncSession, identity: Identity) -> City | None:
+    """Leave the city. At once, and the only thing that holds is a debt (D-281).
 
-    Remote: the declaration goes over the Net. The delay exists so that one
-    cannot leave the city right before a verdict.
+    Remote: the word goes over the Net, like a vote (D-161) -- belonging is a
+    record about the person, and the person does not have to walk to the hall
+    to stop being of a city.
+
+    The exit used to wait out `city.exit_delay` so that one could not walk out
+    of a city right before a verdict. There is no court in the world yet, and
+    the delay held the honest as well; what holds now is the loan: the city
+    answers for its borrowers on the capital's line (D-175), and the debtor
+    settles up before leaving. When the court arrives, an open case stands
+    here beside the open loan.
+
+    The row is taken under the transaction: `borrow` reads the same one held,
+    so a loan and an exit cannot cross -- whichever comes second sees the first.
     """
 
-    moment = now or datetime.now(UTC)
-    entry = await citizenship(session, identity.id)
+    entry = await citizenship(session, identity.id, hold=True)
     if entry is None:
         raise NotCitizen(key="city-not-a-citizen-anywhere")
-    if entry.leaving_at is not None:
-        return entry
-    #: The obligation taken at printing (D-184) holds until its term. It holds
-    #: the person, not the city: exile cuts it at any moment.
-    if entry.bound_until is not None and entry.bound_until > moment:
-        raise Bound(key="city-bound-by-printing", until=f"{entry.bound_until:%d.%m %H:%M}")
+    if await owes(session, identity.id):
+        raise InDebt(key="city-leave-in-debt")
 
-    entry.leaving_at = moment + timedelta(days=constants[R.CITY_EXIT_DELAY])
+    #: Read off the row before it goes: after the delete the record is only as
+    #: alive as SQLAlchemy's session cares to keep it.
+    left = entry.city_id
+    city = await by_id(session, left)
+    await session.delete(entry)
     await session.flush()
-    event = await events.record(
+    await events.record(
         session,
-        EventKind.CITIZENSHIP_LEAVING,
+        EventKind.CITIZENSHIP_ENDED,
         actor_identity_id=identity.id,
-        city_id=str(entry.city_id),
-        leaves_at=entry.leaving_at.isoformat(),
+        node_id=None if city is None else city.node_id,
+        city_id=str(left),
+        why="resigned",
+        city=None if city is None else city.name,
     )
-    await enqueue(
-        session,
-        JobKind.CITIZENSHIP_EXIT,
-        entry.leaving_at,
-        payload={"citizen": str(entry.id)},
-        dedup_key=f"citizenship.exit:{entry.id}",
-        cause_event_id=event.id,
-    )
-    return entry
+    return city
 
 
 async def exile(session: AsyncSession, by: Identity, city: City, who: Identity) -> None:
@@ -278,9 +308,8 @@ async def _enroll(
     *,
     why: str,
     by: uuid.UUID | None = None,
-    bound_until: datetime | None = None,
 ) -> Citizen:
-    entry = Citizen(identity_id=identity_id, city_id=city.id, bound_until=bound_until)
+    entry = Citizen(identity_id=identity_id, city_id=city.id)
     session.add(entry)
     await session.flush()
     await events.record(
@@ -291,53 +320,24 @@ async def _enroll(
         city_id=str(city.id),
         whom_identity_id=str(identity_id),
         how=why,
-        bound_until=None if bound_until is None else bound_until.isoformat(),
     )
     return entry
 
 
-@handler(JobKind.CITIZENSHIP_EXIT)
-async def exited(session: AsyncSession, job: Job) -> None:
-    """The term is up: citizenship lapses (D-160).
-
-    The declaration could have been withdrawn -- then the record is gone or the
-    term is cleared, and the job does nothing: a retry after a failure does not
-    become a second exit.
-    """
-    entry = await session.get(Citizen, uuid.UUID(job.payload["citizen"]))
-    if entry is None or entry.leaving_at is None:
-        return
-    city = await by_id(session, entry.city_id)
-    await session.delete(entry)
-    await session.flush()
-    await events.record(
-        session,
-        EventKind.CITIZENSHIP_ENDED,
-        actor_identity_id=entry.identity_id,
-        city_id=str(entry.city_id),
-        why="resigned",
-        city=None if city is None else city.name,
-    )
-
-
 async def _enrol_founder(session: AsyncSession, city: City, who: Identity) -> None:
-    """Make the founder a citizen of the city they have just founded (D-195)."""
+    """Make the founder a citizen of the city they have just founded (D-195).
+
+    The previous citizenship is **not** ended here any more (D-281): founding
+    is entering a citizenship like any other, and one does not enter without
+    leaving first. `establish` refuses before a city is written down; this
+    refusal is the floor under that one -- a founding that got here with a
+    citizenship in hand would be the second one.
+    """
     entry = await citizenship(session, who.id)
     if entry is not None:
         if entry.city_id == city.id:
             return
-        #: One citizenship per person: the previous one ends here and now.
-        await session.delete(entry)
-        await session.flush()
-        await events.record(
-            session,
-            EventKind.CITIZENSHIP_ENDED,
-            actor_identity_id=who.id,
-            city_id=str(entry.city_id),
-            #: `why`, like every other end of a citizenship: this was the one
-            #: writer calling the same field `reason`.
-            why="founded_own_city",
-        )
+        raise AlreadyCitizen(key="city-found-while-citizen")
 
     session.add(Citizen(identity_id=who.id, city_id=city.id))
     await session.flush()
@@ -351,39 +351,24 @@ async def _enrol_founder(session: AsyncSession, city: City, who: Identity) -> No
     )
 
 
-async def bind(
-    session: AsyncSession,
-    constants: Constants,
-    catalog: Catalog,
-    city: City,
-    who: Identity,
-    *,
-    now: datetime | None = None,
-) -> Citizen | None:
-    """Fulfil the print conditions: enrol as a citizen for a term (D-184).
+async def enrol_newcomer(session: AsyncSession, city: City, who: Identity) -> Citizen | None:
+    """The door enrols: whoever chose this city is its citizen from the print (D-281).
 
-    No admission is needed: the person consented by choosing the door, and there
-    is no reason to ask twice. The term **is written here** rather than read
-    from the law later: a city that raises the term retroactively does not
-    lengthen an obligation already taken.
+    No admission is asked and no charter is read: the person consented by
+    choosing the door, and a city that admits by invitation still admits
+    whoever came out of its own printer -- that door is the invitation.
 
-    Does nothing if the city sets no conditions or the person already belongs
-    somewhere: a print may not fail over a personnel question.
+    Nothing is written any more except the belonging itself. Citizenship used
+    to be a print **condition** the city switched on (`spawn_citizenship`) and
+    could hold by a term (`spawn_term`, D-184); both are gone with D-281 --
+    what the door gives, the debt alone holds.
+
+    Does nothing if the person already belongs somewhere: a print may not fail
+    over a personnel question, and it may not make a second citizenship either.
     """
-    required, days = spawn_terms(constants, catalog, city)
-    if not required:
-        return None
     if await citizenship(session, who.id) is not None:
         return None
-
-    moment = now or datetime.now(UTC)
-    return await _enroll(
-        session,
-        city,
-        who.id,
-        why="printed",
-        bound_until=None if days <= 0 else moment + timedelta(days=days),
-    )
+    return await _enroll(session, city, who.id, why="printed")
 
 
 async def describe(

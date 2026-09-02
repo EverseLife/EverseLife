@@ -78,7 +78,17 @@ async def electorate(
     """
 
     if voters == COUNCIL_VOTERS:
-        return [place.identity_id for place in await council_of(session, city)]
+        #: A seat whose holder left the city no longer votes (D-281), and the
+        #: quorum may not count it: a chamber of three with one gone and a
+        #: two-thirds quorum would lock for good, waiting for a vote nobody can
+        #: cast. The same rule as `in_council`, asked of the seats already in
+        #: hand rather than through it -- it would fetch them again per seat.
+        seated: list[uuid.UUID] = []
+        for place in await council_of(session, city):
+            own = await town.citizenship(session, place.identity_id)
+            if own is not None and own.city_id == city.id:
+                seated.append(place.identity_id)
+        return seated
 
     have_: list[uuid.UUID] = []
     for entry in await town.citizens_of(session, city):

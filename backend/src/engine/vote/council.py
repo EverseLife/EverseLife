@@ -70,7 +70,19 @@ async def council_of(session: AsyncSession, city: City) -> list[CouncilSeat]:
 
 
 async def in_council(session: AsyncSession, city: City, identity_id: uuid.UUID) -> bool:
-    return any(place.identity_id == identity_id for place in await council_of(session, city))
+    """Whether this person sits on the council **and** may still speak as one.
+
+    A seat is a citizen's seat (D-281). Leaving the city -- or being exiled
+    from it -- takes the council's vote and the right to propose a law with
+    it, though the row itself stays until the chamber is re-elected: who sat
+    when is a matter for the court, and history is not tidied up. Without this
+    the vote of citizens had a hole exactly the width of the council: the
+    charter's own body kept voting in a city its members no longer belonged to.
+    """
+    if not any(place.identity_id == identity_id for place in await council_of(session, city)):
+        return False
+    entry = await town.citizenship(session, identity_id)
+    return entry is not None and entry.city_id == city.id
 
 
 def voters_for(city: City, kind: VoteKind) -> str:

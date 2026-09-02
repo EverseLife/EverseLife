@@ -75,7 +75,7 @@ city-option-requires = option “{ $option }” requires an answer to “{ $requ
 city-charter-sealed = the charter of this city does not change: it decided so itself
 city-about-too-long = the city's word is longer than { $limit } characters: a card is read in ten seconds
 
-# --- citizenship (D-160, D-184) -----------------------------------------------
+# --- citizenship (D-160, D-281) -----------------------------------------------
 
 city-already-citizen-here = you are a citizen of this city already
 city-citizenship-is-one = citizenship is one per person: leave the former city first
@@ -84,7 +84,8 @@ city-already-citizen = { $who } is a citizen already
 city-no-application = there is no application from this person
 city-already-in-a-city = { $who } belongs to a city already
 city-not-a-citizen-anywhere = you belong to no city
-city-bound-by-printing = citizenship came as a condition of printing and holds until { $until } UTC. You took that term when you chose the city's door
+city-leave-in-debt = a loan of yours is still open: the city answers for its borrowers, and citizenship is given up only once it is settled
+city-found-while-citizen = a city is founded by somebody who belongs to none: leave your former city first
 city-not-a-citizen-here = { $who } is not a citizen of this city
 
 # --- votes and council (D-163, D-164) -----------------------------------------

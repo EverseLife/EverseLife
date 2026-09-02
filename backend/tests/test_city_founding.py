@@ -1,18 +1,18 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Nurlan Urazkulov
 
-"""Founding a city, and belonging to one (D-159, D-160).
+"""Founding a city, and belonging to one (D-159, D-160, D-281).
 
-A city is founded working, on nobody's land, with its buildings up and a
-gate in its wall; citizenship is one per person, entered by open doors,
-invitation or the printer's conditions, and left freely but not instantly.
+A city is founded working, on nobody's land, with its buildings up and a gate
+in its wall -- and by somebody who belongs to no other city. Citizenship is one
+per person, given outright by the door a newcomer chose or entered afterwards
+by the charter, and left in the moment it is given up, unless a loan is open.
 What a standing city may do lives in `test_city.py`.
 """
 
 from __future__ import annotations
 
 import uuid
-from datetime import timedelta
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,6 +23,7 @@ from src.engine import city as town
 from src.engine import net, world
 from src.models.city import Power
 from src.models.world import Layer, Node
+from src.units import money
 
 
 async def test_founder_is_a_citizen_of_own_city(session: AsyncSession, catalog: Catalog) -> None:
@@ -38,10 +39,14 @@ async def test_founder_is_a_citizen_of_own_city(session: AsyncSession, catalog: 
     assert await town.is_citizen(session, president.id, city)
 
 
-async def test_founding_ends_the_previous_citizenship(
+async def test_a_citizen_founds_no_city_of_their_own(
     session: AsyncSession, catalog: Catalog
 ) -> None:
-    """There is one citizenship per person (D-160): "left and founded my own"."""
+    """Founding is entering a citizenship, and one does not enter without leaving (D-281).
+
+    It used to be the one way to change city instantly: the previous
+    citizenship ended by itself at the founding, delay and debt and all.
+    """
     from src.models.city import Citizen
 
     old_city, old_core = await _capital(session, catalog)
@@ -50,10 +55,9 @@ async def test_founding_ends_the_previous_citizenship(
     await session.flush()
 
     new_city, _ = await _capital(session, catalog)
-    await town.install_founder(session, new_city, person)
-
-    assert await town.is_citizen(session, person.id, new_city)
-    assert not await town.is_citizen(session, person.id, old_city)
+    with pytest.raises(town.AlreadyCitizen):
+        await town.install_founder(session, new_city, person)
+    assert await town.is_citizen(session, person.id, old_city), "прежнее гражданство цело"
 
 
 # --- city founding by a player (D-023, D-098, D-159) -------------------------
@@ -359,165 +363,146 @@ async def test_invite_only_otherwise_no_entry(
     assert await town.is_citizen(session, guest.id, city)
 
 
-async def test_exit_free_but_delayed(
+async def test_exit_is_instant(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Otherwise one leaves the city right before a verdict (D-160)."""
-    from datetime import UTC, datetime, timedelta
-
-    from src.constants import registry as R
-
+    """One asks and it is over: no declaration, no term served (D-281)."""
     city, core = await _capital(session, catalog)
     identity, body = await _resident(session, core, "Уходящий")
     await town.join(session, body, city)
 
-    gone = datetime.now(UTC)
-    entry = await town.leave(session, constants, identity, now=gone)
-    assert entry.leaving_at == gone + timedelta(days=constants[R.CITY_EXIT_DELAY])
-    assert await town.is_citizen(session, identity.id, city), "до срока человек ещё гражданин"
-
-    #: The term is up -- the journal job closes the citizenship.
-    from sqlalchemy import select as _select
-
-    from src.models.job import Job, JobKind, JobState
-
-    job = (
-        (
-            await session.execute(
-                _select(Job).where(
-                    Job.kind == JobKind.CITIZENSHIP_EXIT.value,
-                    Job.state == JobState.PENDING,
-                )
-            )
-        )
-        .scalars()
-        .first()
-    )
-    assert job is not None
-    await town.exited(session, job)
+    left = await town.leave(session, identity)
+    assert left is not None and left.id == city.id
     assert await town.citizenship(session, identity.id) is None
 
 
-async def test_print_condition_grants_citizenship_for_term(
+async def test_an_open_loan_holds_the_citizenship(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Consent was given by choosing the door: no admission needed, the term holds (D-184)."""
-    from datetime import UTC, datetime
+    """The city answers for its borrowers, so the debtor settles up first (D-281).
+
+    The loan is written straight into the table rather than borrowed through
+    the bank: what is checked here is the exit's condition, and the bank's own
+    road to the same rule is checked where the bank is (`test_bank_city`).
+    """
+    from src.models.bank import Loan, LoanState
 
     city, core = await _capital(session, catalog)
-    city.laws = {"spawn_citizenship": "обязательно", "spawn_term": "3"}
+    identity, body = await _resident(session, core, "Должник")
+    await town.join(session, body, city)
+
+    debt = Loan(
+        identity_id=identity.id,
+        principal=money(100),
+        outstanding=money(100),
+        rate=10,
+        city_id=city.id,
+    )
+    session.add(debt)
     await session.flush()
 
-    was_printed = datetime.now(UTC)
-    newcomer = await world.create_identity(session, f"Связанный-{uuid.uuid4().hex[:6]}")
-    entry = await town.bind(session, constants, catalog, city, newcomer, now=was_printed)
-    assert entry is not None and await town.is_citizen(session, newcomer.id, city)
-    assert entry.bound_until == was_printed + timedelta(days=3)
+    with pytest.raises(town.InDebt):
+        await town.leave(session, identity)
+    assert await town.is_citizen(session, identity.id, city), "отказ не выпускает и не выгоняет"
 
-    #: Cannot leave before the term: that is the enforcement of the condition.
-    with pytest.raises(town.Bound):
-        await town.leave(session, constants, newcomer, now=was_printed + timedelta(days=2))
-    #: After the term -- an ordinary exit with the delay (D-160).
-    gone = await town.leave(session, constants, newcomer, now=was_printed + timedelta(days=4))
-    assert gone.leaving_at is not None
-
-
-async def test_obligation_binds_person_not_city(
-    session: AsyncSession, constants: Constants, catalog: Catalog
-) -> None:
-    """Exile breaks the term: otherwise the city cannot get rid of whom it bound itself."""
-    from datetime import UTC, datetime
-
-    city, core = await _capital(session, catalog)
-    president, _ = await _resident(session, core, "Президент")
-    await town.install_founder(session, city, president)
-    city.laws = {"spawn_citizenship": "обязательно", "spawn_term": "10"}
+    #: Settled -- and the same asking lets one out.
+    debt.state = LoanState.REPAID
+    debt.outstanding = 0
     await session.flush()
-
-    newcomer = await world.create_identity(session, f"Лишний-{uuid.uuid4().hex[:6]}")
-    await town.bind(session, constants, catalog, city, newcomer, now=datetime.now(UTC))
-
-    await town.exile(session, president, city, newcomer)
-    assert await town.citizenship(session, newcomer.id) is None
+    assert await town.leave(session, identity) is not None
+    assert await town.citizenship(session, identity.id) is None
 
 
-async def test_city_without_conditions_binds_no_one(
+async def test_the_door_makes_a_citizen(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """The vault default is "no": printing neither gives nor requires citizenship."""
+    """Whoever chose the city is its citizen from the print, with nothing asked (D-281)."""
     city, core = await _capital(session, catalog)
     yard = await world.node_container(session, core)
     await world.grant_item(session, yard, world.BIOPRINTER, quality=50, origin="тест")
+    #: Even a city that admits by invitation only: its own door is the invitation.
+    city.charter = {**city.charter, town.ADMISSION: town.INVITE}
+    await session.flush()
 
-    newcomer, _ = await world.spawn(session, f"Вольный-{uuid.uuid4().hex[:6]}", core)
-    assert await town.citizenship(session, newcomer.id) is None
+    newcomer, _ = await world.spawn(session, f"Новичок-{uuid.uuid4().hex[:6]}", core)
+    entry = await town.citizenship(session, newcomer.id)
+    assert entry is not None and entry.city_id == city.id
 
-    door = next(d for d in await world.doors(session, constants, catalog) if d["node"] == core.key)
-    assert door["citizenship"] is False and door["term"] == 0
+    #: And nothing holds it: no term was written, so the first minute is enough.
+    assert await town.leave(session, newcomer) is not None
 
 
-async def test_forerunner_print_carries_no_conditions(
+async def test_forerunner_printer_enrols_into_its_city(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """The machine is nobody's: the city does not hang citizenship on it (D-028, D-184).
+    """The machine is nobody's, the person who steps out of it is not (D-281).
 
-    Otherwise in a one-city world no unconditional door would remain at all,
-    and "one can always refuse" would stop working.
+    The Forerunners' Printer stands on the capital's land in the world as
+    seeded, and that land is what decides: "no conditions of the city" used to
+    mean "no city at all", and a newcomer coming out of the eternal machine
+    belonged nowhere until they asked somebody to take them in.
     """
     from src.engine import death
 
     city, core = await _capital(session, catalog)
     core.properties = {**core.properties, death.PRECURSOR: True}
-    city.laws = {"spawn_citizenship": "обязательно", "spawn_term": "5"}
     yard = await world.node_container(session, core)
     await world.grant_item(session, yard, world.BIOPRINTER, quality=50, origin="тест")
     await session.flush()
 
-    freeman, _ = await world.spawn(session, f"Ничей-{uuid.uuid4().hex[:6]}", core)
-    assert await town.citizenship(session, freeman.id) is None
-
-    door = next(d for d in await world.doors(session, constants, catalog) if d["node"] == core.key)
-    assert door["precursor"] is True
-    assert door["citizenship"] is False and door["term"] == 0
-
-
-async def test_print_conditions_visible_before_choice(
-    session: AsyncSession, constants: Constants, catalog: Catalog
-) -> None:
-    """What the engine will enforce, the newcomer must read on the card, not in a refusal."""
-    city, core = await _capital(session, catalog)
-    city.laws = {
-        "spawn_citizenship": "обязательно",
-        "spawn_term": "7",
-        "tax_trade": "12",
-    }
-    yard = await world.node_container(session, core)
-    await world.grant_item(session, yard, world.BIOPRINTER, quality=50, origin="тест")
-    await session.flush()
-
-    door = next(d for d in await world.doors(session, constants, catalog) if d["node"] == core.key)
-    assert door["citizenship"] is True
-    assert door["term"] == 7
-    assert door["tax"] == 12
-
-
-async def test_print_binds_newcomer_immediately(
-    session: AsyncSession, constants: Constants, catalog: Catalog
-) -> None:
-    """The condition takes effect at the same moment as the body: otherwise it is an
-    announcement."""
-    city, core = await _capital(session, catalog)
-    city.laws = {"spawn_citizenship": "обязательно", "spawn_term": "2"}
-    yard = await world.node_container(session, core)
-    await world.grant_item(session, yard, world.BIOPRINTER, quality=50, origin="тест")
-    await session.flush()
-
-    newcomer, _ = await world.spawn(session, f"Принятый-{uuid.uuid4().hex[:6]}", core)
-    entry = await town.citizenship(session, newcomer.id)
+    freeman, _ = await world.spawn(session, f"Предтечин-{uuid.uuid4().hex[:6]}", core)
+    entry = await town.citizenship(session, freeman.id)
     assert entry is not None and entry.city_id == city.id
-    assert entry.bound_until is not None
-    with pytest.raises(town.Bound):
-        await town.leave(session, constants, newcomer)
+
+    door = next(d for d in await world.doors(session, constants, catalog) if d["node"] == core.key)
+    assert door["precursor"] is True and door["city"] == city.name
+
+
+async def test_a_printer_outside_any_city_enrols_into_nothing(
+    session: AsyncSession, catalog: Catalog
+) -> None:
+    """There is nowhere to write: a machine on nobody's land makes nobody's people."""
+    from src.engine import death
+
+    stamp = uuid.uuid4().hex[:8]
+    planet = await world.create_node(
+        session, f"terra.{stamp}", "Терра", area_m2=1, layer=Layer.SPACE
+    )
+    wild = await world.create_node(
+        session,
+        f"terra.wild.{stamp}",
+        "Пустошь",
+        area_m2=100,
+        layer=Layer.PLANET,
+        parent=planet,
+        properties={death.PRECURSOR: True},
+    )
+    yard = await world.node_container(session, wild)
+    await world.grant_item(session, yard, world.BIOPRINTER, quality=50, origin="тест")
+    await session.flush()
+
+    loner, _ = await world.spawn(session, f"Ничей-{uuid.uuid4().hex[:6]}", wild)
+    assert await town.citizenship(session, loner.id) is None
+
+
+async def test_the_card_shows_the_city_and_its_tax(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """What the engine will enforce, the newcomer reads on the card, not in a refusal.
+
+    Citizenship is not a key of its own (D-225): a city door gives it and a
+    door with no city cannot, so `city` on the card already says it.
+    """
+    city, core = await _capital(session, catalog)
+    city.laws = {"tax_trade": "12"}
+    yard = await world.node_container(session, core)
+    await world.grant_item(session, yard, world.BIOPRINTER, quality=50, origin="тест")
+    await session.flush()
+
+    door = next(d for d in await world.doors(session, constants, catalog) if d["node"] == core.key)
+    assert door["city"] == city.name
+    assert door["tax"] == 12
+    assert "citizenship" not in door and "term" not in door
 
 
 async def test_exile_goes_by_court_right(

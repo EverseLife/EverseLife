@@ -100,7 +100,7 @@ async def offered_rate(
     *,
     amount: int = 0,
     now: datetime | None = None,
-) -> tuple[float, list[Says]]:
+) -> tuple[float | None, list[Says]]:
     """The rate this borrower would actually get, and why (D-193).
 
     The same arithmetic as `borrow`, only without taking the money: a rate that
@@ -113,18 +113,18 @@ async def offered_rate(
     key = await key_rate(session, constants)
     entry = await town.citizenship(session, who.id)
     if entry is None:
-        premium = constants[R.BANK_RISK_PREMIUM].max
-        return key + premium, [
-            Says("bank-why-offer-no-citizenship", {"key": key, "premium": premium})
-        ]
+        #: No rate at all rather than a worse one (D-281): nobody lends to a
+        #: person belonging nowhere. Empty and not zero -- the window must say
+        #: that before the button, and "0%" beside "no loan" reads as free money.
+        return None, [Says("bank-why-offer-no-citizenship")]
 
     city = await town.by_id(session, entry.city_id)
     if city is None:  # pragma: no cover -- citizenship into nowhere is a bug
         return key, [Says("bank-why-offer-key", {"key": key})]
 
     permitted, _, free = await city_line(session, constants, city, now=moment)
+    margin = city_margin(constants, catalog, city)
     if amount <= free:
-        margin = city_margin(constants, catalog, city)
         return key + margin, [
             Says(
                 "bank-why-offer-city",
@@ -135,13 +135,15 @@ async def offered_rate(
             )
         ]
 
-    premium = constants[R.BANK_RISK_PREMIUM].max
-    return key + premium, [
+    #: The line is out, and past it there is nothing -- the direct loan from
+    #: the capital is gone (D-281). The rate answered is still the city's own:
+    #: it is the rate of the loan one may take for what the line has left.
+    return key + margin, [
         Says(
             "bank-why-offer-line-exhausted",
             {
                 "key": key,
-                "premium": premium,
+                "margin": margin,
                 "city": city.name,
                 "permitted": money_str(permitted),
                 "free": money_str(free),

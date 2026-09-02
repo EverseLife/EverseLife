@@ -18,7 +18,14 @@ from src.constants import Constants
 from src.constants import registry as R
 from src.engine import city as town
 from src.engine import events, ledger
-from src.engine.bank._base import BankError, NothingToRepay, TooMuch, key_rate, reserve_account
+from src.engine.bank._base import (
+    BankError,
+    NothingToRepay,
+    NotOurs,
+    TooMuch,
+    key_rate,
+    reserve_account,
+)
 from src.engine.bank.line import city_line, city_margin
 from src.engine.bank.trust import interest_paid_total, personal_turnover, trust
 from src.engine.errors import Says
@@ -51,10 +58,12 @@ async def borrow(
 ) -> Loan:
     """Take a loan. Money comes from the reserve; the shortfall is printed (D-087).
 
-    The loan goes through the city of citizenship (D-175): the rate is key plus
-    city margin, and the loan takes up the city's credit line with the capital.
-    No citizenship or line exhausted -- a direct loan from the capital at the
-    worse rate.
+    The loan goes through the city of citizenship and **only** through it
+    (D-175, D-281): the rate is key plus the city margin, and the loan takes up
+    the city's credit line with the capital. No citizenship -- no loan; the
+    line exhausted -- no loan either. The direct loan from the capital at the
+    risk premium is gone: the capital lends against a line, and a person
+    belonging to nowhere puts up none.
     """
 
     moment = now or datetime.now(UTC)
@@ -62,12 +71,21 @@ async def borrow(
     if total <= 0:
         raise BankError(key="bank-loan-not-positive")
 
-    #: The free room under the limit is a remainder like a purse, and a loan
-    #: adds a row rather than changing one -- so what is locked is the borrower
-    #: themselves (CLAUDE.md). Without it two commands read the same room and
-    #: both take it in full. The city's line is the other remainder, shared by
-    #: every citizen; it is taken below, once the city is known.
+    #: Three remainders, three rows, one direction: person, then their
+    #: citizenship, then the city. The free room under the personal limit is a
+    #: remainder like a purse, and a loan adds a row rather than changing one,
+    #: so what is locked for it is the borrower themselves (CLAUDE.md). The
+    #: citizenship is taken held because `city.leave` reads that same row held:
+    #: a loan and an exit cannot cross, and the city is never left answering
+    #: for the debt of somebody who has already walked out. Nothing anywhere
+    #: takes these three the other way round, so nothing deadlocks.
     await session.execute(select(Identity.id).where(Identity.id == who.id).with_for_update())
+    entry = await town.citizenship(session, who.id, hold=True)
+    if entry is None:
+        raise NotOurs(key="bank-no-citizenship")
+    city = await town.by_id(session, entry.city_id)
+    if city is None:  # pragma: no cover -- citizenship into nowhere is a bug
+        raise NotOurs(key="bank-no-citizenship")
 
     limit_, reason = await credit_limit(session, constants, who.id, now=moment)
     available = limit_ - await debt_of(session, who.id)
@@ -82,30 +100,23 @@ async def borrow(
             inner={"reason": reason},
         )
 
-    #: The city of citizenship and its line. The line shrinks smoothly: exactly
-    #: the remainder is available, and a "take everything before the cutoff"
-    #: run hits arithmetic.
-    city = None
-    margin = 0.0
-    entry = await town.citizenship(session, who.id)
-    if entry is not None:
-        candidate = await town.by_id(session, entry.city_id)
-        if candidate is not None:
-            #: The line is one remainder for the whole city (D-175): without
-            #: its row two citizens read the same free room and both lie down
-            #: on it, and `bank.debt_to_turnover_cap` is through.
-            await session.execute(select(City.id).where(City.id == candidate.id).with_for_update())
-            _, _, free = await city_line(session, constants, candidate, now=moment)
-            if total <= free:
-                city = candidate
-                margin = city_margin(constants, catalog, candidate)
+    #: The city's line is the third remainder and one for the whole city
+    #: (D-175): since D-281 it is the loan's only brake -- past it there is no
+    #: dearer loan from the capital any more, there is nothing -- so two
+    #: citizens must not both read it free. The row serialises them, and the
+    #: loser rereads a line that already carries the winner's loan. The same
+    #: lock the treasury's own borrowing takes (`works_city.credit`).
+    await session.execute(select(City.id).where(City.id == city.id).with_for_update())
+    _, _, free = await city_line(session, constants, city, now=moment)
+    if total > free:
+        raise TooMuch(
+            key="bank-city-line-exhausted",
+            city=city.name,
+            free=money_str(max(0, free)),
+        )
 
-    if city is not None:
-        rate_value = await key_rate(session, constants) + margin
-    else:
-        #: A direct loan from the capital: the way out for non-citizens and
-        #: residents of cut-off cities, but at the top of the risk range (D-175).
-        rate_value = await key_rate(session, constants) + constants[R.BANK_RISK_PREMIUM].max
+    margin = city_margin(constants, catalog, city)
+    rate_value = await key_rate(session, constants) + margin
 
     #: The reserve is a steriliser: first we spend already existing TC, and
     #: print only the shortfall. Printing shows as a separate posting and in telemetry.
@@ -138,7 +149,7 @@ async def borrow(
         principal=total,
         outstanding=total,
         rate=rate_value,
-        city_id=None if city is None else city.id,
+        city_id=city.id,
         margin=margin,
         printed=printed,
         taken_at=moment,
@@ -155,7 +166,7 @@ async def borrow(
         amount=total,
         rate=rate_value,
         printed=printed,
-        city=None if city is None else city.name,
+        city=city.name,
         margin=margin,
     )
     return loan
