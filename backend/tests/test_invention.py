@@ -692,8 +692,8 @@ async def test_chosen_tier_feeds_the_batch(
     silent = await craft.plan(session, constants, catalog, body, NAILS, 1)
     chosen = await craft.plan(session, constants, catalog, body, NAILS, 1, tiers={INGOT: fine})
     assert silent.quality < chosen.quality
-    #: The forge caps the ceiling; under it the material is the chosen 85, not the poor 25.
-    assert chosen.quality == pytest.approx(chosen.ceiling * 85 / 100, abs=1)
+    #: The forge is a cap (D-267); under it the material is the chosen 85, not the poor 25.
+    assert chosen.quality == pytest.approx(min(chosen.ceiling, 85), abs=1)
 
     with pytest.raises(craft.NotEnough):
         await craft.plan(session, constants, catalog, body, NAILS, 20, tiers={INGOT: poor})

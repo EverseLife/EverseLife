@@ -70,7 +70,15 @@ def forecast_quality(
     material: float,
     accuracy: float,
 ) -> float:
-    """Quality forecast: the ceiling and how close to it we came."""
+    """Quality forecast: the ceiling, and the material judged under it.
+
+    The ceiling is a **cap**, not a multiplier (D-267): a station of sixty
+    turns out what its inputs are, up to sixty. Multiplying used to compound
+    down every chain -- oil of sixty through a column of thirty-six gave
+    naphtha of fifteen, and that through a reactor of twenty-five gave
+    plastic of four -- and every station made on a station came out worse
+    than its parent. Now good inputs on a good enough station stay good.
+    """
     scale = constants[R.QUALITY_SCALE]
     if proc.mix:
         closeness = (
@@ -79,7 +87,7 @@ def forecast_quality(
         ) / PERCENT
     else:
         closeness = material
-    value = ceiling * closeness / scale.max
+    value = min(ceiling, closeness)
     #: Craft premium: the master sees today's ore is worse than usual and
     #: adjusts proportions for it (15-quality). The unattended machine has its
     #: own ceiling instead (`auto.quality_cap`, D-253) -- that is the whole
