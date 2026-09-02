@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Nurlan Urazkulov
 
-"""Trust as an asset (D-173): personal turnover, what was repaid before, and
-the reports that cut trust without burying anybody.
+"""Trust as an asset (D-173): personal turnover, the interest paid on loans
+carried, and the reports that cut trust without burying anybody.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from src.constants import Constants
 from src.constants import registry as R
 from src.engine import events
 from src.engine.bank._base import BankError
-from src.models.bank import DefectReport, Loan, LoanState
+from src.models.bank import DefectReport, Loan
 from src.models.event import EventKind
 from src.models.identity import Identity
 from src.models.market import Order, Trade
@@ -71,11 +71,28 @@ async def personal_turnover(
     return sum(int(deal.price * amount_float(deal.amount)) for deal in deals)
 
 
-async def repaid_total(session: AsyncSession, identity_id: uuid.UUID) -> int:
-    """Sum of previously repaid loans: credit history is an asset (D-173)."""
+async def interest_paid_total(session: AsyncSession, identity_id: uuid.UUID) -> int:
+    """Interest paid on this identity's loans, in minor units.
+
+    Credit history is an asset, but the asset is **servicing**, not the round
+    trip (D-280 revises D-173): the sum of repaid principal grew on a loan taken
+    and given back the same second -- interest for zero time is zero -- and the
+    limit lifted itself by its own bootstraps, cycle after cycle, at no cost.
+    Interest cannot be run up without carrying the debt through real time and
+    paying real money for it.
+
+    **Paid by whoever paid it.** A third party settling for the debtor (D-063),
+    a city bailing out its own (D-175), the withholding from an overdue debt
+    (D-168) and the treasury paying for a prisoner (D-174) all count: the money
+    left somebody's account either way. Discipline lives in the record
+    multiplier, not here.
+
+    Open loans count too: money leaves the payer when the payment is made, not
+    when the loan closes.
+    """
     result = await session.scalar(
-        select(func.coalesce(func.sum(Loan.principal), 0)).where(
-            Loan.identity_id == identity_id, Loan.state == LoanState.REPAID
+        select(func.coalesce(func.sum(Loan.interest_paid), 0)).where(
+            Loan.identity_id == identity_id
         )
     )
     return int(result or 0)
