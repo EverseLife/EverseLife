@@ -44,15 +44,25 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Catalog, Constants
 from src.engine import city as town
 from src.engine import net, travel, world
+from src.models.world import Node
 from tests.conftest import Counter
 from tests.net_kit import _capital
 
 NOW = datetime(2026, 9, 2, 12, 0, tzinfo=UTC)
 
-#: The whole command on the scene below. Loose on purpose -- see the docstring:
-#: 63 measured on 2026-09-02, and the slack is for an honest new field, not for
-#: a new fan-out. A fan-out costs tens.
-LOOK_BUDGET = 70
+#: The whole command, on the two scenes below. Two numbers and not one, because
+#: they measure different worlds and must not share a margin: a city with no
+#: roads in it (63 measured on 2026-09-02) and the same city with two streets
+#: (70 -- two of them the Net's map, the rest `look`'s own, see
+#: `_citizen_with_channels`). One ceiling over both would sit flush against the
+#: larger, and the first honest field added anywhere in `look` would break it;
+#: whoever tripped over that would raise the number rather than read it.
+#:
+#: Both are ceilings for a **five-node** city. `terra.capital` has thirteen, and
+#: the territory grows as land is bought, so neither number is a promise about
+#: the live world -- they guard against a new fan-out, not against the old one.
+LOOK_BUDGET = 75
+LOOK_BUDGET_ON_ROADS = 80
 
 #: What one more channel, or one more place an author writes from, is allowed
 #: to add. Zero: the count is a count, not a walk over the reader's world.
@@ -81,22 +91,30 @@ async def _citizen_with_channels(
     everybody stands in the core, `road_seconds` returns on `here == there`, and
     a measurement over this scene never touches the map at all.
 
-    Two streets and not ten, when they are wanted. `look` reads a container and
-    its contents per node of the city, so every street added costs it two
-    queries that have nothing to do with the Net -- ten of them add twenty and
-    bury the two this scene exists to include. That fan-out is `look`'s own and
-    older than this file; it is named here so that a ceiling measured on a small
-    city is not mistaken for one that holds on a large one.
+    Two streets and not ten, because a street is not free to `look`. Finding a
+    city's core means finding the Forerunners' printer (`city.lookup.core`), and
+    where the city's own node does not hold one the search asks **every** node
+    of the territory what stands in it -- two queries each, and it cannot stop
+    at the first, because a precursor's machine outranks an older one. Ten
+    streets add twenty queries that have nothing to do with the Net and bury the
+    two this scene exists to include. That fan-out is `look`'s own and older
+    than this file; it is named here so that a ceiling measured on a small city
+    is not mistaken for one that holds on a large one.
     """
     city, core, founder = await _capital(session, catalog)
     reader = await world.create_identity(session, f"Читатель-{uuid.uuid4().hex[:6]}")
     await world.print_body(session, reader, core)
     await town._enroll(session, city, reader.id, why="test")
 
+    delegate = await session.get(Node, city.node_id)
     where = [core]
     for _ in range(streets):
+        #: A child of the city's node, as the core is -- not of the core. A node
+        #: whose parent is a plot is the shape of a **storey**
+        #: (`estate.building.frame`), and a scene that means streets should not
+        #: draw them as floors.
         street = await world.create_node(
-            session, f"terra.street.{uuid.uuid4().hex[:8]}", "Улица", area_m2=50, parent=core
+            session, f"terra.street.{uuid.uuid4().hex[:8]}", "Улица", area_m2=50, parent=delegate
         )
         street.owner_city_id = city.id
         await session.flush()
@@ -244,8 +262,12 @@ async def test_look_stays_within_its_budget(
     Measured twice, and the second time is the one that had to be added: with
     every author in the reader's own node the Net's road is never walked and the
     map never read, so a ceiling taken there would guard a `look` two queries
-    and one code path shorter than the real one. The second scene is two streets
-    wide for the reason `_citizen_with_channels` gives.
+    and one code path shorter than the real one.
+
+    It does not make the ceiling a measurement of the real command. The second
+    scene is two streets wide for the reason `_citizen_with_channels` gives, so
+    both numbers still describe a five-node city; what they guard is a new
+    fan-out appearing, not the size of the old one.
     """
     together = await _citizen_with_channels(session, catalog, channels=10)
     spent = await _look_cost(factory, together)
@@ -253,6 +275,6 @@ async def test_look_stays_within_its_budget(
 
     scattered = await _citizen_with_channels(session, catalog, channels=10, streets=2)
     on_roads = await _look_cost(factory, scattered)
-    assert on_roads <= LOOK_BUDGET, (
-        f"look по сцене с дорогами стоит {on_roads} запросов при потолке {LOOK_BUDGET}"
+    assert on_roads <= LOOK_BUDGET_ON_ROADS, (
+        f"look по сцене с дорогами стоит {on_roads} запросов при потолке {LOOK_BUDGET_ON_ROADS}"
     )

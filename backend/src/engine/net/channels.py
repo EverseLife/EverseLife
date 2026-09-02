@@ -34,8 +34,14 @@ from src.runtime import (
 
 # --- channels ----------------------------------------------------------------
 
-#: Before any post. Stands in for "has read nothing" where a comparison needs
-#: a value and not a branch -- see `_fresh`.
+#: Before any post. Stands in for "has read nothing" where a comparison needs a
+#: value and not a branch (`_fresh`), and for "never spoke" where a sort needs
+#: one (`channels`). Both want the same thing -- earlier than anything real --
+#: but they want it in different places: asyncpg sends `datetime.min` to
+#: Postgres as `-infinity`, which is what keeps the comparison in `_fresh` an
+#: index bound, while the sort takes `.timestamp()` of the year 1 in Python. A
+#: later hand that finds the year 1 alarming and writes 1970 here would leave
+#: the sort correct and quietly narrow the bound.
 DAWN = datetime.min.replace(tzinfo=UTC)
 
 
@@ -460,10 +466,12 @@ async def _unread_by_channel(
     places the unread posts were written in, a handful whatever the number of
     channels.
 
-    A cutoff costs no query, but it is not free: `road` answers the first
-    question about a node with a Dijkstra from it and keeps the result for
-    `NET_REACH_CACHE` sources, so a reader whose unread posts come from many
-    places pays a run per place and crowds that cache. Cheaper would be one
+    Within a planet a cutoff costs no query, but it is not free: `road` answers
+    the first question about a node with a Dijkstra from it and keeps the result
+    for `NET_REACH_CACHE` sources, so a reader whose unread posts come from many
+    places pays a run per place and crowds that cache. Between worlds it is not
+    even that: the road is `ship.passage_curve`, which reads the orbits and
+    solves a few hundred Lambert problems for the hour (D-271). Cheaper would be one
     Dijkstra from the **reader** -- the map is symmetric within a planet -- but
     the reader is not the source between planets, where the road is a departure
     from the author's world at that hour (D-271), and swapping the ends there
