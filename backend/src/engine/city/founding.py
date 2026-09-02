@@ -47,6 +47,7 @@ from src.models.city import (
 from src.models.event import EventKind
 from src.models.identity import BodyState, Identity
 from src.models.world import Layer, Node
+from src.runtime import CITY_NAME_LIMIT
 
 
 async def found(
@@ -60,6 +61,20 @@ async def found(
 
     The charter is filled with `laws.json` defaults: the city arises working,
     not as an empty questionnaire of forty questions (D-130).
+
+    **The name is taken as given, and nothing checks its length here.** This
+    is the seed's door: the capital and the delegate cities are founded from
+    node names written in the vault (`seed.py`, `seed_catchup.py`). The
+    player's door is `establish`, and the ceiling is there -- so what is
+    guaranteed is "no player founds a city with an over-long name", not "no
+    city has one".
+
+    The difference is not covered by anything today, only unexercised: the
+    vault build checks that a name exists in every language, not how long it
+    is, and the longest node name it writes is 22 characters against a
+    ceiling of 40. Closing it belongs in the vault build rather than in a
+    refusal here -- a content bug should stop the build, not reach a player
+    as words written for a human in a window.
     """
     existing_ = await by_node(session, node.id)
     if existing_ is not None:
@@ -205,6 +220,15 @@ async def establish(
     title = name.strip()
     if not title:
         raise CityError(key="city-found-no-name")
+    #: The bound sits on this door and not in `found`, because this is where a
+    #: player names a city -- `found` is also the seed's, and vault names are
+    #: the vault build's business, not a refusal's. There is no renaming
+    #: afterwards, so this is the only moment. What hangs on the bound is not
+    #: only the card: the city's official channel takes its name from the city,
+    #: and `CITY_NAME_LIMIT <= NET_NAME_LIMIT` (pinned in `test_city_founding`)
+    #: is what makes that name one the Net could have accepted itself.
+    if len(title) > CITY_NAME_LIMIT:
+        raise CityError(key="city-found-name-too-long", limit=CITY_NAME_LIMIT)
 
     identity = await session.get(Identity, body.identity_id)
     city = await found(session, catalog, node, title, founder=identity)

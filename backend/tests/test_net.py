@@ -249,6 +249,37 @@ async def test_city_channel_is_official_and_its_power_writes(
     assert await net.channels(session, constants, stranger.id, now=NOW) == []
 
 
+async def test_the_city_channel_is_named_after_the_city(
+    session: AsyncSession, catalog: Catalog
+) -> None:
+    """The official channel carries the city's name, not a trimming of it.
+
+    This is the link that made an unbounded city name a Net defect: whatever
+    the city is called, the channel is called the same, and nothing here
+    shortens it. The ceiling that keeps such a name inside `NET_NAME_LIMIT`
+    is the founding door's, and it is pinned where it is enforced --
+    `test_city_founding.test_city_name_is_bounded`, which founds through
+    `establish` and follows the name all the way here.
+    """
+    stamp = uuid.uuid4().hex[:8]
+    planet = await world.create_node(
+        session, f"terra.{stamp}", "Терра", area_m2=1, layer=Layer.SPACE
+    )
+    delegate = await world.create_node(
+        session,
+        f"terra.named.{stamp}",
+        "Место",
+        area_m2=400,
+        layer=Layer.PLANET,
+        parent=planet,
+    )
+    city = await town.found(session, catalog, delegate, f"Длинноимённый-{stamp}")
+
+    channel = await net.city_channel(session, city)
+    assert channel is not None, "у города есть официальный канал"
+    assert channel.name == city.name, "канал зовётся городом, а не обрезком"
+
+
 async def test_a_players_channel_is_written_by_its_author_only(
     session: AsyncSession, constants: Constants
 ) -> None:

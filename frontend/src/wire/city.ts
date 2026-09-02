@@ -214,3 +214,9 @@ export const LAW_SCOPE = "law:";
 /** The limit of the city's word (D-183). The server counts it (`runtime.CITY_ABOUT_LIMIT`);
  *  it is here so that the field does not let one type what is refused in advance. */
 export const CITY_ABOUT_LIMIT = 300;
+
+/** The limit of the city's name. The server counts it (`runtime.CITY_NAME_LIMIT`);
+ *  it is here for the same reason as the word's -- so the field stops where the
+ *  refusal would. The city's official channel is named after the city, which is
+ *  why this is no higher than a channel's own limit. */
+export const CITY_NAME_LIMIT = 40;
