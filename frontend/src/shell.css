@@ -47,6 +47,12 @@ header {
   gap: 0;
   align-items: stretch;
 }
+/* Folded, the sidebar is its rail: the column shrinks to it and the scene
+   takes the rest. The sidebar owns the fold, so the frame reads it off the
+   child rather than being told (`hud.css` hides the panel). */
+.frame:has(> .sidebar.folded) {
+  grid-template-columns: auto 1fr;
+}
 
 /* The rail and the panel beside it (D-238): the rail is pinned, the panel
    scrolls on its own (`hud.css` styles both). Half a tone darker than the

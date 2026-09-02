@@ -18,6 +18,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChatLine, Circle } from "../api";
 import { Refusal, useActions, useSession } from "../actions";
+import { folded as foldedPane, rememberFolded } from "../hud";
 import { t } from "../locale";
 import { PersonName } from "../Name";
 
@@ -65,8 +66,13 @@ export function Chat({ place }: Omit<Props, "busy" | "act">) {
   const [kind, setKind] = useState<(typeof KINDS)[number]["value"]>("speech");
   const [quiet, setQuiet] = useState(false);
   //: The strip folds to one line (D-238): the talk gives the scene its
-  //: height back when it is not being read.
-  const [folded, setFolded] = useState(false);
+  //: height back when it is not being read. The fold is remembered, like
+  //: the sidebar's: a strip that springs back on every reload nags.
+  const [folded, setFolded] = useState(() => foldedPane("chat"));
+  const fold = (next: boolean) => {
+    setFolded(next);
+    rememberFolded("chat", next);
+  };
   const scroll = useRef<HTMLDivElement>(null);
 
   const listen = useCallback(async () => {
@@ -142,7 +148,7 @@ export function Chat({ place }: Omit<Props, "busy" | "act">) {
         <button
           type="button"
           className="bare chat-fold"
-          onClick={() => setFolded((was) => !was)}
+          onClick={() => fold(!folded)}
           aria-expanded={!folded}
         >
           {folded ? t("ui-chat-unfold") : t("ui-chat-fold")}
@@ -193,9 +199,9 @@ export function Chat({ place }: Omit<Props, "busy" | "act">) {
           {t("ui-chat-say")}
         </button>
       </div>
-      <p className="note">
-        {mine ? t("ui-chat-note-circle", circleName(mine)) : t("ui-chat-note-all")}
-      </p>
+      {/* Only a circle needs a footnote: the common talk is the default,
+          and a line saying so under every message was noise. */}
+      {mine && <p className="note">{t("ui-chat-note-circle", circleName(mine))}</p>}
       </>
       )}
     </section>

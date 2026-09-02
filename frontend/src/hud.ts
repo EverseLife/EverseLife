@@ -35,3 +35,30 @@ export function onSidebarTab(handle: (tab: string) => void): () => void {
   window.addEventListener(SIDEBAR_TAB, onAsk);
   return () => window.removeEventListener(SIDEBAR_TAB, onAsk);
 }
+
+//: What folds stays folded (brief, desktop layout): the sidebar to its
+//: rail, the chat strip to its one line. A returning player keeps each
+//: fold, the way they keep the density: it is a setting, and a setting
+//: that forgets itself nags.
+export type Pane = "sidebar" | "chat";
+
+const foldKey = (pane: Pane) => `everselife.${pane}.folded`;
+
+/** Whether the pane was left folded last time. */
+export function folded(pane: Pane): boolean {
+  try {
+    return localStorage.getItem(foldKey(pane)) === "1";
+  } catch {
+    /* a browser without storage forgets, and that is fine */
+  }
+  return false;
+}
+
+export function rememberFolded(pane: Pane, isFolded: boolean): void {
+  try {
+    if (isFolded) localStorage.setItem(foldKey(pane), "1");
+    else localStorage.removeItem(foldKey(pane));
+  } catch {
+    /* see above */
+  }
+}

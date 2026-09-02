@@ -141,7 +141,7 @@ ui-net-nothing-found = Ничего не найдено.
 ui-chat-kind-speech = речь
 ui-chat-kind-action = действие
 ui-chat-kind-ooc = вне игры
-ui-chat-head = разговор
+ui-chat-head = Общение
 ui-chat-head-circle = { " " }· кружок «{ $named ->
         [true] { $name }
        *[false] без имени
@@ -158,7 +158,6 @@ ui-chat-note-circle = Вы в кружке «{ $named ->
         [true] { $name }
        *[false] без имени
     }»: слышат участники, остальным долетают обрывки.
-ui-chat-note-all = Слышат все, кто здесь. Собраться потише — кнопкой «кружки» слева.
 
 ## Кружки (D-238): кому слышно сказанное.
 

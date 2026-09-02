@@ -142,7 +142,7 @@ ui-net-nothing-found = Nothing found.
 ui-chat-kind-speech = speech
 ui-chat-kind-action = action
 ui-chat-kind-ooc = out of character
-ui-chat-head = talk
+ui-chat-head = Talk
 ui-chat-head-circle = { " " }· circle “{ $named ->
         [true] { $name }
        *[false] unnamed
@@ -159,7 +159,6 @@ ui-chat-note-circle = You are in the circle “{ $named ->
         [true] { $name }
        *[false] unnamed
     }”: the members hear you, and scraps carry to the rest.
-ui-chat-note-all = Everyone here hears you. To gather somewhere quieter, use the “circles” button on the left.
 
 ## Circles (D-238): who hears what is said.
 

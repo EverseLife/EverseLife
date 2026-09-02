@@ -35,7 +35,7 @@ import { Refusal, useActions, useBook, useNames, useSession } from "../actions";
 import { t } from "../locale";
 import { goodsKeyName, goodsName, plantName, tierName } from "../names";
 import { inputsOf, stationOf } from "../recipes";
-import { onSidebarTab, pendingSidebarTab } from "../hud";
+import { folded as foldedPane, onSidebarTab, pendingSidebarTab, rememberFolded } from "../hud";
 import { onThread } from "../people";
 
 /** What the inner panels (Doings, Trade) take from the sidebar's own actions. */
@@ -94,15 +94,32 @@ export function Sidebar({ look, onLogout }: { look: Look; onLogout: () => void }
   const { busy, act } = acting;
 
   const [tab, setTab] = useState<Tab>("me");
+  //: Folded: the rail alone, the panel hidden (brief, desktop layout). Any
+  //: ask to open a tab -- a mark on the rail, the header's quick buttons,
+  //: "write" from a card -- opens the panel too: nobody asks for a tab in
+  //: order to look at a closed door. On a phone the sidebar is a page of
+  //: its own and the fold is ignored by CSS, so the state needs no guard.
+  const [folded, setFolded] = useState(() => foldedPane("sidebar"));
+  const fold = useCallback((next: boolean) => {
+    setFolded(next);
+    rememberFolded("sidebar", next);
+  }, []);
+  const open = useCallback(
+    (name: Tab) => {
+      setTab(name);
+      fold(false);
+    },
+    [fold],
+  );
   //: "Write" from somebody's card lands in the Net tab, wherever it was asked from.
   const [wanted, setWanted] = useState<string | null>(null);
   useEffect(
     () =>
       onThread((name) => {
         setWanted(name);
-        setTab("net");
+        open("net");
       }),
-    [],
+    [open],
   );
   //: The header's quick buttons open tabs here too: the carried weight opens
   //: the inventory, the balance's popover links to finance (D-238). On a
@@ -113,12 +130,12 @@ export function Sidebar({ look, onLogout }: { look: Look; onLogout: () => void }
     const known = (name: string) =>
       TABS.some((item) => item.id === name) || name === STATE_TAB.id;
     const asked = pendingSidebarTab();
-    if (asked && known(asked)) setTab(asked as Tab);
+    if (asked && known(asked)) open(asked as Tab);
     return onSidebarTab((name) => {
       pendingSidebarTab();
-      if (known(name)) setTab(name as Tab);
+      if (known(name)) open(name as Tab);
     });
-  }, []);
+  }, [open]);
   const forgetWanted = useCallback(() => setWanted(null), []);
 
   //: A state office is at least one power in a city (D-155).
@@ -176,7 +193,7 @@ export function Sidebar({ look, onLogout }: { look: Look; onLogout: () => void }
             ? t("ui-side-tab-counted", { tab: named, n: String(count) })
             : named
         }
-        onClick={() => setTab(item.id)}
+        onClick={() => open(item.id)}
         title={t("ui-side-tab-title", { tab: named, about: t(item.of) })}
       >
         <Glyph name={item.icon} />
@@ -193,7 +210,7 @@ export function Sidebar({ look, onLogout }: { look: Look; onLogout: () => void }
   };
 
   return (
-    <aside className="sidebar">
+    <aside className={`sidebar${folded ? " folded" : ""}`}>
       {/* The rail: marks only, every tab pinned to the top. The word lives in
           the panel's title and in the tooltip, not nowhere (the brief's rule,
           moved rather than dropped). */}
@@ -205,9 +222,22 @@ export function Sidebar({ look, onLogout }: { look: Look; onLogout: () => void }
             {mark(STATE_TAB)}
           </>
         )}
+        {/* The fold, at the foot of the rail: the panel goes, the marks stay,
+            and a mark opens it again. Desktop only -- on a phone the rail
+            lies across the top and there is nothing beside it to fold. */}
+        <button
+          className="bare rail-fold"
+          aria-expanded={!folded}
+          aria-controls="side-body"
+          aria-label={t(folded ? "ui-side-unfold" : "ui-side-fold")}
+          title={t(folded ? "ui-side-unfold" : "ui-side-fold")}
+          onClick={() => fold(!folded)}
+        >
+          <Glyph name="fold" />
+        </button>
       </nav>
 
-      <div className="side-body">
+      <div className="side-body" id="side-body">
         <Refusal of={acting} />
         <h3 className="side-title">{t(tabs.find((item) => item.id === current)!.label)}</h3>
 

@@ -55,7 +55,8 @@ export type GlyphName =
   | "rooms"
   | "pinned"
   | "loose"
-  | "eye";
+  | "eye"
+  | "fold";
 
 /** One stroke width for all of them, so a row of icons reads as one set. */
 export const GLYPH_WIDTH = 1.25;
@@ -135,4 +136,7 @@ export const SHAPES: Record<GlyphName, string> = {
   loose: "M8 2.2v11.6M2.2 8h11.6M6.4 3.8L8 2.2l1.6 1.6M6.4 12.2L8 13.8l1.6-1.6M3.8 6.4L2.2 8l1.6 1.6M12.2 6.4L13.8 8l-1.6 1.6",
   //: An eye: look closer -- the details of a row, opened in place.
   eye: "M1.8 8C3.4 4.9 5.5 3.4 8 3.4s4.6 1.5 6.2 4.6C12.6 11.1 10.5 12.6 8 12.6S3.4 11.1 1.8 8zM8 6.2a1.8 1.8 0 100 3.6 1.8 1.8 0 100-3.6",
+  //: A chevron at a wall: the sidebar folds to its rail and opens again.
+  //: Drawn pointing left; the folded state mirrors it in CSS.
+  fold: "M10.2 3.2L5.4 8l4.8 4.8M2.6 3v10",
 };

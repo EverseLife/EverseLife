@@ -23,6 +23,8 @@
 ## The sidebar rail: the name of a tab, and one line saying what is behind it (D-238).
 
 ui-side-rail = sidebar sections
+ui-side-fold = collapse the sidebar
+ui-side-unfold = expand the sidebar
 ui-side-tab-me = account
 ui-side-tab-me-of = character details, password, email, view, sign out
 ui-side-tab-goods = inventory

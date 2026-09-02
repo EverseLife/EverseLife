@@ -176,6 +176,44 @@ button.rail-tab .tally {
   }
 }
 
+/* The fold at the foot of the rail: dimmer than a tab, it is furniture, not
+   a place to go. Mirrored when folded: the chevron points where the panel
+   would come from. */
+button.rail-fold {
+  margin-top: auto;
+  width: 40px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-control);
+  background: transparent;
+  color: var(--base-400);
+}
+button.rail-fold .glyph {
+  width: 15px;
+  height: 15px;
+}
+button.rail-fold:not(:disabled):hover {
+  color: var(--base-50);
+  background: var(--wash);
+}
+.sidebar.folded button.rail-fold .glyph {
+  transform: scaleX(-1);
+}
+/* Folded: the rail alone (brief, desktop layout: 320px down to the strip of
+   marks). The rail's own hairline goes with the panel: the sidebar's edge
+   is the one line left, not two tones side by side. The phone block below
+   undoes the fold -- there the sidebar is a page of its own, and hiding
+   its body would leave a rail over nothing. */
+.sidebar.folded .side-body {
+  display: none;
+}
+.sidebar.folded .rail {
+  border-right: 0;
+}
+
 /* The panel beside the rail: it scrolls, the rail does not. */
 .side-body {
   flex: 1;
@@ -540,6 +578,14 @@ button.emblem-pick[aria-pressed="true"] .glyph {
     width: 1px;
     height: 26px;
     margin: 0 0.4rem;
+  }
+  button.rail-fold {
+    display: none;
+  }
+  /* The fold is a desktop setting: it stays in storage, but here the page
+     shows its body whatever the class says. */
+  .sidebar.folded .side-body {
+    display: block;
   }
   .side-body {
     overflow: visible;
