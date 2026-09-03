@@ -87,6 +87,33 @@ async def _cooked(session, constants, catalog, body, filling) -> Item:
 # --- pot ---------------------------------------------------------------------
 
 
+async def test_the_meal_reported_is_the_meal_the_row_took(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """What the command answers is what `look` will show a moment later.
+
+    Stamina keeps hundredths. The credit used to be written straight to the
+    column, which rounded it, while the answer and the journal carried the
+    unrounded figure -- so the reply and the world disagreed by up to half a
+    hundredth, and the next read contradicted what the player had just been
+    told.
+    """
+    _, _, body = await _kitchen(session)
+    await _product(session, body, "beans", 60)
+    meal = await _cooked(session, constants, catalog, body, {"основа": "beans"})
+    body.stamina = Decimal("12.34")
+    await session.flush()
+    before = float(body.stamina)
+
+    restored = await food.eat(session, constants, catalog, body, meal)
+    await session.flush()
+    await session.refresh(body, ["stamina"])
+
+    assert restored == pytest.approx(float(body.stamina) - before)
+    #: And the row itself sits on the grid it is stored on.
+    assert Decimal(body.stamina) == Decimal(body.stamina).quantize(Decimal("0.01"))
+
+
 async def test_pot_quality_by_formula_D128(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:

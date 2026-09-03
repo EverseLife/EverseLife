@@ -120,10 +120,10 @@ ROUND_CHARGE = 3
 ROUND_ENERGY = 3
 #: A sliver a coarse store could not hold, kept to a billionth in a column of
 #: its own -- `EnergyPool.remainder`, `Body.air_owed`, `Body.stamina_owed`,
-#: `Item.wear_remainder`. The world runs
-#: continuously and its stores do not, so each pass leaves a little over;
-#: kept, it is spent on the next pass instead of being thrown away, and a
-#: thing read a hundred times a second ends where a thing read once does.
+#: `Item.wear_remainder`, `Rig.hopper_remainder`, `Rig.fuel_remainder`. The
+#: world runs continuously and its stores do not, so each pass leaves a little
+#: over; kept, it is spent on the next pass instead of being thrown away, and
+#: a thing read a hundred times a second ends where a thing read once does.
 #: Fine enough that its own rounding is nothing: a millionth of a thousandth.
 ROUND_REMAINDER = 9
 #: The body's heat reserve is stored to a hundredth of an hour (`Body.warmth`

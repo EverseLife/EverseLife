@@ -42,7 +42,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
-from decimal import Decimal
+from decimal import ROUND_FLOOR, Decimal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -57,11 +57,14 @@ from src.models.inventory import Item
 from src.models.rig import Rig as RigRow
 from src.models.world import Node, Vein
 from src.units import (
+    ROUND_AMOUNT,
+    ROUND_REMAINDER,
     SCALE_MAX,
     SCALE_MIN,
     SECONDS_PER_HOUR,
     amount,
     amount_float,
+    on_grid,
 )
 
 #: The rig thing class (D-215). A ladder milestone: reachable by the end of E2.75.
@@ -198,19 +201,79 @@ async def advance(
     )
     workers = max(0.0, min(hours, hours_by_fuel, hours_by_bunker, hours_by_vein))
 
-    mined = 0.0
+    mined = banked = 0.0
     if workers > 0:
-        mined = output_per_hour * workers
-        await _burn(session, yard.id, fuel * workers)
-        #: The machine eats the vein twice as fast: capital speeds up the world's depletion.
-        from_vein = amount(mined * constants[R.RIG_DEPLETION_MULTIPLIER])
-        #: Shared with the miners (`mining.swing`); same lock order: rig -> vein.
+        #: What the last pass raised and the hopper could not be credited with
+        #: is added first. The hopper keeps thousandths, and a short pass
+        #: raises less than one -- while the vein was emptied for it all the
+        #: same, and by twice as much again, so the ore left the world and
+        #: reached nobody. The sliver waits on the rig, not on the stamp:
+        #: `counted_at` measures the wear as well, and holding it back would
+        #: raise the same ore twice.
+        raised = output_per_hour * workers + float(rig.hopper_remainder)
+        banked = float(on_grid(raised, ROUND_AMOUNT, ROUND_FLOOR))
+        #: Shared with the miners (`mining.swing`) and with any other rig on
+        #: the same vein; same lock order: rig -> vein. The hours above were
+        #: planned against a free read, and a plan may be stale -- so nothing
+        #: the vein gives up is settled from that plan: it is all derived below,
+        #: under this lock. The coal is another matter and not bounded here --
+        #: `hours_by_fuel` is read free too, and `_burn` does not check what it
+        #: actually got, so a yard raided for its coal mid-pass can leave the
+        #: rig with ore it did not pay for. Older than this fix and left as it
+        #: was found.
         await session.refresh(vein, with_for_update=True)
+        #: The hours were capped by what the vein holds, but the sliver from
+        #: the last pass is added after that, so on the vein's last pass the
+        #: raise can ask for a shade more than is left in the ground. Take what
+        #: is there and no more, or the hopper is filled out of nothing -- the
+        #: back of the very coin this fixes. And what the ground allows is not
+        #: itself a whole thousandth: `rig.depletion_multiplier` is two, and a
+        #: pickaxe leaves an odd remainder behind it, so the half goes back on
+        #: the grid by the floor -- written to the hopper as it came, it would
+        #: round up, and the ore nobody dug for would be back by another door.
+        eats = constants[R.RIG_DEPLETION_MULTIPLIER]
+        room = amount_float(vein.remaining) / eats
+        banked = float(on_grid(min(banked, room), ROUND_AMOUNT, ROUND_FLOOR))
+        #: The sliver waits for the next pass, but only as far as the ground
+        #: can still cover it. What was asked for beyond that is ore nobody can
+        #: ever hand over -- the vein has not got it -- so it is dropped rather
+        #: than owed, and dropping it is what keeps this figure inside a column
+        #: that cannot hold a whole unit. Without the cap the plan above, made
+        #: on a free read, is enough on its own to overflow it: let a miner
+        #: empty the vein in between, and the whole hour's raise lands here.
+        #: That throw comes out of `tick_rigs`, which locks every rig in the
+        #: world in one transaction -- one exhausted vein would stop that step
+        #: for everybody's machines. The bound holds for any read, stale or fresh.
+        rig.hopper_remainder = on_grid(
+            max(0.0, min(raised - banked, room - banked)), ROUND_REMAINDER, ROUND_FLOOR
+        )
+        #: The vein gives up what was actually raised, not what was asked for.
+        #: The machine eats it twice as fast: capital speeds up the world's depletion.
+        from_vein = amount(banked * eats)
         before = vein.extracted
         vein.extracted += min(from_vein, vein.remaining)
         vein.remaining = max(0, vein.remaining - from_vein)
         _deplete(constants, vein, moment, before)
-        rig.hopper = Decimal(str(float(rig.hopper) + mined))
+        rig.hopper = on_grid(float(rig.hopper) + banked, ROUND_AMOUNT)
+        mined = banked
+
+    #: Coal for the hours that actually raised something, not for the hours
+    #: that went by. Fuel is written off in thousandths too, so a pass too
+    #: short to raise a thousandth used to burn nothing -- which was harmless
+    #: only while the ore was lost to the same rounding. Now the ore is kept,
+    #: and charging fuel by elapsed time would leave a rig that is settled
+    #: often raising ore for free: `rig.empty` settles it, and nothing
+    #: throttles that. Ore and coal are spent by one measure, so the pass that
+    #: banks the sliver pays the coal for every pass that saved it.
+    if banked > 0 and output_per_hour > 0:
+        #: And it too is written off in thousandths, while the coal a
+        #: thousandth of ore costs is thinner than that again -- so what cannot
+        #: be burned yet is owed and burned when it comes to one.
+        owed_coal = fuel * banked / output_per_hour + float(rig.fuel_remainder)
+        burns = float(on_grid(owed_coal, ROUND_AMOUNT, ROUND_FLOOR))
+        rig.fuel_remainder = on_grid(max(0.0, owed_coal - burns), ROUND_REMAINDER, ROUND_FLOOR)
+        if burns > 0:
+            await _burn(session, yard.id, burns)
 
     #: Wear goes by time, not by what is mined: an abandoned one falls apart.
     day = constants[R.TIME_DAY_TERRA]
