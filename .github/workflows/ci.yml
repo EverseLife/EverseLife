@@ -386,11 +386,13 @@ jobs:
           # landing's job shipped, the container kept the old config, and the
           # dashboard showed "No data" over a working exporter). SIGHUP is the
           # collector's reload; the file was checked before it was shipped.
-          # A collector that is not running is not this deploy's problem, so
-          # its absence is said and stepped over. No `docker compose exec` in
-          # this script: it reads stdin, and stdin here is the rest of the
-          # script -- the lines after it would be swallowed, not run.
-          docker compose kill -s HUP prometheus || echo "prometheus is not running; reload skipped"
+          # A collector that is not running is not this deploy's problem:
+          # compose says "no container to kill" and exits 0 by itself, and a
+          # failed signal on a live one is said and stepped over. No
+          # `docker compose exec` in this script: it reads stdin, and stdin
+          # here is the rest of the script -- the lines after it would be
+          # swallowed, not run.
+          docker compose kill -s HUP prometheus || echo "prometheus reload failed; the collector keeps the old config"
           docker logout ghcr.io
           docker image prune -f
           docker compose ps
