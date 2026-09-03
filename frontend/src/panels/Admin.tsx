@@ -51,6 +51,7 @@ import { Panel } from "./admin/Panel";
 import { Scopes } from "./admin/Scopes";
 import { Votes } from "./admin/Votes";
 import { Word } from "./admin/Word";
+import { NumberField } from "../NumberField";
 
 type Props = {
   look: Look;
@@ -421,11 +422,10 @@ export function Admin({ look }: Omit<Props, "busy" | "act">) {
                     <option key={name}>{name}</option>
                   ))}
                 </select>
-                <input
-                  type="number"
+                <NumberField
                   min={0}
                   value={amount}
-                  onChange={(e) => setAmount(Number(e.target.value))}
+                  onChange={(typed) => setAmount(typed ?? 0)}
                 />
                 <button
                   onClick={() =>
@@ -498,11 +498,10 @@ export function Admin({ look }: Omit<Props, "busy" | "act">) {
                   <div className="row">
                     <label>
                       <span>{t("ui-emission-amount")}</span>
-                      <input
-                        type="number"
+                      <NumberField
                         min={1}
                         value={print}
-                        onChange={(e) => setPrint(Number(e.target.value))}
+                        onChange={(typed) => setPrint(typed ?? 0)}
                       />
                     </label>
                     <button

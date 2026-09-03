@@ -325,6 +325,35 @@ tr.dragging {
 .chat-head .note {
   margin: 0;
 }
+/* The label keeps its words whole; the names take whatever is left between it
+   and the fold, and are cut where the room runs out (`panels/Here.tsx`). */
+.chat-head-what {
+  flex: none;
+}
+.chat-here {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: 0.78rem;
+}
+/* A person is the one thing the accent ever marks (D-238) -- the same rule the
+   speaker's name in the talk is drawn by. */
+.chat-here .person {
+  color: var(--accent);
+}
+/* The hidden copy the cut is measured against. Positioned, so a name's offset
+   inside it is the width of everything before that name; out of the flow, so
+   it takes no room in the line it measures. */
+.chat-here-copy {
+  position: absolute;
+  left: 0;
+  top: 0;
+  visibility: hidden;
+  white-space: nowrap;
+  pointer-events: none;
+}
 button.chat-fold {
   border: 0;
   background: transparent;

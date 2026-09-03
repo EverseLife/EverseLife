@@ -239,20 +239,10 @@ header {
   font-weight: 600;
 }
 
-/* The open tab wears the action colour (D-238): an underline bar instead of
-   the inverse slab, which now belongs to primary actions alone. Contrast and
-   weight still mark it -- the colour is never the only carrier. */
-.tabs button:not(.quiet):not(.link):not(.bare):not(:disabled) {
-  background: transparent;
-  color: var(--base-50);
-  border-color: transparent;
-  font-weight: 600;
-  box-shadow: inset 0 -2px 0 var(--act);
-}
-.tabs button:not(.quiet):not(.link):not(.bare):not(:disabled):hover {
-  filter: none;
-  background: var(--wash);
-}
+/* How an open tab is drawn lives in `controls.css`, beside the rule it has to
+   beat: it is the same statement as "a chosen thing is not an action", and the
+   two are a tie on specificity -- kept apart, the winner was whichever file
+   `index.css` imported later, and for a long time that was the wrong one. */
 
 /* --- the phone's four zones (brief section 9) -----------------------------
  *

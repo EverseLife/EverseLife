@@ -122,12 +122,15 @@
 }
 /* The tether is a state, not a fifth layer. Left alone it wore the act
    underline a chosen tab wears, and two underlined things in a bar where
-   exactly one layer is ever chosen read as two chosen tabs. It says "on" by
-   its frame and its full tone instead, and the act colour goes back to
-   meaning the one thing it means. */
+   exactly one layer is ever chosen read as two chosen tabs. So it says "on"
+   the way every other chosen toggle does -- a frame in the action colour and
+   the full tone -- and the underline stays the mark of the open layer alone.
+   The word and the mark change with the state as well -- tied or free, the
+   pin or the loose one -- so the colour is not carrying this by itself even
+   where the word is hidden. */
 .tabs button.cam-tie:not(.quiet):not(.link):not(.bare):not(:disabled) {
   box-shadow: none;
-  border-color: var(--base-600);
+  border-color: var(--act);
 }
 
 /* The two questions are not one row of equals: the height is a set of
@@ -200,16 +203,31 @@
     border-top: 1px solid var(--line);
     overflow: visible;
   }
-  /* The switcher keeps floating here -- it is marks alone by now (above), and
-     marks fit. The winder cannot be marks alone -- it is a slider and two
-     numbers -- so it is the one that steps out of the way, into the flow
-     under the map. */
+  /* Both bars step out of the way here, into the flow under the map. The
+     field is 230px tall on a 375px screen, and the switcher floating over its
+     top edge hid 50px of it -- a fifth of the world, and the fifth the body
+     usually stands in, because the camera centres on it. Under the map the
+     bars cost the height they take instead of the height they cover, and the
+     thumb reaches them where a phone's controls are looked for.
+     `order`, not markup: on a wide screen these float, and a bar that floats
+     belongs at the top of the field it floats over. */
+  .map-layers {
+    position: static;
+    order: 1;
+    margin: 0.4rem auto 0;
+  }
   .map-field > .sky {
     position: static;
+    order: 2;
     width: auto;
     max-width: none;
     justify-content: center;
     margin: 0.4rem 0 0;
+  }
+  /* Nothing floats over the field any more, so the empty layer's line has
+     nothing to step down past. */
+  .map-field > .note {
+    margin-top: 0.4rem;
   }
 }
 

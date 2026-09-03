@@ -41,6 +41,7 @@ import { goodsName } from "../names";
 import { t } from "../locale";
 import { TierPick } from "../Tier";
 import { stockOf } from "../tiers";
+import { NumberField } from "../NumberField";
 
 type Props = {
   look: Look;
@@ -242,11 +243,10 @@ export function Workshop({ look, machine }: Omit<Props, "busy" | "act">) {
                 </option>
               ))}
             </select>
-            <input
-              type="number"
+            <NumberField
               min={1}
               value={qty}
-              onChange={(e) => setQty(Number(e.target.value))}
+              onChange={(typed) => setQty(typed ?? 0)}
             />
           </div>
 
@@ -500,12 +500,11 @@ function Invent({
               </option>
             ))}
           </select>
-          <input
-            type="number"
+          <NumberField
             min={0}
             step="any"
             value={row.amount}
-            onChange={(e) => change(i, { amount: Number(e.target.value) })}
+            onChange={(typed) => change(i, { amount: typed ?? 0 })}
             title={t("ui-workshop-invent-per-unit")}
           />
           <TierPick
@@ -534,11 +533,10 @@ function Invent({
         </button>
         <label className="note">
           {t("ui-workshop-invent-units")}{" "}
-          <input
-            type="number"
+          <NumberField
             min={1}
             value={units}
-            onChange={(e) => setUnits(Number(e.target.value))}
+            onChange={(typed) => setUnits(typed ?? 0)}
           />
         </label>
         <button

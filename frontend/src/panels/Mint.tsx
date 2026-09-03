@@ -20,6 +20,7 @@ import { Refusal, useActions, useBook, useNames, useSession } from "../actions";
 import { goodsName, type Names } from "../names";
 import { t } from "../locale";
 import { TierPick } from "../Tier";
+import { NumberField } from "../NumberField";
 
 type Props = {
   look: Look;
@@ -118,12 +119,11 @@ export function Mint({ look, values }: Omit<Props, "busy" | "act">) {
             </option>
           ))}
         </select>
-        <input
-          type="number"
+        <NumberField
           min="1"
           step="1"
           value={qty}
-          onChange={(e) => setQty(Number(e.target.value))}
+          onChange={(typed) => setQty(typed ?? 0)}
           title={t("ui-mint-count")}
         />
         {/* Numbers travel as the digits already chosen here: handed over raw,

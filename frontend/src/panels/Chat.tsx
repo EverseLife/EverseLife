@@ -19,7 +19,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChatLine, Circle } from "../api";
 import { Refusal, useActions, useSession } from "../actions";
 import { folded as foldedPane, rememberFolded } from "../hud";
+import { Here } from "./Here";
 import { t } from "../locale";
+import { useNarrow } from "../narrow";
 import { PersonName } from "../Name";
 import { usePopover } from "../popover";
 
@@ -69,11 +71,20 @@ export function Chat({ place }: Omit<Props, "busy" | "act">) {
   //: The strip folds to one line (D-238): the talk gives the scene its
   //: height back when it is not being read. The fold is remembered, like
   //: the sidebar's: a strip that springs back on every reload nags.
-  const [folded, setFolded] = useState(() => foldedPane("chat"));
+  const [shut, setShut] = useState(() => foldedPane("chat"));
   const fold = (next: boolean) => {
-    setFolded(next);
+    setShut(next);
     rememberFolded("chat", next);
   };
+  //: On a phone the talk is not a strip under the scene but a section of its
+  //: own, chosen from the bar at the bottom (`shell.css`, brief section 9).
+  //: There is no scene above it to give height back to, so folding it would
+  //: leave the section empty but for the line that folded it -- and the way
+  //: out of the talk is the bar, not a button inside it. The remembered fold
+  //: is left alone: it belongs to the desktop's strip, and a phone must not
+  //: unfold the strip the desktop was left with.
+  const narrow = useNarrow();
+  const folded = shut && !narrow;
   const scroll = useRef<HTMLDivElement>(null);
 
   const listen = useCallback(async () => {
@@ -142,18 +153,24 @@ export function Chat({ place }: Omit<Props, "busy" | "act">) {
   return (
     <section className="chat">
       <div className="chat-head">
-        <span className="note">
+        <span className="note chat-head-what">
           {t("ui-chat-head")}
           {mine && t("ui-chat-head-circle", circleName(mine))}
         </span>
-        <button
-          type="button"
-          className="bare chat-fold"
-          onClick={() => fold(!folded)}
-          aria-expanded={!folded}
-        >
-          {folded ? t("ui-chat-unfold") : t("ui-chat-fold")}
-        </button>
+        {/* Who else stands in the room, in the head rather than in the lines:
+            presence is a fact about the place, and the talk is where one looks
+            for the people in it. */}
+        <Here place={place} />
+        {!narrow && (
+          <button
+            type="button"
+            className="bare chat-fold"
+            onClick={() => fold(!folded)}
+            aria-expanded={!folded}
+          >
+            {folded ? t("ui-chat-unfold") : t("ui-chat-fold")}
+          </button>
+        )}
       </div>
       {!folded && (
       <>
@@ -173,6 +190,10 @@ export function Chat({ place }: Omit<Props, "busy" | "act">) {
           <button
             key={option.value}
             className={kind === option.value ? "" : "quiet"}
+            //: The kind chosen is a choice, not an action (D-238): the slab
+            //: belongs to the verb beside it, and a reader is told which of
+            //: the three is on.
+            aria-pressed={kind === option.value}
             onClick={() => setKind(option.value)}
           >
             {t(option.label)}

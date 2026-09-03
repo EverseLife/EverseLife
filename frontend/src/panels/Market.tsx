@@ -43,6 +43,7 @@ import { catalogue, coins, exactly, floorOf, freeOnCounter, openAt, tierOf } fro
 import type { Position, QualityTier } from "../market";
 import { goodsKeyName, goodsName, tierName } from "../names";
 import { t } from "../locale";
+import { NumberField } from "../NumberField";
 
 //: The panel keeps its own waiting and its own refusal, so it takes neither.
 type Props = { look: Look };
@@ -522,15 +523,14 @@ export function Market({ look }: Props) {
               {/* The field obeys the thing (D-212): a counted one steps and
                   rounds to whole pieces -- the engine refuses a half loaf, and
                   a field must not offer what cannot be done. */}
-              <input
-                type="number"
+              <NumberField
                 step={whole ? 1 : "any"}
                 min="0"
                 value={volume}
-                onChange={(e) => {
-                  const typed = Number(e.target.value);
-                  if (!Number.isFinite(typed)) return;
-                  const held = Math.max(0, typed);
+                onChange={(typed) => {
+                  //: An emptied box is nothing to trade, and the two buttons
+                  //: below are already shut on a volume of nought.
+                  const held = Math.max(0, typed ?? 0);
                   setVolume(whole ? Math.floor(held) : held);
                 }}
               />
@@ -539,14 +539,13 @@ export function Market({ look }: Props) {
                 asked is no loss, so the floor reaches the tiers above it. */}
             <label>
               <span>{t("ui-market-floor")}</span>
-              <input
-                type="number"
+              <NumberField
                 step="1"
                 min={tiers[0]?.from ?? 0}
                 max={tiers[tiers.length - 1]?.to ?? 100}
                 value={floor}
-                onChange={(e) => {
-                  setFloor(Number(e.target.value));
+                onChange={(typed) => {
+                  setFloor(typed ?? 0);
                   floorIsMine.current = true;
                 }}
               />
@@ -556,13 +555,12 @@ export function Market({ look }: Props) {
               {/* Money steps by the coin's own hundredth; the field still takes
                   a typed price down to the last minor unit, because the book
                   has rungs there. */}
-              <input
-                type="number"
+              <NumberField
                 step="0.01"
                 min="0"
                 value={price}
-                onChange={(e) => {
-                  setPrice(Number(e.target.value));
+                onChange={(typed) => {
+                  setPrice(typed ?? 0);
                   priceIsMine.current = true;
                 }}
               />
@@ -704,6 +702,9 @@ export function Market({ look }: Props) {
           choice={choice}
           mark={pick}
           free={freeOn}
+          //: Only the orders standing here: an order is read from anywhere, but
+          //: a counter is one place, and the whole list lives in the sidebar.
+          orders={look.orders.filter((order) => order.node_key === node)}
           node={node}
           session={session}
           acting={acting}

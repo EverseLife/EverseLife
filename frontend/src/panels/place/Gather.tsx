@@ -10,6 +10,7 @@ import { t } from "../../locale";
 import { goodsName, propertyName, requirementName } from "../../names";
 import type { Props } from "./shared";
 import { PLACES } from "./shared";
+import { NumberField } from "../../NumberField";
 
 
 /** Place extraction (D-177): felling without a machine.
@@ -44,11 +45,10 @@ export function Gather({
       <Refusal of={acting} />
       <h2>{PLACES[sign] ? t(PLACES[sign]) : propertyName(names, sign)}</h2>
       <div className="row">
-        <input
-          type="number"
+        <NumberField
           min={1}
           value={qty}
-          onChange={(e) => setQty(Number(e.target.value))}
+          onChange={(typed) => setQty(typed ?? 0)}
           title={t("ui-place-gather-qty")}
         />
         {ways.flatMap((operation) =>

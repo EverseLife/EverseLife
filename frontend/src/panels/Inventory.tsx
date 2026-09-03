@@ -34,6 +34,7 @@ import { CHEST_ANY, chestOf, grip, noDrag } from "../drag";
 import { chosen, tally } from "../amounts";
 import { TERMINAL, classOf, firstOfClass, isGear } from "../classes";
 import { fill, isVessel } from "../liquids";
+import { whoIsHere, type Person } from "../people";
 import {
   GROUPINGS,
   SORTINGS,
@@ -49,9 +50,6 @@ import {
 } from "../arrange";
 
 type Props = { look: Look };
-
-/** Somebody standing in the same node: the only possible receiver. */
-type Person = { body: string; name: string };
 
 /** Which sub-question the open menu is asking. */
 type Asking = null | { item: string; about: "menu" | "where" | "whom" };
@@ -78,13 +76,17 @@ export function Inventory({ look }: Props) {
   const [parts, setParts] = useState<Record<string, number | null>>({});
   const [people, setPeople] = useState<Person[]>([]);
 
-  //: Who is here is asked for only when somebody is about to hand something
-  //: over: a list of names polled on every look would be a presence tracker.
+  //: Asked only when somebody is about to hand a thing over: what this list is
+  //: for here is the set of possible receivers, and it must not be fetched for
+  //: every open menu. Who stands in the room is a separate question with an
+  //: answer of its own (D-290): `panels/Here` names them in the talk's head, on
+  //: the room's own events rather than on a poll. The rule the old note here
+  //: stated -- never a list of names polled on every look -- still holds, and
+  //: is what both places are written to.
   useEffect(() => {
     if (asking?.about !== "whom") return;
-    void session
-      .send("people.here")
-      .then((answer) => setPeople((answer.people as Person[]) ?? []))
+    void whoIsHere(session)
+      .then(setPeople)
       .catch(() => setPeople([]));
   }, [session, asking?.about, look.node?.key]);
 
