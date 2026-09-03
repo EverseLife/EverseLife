@@ -78,8 +78,8 @@ export function Inventory({ look }: Props) {
 
   //: Asked only when somebody is about to hand a thing over: what this list is
   //: for here is the set of possible receivers, and it must not be fetched for
-  //: every open menu. Who stands in the room is a separate question and has an
-  //: answer of its own now -- `panels/Here` names them in the talk's head, on
+  //: every open menu. Who stands in the room is a separate question with an
+  //: answer of its own (D-290): `panels/Here` names them in the talk's head, on
   //: the room's own events rather than on a poll. The rule the old note here
   //: stated -- never a list of names polled on every look -- still holds, and
   //: is what both places are written to.

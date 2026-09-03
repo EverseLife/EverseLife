@@ -2,12 +2,20 @@
 // Copyright (C) 2026 Nurlan Urazkulov
 
 /**
- * Who else is standing here (D-043, D-222).
+ * Who else is standing here (D-290, on D-043 and D-222).
  *
  * A room where the only sign of another player is a line of talk is a room one
  * cannot tell apart from an empty one -- and the whole point of the location is
- * that bodies meet in it. So the talk's head names them: the label, then as
- * many names as the line holds, then how many did not fit.
+ * that bodies meet in it. Three things D-043 was paid for depend on knowing:
+ * what a leaked line costs, what a quiet place is worth, and whether the person
+ * you came to trade with is standing right there. So the talk's head names
+ * them: the label, then as many names as the line holds, then how many did not
+ * fit.
+ *
+ * **Only this node, and never a status.** The list is the room's, not the
+ * world's: a body on the road stands in no node and is in nobody's list, and
+ * nothing anywhere says who is online or when they were last seen. Being in the
+ * room is public; being in the world is not (D-290).
  *
  * **Nothing is polled.** The room says who came and who left -- `travel.*` and
  * `body.*` are visible to everybody in the node (`api/push/_base.py`) -- and
