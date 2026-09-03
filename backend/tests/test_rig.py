@@ -122,7 +122,7 @@ async def test_ore_kept_over_short_passes_is_paid_for_in_coal(
     Fuel is written off in thousandths as well, so a pass too short to burn
     one burns nothing. That was harmless only while the ore was lost to the
     same rounding -- self-punishing. Keeping the ore and still charging coal
-    by elapsed time would make `mining.empty`, which settles the rig and is
+    by elapsed time would make `rig.empty`, which settles the rig and is
     not throttled, a way of raising ore for nothing.
     """
     node, _, _, installation, _ = await _face(session, coal=100)
@@ -139,13 +139,18 @@ async def test_ore_kept_over_short_passes_is_paid_for_in_coal(
 
     burnt = coal_before - await rig._coal_available(session, yard.id)  # noqa: SLF001
     #: Ore did come out, and it was paid for: the coal spent is the fuel rate
-    #: over the output rate, times the ore banked. Exactly -- the coal not yet
-    #: thick enough to burn is owed on the rig, and counting it in is the
-    #: difference between this test and a tolerance wide enough to hide it.
+    #: over the output rate, times the ore banked -- with the coal not yet
+    #: thick enough to burn counted in, which is the difference between this
+    #: test and a tolerance wide enough to hide the whole sliver.
+    #:
+    #: The tolerance left is for the sliver's own floor: each pass drops what
+    #: falls past the ninth decimal, so the gap grows with the number of passes
+    #: and not with the sum. Sixty passes lose about a ten-millionth of a unit;
+    #: `abs` rather than `rel`, because that is how the error actually behaves.
     assert float(installation.hopper) > 0
     per_ore = constants[R.RIG_FUEL_PER_HOUR] / constants[R.RIG_OUTPUT_PER_HOUR]
     owed = burnt + float(installation.fuel_remainder)
-    assert owed == pytest.approx(float(installation.hopper) * per_ore)
+    assert owed == pytest.approx(float(installation.hopper) * per_ore, abs=1e-6)
 
 
 async def test_the_last_of_a_vein_is_banked_at_what_the_ground_gave(
@@ -159,11 +164,16 @@ async def test_the_last_of_a_vein_is_banked_at_what_the_ground_gave(
     to the nearest, which is up as often as down: up, and the hopper held ore
     the ground never gave; down, and the last of the vein went nowhere while
     the pass still reported it mined.
+
+    Both remainders here separate the two roundings, in opposite directions:
+    half to even carries `0.0035` up to `0.004` and `0.0015` up to `0.002`,
+    while the floor keeps `0.003` and `0.001`. A remainder of five would not --
+    on `0.0025` the two agree -- and would leave the case looking covered.
     """
     _, vein, _, installation, _ = await _face(session)
     #: A vein all but worked out, and a sliver already waiting from the pass
     #: before -- together they ask for more than is left in the ground.
-    for remaining in (7, 5):
+    for remaining in (7, 3):
         vein.remaining = remaining
         installation.hopper = Decimal(0)
         installation.hopper_remainder = Decimal("0.000900000")

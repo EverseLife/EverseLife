@@ -57,8 +57,8 @@ class Rig(Base):
     #: thousandths, and a short pass raises less than one -- and the vein was
     #: being emptied for it all the same, so the ore left the world without
     #: reaching anybody. Kept here it is credited on the next pass. It cannot
-    #: ride on `counted_at`: that stamp measures the mining, the fuel and the
-    #: wear, and holding it back would raise the same ore twice.
+    #: ride on `counted_at`: that stamp measures the mining and the wear, and
+    #: holding it back would raise the same ore twice.
     #: Always `0 <= hopper_remainder < 0.001`, and a check says so.
     hopper_remainder: Mapped[float] = mapped_column(
         Numeric(9, 9), nullable=False, default=0, server_default="0"

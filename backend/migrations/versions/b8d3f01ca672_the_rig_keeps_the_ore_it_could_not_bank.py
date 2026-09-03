@@ -11,9 +11,10 @@ been emptied for that same ore, and by twice as much again
 
 The sliver lives in a column of its own now and is credited on the next pass,
 and the vein is emptied for what was actually raised. It cannot ride on
-`counted_at`: that stamp measures the mining, the fuel and the wear together,
-and holding it back would raise the same ore a second time -- which is exactly
-what a race on the hopper caught when this family was fixed for the wear.
+`counted_at`: that stamp measures the mining and the wear together, and holding
+it back would raise the same ore a second time -- which is exactly what a race
+on the hopper caught when this family was fixed for the wear. The coal is no
+longer on that stamp at all: it is charged against the ore banked.
 
 It is always less than a thousandth, and a check says so: the width alone
 would not, `Numeric(9, 9)` holding anything under one. Existing rigs start at

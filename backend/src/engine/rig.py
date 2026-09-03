@@ -208,14 +208,19 @@ async def advance(
         #: raises less than one -- while the vein was emptied for it all the
         #: same, and by twice as much again, so the ore left the world and
         #: reached nobody. The sliver waits on the rig, not on the stamp:
-        #: `counted_at` measures the fuel and the wear as well, and holding it
-        #: back would raise the same ore twice.
+        #: `counted_at` measures the wear as well, and holding it back would
+        #: raise the same ore twice.
         raised = output_per_hour * workers + float(rig.hopper_remainder)
         banked = float(on_grid(raised, ROUND_AMOUNT, ROUND_FLOOR))
         #: Shared with the miners (`mining.swing`) and with any other rig on
         #: the same vein; same lock order: rig -> vein. The hours above were
-        #: planned against a free read, and a plan may be stale -- every figure
-        #: actually written is derived below, under this lock.
+        #: planned against a free read, and a plan may be stale -- so nothing
+        #: the vein gives up is settled from that plan: it is all derived below,
+        #: under this lock. The coal is another matter and not bounded here --
+        #: `hours_by_fuel` is read free too, and `_burn` does not check what it
+        #: actually got, so a yard raided for its coal mid-pass can leave the
+        #: rig with ore it did not pay for. Older than this fix and left as it
+        #: was found.
         await session.refresh(vein, with_for_update=True)
         #: The hours were capped by what the vein holds, but the sliver from
         #: the last pass is added after that, so on the vein's last pass the
@@ -236,9 +241,9 @@ async def advance(
         #: that cannot hold a whole unit. Without the cap the plan above, made
         #: on a free read, is enough on its own to overflow it: let a miner
         #: empty the vein in between, and the whole hour's raise lands here.
-        #: That throw comes out of `tick_rigs`, where every rig in the world
-        #: shares one transaction -- one exhausted vein would stop the tick for
-        #: everybody. The bound holds for any read, stale or fresh.
+        #: That throw comes out of `tick_rigs`, which locks every rig in the
+        #: world in one transaction -- one exhausted vein would stop that step
+        #: for everybody's machines. The bound holds for any read, stale or fresh.
         rig.hopper_remainder = on_grid(
             max(0.0, min(raised - banked, room - banked)), ROUND_REMAINDER, ROUND_FLOOR
         )
@@ -261,9 +266,9 @@ async def advance(
     #: throttles that. Ore and coal are spent by one measure, so the pass that
     #: banks the sliver pays the coal for every pass that saved it.
     if banked > 0 and output_per_hour > 0:
-        #: And it too is written off in thousandths, thinner than the coal a
-        #: thousandth of ore costs -- so what cannot be burned yet is owed and
-        #: burned when it comes to one.
+        #: And it too is written off in thousandths, while the coal a
+        #: thousandth of ore costs is thinner than that again -- so what cannot
+        #: be burned yet is owed and burned when it comes to one.
         owed_coal = fuel * banked / output_per_hour + float(rig.fuel_remainder)
         burns = float(on_grid(owed_coal, ROUND_AMOUNT, ROUND_FLOOR))
         rig.fuel_remainder = on_grid(max(0.0, owed_coal - burns), ROUND_REMAINDER, ROUND_FLOOR)

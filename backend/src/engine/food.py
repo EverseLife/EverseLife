@@ -118,9 +118,9 @@ async def _lock(session: AsyncSession, body: Body) -> Body:
 async def _portion(session: AsyncSession, item: Item) -> Item:
     """The stack's row, locked and reread.
 
-    Gone between the read and the lock means the last portion was eaten by
-    another socket in the meantime: it is no longer in the hands that were
-    reaching for it.
+    Gone between the read and the lock -- eaten to the last portion by another
+    socket, sold, carried off, spoiled, burned in an eruption: the refusal is
+    the same either way, because the answer to the only question `eat` asks is.
     """
     fresh = (
         (
@@ -154,6 +154,20 @@ async def eat(
     exists for. Asleep -- not eating: the mouth is busy sleeping.
     """
     moment = now or datetime.now(UTC)
+    body = await _lock(session, body)
+    #: And the portion's own row, in the order the rest of the engine takes
+    #: them: body, then stack. Locking the body is not enough for the stack --
+    #: it was read before the lock, so the count this session holds can already
+    #: be a meal out of date, and `item.amount -= one` would write that stale
+    #: count back and hand the second eater their portion free.
+    item = await _portion(session, item)
+
+    #: Every check below the locks, and none above them. A check made on a row
+    #: this session read a moment ago is a check on what was true then: the
+    #: loaf can be sold, moved or burned between the reading and the lock, and
+    #: eating it would then take a portion out of somebody else's container and
+    #: pay for it in this body's strength. The lock is worth nothing if the
+    #: question it protects was already answered.
     if body.state is not BodyState.ALIVE:
         raise FoodError(key="food-dead-eats")
     if body.sleeping_since is not None:
@@ -162,14 +176,6 @@ async def eat(
     pocket = await world.body_container(session, body)
     if item.container_id != pocket.id:
         raise FoodError(key="food-not-in-hands")
-
-    body = await _lock(session, body)
-    #: And the portion's own row, in the order the rest of the engine takes
-    #: them: body, then stack. Locking the body is not enough for the stack --
-    #: it was read before the lock, so the count this session holds can already
-    #: be a meal out of date, and `item.amount -= one` would write that stale
-    #: count back and hand the second eater their portion free.
-    item = await _portion(session, item)
 
     recipe = _recipe_of(catalog, item.type_key)
     if recipe is None or not recipe.food:

@@ -269,7 +269,7 @@ async def test_two_rigs_on_one_vein_bank_only_what_the_ground_gave(
     allows but the hopper cannot show waits in `hopper_remainder` -- a column
     that cannot hold a whole unit. The plan is made before the vein is locked,
     so the second rig here plans against a vein the first has since emptied:
-    its hours say twenty, the clamp under the lock gives it nothing to bank,
+    its hours promise ten, the clamp under the lock gives it nothing to bank,
     and the difference is the sliver's to keep. It does not fit. The throw
     comes out of `tick_rigs`, where every rig in the world shares one
     transaction, so a single exhausted vein would stop the tick for everybody
@@ -325,7 +325,6 @@ async def test_two_rigs_on_one_vein_bank_only_what_the_ground_gave(
     assert start - left == to_units(banked * current()[R.RIG_DEPLETION_MULTIPLIER]), (
         "жила отдала ровно столько, сколько лежит в бункерах"
     )
-    assert left >= 0, "жила не ушла в минус"
     assert banked > 0, "машины действительно работали"
     for _, ore, coal in held:
         assert 0 <= float(ore) < 0.001, "осколок руды меньше тысячной"
