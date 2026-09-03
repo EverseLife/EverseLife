@@ -126,6 +126,7 @@ finance-memo-too-long = основание длиннее { $limit } знако�
 finance-no-such-payee = нет такой личности: «{ $payee }»
 finance-self-transfer = перевод самому себе ничего не меняет
 finance-not-enough-money = на счету столько нет
+finance-no-such-posting = такой операции в выписке нет
 
 ## Городской госзаказ
 

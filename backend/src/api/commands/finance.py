@@ -33,11 +33,23 @@ from src.units import money
 
 @command("finance.statement")
 async def _finance_statement(state: dict, db: AsyncSession, message: dict) -> dict:
-    """The account statement: the latest operations of this identity (D-190)."""
-    return {
-        "money": await _money(db, state["identity_id"]),
-        "entries": await finance.statement(db, state["identity_id"]),
-    }
+    """One page of the account statement, newest first (D-190).
+
+    `before` is the id of the last row already read; without it, the top of
+    the statement. `more` says whether an older page exists.
+    """
+    before = message.get("before")
+    entries, more = await finance.statement(
+        db, state["identity_id"], before=None if before is None else int(before)
+    )
+    return {"money": await _money(db, state["identity_id"]), "entries": entries, "more": more}
+
+
+@command("finance.posting")
+async def _finance_posting(state: dict, db: AsyncSession, message: dict) -> dict:
+    """One row of the statement opened: every side of the operation, and the
+    deal or the order that stood behind it (D-190)."""
+    return await finance.posting(db, state["identity_id"], int(message.get("entry") or 0))
 
 
 @command("finance.transfer")
