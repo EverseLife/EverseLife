@@ -19,6 +19,7 @@ import contextlib
 import random
 import uuid
 from datetime import UTC, datetime
+from decimal import Decimal
 
 import pytest
 from sqlalchemy import select
@@ -659,10 +660,10 @@ async def test_two_harvests_of_one_strip_reap_it_once(
     )
     await farm.sow(session, constants, catalog, body, plot, seeds)
     plant = catalog.plants.by_id("spelt")
-    #: Every round done, so the crop is a full one and provably nonzero.
-    plot.care_credits = int(plant.cycle_days)
+    #: Grown whole and in full health, so the crop is a full one and provably nonzero.
+    plot.growth = Decimal(100)
     await session.flush()
-    ripeness = farm.ripe_at(constants, plot, plant)
+    ripeness = plot.settled_at
     plot_id, body_id, pocket_id = plot.id, body.id, pocket.id
     await session.commit()
 

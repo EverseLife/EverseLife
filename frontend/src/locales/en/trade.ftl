@@ -329,10 +329,11 @@ ui-library-carriers = Carriers in hand
 ui-library-already = lies here already
 ui-library-give = Put in the library
 ui-library-give-hint = give for good: your name stays with the recipe
-ui-library-agrotech = Agronomy
-ui-library-agrotech-known = the agronomy is in the identity already
-ui-library-agrotech-hint = take the crop's norm: free, for good
-ui-library-agrotech-note = The agronomy of the basic crops is for everyone: with it a bed shows the norm, not a symptom. What is taken is marked ✓.
+ui-library-care = Crop care
+ui-library-care-hint = read how to tend it
+ui-library-care-remember = Remember
+ui-library-care-remembered = already in the “knowledge” tab
+ui-library-care-note = The care texts of the eight basic crops are for everyone: read them here and remember them to read anywhere. The window draws no norm — the norm is in the text. What is remembered is marked ✓.
 
 ## The password field
 

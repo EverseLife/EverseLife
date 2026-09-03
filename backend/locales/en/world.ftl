@@ -18,7 +18,6 @@
 
 # --- land and plots (engine/farm.py) -----------------------------------------
 
-farm-plot-not-sown = the plot is not sown
 farm-too-small = no sense marking out less than { $min } m²
 farm-body-off-node = the body is outside a node
 farm-storey-not-ground = this is a storey, not ground: a plot is cut in the yard — go down
@@ -46,7 +45,8 @@ farm-wrong-seeds = “{ NAME($goods) }” are not seeds of the crop “{ CULTURE
 farm-seeds-not-in-hands = the seeds are not in hand: one sows one's own
 farm-not-enough-seeds = sowing needs { $need } “{ NAME($seeds) }”, there are { $have }
 farm-nothing-grows = nothing grows on plot “{ $plot }”
-farm-cared-today = already tended today: care is daily, not hourly
+farm-already-wetter = “{ $plot }” is wetter than that already: moisture { $moisture }, target { $target }
+farm-feed-ripe = “{ $plot }” is ripe: nothing left to feed — harvest it
 farm-fertilize-sown = { $state ->
         [plowing] “{ $plot }” is under the plough: one fertilizes fallow or ploughed land, and a ploughing is finished or dropped first
        *[other] a crop is growing on { $plot }: one fertilizes the land, not the bed -- feeding comes with the five care decisions
@@ -59,7 +59,13 @@ farm-too-cold = { $culture } would freeze here: the night drops to { $night } de
 farm-too-hot = { $culture } would scorch here: noon reaches { $noon } degrees
 farm-too-dark = { $culture } asks for light { $need }, and this place gives { $light }: woods and walls shade the sky
 farm-nothing-to-harvest = nothing to harvest on plot “{ $plot }”
-farm-not-ripe = the crop needs longer: { $left }, cycle { $cycle } days
+farm-not-ripe = “{ $plot }” is not ripe yet: { $stage ->
+        [sprout] sprouting
+        [leaf] in leaf
+        [bloom] in bloom
+        [fill] filling
+       *[other] growing
+    }
 farm-halves-too-small = both halves must be no smaller than farm.plot_min_area
 farm-merge-other-node = neighbouring plots are merged, not land from different nodes
 farm-no-open-ground = “{ $node }”: { NAME($weather) } — nothing grows in open ground here. Food comes in by ship

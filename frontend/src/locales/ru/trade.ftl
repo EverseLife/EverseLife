@@ -333,10 +333,11 @@ ui-library-carriers = Носители в руках
 ui-library-already = здесь уже лежит
 ui-library-give = Положить в библиотеку
 ui-library-give-hint = отдать навсегда: ваше имя останется при рецепте
-ui-library-agrotech = Агротехника
-ui-library-agrotech-known = агротехника уже в личности
-ui-library-agrotech-hint = взять норму культуры: бесплатно, навсегда
-ui-library-agrotech-note = Агротехника базовых культур — для всех: с ней грядка показывает норму, а не симптом. Взятое помечено ✓.
+ui-library-care = Уход за культурами
+ui-library-care-hint = прочесть, как ухаживать
+ui-library-care-remember = Запомнить
+ui-library-care-remembered = уже во вкладке «Знания»
+ui-library-care-note = Тексты ухода за восемью базовыми культурами — для всех: прочтите здесь и запомните, чтобы читать где угодно. Окно нормы не рисует — норма в тексте. Запомненное помечено ✓.
 
 ## Поле пароля
 

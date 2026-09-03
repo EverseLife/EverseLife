@@ -59,7 +59,6 @@ from __future__ import annotations
 
 import random
 import uuid
-from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from statistics import fmean
@@ -74,7 +73,7 @@ from src.constants.catalog import Plant
 from src.engine import events, luck, travel, world
 from src.engine.errors import Refusal, left_to_say
 from src.models.event import EventKind
-from src.models.identity import Body, BodyState, Identity, Knowledge, KnowledgeKind
+from src.models.identity import Body, BodyState, Identity, KnowledgeKind
 from src.models.inventory import Item
 from src.models.plant import Nursery, Variety
 from src.models.world import Node
@@ -653,71 +652,11 @@ def shown_as(catalog: Catalog, variety: Variety) -> dict[str, str | int]:
 def agrotech_key(variety: Variety) -> str:
     """What keys a cultivar's agrotech.
 
-    For base cultivars -- the crop's name: their agrotech is common and lies in
-    the Library (D-053). For a bred one -- its own id: only the author knows
-    it, until they sell the carrier themselves.
+    For base cultivars -- the crop's id: their care text is common and lies in
+    the Library (D-053). For a bred one -- its own id: the author alone reads
+    the text, and tells whom they like (D-293).
     """
     return variety.culture_id if variety.author_identity_id is None else str(variety.id)
-
-
-async def knows_agrotech(session: AsyncSession, identity_id: uuid.UUID, variety: Variety) -> bool:
-    """Whether the identity knows what this cultivar needs.
-
-    Knowledge does not forbid sowing or harvesting -- it decides **whether the
-    farmer sees norms or only symptoms** (D-057). There is and will be no
-    "cannot plant" wall here: the newcomer runs into their own ignorance, and
-    that is curable.
-    """
-    found = await session.execute(
-        select(Knowledge).where(
-            Knowledge.identity_id == identity_id,
-            Knowledge.kind == KnowledgeKind.AGROTECH,
-            Knowledge.key == agrotech_key(variety),
-        )
-    )
-    return found.scalar_one_or_none() is not None
-
-
-async def known_agrotech_keys(
-    session: AsyncSession, identity_id: uuid.UUID, varieties: Iterable[Variety]
-) -> set[str]:
-    """The agrotech keys of these cultivars the identity knows: one query.
-
-    The per-cultivar question is `knows_agrotech`; a summary over a list of
-    plots asks once for the whole list instead of once per row.
-    """
-    keys = {agrotech_key(variety) for variety in varieties}
-    if not keys:
-        return set()
-    rows = await session.execute(
-        select(Knowledge.key).where(
-            Knowledge.identity_id == identity_id,
-            Knowledge.kind == KnowledgeKind.AGROTECH,
-            Knowledge.key.in_(keys),
-        )
-    )
-    return set(rows.scalars())
-
-
-async def copy_agrotech(
-    session: AsyncSession, catalog: Catalog, body: Body, culture_id: str
-) -> Knowledge | None:
-    """Take the agrotech of a base crop in the Library: free, but on foot.
-
-    The eight base ones lie there for everyone (D-053). The agrotech of a bred
-    cultivar does not go into the Library -- only the author knows it.
-    """
-    await travel.require_here(session, body)
-    node = await session.get(Node, body.node_id)
-    #: The library is a machine (D-176): agrotech is taken where it stands.
-    if node is None or not await world.is_library(session, node):
-        raise BreedError(key="breed-library-in-person")
-
-    plant = catalog.plants.by_id(culture_id)
-    identity = await session.get(Identity, body.identity_id)
-    if identity is None:  # pragma: no cover
-        raise BreedError(key="breed-body-without-identity")
-    return await world.learn(session, identity, plant.id, kind=KnowledgeKind.AGROTECH)
 
 
 async def _variety_of(session: AsyncSession, item: Item) -> Variety:

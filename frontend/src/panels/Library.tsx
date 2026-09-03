@@ -50,6 +50,18 @@ export function Library({ look }: Omit<Props, "busy" | "act">) {
   const [crops, setCrops] = useState<{ id: string; name: string }[]>([]);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
+  //: The care text opened here (D-293): read on foot, in the reader's
+  //: language, and kept with "remember" in the knowledge tab.
+  const [opened, setOpened] = useState<string | null>(null);
+  const [text, setText] = useState("");
+  const open = (culture: string) =>
+    act(async () => {
+      const answer = await session.send("library.care", { culture });
+      setOpened(culture);
+      setText(String(answer.text ?? ""));
+    });
+  const remembered = (culture: string) =>
+    (look.care ?? []).some((note) => note.key === culture);
 
   useEffect(() => {
     void api.plants().then((p) => setCrops(p.plants));
@@ -214,29 +226,43 @@ export function Library({ look }: Omit<Props, "busy" | "act">) {
         </>
       )}
 
-      <h3>{t("ui-library-agrotech")}</h3>
+      {/* The care texts (D-293): a crop is opened, its words are read here,
+          and "remember" keeps them in the knowledge tab for good. */}
+      <h3>{t("ui-library-care")}</h3>
       <div className="row">
-        {crops.map((crop) => {
-          const learned = (look.agrotech ?? []).includes(crop.id);
-          return (
-            <button
-              key={crop.id}
-              className="quiet"
-              onClick={() =>
-                act(() => session.send("breed.agrotech", { culture: crop.id }))
-              }
-              disabled={busy || learned}
-              title={
-                learned ? t("ui-library-agrotech-known") : t("ui-library-agrotech-hint")
-              }
-            >
-              {crop.name}
-              {learned ? " ✓" : ""}
-            </button>
-          );
-        })}
+        {crops.map((crop) => (
+          <button
+            key={crop.id}
+            className={crop.id === opened ? "" : "quiet"}
+            onClick={() => open(crop.id)}
+            disabled={busy}
+            title={t("ui-library-care-hint")}
+          >
+            {crop.name}
+            {remembered(crop.id) ? " ✓" : ""}
+          </button>
+        ))}
       </div>
-      <p className="note">{t("ui-library-agrotech-note")}</p>
+      {opened && text && (
+        <div className="state-card">
+          <p>{text}</p>
+          {remembered(opened) ? (
+            <p className="note">{t("ui-library-care-remembered")}</p>
+          ) : (
+            <div className="card-act">
+              <button
+                onClick={() =>
+                  act(() => session.send("library.remember", { culture: opened }))
+                }
+                disabled={busy}
+              >
+                {t("ui-library-care-remember")}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+      <p className="note">{t("ui-library-care-note")}</p>
     </section>
   );
 }

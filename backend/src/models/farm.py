@@ -18,8 +18,9 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from enum import StrEnum
+from typing import Any
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Numeric, Uuid
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Numeric, Uuid, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.db.base import Base, created_column, enum_column, uuid_pk
@@ -43,6 +44,9 @@ class Plot(Base):
         Index("ix_plot_owner", "owner_identity_id"),
         CheckConstraint("area_m2 > 0", name="area_positive"),
         CheckConstraint("fertility >= 0 AND fertility <= 100", name="fertility_in_scale"),
+        CheckConstraint("moisture >= 0 AND moisture <= 100", name="moisture_in_scale"),
+        CheckConstraint("health >= 0 AND health <= 100", name="health_in_scale"),
+        CheckConstraint("growth >= 0 AND growth <= 100", name="growth_in_scale"),
     )
 
     id: Mapped[uuid.UUID] = uuid_pk()
@@ -73,9 +77,33 @@ class Plot(Base):
     seed_vigor: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
     sown_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    #: Credited care days of this cycle and when care was last done.
-    care_credits: Mapped[int] = mapped_column(nullable=False, default=0)
-    cared_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: The three scales of a growing bed (D-293), as of `settled_at`: what
+    #: happened since is a pure function of the elapsed time (`farm/life.py`),
+    #: computed by every read, written by every action and by the world tick.
+    #: None is shown as a number: the player reads a stage and a word.
+    moisture: Mapped[float] = mapped_column(
+        Numeric(6, 2), nullable=False, default=0, server_default="0"
+    )
+    health: Mapped[float] = mapped_column(
+        Numeric(6, 2), nullable=False, default=100, server_default="100"
+    )
+    growth: Mapped[float] = mapped_column(
+        Numeric(6, 2), nullable=False, default=0, server_default="0"
+    )
+    settled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: A feeding's boost, per cent of speed, and the stage it lasts through.
+    growth_boost: Mapped[float] = mapped_column(
+        Numeric(6, 2), nullable=False, default=0, server_default="0"
+    )
+    boost_stage: Mapped[str | None] = mapped_column(nullable=True)
+    #: What each stage of this sowing was fed and what it did: stage -> rows
+    #: of `{goods, effect}`. The survey reads the current stage's rows for
+    #: the signs; the harvest counts nothing from here.
+    fed: Mapped[dict[str, Any]] = mapped_column(
+        nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
+    #: Feedings repeated within one stage: each costs its share of the harvest.
+    overfed: Mapped[int] = mapped_column(nullable=False, default=0, server_default="0")
 
     #: Since when the land stands fallow: recovery is credited by elapsed time
     #: on the next action -- it needs no tick.

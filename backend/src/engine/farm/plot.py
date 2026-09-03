@@ -18,6 +18,7 @@ from src.constants import ConstantError, Constants, current_catalog
 from src.constants import registry as R
 from src.engine import estate, events
 from src.engine.farm._base import (
+    FERTILIZER,
     FarmError,
     NoLand,
     NotYours,
@@ -313,12 +314,6 @@ async def plow_done(session: AsyncSession, job: Job) -> None:
     plot.plow_done_minutes = Decimal(0)
     plot.plow_since = None
     await session.flush()
-
-
-#: The fertilizer thing class (D-215, D-291). The engine knows a fertilizer
-#: by its class and its strength by its row in `farm.fertilizer_recovery`: a
-#: third fertilizer is a recipe with the class and a row, not a code change.
-FERTILIZER = "fertilizer"
 
 
 async def fertilize(

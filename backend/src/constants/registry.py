@@ -13,7 +13,18 @@ is already wired up and what is not yet.
 
 from __future__ import annotations
 
-from src.constants.spec import Book, Flag, FormulaRef, Num, Span, Spec, Table, Tiers, Words
+from src.constants.spec import (
+    Bands,
+    Book,
+    Flag,
+    FormulaRef,
+    Num,
+    Span,
+    Spec,
+    Table,
+    Tiers,
+    Words,
+)
 
 # --- Time and tick ----------------------------------------------------------
 TIME_TICK = Num("time.tick")
@@ -110,16 +121,39 @@ FARM_PLOW_TIME_PER_M2 = Num("farm.plow_time_per_m2")
 FARM_SEED_RATE = Num("farm.seed_rate")
 FARM_CARE_TIME_PER_M2 = Num("farm.care_time_per_m2")
 FARM_PLOT_OVERHEAD = Num("farm.plot_overhead")
+#: Litres per square metre from dry ground to full moisture (D-293): a
+#: watering to a target takes its share of this.
 FARM_WATER_PER_M2 = Num("farm.water_per_m2")
-#: The culture's thirst (requires.water 1-3) scales the watering norm (D-261).
+#: The culture's thirst (requires.water 1-3) as the pace it drinks at: a
+#: multiplier to the drying rate (D-293; the watering norm before it).
 FARM_WATER_BY_NEED = Table("farm.water_by_need")
-#: How much hardiness 5/5 softens the neglect penalty (D-261).
+#: The band of moisture a culture asks for, by its thirst (D-293).
+FARM_MOISTURE_BY_NEED = Bands("farm.moisture_by_need")
+#: What the ground holds when the seed goes in.
+FARM_SOWN_MOISTURE = Num("farm.sown_moisture")
+#: Moisture leaves as a share of what is there, per Terran day -- at the
+#: reference temperature, faster or slower by the degree (D-293).
+FARM_DRY_RATE = Num("farm.dry_rate")
+FARM_DRY_TEMP_REF = Num("farm.dry_temp_ref")
+FARM_DRY_PER_DEGREE = Num("farm.dry_per_degree")
+#: A river slows the drying to this share: it makes watering rare, not free of labour.
+FARM_RIVER_DRY_SHARE = Num("farm.river_dry_share")
+#: Health lost per day for every point of moisture outside the band, and
+#: regained per day inside it (D-293).
+FARM_STRESS_PER_POINT = Num("farm.stress_per_point")
+FARM_HEAL_PER_DAY = Num("farm.heal_per_day")
+#: How much hardiness 5/5 softens the stress (D-261, D-293).
 FARM_HARDINESS_RELIEF = Num("farm.hardiness_relief")
+#: The stages' lower bounds on the growth scale, and the words of health by
+#: their lower bounds: the player reads a stage and a word, never a number.
+FARM_STAGE_BOUNDS = Table("farm.stage_bounds")
+FARM_HEALTH_BANDS = Table("farm.health_bands")
+#: A feeding not in the culture's table burns this much health; a repeated
+#: one in a stage costs this share of the harvest (D-293).
+FARM_FEED_WRONG_BURN = Num("farm.feed_wrong_burn")
+FARM_OVERFEED_YIELD_PENALTY = Num("farm.overfeed_yield_penalty")
 #: From this built share of the node's ground the place loses a light step (D-261).
 FARM_SHADE_BUILT_SHARE = Num("farm.shade_built_share")
-#: Harvest share lost to a full cycle's walk-out; one miss costs its share
-#: of the cycle, so zeroing is impossible (D-263).
-FARM_NEGLECT_TOTAL = Num("farm.neglect_total")
 FARM_SOIL_DEPLETION = Num("farm.soil_depletion")
 #: Extra depletion for a repeat of the same crop in a row (D-256).
 FARM_MONOCULTURE_PENALTY = Num("farm.monoculture_penalty")

@@ -28,7 +28,7 @@ import type { Air, Doing, Foraging, Frost, Sight } from "./body";
 import type { Batch } from "./craft";
 import type { DeedView } from "./land";
 import type { Printer, Profile } from "./person";
-import type { Bench, Carry, Storage, Thing } from "./thing";
+import type { Bench, Carry, Storage, Thing, VarietyRef } from "./thing";
 import type { Order, Reservation } from "./trade";
 import type { Convoy, Exit, InSight, Transit, Vehicle } from "./travel";
 
@@ -38,11 +38,15 @@ import type { Convoy, Exit, InSight, Transit, Vehicle } from "./travel";
  * `touches` names them. `Look` as the panels see it is `LiveLook` and these,
  * put together by `compose()`.
  */
+/** A remembered care text (D-293): the crop, the cultivar if it is one, and
+ *  the words -- said by the server in the reader's language. */
+export type CareNote = { key: string; culture: string; variety?: VarietyRef; text: string };
+
 export type Parts = {
   knowledge: {
     knows: string[];
     discovered: string[];
-    agrotech: string[];
+    care: CareNote[];
     /** The first discoverer's name per known recipe (D-064, D-259). */
     pioneers: Record<string, string>;
   };
@@ -82,7 +86,7 @@ export type LiveLook = Omit<
   | "profile"
   | "knows"
   | "discovered"
-  | "agrotech"
+  | "care"
   | "pioneers"
   | "orders"
   | "reservations"
@@ -110,8 +114,8 @@ export type Look = {
   knows: string[];
   /** Which of the known recipes were opened by one's own experiment (D-064, D-209). */
   discovered: string[];
-  /** Learned agrotech: crops whose norm the identity has already studied (D-057). */
-  agrotech: string[];
+  /** The care texts remembered in the Library (D-293): the knowledge is the words. */
+  care: CareNote[];
   /** The first discoverer's name per known recipe (D-064, D-259): the name is
    *  bound to the recipe forever. Founding recipes have no entry at all.
    *  Optional here, required in `Parts`: an older server's part lacks the

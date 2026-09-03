@@ -15,7 +15,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants, current_catalog
 from src.constants import registry as R
-from src.constants.catalog import Plant
 from src.engine import liquid, occupation, stock, travel, world
 from src.engine.errors import Refusal
 from src.models.farm import Plot, PlotState
@@ -32,6 +31,11 @@ from src.units import (
 
 #: The name of water in `build/recipes.json` -- carried by hand where there is no river.
 WATER = "water"
+
+#: The fertilizer thing class (D-215, D-291). The engine knows a fertilizer
+#: by its class and its strength by its row in `farm.fertilizer_recovery`: a
+#: third fertilizer is a recipe with the class and a row, not a code change.
+FERTILIZER = "fertilizer"
 
 
 class FarmError(Refusal):
@@ -71,14 +75,8 @@ def day_hours(constants: Constants) -> float:
     return constants[R.TIME_DAY_TERRA]
 
 
-def ripe_at(constants: Constants, plot: Plot, plant: Plant) -> datetime:
-    if plot.sown_at is None:  # pragma: no cover
-        raise WrongState(key="farm-plot-not-sown")
-    return plot.sown_at + timedelta(hours=plant.cycle_days * day_hours(constants))
-
-
 def care_minutes(constants: Constants, area: float) -> float:
-    """Round time: a vault formula. Land scales, hands do not."""
+    """One action's minutes (D-293): a vault formula. Land scales, hands do not."""
     return constants[R.FARM_PLOT_OVERHEAD] + constants[R.FARM_CARE_TIME_PER_M2] * area
 
 

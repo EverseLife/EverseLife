@@ -14,7 +14,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.commands.common import _alive, _body, _own_item
+from src.api.commands.common import _alive, _alive_read, _body, _own_item, speaks
 from src.api.registry import Refused, command
 from src.constants import current, current_catalog
 from src.engine import (
@@ -105,13 +105,29 @@ async def _farm_fertilize(state: dict, db: AsyncSession, message: dict) -> dict:
     return {"fertilized": str(plot.id), "goods": goods, "fertility": float(plot.fertility)}
 
 
-@command("farm.care")
-async def _farm_care(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Tend the field: water and weed, as the crop's agrotech asks (D-057). In person, the body
-    busy for the term."""
+@command("farm.water")
+async def _farm_water(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Water the bed up to a target moisture (D-293): the water is spent for the
+    difference -- from the river where there is one, from the hands elsewhere
+    -- and the hands are busy for the action's minutes."""
     body = await _alive(state, db)
-    plot = await farm.care(db, current(), body, await _plot(db, message))
-    return {"cared": str(plot.id), "credits": plot.care_credits}
+    plot, litres = await farm.water(
+        db, current(), current_catalog(), body, await _plot(db, message), float(message["target"])
+    )
+    return {"watered": str(plot.id), "moisture": float(plot.moisture), "litres": litres}
+
+
+@command("farm.feed")
+async def _farm_feed(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Feed the growing bed (D-293). What the fertilizer did is not in the
+    answer: the bed shows it the next day, the button confirms the action.
+    The kind is named, never defaulted."""
+    body = await _alive(state, db)
+    goods = str(message["goods"])
+    plot, stage, _ = await farm.feed(
+        db, current(), current_catalog(), body, await _plot(db, message), goods
+    )
+    return {"fed": str(plot.id), "goods": goods, "stage": stage}
 
 
 @command("farm.harvest")
@@ -164,12 +180,24 @@ async def _breed_name(state: dict, db: AsyncSession, message: dict) -> dict:
     return {"variety": str(cultivar.id), "name": cultivar.name}
 
 
-@command("breed.agrotech")
-async def _breed_agrotech(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Take the agrotech of a base crop in the Library: free, but on foot."""
+@command("library.care")
+async def _library_care(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Read a base crop's care text in the Library (D-293): on foot, like a
+    recipe (D-053), in the reader's language. A read: nothing is written."""
+    body = await _alive_read(state, db)
+    text = await farm.read_care(
+        db, current(), current_catalog(), body, str(message["culture"]), locale=speaks(state)
+    )
+    return {"culture": message["culture"], "text": text}
+
+
+@command("library.remember")
+async def _library_remember(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Remember a base crop's care text into the "knowledge" tab: free, for
+    good, on foot (D-053, D-293)."""
     body = await _alive(state, db)
-    knowledge = await breed.copy_agrotech(db, current_catalog(), body, str(message["culture"]))
-    return {"learned": knowledge is not None, "culture": message["culture"]}
+    knowledge = await farm.remember_care(db, current_catalog(), body, str(message["culture"]))
+    return {"remembered": knowledge is not None, "culture": message["culture"]}
 
 
 @command("breed.varieties")

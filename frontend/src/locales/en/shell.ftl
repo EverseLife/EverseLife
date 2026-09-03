@@ -141,11 +141,11 @@ ui-side-recipe-by-hand = made by hand, no station needed
 ui-side-recipe-inputs = takes per unit: { $inputs }
 ui-side-recipe-source-learned = learned ready-made: taken at the Library or read off a carrier
 
-## Agronomy: the identity's second kind of knowledge (D-057) — the crops' norms.
+## Crop care: the texts remembered in the Library (D-293).
 
-ui-side-agrotech = Agronomy
-ui-side-agrotech-rule = The crop norms studied: with them a bed shows the norm, not a symptom. Taken at the Library; the knowledge lives in the person and is not lost.
-ui-side-agrotech-none = nothing yet: the basic crops' norms are taken at the Library — free, for good
+ui-side-care = Crop care
+ui-side-care-rule = The care texts remembered: the moisture band, the feeding by stage, what the variety does not forgive. Read in the Library; the knowledge lives in the person and is not lost.
+ui-side-care-none = nothing yet: the basic crops' texts are read in the Library — free, for good
 
 ## The top bar: where the body is and what is with it, above everything else (D-238).
 

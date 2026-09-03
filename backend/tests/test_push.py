@@ -154,7 +154,7 @@ def test_look_is_the_live_part_and_the_rest_has_its_own_commands(client, miner) 
         slow = {
             "knows",
             "discovered",
-            "agrotech",
+            "care",
             "profile",
             "orders",
             "reservations",
@@ -168,7 +168,7 @@ def test_look_is_the_live_part_and_the_rest_has_its_own_commands(client, miner) 
 
         ws.send_json({"id": 3, "cmd": "knowledge"})
         knowledge = ws.receive_json()["knowledge"]
-        assert set(knowledge) == {"knows", "discovered", "agrotech", "pioneers"}
+        assert set(knowledge) == {"knows", "discovered", "care", "pioneers"}
 
         ws.send_json({"id": 4, "cmd": "orders"})
         orders = ws.receive_json()["orders"]

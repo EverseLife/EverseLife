@@ -215,3 +215,9 @@ SHIP_NAME_LIMIT = 40
 #: property of the world: the journal keeps everything, and a screen meant to be
 #: read in ten seconds cannot.
 SUMMARY_LIMIT = 40
+
+#: The step a growing bed's life is walked with (D-293), in hours. A
+#: representation of the integral, not a balance number: temperature breathes
+#: with the planetary day and a feeding's boost ends at a stage bound, and an
+#: hour is far below anything a player can see.
+FARM_STEP_HOURS = 1.0

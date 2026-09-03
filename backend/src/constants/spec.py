@@ -127,6 +127,24 @@ class Span(Spec):
 
 
 @dataclass(frozen=True, slots=True)
+class Bands(Spec):
+    """A map `name -> {min, max}`: the moisture band a thirst asks for (D-293)."""
+
+    def read(self, raw: Any) -> dict[str, dict[str, float]]:
+        if not isinstance(raw, dict):
+            raise self._fail(raw, "a map of name -> {min, max}")
+        out: dict[str, dict[str, float]] = {}
+        for name, value in raw.items():
+            if not isinstance(value, dict) or "min" not in value or "max" not in value:
+                raise self._fail(raw, f"{{min, max}} at key {name!r}")
+            lo, hi = value["min"], value["max"]
+            if not isinstance(lo, (int, float)) or not isinstance(hi, (int, float)) or lo > hi:
+                raise self._fail(raw, f"numbers with min <= max at key {name!r}")
+            out[str(name)] = {"min": float(lo), "max": float(hi)}
+        return out
+
+
+@dataclass(frozen=True, slots=True)
 class Table(Spec):
     """A map `name -> number`: modifiers, role weights, sign bands."""
 

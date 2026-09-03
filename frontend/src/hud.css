@@ -672,3 +672,52 @@ button.emblem-pick[aria-pressed="true"] .glyph {
     grid-template-columns: 5.5rem 1fr auto;
   }
 }
+
+/* The moisture curve (D-293): the one scale of a bed drawn as a line -- the
+   point the server gave, run forward at the pace it gave. Read like the
+   gauge: the label, the picture, the figure. */
+.moist {
+  display: grid;
+  grid-template-columns: 6.5rem 1fr auto;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.82rem;
+}
+.moist-label {
+  color: var(--base-400);
+}
+.moist-curve {
+  display: block;
+  width: 100%;
+  height: 2.2rem;
+  overflow: visible;
+}
+.moist-line {
+  fill: none;
+  stroke: var(--base-200);
+  stroke-width: 1.5px;
+}
+.moist-day {
+  stroke: var(--hairline);
+  stroke-width: 1px;
+}
+.moist-now {
+  stroke: var(--base-400);
+  stroke-width: 1px;
+  stroke-dasharray: 2 2;
+}
+.moist-reading {
+  color: var(--base-200);
+  font-size: 0.8rem;
+  font-family: var(--font-num);
+  font-variant-numeric: tabular-nums;
+}
+/* The target slider of a watering: a decision, so it sits with the buttons. */
+.slider {
+  display: inline-flex;
+  align-items: center;
+  min-width: 8rem;
+}
+.slider input[type="range"] {
+  width: 100%;
+}

@@ -116,7 +116,9 @@ async def recipes() -> dict[str, Any]:
 @router.get("/plants")
 async def plants() -> dict[str, Any]:
 
-    return {"plants": [plant.model_dump() for plant in catalog().plants.plants]}
+    #: The feeding table stays out (D-293): what a fertilizer does in a stage
+    #: is the Library's text, read on foot, not a catalog constant.
+    return {"plants": [plant.model_dump(exclude={"feeding"}) for plant in catalog().plants.plants]}
 
 
 def _passage(under_way: dict[str, Any] | None, by_id: dict[Any, str]) -> dict[str, str] | None:

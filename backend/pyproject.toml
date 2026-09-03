@@ -483,6 +483,20 @@ forbidden_modules = ["src.engine.farm.plot"]
 allow_indirect_imports = "true"
 
 [[tool.importlinter.contracts]]
+name = "The life of a bed asks nobody in the field"
+type = "forbidden"
+source_modules = ["src.engine.farm.life"]
+forbidden_modules = ["src.engine.farm._base", "src.engine.farm.plot", "src.engine.farm.season", "src.engine.farm.text"]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "The words of care shape no plots and run no season"
+type = "forbidden"
+source_modules = ["src.engine.farm.text"]
+forbidden_modules = ["src.engine.farm.plot", "src.engine.farm.season"]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
 name = "The work at the bench never calls its own finisher or the shelf"
 type = "forbidden"
 source_modules = ["src.engine.craft.batch.work"]

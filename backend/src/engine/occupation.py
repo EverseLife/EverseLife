@@ -40,7 +40,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -68,11 +68,14 @@ MINE = "mine"
 CRAFT = "craft"
 MEND = "mend"
 KEEL = "keel"
+#: A watering or a feeding of a bed (D-293): the hands are busy for the
+#: action's minutes, the effect was written when the button was pressed.
+CARE = "care"
 
 #: Every kind there is. Written down rather than inferred because each one
 #: owes the locale a one-word title under `doing-<kind>` (see `Doing.title`),
 #: and a kind added without its word would show the player the key instead.
-KINDS: tuple[str, ...] = (ROAD, FIELD, SLEEP, FORAGE, PLOT, MINE, CRAFT, MEND, KEEL)
+KINDS: tuple[str, ...] = (ROAD, FIELD, SLEEP, FORAGE, PLOT, MINE, CRAFT, MEND, KEEL, CARE)
 
 
 @dataclass(frozen=True)
@@ -154,7 +157,7 @@ async def _foraging(session: AsyncSession, body: Body, jobs: Journal) -> Doing |
 #: The occupations the journal knows about: a job of this body's, still
 #: pending. All three are asked in one query -- `all_of` runs in every `look`,
 #: and three round-trips for one answer is three.
-_JOURNAL = (JobKind.FARM_PLOW, JobKind.BUILD_REPAIR, JobKind.SHIP_KEEL)
+_JOURNAL = (JobKind.FARM_PLOW, JobKind.FARM_CARE, JobKind.BUILD_REPAIR, JobKind.SHIP_KEEL)
 
 
 async def _own_jobs(session: AsyncSession, body: Body) -> dict[str, Job]:
@@ -191,6 +194,24 @@ async def _ploughing(session: AsyncSession, body: Body, jobs: Journal) -> Doing 
                 "plot": "" if plot is None else plot.name,
             },
         ),
+        job.run_at,
+    )
+
+
+async def _caring(session: AsyncSession, body: Body, jobs: Journal) -> Doing | None:
+    """A watering or a feeding still holding the hands (D-293).
+
+    The effect was written when the button was pressed; the job only keeps
+    the hands busy for the action's minutes, so once its hour has passed the
+    hands are free whether or not the worker has swept it yet.
+    """
+    job = await jobs.of(JobKind.FARM_CARE)
+    if job is None or job.run_at <= datetime.now(UTC):
+        return None
+    plot = await session.get(Plot, uuid.UUID(job.payload["plot"]))
+    return Doing(
+        CARE,
+        Says("doing-care-what", {"plot": "" if plot is None else plot.name}),
         job.run_at,
     )
 
@@ -270,6 +291,7 @@ _LOOKUP: tuple[
     (MINE, _mining),
     (FORAGE, _foraging),
     (PLOT, _ploughing),
+    (CARE, _caring),
     (MEND, _mending),
     (KEEL, _keeling),
     (CRAFT, _crafting),

@@ -582,7 +582,7 @@ function Knowledge({ look }: { look: Look }) {
   const discovered = new Set(look.discovered ?? []);
   //: One recipe open at a time: the eye toggles the row's details in place.
   const [shown, setShown] = useState<string | null>(null);
-  const agrotech = look.agrotech ?? [];
+  const care = look.care ?? [];
   //: The details come from the book already loaded (D-225): the station and
   //: the inputs are the vault catalog's, nothing is asked over. The ladder
   //: step is not among them: the glossary bans "level", and the engine reads
@@ -668,23 +668,27 @@ function Knowledge({ look }: { look: Look }) {
         })
       )}
 
-      {/* Agrotech beside the recipes (D-057): the second kind of knowledge the
-          identity keeps. Taken in the Library; the tick there and this list
-          are one and the same fact. */}
+      {/* The care texts beside the recipes (D-293): a crop's norms as words,
+          remembered in the Library. The text is the knowledge; the window
+          draws no norm of its own. */}
       <h3>
-        {t("ui-side-agrotech")}
-        <Rule>{t("ui-side-agrotech-rule")}</Rule>
+        {t("ui-side-care")}
+        <Rule>{t("ui-side-care-rule")}</Rule>
       </h3>
-      {agrotech.length === 0 ? (
-        <p className="note">{t("ui-side-agrotech-none")}</p>
+      {care.length === 0 ? (
+        <p className="note">{t("ui-side-care-none")}</p>
       ) : (
-        agrotech.map((key) => (
-          <p key={key}>
-            <span className="goods-mark">
-              <Glyph name="plant" />
-            </span>
-            {plantName(names, key)}
-          </p>
+        care.map((note) => (
+          <div key={note.key}>
+            <p>
+              <span className="goods-mark">
+                <Glyph name="plant" />
+              </span>
+              {plantName(names, note.culture)}
+              {note.variety ? ` (${api.varietyText(names, note.variety)})` : ""}
+            </p>
+            <p className="note recipe-peek">{note.text}</p>
+          </div>
         ))
       )}
     </div>

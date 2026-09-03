@@ -111,6 +111,10 @@ TOUCHES_BY_KIND: dict[str, tuple[str, ...]] = {
     "farm.plowed": ("farm", "inventory", "doings"),
     "farm.plow_paused": ("farm", "doings"),
     "farm.plow_reset": ("farm", "doings"),
+    #: An action of care holds the hands (D-293): the beds, the water or the
+    #: fertilizer spent, and the "activities" column all move.
+    "farm.watered": ("farm", "inventory", "doings"),
+    "farm.fed": ("farm", "inventory", "doings"),
     "craft.invented": ("doings", "inventory", "knowledge", "orders"),
     #: The widget's energy goes into the city pool, not the hands (D-229).
     "alpha.energized": ("node",),

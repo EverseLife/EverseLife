@@ -195,7 +195,13 @@ class EventKind(StrEnum):
     PLOT_PLOW_PAUSED = "farm.plow_paused"
     PLOT_PLOW_RESET = "farm.plow_reset"
     PLOT_SOWN = "farm.sown"
-    PLOT_CARED = "farm.cared"
+    #: The actions of care (D-293): a watering to a target, a feeding in a stage.
+    PLOT_WATERED = "farm.watered"
+    PLOT_FED = "farm.fed"
+    #: The crop's health reached nothing, or its growth reached the top: told
+    #: to the owner the hour it happens, by whoever settled the bed.
+    PLOT_DIED = "farm.died"
+    PLOT_RIPENED = "farm.ripened"
     PLOT_FERTILIZED = "farm.fertilized"
     PLOT_HARVESTED = "farm.harvested"
 

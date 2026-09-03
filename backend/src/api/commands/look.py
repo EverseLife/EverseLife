@@ -45,6 +45,7 @@ from src.engine import (
     energy,
     estate,
     explore,
+    farm,
     forage,
     frost,
     gear,
@@ -67,7 +68,7 @@ from src.engine import (
 )
 from src.engine import city as town
 from src.models.farm import Plot
-from src.models.identity import Identity, KnowledgeKind
+from src.models.identity import Identity
 from src.models.mining import MiningSession, SessionState
 from src.models.world import Layer, Node, Vein
 
@@ -75,8 +76,8 @@ from src.models.world import Layer, Node, Vein
 @command("knowledge", readonly=True)
 async def _knowledge_read(ctx: Ctx) -> dict:
     """What the identity knows: recipes (`knows`), which of them were opened
-    by one's own experiment (`discovered`, D-064, D-209), the agrotech
-    studied (`agrotech`, D-057), and the first discoverer's name per known
+    by one's own experiment (`discovered`, D-064, D-209), the care texts
+    remembered (`care`, D-293), and the first discoverer's name per known
     recipe (`pioneers`, D-259). Read once and kept: `knowledge.learned` and
     `craft.invented` say when to read again (D-226)."""
     who = ctx.identity_id
@@ -84,7 +85,9 @@ async def _knowledge_read(ctx: Ctx) -> dict:
         "knowledge": {
             "knows": await _knowledge(ctx.db, who),
             "discovered": await _discovered(ctx.db, who),
-            "agrotech": await _knowledge(ctx.db, who, kind=KnowledgeKind.AGROTECH),
+            "care": await farm.remembered(
+                ctx.db, current(), current_catalog(), who, locale=speaks(ctx.state)
+            ),
             "pioneers": await _pioneers(ctx.db, who),
         }
     }
@@ -138,7 +141,7 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
 
     Only the live part (D-226, 08-session-protocol). What changes rarely is
     read by its own command and kept by the client until an event touches it:
-    `knowledge` (recipes, discoveries, agrotech), `account.profile`, `orders`
+    `knowledge` (recipes, discoveries, care texts), `account.profile`, `orders`
     (orders, reservations, batches), `deeds`, `shelf` (the library here).
     """
     identity = await _identity(state, db)

@@ -21,6 +21,7 @@ doing-mine = забой
 doing-craft = партия
 doing-mend = ремонт
 doing-keel = закладка
+doing-care = уход
 
 ## Что идёт и где это заканчивают
 
@@ -36,6 +37,7 @@ doing-plot-what = идёт вспашка{ $named ->
 doing-mine-what = вы в забое — сначала выйти из него
 doing-craft-what = идёт работа «{ NAME($goods) }»
 doing-mend-what = идёт ремонт дома
+doing-care-what = идёт уход за «{ $plot }»
 doing-keel-what = { $named ->
         [true] идёт закладка корабля «{ $ship }»
        *[false] идёт закладка узла корабля

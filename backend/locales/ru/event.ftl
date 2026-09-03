@@ -15,6 +15,8 @@
 event-craft-finished = партия готова
 event-travel-arrived = пришли
 event-farm-harvested = урожай собран
+event-farm-died = делянка погибла
+event-farm-ripened = делянка созрела
 event-explore-found = разведка: находка
 event-explore-empty = разведка: пусто
 event-body-died = тело погибло

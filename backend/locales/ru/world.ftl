@@ -16,7 +16,6 @@
 
 # --- земля и делянки (engine/farm.py) ----------------------------------------
 
-farm-plot-not-sown = делянка не засеяна
 farm-too-small = меньше { $min } м² межевать бессмысленно
 farm-body-off-node = тело вне узла
 farm-storey-not-ground = это этаж, а не земля: делянку режут во дворе — спуститесь вниз
@@ -43,7 +42,8 @@ farm-wrong-seeds = «{ NAME($goods) }» — не семена культуры �
 farm-seeds-not-in-hands = семена не в руках: сеют своим
 farm-not-enough-seeds = нужно { $need } «{ NAME($seeds) }» на посев, есть { $have }
 farm-nothing-grows = на делянке «{ $plot }» ничего не растёт
-farm-cared-today = сегодня уже ухожено: уход суточный, а не почасовой
+farm-already-wetter = «{ $plot }» и так влажнее: влага { $moisture }, цель { $target }
+farm-feed-ripe = «{ $plot }» созрела: кормить больше нечего — убирайте
 farm-fertilize-sown = { $state ->
         [plowing] «{ $plot }» под плугом: удобряют пар или вспаханное, а вспашку сначала заканчивают или сбрасывают
        *[other] на «{ $plot }» растёт культура: удобряют землю, а не грядку — подкормка придёт с пятью решениями ухода
@@ -56,7 +56,13 @@ farm-too-cold = «{ $culture }» здесь вымерзнет: ночь опу�
 farm-too-hot = «{ $culture }» здесь сгорит: полдень доходит до { $noon }°
 farm-too-dark = «{ $culture }» просит света { $need }, а это место даёт { $light }: лес и стены застят небо
 farm-nothing-to-harvest = на делянке «{ $plot }» нечего убирать
-farm-not-ripe = культура дозреет: { $left }, цикл { $cycle } суток
+farm-not-ripe = «{ $plot }» ещё не созрела: { $stage ->
+        [sprout] всходы
+        [leaf] лист
+        [bloom] цветение
+        [fill] налив
+       *[other] растёт
+    }
 farm-halves-too-small = обе части обязаны быть не меньше farm.plot_min_area
 farm-merge-other-node = сливают соседние делянки, а не землю из разных узлов
 farm-no-open-ground = «{ $node }»: { NAME($weather) } — в открытом грунте здесь ничего не растёт. Еда сюда приходит кораблём

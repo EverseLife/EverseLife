@@ -360,6 +360,15 @@ class PlantTraits(Strict):
     spoilage_k: float
 
 
+class PlantFeeding(Strict):
+    """One row of a crop's feeding table (D-293): what a fertilizer does in a stage."""
+
+    stage: str
+    fertilizer: str
+    #: Per cent of speed added to the growth until the end of the stage.
+    growth: float
+
+
 class Plant(Strict):
     id: str
     name: str
@@ -380,9 +389,15 @@ class Plant(Strict):
     cycle_days: float
     yield_per_m2: float
     yield_per_cycle: float
+    #: How many waterings the vault's model expects per cycle at the reference
+    #: climate (D-293): the labour the yield was derived from, not a norm.
+    waterings_per_cycle: float = 0
     requires: PlantRequirements
     traits: PlantTraits
     restores_fertility: float = 0
+    #: Feeding by stage (D-293): what quickens the growth and when. Hidden
+    #: from the player -- the Library's care text tells it, the wire never does.
+    feeding: tuple[PlantFeeding, ...] = ()
     generosity: float
     generosity_cap: float
     used_in_recipes: int = 0

@@ -37,6 +37,7 @@ from src.engine import (
     energy,
     estate,
     events,
+    farm,
     food,
     frost,
     gear,
@@ -126,6 +127,12 @@ async def _rigs(session: AsyncSession, now: datetime) -> dict[str, Any]:
     #: The rig does not sleep either: it burns coal, fills the hopper and eats
     #: the vein while the owner is busy elsewhere (D-115). A full hopper stops it.
     return {"rig_mined": await rig.tick_rigs(session, current(), now=now)}
+
+
+async def _plots(session: AsyncSession, now: datetime) -> dict[str, Any]:
+    #: The beds do not wait for their farmer either (D-293): moisture leaves,
+    #: health follows it, and a death or a ripening is told the hour it happens.
+    return await farm.tick_plots(session, current(), current_catalog(), now=now)
 
 
 async def _frost(session: AsyncSession, now: datetime) -> dict[str, Any]:
@@ -245,6 +252,7 @@ WORLD_STEPS: dict[str, tuple[Step, str]] = {
     "chat": (_chat, "first"),
     "energy": (_energy, "first"),
     "rigs": (_rigs, "first"),
+    "plots": (_plots, "first"),
     "automats": (_automats, "first"),
     "orphans": (_orphans, "first"),
     "frost": (_frost, "first"),

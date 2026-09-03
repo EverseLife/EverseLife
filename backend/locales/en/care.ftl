@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+#
+# The words of care (D-293): agronomy is a text assembled from the crop's
+# data. Read in the Library, remembered into the "knowledge" tab, retold.
+# The numbers come from the vault -- the moisture band, the feeding table,
+# the hardiness -- so the text cannot lie after a retune.
+#
+# The crop's and the fertilizer's names stand in the nominative (D-258): the
+# substitution is the subject or follows a colon, the preposition governs
+# only the stage.
+
+care-band = { CULTURE($culture) } likes moisture { $min }–{ $max } and drinks { $need ->
+        [1] little: it seldom needs watering
+        [3] a lot: it needs watering often
+       *[other] moderately
+    }.
+care-feeding = Feeding: { $rows }. Anything else burns it; a second feeding in one stage runs to leaf instead of fruit.
+care-feeding-row = { NAME($goods) } { $stage ->
+        [sprout] at sprouting
+        [leaf] in leaf
+        [bloom] in bloom
+        [fill] at filling
+       *[other] { $stage }
+    }
+care-feeding-none = It takes no feeding: any fertilizer burns it.
+care-hardiness = It forgives mistakes { $hardiness } out of 5.

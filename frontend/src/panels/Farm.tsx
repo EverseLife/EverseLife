@@ -2,12 +2,18 @@
 // Copyright (C) 2026 Nurlan Urazkulov
 
 /**
- * Plots -- the location scene (D-118).
+ * Plots -- the location scene (D-118, D-293).
  *
- * Everything here is in-person: land is surveyed, ploughed, sown, tended and
- * harvested on foot. Somebody else's land shows the owner; nobody's land
+ * Everything here is in-person: land is surveyed, ploughed, sown, watered, fed
+ * and harvested on foot. Somebody else's land shows the owner; nobody's land
  * outside a city is farmed by whoever comes -- it is never privatized, and the
  * field on it is open to all (D-198).
+ *
+ * A growing bed lives by three scales the server keeps -- moisture, health,
+ * growth -- and shows two words and one curve: the stage, the word of health,
+ * and the moisture drawn forward from the point the server gave, at the pace
+ * it gave (D-226: no timer of the client's own). No norm is drawn on it: what
+ * the culture wants is the Library's text, not the window's mark (D-057).
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -30,6 +36,9 @@ type Props = {
   act: (what: () => Promise<unknown>) => Promise<void>;
 };
 
+type Stage = "sprout" | "leaf" | "bloom" | "fill" | "ripe";
+type Health = "strong" | "weak" | "sick" | "dying";
+
 type Row = {
   id: string;
   name: string;
@@ -39,18 +48,21 @@ type Row = {
   fertility: number;
   culture: string | null;
   variety?: VarietyRef;
+  /** The two words of a growing bed (D-293): where it is and how it stands. */
+  stage?: Stage;
+  health?: Health;
   ripe?: boolean;
-  /** Whether the owner knows the cultivar's agrotech: everything below depends on it (D-057). */
-  agrotech?: boolean;
-  ripe_at?: string;
-  asks_care?: boolean;
-  missed_days?: number;
-  fertility_required?: number;
-  water_need?: number;
-  /** Without agrotech only this is seen -- what to do about it, guess. */
+  /** The one curve: the moisture at `moisture_at`, leaving at `dry_per_day`
+   *  per cent of itself a Terran day. The client draws it forward. */
+  moisture?: number;
+  moisture_at?: string;
+  dry_per_day?: number;
+  /** Present where water is carried by hand: no river here (D-126). */
+  carried?: true;
+  /** Present when this stage was already fed: a second feeding runs to leaf. */
+  fed?: true;
+  /** What everybody sees -- a sign, never a norm (D-057). */
   symptoms?: string[];
-  /** The start of the growth term, named with agrotech (the bar's share). */
-  sown_at?: string;
   /** The plough's progress (D-277): its share, and -- while a run is
    *  under way -- the run's start and end for the bar. Paused is the
    *  absence of a run: under the plough with no `plow_since`. */
@@ -67,9 +79,10 @@ const pausedPlough = (row: Row) => row.state === "plowing" && !row.plow_since;
 //: numbers they still have to know or derive (D-057).
 const SYMPTOM: Record<string, string> = {
   thirst: "ui-farm-symptom-thirst",
+  soaked: "ui-farm-symptom-soaked",
   pale: "ui-farm-symptom-pale",
-  stunted: "ui-farm-symptom-stunted",
-  ripe: "ui-farm-symptom-ripe",
+  burn: "ui-farm-symptom-burn",
+  fat: "ui-farm-symptom-fat",
 };
 
 const STATE: Record<Row["state"], string> = {
@@ -79,37 +92,113 @@ const STATE: Record<Row["state"], string> = {
   sown: "ui-farm-state-sown",
 };
 
+const STAGE: Record<Stage, string> = {
+  sprout: "ui-farm-stage-sprout",
+  leaf: "ui-farm-stage-leaf",
+  bloom: "ui-farm-stage-bloom",
+  fill: "ui-farm-stage-fill",
+  ripe: "ui-farm-stage-ripe",
+};
+
+const HEALTH: Record<Health, string> = {
+  strong: "ui-farm-health-strong",
+  weak: "ui-farm-health-weak",
+  sick: "ui-farm-health-sick",
+  dying: "ui-farm-health-dying",
+};
+
+/** How far ahead the moisture curve looks, in Terran days. A display span. */
+const CURVE_DAYS = 4;
+/** Points the curve is drawn with. Display resolution, nothing of the world's. */
+const CURVE_POINTS = 48;
+/** The step the target slider moves by, in points of moisture. */
+const TARGET_STEP = 5;
+
+/**
+ * The moisture curve (D-293): the point the server gave, drawn forward at the
+ * pace it gave. `moisture(t) = m0 * exp(-k * days)` -- the same exponential
+ * the engine walks, so the picture and the bed agree. Drawn at render time
+ * and redrawn when the world says so (D-226), never by a timer.
+ */
+function MoistureCurve({ row, dayHours }: { row: Row; dayHours: number }) {
+  if (row.moisture == null || !row.moisture_at || row.dry_per_day == null) return null;
+  const since = new Date(row.moisture_at).getTime();
+  const elapsedDays = Math.max(0, (Date.now() - since) / 1000 / 3600 / dayHours);
+  const rate = row.dry_per_day / 100;
+  const at = (days: number) => row.moisture! * Math.exp(-rate * days);
+  const width = 100;
+  const height = 100;
+  const x = (days: number) => (days / CURVE_DAYS) * width;
+  const y = (value: number) => height - (Math.max(0, Math.min(100, value)) / 100) * height;
+  const points: string[] = [];
+  for (let i = 0; i <= CURVE_POINTS; i += 1) {
+    const days = (i / CURVE_POINTS) * CURVE_DAYS;
+    points.push(`${x(days).toFixed(2)},${y(at(days)).toFixed(2)}`);
+  }
+  const now = Math.min(CURVE_DAYS, elapsedDays);
+  const reading = at(now);
+  return (
+    <div className="moist">
+      <span className="moist-label">{t("ui-farm-moisture")}</span>
+      <svg
+        className="moist-curve"
+        viewBox={`0 0 ${width} ${height}`}
+        preserveAspectRatio="none"
+        role="img"
+        aria-label={t("ui-farm-moisture-reading", { value: reading.toFixed(0) })}
+      >
+        {Array.from({ length: CURVE_DAYS }, (_, day) => (
+          <line
+            key={day}
+            className="moist-day"
+            x1={x(day + 1)}
+            x2={x(day + 1)}
+            y1={0}
+            y2={height}
+            vectorEffect="non-scaling-stroke"
+          />
+        ))}
+        <polyline className="moist-line" points={points.join(" ")} vectorEffect="non-scaling-stroke" />
+        <line
+          className="moist-now"
+          x1={x(now)}
+          x2={x(now)}
+          y1={0}
+          y2={height}
+          vectorEffect="non-scaling-stroke"
+        />
+      </svg>
+      <span className="moist-reading">{reading.toFixed(0)}</span>
+    </div>
+  );
+}
+
 /** One fact of the bed per chip; nothing to say -- no container either. */
 function PlotChips({ row }: { row: Row }) {
   const chips: React.ReactNode[] = [];
-  if (row.agrotech && row.asks_care && row.water_need != null) {
+  if (row.health && row.health !== "strong") {
     chips.push(
-      <span className="chip warn" key="water">
-        <Glyph name="water" />
-        {t("ui-farm-water")} ·{" "}
-        <b>{t("ui-farm-litres", { litres: row.water_need.toFixed(0) })}</b>
-      </span>,
-    );
-  }
-  if ((row.missed_days ?? 0) > 0) {
-    chips.push(
-      <span className="chip warn" key="missed">
-        {t("ui-farm-missed")} ·{" "}
-        <b>{t("ui-farm-missed-days", { count: String(row.missed_days) })}</b>
+      <span className={`chip ${row.health === "weak" ? "dim" : "warn"}`} key="health">
+        {t(HEALTH[row.health])}
       </span>,
     );
   }
   if (row.ripe) chips.push(<span className="chip good" key="ripe">{t("ui-farm-ripe")}</span>);
-  if (!row.agrotech) {
-    //: The "ripe" symptom is the good chip's news said twice: the flag comes
-    //: to everybody, the symptom only to those without agrotech.
-    for (const code of (row.symptoms ?? []).filter((s) => s !== "ripe")) {
-      chips.push(
-        <span className="chip dim" key={code}>
-          {SYMPTOM[code] ? t(SYMPTOM[code]) : code}
-        </span>,
-      );
-    }
+  for (const code of row.symptoms ?? []) {
+    chips.push(
+      <span className="chip dim" key={code}>
+        {SYMPTOM[code] ? t(SYMPTOM[code]) : code}
+      </span>,
+    );
+  }
+  if (row.fed) chips.push(<span className="chip dim" key="fed">{t("ui-farm-fed-stage")}</span>);
+  if (row.carried) {
+    chips.push(
+      <span className="chip" key="carried">
+        <Glyph name="water" />
+        {t("ui-farm-carried")}
+      </span>,
+    );
   }
   if (chips.length === 0) return null;
   return <div className="chips">{chips}</div>;
@@ -141,23 +230,31 @@ export function Farm({ look }: Omit<Props, "busy" | "act">) {
   >([]);
   //: One sows with a batch of seeds, not a crop: the batch has its own cultivar and strength.
   const [batch, setBatch] = useState("");
+  //: The target of the next watering per bed (D-293): the slider's own
+  //: position, kept until the world redraws the card.
+  const [targets, setTargets] = useState<Record<string, number>>({});
+  //: The fertilizer picked for the next feeding per bed.
+  const [feeds, setFeeds] = useState<Record<string, string>>({});
 
   const current_ = look.node?.key;
+  //: The curve counts Terran days (D-008): the farm's day is the same
+  //: everywhere, whatever planet the bed stands on.
+  const dayHours = look.clock?.day_hours ?? 24;
 
   //: Work on a plot is an occupation (D-211), and a busy body has no hands for
   //: it -- including its own plough on the neighbouring strip. The buttons go
-  //: grey with the reason on them rather than collecting refusals.
+  //: grey with the reason written beside them rather than collecting refusals.
   const occupied = busyWith(look);
 
   //: Seeds are recognised by name from vault data, not by the client's guess.
   const seedNames = new Set(plants.map((p) => p.seed));
-  const seeds = look.inventory.filter((t) => seedNames.has(t.goods));
-  //: The two fertilizers of the vault (D-264), one button per kind in hand.
+  const seeds = look.inventory.filter((thing) => seedNames.has(thing.goods));
+  //: The fertilizers of the vault (D-264, D-291), one entry per kind in hand.
   const dung = [
     ...new Map(
       look.inventory
-        .filter((t) => t.goods === "compost" || t.goods === "mineral_fertilizer")
-        .map((t) => [t.goods, t]),
+        .filter((thing) => thing.goods === "compost" || thing.goods === "mineral_fertilizer")
+        .map((thing) => [thing.goods, thing]),
     ).values(),
   ];
 
@@ -184,6 +281,13 @@ export function Farm({ look }: Omit<Props, "busy" | "act">) {
       await reload();
     });
 
+  //: The slider starts a step above what the ground holds: a watering that
+  //: changes nothing is refused, and the first press should not be one.
+  const targetOf = (row: Row) =>
+    targets[row.id] ??
+    Math.min(100, Math.ceil(((row.moisture ?? 0) + TARGET_STEP) / TARGET_STEP) * TARGET_STEP);
+  const feedOf = (row: Row) => feeds[row.id] || dung[0]?.goods || "";
+
   //: The holder runs the estate: civic land is bought first (06-farming).
   if (!mine) {
     return (
@@ -201,20 +305,17 @@ export function Farm({ look }: Omit<Props, "busy" | "act">) {
 
   return (
     <section>
-      {/* The window's refusals belong to the window with the buttons in it.
-          It used to stand only in the branch above -- the one that offers
-          nothing and can be refused nothing -- so every "not enough seed",
-          "already tended today" and "hands are busy" from the plough, the
-          sowing, the round and the harvest was swallowed: the button clicked
-          and the field simply did not change. */}
+      {/* The window's refusals belong to the window with the buttons in it:
+          every "not enough seed", "wetter than that already" and "hands are
+          busy" is shown where the button was pressed. */}
       <Refusal of={acting} />
       <h2>{t("ui-farm-title")}</h2>
 
       {rows.length === 0 && <p className="note">{t("ui-farm-unmarked")}</p>}
 
-      {/* A bed is a card of instruments (D-238): the fertility on a track with
-          the norm's notch, the term on the deadline bar, one fact per chip --
-          instead of the comma sentence all of it used to be. */}
+      {/* A bed is a card of instruments (D-238): the fertility on a track,
+          the moisture as a curve, one fact per chip -- and the two words of
+          the growing bed in its head. */}
       {rows.map((row) => (
         <div className="state-card" key={row.id}>
           <div className="card-head">
@@ -224,6 +325,7 @@ export function Farm({ look }: Omit<Props, "busy" | "act">) {
               {row.state === "sown" && row.culture && (
                 <> · {plantName(names, row.culture)}{cultivarNote(names, row)}</>
               )}
+              {row.state === "sown" && row.stage && <> · {t(STAGE[row.stage])}</>}
               {/* The share stands in the head running or paused: the bar below
                   draws only the current run, and a strip taken up at ninety
                   per cent would otherwise look untouched. */}
@@ -238,37 +340,12 @@ export function Farm({ look }: Omit<Props, "busy" | "act">) {
             </span>
           </div>
 
-          {/* With agrotech the norm stands as a notch on the track; without
-              it -- a bare track and symptoms as chips. Knowledge turns
-              guesswork into a solved problem (D-057). */}
-          <Gauge
-            label={t("ui-farm-fertility")}
-            value={row.fertility}
-            mark={row.state === "sown" && row.agrotech ? row.fertility_required : undefined}
-            markTitle={
-              row.fertility_required != null
-                ? t("ui-farm-norm", { norm: row.fertility_required.toFixed(0) })
-                : undefined
-            }
-            warn={
-              row.state === "sown" &&
-              row.agrotech === true &&
-              row.fertility_required != null &&
-              row.fertility < row.fertility_required
-            }
-            reading={
-              row.state === "sown" && row.agrotech && row.fertility_required != null
-                ? t("ui-farm-reading", {
-                    value: row.fertility.toFixed(0),
-                    norm: row.fertility_required.toFixed(0),
-                  })
-                : row.fertility.toFixed(0)
-            }
-          />
+          {/* A bare track: the culture's norm is the Library's text, not a
+              notch of the window's (D-293). */}
+          <Gauge label={t("ui-farm-fertility")} value={row.fertility} />
 
-          {row.state === "sown" && !row.ripe && row.ripe_at && (
-            <Doing what={t("ui-farm-ripens")} until={row.ripe_at} since={row.sown_at} />
-          )}
+          {row.state === "sown" && <MoistureCurve row={row} dayHours={dayHours} />}
+
           {row.state === "plowing" && !pausedPlough(row) && row.plow_ready_at && (
             <Doing
               what={t("ui-farm-state-plowing")}
@@ -279,12 +356,15 @@ export function Farm({ look }: Omit<Props, "busy" | "act">) {
 
           {row.state === "sown" && <PlotChips row={row} />}
 
+          {/* The reason a button is grey is written, not hidden in a hint:
+              a hint is invisible on a touch screen and easy to miss on any. */}
+          {occupied && <p className="note">{occupied}</p>}
+
           <div className="card-act">
           {row.state === "idle" && (
             <button
               onClick={() => go(() => session.send("farm.plow", { plot: row.id }))}
               disabled={busy || occupied !== null}
-              title={occupied ?? ""}
             >
               {t("ui-farm-plow")}
             </button>
@@ -309,7 +389,6 @@ export function Farm({ look }: Omit<Props, "busy" | "act">) {
               <button
                 onClick={() => go(() => session.send("farm.plow", { plot: row.id }))}
                 disabled={busy || occupied !== null}
-                title={occupied ?? ""}
               >
                 {t("ui-farm-plow-resume")}
               </button>
@@ -333,7 +412,6 @@ export function Farm({ look }: Omit<Props, "busy" | "act">) {
                   )
                 }
                 disabled={busy || occupied !== null}
-                title={occupied ?? ""}
               >
                 {t("ui-farm-fertilize", { goods: goodsName(names, heap.goods) })}
               </button>
@@ -364,25 +442,68 @@ export function Farm({ look }: Omit<Props, "busy" | "act">) {
                   )
                 }
                 disabled={busy || seeds.length === 0 || occupied !== null}
-                title={occupied ?? ""}
               >
                 {t("ui-farm-sow")}
               </button>
             </>
           )}
           {row.state === "sown" && !row.ripe && (
-            <button
-              onClick={() => go(() => session.send("farm.care", { plot: row.id }))}
-              //: Without agrotech "already tended today" is unknown to the
-              //: player -- the button is live, and an extra round the engine rejects itself.
-
-              disabled={busy || (row.agrotech === true && !row.asks_care) || occupied !== null}
-              title={
-                occupied ?? (row.agrotech && !row.asks_care ? t("ui-farm-cared") : "")
-              }
-            >
-              {t("ui-farm-care")}
-            </button>
+            <>
+              {/* Watering to a target (D-293): the slider is the decision, the
+                  water is the difference, and the target may run past what the
+                  culture wants -- overwatering is the player's mistake, and
+                  the bed will show it. */}
+              <label className="slider">
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={TARGET_STEP}
+                  value={targetOf(row)}
+                  onChange={(e) =>
+                    setTargets({ ...targets, [row.id]: Number(e.target.value) })
+                  }
+                  aria-label={t("ui-farm-target")}
+                />
+              </label>
+              <button
+                onClick={() =>
+                  go(() =>
+                    session.send("farm.water", { plot: row.id, target: targetOf(row) }),
+                  )
+                }
+                disabled={busy || occupied !== null}
+              >
+                {t("ui-farm-water-to", { target: String(targetOf(row)) })}
+              </button>
+              {dung.length > 0 && (
+                <>
+                  {dung.length > 1 && (
+                    <select
+                      value={feedOf(row)}
+                      onChange={(e) => setFeeds({ ...feeds, [row.id]: e.target.value })}
+                    >
+                      {dung.map((heap) => (
+                        <option key={heap.goods} value={heap.goods}>
+                          {goodsName(names, heap.goods)}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  <button
+                    className="quiet"
+                    onClick={() =>
+                      go(() =>
+                        session.send("farm.feed", { plot: row.id, goods: feedOf(row) }),
+                      )
+                    }
+                    disabled={busy || occupied !== null}
+                  >
+                    {t("ui-farm-feed", { goods: goodsName(names, feedOf(row)) })}
+                  </button>
+                </>
+              )}
+            </>
           )}
           {row.state === "sown" && row.ripe && (
             <>
@@ -393,7 +514,7 @@ export function Farm({ look }: Omit<Props, "busy" | "act">) {
                   )
                 }
                 disabled={busy || occupied !== null}
-                title={occupied ?? t("ui-farm-harvest-select-hint")}
+                title={t("ui-farm-harvest-select-hint")}
               >
                 {t("ui-farm-harvest-select")}
               </button>
@@ -401,7 +522,7 @@ export function Farm({ look }: Omit<Props, "busy" | "act">) {
                 className="quiet"
                 onClick={() => go(() => session.send("farm.harvest", { plot: row.id }))}
                 disabled={busy || occupied !== null}
-                title={occupied ?? t("ui-farm-harvest-hint")}
+                title={t("ui-farm-harvest-hint")}
               >
                 {t("ui-farm-harvest")}
               </button>
@@ -415,9 +536,6 @@ export function Farm({ look }: Omit<Props, "busy" | "act">) {
 
       <p className="note">{t("ui-farm-rule")}</p>
       <p className="note">{t("ui-farm-seeds-rule")}</p>
-      {rows.some((row) => row.state === "sown" && row.agrotech === false) && (
-        <p className="note">{t("ui-farm-no-agrotech")}</p>
-      )}
     </section>
   );
 }
