@@ -37,6 +37,7 @@ from src.models.estate import Building
 from src.models.identity import Body, BodyState
 from src.models.ship import Ship
 from src.models.world import Layer, Node, Planet, Surface
+from src.units import AMOUNT_SCALE, ROUND_AMOUNT, ROUND_REMAINDER
 
 AIR = "oxygen"
 WATER = "water"
@@ -290,6 +291,99 @@ async def test_a_bare_body_breathes_nothing_however_many_cylinders(
     breath = await oxygen.settle(session, constants, catalog, body)
     assert breath.uncovered > 0, "дышать нечем: скафандра нет"
     assert await oxygen.carried(session, body) == pytest.approx(100, abs=0.01), "баллон не тронут"
+
+
+def test_the_air_grid_is_one_number_in_two_places() -> None:
+    """`AMOUNT_SCALE` and `ROUND_AMOUNT` say the same grid, one as a scale and
+    one as places. Move either alone and every figure floored to the amount
+    grid is floored to the wrong one -- silently, and always downwards.
+    """
+    assert AMOUNT_SCALE == 10**ROUND_AMOUNT
+
+
+def test_the_air_debt_is_kept_at_the_scale_it_is_written_with() -> None:
+    """`ROUND_REMAINDER` and the debt column are one number in two places."""
+    assert Body.__table__.c.air_owed.type.scale == ROUND_REMAINDER
+
+
+async def test_breathing_often_costs_the_same_air_as_breathing_once(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A body settled every second on Pyroxis spends the hour it stood there.
+
+    Air is split into thousandths, and at `oxygen.body_draw` a stretch under
+    seven seconds cannot be taken out of a cylinder. The breath used to be
+    asked for, rounded away and forgotten, and every step settles the
+    breathing -- the gangway off a landed ship is seven tenths of a second --
+    so a suited body could stand on an airless world for ever on a drop.
+    """
+    pyroxis = await _sphere(session, Planet.PYROXIS, airless=True)
+    rock = await _ground(session, Planet.PYROXIS, pyroxis)
+    often = await _person(session, rock)
+    once = await _person(session, rock)
+    started = datetime.now(UTC)
+    for who in (often, once):
+        await _cylinder(session, who, 6)
+        await _suited(session, constants, catalog, who)
+        who.air_at = started
+    await session.flush()
+
+    #: Two seconds apart, well under the seven a thousandth of air buys.
+    steps, every = 60, timedelta(seconds=2)
+    for tick in range(1, steps + 1):
+        await oxygen.settle(session, constants, catalog, often, now=started + every * tick)
+    await oxygen.settle(session, constants, catalog, once, now=started + every * steps)
+
+    spent = constants[R.OXYGEN_BODY_DRAW] * (steps * every) / timedelta(hours=1)
+    left_once = await oxygen.carried(session, once)
+    left_often = await oxygen.carried(session, often)
+    #: The two minutes really cost something, or the test proves nothing.
+    assert 6 - left_once == pytest.approx(spent, abs=0.001)
+    #: And the busy body paid exactly what the quiet one paid.
+    assert left_often == pytest.approx(left_once, abs=0.001)
+
+
+async def test_stepping_aboard_does_not_forgive_the_air_owed_outside(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The gangway is not a way of breathing free.
+
+    A ship landed on bare ground makes an edge of seven tenths of a second,
+    and every step settles the breathing. If what the ground breathed but
+    could not be charged for rode on the stamp, arriving in air would move
+    that stamp to now and forgive it -- so a body stepping off and back on
+    would pay nothing, for ever. The debt is the body's own, and it survives
+    the crossing.
+    """
+    pyroxis = await _sphere(session, Planet.PYROXIS, airless=True)
+    rock = await _ground(session, Planet.PYROXIS, pyroxis)
+    #: The other side of the gangway is simply somewhere with air: `settle`
+    #: asks the node it stands on and nothing else.
+    terra = await _sphere(session, Planet.TERRA, airless=False)
+    inside = await _ground(session, Planet.TERRA, terra, name="Палуба")
+    body = await _person(session, rock)
+    await _cylinder(session, body, 6)
+    await _suited(session, constants, catalog, body)
+    started = datetime.now(UTC)
+    body.air_at = started
+    await session.flush()
+
+    #: Off the ship and back, twenty times: two seconds on the ground each
+    #: time, and two aboard, where breathing is free.
+    moment = started
+    for _ in range(20):
+        moment += timedelta(seconds=2)
+        body.node_id = rock.id
+        await oxygen.settle(session, constants, catalog, body, now=moment)
+        moment += timedelta(seconds=2)
+        body.node_id = inside.id
+        await oxygen.settle(session, constants, catalog, body, now=moment)
+    body.node_id = rock.id
+
+    #: Forty seconds on the rock, and every one of them paid for.
+    spent = constants[R.OXYGEN_BODY_DRAW] * timedelta(seconds=40) / timedelta(hours=1)
+    left = await oxygen.carried(session, body)
+    assert 6 - left == pytest.approx(spent, abs=0.001)
 
 
 async def test_a_suited_body_spends_its_cylinder(

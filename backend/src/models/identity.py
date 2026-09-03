@@ -22,7 +22,16 @@ import uuid
 from datetime import datetime
 from enum import StrEnum
 
-from sqlalchemy import ForeignKey, Index, Numeric, String, UniqueConstraint, Uuid, text
+from sqlalchemy import (
+    CheckConstraint,
+    ForeignKey,
+    Index,
+    Numeric,
+    String,
+    UniqueConstraint,
+    Uuid,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.db.base import Base, created_column, enum_column, uuid_pk
@@ -152,6 +161,10 @@ class Body(Base):
     __table_args__ = (
         Index("ix_body_node_state", "node_id", "state"),
         Index("ix_body_identity_state", "identity_id", "state"),
+        CheckConstraint(
+            "air_owed >= 0 AND air_owed < 0.001",
+            name="air_owed_under_a_thousandth",
+        ),
     )
 
     id: Mapped[uuid.UUID] = uuid_pk()
@@ -196,6 +209,15 @@ class Body(Base):
     #: short: a body that had nothing to breathe for a whole stretch is given
     #: one more, and dies on the next.
     air_at: Mapped[datetime] = created_column()
+    #: Air already breathed that the cylinder could not be asked for. Air is
+    #: split into thousandths, and a step on an airless world can cost less
+    #: than one -- the gangway off a landed ship is seven tenths of a second.
+    #: Kept on the body rather than on the stamp: the stretch may end aboard,
+    #: and a stamp is reset by arriving in air, which would forgive the debt.
+    #: Always `0 <= air_owed < 0.001`, and a check says so.
+    air_owed: Mapped[float] = mapped_column(
+        Numeric(9, 9), nullable=False, default=0, server_default="0"
+    )
     choking_since: Mapped[datetime | None] = mapped_column(nullable=True)
 
     #: When the body took its node: by print or by arrival. Before that moment

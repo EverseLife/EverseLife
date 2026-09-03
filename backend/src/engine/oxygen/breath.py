@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
+from decimal import ROUND_FLOOR, Decimal
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -49,9 +50,12 @@ from src.models.inventory import Item
 from src.models.ship import Ship
 from src.models.world import Node
 from src.units import (
+    ROUND_AMOUNT,
+    ROUND_REMAINDER,
     SECONDS_PER_HOUR,
     amount,
     amount_float,
+    on_grid,
 )
 
 # --- the step out --------------------------------------------------------------
@@ -146,8 +150,9 @@ async def settle(
     if hours <= 0:
         return Breath(left=await carried(session, locked), uncovered=0.0)
 
-    locked.air_at = moment
     if await free_air(session, node) or vessels.is_aboard(node):
+        #: Nothing was owed for the stretch, so it is over and done with.
+        locked.air_at = moment
         await session.flush()
         return Breath(left=await carried(session, locked), uncovered=0.0)
 
@@ -155,22 +160,43 @@ async def settle(
     need = hours * draw
     if not await suited(session, catalog, locked):
         #: A bare body on an airless node breathes nothing at all, whatever it
-        #: is carrying. The whole stretch is uncovered.
+        #: is carrying. The whole stretch is uncovered -- and settled by the
+        #: choking below, so the stamp goes all the way.
+        locked.air_at = moment
         await session.flush()
         return Breath(left=0.0, uncovered=hours)
 
     stacks = await stock.lock_items(session, await cylinders(session, locked))
-    took = amount_float(await stock.consume(session, stacks, amount(need)))
+    #: What the last stretch breathed and could not be charged for is asked
+    #: for first. Down to the thousandth air is split into, never up:
+    #: `amount()` rounds to the nearest and would take one the stretch had not
+    #: earned. Flooring alone would be worse than the disease -- an error that
+    #: cancelled would become one that always took -- which is why the shaving
+    #: is kept rather than dropped.
+    owed = need + float(locked.air_owed)
+    want = float(on_grid(owed, ROUND_AMOUNT, ROUND_FLOOR))
+    took = amount_float(await stock.consume(session, stacks, amount(want)))
+    #: Exactly enough must not read as short: amounts are split into
+    #: thousandths, and the last digit of an hour's draw is rounding, not a
+    #: gasp. The same tolerance the fuel check uses before a passage.
+    missing = owed - took
+    if missing > _EPS:
+        #: A real shortage. The body choked for it and is not billed twice:
+        #: nothing is carried on top of choking.
+        locked.air_owed = Decimal(0)
+    else:
+        #: The breath the cylinder could not be asked for. It waits on the
+        #: body, not on the stamp: this stretch may have ended aboard, and
+        #: arriving in air moves the stamp to now -- which would forgive the
+        #: debt every time a body stepped back up its own gangway.
+        locked.air_owed = on_grid(max(0.0, missing), ROUND_REMAINDER, ROUND_FLOOR)
+    locked.air_at = moment
     await session.flush()
     #: Asked again rather than summed off the stacks in hand: a stack spent to
     #: nothing is **deleted** by `consume`, and its object keeps the amount it
     #: had -- the sum would count air that no longer exists.
     left = await carried(session, locked)
-    #: Exactly enough must not read as short: amounts are split into
-    #: thousandths, and the last digit of an hour's draw is rounding, not a
-    #: gasp. The same tolerance the fuel check uses before a passage.
-    missing = need - took
-    return Breath(left=left, uncovered=missing / draw if missing > _EPS else 0.0)
+    return Breath(left=left, uncovered=missing / draw if missing > _EPS and draw > 0 else 0.0)
 
 
 async def tick_bodies(

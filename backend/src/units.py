@@ -118,12 +118,12 @@ ROUND_CHARGE = 3
 #: The city pool's energy is stored to a thousandth (`EnergyPool.stored` is
 #: `Numeric(14, 3)`). The scale of the column, not a property of the game.
 ROUND_ENERGY = 3
-#: What the pool could not store, kept to a billionth (`EnergyPool.remainder`
-#: is `Numeric(9, 9)`). Generation is continuous and the pool is not, so each
-#: pass leaves less than a thousandth over; kept here it is spent on the next
-#: pass instead of being thrown away, and a pool read a hundred times a second
-#: ends where a pool read once does. Fine enough that its own rounding is
-#: nothing: a millionth of a thousandth a call.
+#: A sliver a coarse store could not hold, kept to a billionth in a column of
+#: its own -- `EnergyPool.remainder`, `Body.air_owed`. The world runs
+#: continuously and its stores do not, so each pass leaves a little over;
+#: kept, it is spent on the next pass instead of being thrown away, and a
+#: thing read a hundred times a second ends where a thing read once does.
+#: Fine enough that its own rounding is nothing: a millionth of a thousandth.
 ROUND_REMAINDER = 9
 #: The body's heat reserve is stored to a hundredth of an hour (`Body.warmth`
 #: is `Numeric(6, 2)`), which is thirty-six seconds. The scale of the column,
@@ -141,6 +141,13 @@ KIB_PER_MIB = 1024
 #: Raw material amounts are stored as integer thousandths of a unit -- ore can
 #: be fractional, and floating point in vein remainders is unacceptable.
 AMOUNT_SCALE = 1_000
+#: The same grid said in decimal places, for whoever must put a figure on it
+#: before asking for it: `amount()` rounds to the nearest thousandth and will
+#: hand over one that was not earned, which is a gift nobody can take back.
+#: Flooring alone is not enough, mind: without a place to keep what the floor
+#: shaved off it turns an error that cancels into one that always takes.
+#: `AMOUNT_SCALE` and this are one number, and a test says so.
+ROUND_AMOUNT = 3
 
 #: The widest amount the column can hold, in pieces: `Item.amount` is a signed
 #: bigint of internal units. Not a balance number -- the width of the row, and
