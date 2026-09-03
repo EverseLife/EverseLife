@@ -103,6 +103,21 @@ layers = ["src.api", "src.engine", "src.sky", "src.models", "src.constants", "sr
 # checked here is the thing the cut actually established: which module may name
 # which **directly**. Turn these into a layers contract on the day the engine's
 # own cycles are gone.
+# The ship's sky (D-289): `sim` owns the state and is the floor; the tick and
+# the fates (`helm`), the meeting (`meet`), what is seen (`sighting`) and the
+# order (`crossing`) stand on it and it names none of them.
+[[tool.importlinter.contracts]]
+name = "The ship's sky is a stack, and sim is its floor"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = ["src.engine.ship.sim"]
+forbidden_modules = [
+    "src.engine.ship.helm",
+    "src.engine.ship.meet",
+    "src.engine.ship.sighting",
+    "src.engine.ship.crossing",
+]
+
 [[tool.importlinter.contracts]]
 name = "The city is a stack, and its floor asks nobody"
 type = "forbidden"

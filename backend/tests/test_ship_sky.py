@@ -36,7 +36,7 @@ from src import sky
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import jobs, ship
-from src.engine.ship import sim
+from src.engine.ship import helm, sim
 from src.models.event import Event, EventKind
 from src.models.identity import Body
 from src.models.job import Job, JobKind, JobState
@@ -177,7 +177,7 @@ async def test_the_loss_job_asks_the_arithmetic_again_before_it_kills(
         doomed.park_phase = None
         sim._write_state(doomed, here, (falling[0], falling[1]), at=now)
         await session.flush()
-        fate = await sim.book_loss(
+        fate = await helm.book_loss(
             session, constants, doomed, world, now=now, t=t, r=here, v=falling
         )
         assert fate.kind == sky.CRASH and fate.body == "star"
@@ -225,7 +225,7 @@ async def test_a_drifter_with_an_order_by_the_hour_is_left_alone(
         vessel.park_phase = None
         sim._write_state(vessel, here, (falling[0], falling[1]), at=now)
         await session.flush()
-        await sim.book_loss(session, constants, vessel, world, now=now, t=t, r=here, v=falling)
+        await helm.book_loss(session, constants, vessel, world, now=now, t=t, r=here, v=falling)
         booked = await _loss_jobs(session)
         due, ship_id = booked[0].run_at, vessel.id
         #: An order in the meantime: the tanks were filled and the hull sent
@@ -271,7 +271,7 @@ async def test_a_moored_hull_runs_on_its_circle_and_costs_the_tick_nothing(
         p, _ = sky.place(terra, t)
         assert np.hypot(r[0] - p[0, 0], r[1] - p[0, 1]) == pytest.approx(park, rel=1e-6)
     before = await ship.fuel_aboard(session, constants, catalog, vessel)
-    report = await sim.tick_sky(session, constants, catalog, now=vessel.sky_at + timedelta(days=1))
+    report = await helm.tick_sky(session, constants, catalog, now=vessel.sky_at + timedelta(days=1))
     assert report.get("flown", 0) == 0
     assert await ship.fuel_aboard(session, constants, catalog, vessel) == before
     summary = await ship.profile(session, constants, catalog, vessel)
@@ -303,7 +303,7 @@ async def test_two_ticks_on_one_hull_burn_once(
 
     async def tick() -> None:
         async with factory() as session, session.begin():
-            await sim.tick_sky(session, constants, catalog, now=later)
+            await helm.tick_sky(session, constants, catalog, now=later)
 
     await asyncio.gather(tick(), tick())
 
@@ -336,12 +336,12 @@ async def test_a_coasting_hull_is_restamped_by_the_tick_and_read_without_writing
 
     #: Under the cadence: the tick leaves the stamp where it is.
     soon = last + timedelta(hours=float(constants[R.ORBIT_RESTAMP_HOURS]) / 2)
-    await sim.tick_sky(session, constants, catalog, now=soon)
+    await helm.tick_sky(session, constants, catalog, now=soon)
     await session.refresh(vessel)
     assert vessel.sky_at == stamped and vessel.forecast == counted
     #: Past it: the stamp moves, and the coast ahead is counted afresh.
     later = last + timedelta(hours=float(constants[R.ORBIT_RESTAMP_HOURS]) + 1)
-    await sim.tick_sky(session, constants, catalog, now=later)
+    await helm.tick_sky(session, constants, catalog, now=later)
     await session.refresh(vessel)
     assert vessel.sky_at == later and vessel.forecast["since"] != counted["since"]
 
@@ -368,15 +368,15 @@ async def test_a_hull_under_way_carries_the_coast_ahead_at_the_coaster_cadence(
     vessel, _, _, moment, _ = await _under_way(session, constants, catalog)
     assert vessel.forecast is None, "заказ прогноза не считает: его пишет тик"
     first = moment + timedelta(hours=1)
-    await sim.tick_sky(session, constants, catalog, now=first)
+    await helm.tick_sky(session, constants, catalog, now=first)
     await session.refresh(vessel)
     assert vessel.forecast is not None and vessel.course is not None
     counted = vessel.forecast["since"]
-    await sim.tick_sky(session, constants, catalog, now=first + timedelta(hours=1))
+    await helm.tick_sky(session, constants, catalog, now=first + timedelta(hours=1))
     await session.refresh(vessel)
     assert vessel.forecast["since"] == counted, "час спустя прогноз тот же"
     later = first + timedelta(hours=float(constants[R.ORBIT_RESTAMP_HOURS]) + 1)
-    await sim.tick_sky(session, constants, catalog, now=later)
+    await helm.tick_sky(session, constants, catalog, now=later)
     await session.refresh(vessel)
     assert vessel.forecast["since"] != counted, "за каденцией прогноз пересчитан"
     seen = (await ship.profile(session, constants, catalog, vessel))["sky"]

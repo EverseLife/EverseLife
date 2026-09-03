@@ -136,6 +136,17 @@ ship-nowhere-to-land = there is nowhere to land at { $node }: not one beacon is 
 ship-no-such-route = the world has no route { PLANET($planet_from) } — { PLANET($planet_to) }
 ship-lost = “{ $ship }” is lost: no order and no turn-back reaches it any more
 ship-no-route-adrift = from where it drifts the sky offers no arc · { PLANET($planet_to) }
+# Two hulls meeting (D-289, wave 3).
+ship-target-self = a ship does not fly to itself
+ship-dock-self = a ship does not dock with itself
+ship-target-unseen = the target is not in sight: another's hull is seen within { NUMBER($radius) } map units or moored at the same planet
+ship-target-not-adrift = only a drifter is met: a hull under an order, moored, or alongside another is no rendezvous
+ship-target-unknown = the target's inertia is not reckoned yet: it has only just gone adrift, the sky will show it in a minute
+ship-not-held = docking takes station alongside: come within { NUMBER($radius) } map units at a relative speed under { NUMBER($speed) } units of speed
+ship-dock-at-port = hull to hull only in space: at a pier it would be a bridge past the inspection
+ship-already-docked-ship = the ship is already docked · { $other }
+ship-not-docked-ship = the ship is not docked to another hull
+ship-no-route-to-ship = the sky offers no arc to the target · { $other }
 ship-already-landed = “{ $ship }” already stands on a planet: there is nowhere to land from
 ship-land-not-into-orbit = “{ $node }” is an orbit, not a spaceport: from orbit one lands on the planet below it
 ship-land-other-planet = “{ $node }” is on another planet: from orbit one lands on what is below, and another planet is reached by a crossing from orbit to orbit

@@ -37,6 +37,10 @@ class Fate:
     body: str | None
     #: The path up to that moment, at equal time steps, map units.
     trace: tuple[tuple[float, float], ...]
+    #: How long the line is, days from its start: the coast's whole length,
+    #: or one lap of a bound ellipse -- which `loops`, and is read modulo it.
+    span: float
+    loops: bool
 
 
 def _ground(system: System, t: np.ndarray, r: Rows) -> tuple[str | None, bool]:
@@ -78,7 +82,8 @@ def inertia(
     #: lap of the ellipse is the line to draw.
     bound = _bound_to(system, t0, r0, v0, points)
     if bound is not None:
-        return Fate(kind=STABLE, at=end, body=None, trace=bound)
+        lap, period = bound
+        return Fate(kind=STABLE, at=end, body=None, trace=lap, span=period, loops=True)
     t = np.array([t0], dtype=float)
     r = np.array([r0], dtype=float)
     v = np.array([v0], dtype=float)
@@ -117,6 +122,8 @@ def inertia(
         at=at,
         body=None if body is None else str(body),
         trace=_resample(times, path, at, points),
+        span=at - t0,
+        loops=False,
     )
 
 
@@ -131,10 +138,10 @@ def _bound_to(
     r0: tuple[float, float],
     v0: tuple[float, float],
     points: int,
-) -> tuple[tuple[float, float], ...] | None:
-    """One lap of the ellipse round the nearest planet, if the hull is on
-    one that stays: negative two-body energy, periapsis above the ground,
-    apoapsis well inside the planet's hold. Nothing otherwise."""
+) -> tuple[tuple[tuple[float, float], ...], float] | None:
+    """One lap of the ellipse round the nearest planet, and its period, if
+    the hull is on one that stays: negative two-body energy, periapsis above
+    the ground, apoapsis well inside the planet's hold. Nothing otherwise."""
     if not system.bodies or system.mu <= 0:
         return None
     body, rel, v_rel = _nearest(system, t0, r0, v0)
@@ -155,8 +162,9 @@ def _bound_to(
     if periapsis <= body.radius or apoapsis >= hill * _HOLD_SHARE:
         return None
     centre = place(body, t0)[0][0]
-    lap = astro.trace(body.mu, rel, v_rel, astro.lap(body.mu, axis), points)
-    return tuple((float(centre[0]) + x, float(centre[1]) + y) for x, y in lap)
+    period = astro.lap(body.mu, axis)
+    lap = astro.trace(body.mu, rel, v_rel, period, points)
+    return tuple((float(centre[0]) + x, float(centre[1]) + y) for x, y in lap), period
 
 
 def _nearest(

@@ -196,7 +196,7 @@ async def test_the_slider_has_two_ends_and_the_order_names_one(
     assert vessel.course["hours"] == pytest.approx(fast["hours"])
     assert len(vessel.course["trace"]) >= 2, "дуга записана в курс, и карта её рисует"
     #: An hour under way: the departure burn has started, and it is paid for.
-    await ship.sim.tick_sky(session, constants, catalog, now=moment + timedelta(hours=1))
+    await ship.helm.tick_sky(session, constants, catalog, now=moment + timedelta(hours=1))
     assert await ship.fuel_aboard(session, constants, catalog, vessel) < before, (
         "час пути — и баки легче"
     )
@@ -226,7 +226,7 @@ async def test_a_turn_back_from_an_arc_is_a_new_order_home(
     #: rule for the tabled passage) but a new order laid from where the hull
     #: is, to where Terra will be (D-289).
     later = moment + timedelta(hours=2)
-    await ship.sim.tick_sky(session, constants, catalog, now=later)
+    await ship.helm.tick_sky(session, constants, catalog, now=later)
     arrives = await ship.recall(session, constants, catalog, owner, vessel, now=later)
     assert arrives > later
     home = vessel.course

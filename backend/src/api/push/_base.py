@@ -127,6 +127,13 @@ TOUCHES_BY_KIND: dict[str, tuple[str, ...]] = {
     #: A line drawn changes what the engines and the life support reach
     #: (D-288): the hull's fuel and air on the console are read afresh.
     "line.set": ("ships",),
+    #: Two hulls meeting (D-289, wave 3): every one of these changes what the
+    #: console of either hull shows.
+    "ship.sighted": ("ships",),
+    "ship.held": ("ships",),
+    "ship.dock_asked": ("ships",),
+    "ship.docked_ship": ("ships",),
+    "ship.undocked_ship": ("ships",),
 }
 
 #: What everybody standing in the node sees happen there, by prefix or kind.

@@ -36,7 +36,7 @@ import type { MapNode } from "../../api";
 import { t } from "../../locale";
 import { planetName } from "../../planets";
 import { along, term } from "../map/orbits";
-import type { Route, Vessel } from "./model";
+import { sameTarget, type Route, type Target, type Vessel } from "./model";
 
 /** The chart's own frame. Not the map's: this one is a panel, not a scene. */
 const W = 640;
@@ -87,9 +87,9 @@ export function Chart({
   /** The spheres, as the sky read gave them. Only those with an orbit are drawn. */
   planets: MapNode[];
   epoch: string | null;
-  /** The planet the course is set for, if any. */
-  chosen: string | null;
-  onChoose: (planet: string | null) => void;
+  /** What the course is set for, if anything: a planet, or a hull in sight. */
+  chosen: Target | null;
+  onChoose: (target: Target | null) => void;
   /** The arc of the point the slider stands on, while it stands there (D-289). */
   plan: [number, number][] | null;
 }) {
@@ -189,12 +189,12 @@ export function Chart({
           const there = by.get(route.planet);
           if (!there) return null;
           const mid = { x: (origin.x + there.x) / 2, y: (origin.y + there.y) / 2 };
-          const picked = chosen === route.planet;
+          const picked = sameTarget(chosen, { planet: route.planet });
           return (
             <g
               key={`way:${route.planet}`}
               className={`chart-way${route.reachable ? "" : " off"}${picked ? " picked" : ""}`}
-              onClick={() => onChoose(picked ? null : route.planet)}
+              onClick={() => onChoose(picked ? null : { planet: route.planet })}
             >
               <line x1={origin.x} y1={origin.y} x2={there.x} y2={there.y} />
               <text x={mid.x} y={mid.y - 6} textAnchor="middle">
@@ -226,13 +226,13 @@ export function Chart({
       {/* The planets. The one under foot is marked, the chosen one is lit. */}
       {spheres.map((one) => {
         const mine = one.planet === vessel.planet && vessel.stage !== "adrift";
-        const picked = chosen === one.planet;
+        const picked = sameTarget(chosen, { planet: one.planet });
         const route = corridors.find((r) => r.planet === one.planet);
         return (
           <g
             key={one.key}
             className={`chart-planet${mine ? " mine" : ""}${picked ? " picked" : ""}`}
-            onClick={() => route && onChoose(picked ? null : one.planet)}
+            onClick={() => route && onChoose(picked ? null : { planet: one.planet })}
           >
             <circle
               cx={one.x}
@@ -253,6 +253,28 @@ export function Chart({
       {home && vessel.stage === "orbit" && (
         <circle className="chart-parking" cx={home.x} cy={home.y} r={ORBIT} />
       )}
+
+      {/* The others in the sky (D-289, wave 3): one's own hulls always, foreign
+          ones while in sight. A drifter with a line to be met on is a target,
+          and is chosen the way a planet is; the rest are there to be seen. */}
+      {vessel.sightings.map((other) => {
+        const at = { x: STAR.x + other.x * fit, y: STAR.y + other.y * fit };
+        const picked = sameTarget(chosen, { ship: other.ship });
+        return (
+          <g
+            key={`other:${other.ship}`}
+            className={`chart-other${other.mine ? " mine" : ""}${other.target ? " target" : ""}${
+              picked ? " picked" : ""
+            } ${other.doing}`}
+            onClick={() => other.target && onChoose(picked ? null : { ship: other.ship })}
+          >
+            <circle cx={at.x} cy={at.y} r={3} />
+            <text x={at.x + 7} y={at.y - 5}>
+              {other.name}
+            </text>
+          </g>
+        );
+      })}
 
       {hull && (
         <g className={`chart-hull${vessel.stage === "adrift" ? " adrift" : ""}`}>

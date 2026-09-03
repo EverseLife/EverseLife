@@ -600,6 +600,11 @@ ORBIT_RESTAMP_HOURS = Num("orbit.restamp_hours")
 #: planned hour has passed without a capture, days.
 ORBIT_APPROACH_RADII = Num("orbit.approach_radii")
 ORBIT_LATE_LEG_DAYS = Num("orbit.late_leg_days")
+#: How close a foreign hull is seen from the chart, map units; how close and
+#: how slow two hulls must be for the hold, and so for a docking (D-289).
+ORBIT_SIGHT_RADIUS = Num("orbit.sight_radius")
+ORBIT_DOCK_RADIUS = Num("orbit.dock_radius")
+ORBIT_DOCK_SPEED = Num("orbit.dock_speed")
 #: The slider's grid: the shortest arc offered, hours, and the step between
 #: samples as a share; the map's calendar is coarser and looks this many
 #: days ahead.

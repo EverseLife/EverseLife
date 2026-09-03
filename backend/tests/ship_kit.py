@@ -202,7 +202,7 @@ async def _flown(
     now = since
     while now < until + slack:
         now += step
-        await ship.sim.tick_sky(session, constants, catalog, now=now)
+        await ship.helm.tick_sky(session, constants, catalog, now=now)
         await session.refresh(vessel)
         if vessel.docked_node_id is not None or vessel.course is None:
             return now

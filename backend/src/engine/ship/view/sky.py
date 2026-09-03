@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Constants
 from src.db.base import remember
 from src.engine import world
+from src.engine.ship import sim
 from src.engine.ship._base import (
     OPEN_LANDING,
     SPACEPORT,
@@ -83,7 +84,11 @@ async def passages(session: AsyncSession) -> dict[uuid.UUID, dict[str, object]]:
             await session.execute(
                 select(Node).where(
                     Node.key.in_(
-                        sorted(str(one.course["target"]) for one in afloat.values() if one.course)
+                        sorted(
+                            str(one.course["target"])
+                            for one in afloat.values()
+                            if one.course and one.course.get("target")
+                        )
                     )
                 )
             )
@@ -106,14 +111,15 @@ async def passages(session: AsyncSession) -> dict[uuid.UUID, dict[str, object]]:
             }
             continue
         #: The coast the tick last wrote onto the row (D-289): the map reads,
-        #: it does not fly. A drifter the tick has not seen yet has no line.
-        stored = ship.forecast or None
+        #: it does not fly. A drifter the tick has not seen yet has no line;
+        #: a hull on the hold is drawn by the hull it holds on to (wave 3).
+        stored = await sim.forecast_of(session, ship)
         if stored is None:
             continue
         under_way[ship.node_id] = {
             "to": None,
             "started_at": datetime.fromisoformat(str(stored["since"])),
-            "arrives_at": datetime.fromisoformat(str(stored["at"])),
+            "arrives_at": datetime.fromisoformat(str(stored.get("until") or stored["at"])),
             "arc": stored.get("trace"),
         }
     return under_way
@@ -297,6 +303,19 @@ async def _flight(session: AsyncSession, ship: Ship) -> dict[str, object] | None
     #: the chart draws both the same way.
     if ship.course and ship.lost_at is None:
         order = ship.course
+        if order.get("ship"):
+            #: Bound for a hull (wave 3): named by its row, and no planet
+            #: under it.
+            other = await session.get(Ship, uuid.UUID(str(order["ship"])))
+            return {
+                "to": None,
+                "name": None if other is None else other.name,
+                "planet": None,
+                "started_at": str(order.get("since")),
+                "arrives_at": str(order.get("due_at") or order.get("arrive_at")),
+                "back": False,
+                "arc": order.get("trace"),
+            }
         goal = (
             await session.execute(select(Node).where(Node.key == str(order.get("target"))))
         ).scalar_one_or_none()

@@ -18,10 +18,11 @@ from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src import sky
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import events
-from src.engine.ship import sim
+from src.engine.ship import helm, meet, sighting, sim
 from src.engine.ship._base import (
     PASSAGE,
     Docked,
@@ -48,13 +49,14 @@ async def fly(
     catalog: Catalog,
     body: Body,
     ship: Ship,
-    target: Node,
+    target: Node | Ship,
     *,
     hours: float | None = None,
     now: datetime | None = None,
     back: bool = False,
 ) -> datetime:
-    """Cross to another planet's orbit -- flown, not tabled (D-289).
+    """Cross to another planet's orbit -- flown, not tabled (D-289) -- or go
+    to meet another hull on its coast (wave 3).
 
     From the parking circle over one planet to the parking circle over
     another, or from wherever inertia left a hull that has fuel again. The
@@ -79,7 +81,8 @@ async def fly(
     moment = now or datetime.now(UTC)
     await _commanded_by(session, body, ship)
     await session.refresh(ship, with_for_update=True)
-    if not is_orbit(target):
+    meeting = isinstance(target, Ship)
+    if not meeting and not is_orbit(target):
         raise NoPort(key="ship-cross-to-orbit", node=target.name)
     adrift = ship.docked_node_id is None
     here = connector = None
@@ -97,23 +100,35 @@ async def fly(
         here, connector, thrust_ratio = await _leaving(session, constants, catalog, ship)
         if not is_orbit(here):
             raise Docked(key="ship-cross-from-orbit", ship=ship.name)
-        if target.planet is here.planet:
+        if not meeting and target.planet is here.planet:
             raise TooFar(key="ship-already-over-planet", ship=ship.name)
-    #: Every question a mooring is asked, and one more the others are not: a
-    #: planet whose beacons have all gone out is a planet one may reach and
-    #: never leave the orbit of (D-232) -- so the crossing is refused at this
-    #: end, while there is still a choice to make.
-    await _will_take(session, constants, target, why="dock")
-    if not await _landable(session, constants, target.planet):
-        raise NoPort(key="ship-nowhere-to-land", node=target.name)
+    if isinstance(target, Ship):
+        #: A hull as the target: in sight, coasting, on nobody's hold, and
+        #: with a forecast to be met on (wave 3).
+        await sighting.aimable(session, constants, ship, target, now=moment)
+    else:
+        #: Every question a mooring is asked, and one more the others are
+        #: not: a planet whose beacons have all gone out is a planet one may
+        #: reach and never leave the orbit of (D-232) -- so the crossing is
+        #: refused at this end, while there is still a choice to make.
+        await _will_take(session, constants, target, why="dock")
+        if not await _landable(session, constants, target.planet):
+            raise NoPort(key="ship-nowhere-to-land", node=target.name)
 
     offered = None
     if hours is None:
         world = await sim.system(session, constants)
-        offered = await sim.offers(
-            session, constants, catalog, ship, world.body(target.planet.value), now=moment
-        )
+        goal: sky.Target | None
+        if isinstance(target, Ship):
+            goal = await sim.drifter_of(session, constants, target)
+            if goal is None:
+                raise NoArc(key="ship-target-unknown")
+        else:
+            goal = world.body(target.planet.value)
+        offered = await sim.offers(session, constants, catalog, ship, goal, now=moment)
         if not offered:
+            if isinstance(target, Ship):
+                raise TooFar(key="ship-no-route-to-ship", other=target.name)
             if here is None:
                 raise TooFar(key="ship-no-route-adrift", planet_to=target.planet.value)
             raise TooFar(
@@ -126,9 +141,13 @@ async def fly(
     if not hours > 0 or hours > limit:
         raise NoArc(key="ship-hours-out-of-range", hours=round(hours, ROUND_HOURS), limit=limit)
 
-    #: The plan is written onto the row from the parking circle the hull
-    #: still sits on; the gangway comes off after, and casting off leaves
-    #: the state where the plan put it.
+    #: Whoever holds on to this hull is let go of first, from the state
+    #: they shared (wave 3); then the plan is written onto the row from the
+    #: parking circle the hull still sits on; the gangway comes off after,
+    #: and casting off leaves the state where the plan put it.
+    await helm.release_holders(
+        session, constants, await sim.system(session, constants), ship, now=moment
+    )
     plan, fuel = await sim.depart(
         session,
         constants,
@@ -142,6 +161,9 @@ async def fly(
     )
     if here is not None and connector is not None:
         await _cast_off(session, ship, here, connector)
+    #: Off a hold or a docking (wave 3): the edge to the other hull comes off
+    #: the way the gangway does, and the pair parts.
+    await meet.let_go(session, constants, ship)
     if back:
         #: Marked as the way back (D-242): the console keeps the button dark,
         #: and a second turn-back is refused -- the hull is already going there.
@@ -156,7 +178,7 @@ async def fly(
         ship_id=str(ship.id),
         name=ship.name,
         leg=PASSAGE,
-        to=target.key,
+        to=target.name if isinstance(target, Ship) else target.key,
         hours=round(hours, ROUND_HOURS),
         #: What the plan will burn by its own delta-v: the tanks pay as the hull
         #: goes, and the journal names the price the order was given at.

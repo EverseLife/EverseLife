@@ -16,7 +16,7 @@ from src import sky
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import world
-from src.engine.ship import course, sim
+from src.engine.ship import course, sighting, sim
 from src.engine.ship._base import (
     ADRIFT,
     AT_PORT,
@@ -396,6 +396,14 @@ async def profile(
         #: at a spaceport, on a leg, or on the circle: that one the chart
         #: draws by itself.
         "sky": await sim.picture(session, constants, catalog, ship, now=moment),
+        #: Who else is in the sky near this hull (D-289, wave 3): one's own
+        #: hulls always, foreign ones within the sight radius or moored at
+        #: the same planet. A drifter among them may be aimed at, and the
+        #: chart offers it the way it offers a planet.
+        "sightings": await sighting.sightings(session, constants, ship, now=moment),
+        #: The hold and the docking: the hull this one flies as one with, the
+        #: hull it is joined to, and whose consent is still wanting.
+        **await sighting.ties(session, ship),
         #: What speed the tanks buy at this mass, units a day: the console
         #: reads the plan's delta-v against it, and warns before the button rather
         #: than refusing after it (D-289).
@@ -442,7 +450,9 @@ async def forecast(
     constants: Constants,
     catalog: Catalog,
     ship: Ship,
-    target: Planet,
+    target: Planet | Ship,
+    *,
+    now: datetime | None = None,
 ) -> dict[str, object]:
     """The slider (D-271, D-289): every arc to `target` the sky offers from
     where the hull is right now, priced for this hull.
@@ -455,18 +465,30 @@ async def forecast(
     hours it picked; the casting off flies that one under the whole sky.
     Empty for a hull not in the sky: from a pad one only climbs.
     """
-    moment = datetime.now(UTC)
+    moment = now or datetime.now(UTC)
     weight = await mass(session, constants, catalog, ship)
     thrust_ratio = await ratio(session, constants, catalog, ship)
     have_class = await engine_class(session, constants, ship)
     bodies = await sim.system(session, constants)
-    offered = await sim.offers(
-        session, constants, catalog, ship, bodies.body(target.value), now=moment
-    )
+    goal: sky.Target | None
+    if isinstance(target, Ship):
+        #: A hull as the target (wave 3): only one in sight and coasting, with
+        #: a forecast to be met on -- else nothing to offer, and the console
+        #: says so in the engine's words when the order is given.
+        goal = await sim.drifter_of(session, constants, target)
+        if goal is None or not await sighting.aimable_quietly(
+            session, constants, ship, target, now=moment
+        ):
+            return {"planet": None, "ship": str(target.id), "reserve": 0.0, "samples": []}
+    else:
+        goal = bodies.body(target.value)
+    offered = await sim.offers(session, constants, catalog, ship, goal, now=moment)
     share = 1.0 if have_class is None else efficiency(constants, have_class)
+    #: The descent at the far end -- a planet's; a hull has no ground to come
+    #: down onto, and nothing is kept for it.
     reserve = (
         fuel_for(constants, weight, fall_hours(constants, target, thrust_ratio), klass=have_class)
-        if thrust_ratio > 0
+        if thrust_ratio > 0 and isinstance(target, Planet)
         else 0.0
     )
     samples = []
@@ -486,4 +508,9 @@ async def forecast(
         )
     #: The descent kept back at the far end, once: every sample needs its own
     #: fuel plus this, and the client adds the two (D-225).
-    return {"planet": target.value, "reserve": round(reserve, ROUND_MASS), "samples": samples}
+    return {
+        "planet": target.value if isinstance(target, Planet) else None,
+        "ship": str(target.id) if isinstance(target, Ship) else None,
+        "reserve": round(reserve, ROUND_MASS),
+        "samples": samples,
+    }

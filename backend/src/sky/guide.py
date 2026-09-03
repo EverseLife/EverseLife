@@ -22,7 +22,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from src import astro
-from src.sky._base import Body, System, circle_speed, place
+from src.sky._base import Body, Drifter, System, Target, circle_speed, place_any
 
 #: The helm starts braking as soon as the way left is what braking at this
 #: thrust needs, with this margin. How many parking radii it matches the
@@ -62,7 +62,7 @@ def brake_days(dv: float, a_max: float) -> float:
 
 def steer(
     system: System,
-    target: Body,
+    target: Target,
     t: float,
     r: tuple[float, float],
     v: tuple[float, float],
@@ -73,7 +73,7 @@ def steer(
 ) -> Helm:
     """The burn for one step of `dt` days, given where the hull is and when
     it means to arrive. `a_max` is the hull's acceleration, units a day squared."""
-    p, vp = place(target, t)
+    p, vp = place_any(target, t)
     rel = np.array(r) - p[0]
     v_rel = np.array(v) - vp[0]
     gap = float(np.hypot(*rel))
@@ -81,15 +81,30 @@ def steer(
     #: The way braking needs from this speed at this thrust: past that line
     #: the arc is no longer chased, the speed is shed.
     brake = speed * speed / (2.0 * a_max) if a_max > 0 else float("inf")
+    if isinstance(target, Drifter):
+        #: A hull, not a planet (D-289, wave 3): nothing to circle, only a
+        #: point to come to rest beside -- and the approach profile is the
+        #: whole of the helm from the first minute. An arc round the star
+        #: re-solved every step to a point a few units off, moving with a
+        #: hull rather than a planet, was a helm burning back and forth and,
+        #: once in a while, running away at a thousand units a day; the
+        #: profile asks for speed toward the target and never for more than
+        #: the way left can shed. The order's hour stays the console's word.
+        return _meet(system, rel, v_rel, a_max=a_max, dt=dt)
     if gap <= max(system.approach * system.park, system.park + BRAKE_MARGIN * brake):
         return _capture(system, target, rel, v_rel, a_max=a_max, dt=dt)
     tof = arrive - t
     if tof <= dt:
-        #: The hour has come and the planet is not here: a new arc at about
+        #: The hour has come and the target is not here: a new arc at about
         #: the speed the hull has -- not a sprint -- and the same question
         #: next step.
-        tof = max(system.late_leg, gap / max(speed, circle_speed(target, system.park)))
-    goal = place(target, t + tof)[0][0]
+        own = (
+            circle_speed(target, system.park)
+            if isinstance(target, Body)
+            else float(np.hypot(*vp[0]))
+        )
+        tof = max(system.late_leg, gap / max(speed, own, STILL))
+    goal = place_any(target, t + tof)[0][0]
     wanted = _lambert_velocity(system.mu, r, (float(goal[0]), float(goal[1])), tof, v)
     if wanted is None:
         return Helm(thrust=(0.0, 0.0), phase=COAST, captured=False)
@@ -132,6 +147,36 @@ def _capture(
     closing = inward * float(np.sqrt(2.0 * BRAKE_SHARE * a_max * left))
     share = float(np.clip(1.0 - left / ((system.approach - 1.0) * park), 0.0, 1.0))
     wanted = (1.0 - share) * closing + share * on_circle
+    need = wanted - v_rel
+    size = float(np.hypot(*need))
+    if size < STILL:
+        return Helm(thrust=(0.0, 0.0), phase=CAPTURE, captured=False)
+    accel = min(a_max, size / dt)
+    thrust = need / size * accel
+    return Helm(thrust=(float(thrust[0]), float(thrust[1])), phase=CAPTURE, captured=False)
+
+
+def _meet(
+    system: System,
+    rel: np.ndarray,
+    v_rel: np.ndarray,
+    *,
+    a_max: float,
+    dt: float,
+) -> Helm:
+    """Come to rest beside another hull: shed the relative speed along a
+    profile of the way left, and once inside the hold's radius at under the
+    hold's speed, the two fly as one (D-289, wave 3)."""
+    gap = float(np.hypot(*rel))
+    speed = float(np.hypot(*v_rel))
+    if gap <= system.dock_radius and speed <= system.dock_speed:
+        return Helm(thrust=(0.0, 0.0), phase=CAPTURE, captured=True)
+    inward = -rel / max(gap, 1e-9)
+    #: The profile aims at the middle of the hold's radius, so the hull
+    #: arrives inside it with a little speed to spare rather than stopping
+    #: on its edge.
+    left = max(gap - system.dock_radius / 2.0, 0.0)
+    wanted = inward * float(np.sqrt(2.0 * BRAKE_SHARE * a_max * left))
     need = wanted - v_rel
     size = float(np.hypot(*need))
     if size < STILL:

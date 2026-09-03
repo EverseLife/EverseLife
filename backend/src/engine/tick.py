@@ -178,7 +178,7 @@ async def _sky(session: AsyncSession, now: datetime) -> dict[str, Any]:
     #: stepped to now -- the helm, the burn, the pull of five bodies -- and a
     #: coasting one has its stamp moved along so a reading never propagates
     #: weeks. A moored hull runs on its circle and costs nothing here.
-    return await ship.sim.tick_sky(session, current(), current_catalog(), now=now)
+    return await ship.helm.tick_sky(session, current(), current_catalog(), now=now)
 
 
 async def _orphans(session: AsyncSession, now: datetime) -> dict[str, Any]:

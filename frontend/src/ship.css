@@ -203,3 +203,38 @@
 .chart-hull.adrift circle {
   fill: var(--warning);
 }
+
+/* The others in the sky (D-289, wave 3): a foreign hull is a grey dot with a
+   name, one's own is in the hull's own ink, a drifter that may be met wears
+   the ring of a warning, and the chosen one is lit. */
+.chart-other circle {
+  fill: var(--base-500);
+}
+
+.chart-other text {
+  fill: var(--base-400);
+  font-size: 10px;
+  pointer-events: none;
+}
+
+.chart-other.mine circle {
+  fill: var(--base-200);
+}
+
+.chart-other.target {
+  cursor: pointer;
+}
+
+.chart-other.target circle {
+  stroke: var(--warning);
+  stroke-width: 1.5;
+}
+
+.chart-other.picked circle {
+  fill: var(--base-50);
+  stroke: var(--base-50);
+}
+
+.chart-other.picked text {
+  fill: var(--base-50);
+}

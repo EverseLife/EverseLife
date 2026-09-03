@@ -20,6 +20,7 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import Float, ForeignKey, Index, Integer, Uuid
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.db.base import Base, created_column, uuid_pk
@@ -30,6 +31,7 @@ class Ship(Base):
     __table_args__ = (
         Index("ix_ship_owner", "owner_identity_id"),
         Index("ix_ship_docked", "docked_node_id"),
+        Index("ix_ship_held", "held_ship_id"),
     )
 
     id: Mapped[uuid.UUID] = uuid_pk()
@@ -108,5 +110,17 @@ class Ship(Base):
     #: When the hull was lost -- on a body or out of the system (D-289). The
     #: rows stay as history; the map and the tick leave a lost hull alone.
     lost_at: Mapped[datetime | None] = mapped_column(nullable=True)
+
+    #: Two hulls that met (D-289, wave 3). `held_ship_id` is the hull this one
+    #: came to rest beside and now flies as one with: its state is that hull's,
+    #: and the tick moves the pair by moving that one. `docked_ship_id` is the
+    #: hull it is joined to by an edge connector to connector -- the hold plus
+    #: both commanders' consent -- and `dock_ask_ship_id` is the consent this
+    #: hull has given and not yet had returned. `sightings` is which foreign
+    #: hulls this one has in sight, so the journal says "sighted" once.
+    held_ship_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    docked_ship_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    dock_ask_ship_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    sightings: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
 
     created_at: Mapped[datetime] = created_column()

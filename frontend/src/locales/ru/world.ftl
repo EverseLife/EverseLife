@@ -449,6 +449,17 @@ ui-ship-fate-escape = Инерция: прочь из системы. Не за�
 ui-ship-fate-label = дрейф
 ui-ship-lost-status = погиб
 ui-ship-lost-note = Корабль погиб вместе с экипажем: приказов ему больше не отдать.
+# Two hulls meeting (D-289, wave 3): the rendezvous, the hold, the consent to dock.
+ui-ship-course-to-ship = встреча · { $name }
+ui-ship-target-gone = Цель вышла из виду.
+ui-ship-held = на удержании · { $name }
+ui-ship-docked-ship = пристыкован · { $name }
+ui-ship-dock = Состыковаться
+ui-ship-dock-agree = Согласиться на стыковку
+ui-ship-dock-asked = согласие дано · второй командир ещё не ответил
+ui-ship-dock-wanted = второй командир просит стыковки
+ui-ship-dock-hint = Стыковка борт к борту — с согласия обоих командиров; трап откроет экипажу дорогу с канистрами.
+ui-ship-undock = Отстыковаться
 ui-ship-star = звезда
 ui-ship-dv-line = на борту Δv { $have }
 ui-ship-short-cross = В баках { $fuel }, а на переход нужно { $need }: топливо кончится в пути, и корабль ляжет в дрейф.

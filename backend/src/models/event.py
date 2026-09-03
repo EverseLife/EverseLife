@@ -126,6 +126,13 @@ class EventKind(StrEnum):
     #: The coast ended on a body or out of the system (D-289): the hull and
     #: everybody aboard are lost. Said to the owner and the crew.
     SHIP_LOST = "ship.lost"
+    #: Two hulls meeting (D-289, wave 3): seen from the chart, come to rest
+    #: beside, asked to dock, docked connector to connector, parted again.
+    SHIP_SIGHTED = "ship.sighted"
+    SHIP_HELD = "ship.held"
+    SHIP_DOCK_ASKED = "ship.dock_asked"
+    SHIP_DOCKED_SHIP = "ship.docked_ship"
+    SHIP_UNDOCKED_SHIP = "ship.undocked_ship"
 
     # transport and convoy (D-157)
     TRANSPORT_HARNESSED = "transport.harnessed"

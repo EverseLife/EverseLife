@@ -204,6 +204,16 @@ export type Vessel = {
   /** The order under way, in numbers; nothing when there is none. */
   course: Order | null;
   routes: Route[];
+  /** Who else is in the sky near this hull (D-289, wave 3). */
+  sightings: Sighting[];
+  /** The hull this one flies as one with, either way round. */
+  held: Held | null;
+  /** Whether the two are joined by an edge connector to connector: the
+   *  edge is to the hull held, so its name is `held.name`. */
+  docked_to_ship: boolean;
+  /** Where the consents to dock stand: given by this hull and not yet
+   *  returned; given by the other hull and not yet by this one. */
+  dock: { asked: boolean; wanted: boolean };
   /** Whether this hull is the viewer's own: a guest reads the card and is
    *  offered none of the buttons the engine would refuse (D-240). */
   yours: boolean;
@@ -249,12 +259,43 @@ export type Sample = {
   trace?: [number, number][];
 };
 
-/** What `ship.course` answers: the samples, and the reserve once beside them. */
+/** What `ship.course` answers: the samples, and the reserve once beside them.
+ *  One of `planet` and `ship` names what the slider runs to (D-289, wave 3). */
 export type CourseAnswer = {
-  planet: string;
+  planet: string | null;
+  ship: string | null;
   reserve: number;
   samples: Sample[];
 };
+
+/** What the console's course is set for: a planet's orbit, or another hull
+ *  in sight (D-289, wave 3). */
+export type Target = { planet: string } | { ship: string };
+
+/** Whether two targets are the same thing. */
+export function sameTarget(a: Target | null, b: Target | null): boolean {
+  if (a === null || b === null) return a === b;
+  if ("planet" in a) return "planet" in b && a.planet === b.planet;
+  return "ship" in b && a.ship === b.ship;
+}
+
+/**
+ * Another hull in the sky as this one sees it (D-289, wave 3): where it is,
+ * what it is doing, whose it is, and whether it may be aimed at -- a drifter
+ * with a line to be met on, on nobody's hold.
+ */
+export type Sighting = {
+  ship: string;
+  name: string;
+  x: number;
+  y: number;
+  doing: "orbit" | "flight" | "adrift" | "held";
+  mine: boolean;
+  target: boolean;
+};
+
+/** The hull this one flies as one with (D-289, wave 3). */
+export type Held = { ship: string; name: string };
 
 /**
  * The slider's range: from the first arc the engines deliver to the cheapest

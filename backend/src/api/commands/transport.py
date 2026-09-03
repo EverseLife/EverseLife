@@ -254,6 +254,17 @@ async def _ship_arrange(state: dict, db: AsyncSession, message: dict) -> dict:
     return {"arranged": str(vessel.id), "moved": moved}
 
 
+async def _other_ship(db: AsyncSession, message: dict) -> Ship:
+    """The hull an order names as its target or partner (D-289, wave 3)."""
+    try:
+        found = await db.get(Ship, uuid.UUID(str(message.get("ship_target") or "")))
+    except ValueError as exc:
+        raise Refused(key="cmd-no-such-ship") from exc
+    if found is None:
+        raise Refused(key="cmd-no-such-ship")
+    return found
+
+
 async def _target(db: AsyncSession, message: dict) -> Node:
     """The node an order names, by key. One reading for every leg that takes one."""
     node = (
@@ -295,13 +306,17 @@ async def _ship_fly(state: dict, db: AsyncSession, message: dict) -> dict:
             hours = float(hours)
         except (TypeError, ValueError) as exc:
             raise Refused(key="ship-hours-is-a-number") from exc
+    #: A planet's orbit by node key, or another hull by id (wave 3).
+    goal: Node | Ship = (
+        await _other_ship(db, message) if message.get("ship_target") else await _target(db, message)
+    )
     arrives = await ship.fly(
         db,
         current(),
         current_catalog(),
         body,
         vessel,
-        await _target(db, message),
+        goal,
         hours=hours,
     )
     #: A confirmation, not the state (the quality bar): the order lives on the
@@ -317,11 +332,37 @@ async def _ship_course(state: dict, db: AsyncSession, message: dict) -> dict:
     -- a forecast must never be able to delay an order (`common._alive_read`)."""
     body = await _alive_read(state, db)
     vessel = await _ship_of(db, body, message.get("ship"))
-    try:
-        target = Planet(str(message.get("planet") or ""))
-    except ValueError as exc:
-        raise Refused(key="cmd-no-such-planet") from exc
+    target: Planet | Ship
+    if message.get("ship_target"):
+        target = await _other_ship(db, message)
+    else:
+        try:
+            target = Planet(str(message.get("planet") or ""))
+        except ValueError as exc:
+            raise Refused(key="cmd-no-such-planet") from exc
     return await ship.forecast(db, current(), current_catalog(), vessel, target)
+
+
+@command("ship.dock")
+async def _ship_dock(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Give this hull's consent to dock with the hull it holds on to (D-289,
+    wave 3). With the other commander's consent already given the two are
+    joined connector to connector; without it the request is recorded and
+    the other side is told. A confirmation: whether the edge is there now."""
+    body = await _alive(state, db)
+    vessel = await _ship_of(db, body, message.get("ship"))
+    joined = await ship.dock(db, current(), body, vessel, await _other_ship(db, message))
+    return {"ship": str(vessel.id), "docked": joined}
+
+
+@command("ship.undock")
+async def _ship_undock(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Part from the hull this one is docked to (wave 3): the edge comes off,
+    the hold stays -- the two still fly as one until an order parts them."""
+    body = await _alive(state, db)
+    vessel = await _ship_of(db, body, message.get("ship"))
+    await ship.undock(db, current(), body, vessel)
+    return {"ship": str(vessel.id), "docked": False}
 
 
 @command("ship.land")

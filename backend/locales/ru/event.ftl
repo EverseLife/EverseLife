@@ -33,6 +33,11 @@ event-transport-broke = повозка разбилась
 # The sky (D-289): the tanks ran dry under way, or the coast ended.
 event-ship-adrift = корабль лёг в дрейф
 event-ship-lost = корабль погиб
+event-ship-sighted = замечен корабль
+event-ship-held = корабль на удержании
+event-ship-dock_asked = просьба о стыковке
+event-ship-docked_ship = стыковка борт к борту
+event-ship-undocked_ship = расстыковка
 event-road-laid = дорога уложена
 event-deed-sold = бумага продана
 event-land-reclaimed = город забрал свою локацию

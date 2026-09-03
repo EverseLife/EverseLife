@@ -50,6 +50,9 @@ def _system(*, bodies: bool = True) -> sky.System:
         capture_speed=2.0,
         approach=4.0,
         late_leg=0.25,
+        dock_radius=0.2,
+        dock_speed=0.5,
+        sight_radius=5.0,
     )
 
 

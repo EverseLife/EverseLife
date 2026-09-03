@@ -29,7 +29,7 @@ import numpy as np
 
 from src import astro
 from src.constants import Constants
-from src.sky._base import Body, Rows, System, circle_speed, norms, place
+from src.sky._base import Body, Rows, System, Target, circle_speed, norms, place, place_any
 from src.units import HOURS_PER_DAY, TRACE_POINTS
 
 
@@ -60,7 +60,7 @@ def preview(
     r0: tuple[float, float],
     v0: tuple[float, float],
     t0: float,
-    target: Body,
+    target: Target,
     hours: tuple[float, ...],
     *,
     leaving: Body | None,
@@ -69,21 +69,24 @@ def preview(
 
     `leaving` is the planet whose parking circle the hull sits on, or nothing
     for a hull adrift: only a parked hull pays to escape, and it pays by the
-    excess over its planet's speed rather than over its own.
+    excess over its planet's speed rather than over its own. A drifter as the
+    target (D-289, wave 3) is met on its forecast: the arrival pays the whole
+    difference of speed, there being no circle to settle onto.
     """
     corona = system.corona
     found: list[Sample] = []
     here = (r0, v0)
     for span in hours:
         tof = span / HOURS_PER_DAY
-        there = _pair(place(target, t0 + tof))
+        there = _pair(place_any(target, t0 + tof))
         best = None
+        far = target.orbit if isinstance(target, Body) else _circle(there[0])
         for leg in astro.legs(
             system.mu,
             here,
             there,
             tof,
-            max_revs=astro.max_revs(system.mu, _circle(r0), target.orbit, tof),
+            max_revs=astro.max_revs(system.mu, _circle(r0), far, tof),
         ):
             if leg.perihelion < corona:
                 continue
@@ -95,7 +98,9 @@ def preview(
             dv_out = (
                 escape_dv(leaving, system.park, excess_out) if leaving is not None else leg.dv_out
             )
-            dv_in = escape_dv(target, system.park, leg.dv_in)
+            dv_in = (
+                escape_dv(target, system.park, leg.dv_in) if isinstance(target, Body) else leg.dv_in
+            )
             if best is None or dv_out + dv_in < best[0]:
                 best = (dv_out + dv_in, dv_out, dv_in, leg)
         if best is None:

@@ -64,6 +64,11 @@ class System:
     #: passed without a capture, days.
     approach: float
     late_leg: float
+    #: The hold (D-289, wave 3): this close and this slow to another hull,
+    #: the two fly as one; and how far a foreign hull is seen from.
+    dock_radius: float
+    dock_speed: float
+    sight_radius: float
 
     def body(self, key: str) -> Body:
         for one in self.bodies:
@@ -104,6 +109,9 @@ def system_of(constants: Constants, orbits: dict[Planet, astro.Orbit]) -> System
             capture_speed=float(constants[R.ORBIT_CAPTURE_SPEED]),
             approach=float(constants[R.ORBIT_APPROACH_RADII]),
             late_leg=float(constants[R.ORBIT_LATE_LEG_DAYS]),
+            dock_radius=float(constants[R.ORBIT_DOCK_RADIUS]),
+            dock_speed=float(constants[R.ORBIT_DOCK_SPEED]),
+            sight_radius=float(constants[R.ORBIT_SIGHT_RADIUS]),
         )
     first = next(iter(orbits.values()))
     gravity = constants[R.PLANET_GRAVITY]
@@ -128,7 +136,65 @@ def system_of(constants: Constants, orbits: dict[Planet, astro.Orbit]) -> System
         capture_speed=float(constants[R.ORBIT_CAPTURE_SPEED]),
         approach=float(constants[R.ORBIT_APPROACH_RADII]),
         late_leg=float(constants[R.ORBIT_LATE_LEG_DAYS]),
+        dock_radius=float(constants[R.ORBIT_DOCK_RADIUS]),
+        dock_speed=float(constants[R.ORBIT_DOCK_SPEED]),
+        sight_radius=float(constants[R.ORBIT_SIGHT_RADIUS]),
     )
+
+
+@dataclass(frozen=True, slots=True)
+class Drifter:
+    """A hull coasting on its forecast (D-289, wave 3): a target that moves
+    along a known line rather than round the star.
+
+    The line is the forecast the tick wrote on the drifter's row -- points at
+    equal steps from `t0` to `t1`, sky days -- and a rendezvous is aimed at
+    the point on it the planned hour falls on. Past the line's end the hull
+    is carried on along its last stride: the forecast ends where the coast
+    ends, or at the horizon, and a meeting beyond it is a meeting with a
+    hull that is no longer there.
+    """
+
+    key: str
+    t0: float
+    t1: float
+    trace: tuple[tuple[float, float], ...]
+    #: A lap round a planet rather than a coast: the line is read modulo its
+    #: period, and the hull is always somewhere on it.
+    loops: bool = False
+
+    def state(self, t: np.ndarray | float) -> tuple[Rows, Rows]:
+        """Where the drifter is and how it moves at `t`, for a batch of times."""
+        tt = np.atleast_1d(np.asarray(t, dtype=float))
+        if self.loops and self.t1 > self.t0:
+            tt = self.t0 + np.mod(tt - self.t0, self.t1 - self.t0)
+        points = np.asarray(self.trace, dtype=float)
+        if len(points) < 2 or self.t1 <= self.t0:
+            r = np.repeat(points[:1] if len(points) else np.zeros((1, 2)), len(tt), axis=0)
+            return r, np.zeros_like(r)
+        stamps = np.linspace(self.t0, self.t1, len(points))
+        stride = (self.t1 - self.t0) / (len(points) - 1)
+        vx = np.diff(points[:, 0]) / stride
+        vy = np.diff(points[:, 1]) / stride
+        #: The stride each moment falls in, clamped to the line's ends: the
+        #: velocity is that stride's, and beyond the ends the line goes on
+        #: straight at the last stride's speed.
+        seg = np.clip(np.searchsorted(stamps, tt, side="right") - 1, 0, len(points) - 2)
+        dt = tt - stamps[seg]
+        x = points[seg, 0] + vx[seg] * dt
+        y = points[seg, 1] + vy[seg] * dt
+        return np.stack([x, y], axis=1), np.stack([vx[seg], vy[seg]], axis=1)
+
+
+Target = Body | Drifter
+
+
+def place_any(target: Target, t: np.ndarray | float) -> tuple[Rows, Rows]:
+    """Where a target is and how it moves at `t`: a planet on its circle, a
+    drifter on its forecast."""
+    if isinstance(target, Drifter):
+        return target.state(t)
+    return place(target, t)
 
 
 def place(body: Body, t: np.ndarray | float) -> tuple[Rows, Rows]:

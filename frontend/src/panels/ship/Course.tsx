@@ -18,19 +18,20 @@ import { useEdition, useSession } from "../../actions";
 import { t } from "../../locale";
 import { planetName } from "../../planets";
 import { term } from "../map/orbits";
-import { range, type CourseAnswer, type Sample, type Vessel } from "./model";
+import { range, type CourseAnswer, type Sample, type Target, type Vessel } from "./model";
 
 export function Course({
   vessel,
-  planet,
+  target,
   busy,
   fly,
   onPlan,
 }: {
   vessel: Vessel;
-  planet: string | null;
+  /** A planet's orbit, or a hull in sight (D-289, wave 3). */
+  target: Target | null;
   busy: boolean;
-  fly: (orbit: string, hours: number) => void;
+  fly: (to: Target, hours: number) => void;
   /** The arc of the point the slider stands on, for the chart to draw. */
   onPlan: (trace: [number, number][] | null) => void;
 }) {
@@ -41,16 +42,21 @@ export function Course({
   const [trouble, setTrouble] = useState<string | null>(null);
   const [pick, setPick] = useState<number | null>(null);
 
-  //: Reread when the planet changes and when the world says so (D-226): the
+  const planet = target !== null && "planet" in target ? target.planet : null;
+  const other = target !== null && "ship" in target ? target.ship : null;
+  //: Reread when the target changes and when the world says so (D-226): the
   //: sky moves too slowly for a clock, and the hull's mass changes by orders.
   useEffect(() => {
-    if (planet === null) return;
+    if (planet === null && other === null) return;
     let live = true;
     setSamples(null);
     setTrouble(null);
     setPick(null);
     void session
-      .send<CourseAnswer>("ship.course", { ship: vessel.ship, planet })
+      .send<CourseAnswer>(
+        "ship.course",
+        planet !== null ? { ship: vessel.ship, planet } : { ship: vessel.ship, ship_target: other },
+      )
       .then((answer) => {
         if (!live) return;
         const got: Sample[] = answer.samples ?? [];
@@ -68,25 +74,32 @@ export function Course({
     return () => {
       live = false;
     };
-  }, [session, vessel.ship, planet, edition]);
+  }, [session, vessel.ship, planet, other, edition]);
 
   //: The chart follows the thumb (D-289): the arc of the point under it, and
-  //: nothing once the planet is dropped.
+  //: nothing once the target is dropped.
   useEffect(() => {
-    const held = planet !== null && samples !== null && pick !== null ? samples[pick] : null;
+    const held = target !== null && samples !== null && pick !== null ? samples[pick] : null;
     onPlan(held?.trace ?? null);
     //: And nothing once the slider is gone: a line left behind after the
     //: order would lie on top of the order's own.
     return () => onPlan(null);
-  }, [onPlan, planet, samples, pick]);
+  }, [onPlan, target, samples, pick]);
 
-  if (planet === null) {
+  if (target === null) {
     return <p className="note">{t("ui-ship-pick-planet")}</p>;
   }
-  const route = vessel.routes.find((one) => one.planet === planet);
-  if (!route) {
+  const route = planet === null ? null : vessel.routes.find((one) => one.planet === planet);
+  const sighted = other === null ? null : vessel.sightings.find((one) => one.ship === other);
+  if (planet !== null && !route) {
     return <p className="note">{t("ui-ship-no-route")}</p>;
   }
+  if (other !== null && !sighted) {
+    return <p className="note">{t("ui-ship-target-gone")}</p>;
+  }
+  //: Thrust closes no planet and no hull: the reachable flag is the same
+  //: question for both -- can the hull tear off at all.
+  const reachable = route ? route.reachable : vessel.ratio >= vessel.min_ratio;
   if (trouble !== null) {
     return <p className="reason">{t("ui-ship-course-failed", { why: trouble })}</p>;
   }
@@ -110,13 +123,19 @@ export function Course({
   return (
     <div className="course">
       <p>
-        <span
-          className="planet-dot"
-          style={{ background: `var(--planet-${planet})` }}
-          aria-hidden="true"
-        />
-        <b>{planetName(planet)}</b> · <span className="note">{route.name}</span>
-        {!route.reachable && ` · ${t("ui-ship-thrust-cut")}`}
+        {planet !== null && route ? (
+          <>
+            <span
+              className="planet-dot"
+              style={{ background: `var(--planet-${planet})` }}
+              aria-hidden="true"
+            />
+            <b>{planetName(planet)}</b> · <span className="note">{route.name}</span>
+          </>
+        ) : (
+          <b>{t("ui-ship-course-to-ship", { name: sighted?.name ?? "" })}</b>
+        )}
+        {!reachable && ` · ${t("ui-ship-thrust-cut")}`}
       </p>
       <p className="row">
         <span className="note">{t("ui-ship-end-fast", { term: term(samples[fast].hours) })}</span>
@@ -140,9 +159,9 @@ export function Course({
         {" · "}
         {t("ui-ship-dv-line", { have: vessel.dv.toFixed(0) })}{" "}
         <button
-          onClick={() => fly(route.node, chosen.hours)}
-          disabled={busy || !route.reachable}
-          title={t(route.reachable ? "ui-ship-fly-hint" : "ui-ship-thrust-short")}
+          onClick={() => fly(target, chosen.hours)}
+          disabled={busy || !reachable}
+          title={t(reachable ? "ui-ship-fly-hint" : "ui-ship-thrust-short")}
         >
           {t("ui-ship-fly")}
         </button>

@@ -121,6 +121,7 @@ the names so `from src.engine import ship` reads as before.
 
 from src.engine.ship import (
     course,  # noqa: F401
+    helm,  # noqa: F401
     sim,  # noqa: F401
 )
 from src.engine.ship._base import (  # noqa: F401
@@ -200,6 +201,7 @@ from src.engine.ship.flight import (  # noqa: F401
     land,
     recall,
 )
+from src.engine.ship.meet import dock, undock  # noqa: F401
 from src.engine.ship.physics import (  # noqa: F401
     _sphere,
     _things,

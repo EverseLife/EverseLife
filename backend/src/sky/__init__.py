@@ -28,12 +28,15 @@ from src.sky._base import (  # noqa: F401
     DV_EPS,
     TIME_EPS,
     Body,
+    Drifter,
     System,
+    Target,
     bearing,
     circle_rate,
     circle_speed,
     parking,
     place,
+    place_any,
     system_of,
 )
 from src.sky.field import advance, pull, sample  # noqa: F401

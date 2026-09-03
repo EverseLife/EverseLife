@@ -449,6 +449,17 @@ ui-ship-fate-escape = Inertia: out of the system. Unless refuelled in time, the 
 ui-ship-fate-label = drift
 ui-ship-lost-status = lost
 ui-ship-lost-note = The ship is lost with its crew: it takes no orders any more.
+# Two hulls meeting (D-289, wave 3): the rendezvous, the hold, the consent to dock.
+ui-ship-course-to-ship = rendezvous · { $name }
+ui-ship-target-gone = The target is out of sight.
+ui-ship-held = alongside · { $name }
+ui-ship-docked-ship = docked · { $name }
+ui-ship-dock = Dock
+ui-ship-dock-agree = Agree to dock
+ui-ship-dock-asked = consent given · the other commander has not answered yet
+ui-ship-dock-wanted = the other commander asks to dock
+ui-ship-dock-hint = Docking hull to hull takes both commanders' consent; the gangway opens the way for the crew and their canisters.
+ui-ship-undock = Undock
 ui-ship-star = the star
 ui-ship-dv-line = Δv aboard { $have }
 ui-ship-short-cross = The tanks hold { $fuel }, and the crossing needs { $need }: the fuel runs out under way, and the ship goes adrift.
