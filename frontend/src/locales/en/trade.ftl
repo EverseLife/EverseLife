@@ -164,6 +164,11 @@ ui-inventory-nobody = There is nobody else here: handing over is hand to hand.
 ui-inventory-on-terminal = In the terminal
 ui-inventory-average = { $quality } on average
 ui-inventory-mass = { $mass } kg
+# Under the stack's weight, what it is made of: the unit's weight by the
+# count, "0.2 × 47.5". In words ("0.2 kg each") the note was three times as
+# long and pushed the goods' name onto a second line even in the widened
+# sidebar. The unit is the line above's and is not repeated.
+ui-inventory-mass-each = { $each } × { $amount }
 # Two arguments for one number: `$count` picks the form of the word (only a
 # number can do that), `$shown` is the very digits the panel has already
 # chosen. `{ $count }` itself in the text would be formatted by Fluent to the
