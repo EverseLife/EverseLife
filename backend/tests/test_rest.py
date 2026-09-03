@@ -53,6 +53,71 @@ async def test_sleep_restores_over_time(session: AsyncSession, constants: Consta
     assert body.sleeping_since is None
 
 
+async def test_snatched_sleep_does_not_outpace_the_vault(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """Lying down and getting up in a loop restores no faster than the rate.
+
+    Stamina keeps hundredths and Postgres rounds a half **up**, so a sleep
+    worth half of one used to be credited a whole one. At
+    `body.hibernation_rate` that is a sleep of two and a quarter seconds, and
+    nothing throttles the pair of commands -- so the loop paid about twice the
+    rate the vault sets. Alone in this family it ran the player's way, which
+    is what made it worth doing.
+    """
+    _, body = await _tired(session, stamina=40)
+    started = datetime.now(UTC)
+    #: A sleep worth half a hundredth: the old rounding gave a whole one.
+    nap = timedelta(hours=0.005 / constants[R.BODY_HIBERNATION_RATE])
+    naps, moment = 200, started
+
+    for _ in range(naps):
+        await rest.sleep(session, constants, body, now=moment)
+        moment += nap
+        await rest.wake(session, constants, body, now=moment)
+        #: Through the row: the whole defect lives in the round trip.
+        await session.flush()
+        await session.refresh(body, ["stamina"])
+
+    worth = constants[R.BODY_HIBERNATION_RATE] * (naps * nap) / timedelta(hours=1)
+    gained = float(body.stamina) - 40
+    #: Never more than the hours were worth. Snatched sleep may give less --
+    #: a nap too short to credit a hundredth credits nothing -- but it must
+    #: never give more, which is what doubled the rate.
+    assert gained <= worth
+    #: And never less than nothing: waking does not take strength away. The
+    #: floor is on the way in, and a floor can only ever be pointed the wrong
+    #: way once.
+    assert gained >= 0
+
+
+async def test_a_night_of_odd_length_is_credited_to_the_hundredth(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """An ordinary sleep loses nothing to the arithmetic.
+
+    The credit is floored, and a figure reached through floats lands an ulp
+    below itself: from forty, half an hour and nine seconds at eight an hour
+    comes to 44.019999999999996 and not the 44.02 it is worth. Floored raw
+    that is a hundredth taken from an honest night -- the shortfall the others
+    in this family avoid by keeping their sliver, and this one has nowhere to
+    put one. A hundred and sixty-two durations under six hours do it.
+    """
+    _, body = await _tired(session, stamina=40)
+    lay_down = datetime.now(UTC)
+    await rest.sleep(session, constants, body, now=lay_down)
+
+    nap = timedelta(seconds=1809)
+    returned = await rest.wake(session, constants, body, now=lay_down + nap)
+    worth = constants[R.BODY_HIBERNATION_RATE] * nap / timedelta(hours=1)
+
+    #: Within the hundredth the column can hold, and never above the worth --
+    #: compared a billionth wide, since both sides are float sums and the
+    #: quantity under test is a hundredth.
+    assert returned <= worth + 1e-9
+    assert returned > worth - 0.01
+
+
 async def test_faster_at_home(session: AsyncSession, constants: Constants) -> None:
     """The bed is the home while there are no own buildings (E3)."""
     _, in_field = await _tired(session, stamina=10)

@@ -24,7 +24,7 @@ the same as walking out of the node does (D-209); waking sets it going again.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from decimal import Decimal
+from decimal import ROUND_FLOOR, Decimal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -37,7 +37,7 @@ from src.models.event import EventKind
 from src.models.identity import Body, BodyState
 from src.models.inventory import Item
 from src.models.world import Node
-from src.units import SECONDS_PER_HOUR
+from src.units import ROUND_REMAINDER, ROUND_STAMINA, SECONDS_PER_HOUR, on_grid
 
 #: The bed thing class (D-215): any furniture of this class grants hibernation.
 BED = "bed"
@@ -120,9 +120,27 @@ async def wake(
 
     cap = constants[R.BODY_STAMINA_MAX]
     before = float(body.stamina)
-    after = min(cap, before + hours * rate)
-
-    #: Storage precision is set by the column (Numeric 6,2), not by rounding in code.
+    #: Down, and on the grid here rather than left to the column. Stamina keeps
+    #: hundredths and Postgres rounds a half **up**, so a sleep worth half of
+    #: one was credited a whole one: at `body.hibernation_rate` that is a sleep
+    #: of two and a quarter seconds, and nothing throttles the pair of commands
+    #: -- so the loop paid as many times the vault's rate as the round trip
+    #: allowed. The one member of this family that ran the player's way.
+    #:
+    #: Nothing is carried, and nothing needs to be: a sleep too short to credit
+    #: a hundredth simply credits nothing, and sleeping is a deliberate act
+    #: with a bed, not something done sixteen times a minute. What a long sleep
+    #: cannot show waits for the next one no better than it would in a column.
+    #:
+    #: The fine grid first, and only then the floor: an hour's credit reached
+    #: through floats lands an ulp below itself, and flooring that shaves a
+    #: whole hundredth off an ordinary night's sleep -- the shortfall the
+    #: others avoid by keeping the sliver, which this one has nowhere to put.
+    #: The ceiling goes on the grid too, or a fractional `body.stamina_max` in
+    #: the vault would leave a body short of full for ever.
+    roof = float(on_grid(cap, ROUND_STAMINA, ROUND_FLOOR))
+    earned = on_grid(min(roof, before + hours * rate), ROUND_REMAINDER)
+    after = float(on_grid(earned, ROUND_STAMINA, ROUND_FLOOR))
     body.stamina = Decimal(str(after))
     body.sleeping_since = None
     body.sleeping_home = False
