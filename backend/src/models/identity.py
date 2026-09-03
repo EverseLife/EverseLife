@@ -165,6 +165,10 @@ class Body(Base):
             "air_owed >= 0 AND air_owed < 0.001",
             name="air_owed_under_a_thousandth",
         ),
+        CheckConstraint(
+            "stamina_owed >= 0 AND stamina_owed < 0.01",
+            name="stamina_owed_under_a_hundredth",
+        ),
     )
 
     id: Mapped[uuid.UUID] = uuid_pk()
@@ -177,6 +181,15 @@ class Body(Base):
     #: Stamina. There is no daily ceiling: the constraint is economic --
     #: working longer means eating more (D-091).
     stamina: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False)
+    #: Stamina already spent that the column could not be charged for. It keeps
+    #: hundredths, and a spend priced by time can be thinner than one: at
+    #: `travel.stamina_per_hour` a step shorter than nine seconds costs less,
+    #: and most paved edges in a city are shorter than that. Charged and
+    #: rounded away, such a step was free. Kept here it is paid on the next
+    #: one. Always `0 <= stamina_owed < 0.01`, and a check says so.
+    stamina_owed: Mapped[float] = mapped_column(
+        Numeric(9, 9), nullable=False, default=0, server_default="0"
+    )
 
     #: Hibernation: the body sleeps and recovers offline (D-091). Empty -- awake.
     sleeping_since: Mapped[datetime | None] = mapped_column(nullable=True)

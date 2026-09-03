@@ -37,6 +37,7 @@ from src.models.energy import EnergyPool
 from src.models.identity import Body
 from src.models.ledger import AccountKind, PostingReason
 from src.models.market import Order
+from src.models.world import Node, Surface
 from src.units import money
 
 ORE = "iron_ore"
@@ -328,6 +329,59 @@ async def test_alive_locks_the_body_for_the_whole_command(
     outcomes = await asyncio.gather(begin(), begin(), return_exceptions=True)
     busy = [o for o in outcomes if isinstance(o, (occupation.Busy, forage.ForageError))]
     assert len(busy) == 1, outcomes
+
+
+async def test_two_steps_at_once_cannot_outwalk_one_reserve(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    constants,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The road is paid in stamina (D-147), and stamina is on the list that
+    changes only under the row's lock (CLAUDE.md).
+
+    Two sockets of one body departing at once down a road that costs exactly
+    the whole reserve. Without the lock both read the reserve, both find it
+    enough, and the second write erases the first: the body has walked twice
+    on one body's worth of strength -- and its debt, written the same way,
+    goes with it. With the lock the second waits, rereads and is refused.
+
+    The pause goes into the window the lock must close: the cold is settled
+    before the reserve is read, so both sessions are past it and at the row
+    together.
+    """
+    from src.engine import frost, travel
+
+    _slow(monkeypatch, frost, "settle")
+    stamp = uuid.uuid4().hex[:8]
+    here = await world.create_node(session, f"terra.fork.{stamp}", "Развилка", area_m2=100)
+    there = await world.create_node(session, f"terra.field.{stamp}", "Поле", area_m2=100)
+    await travel.connect(session, here, there, base_seconds=3600, surface=Surface.ROAD)
+    identity = await world.create_identity(session, f"Ходок-{stamp}")
+    body = await world.print_body(session, identity, here)
+    #: Exactly one hour of road, and not a step more.
+    body.stamina = Decimal(str(current()[R.TRAVEL_STAMINA_PER_HOUR]))
+    body_id, there_id = body.id, there.id
+    await session.commit()
+
+    async def walk() -> str:
+        async with factory() as db, db.begin():
+            who = await db.get(Body, body_id)
+            target = await db.get(Node, there_id)
+            assert who is not None and target is not None
+            try:
+                await travel.depart(db, constants, who, target)
+            except Exception as refused:  # noqa: BLE001 -- the refusal is the point
+                return type(refused).__name__
+            return "went"
+
+    outcomes = await asyncio.gather(walk(), walk(), return_exceptions=True)
+    async with factory() as db:
+        after = await db.get(Body, body_id)
+        assert after is not None
+        assert float(after.stamina) >= 0, "тело ушло в минус по силам"
+        assert 0 <= float(after.stamina_owed) < 0.01
+    assert sum(1 for out in outcomes if out == "went") == 1, outcomes
 
 
 async def test_two_copies_at_once_cannot_outspend_one_reserve(
