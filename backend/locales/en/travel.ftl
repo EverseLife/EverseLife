@@ -118,7 +118,7 @@ ship-in-passage = the ship is already on a passage{ $known ->
     }: until the leg ends it takes no orders
 ship-no-connector-or-port = the ship has no connector or port
 ship-not-enough-thrust = thrust is { NUMBER($have, minimumFractionDigits: 2, maximumFractionDigits: 2) } per kilogram against the { NUMBER($need, minimumFractionDigits: 2, maximumFractionDigits: 2) } needed: with that mass the ship goes nowhere. Add engines or take cargo off
-ship-no-life-support = there is no life support system aboard: without one the ship does not cast off
+ship-no-life-support = there is no life support system aboard: without one the ship goes nowhere
 ship-no-engines = the ship has not a single engine
 ship-no-fuel = { $why ->
         [climb] there is not enough fuel for the climb and the descent back, and nobody refuels in orbit

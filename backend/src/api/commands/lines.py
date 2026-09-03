@@ -21,6 +21,10 @@ from src.constants import current, current_catalog
 from src.engine import ship
 from src.models.inventory import Item
 
+#: How many vessels one port may name in one order. A hull has rooms, not
+#: warehouses; a longer list is a client gone wrong, not a bigger ship.
+MOST_VESSELS = 64
+
 
 async def _item(db: AsyncSession, asked: object) -> Item:
     try:
@@ -40,8 +44,8 @@ async def _line_set(state: dict, db: AsyncSession, message: dict) -> dict:
     vessel = await _ship_of(db, body, message.get("ship"))
     machine = await _item(db, message.get("machine"))
     asked = message.get("vessels") or []
-    if not isinstance(asked, list):
-        raise Refused(key="cmd-no-such-item")
+    if not isinstance(asked, list) or len(asked) > MOST_VESSELS:
+        raise Refused(key="cmd-need-vessels", most=MOST_VESSELS)
     port = str(message.get("port") or "")
     count = await ship.set_lines(
         db,
@@ -60,7 +64,8 @@ async def _line_set(state: dict, db: AsyncSession, message: dict) -> dict:
 
 @command("line.view", readonly=True)
 async def _line_view(state: dict, db: AsyncSession, message: dict) -> dict:
-    """The hull's plumbing: machines with ports, vessels, and the lines. A read."""
+    """The hull's plumbing: machines with ports, vessels, and the lines. A read
+    -- the owner's or a crew member's, not a passer-by's."""
     body = await _alive_read(state, db)
     vessel = await _ship_of(db, body, message.get("ship"))
-    return await ship.lines_view(db, current(), current_catalog(), vessel)
+    return await ship.lines_view(db, current(), current_catalog(), body, vessel)

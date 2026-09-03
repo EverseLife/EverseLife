@@ -66,7 +66,7 @@ export function Feed({
                 machine={machine}
                 port={port}
                 busy={busy}
-                draw={(chosen) => plumb(machine.item, port.port, chosen).then(load)}
+                draw={(chosen) => plumb(machine.item, port.port, chosen)}
               />
             )),
           )}

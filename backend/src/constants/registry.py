@@ -270,8 +270,9 @@ ENERGY_WINDMILL_RATE = Span("energy.windmill_rate")
 ENERGY_COAL_PLANT_RATE = Num("energy.coal_plant_rate")
 ENERGY_COAL_PLANT_FUEL_DRAW = Num("energy.coal_plant_fuel_draw")
 #: Generators that need neither river, wind nor fuel (D-288): the panel and
-#: the isotope generator, per hour. Off the grid they charge the batteries
-#: within reach; in a city they feed the pool like any other.
+#: the isotope generator, per hour. Off the grid only -- aboard a hull, on
+#: airless ground -- into the batteries within reach; a city's pool they
+#: never feed (`battery.tick_offgrid`).
 ENERGY_SOLAR_RATE = Num("energy.solar_rate")
 ENERGY_ISOTOPE_RATE = Num("energy.isotope_rate")
 ENERGY_BATTERY_CAPACITY = Num("energy.battery_capacity")

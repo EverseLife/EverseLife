@@ -118,7 +118,7 @@ ship-in-passage = корабль уже в рейсе{ $known ->
     }: до конца перехода он приказов не берёт
 ship-no-connector-or-port = у корабля нет коннектора или порта
 ship-not-enough-thrust = тяги { NUMBER($have, minimumFractionDigits: 2, maximumFractionDigits: 2) } на килограмм при нужных { NUMBER($need, minimumFractionDigits: 2, maximumFractionDigits: 2) }: с такой массой корабль никуда не идёт. Ставьте двигатели или снимайте груз
-ship-no-life-support = на борту нет системы жизнеобеспечения: без неё корабль не отстыковывается
+ship-no-life-support = на борту нет системы жизнеобеспечения: без неё корабль никуда не идёт
 ship-no-engines = на корабле нет ни одного двигателя
 ship-no-fuel = { $why ->
         [climb] на подъём и спуск обратно топлива не хватает, а на орбите не заправляют

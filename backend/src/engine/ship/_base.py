@@ -99,7 +99,8 @@ from src.constants import Constants
 from src.constants import registry as R
 from src.engine.errors import Refusal
 from src.models.ship import Ship
-from src.models.world import ABOARD, Node, Planet
+from src.models.world import ABOARD as ABOARD
+from src.models.world import Node, Planet
 from src.units import (
     AMOUNT_SCALE,
 )
@@ -308,9 +309,8 @@ DESCENT = "descent"
 
 #: The node property marking a node as being aboard (D-201) lives with the
 #: schema now (`models.world.ABOARD`): the batteries ask it of a node in hand
-#: without importing this package (D-288). Re-exported here, so the ship
+#: without importing this package (D-288). Re-exported above, so the ship
 #: package goes on reading it where it always did.
-__all__ = ["ABOARD"]
 
 #: A planet property (D-233): a ship lands in **any** surface node of it, and
 #: there is no spaceport anywhere on it. Written on the planet's node by the

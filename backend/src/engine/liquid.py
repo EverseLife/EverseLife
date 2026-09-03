@@ -138,6 +138,17 @@ async def free_in(session: AsyncSession, catalog: Catalog, vessel: Item) -> floa
     return limit - await storage.stored_mass(session, catalog, vessel)
 
 
+async def takes(session: AsyncSession, vessel: Item, type_key: str) -> bool:
+    """Whether the vessel may take this liquid: it is empty, or holds the same.
+
+    One liquid per vessel (D-288): a tank of fuel with water in it is
+    nonsense, not a reserve. The rule is one for every way a liquid gets into
+    a vessel -- a hand pouring, a batch finishing, a rig's hopper, a
+    machine's outlet -- so it is asked here and nowhere is it re-decided.
+    """
+    return all(one.type_key == type_key for one in await storage.content(session, vessel))
+
+
 async def room_for(
     session: AsyncSession, catalog: Catalog, container: Container, type_key: str
 ) -> float:
@@ -155,6 +166,8 @@ async def room_for(
     free = 0.0
     for vessel in await vessels_in(session, catalog, container):
         await _lock(session, vessel)
+        if not await takes(session, vessel, type_key):
+            continue
         free += await free_in(session, catalog, vessel)
     return free if unit <= 0 else free / unit
 
@@ -187,6 +200,8 @@ async def fill(
             #: Under lock, like `pour`: the worker finishing a batch and the
             #: owner filling the same canister must not both see it half empty.
             await _lock(session, vessel)
+            if not await takes(session, vessel, item.type_key):
+                continue
             room = await free_in(session, catalog, vessel)
             have = amount_float(item.amount)
             fits = have if unit <= 0 else min(have, room / unit)
@@ -296,16 +311,14 @@ async def pour(
         await gear.check_carry(session, constants, catalog, body, liquid_name, fits)
 
     hold = await storage.inside(session, target)
-    #: One liquid per vessel (D-288): a tank of fuel with water in it is
-    #: nonsense, not a reserve, and a machine's outlet keeps the same rule.
+    #: One liquid per vessel (D-288), and by hand the refusal is worded: a
+    #: machine skips the vessel, a person is told what is in it.
     other = next(
         (one for one in await storage.content(session, target) if one.type_key != liquid_name),
         None,
     )
     if other is not None:
-        raise LiquidError(
-            key="liquid-mixed", vessel=target.type_key, goods=liquid_name, have=other.type_key
-        )
+        raise LiquidError(key="liquid-mixed", vessel=target.type_key, have=other.type_key)
     left = fits
     poured = 0.0
     for stack in stacks:

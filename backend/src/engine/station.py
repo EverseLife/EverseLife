@@ -247,6 +247,13 @@ async def take(session: AsyncSession, catalog: Catalog, body: Body, item: Item) 
     #: and a stale one would travel back out with the thing (D-244).
     item.outdoors = False
     item.installed = False
+    #: A generator's stamp is the hour its output was last settled (D-288,
+    #: `battery.tick_offgrid`). Carried off it settles nothing, and put up
+    #: again it must start from that moment rather than be credited the
+    #: months in the bag. A cell keeps its stamp: its charge leaks in the
+    #: hands as it does anywhere, and the stamp is what the leak is counted by.
+    if item.charge is None:
+        item.charged_at = None
     await session.flush()
 
     await events.record(

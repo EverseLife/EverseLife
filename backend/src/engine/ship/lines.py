@@ -5,7 +5,7 @@
 
 **Ports.** A machine that eats or gives a liquid has ports, and they are not a
 new thing in the vault: an engine's port is the fuel class it burns
-(`ship.thrust` names the engine, «Корабельное топливо» the fuel), the life
+(`ship.thrust` names the engine, the ship-fuel class names the fuel), the life
 support's is the oxygen it breathes for the crew. A port has a name -- `fuel`,
 `oxygen` -- and the name is what a line is keyed by. The electrolyser's water
 and its two outlets arrive with wave 4 of D-288.
@@ -139,6 +139,24 @@ async def lines_of(session: AsyncSession, machine_id: uuid.UUID, port: str) -> l
     return list(rows.scalars().all())
 
 
+async def lines_for(
+    session: AsyncSession, machine_ids: Sequence[uuid.UUID]
+) -> dict[tuple[uuid.UUID, str], list[FeedLine]]:
+    """Every row of these machines at once, by (machine, port), each in rank
+    order -- one query for a reading of the whole hull."""
+    if not machine_ids:
+        return {}
+    rows = await session.execute(
+        select(FeedLine)
+        .where(FeedLine.machine_item_id.in_(list(machine_ids)))
+        .order_by(FeedLine.rank, FeedLine.id)
+    )
+    found: dict[tuple[uuid.UUID, str], list[FeedLine]] = {}
+    for row in rows.scalars().all():
+        found.setdefault((row.machine_item_id, row.port), []).append(row)
+    return found
+
+
 async def sources(
     session: AsyncSession, machine: Item, port: str, hull: Sequence[Item]
 ) -> list[Item]:
@@ -147,12 +165,16 @@ async def sources(
     `hull` is the installed vessels aboard (`hull_vessels`). A line whose
     vessel is not among them -- taken down, carried off, packed away -- is
     skipped, not obeyed: the row is a memory, and what answers is what stands.
+    Every named vessel gone, the port is back to **any**: a line to nothing is
+    not a line, and a crew must not suffocate beside full tanks because a
+    bottle was carried off. The rows stay, so the bottle put back stands on
+    its line again -- and the reading (`feed.view`) says exactly what this
+    does, because it filters the rows the same way.
     """
     rows = await lines_of(session, machine.id, port)
-    if not rows:
-        return list(hull)
     aboard = {one.id: one for one in hull}
-    return [aboard[row.vessel_item_id] for row in rows if row.vessel_item_id in aboard]
+    found = [aboard[row.vessel_item_id] for row in rows if row.vessel_item_id in aboard]
+    return found or list(hull)
 
 
 async def stacks_for(
@@ -168,28 +190,52 @@ async def stacks_for(
 
     Several machines of one kind -- two engines -- share one port and draw from
     the union of their lines, each vessel once, in the order the first machine
-    names it. **No machine at all** reads as the port's default -- any vessel
-    aboard -- so the console counts what the tanks hold before the first
-    engine is bolted on; whether anything may be burnt without one is the
-    leg's question (`flight._burn`), not the reading's. Unlocked: the spender
-    relocks by id (`stock.lock_items`), so a stale reading cannot overspend.
+    names it. No machine at all reaches nothing: what a hull without one is
+    worth is the caller's question, and each asks it once (`physics.fuel_stacks`
+    counts the tanks for the console, `oxygen.supply` breathes nothing).
+    Unlocked: the spender relocks by id (`stock.lock_items`), so a stale
+    reading cannot overspend.
     """
+    if not machines:
+        return []
     hull = await hull_vessels(session, catalog, ship, things=things)
-    order: list[Item] = list(hull) if not machines else []
+    order: list[Item] = []
     seen: set[uuid.UUID] = set()
     for machine in machines:
         for vessel in await sources(session, machine, port.name, hull):
             if vessel.id not in seen:
                 seen.add(vessel.id)
                 order.append(vessel)
-    if not order:
+    return await stacks_in(session, order, port.liquids)
+
+
+async def hull_stacks(
+    session: AsyncSession,
+    catalog: Catalog,
+    ship: Ship,
+    port: Port,
+    *,
+    things: Sequence[Item] | None = None,
+) -> list[Item]:
+    """The port's liquids in **every** installed vessel aboard: the port's own
+    default, asked for by name rather than implied by an empty list."""
+    hull = await hull_vessels(session, catalog, ship, things=things)
+    return await stacks_in(session, hull, port.liquids)
+
+
+async def stacks_in(
+    session: AsyncSession, vessels: Sequence[Item], liquids: Sequence[str]
+) -> list[Item]:
+    """The stacks of these liquids inside these vessels, in the vessels' order
+    and then by id. Unlocked."""
+    if not vessels or not liquids:
         return []
     insides = (
         (
             await session.execute(
                 select(Container).where(
                     Container.kind == ContainerKind.STORAGE,
-                    Container.owner_id.in_([vessel.id for vessel in order]),
+                    Container.owner_id.in_([vessel.id for vessel in vessels]),
                 )
             )
         )
@@ -197,21 +243,21 @@ async def stacks_for(
         .all()
     )
     box_of = {box.owner_id: box.id for box in insides}
-    rank = {box_of[vessel.id]: place for place, vessel in enumerate(order) if vessel.id in box_of}
+    rank = {box_of[vessel.id]: place for place, vessel in enumerate(vessels) if vessel.id in box_of}
     if not rank:
         return []
-    found_stacks = (
+    found = (
         (
             await session.execute(
                 select(Item).where(
-                    Item.container_id.in_(list(rank)), Item.type_key.in_(port.liquids)
+                    Item.container_id.in_(list(rank)), Item.type_key.in_(tuple(liquids))
                 )
             )
         )
         .scalars()
         .all()
     )
-    return sorted(found_stacks, key=lambda one: (rank[one.container_id], one.id))
+    return sorted(found, key=lambda one: (rank[one.container_id], one.id))
 
 
 async def replace(

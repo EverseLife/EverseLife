@@ -18,7 +18,7 @@ from src.constants import Catalog, ConstantError, Constants
 from src.constants import registry as R
 from src.constants.catalog import ItemKind
 from src.db.base import remember
-from src.engine import gear, stock, world
+from src.engine import gear, stock, storage, world
 from src.engine.ship import course, lines
 from src.engine.ship._base import LIFE_SUPPORT, NotEnoughThrust
 from src.engine.ship.belonging import nodes_of
@@ -209,6 +209,11 @@ async def fuel_stacks(
     hold uninstalled is cargo: it weighs and does not burn (D-230).
     """
     engines = await engines_aboard(session, constants, ship, things=things)
+    if not engines:
+        #: No engine yet: the console still counts what the tanks hold -- the
+        #: port's own default, any vessel aboard -- and whether anything may be
+        #: burnt without one is the leg's question (`flight._burn`).
+        return await lines.hull_stacks(session, catalog, ship, lines.fuel_port(), things=things)
     return await lines.stacks_for(session, catalog, ship, engines, lines.fuel_port(), things=things)
 
 
@@ -375,14 +380,15 @@ async def mass_parts(
 
 
 def _placeable(catalog: Catalog, type_key: str) -> bool:
-    """A machine or furniture: what stands in a room rather than lies in it.
-    The same test as `station.placeable`, asked of the catalog directly so
-    that physics does not pull the craft package in behind the station module."""
+    """A machine, furniture or a vessel: what stands in a room rather than lies
+    in it (D-278, D-288). The same test as `station.placeable`, asked of the
+    catalog directly so that physics does not pull the craft package in
+    behind the station module."""
     try:
         kind = catalog.recipes.recipe(type_key).kind
     except ConstantError:  # raw material has no recipe, and that is cargo
         return False
-    return kind in (ItemKind.STATION, ItemKind.FURNITURE)
+    return kind in (ItemKind.STATION, ItemKind.FURNITURE) or storage.is_vessel(catalog, type_key)
 
 
 async def ratio(session: AsyncSession, constants: Constants, catalog: Catalog, ship: Ship) -> float:

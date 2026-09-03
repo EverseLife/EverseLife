@@ -195,8 +195,9 @@ async def _burn(
     #: rocket-fuel units, and the tanks answer with what their kinds are
     #: worth -- kerosene closes more of it per unit than it shows. Checked
     #: and burnt under one lock (`burn_checked`): a tank drained between the
-    #: two would otherwise let the leg fly on fuel it never paid. Burnt out
-    #: of the tanks (D-230): the engines reach nothing else.
+    #: two would otherwise let the leg fly on fuel it never paid. Burnt off
+    #: the engines' lines (D-288): any vessel installed aboard by default,
+    #: the named ones when a line is drawn.
     burnt, have = await burn_checked(session, constants, catalog, ship, need=need, whole=whole)
     if burnt <= 0 and have + _EPS < whole:
         raise NoFuel(key="ship-no-fuel", why=refusal, need=whole, goods=FUEL, have=have)

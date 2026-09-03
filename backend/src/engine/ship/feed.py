@@ -23,8 +23,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Catalog, Constants
 from src.engine import events, storage
 from src.engine.ship import lines
-from src.engine.ship._base import ShipError
-from src.engine.ship.belonging import nodes_of
+from src.engine.ship._base import NotYours, ShipError
+from src.engine.ship.belonging import aboard_of, nodes_of
 from src.engine.ship.command import _commanded_by
 from src.models.event import EventKind
 from src.models.identity import Body
@@ -61,7 +61,7 @@ async def set_lines(
     """
     await _commanded_by(session, body, ship)
     if lines.port_of(constants, machine.type_key, port) is None:
-        raise NoSuchPort(key="line-no-such-port", goods=machine.type_key, port=port)
+        raise NoSuchPort(key="line-no-such-port", goods=machine.type_key)
     #: The machine's row for the transaction: two hands plumbing one port at
     #: once would otherwise delete and insert past each other into the unique
     #: pair, and one of them would get a database error where a refusal or a
@@ -92,16 +92,23 @@ async def set_lines(
 
 
 async def view(
-    session: AsyncSession, constants: Constants, catalog: Catalog, ship: Ship
+    session: AsyncSession, constants: Constants, catalog: Catalog, body: Body, ship: Ship
 ) -> dict[str, object]:
     """The hull's plumbing in one reading: every machine with ports, every
     vessel a line may stand on, and which stands on which.
 
-    A port's `lines` empty means "any": the client draws the fan itself and
-    is told nothing it could derive (D-225). Each thing names its compartment
-    -- a vessel in another room is the ordinary case, and the room's name is
-    not something the client holds for rooms it is not standing in.
+    The owner's reading, or a crew member's: it names every vessel aboard
+    with what is in it, and a stranger at the pier gets the card (`ship.view`),
+    not the hold's inventory (D-240). A port's `lines` empty means "any": the
+    client draws the fan itself and is told nothing it could derive (D-225).
+    Each thing names its compartment -- a vessel in another room is the
+    ordinary case, and the room's name is not something the client holds for
+    rooms it is not standing in.
     """
+    if ship.owner_identity_id != body.identity_id:
+        aboard_ship = await aboard_of(session, body)
+        if aboard_ship is None or aboard_ship.id != ship.id:
+            raise NotYours(key="ship-not-yours")
     nodes = await nodes_of(session, ship)
     yards = (
         (
@@ -125,6 +132,7 @@ async def view(
         key=lambda one: one.id,
     )
     contents = await storage.contents_of(session, hull)
+    drawn = await lines.lines_for(session, [machine.id for machine in machines])
 
     def where(thing: Item) -> dict[str, str]:
         room = room_of[thing.container_id]
@@ -134,7 +142,7 @@ async def view(
     for machine in machines:
         ports: list[dict[str, object]] = []
         for port in lines.ports_of(constants, machine.type_key):
-            rows = await lines.lines_of(session, machine.id, port.name)
+            rows = drawn.get((machine.id, port.name), [])
             ports.append(
                 {
                     "port": port.name,

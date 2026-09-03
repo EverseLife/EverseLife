@@ -31,7 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from ship_kit import CONSOLE, ENGINE, FUEL, LIFE, TANK, _equip, _laid, _port, _shipwright
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import battery, energy, liquid, oxygen, ship, station, storage, world
+from src.engine import battery, energy, estate, liquid, oxygen, ship, station, storage, world
 from src.models.identity import Body
 from src.models.inventory import Item
 from src.models.job import JobState
@@ -240,7 +240,7 @@ async def test_the_reading_names_ports_lines_and_rooms(
     bottle = await _vessel(session, connector, CYLINDER, AIR, 3)
     await ship.set_lines(session, constants, catalog, body, vessel, engine, "fuel", [tank])
 
-    seen = await ship.lines_view(session, constants, catalog, vessel)
+    seen = await ship.lines_view(session, constants, catalog, body, vessel)
     assert seen["ship"] == str(vessel.id)
     machines = {one["item"]: one for one in seen["machines"]}
     assert set(machines) == {str(engine.id), str(system.id)}
@@ -372,3 +372,151 @@ async def test_two_liquids_are_not_mixed_in_one_vessel(
     )
     _, poured = await liquid.pour(session, constants, catalog, body, more, water)
     assert poured == pytest.approx(5)
+
+
+async def test_a_machines_outlet_keeps_one_liquid_per_vessel(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A batch finishing, a rig's hopper, an outlet -- everything that pours
+    without a hand goes through `liquid.fill`, and it skips a vessel holding
+    another liquid rather than topping it up (D-288)."""
+    vessel, body, connector = await _hull(session, constants)
+    yard = await world.node_container(session, connector)
+    water = await _vessel(session, connector, CANISTER, WATER, 10, installed=False)
+    empty = await world.grant_item(session, yard, CANISTER, quality=60, origin="тест")
+    fuel = await world.grant_item(session, yard, FUEL, amount=5, quality=60, origin="тест")
+
+    assert await liquid.room_for(session, catalog, yard, FUEL) > 0
+    poured = await liquid.fill(session, catalog, fuel, [yard])
+    assert poured == pytest.approx(5)
+    assert await _held(session, water) == pytest.approx(10), "в канистру с водой не долито"
+    assert [one.type_key for one in await storage.content(session, water)] == [WATER]
+    assert await _held(session, empty) == pytest.approx(5), "топливо ушло в пустую"
+
+
+async def test_a_line_to_nothing_is_a_port_back_to_any(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Every vessel of a line taken down: the port drinks from any again, and
+    the reading says so -- the engine and the window filter the rows alike."""
+    vessel, body, connector = await _hull(session, constants)
+    engine = await _equip(session, connector, ENGINE)
+    first = await _vessel(session, connector, TANK, FUEL, 50)
+    second = await _vessel(session, connector, TANK, FUEL, 20)
+    await ship.set_lines(session, constants, catalog, body, vessel, engine, "fuel", [first])
+    assert await ship.fuel_aboard(session, constants, catalog, vessel) == pytest.approx(50)
+
+    first.installed = False
+    await session.flush()
+    assert await ship.fuel_aboard(session, constants, catalog, vessel) == pytest.approx(
+        await _held(session, second)
+    ), "линия в никуда — снова любая установленная тара"
+    seen = await ship.lines_view(session, constants, catalog, body, vessel)
+    port = next(p for m in seen["machines"] for p in m["ports"] if p["port"] == "fuel")
+    assert port["lines"] == [], "окно говорит то же, что делает движок"
+
+    #: Put back, the tank stands on its line again: the row was a memory.
+    first.installed = True
+    await session.flush()
+    assert await ship.fuel_aboard(session, constants, catalog, vessel) == pytest.approx(50)
+
+
+async def test_the_reading_is_the_owners_or_the_crews(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A stranger at the pier gets the card, not the hold's inventory (D-240);
+    a body standing aboard reads the plumbing it lives by."""
+    vessel, body, connector = await _hull(session, constants)
+    await _equip(session, connector, LIFE)
+    _, stranger, far = await _hull(session, constants)
+    with pytest.raises(ship.NotYours):
+        await ship.lines_view(session, constants, catalog, stranger, vessel)
+
+    stranger.node_id = connector.id
+    await session.flush()
+    seen = await ship.lines_view(session, constants, catalog, stranger, vessel)
+    assert seen["ship"] == str(vessel.id)
+    assert far is not None
+
+
+async def test_a_panel_is_credited_from_its_first_sight_not_its_age(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """No stamp is the start, not the beginning of time: a panel put up today
+    banks nothing on its first tick, and taking it down clears the stamp so
+    that the months in the bag never come out of the cells."""
+    vessel, body, connector = await _hull(session, constants)
+    panel = await _equip(session, connector, SOLAR)
+    yard = await world.node_container(session, connector)
+    cell = await world.grant_item(session, yard, BATTERY, quality=60, origin="тест")
+    moment = datetime.now(UTC)
+    cell.charge = Decimal(0)
+    cell.charged_at = moment
+    panel.created_at = moment - timedelta(days=30)
+    panel.charged_at = None
+    await session.flush()
+
+    assert await energy.tick_offgrid(session, constants, now=moment) == 0, "месяц в мешке — не ток"
+    assert panel.charged_at == moment, "первый тик ставит отметку"
+    later = moment + timedelta(hours=2)
+    rate = constants[R.ENERGY_SOLAR_RATE]
+    assert await energy.tick_offgrid(session, constants, now=later) == pytest.approx(
+        2 * rate, abs=0.01
+    )
+
+    await station.take(session, catalog, body, panel)
+    assert panel.charged_at is None, "снятая панель ничего не считает"
+
+
+async def test_two_ticks_on_one_panel_bank_one_hour(
+    factory: async_sessionmaker[AsyncSession], constants: Constants
+) -> None:
+    """The generator's row is locked before its stamp is read: two ticks on
+    one hull bank the hour once, not twice."""
+    async with factory() as session, session.begin():
+        vessel, body, connector = await _hull(session, constants)
+        panel = await _equip(session, connector, SOLAR)
+        yard = await world.node_container(session, connector)
+        cell = await world.grant_item(session, yard, BATTERY, quality=60, origin="тест")
+        moment = datetime.now(UTC)
+        cell.charge = Decimal(0)
+        cell.charged_at = moment
+        panel.charged_at = moment - timedelta(hours=1)
+        await session.flush()
+        cell_id = cell.id
+
+    ready = asyncio.Barrier(2)
+
+    async def tick() -> float:
+        async with factory() as db, db.begin():
+            await db.get(Item, cell_id)
+            await ready.wait()
+            return await energy.tick_offgrid(db, constants, now=moment)
+
+    banked = sum(await asyncio.gather(tick(), tick()))
+    rate = constants[R.ENERGY_SOLAR_RATE]
+    assert banked == pytest.approx(rate, abs=0.01), f"два тика начислили {banked:.2f}"
+    async with factory() as session:
+        cell = await session.get(Item, cell_id)
+        assert float(cell.charge) == pytest.approx(rate, abs=0.01)
+
+
+async def test_a_vessel_is_put_up_like_furniture(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The real door: `station.place` takes a canister out of the hands, stands
+    it in the room, and it takes a place of the room like furniture does."""
+    vessel, body, connector = await _hull(session, constants)
+    await _equip(session, connector, ENGINE)
+    pocket = await world.body_container(session, body)
+    can = await world.grant_item(session, pocket, CANISTER, quality=60, origin="тест")
+    await world.grant_item(
+        session, await storage.inside(session, can), FUEL, amount=5, quality=60, origin="тест"
+    )
+    _, before = await estate.slots(session, constants, connector)
+
+    await station.place(session, catalog, body, can)
+    assert can.installed
+    assert await ship.fuel_aboard(session, constants, catalog, vessel) == pytest.approx(5)
+    _, after = await estate.slots(session, constants, connector)
+    assert after == before + 1, "установленная тара занимает место"

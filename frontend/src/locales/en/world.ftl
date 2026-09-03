@@ -175,17 +175,17 @@ ui-ship-below-threshold = below the lift-off threshold
 ui-ship-air = oxygen
 ui-ship-air-line = { $units } on the life support's line
 ui-ship-air-burn = { $spend } an hour · lasts { $term }
-ui-ship-air-covered = nobody aboard is breathing
+ui-ship-air-covered = no crew aboard, nothing is spent
 ui-ship-air-outside = there is air outside, the system sleeps
 
 ## The feed (D-288): lines from a machine to a vessel.
 
-ui-ship-feed = Feed
+ui-ship-feed = Feed lines
 ui-ship-feed-hint = A port with nothing ticked drinks from any installed vessel aboard. Tick vessels to narrow the line; the order of ticking is the order of use.
-ui-ship-feed-none = No machine with lines aboard: the engine and the life support appear here once they stand in a compartment.
+ui-ship-feed-none = No machine with lines aboard: the engine and the life support system appear here once they stand in a compartment.
 ui-ship-feed-any = any installed vessel aboard
-ui-ship-feed-reset = any again
-ui-ship-feed-no-vessels = No suitable installed vessel aboard: put a tank, a canister or a cylinder up in a compartment.
+ui-ship-feed-reset = back to any
+ui-ship-feed-no-vessels = No suitable installed vessel aboard: put up a fuel tank, a canister or an oxygen tank in a compartment.
 ui-ship-feed-empty = empty
 ui-ship-feed-up = up
 
@@ -194,7 +194,7 @@ ui-ship-feed-up = up
 ui-ship-sign = { $name } · { $nodes } nodes · thrust { $thrust } on { $mass } kg of mass
 ui-ship-ratio-line = thrust to weight { $ratio } against the { $min } needed
 ui-ship-stuck = does not lift off
-ui-ship-crew = crew { $crew } · fuel on the lines { $fuel }
+ui-ship-crew = crew { $crew } · fuel { $fuel }
 ui-ship-no-life-support = no life support system
 ui-ship-in-orbit = in planetary orbit around { $planet }
 ui-ship-berthed = at the “{ $port }” shipyard, berth { $berth }

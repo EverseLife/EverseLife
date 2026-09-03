@@ -132,7 +132,7 @@ liquid-mixed = “{ NAME($vessel) }” already holds “{ NAME($have) }”: two 
 
 # --- the hull's lines (engine/ship/lines.py, D-288) ---------------------------
 
-line-no-such-port = “{ NAME($goods) }” has no port named “{ $port }”
+line-no-such-port = “{ NAME($goods) }” has no such port
 line-machine-not-aboard = “{ NAME($goods) }” is not installed on this ship: a line runs from an installed machine
 line-vessel-not-aboard = “{ NAME($goods) }” is not installed on this ship: only an installed vessel stands on a line
 

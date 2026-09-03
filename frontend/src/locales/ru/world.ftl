@@ -175,7 +175,7 @@ ui-ship-below-threshold = ниже порога отрыва
 ui-ship-air = кислород
 ui-ship-air-line = { $units } на линии жизнеобеспечения
 ui-ship-air-burn = расход { $spend } в час · хватит на { $term }
-ui-ship-air-covered = на борту никто не дышит
+ui-ship-air-covered = экипажа нет, расхода нет
 ui-ship-air-outside = за бортом воздух, система спит
 
 ## Питание (D-288): линии от машины к таре.
@@ -194,7 +194,7 @@ ui-ship-feed-up = выше
 ui-ship-sign = { $name } · { $nodes } узл. · тяга { $thrust } на массу { $mass } кг
 ui-ship-ratio-line = тяговооружённость { $ratio } при нужных { $min }
 ui-ship-stuck = не отрывается
-ui-ship-crew = экипаж { $crew } · топлива на линиях { $fuel }
+ui-ship-crew = экипаж { $crew } · топлива { $fuel }
 ui-ship-no-life-support = без системы жизнеобеспечения
 ui-ship-in-orbit = на околопланетной орбите { $planet }
 ui-ship-berthed = у верфи «{ $port }», место { $berth }

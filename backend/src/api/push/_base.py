@@ -124,6 +124,9 @@ TOUCHES_BY_KIND: dict[str, tuple[str, ...]] = {
     #: The capital took its share of the treasury (D-285): the panel
     #: shows the balance and what is lent out, and both just moved.
     "city.debt_withheld": ("city",),
+    #: A line drawn changes what the engines and the life support reach
+    #: (D-288): the hull's fuel and air on the console are read afresh.
+    "line.set": ("ships",),
 }
 
 #: What everybody standing in the node sees happen there, by prefix or kind.

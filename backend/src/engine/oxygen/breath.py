@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import events, stock
+from src.engine import events, stock, storage
 from src.engine import ship as vessels
 from src.engine.oxygen._base import (
     _EPS,
@@ -40,6 +40,7 @@ from src.engine.oxygen.supply import (
 from src.engine.ship import lines
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState
+from src.models.inventory import Item
 from src.models.ship import Ship
 from src.models.world import Node
 from src.units import (
@@ -409,6 +410,34 @@ async def _breathe(
             ship_id=str(locked.id),
             name=locked.name,
             crew=len(crew),
+            #: What the crew could have breathed and did not (D-288): oxygen
+            #: aboard that stands off the line -- in a vessel the line does not
+            #: name, or in one nobody put up. The journal says it when it has
+            #: already cost an hour; the console's word for it comes with the
+            #: schematic window (D-288, wave 4).
+            off_line=round(
+                await _off_line(session, constants, catalog, locked, hold), ROUND_AMOUNT
+            ),
             **aboard,
         )
     return drawn, dead
+
+
+async def _off_line(
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    ship: Ship,
+    hold: list[Item],
+) -> float:
+    """Oxygen aboard the life support's line does not reach: every vessel in
+    the rooms, put up or lying, less what the line drinks. A reading."""
+    every = await lines.stacks_in(
+        session,
+        [one for one in hold if storage.is_vessel(catalog, one.type_key)],
+        (vessels.AIR,),
+    )
+    reached = {
+        one.id for one in await breathable_stacks(session, constants, catalog, ship, things=hold)
+    }
+    return sum(amount_float(one.amount) for one in every if one.id not in reached)

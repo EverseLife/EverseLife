@@ -57,7 +57,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Constants
 from src.constants import registry as R
 from src.db.base import remember
-from src.engine import battery, events, frost, ledger, stock, travel, world
+from src.engine import events, frost, ledger, stock, travel, world
 from src.engine.errors import Refusal
 from src.models.energy import EnergyPool
 from src.models.event import EventKind
@@ -148,13 +148,12 @@ REACTOR = "precursor_reactor"
 #: for guests: a world that ran for a year before Aurora existed would
 #: otherwise get the planet already dead.
 REACTOR_SINCE = "reactor"
-#: Generators that need neither river, wind nor fuel (D-288). In a city they
-#: feed the pool like any other; off the grid -- aboard a hull above all, and
-#: on airless ground -- they charge the batteries within reach (`tick_offgrid`).
-SOLAR = "solar_panel"
-ISOTOPE = "isotope_generator"
-#: Every generator class, for "the node has an energy source" checks.
-GENERATOR_CLASSES = (WHEEL, WINDMILL, FUEL_PLANT, SOLAR, ISOTOPE)
+#: Every generator class, for "the node has an energy source" checks. The
+#: panel and the isotope generator (D-288) are not here on purpose: they
+#: charge the cells within reach where no pool exists (`battery.tick_offgrid`)
+#: and feed no city -- a city is founded and powered by what the vault names
+#: for it, and D-288 gave it nothing.
+GENERATOR_CLASSES = (WHEEL, WINDMILL, FUEL_PLANT)
 
 
 class EnergyError(Refusal):
@@ -291,7 +290,6 @@ async def produce(
         wheels = set(world.station_names(WHEEL))
         windmills = set(world.station_names(WINDMILL))
         fuel_plants = set(world.station_names(FUEL_PLANT))
-        steady = _steady_rates(constants)
         standing: dict[str, float] = {}
         for machine in machines:
             #: By amount, not by row: two identical stoves nobody has touched
@@ -306,8 +304,6 @@ async def produce(
                 added += dice.uniform(wind.min, wind.max) * elapsed
             elif machine.type_key in fuel_plants:
                 added += await _burn_fuel(session, constants, yard.id, elapsed)
-            elif machine.type_key in steady:
-                added += steady[machine.type_key] * amount_float(machine.amount) * elapsed
         if cold:
             #: Two purses (D-232): what the Forerunners left is paid by their
             #: reactor, what people built is paid by the city.
@@ -346,64 +342,6 @@ async def produce(
     #: The **net** change, not the generation: a tick that reported the output
     #: of a city whose heat ate all of it would be reporting a city that grew.
     return float(pool.stored) - before
-
-
-def _steady_rates(constants: Constants) -> dict[str, float]:
-    """Output an hour of the generators that ask for nothing, by item name (D-288)."""
-    return {
-        **dict.fromkeys(world.station_names(SOLAR), float(constants[R.ENERGY_SOLAR_RATE])),
-        **dict.fromkeys(world.station_names(ISOTOPE), float(constants[R.ENERGY_ISOTOPE_RATE])),
-    }
-
-
-async def tick_offgrid(
-    session: AsyncSession, constants: Constants, *, now: datetime | None = None
-) -> float:
-    """Charge what stands off the grid: a panel or an isotope generator in a
-    room no pool reaches. Returns the energy the batteries took.
-
-    The city's generators fill the city's pool (`produce`); these have no pool
-    to fill where it matters most -- aboard a hull under way, on the black
-    fields of Pyroxis -- and charge the batteries within reach instead: the
-    whole hull's, because the hull is one building (`battery.batteries_in`).
-    What nothing takes is not kept: free energy for export does not exist.
-
-    The generator's own `charged_at` is its stamp -- when its output was last
-    settled -- the way a battery's says when its charge was; a generator
-    holds no charge of its own, so the column is free for it.
-    """
-    moment = now or datetime.now(UTC)
-    rates = _steady_rates(constants)
-    if not rates:  # pragma: no cover -- the vault names both
-        return 0.0
-    rows = (
-        await session.execute(
-            select(Item, Node)
-            .join(Container, Container.id == Item.container_id)
-            .join(Node, Node.id == Container.owner_id)
-            .where(
-                Container.kind == ContainerKind.NODE,
-                Item.installed.is_(True),
-                Item.type_key.in_(tuple(rates)),
-            )
-            .order_by(Node.id, Item.id)
-        )
-    ).all()
-    banked = 0.0
-    for generator, node in rows:
-        if await grid_node(session, node) is not None:
-            continue
-        since = generator.charged_at or generator.created_at
-        hours = (moment - since).total_seconds() / SECONDS_PER_HOUR
-        if hours <= 0:
-            continue
-        made = rates[generator.type_key] * amount_float(generator.amount) * hours
-        cells = await battery.batteries_in(session, node)
-        banked += await battery.fill_cells(session, constants, cells, made, now=moment)
-        generator.charged_at = moment
-    if rows:
-        await session.flush()
-    return banked
 
 
 async def _burn_fuel(
@@ -664,6 +602,8 @@ async def fuel(
 #: did, and so nothing outside had to move when the file was cut.
 from src.engine.battery import (  # noqa: E402, F401
     BATTERY,
+    ISOTOPE,
+    SOLAR,
     BatteryError,
     NotBattery,
     batteries_in,
@@ -671,7 +611,10 @@ from src.engine.battery import (  # noqa: E402, F401
     charge_battery,
     charge_of,
     drain_batteries,
+    fill_cells,
     settle_charge,
+    steady_rates,
+    tick_offgrid,
 )
 
 
