@@ -28,11 +28,12 @@ from farm_kit import BEANS, BROME, SPELT, _farmstead
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import farm, world
+from src.engine.farm._base import _accrue_fallow
 from src.models.estate import Building
 from src.models.farm import Plot, PlotState
 from src.models.inventory import Item
 from src.models.world import Node
-from src.units import amount_float
+from src.units import ROUND_QUALITY, amount_float
 
 
 async def _grain(session: AsyncSession, body, cat: Catalog, culture: str, qty=200):
@@ -503,6 +504,62 @@ async def test_fallow_heals_over_time(
     assert float(plot.fertility) == pytest.approx(
         30 + constants[R.FARM_FALLOW_RECOVERY] * 2, rel=0.01
     )
+
+
+def test_the_land_is_kept_at_the_scale_it_is_written_with() -> None:
+    """`ROUND_QUALITY` and the fertility column are one number in two places.
+
+    The accrual below rounds to this scale before it stores, and then measures
+    how far the row moved to decide how much of the idleness it may claim.
+    Widen the column without the constant and it measures against a number the
+    row never held -- which is the whole of the defect it was written against.
+    """
+    assert Plot.__table__.c.fertility.type.scale == ROUND_QUALITY
+
+
+async def test_the_land_heals_as_much_worked_often_as_worked_once(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Fallow is credited by elapsed time, not by how often it is asked about.
+
+    Fertility is kept to a hundredth, and at two a day that is over eleven
+    minutes of lying fallow before the column can show anything. Every touch of
+    a plot accrues, and the stamp used to move whatever the column could show
+    for it -- so a plot worked oftener than that recovered nothing at all, and
+    the mechanic silently did not exist for anyone actually farming.
+    """
+    _, _, body = await _farmstead(session, area=200, fertility=30)
+    often = await farm.mark(session, constants, body, name="частый", area=10)
+    once = await farm.mark(session, constants, body, name="редкий", area=10)
+    started = datetime.now(UTC)
+    for plot in (often, once):
+        plot.fertility = 30
+        plot.idle_since = started
+    await session.flush()
+
+    #: Through the row every time, not in memory: the whole defect lives in the
+    #: round trip, where `Numeric(6, 2)` rounds the write away. A test that
+    #: keeps the value in the session never sees it -- this one did not, and
+    #: passed on the unfixed code.
+    steps, every = 24, timedelta(minutes=5)
+    for tick in range(1, steps + 1):
+        _accrue_fallow(constants, often, started + every * tick)
+        await session.flush()
+        await session.refresh(often, ["fertility", "idle_since"])
+    _accrue_fallow(constants, once, started + every * steps)
+    await session.flush()
+    await session.refresh(once, ["fertility", "idle_since"])
+
+    #: Two hours of fallow, worth a tenth at two a day -- while a single one of
+    #: the twenty-four steps is worth less than the hundredth the column keeps.
+    worth = constants[R.FARM_FALLOW_RECOVERY] * (steps * every) / _day(constants)
+    #: Never more than the hours earned, and never more than the one step the
+    #: column cannot yet show -- that part is not lost, it waits in the stamp.
+    assert float(once.fertility) <= 30 + worth
+    assert float(once.fertility) > 30 + worth - 0.01
+    #: Exactly the same, not nearly: a tolerance of a hundredth here would
+    #: permit precisely the hundredth the defect loses.
+    assert Decimal(often.fertility) == Decimal(once.fertility)
 
 
 async def test_resurvey_does_not_heal_land(

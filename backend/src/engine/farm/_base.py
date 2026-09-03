@@ -9,7 +9,7 @@ what state, what ground. Asks nobody above itself.
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from decimal import Decimal
+from decimal import ROUND_FLOOR, Decimal
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,7 +21,14 @@ from src.engine.errors import Refusal
 from src.models.farm import Plot, PlotState
 from src.models.identity import Body, BodyState
 from src.models.world import Node
-from src.units import SCALE_MAX, SCALE_MIN, SECONDS_PER_HOUR, SECONDS_PER_MINUTE
+from src.units import (
+    ROUND_QUALITY,
+    SCALE_MAX,
+    SCALE_MIN,
+    SECONDS_PER_HOUR,
+    SECONDS_PER_MINUTE,
+    on_grid,
+)
 
 #: The name of water in `build/recipes.json` -- carried by hand where there is no river.
 WATER = "water"
@@ -145,9 +152,24 @@ def _accrue_fallow(constants: Constants, plot: Plot, moment: datetime) -> None:
     )
     if days <= 0:
         return
-    healed = constants[R.FARM_FALLOW_RECOVERY] * days
-    plot.fertility = Decimal(str(min(SCALE_MAX, float(plot.fertility) + healed)))
-    plot.idle_since = moment
+    rate = constants[R.FARM_FALLOW_RECOVERY]
+    was = float(plot.fertility)
+    #: Down: never more fertility than the days earned. Fertility is kept to a
+    #: hundredth, and at two a day over a thirty-eight hour day that is a
+    #: little under six minutes of lying fallow before the row moves at all.
+    #: The stamp used to go to `moment` whatever the column could show for it,
+    #: and every touch of a plot accrues -- so a plot worked oftener than that
+    #: recovered nothing, ever, and the loss fell on whoever farmed hardest.
+    grown = min(SCALE_MAX, float(on_grid(was + rate * days, ROUND_QUALITY, ROUND_FLOOR)))
+    plot.fertility = Decimal(str(grown))
+    #: The stamp moves only as far as the growth accounts for, and the rest of
+    #: the idleness waits in it for the next accrual.
+    earned = days if grown >= SCALE_MAX or rate <= 0 else (grown - was) / rate
+    plot.idle_since = min(
+        moment,
+        plot.idle_since
+        + timedelta(seconds=max(0.0, earned) * day_hours(constants) * SECONDS_PER_HOUR),
+    )
 
 
 async def _consume(

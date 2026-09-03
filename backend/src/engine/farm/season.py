@@ -42,11 +42,13 @@ from src.models.world import Node, Planet
 from src.units import (
     HARDINESS_SCALE,
     PERCENT,
+    ROUND_QUALITY,
     SCALE_MAX,
     SCALE_MIN,
     SECONDS_PER_HOUR,
     amount,
     amount_float,
+    on_grid,
 )
 
 
@@ -333,7 +335,8 @@ async def harvest(
         constants[R.FARM_MONOCULTURE_PENALTY] if plot.last_culture == plant.id else 0.0
     )
     restored = plant.restores_fertility
-    plot.fertility = Decimal(str(max(SCALE_MIN, min(SCALE_MAX, fertility - depletion + restored))))
+    settled = max(SCALE_MIN, min(SCALE_MAX, fertility - depletion + restored))
+    plot.fertility = on_grid(settled, ROUND_QUALITY)
     plot.same_culture_cycles = plot.same_culture_cycles + 1 if plot.last_culture == plant.id else 1
     plot.last_culture = plant.id
     plot.culture_id = None

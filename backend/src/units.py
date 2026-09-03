@@ -97,7 +97,12 @@ SKY_CALENDAR_MEMO = 64
 #: not how a summary reads. Changing one alone leaves the code rounding coarser
 #: or finer than the column it writes to, and nothing objects -- so a scale tied
 #: to a single column is pinned to it by a test.
-#: Quality is stored to a hundredth of a point (`Numeric(6, 2)` columns).
+#: The 0..100 scale, a hundredth of a point, shared by a whole shelf of
+#: `Numeric(6, 2)` columns -- quality, condition, fertility, richness. The
+#: engine rounds to it in two places: writing `Plot.fertility`, which is
+#: pinned to it by a test, and reporting a forage quality, which is no
+#: column's. The rest of the shelf keeps the same width by convention, not by
+#: this constant -- do not read a pin into it that is not there.
 ROUND_QUALITY = 2
 #: Work banked in minutes is stored to a hundredth (`Plot.plow_done_minutes`
 #: is `Numeric(10, 2)`): a plough is paused and taken up again (D-277), so the
@@ -114,7 +119,7 @@ ROUND_CHARGE = 3
 #: `Numeric(14, 3)`). The scale of the column, not a property of the game.
 ROUND_ENERGY = 3
 #: What the pool could not store, kept to a billionth (`EnergyPool.remainder`
-#: is `Numeric(12, 9)`). Generation is continuous and the pool is not, so each
+#: is `Numeric(9, 9)`). Generation is continuous and the pool is not, so each
 #: pass leaves less than a thousandth over; kept here it is spent on the next
 #: pass instead of being thrown away, and a pool read a hundred times a second
 #: ends where a pool read once does. Fine enough that its own rounding is

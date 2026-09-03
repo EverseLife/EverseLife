@@ -40,7 +40,7 @@ from src.models.farm import Plot, PlotState
 from src.models.identity import Body
 from src.models.job import Job, JobKind, JobState
 from src.models.world import Node
-from src.units import ROUND_MINUTES, SCALE_MAX, amount, amount_float
+from src.units import ROUND_MINUTES, ROUND_QUALITY, SCALE_MAX, amount, amount_float, on_grid
 
 
 async def mark(
@@ -367,7 +367,7 @@ async def fertilize(
         need,
         why=FarmError(key="farm-no-fertilizer", goods=goods, need=amount_float(need)),
     )
-    plot.fertility = Decimal(str(min(SCALE_MAX, fertility + constants[spec])))
+    plot.fertility = on_grid(min(SCALE_MAX, fertility + constants[spec]), ROUND_QUALITY)
     await session.flush()
 
     await events.record(
@@ -451,7 +451,11 @@ async def merge(
 
     a, b = float(one.area_m2), float(other.area_m2)
     one.area_m2 = Decimal(str(a + b))
-    one.fertility = Decimal(str((float(one.fertility) * a + float(other.fertility) * b) / (a + b)))
+    #: A weighted mean lands off the grid as a rule -- ten square metres of
+    #: thirty with seven of forty is 35.294... -- and the journal below would
+    #: otherwise report a number the row never took.
+    blended = (float(one.fertility) * a + float(other.fertility) * b) / (a + b)
+    one.fertility = on_grid(blended, ROUND_QUALITY)
     heavier = max((one, other), key=lambda p: p.same_culture_cycles)
     one.last_culture = heavier.last_culture
     one.same_culture_cycles = heavier.same_culture_cycles
