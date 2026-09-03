@@ -39,7 +39,8 @@ header {
 
 /* The frame: sidebar on the left (the Net), main window on the right (in-person).
    Both columns each scroll on their own -- header and bottom always in place.
-   The sidebar's column is the brief's 320px at the least (desktop layout) and
+   The sidebar's column is 20rem at the least (300px at the root's 15px; the
+   brief's layout table follows this rule, not the other way round) and
    grows to 33rem where the screen has it: the inventory is a table of five
    columns beside a 52px rail, and at the old 21rem ceiling the weight and
    the qualities wrapped under the names. Measured 2026-09-03 at the root's

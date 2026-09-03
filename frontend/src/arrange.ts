@@ -97,7 +97,9 @@ export function groupKey(
  * What a stack weighs, kg: its own mass by its amount, and whatever is poured
  * into it. A full canister weighs its fill (D-230) -- the carried load counts
  * it, so the row, the sort and the folded group must count it the same way,
- * or the column's figures would not add up to the figure over the list.
+ * or the rows would not add up to their group's line. What the body carries
+ * is a different figure on purpose: a pack lightens the first kilograms
+ * (D-268), and the load over the list is that reading, not this sum.
  */
 export function weightOf(thing: Thing): number {
   const own = thing.mass * thing.amount;
