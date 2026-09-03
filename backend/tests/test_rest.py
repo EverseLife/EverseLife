@@ -147,6 +147,29 @@ async def test_cannot_sleep_in_advance(session: AsyncSession, constants: Constan
         await rest.sleep(session, constants, almost_full)
 
 
+async def test_a_fractional_ceiling_is_the_same_at_both_doors(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """A `body.stamina_max` finer than the column is one number, not two.
+
+    Waking credits on the column's grid, so a maximum of 100.005 fills a
+    body to 100.00 -- and lying down used to measure tiredness against the
+    raw 100.005. That body was never rested: it lay down, was credited
+    nothing, and got up with a night recorded as zero.
+    """
+    fine = constants.with_overrides({"body.stamina_max": 100.005})
+    _, body = await _tired(session, stamina=99)
+    lay_down = datetime.now(UTC)
+    await rest.sleep(session, fine, body, now=lay_down)
+    await rest.wake(session, fine, body, now=lay_down + timedelta(hours=50))
+    await session.flush()
+    await session.refresh(body, ["stamina"])
+    assert float(body.stamina) == 100.0
+
+    with pytest.raises(rest.NotTired):
+        await rest.sleep(session, fine, body)
+
+
 async def test_sleeper_unavailable_for_in_person(
     session: AsyncSession, constants: Constants
 ) -> None:
