@@ -83,6 +83,60 @@ async def _factory_floor(
     return yard_node, yard, identity, body, machine
 
 
+async def test_an_automat_settled_often_wears_as_much_as_one_settled_once(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """`auto.wear_per_day` is paid however often the machine is brought up to date.
+
+    Condition is kept to a hundredth, and at five a day a stretch under about a
+    minute and a half cannot be written to it -- less still for a good machine,
+    which wears slower. Such wear used to be dropped outright, and
+    `program`/`stop` settle the row too, so an owner tapping a button kept a
+    machine that never wore out. The sliver waits on the thing itself
+    (`Item.wear_remainder`), not on any clock: the row's stamp measures the
+    output as well, and holding it back would make the same hours twice.
+    """
+    from src.engine import wear
+
+    floors = []
+    for _ in range(2):
+        node, yard, identity, body, machine = await _factory_floor(session, constants)
+        await _learn(session, identity, NAILS)
+        row = await automat.program(session, constants, catalog, body, machine, NAILS)
+        machine.condition = Decimal("100")
+        floors.append((row, machine))
+    await session.flush()
+    (often, machine_a), (once, machine_b) = floors
+    started = often.counted_at
+    once.counted_at = started
+    await session.flush()
+
+    #: Through the row every time: the defect lives in the round trip, where
+    #: `Numeric(6, 2)` rounds the write away.
+    steps, every = 40, timedelta(seconds=30)
+    for tick in range(1, steps + 1):
+        when = started + every * tick
+        await automat.advance(session, constants, often, catalog=catalog, now=when)
+        await session.refresh(machine_a, ["condition"])
+    await automat.advance(session, constants, once, catalog=catalog, now=started + every * steps)
+    await session.refresh(machine_b, ["condition"])
+
+    #: The output is the trap this fix fell into once on the rig: carrying the
+    #: sliver on `counted_at` made the next pass repeat the stretch. The busy
+    #: machine must have made exactly what the quiet one made.
+    #: Sixty sums against one, so to a millionth rather than to the digit:
+    #: the double count this guards against was a whole percent and more.
+    assert float(often.backlog) == pytest.approx(float(once.backlog))
+
+    term = wear.life_factor(constants, float(machine_a.quality))
+    worn = constants[R.AUTO_WEAR_PER_DAY] / term * (steps * every) / timedelta(hours=24)
+    #: The whole point: the busy machine wore exactly as much as the quiet one.
+    assert Decimal(machine_a.condition) == Decimal(machine_b.condition)
+    #: And neither more than the twenty minutes earned, nor a step behind it.
+    assert 100 - float(machine_b.condition) <= worn
+    assert 100 - float(machine_b.condition) > worn - 0.01
+
+
 async def _lube_in(session: AsyncSession, yard, units: float) -> Item:
     """Lubricant standing in the node: a canister with the liquid inside (D-230)."""
     canister = await world.grant_item(session, yard, "canister", quality=60, origin="тест")

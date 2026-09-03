@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timedelta
+from decimal import Decimal
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -40,6 +41,10 @@ async def _face(session: AsyncSession, *, coal: float = 100, richness: float = 6
     machine = await world.grant_item(session, pocket, "drilling_rig", quality=70, origin="тест")
     installation = await rig.place(session, body, machine, vein)
     return node, vein, body, installation, machine
+
+
+def _terra_day(constants: Constants) -> timedelta:
+    return timedelta(hours=constants[R.TIME_DAY_TERRA])
 
 
 def _via(installation, hours: float) -> datetime:
@@ -106,6 +111,56 @@ async def test_full_bunker_stops_machine(session: AsyncSession, constants: Const
     #: And it grows no further, however long one waits.
     more = await rig.advance(session, constants, installation, now=_via(installation, hours))
     assert more == 0
+
+
+async def test_a_rig_settled_often_wears_as_much_as_one_settled_once(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """`rig.wear_per_day` is paid however often the rig is brought up to date.
+
+    Condition is kept to a hundredth, and at six a day a stretch under a
+    couple of minutes cannot be written to it -- less still for a good machine,
+    which wears slower. Such wear used to be dropped outright, and
+    `empty_hopper` settles the rig too, so an owner tapping the button kept a
+    machine that never wore out at all. The sliver waits on the thing itself
+    now (`Item.wear_remainder`), not on any clock: the rig's stamp measures the
+    mining as well, and holding it back mines the same ore twice.
+    """
+    from src.engine import wear
+
+    _, _, _, often, machine_a = await _face(session)
+    _, _, _, once, machine_b = await _face(session)
+    started = often.counted_at
+    once.counted_at = started
+    for thing in (machine_a, machine_b):
+        thing.condition = Decimal("100")
+    await session.flush()
+
+    #: Through the row every time: the whole defect lives in the round trip,
+    #: where `Numeric(6, 2)` rounds the write away.
+    steps, every = 60, timedelta(seconds=30)
+    for tick in range(1, steps + 1):
+        await rig.advance(session, constants, often, now=started + every * tick)
+        await session.refresh(machine_a, ["condition"])
+    await rig.advance(session, constants, once, now=started + every * steps)
+    await session.refresh(machine_b, ["condition"])
+
+    #: The ore is the trap this fix fell into once: carrying the sliver on
+    #: `counted_at` made the next pass re-mine the same stretch. The busy rig
+    #: must have dug exactly what the quiet one dug.
+    #: Sixty sums against one, so to a millionth rather than to the digit:
+    #: the double count this guards against was a whole percent and more.
+    assert float(often.hopper) == pytest.approx(float(once.hopper))
+
+    term = wear.life_factor(constants, float(machine_a.quality))
+    worn = constants[R.RIG_WEAR_PER_DAY] / term * (steps * every) / _terra_day(constants)
+    #: The whole point: the busy rig wore exactly as much as the quiet one.
+    assert Decimal(machine_a.condition) == Decimal(machine_b.condition)
+    #: And neither wore more than the half hour earned, nor fell more than the
+    #: one step behind it that the column cannot yet show -- that part is not
+    #: lost, it waits on the thing.
+    assert 100 - float(machine_b.condition) <= worn
+    assert 100 - float(machine_b.condition) > worn - 0.01
 
 
 async def test_rig_wears_and_abandoned_falls_apart(

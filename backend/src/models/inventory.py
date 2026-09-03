@@ -86,6 +86,10 @@ class Item(Base):
         ),
         CheckConstraint("condition >= 0 AND condition <= 100", name="condition_in_scale"),
         CheckConstraint(
+            "wear_remainder >= 0 AND wear_remainder < 0.01",
+            name="wear_remainder_under_a_hundredth",
+        ),
+        CheckConstraint(
             "fineness IS NULL OR (fineness > 0 AND fineness <= 1000)", name="fineness_in_permille"
         ),
     )
@@ -114,6 +118,17 @@ class Item(Base):
     quality: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
     #: How worn now.
     condition: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False, default=100)
+    #: Wear the condition column could not show. It keeps hundredths, and a
+    #: doing may cost less than one -- a rig settled every half minute, a swing
+    #: of a pick on a fine tool. Dropped, such wear never happened at all and a
+    #: machine tapped often enough was immortal (D-129). Kept here it is spent
+    #: on the next write-off. Always `0 <= wear_remainder < 0.01`: the column
+    #: is checked against it, so a bug that broke the bound fails loudly rather
+    #: than quietly making things last for ever. The width alone would not do:
+    #: `Numeric(9, 9)` holds anything under one.
+    wear_remainder: Mapped[float] = mapped_column(
+        Numeric(9, 9), nullable=False, default=0, server_default="0"
+    )
     #: Condition ceiling. Falls with every repair by `quality.repair_ceiling_loss`,
     #: so the item is finite anyway (pillar P2, D-129).
     condition_cap: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False, default=100)

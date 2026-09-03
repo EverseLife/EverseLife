@@ -36,7 +36,7 @@ mechanic (D-129).
 
 from __future__ import annotations
 
-from decimal import Decimal
+from decimal import ROUND_FLOOR, Decimal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -50,6 +50,7 @@ from src.models.event import EventKind
 from src.models.identity import Body, BodyState
 from src.models.inventory import Container, ContainerKind, Item
 from src.models.world import Node
+from src.units import ROUND_QUALITY, ROUND_REMAINDER, on_grid
 
 
 def life_factor(constants: Constants, quality: float | None) -> float:
@@ -104,10 +105,14 @@ def wears_out(
     if item is None:
         return False
     scale = constants[R.QUALITY_SCALE]
-    return (
-        float(item.condition) - spent_on(constants, item, base, environment=environment)
-        <= scale.min
-    )
+    #: The sliver the last doing could not write is spent first, exactly as
+    #: `spend` spends it. Otherwise this says a thing will live, `spend`
+    #: finishes it anyway, and whoever trusted the answer is left tidying up
+    #: after a thing already gone -- the convoy unloads its cargo before the
+    #: wagon goes (D-157), and a wagon that dies inside the "will survive"
+    #: branch takes the whole arrival down on the harness's own key.
+    owed = spent_on(constants, item, base, environment=environment) + float(item.wear_remainder)
+    return float(item.condition) - owed <= scale.min
 
 
 async def spend(
@@ -135,9 +140,36 @@ async def spend(
     if current_catalog().recipes.is_relic(item.type_key):
         return False
     scale = constants[R.QUALITY_SCALE]
-    spent = spent_on(constants, item, base, environment=environment)
-    left = max(scale.min, float(item.condition) - spent)
+    asked = spent_on(constants, item, base, environment=environment)
+    was = float(item.condition)
+    #: What the last doing could not write is spent first. Condition is kept to
+    #: a hundredth, and a doing may cost less than one -- a rig settled every
+    #: half minute, a swing on a fine tool. Dropped, that wear never happened,
+    #: and a machine tapped often enough never wore at all. The sliver cannot
+    #: ride on a stamp: `rig.counted_at` measures the mining too, and holding
+    #: it back mines the same ore twice.
+    #: Read-modify-write with no lock of its own. Every stream that reaches
+    #: here already holds the thing: the rig and the automat by their own row
+    #: (`tick_rigs` and `advance` take it `with_for_update`), a bench by the
+    #: body busy at it, a wagon by its harness, gear by the daily step alone.
+    #: A second writer would cost less than a hundredth, but there is none --
+    #: and whoever adds one takes the lock, as `condition` beside it will need.
+    owed = asked + float(item.wear_remainder)
+    capacity = was - scale.min
+    if owed >= capacity:
+        #: More than the thing has left to give: it is finished here, and what
+        #: it could not pay dies with it rather than becoming a debt.
+        takes, left, rest = capacity, scale.min, 0.0
+    else:
+        #: Down, so the row is never charged wear nobody asked for. What is
+        #: left over is under a hundredth by construction and waits on the
+        #: thing for the next doing.
+        takes = float(on_grid(owed, ROUND_QUALITY, ROUND_FLOOR))
+        left = was - takes
+        rest = owed - takes
     item.condition = Decimal(str(left))
+    item.wear_remainder = on_grid(rest, ROUND_REMAINDER, ROUND_FLOOR)
+    spent = takes
 
     await events.record(
         session,
