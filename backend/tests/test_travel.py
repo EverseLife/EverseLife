@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import timedelta
+from decimal import Decimal
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -28,6 +29,7 @@ from src.engine import craft, jobs, market, mining, travel, world
 from src.models.identity import Body
 from src.models.travel import TravelState
 from src.models.world import Node, Surface
+from src.units import ROUND_REMAINDER, SECONDS_PER_HOUR
 
 
 async def _two_nodes(session: AsyncSession, *, surface: Surface = Surface.ROAD, seconds=30):
@@ -404,12 +406,88 @@ async def test_road_costs_stamina(session: AsyncSession, constants: Constants) -
 async def test_step_across_city_costs_almost_nothing(
     session: AsyncSession, constants: Constants
 ) -> None:
-    """Seconds of road are fractions of a unit: geography does not punish a step."""
+    """Seconds of road are fractions of a unit: geography does not punish a step.
+
+    Less than the column can hold, in fact: stamina keeps hundredths and six
+    seconds is worth a third of one. It is owed rather than taken, and the
+    next steps pay it -- see the test below.
+    """
     _, there, body = await _two_nodes(session, seconds=6)
     before = float(body.stamina)
     await travel.depart(session, constants, body, there)
     spent_ = before - float(body.stamina)
-    assert 0 < spent_ < constants[R.TRAVEL_STAMINA_PER_HOUR]
+    owed = float(body.stamina_owed)
+    assert 0 <= spent_ < constants[R.TRAVEL_STAMINA_PER_HOUR]
+    #: Nothing is lost between the two: what the column could not take is owed.
+    assert spent_ + owed == pytest.approx(
+        constants[R.TRAVEL_STAMINA_PER_HOUR] * 6 / SECONDS_PER_HOUR
+    )
+
+
+def test_the_step_debt_is_kept_at_the_scale_it_is_written_with() -> None:
+    """`ROUND_REMAINDER` and the debt column are one number in two places."""
+    assert Body.__table__.c.stamina_owed.type.scale == ROUND_REMAINDER
+
+
+async def test_a_step_paid_out_of_the_last_of_the_strength_keeps_its_bound(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """The debt stays under a hundredth even when the reserve runs out first.
+
+    This is the one branch where what is owed is capped by the strength rather
+    than by the grid, and it is the only way the column's check can be broken
+    -- and a broken check is not a refusal in words, it is the write itself
+    being rejected under the player.
+    """
+    _, there, body = await _two_nodes(session, seconds=14)
+    body.stamina = Decimal("0.01")
+    body.stamina_owed = Decimal("0.005")
+    await session.flush()
+
+    await travel.depart(session, constants, body, there)
+    await session.flush()
+    await session.refresh(body, ["stamina", "stamina_owed"])
+
+    #: Everything it had, and the rest still owed -- under the bound.
+    assert float(body.stamina) == pytest.approx(0.0, abs=1e-9)
+    assert 0 <= float(body.stamina_owed) < 0.01
+
+
+async def test_many_short_steps_cost_what_the_road_is_worth(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """Walking a short edge over and over costs what the time is worth.
+
+    The road is priced by time (D-147), and stamina keeps hundredths, so at
+    `travel.stamina_per_hour` a step under nine seconds costs less than half
+    of one. Charged and rounded away it was free -- and most paved edges in a
+    city are shorter than nine seconds, to say nothing of a ship's corridor at
+    one and a gangway at seven tenths. The engine believed it had taken the
+    strength; the row disagreed, and nobody looked.
+    """
+    _, there, body = await _two_nodes(session, seconds=6)
+    before = float(body.stamina)
+    steps = 40
+
+    for _ in range(steps):
+        await travel.depart(session, constants, body, there)
+        #: Turning back does not give the strength back -- it was written off
+        #: up front -- so this is forty paid steps without a worker to arrive.
+        await travel.turn_back(session, body)
+        #: Through the row: the whole defect lives in the round trip, where
+        #: `Numeric(6, 2)` rounds the charge away.
+        await session.flush()
+        await session.refresh(body, ["stamina", "stamina_owed"])
+
+    worth = constants[R.TRAVEL_STAMINA_PER_HOUR] * (steps * 6) / SECONDS_PER_HOUR
+    spent_ = before - float(body.stamina)
+    owed = float(body.stamina_owed)
+    #: Nothing is lost between the two: what the column took plus what is still
+    #: owed is exactly what the road was worth. A band would let a quarter of a
+    #: thousandth leak away per step and still read green.
+    assert spent_ + owed == pytest.approx(worth)
+    #: And the debt never outgrows the hundredth the column cannot show.
+    assert 0 <= owed < 0.01
 
 
 async def test_no_leaving_without_strength(session: AsyncSession, constants: Constants) -> None:

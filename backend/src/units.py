@@ -119,7 +119,8 @@ ROUND_CHARGE = 3
 #: `Numeric(14, 3)`). The scale of the column, not a property of the game.
 ROUND_ENERGY = 3
 #: A sliver a coarse store could not hold, kept to a billionth in a column of
-#: its own -- `EnergyPool.remainder`, `Body.air_owed`. The world runs
+#: its own -- `EnergyPool.remainder`, `Body.air_owed`, `Body.stamina_owed`,
+#: `Item.wear_remainder`. The world runs
 #: continuously and its stores do not, so each pass leaves a little over;
 #: kept, it is spent on the next pass instead of being thrown away, and a
 #: thing read a hundred times a second ends where a thing read once does.
