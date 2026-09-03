@@ -55,19 +55,6 @@ class NotSleeping(RestError):
     pass
 
 
-def _roof(constants: Constants) -> float:
-    """`body.stamina_max` as the column can hold it: the one ceiling for both doors.
-
-    `wake` cannot credit past the grid, so a fractional maximum in the vault
-    lands a full body a hundredth short of the raw number. If `sleep` then
-    measured tiredness against the raw number, that body would never count
-    as rested: it would lie down, be credited nothing, and get up with the
-    night's sleep recorded as zero. Floored, because the row holds what
-    `wake` wrote, and it wrote the floor.
-    """
-    return float(on_grid(constants[R.BODY_STAMINA_MAX], ROUND_STAMINA, ROUND_FLOOR))
-
-
 async def sleep(
     session: AsyncSession,
     constants: Constants,
@@ -86,7 +73,8 @@ async def sleep(
     #: names what is going on, so that the player ends it and comes back.
 
     await occupation.require_free(session, body, besides=frozenset({occupation.CRAFT}))
-    if float(body.stamina) >= _roof(constants):
+    #: Against the ceiling `wake` can reach, not the raw maximum: `world.stamina_roof`.
+    if float(body.stamina) >= world.stamina_roof(constants):
         raise NotTired(key="rest-not-tired")
 
     body.sleeping_since = moment
@@ -148,8 +136,8 @@ async def wake(
     #: through floats lands an ulp below itself, and flooring that shaves a
     #: whole hundredth off an ordinary night's sleep -- the shortfall the
     #: others avoid by keeping the sliver, which this one has nowhere to put.
-    #: The ceiling is the same one `sleep` measures against -- see `_roof`.
-    roof = _roof(constants)
+    #: The ceiling is the one `sleep` measures against and the printer fills to.
+    roof = world.stamina_roof(constants)
     earned = on_grid(min(roof, before + hours * rate), ROUND_REMAINDER)
     after = float(on_grid(earned, ROUND_STAMINA, ROUND_FLOOR))
     body.stamina = Decimal(str(after))
