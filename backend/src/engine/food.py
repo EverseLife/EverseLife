@@ -212,7 +212,9 @@ async def eat(
     if await _varied(session, constants, body.identity_id):
         restore *= 1 + constants[R.BODY_DIET_VARIETY_BONUS] / PERCENT
 
-    cap = constants[R.BODY_STAMINA_MAX]
+    #: The ceiling on the column's grid, the same one sleep fills to: the raw
+    #: maximum, rounded the column's way, would put a fed body above it.
+    roof = world.stamina_roof(constants)
     before = float(body.stamina)
     #: On the grid here rather than left to the column, so the answer this
     #: command returns and the event it writes are the number the row took.
@@ -225,7 +227,12 @@ async def eat(
     #: cancels becomes one that always takes. (Not quite Postgres's own
     #: rounding: it goes half away from zero, this half to even. They differ
     #: only on an exact half of a hundredth, against a meal worth twenty.)
-    body.stamina = on_grid(min(cap, before + restore), ROUND_STAMINA)
+    #:
+    #: Rounding to the nearest cannot lift a body over the ceiling `stamina_roof`
+    #: sets, which is what that floor is there to prevent: the roof is already
+    #: on this grid, and the cap is taken before the rounding, so the most the
+    #: nearest can do is reach it.
+    body.stamina = on_grid(min(roof, before + restore), ROUND_STAMINA)
 
     one = amount(1)
     if item.amount > one:

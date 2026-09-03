@@ -240,6 +240,24 @@ async def test_dry_food_feeds_by_quality(
     assert returned == pytest.approx(constants[R.BODY_FOOD_RESTORE] * span.max)
 
 
+async def test_a_meal_fills_to_the_ceiling_sleep_can_reach(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A `body.stamina_max` finer than the column does not lift a fed body above sleep's roof.
+
+    Capped at the raw 100.005 the column rounds the row to 100.01, and that
+    body is above anything sleep can reach or measure against.
+    """
+    fine = constants.with_overrides({"body.stamina_max": 100.005})
+    _, _, body = await _kitchen(session)
+    body.stamina = Decimal("99.99")
+    bread = await _product(session, body, "bread", 100, qty=1)
+    await food.eat(session, fine, catalog, body, bread)
+    await session.flush()
+    await session.refresh(body, ["stamina"])
+    assert float(body.stamina) == 100.0
+
+
 async def test_inedible_not_eaten(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:

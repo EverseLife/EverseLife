@@ -73,7 +73,8 @@ async def sleep(
     #: names what is going on, so that the player ends it and comes back.
 
     await occupation.require_free(session, body, besides=frozenset({occupation.CRAFT}))
-    if float(body.stamina) >= constants[R.BODY_STAMINA_MAX]:
+    #: Against the ceiling `wake` can reach, not the raw maximum: `world.stamina_roof`.
+    if float(body.stamina) >= world.stamina_roof(constants):
         raise NotTired(key="rest-not-tired")
 
     body.sleeping_since = moment
@@ -118,7 +119,6 @@ async def wake(
     if body.sleeping_home:
         rate *= constants[R.BODY_HIBERNATION_HOME_K]
 
-    cap = constants[R.BODY_STAMINA_MAX]
     before = float(body.stamina)
     #: Down, and on the grid here rather than left to the column. Stamina keeps
     #: hundredths and Postgres rounds a half **up**, so a sleep worth half of
@@ -136,9 +136,8 @@ async def wake(
     #: through floats lands an ulp below itself, and flooring that shaves a
     #: whole hundredth off an ordinary night's sleep -- the shortfall the
     #: others avoid by keeping the sliver, which this one has nowhere to put.
-    #: The ceiling goes on the grid too, or a fractional `body.stamina_max` in
-    #: the vault would leave a body short of full for ever.
-    roof = float(on_grid(cap, ROUND_STAMINA, ROUND_FLOOR))
+    #: The ceiling is the one `sleep` measures against and the printer fills to.
+    roof = world.stamina_roof(constants)
     earned = on_grid(min(roof, before + hours * rate), ROUND_REMAINDER)
     after = float(on_grid(earned, ROUND_STAMINA, ROUND_FLOOR))
     body.stamina = Decimal(str(after))

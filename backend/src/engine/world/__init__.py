@@ -65,6 +65,7 @@ from src.engine.world.people import (  # noqa: F401
     printer_nodes,
     spawn,
     spawn_point,
+    stamina_roof,
 )
 from src.engine.world.things import (  # noqa: F401
     LIBRARY,
