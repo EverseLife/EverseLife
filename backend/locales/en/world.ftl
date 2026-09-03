@@ -49,7 +49,7 @@ farm-already-wetter = “{ $plot }” is wetter than that already: moisture { $m
 farm-feed-ripe = “{ $plot }” is ripe: nothing left to feed — harvest it
 farm-fertilize-sown = { $state ->
         [plowing] “{ $plot }” is under the plough: one fertilizes fallow or ploughed land, and a ploughing is finished or dropped first
-       *[other] a crop is growing on { $plot }: one fertilizes the land, not the bed -- feeding comes with the five care decisions
+       *[other] plot “{ $plot }” is sown: one fertilizes the land, not the crop -- a growing crop is fed (“Feed”)
     }
 farm-not-a-fertilizer = { NAME($goods) } is not a fertilizer: the land is fed compost or the mineral one
 farm-no-fertilizer = { $need } of { NAME($goods) } needed: the dose goes by area

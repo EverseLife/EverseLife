@@ -39,7 +39,7 @@ from src.constants import registry as R
 from src.engine import breed, farm, occupation, world
 from src.engine.farm import life
 from src.models.event import Event, EventKind
-from src.models.farm import PlotState
+from src.models.farm import Plot, PlotState
 from src.models.identity import Body
 from src.models.inventory import Item
 from src.models.job import Job, JobKind, JobState
@@ -445,8 +445,10 @@ async def test_two_waterings_of_one_bed_spend_the_water_once(
     constants: Constants,
     catalog: Catalog,
 ) -> None:
-    """The bed is a remainder like money (CLAUDE.md): under the lock the second
-    watering finds the ground already at the target and spends nothing."""
+    """The bed is a remainder like money (CLAUDE.md): under the plot's lock the
+    second watering of the same body finds the hands still busy with the first
+    -- or, with another body, the ground already at the target -- and spends
+    nothing either way."""
     _, _, body = await _farmstead(session, water="none")
     plot = await _sown(session, constants, catalog, body)
     sown = constants[R.FARM_SOWN_MOISTURE]
@@ -471,3 +473,77 @@ async def test_two_waterings_of_one_bed_spend_the_water_once(
     assert poured.count(True) == 1, poured
     async with factory() as db:
         assert await _stock(db, pocket_id, farm.WATER) == pytest.approx(0)
+
+
+async def test_two_feedings_of_one_bed_spend_the_fertilizer_once(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    constants: Constants,
+    catalog: Catalog,
+) -> None:
+    """The dose is written off under the same locks as the water: one of two
+    concurrent feedings goes through, the other is refused, the sack is spent once."""
+    _, _, body = await _farmstead(session, water="river")
+    plot = await _sown(session, constants, catalog, body)
+    plant = catalog.plants.by_id(SPELT)
+    right = next(row for row in plant.feeding if row.stage == life.SPROUT)
+    dose = constants[R.FARM_FERTILIZER_PER_M2] * 10
+    pocket = await world.body_container(session, body)
+    await world.grant_item(session, pocket, right.fertilizer, amount=dose, origin="тест")
+    plot_id, body_id, pocket_id = plot.id, body.id, pocket.id
+    await session.commit()
+
+    async def spread() -> bool:
+        async with factory() as db, db.begin():
+            own = await db.get(Body, body_id)
+            assert own is not None
+            try:
+                strip = await _plot(db, {"plot": str(plot_id)})
+                await farm.feed(db, current(), current_catalog(), own, strip, right.fertilizer)
+            except (farm.WrongState, farm.FarmError, occupation.Busy):
+                return False
+            return True
+
+    fed = await asyncio.gather(spread(), spread())
+    assert fed.count(True) == 1, fed
+    async with factory() as db:
+        assert await _stock(db, pocket_id, right.fertilizer) == pytest.approx(0)
+        strip = await db.get(Plot, plot_id)
+        assert strip is not None and strip.overfed == 0, "второе кормление не прошло, жирования нет"
+
+
+async def test_the_tick_and_a_watering_do_not_lose_each_other(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    constants: Constants,
+    catalog: Catalog,
+) -> None:
+    """The tick writes a stale bed under its own row lock and judges it again
+    there: whichever of the two commits second sees the other's stamp, and the
+    watering's target is what the ground holds afterwards."""
+    _, _, body = await _farmstead(session, water="river")
+    plot = await _sown(session, constants, catalog, body)
+    plot.settled_at = datetime.now(UTC) - timedelta(hours=constants[R.TIME_DAY_TERRA] * 2)
+    await session.flush()
+    sown = constants[R.FARM_SOWN_MOISTURE]
+    plot_id, body_id = plot.id, body.id
+    await session.commit()
+
+    async def tick() -> None:
+        async with factory() as db, db.begin():
+            await farm.tick_plots(db, current(), current_catalog())
+
+    async def pour() -> None:
+        async with factory() as db, db.begin():
+            own = await db.get(Body, body_id)
+            assert own is not None
+            strip = await _plot(db, {"plot": str(plot_id)})
+            await farm.water(db, current(), current_catalog(), own, strip, sown + 30)
+
+    await asyncio.gather(tick(), pour())
+    async with factory() as db:
+        strip = await db.get(Plot, plot_id)
+        assert strip is not None and strip.state is PlotState.SOWN
+        assert strip.settled_at is not None
+        #: The target, less at most the tick's own walk from the watering's stamp.
+        assert sown + 30 - 1 < float(strip.moisture) <= sown + 30

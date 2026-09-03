@@ -141,11 +141,11 @@ ui-side-recipe-by-hand = made by hand, no station needed
 ui-side-recipe-inputs = takes per unit: { $inputs }
 ui-side-recipe-source-learned = learned ready-made: taken at the Library or read off a carrier
 
-## Crop care: the texts remembered in the Library (D-293).
+## Agronomy: the text remembered in the Library (D-293).
 
-ui-side-care = Crop care
-ui-side-care-rule = The care texts remembered: the moisture band, the feeding by stage, what the variety does not forgive. Read in the Library; the knowledge lives in the person and is not lost.
-ui-side-care-none = nothing yet: the basic crops' texts are read in the Library — free, for good
+ui-side-care = Agronomy
+ui-side-care-rule = The agronomy remembered: the moisture band, the feeding by stage, the hardiness. Read in the Library; the knowledge lives in the person and is not lost.
+ui-side-care-none = nothing yet: the basic crops' agronomy is read and remembered in the Library — free, for good
 
 ## The top bar: where the body is and what is with it, above everything else (D-238).
 

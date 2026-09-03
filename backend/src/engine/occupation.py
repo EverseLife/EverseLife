@@ -211,7 +211,15 @@ async def _caring(session: AsyncSession, body: Body, jobs: Journal) -> Doing | N
     plot = await session.get(Plot, uuid.UUID(job.payload["plot"]))
     return Doing(
         CARE,
-        Says("doing-care-what", {"plot": "" if plot is None else plot.name}),
+        #: A variant key in Fluent is an identifier, never a string -- so
+        #: "has a name" is said as a flag and the name travels beside it.
+        Says(
+            "doing-care-what",
+            {
+                "named": "false" if plot is None else "true",
+                "plot": "" if plot is None else plot.name,
+            },
+        ),
         job.run_at,
     )
 

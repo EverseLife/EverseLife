@@ -97,6 +97,7 @@ from src.engine.farm._base import (  # noqa: F401
     plow_paused,
     plow_progress_minutes,
 )
+from src.engine.farm.care import care_done, feed, water  # noqa: F401
 from src.engine.farm.life import (  # noqa: F401
     HEALTH_WORDS,
     RIPE,
@@ -122,17 +123,8 @@ from src.engine.farm.plot import (  # noqa: F401
     plow_reset,
     split,
 )
-from src.engine.farm.season import (  # noqa: F401
-    care_done,
-    feed,
-    harvest,
-    peek,
-    settle,
-    sow,
-    survey,
-    tick_plots,
-    water,
-)
+from src.engine.farm.season import harvest, sow, survey  # noqa: F401
+from src.engine.farm.settle import peek, settle, tick_plots  # noqa: F401
 from src.engine.farm.text import (  # noqa: F401
     care_text,
     read_care,

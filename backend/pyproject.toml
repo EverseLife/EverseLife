@@ -465,7 +465,7 @@ allow_indirect_imports = "true"
 name = "The field's floor asks nobody"
 type = "forbidden"
 source_modules = ["src.engine.farm._base"]
-forbidden_modules = ["src.engine.farm.plot", "src.engine.farm.season"]
+forbidden_modules = ["src.engine.farm.plot", "src.engine.farm.season", "src.engine.farm.settle", "src.engine.farm.care", "src.engine.farm.text", "src.engine.farm.life"]
 allow_indirect_imports = "true"
 
 [[tool.importlinter.contracts]]
@@ -476,17 +476,31 @@ forbidden_modules = ["src.engine.farm.season"]
 allow_indirect_imports = "true"
 
 [[tool.importlinter.contracts]]
-name = "The season shapes no plots"
+name = "The season shapes no plots and does no care"
 type = "forbidden"
 source_modules = ["src.engine.farm.season"]
-forbidden_modules = ["src.engine.farm.plot"]
+forbidden_modules = ["src.engine.farm.plot", "src.engine.farm.care", "src.engine.farm.text"]
 allow_indirect_imports = "true"
 
 [[tool.importlinter.contracts]]
 name = "The life of a bed asks nobody in the field"
 type = "forbidden"
 source_modules = ["src.engine.farm.life"]
-forbidden_modules = ["src.engine.farm._base", "src.engine.farm.plot", "src.engine.farm.season", "src.engine.farm.text"]
+forbidden_modules = ["src.engine.farm._base", "src.engine.farm.plot", "src.engine.farm.settle", "src.engine.farm.care", "src.engine.farm.season", "src.engine.farm.text"]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "The bed's clock runs no action and no season"
+type = "forbidden"
+source_modules = ["src.engine.farm.settle"]
+forbidden_modules = ["src.engine.farm.care", "src.engine.farm.season", "src.engine.farm.plot", "src.engine.farm.text"]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "The care and the season do not name each other"
+type = "forbidden"
+source_modules = ["src.engine.farm.care"]
+forbidden_modules = ["src.engine.farm.season", "src.engine.farm.plot", "src.engine.farm.text"]
 allow_indirect_imports = "true"
 
 [[tool.importlinter.contracts]]

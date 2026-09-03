@@ -37,7 +37,10 @@ doing-plot-what = plowing is under way{ $named ->
 doing-mine-what = you are at the face — leave it first
 doing-craft-what = work on “{ NAME($goods) }” is under way
 doing-mend-what = the house is being repaired
-doing-care-what = tending “{ $plot }”
+doing-care-what = { $named ->
+        [true] tending “{ $plot }”
+       *[false] tending a plot
+    }
 doing-keel-what = { $named ->
         [true] the ship “{ $ship }” is being laid down
        *[false] a compartment of the ship is being laid down

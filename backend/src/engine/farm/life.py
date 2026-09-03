@@ -114,13 +114,15 @@ def norms(constants: Constants, plant: Plant, signs: Mapping[str, Any]) -> Norms
 
     The band is read by the crop's thirst (`requires.water`) through the
     vault's table: the requirement is data, the scale is derived (D-136).
+    Indexed, never defaulted: a thirst the tables do not know is a hole in
+    the data, and a crop quietly drinking as a middling one would hide it.
     """
     need = str(int(signs.get("water", plant.requires.water)))
     band = constants[R.FARM_MOISTURE_BY_NEED][need]
     return Norms(
         band_min=float(band["min"]),
         band_max=float(band["max"]),
-        drink=float(constants[R.FARM_WATER_BY_NEED].get(need, 1.0)),
+        drink=float(constants[R.FARM_WATER_BY_NEED][need]),
         hardiness=float(signs.get("hardiness", plant.traits.hardiness)),
         cycle_days=float(signs.get("cycle_days", plant.cycle_days)),
     )
@@ -152,7 +154,7 @@ def stage_of(constants: Constants, growth: float) -> str:
     bounds = constants[R.FARM_STAGE_BOUNDS]
     current = SPROUT
     for stage in STAGES[1:-1]:
-        if growth >= bounds.get(stage, SCALE_MAX):
+        if growth >= bounds[stage]:
             current = stage
     return current
 
@@ -161,7 +163,7 @@ def health_word(constants: Constants, health: float) -> str:
     """The word for the health: the first band the number reaches, from the top."""
     bands = constants[R.FARM_HEALTH_BANDS]
     for word in HEALTH_WORDS[:-1]:
-        if health >= bands.get(word, SCALE_MAX):
+        if health >= bands[word]:
             return word
     return HEALTH_WORDS[-1]
 

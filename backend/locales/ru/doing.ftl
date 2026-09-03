@@ -37,7 +37,10 @@ doing-plot-what = идёт вспашка{ $named ->
 doing-mine-what = вы в забое — сначала выйти из него
 doing-craft-what = идёт работа «{ NAME($goods) }»
 doing-mend-what = идёт ремонт дома
-doing-care-what = идёт уход за «{ $plot }»
+doing-care-what = { $named ->
+        [true] идёт уход за «{ $plot }»
+       *[false] идёт уход за делянкой
+    }
 doing-keel-what = { $named ->
         [true] идёт закладка корабля «{ $ship }»
        *[false] идёт закладка узла корабля

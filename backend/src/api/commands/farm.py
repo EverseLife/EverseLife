@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.commands.common import _alive, _alive_read, _body, _own_item, speaks
-from src.api.registry import Refused, command
+from src.api.registry import Ctx, Refused, command
 from src.constants import current, current_catalog
 from src.engine import (
     breed,
@@ -180,15 +180,17 @@ async def _breed_name(state: dict, db: AsyncSession, message: dict) -> dict:
     return {"variety": str(cultivar.id), "name": cultivar.name}
 
 
-@command("library.care")
-async def _library_care(state: dict, db: AsyncSession, message: dict) -> dict:
+@command("library.care", readonly=True)
+async def _library_care(ctx: Ctx) -> dict:
     """Read a base crop's care text in the Library (D-293): on foot, like a
-    recipe (D-053), in the reader's language. A read: nothing is written."""
-    body = await _alive_read(state, db)
+    recipe (D-053), in the reader's language. A read: nothing is written,
+    and the body is not locked for it."""
+    body = await _alive_read(ctx.state, ctx.db)
+    culture = str(ctx.message["culture"])
     text = await farm.read_care(
-        db, current(), current_catalog(), body, str(message["culture"]), locale=speaks(state)
+        ctx.db, current(), current_catalog(), body, culture, locale=speaks(ctx.state)
     )
-    return {"culture": message["culture"], "text": text}
+    return {"culture": culture, "text": text}
 
 
 @command("library.remember")

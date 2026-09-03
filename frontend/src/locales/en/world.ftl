@@ -351,7 +351,7 @@ ui-farm-harvest-select-hint = pick the best plants for seed: the fund keeps its 
 ui-farm-harvest = Harvest
 ui-farm-harvest-hint = harvest without looking: the seed fund will lose vigour
 ui-farm-new-plot = A new plot is marked out in the “Land” window: marking out is a matter of land, not of farming.
-ui-farm-rule = A bed lives by three scales — moisture, health, growth — and only the moisture shows as a number: it leaves as a share of what is there, half as fast by a river. Watering to a target and feeding in a stage are separate actions on foot; drought and overwatering kill, the wrong fertilizer burns. How to tend is a text in the Library. A monoculture wears the land out, rotation and fallow heal it — the boundary remembers what grew on it.
+ui-farm-rule = A plot lives by three scales — moisture, health, growth — and only the moisture is shown, as a curve: it leaves as a share of what is there, half as fast by a river. Watering to a target and feeding in a stage are separate actions on foot; drought and overwatering kill, the wrong fertilizer burns. How to tend is a text in the Library. A monoculture wears the land out, rotation and fallow heal it — the boundary remembers what grew on it.
 ui-farm-seeds-rule = You sow with seed: a batch has its own variety and its own vigour, and the harvest is counted by them. Part of the harvest stays as seed of your own — with selection the fund holds, without selection it degenerates, and a hybrid splits on top of that.
 
 ## The fuel station: the reserve, the burn and the loading.

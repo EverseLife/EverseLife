@@ -43,10 +43,10 @@ farm-seeds-not-in-hands = семена не в руках: сеют своим
 farm-not-enough-seeds = нужно { $need } «{ NAME($seeds) }» на посев, есть { $have }
 farm-nothing-grows = на делянке «{ $plot }» ничего не растёт
 farm-already-wetter = «{ $plot }» и так влажнее: влага { $moisture }, цель { $target }
-farm-feed-ripe = «{ $plot }» созрела: кормить больше нечего — убирайте
+farm-feed-ripe = делянка «{ $plot }» созрела: кормить больше нечего — убирайте
 farm-fertilize-sown = { $state ->
         [plowing] «{ $plot }» под плугом: удобряют пар или вспаханное, а вспашку сначала заканчивают или сбрасывают
-       *[other] на «{ $plot }» растёт культура: удобряют землю, а не грядку — подкормка придёт с пятью решениями ухода
+       *[other] делянка «{ $plot }» засеяна: удобряют землю, а не растущее — растущее подкармливают («Подкормить»)
     }
 farm-not-a-fertilizer = «{ NAME($goods) }» — не удобрение: землю кормят компостом или минеральным
 farm-no-fertilizer = нужно { $need } «{ NAME($goods) }»: норма внесения считается по площади
@@ -56,7 +56,7 @@ farm-too-cold = «{ $culture }» здесь вымерзнет: ночь опу�
 farm-too-hot = «{ $culture }» здесь сгорит: полдень доходит до { $noon }°
 farm-too-dark = «{ $culture }» просит света { $need }, а это место даёт { $light }: лес и стены застят небо
 farm-nothing-to-harvest = на делянке «{ $plot }» нечего убирать
-farm-not-ripe = «{ $plot }» ещё не созрела: { $stage ->
+farm-not-ripe = делянка «{ $plot }» ещё не созрела: { $stage ->
         [sprout] всходы
         [leaf] лист
         [bloom] цветение

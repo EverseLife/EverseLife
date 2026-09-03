@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Nurlan Urazkulov
 
-"""The season's work (D-293): sowing, the actions of care -- a watering up to
-a target and a feeding in a stage -- the settling of a bed's life by the
-clock, the harvest with its seed return, and the survey that tells the
-field's whole state without writing a thing.
+"""The season's ends (D-293): sowing, the harvest with its seed return, and
+the survey that tells the field's whole state without writing a thing. The
+care between them lives in `care.py`, the clock that moves the bed in
+`settle.py`.
 """
 
 from __future__ import annotations
@@ -12,270 +12,31 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.constants import Catalog, Constants, current_catalog
+from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.constants.catalog import Plant
 from src.engine import breed, climate, events, food, world
 from src.engine.farm import life
 from src.engine.farm._base import (
-    FERTILIZER,
-    WATER,
-    FarmError,
     NoSeeds,
-    NoWater,
     WrongClimate,
     WrongState,
-    _consume,
     _here,
     _owned,
-    care_minutes,
-    day_hours,
     plow_minutes,
     plow_progress_minutes,
 )
-from src.engine.jobs import enqueue, handler
+from src.engine.farm.settle import _clear, _signs, _sown, _weather, peek, settle
 from src.models.event import EventKind
 from src.models.farm import Plot, PlotState
 from src.models.identity import Body
 from src.models.inventory import Item
-from src.models.job import Job, JobKind
 from src.models.plant import Variety
 from src.models.world import Node
-from src.units import (
-    PERCENT,
-    ROUND_QUALITY,
-    SCALE_MAX,
-    SCALE_MIN,
-    SECONDS_PER_HOUR,
-    amount,
-    amount_float,
-    on_grid,
-)
-
-
-def _signs(plant: Plant, variety: Variety | None) -> dict[str, Any]:
-    """The cultivar's numbers over the crop's: what was sown from one's own
-    fund no longer has the crop's catalogue numbers (D-057)."""
-    if variety is not None and variety.traits:
-        return variety.traits
-    return breed.traits_of_plant(plant)
-
-
-def _life_of(plot: Plot) -> life.Life:
-    return life.Life(
-        moisture=float(plot.moisture),
-        health=float(plot.health),
-        growth=float(plot.growth),
-        boost=float(plot.growth_boost),
-        boost_stage=plot.boost_stage,
-    )
-
-
-def _weather(
-    constants: Constants, node: Node | None, epoch: datetime | None, since: datetime
-) -> life.Weather:
-    """The place as the bed feels it, with the temperature counted from `since`."""
-
-    def temperature_at(hours: float) -> float | None:
-        if node is None:
-            return None
-        return climate.temperature_now(constants, node, epoch, since + timedelta(hours=hours))
-
-    return life.Weather(
-        rain=0.0 if node is None else climate.precipitation(node),
-        river=world.has_place(node, world.WATER),
-        temperature_at=temperature_at,
-    )
-
-
-def peek(
-    constants: Constants,
-    plant: Plant,
-    signs: dict[str, Any],
-    node: Node | None,
-    epoch: datetime | None,
-    plot: Plot,
-    now: datetime,
-) -> life.Life:
-    """The bed's life at `now`, computed and not written: what every read shows.
-
-    The same steps from the same stamp the tick will take, so a survey and
-    the settling behind it never disagree about the same bed.
-    """
-    was = _life_of(plot)
-    if plot.settled_at is None:
-        return was
-    hours = (now - plot.settled_at).total_seconds() / SECONDS_PER_HOUR
-    return life.advance(
-        constants,
-        life.norms(constants, plant, signs),
-        _weather(constants, node, epoch, plot.settled_at),
-        was,
-        hours=hours,
-        day_hours=day_hours(constants),
-    )
-
-
-def _store(plot: Plot, state: life.Life, moment: datetime) -> None:
-    clamp = lambda value: max(SCALE_MIN, min(SCALE_MAX, value))  # noqa: E731
-    plot.moisture = on_grid(clamp(state.moisture), ROUND_QUALITY)
-    plot.health = on_grid(clamp(state.health), ROUND_QUALITY)
-    plot.growth = on_grid(clamp(state.growth), ROUND_QUALITY)
-    plot.growth_boost = on_grid(max(0.0, state.boost), ROUND_QUALITY)
-    plot.boost_stage = state.boost_stage
-    plot.settled_at = moment
-
-
-def _clear(plot: Plot, moment: datetime) -> None:
-    """The bed is bare again: harvested or dead, the crop and its life are gone."""
-    plot.culture_id = None
-    plot.variety_id = None
-    plot.seed_vigor = None
-    plot.sown_at = None
-    plot.settled_at = None
-    plot.growth = Decimal(0)
-    plot.growth_boost = Decimal(0)
-    plot.boost_stage = None
-    plot.fed = {}
-    plot.overfed = 0
-    plot.state = PlotState.IDLE
-    plot.idle_since = moment
-
-
-async def _sown(
-    session: AsyncSession, catalog: Catalog, plot: Plot
-) -> tuple[Plant, Variety | None]:
-    plant = catalog.plants.by_id(plot.culture_id)
-    variety = await session.get(Variety, plot.variety_id) if plot.variety_id is not None else None
-    return plant, variety
-
-
-async def _die(
-    session: AsyncSession, constants: Constants, plot: Plot, plant: Plant, moment: datetime
-) -> None:
-    """The crop is gone (D-293): the bed goes back to fallow, the seed with
-    it, and the land pays the cycle's depletion (D-256) -- it fed the plant
-    all the same, and a dead cycle counts in the crop history like a reaped
-    one, or a killed bed would launder a monoculture.
-    """
-    depletion = constants[R.FARM_SOIL_DEPLETION] + (
-        constants[R.FARM_MONOCULTURE_PENALTY] if plot.last_culture == plant.id else 0.0
-    )
-    plot.fertility = on_grid(max(SCALE_MIN, float(plot.fertility) - depletion), ROUND_QUALITY)
-    plot.same_culture_cycles = plot.same_culture_cycles + 1 if plot.last_culture == plant.id else 1
-    plot.last_culture = plant.id
-    _clear(plot, moment)
-    await session.flush()
-    await events.record(
-        session,
-        EventKind.PLOT_DIED,
-        actor_identity_id=plot.owner_identity_id,
-        node_id=plot.node_id,
-        plot_id=str(plot.id),
-        culture=plant.id,
-        fertility=float(plot.fertility),
-    )
-
-
-async def settle(
-    session: AsyncSession,
-    constants: Constants,
-    catalog: Catalog,
-    plot: Plot,
-    *,
-    now: datetime,
-    node: Node | None = None,
-    epoch: datetime | None = None,
-) -> life.Life:
-    """Bring a sown bed's life up to `now` and write it down.
-
-    The one place the scales are written from the clock: every action calls
-    it before acting and the world tick calls it for every bed, so a death or
-    a ripening is told where it is found, whoever found it. A bed that is not
-    growing is returned as it stands. Under the caller's lock: the actions
-    take the bed through `api.commands.farm._plot`, the tick takes its own.
-    """
-    if plot.state is not PlotState.SOWN or plot.culture_id is None or plot.settled_at is None:
-        return _life_of(plot)
-    if node is None:
-        node = await session.get(Node, plot.node_id)
-    if epoch is None:
-        epoch = await world.epoch(session)
-    plant, variety = await _sown(session, catalog, plot)
-    was = _life_of(plot)
-    state = peek(constants, plant, _signs(plant, variety), node, epoch, plot, now)
-    _store(plot, state, now)
-    if state.dead:
-        await _die(session, constants, plot, plant, now)
-    elif state.ripe and not was.ripe:
-        await events.record(
-            session,
-            EventKind.PLOT_RIPENED,
-            actor_identity_id=plot.owner_identity_id,
-            node_id=plot.node_id,
-            plot_id=str(plot.id),
-            culture=plant.id,
-        )
-    await session.flush()
-    return state
-
-
-async def tick_plots(
-    session: AsyncSession, constants: Constants, catalog: Catalog, *, now: datetime | None = None
-) -> dict[str, int]:
-    """Advance every growing bed of the world (D-293).
-
-    A death or a ripening is told the hour it happens, not when the owner
-    next looks -- the survey reads the same life, but a read writes nothing.
-    """
-    moment = now or datetime.now(UTC)
-    plots = (
-        (
-            await session.execute(
-                select(Plot).where(Plot.state == PlotState.SOWN).order_by(Plot.id).with_for_update()
-            )
-        )
-        .scalars()
-        .all()
-    )
-    epoch = await world.epoch(session)
-    died = ripened = 0
-    for plot in plots:
-        was_ripe = float(plot.growth) >= SCALE_MAX
-        state = await settle(session, constants, catalog, plot, now=moment, epoch=epoch)
-        if plot.state is not PlotState.SOWN:
-            died += 1
-        elif state.ripe and not was_ripe:
-            ripened += 1
-    return {"plots_died": died, "plots_ripened": ripened}
-
-
-async def _hands_busy(
-    session: AsyncSession, body: Body, plot: Plot, moment: datetime, minutes: float, cause: Any
-) -> None:
-    """The action holds the hands for its minutes (D-211, D-293): a job whose
-    only work is to be pending -- the watering or the feeding wrote its effect
-    when the button was pressed."""
-    await enqueue(
-        session,
-        JobKind.FARM_CARE,
-        moment + timedelta(minutes=minutes),
-        payload={"plot": str(plot.id)},
-        dedup_key=f"farm.care:{plot.id}:{moment.timestamp()}",
-        cause_event_id=cause.id,
-        body_id=body.id,
-    )
-
-
-@handler(JobKind.FARM_CARE)
-async def care_done(session: AsyncSession, job: Job) -> None:
-    """The minutes are up. Nothing to write: the job existed to be pending."""
-    return
+from src.units import PERCENT, ROUND_QUALITY, SCALE_MAX, SCALE_MIN, amount, amount_float, on_grid
 
 
 async def sow(
@@ -375,166 +136,6 @@ async def sow(
     return plot
 
 
-async def water(
-    session: AsyncSession,
-    constants: Constants,
-    catalog: Catalog,
-    body: Body,
-    plot: Plot,
-    target: float,
-    *,
-    now: datetime | None = None,
-) -> tuple[Plot, float]:
-    """Water the bed up to `target` moisture (D-293). Returns the litres it took.
-
-    The water is exactly the difference: `farm.water_per_m2` a metre takes
-    the ground from dry to full, and a target takes its share of that. By a
-    river it comes from the river; elsewhere from the hands, and short of it
-    the action does not start -- half a watering is not offered (D-126). A
-    target below what the ground holds is refused: the slider went the wrong
-    way. A target above the culture's band is not: overwatering is the
-    player's mistake, and the bed will show it.
-    """
-    moment = now or datetime.now(UTC)
-    await _here(session, body)
-    _owned(plot, body)
-    if plot.state is not PlotState.SOWN or plot.culture_id is None:
-        raise WrongState(key="farm-nothing-grows", plot=plot.name)
-    goal = max(SCALE_MIN, min(SCALE_MAX, float(target)))
-
-    node = await session.get(Node, plot.node_id)
-    state = await settle(session, constants, catalog, plot, now=moment, node=node)
-    if state.dead:
-        raise WrongState(key="farm-nothing-grows", plot=plot.name)
-    if goal <= state.moisture:
-        raise WrongState(
-            key="farm-already-wetter",
-            plot=plot.name,
-            moisture=round(state.moisture),
-            target=round(goal),
-        )
-
-    area = float(plot.area_m2)
-    litres = (goal - state.moisture) / SCALE_MAX * constants[R.FARM_WATER_PER_M2] * area
-    if not world.has_place(node, world.WATER):
-        need = amount(litres)
-        await _consume(
-            session,
-            body,
-            WATER,
-            need,
-            why=NoWater(key="farm-no-water", need=amount_float(need)),
-        )
-    plot.moisture = on_grid(goal, ROUND_QUALITY)
-    await session.flush()
-
-    minutes = care_minutes(constants, area)
-    event = await events.record(
-        session,
-        EventKind.PLOT_WATERED,
-        actor_identity_id=body.identity_id,
-        node_id=plot.node_id,
-        plot_id=str(plot.id),
-        target=goal,
-        litres=litres,
-        minutes=minutes,
-    )
-    await _hands_busy(session, body, plot, moment, minutes, event)
-    return plot, litres
-
-
-async def feed(
-    session: AsyncSession,
-    constants: Constants,
-    catalog: Catalog,
-    body: Body,
-    plot: Plot,
-    goods: str,
-    *,
-    now: datetime | None = None,
-) -> tuple[Plot, str, str]:
-    """Feed the growing bed (D-293). Returns the stage it was fed in and what
-    the feeding did -- for the journal and the tests, never for the answer:
-    the bed shows its state the next day, the button confirms the action.
-
-    What a fertilizer does in a stage is the culture's table (`feeding` in
-    the vault): the right one quickens the growth to the end of the stage,
-    anything else burns `farm.feed_wrong_burn` of health, and a second
-    feeding in one stage runs the crop to leaf -- a share of the harvest per
-    repeat (`farm.overfeed_yield_penalty`). The dose is the land's
-    (`farm.fertilizer_per_m2`, D-264).
-    """
-    moment = now or datetime.now(UTC)
-    await _here(session, body)
-    _owned(plot, body)
-    if plot.state is not PlotState.SOWN or plot.culture_id is None:
-        raise WrongState(key="farm-nothing-grows", plot=plot.name)
-    #: The canon key first: the class is asked by it and the table is read by
-    #: it, and a synonym would otherwise pass the one and miss the other.
-    book = current_catalog().recipes
-    goods = book.resolve(goods)
-    if book.class_of(goods) != FERTILIZER:
-        raise FarmError(key="farm-not-a-fertilizer", goods=goods)
-
-    node = await session.get(Node, plot.node_id)
-    state = await settle(session, constants, catalog, plot, now=moment, node=node)
-    if state.dead:
-        raise WrongState(key="farm-nothing-grows", plot=plot.name)
-    if state.ripe:
-        raise WrongState(key="farm-feed-ripe", plot=plot.name)
-    plant, _ = await _sown(session, catalog, plot)
-    stage = life.stage_of(constants, state.growth)
-
-    area = float(plot.area_m2)
-    dose = amount(constants[R.FARM_FERTILIZER_PER_M2] * area)
-    await _consume(
-        session,
-        body,
-        goods,
-        dose,
-        why=FarmError(key="farm-no-fertilizer", goods=goods, need=amount_float(dose)),
-    )
-
-    fed = dict(plot.fed or {})
-    given = list(fed.get(stage, []))
-    suits = next(
-        (row for row in plant.feeding if row.stage == stage and row.fertilizer == goods), None
-    )
-    if given:
-        effect = life.OVERFED
-        plot.overfed += 1
-    elif suits is not None:
-        effect = life.BOOST
-        plot.growth_boost = on_grid(suits.growth, ROUND_QUALITY)
-        plot.boost_stage = stage
-    else:
-        effect = life.BURN
-        burned = state.health - constants[R.FARM_FEED_WRONG_BURN]
-        plot.health = on_grid(max(SCALE_MIN, burned), ROUND_QUALITY)
-    given.append({"goods": goods, "effect": effect})
-    fed[stage] = given
-    plot.fed = fed
-    await session.flush()
-
-    minutes = care_minutes(constants, area)
-    event = await events.record(
-        session,
-        EventKind.PLOT_FED,
-        actor_identity_id=body.identity_id,
-        node_id=plot.node_id,
-        plot_id=str(plot.id),
-        goods=goods,
-        stage=stage,
-        effect=effect,
-        spent=amount_float(dose),
-        minutes=minutes,
-    )
-    if float(plot.health) <= SCALE_MIN:
-        await _die(session, constants, plot, plant, moment)
-    await _hands_busy(session, body, plot, moment, minutes, event)
-    return plot, stage, effect
-
-
 async def harvest(
     session: AsyncSession,
     constants: Constants,
@@ -553,11 +154,13 @@ async def harvest(
     ran the crop to leaf and take their share off (`farm.overfeed_yield_penalty`).
 
     Seeds come back as a multiple of what was sown (`farm.seed_return`, D-257),
-    scaled by the same soil, health and lot-strength shares as the goods: the
-    fund reproduces by construction, and a sick bed, poor soil or a weak lot
-    honestly sink the return below one. If the farmer did **selection** --
-    in-person work where mastery shows -- the fund keeps its strength; if not,
-    the seeds degrade, and a hybrid additionally segregates (D-057, D-067).
+    scaled by the same soil, health, leaf and lot-strength shares as the
+    goods -- the health and the leaf are the "care share" of D-257: the fund
+    reproduces by construction, and a sick or overfed bed, poor soil or a
+    weak lot honestly sink the return below one. If the farmer did
+    **selection** -- in-person work where mastery shows -- the fund keeps its
+    strength; if not, the seeds degrade, and a hybrid additionally segregates
+    (D-057, D-067).
     """
     moment = now or datetime.now(UTC)
     await _here(session, body)
@@ -679,9 +282,9 @@ async def survey(
     the last stamp and written nowhere (D-293). Two words and one curve: the
     stage, the word of health, and the moisture with the pace it leaves at,
     so the client draws the curve forward without a timer of its own (D-226).
-    Nothing derivable rides along (D-225): the band, the feeding table and the
-    days to ripeness are not in the row -- the first two are the Library's
-    text, the last does not exist.
+    Nothing derivable rides along (D-225): ripeness is the stage, and the
+    band, the feeding table and the days to ripeness are not in the row --
+    the first two are the Library's text, the last does not exist.
     """
     now = datetime.now(UTC)
     plots = (
@@ -752,7 +355,6 @@ async def survey(
             #: -- key, mark or generation -- and the client says it (D-251).
             row["variety"] = breed.shown_as(catalog, variety)
             row["stage"] = stage
-            row["ripe"] = state.ripe
             row["health"] = life.health_word(constants, state.health)
             #: The point and the pace: the curve is the client's to draw. The
             #: pace is the one of this hour -- with the heat, the rain and the

@@ -15,8 +15,8 @@
 event-craft-finished = batch ready
 event-travel-arrived = arrived
 event-farm-harvested = harvest gathered
-event-farm-died = the bed has died
-event-farm-ripened = the bed is ripe
+event-farm-died = plot died
+event-farm-ripened = plot ripe
 event-explore-found = scouting: a find
 event-explore-empty = scouting: nothing
 event-body-died = body died

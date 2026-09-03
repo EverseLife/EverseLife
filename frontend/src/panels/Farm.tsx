@@ -22,7 +22,8 @@ import { tally } from "../amounts";
 import { busyWith } from "../busy";
 import type { Look } from "../api";
 import { varietyText, type VarietyRef } from "../api";
-import { Refusal, useActions, useEdition, useNames, useSession } from "../actions";
+import { Refusal, useActions, useBook, useEdition, useNames, useSession } from "../actions";
+import { membersOf } from "../classes";
 import { t } from "../locale";
 import { goodsName, plantName, type Names } from "../names";
 import { Doing } from "../Deadline";
@@ -51,7 +52,6 @@ type Row = {
   /** The two words of a growing bed (D-293): where it is and how it stands. */
   stage?: Stage;
   health?: Health;
-  ripe?: boolean;
   /** The one curve: the moisture at `moisture_at`, leaving at `dry_per_day`
    *  per cent of itself a Terran day. The client draws it forward. */
   moisture?: number;
@@ -176,14 +176,19 @@ function MoistureCurve({ row, dayHours }: { row: Row; dayHours: number }) {
 /** One fact of the bed per chip; nothing to say -- no container either. */
 function PlotChips({ row }: { row: Row }) {
   const chips: React.ReactNode[] = [];
-  if (row.health && row.health !== "strong") {
+  //: All four words, the good one too (D-293): a bed that stands strong says
+  //: so, and the absence of a warning is not a word.
+  if (row.health) {
+    const tone = { strong: "good", weak: "dim", sick: "warn", dying: "warn" }[row.health];
     chips.push(
-      <span className={`chip ${row.health === "weak" ? "dim" : "warn"}`} key="health">
+      <span className={`chip ${tone}`} key="health">
         {t(HEALTH[row.health])}
       </span>,
     );
   }
-  if (row.ripe) chips.push(<span className="chip good" key="ripe">{t("ui-farm-ripe")}</span>);
+  if (row.stage === "ripe") {
+    chips.push(<span className="chip good" key="ripe">{t("ui-farm-ripe")}</span>);
+  }
   for (const code of row.symptoms ?? []) {
     chips.push(
       <span className="chip dim" key={code}>
@@ -215,6 +220,8 @@ function cultivarNote(names: Names | null, row: Row): string {
 export function Farm({ look }: Omit<Props, "busy" | "act">) {
   const session = useSession();
   const names = useNames();
+  //: The book: the fertilizer class (D-291) and the Terran day the curve counts in.
+  const book = useBook();
   //: This panel's own waiting and its own refusal: one action here
   //: must not grey out the chat, the map and somebody else's orders.
   const acting = useActions();
@@ -238,8 +245,9 @@ export function Farm({ look }: Omit<Props, "busy" | "act">) {
 
   const current_ = look.node?.key;
   //: The curve counts Terran days (D-008): the farm's day is the same
-  //: everywhere, whatever planet the bed stands on.
-  const dayHours = look.clock?.day_hours ?? 24;
+  //: everywhere, whatever planet the bed stands on -- so the length comes
+  //: from the catalog's constant, not from the planet's clock in `look`.
+  const dayHours = Number(book?.constants?.["time.day_terra"] ?? look.clock?.day_hours ?? 24);
 
   //: Work on a plot is an occupation (D-211), and a busy body has no hands for
   //: it -- including its own plough on the neighbouring strip. The buttons go
@@ -249,11 +257,13 @@ export function Farm({ look }: Omit<Props, "busy" | "act">) {
   //: Seeds are recognised by name from vault data, not by the client's guess.
   const seedNames = new Set(plants.map((p) => p.seed));
   const seeds = look.inventory.filter((thing) => seedNames.has(thing.goods));
-  //: The fertilizers of the vault (D-264, D-291), one entry per kind in hand.
+  //: The fertilizers are a class (D-291): a third one is a row in the vault,
+  //: and this button knows it by the class, not by its name. One entry per kind in hand.
+  const fertilizers = new Set(membersOf(book, "fertilizer"));
   const dung = [
     ...new Map(
       look.inventory
-        .filter((thing) => thing.goods === "compost" || thing.goods === "mineral_fertilizer")
+        .filter((thing) => fertilizers.has(thing.goods))
         .map((thing) => [thing.goods, thing]),
     ).values(),
   ];
@@ -312,6 +322,10 @@ export function Farm({ look }: Omit<Props, "busy" | "act">) {
       <h2>{t("ui-farm-title")}</h2>
 
       {rows.length === 0 && <p className="note">{t("ui-farm-unmarked")}</p>}
+      {/* The reason the buttons are grey is written once, above the cards, not
+          hidden in a hint: a hint is invisible on a touch screen and easy to
+          miss on any. */}
+      {occupied && rows.length > 0 && <p className="note">{occupied}</p>}
 
       {/* A bed is a card of instruments (D-238): the fertility on a track,
           the moisture as a curve, one fact per chip -- and the two words of
@@ -355,10 +369,6 @@ export function Farm({ look }: Omit<Props, "busy" | "act">) {
           )}
 
           {row.state === "sown" && <PlotChips row={row} />}
-
-          {/* The reason a button is grey is written, not hidden in a hint:
-              a hint is invisible on a touch screen and easy to miss on any. */}
-          {occupied && <p className="note">{occupied}</p>}
 
           <div className="card-act">
           {row.state === "idle" && (
@@ -447,7 +457,7 @@ export function Farm({ look }: Omit<Props, "busy" | "act">) {
               </button>
             </>
           )}
-          {row.state === "sown" && !row.ripe && (
+          {row.state === "sown" && row.stage !== "ripe" && (
             <>
               {/* Watering to a target (D-293): the slider is the decision, the
                   water is the difference, and the target may run past what the
@@ -468,9 +478,16 @@ export function Farm({ look }: Omit<Props, "busy" | "act">) {
               </label>
               <button
                 onClick={() =>
-                  go(() =>
-                    session.send("farm.water", { plot: row.id, target: targetOf(row) }),
-                  )
+                  go(async () => {
+                    await session.send("farm.water", { plot: row.id, target: targetOf(row) });
+                    //: The target was spent: the slider starts anew from the
+                    //: watered ground, or a second press would only be refused.
+                    setTargets((all) => {
+                      const rest = { ...all };
+                      delete rest[row.id];
+                      return rest;
+                    });
+                  })
                 }
                 disabled={busy || occupied !== null}
               >
@@ -505,7 +522,7 @@ export function Farm({ look }: Omit<Props, "busy" | "act">) {
               )}
             </>
           )}
-          {row.state === "sown" && row.ripe && (
+          {row.state === "sown" && row.stage === "ripe" && (
             <>
               <button
                 onClick={() =>
