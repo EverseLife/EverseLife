@@ -788,6 +788,27 @@ ssh -i $env:USERPROFILE\.ssh\<ключ> -L 3000:localhost:3000 everselife@<се�
 
 Настройки Prometheus и Grafana привозит выкладка (`deploy/prometheus.yml` и
 `deploy/grafana/` едут вместе с `compose.yaml`), но `.env` — по-прежнему руками.
+
+Новое задание в `prometheus.yml` сборщик сам не подхватывает: файл лежит на
+bind-mount, `docker compose up -d` пересоздаёт службу только при смене её
+описания, а Prometheus читает конфиг один раз при старте. Поэтому выкладка
+после `up -d` проверяет файл (`promtool check config`) и шлёт сборщику
+`SIGHUP` — это его перечитывание. Руками то же самое:
+
+```bash
+cd /opt/everselife && docker compose kill -s HUP prometheus
+```
+
+Что сборщик на самом деле опрашивает — список целей; у каждого задания из
+`prometheus.yml` тут должна быть строка с `"health":"up"`:
+
+```bash
+cd /opt/everselife && docker compose exec -T prometheus wget -qO- 'http://localhost:9090/api/v1/targets?state=active' | tr ',' '\n' | grep -E '"job"|"health"|"lastError"'
+```
+
+Панель «Лендинг» с «No data» во всех окнах при живом лендинге — как раз этот
+случай: задания `landing` в списке нет, и `SIGHUP` выше его добавляет.
+
 И один раз стоит убедиться, что cAdvisor видит контейнеры, а не один корневой
 срез:
 

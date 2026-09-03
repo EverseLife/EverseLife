@@ -367,6 +367,17 @@ jobs:
           # The schema is applied by the migrate service before the server
           # starts; nothing needs bringing up by hand.
           docker compose up -d --remove-orphans
+          # `up -d` recreates a service only when its definition changes. A new
+          # `prometheus.yml` on the bind mount is not a change, and Prometheus
+          # reads the file once, at start -- so a scrape job added in the
+          # repository never reached the running collector (2026-09-02: the
+          # landing's job shipped, the container kept the old config, and the
+          # dashboard showed "No data" over a working exporter). SIGHUP is the
+          # collector's reload. The file is checked first: a broken config is
+          # refused quietly by a running Prometheus, and it should fail the
+          # deploy here instead.
+          docker compose exec -T prometheus promtool check config /etc/prometheus/prometheus.yml
+          docker compose kill -s HUP prometheus
           docker logout ghcr.io
           docker image prune -f
           docker compose ps
