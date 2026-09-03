@@ -34,6 +34,7 @@ import {
   type RecipeBook,
   type Parts,
 } from "./api";
+import { Glyph } from "./Glyph";
 import { Alpha } from "./panels/Alpha";
 import { Chat } from "./panels/Chat";
 import { GraphMap } from "./panels/GraphMap";
@@ -62,6 +63,7 @@ import { onProfile, onThread } from "./people";
  *  learnt at the greeting -- long afterwards. A plain string would freeze the
  *  word of whichever language was spoken then. */
 const ZONES = [
+  //: The id doubles as the glyph's name: each of the four is drawn in `glyphs.ts`.
   { id: "me", get label() { return t("ui-app-zone-me"); } },
   { id: "here", get label() { return t("ui-app-zone-here"); } },
   { id: "map", get label() { return t("ui-app-zone-map"); } },
@@ -618,13 +620,17 @@ export default function App() {
           time, and the bar is where a thumb reaches (brief section 9). */}
       {narrow && (
         <nav className="bottom" aria-label={t("ui-app-zones")}>
+          {/* `bare`: the bar paints its own open state (the act-coloured bar,
+              like every open tab), and the primary slab must not win over it.
+              A mark beside the word, never instead of it (D-238). */}
           {ZONES.map((zone) => (
             <button
               key={zone.id}
-              className={where_ === zone.id ? "" : "quiet"}
+              className="bare"
               aria-pressed={where_ === zone.id}
               onClick={() => setWhere_(zone.id)}
             >
+              <Glyph name={zone.id} />
               {zone.label}
               {zone.id === "me" && waiting > 0 && (
                 <span className="tally alarm">{waiting}</span>

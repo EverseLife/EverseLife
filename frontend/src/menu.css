@@ -3,8 +3,8 @@
 
 /*
  * The one popping layer, and the only shadow in the system: the row's menu in
- * the inventory and the right-click menu on the map are the same thing in two
- * places.
+ * the inventory, the right-click menu on the map and the header's overflow on
+ * a phone are the same thing in three places.
  */
 
 /* --- a menu: the one popping layer, and the only shadow in the system ------
@@ -30,18 +30,33 @@
 .node-menu {
   position: fixed;
 }
+/* The header's overflow on a phone: the same menu, hung off the strip's
+   right edge under its button, above every zone. */
+.menu.hud-menu {
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 30;
+  min-width: 13rem;
+}
+/* An item is a button or, for the sources, a link: one line of the layer
+   either way, and the two must not be told apart by eye. */
 .menu button,
+.menu a,
 .node-menu button {
+  display: block;
   text-align: left;
   border: 0;
   border-radius: var(--r-control);
   background: transparent;
   color: var(--base-200);
   font-weight: 400;
+  text-decoration: none;
+  line-height: 1.9;
   padding: 0.3rem 0.5rem;
   min-height: 36px;
 }
 .menu button:hover,
+.menu a:hover,
 .node-menu button:hover {
   background: var(--base-800);
   color: var(--base-50);

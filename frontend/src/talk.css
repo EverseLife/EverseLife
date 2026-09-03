@@ -19,10 +19,32 @@
   border-bottom: 1px dashed var(--line);
   padding-bottom: 0.5rem;
 }
+/* The phone's talk section (brief section 9): the strip fills the zone,
+   the lines take everything above the input and scroll, and the input stays
+   in reach of the thumb -- a room's talk, not a form at the end of a page. */
 @media (max-width: 56rem) {
   .chat-lines {
+    flex: 1;
+    min-height: 6rem;
     height: auto;
-    max-height: 14rem;
+    max-height: none;
+  }
+  /* The input row in three lines that each mean one thing: the circle and
+     the kinds; the field with its verb; the half-voice switch. Left to wrap
+     on its own the row broke wherever the width ran out, and the verb ended
+     up alone under the field. */
+  .chat-input .chat-text {
+    order: 1;
+    /* No shrinking: a field that could shrink would share a line with the
+       last kind to wrap, and push the verb under itself again. */
+    flex: 1 0 calc(100% - 6.5rem);
+  }
+  .chat-input .chat-send {
+    order: 2;
+  }
+  .chat-input > label {
+    order: 3;
+    flex: 1 0 100%;
   }
 }
 

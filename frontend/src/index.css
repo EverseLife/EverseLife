@@ -25,7 +25,9 @@
  *
  * The frame is elastic: the app takes the whole screen, the sidebar and the
  * scene each scroll on their own, the chat is pinned to the bottom of the
- * scene. On narrow screens the frame unravels into the ordinary document flow.
+ * scene. On a phone the four zones become four sections, one at a time,
+ * chosen from a bar at the bottom -- and the one section scrolls between the
+ * strip and the bar the way a zone scrolls inside the frame (`shell.css`).
  */
 
 @import "./theme.css";

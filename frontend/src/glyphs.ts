@@ -58,7 +58,11 @@ export type GlyphName =
   | "eye"
   | "fold"
   | "nearer"
-  | "farther";
+  | "farther"
+  | "here"
+  | "map"
+  | "talk"
+  | "more";
 
 /** One stroke width for all of them, so a row of icons reads as one set. */
 export const GLYPH_WIDTH = 1.25;
@@ -145,4 +149,12 @@ export const SHAPES: Record<GlyphName, string> = {
   //: A chevron at a wall: the sidebar folds to its rail and opens again.
   //: Drawn pointing left; the folded state mirrors it in CSS.
   fold: "M10.2 3.2L5.4 8l4.8 4.8M2.6 3v10",
+  //: The phone's four sections (brief section 9): where the body stands is a
+  //: marker on the ground, the map is a folded sheet, the talk is a bubble.
+  here: "M8 14.2c-2.8-3.4-4.2-6-4.2-8a4.2 4.2 0 118.4 0c0 2-1.4 4.6-4.2 8zM8 4.8a1.4 1.4 0 100 2.8 1.4 1.4 0 100-2.8",
+  map: "M2.6 4.2l3.6-1.4 3.6 1.4 3.6-1.4v9l-3.6 1.4-3.6-1.4-3.6 1.4zM6.2 2.8v9M9.8 4.2v9",
+  talk: "M2.6 3.4h10.8v7H7.4L4.4 13v-2.6H2.6z",
+  //: The header's overflow on a phone: what did not fit the strip is behind
+  //: three dots, the way a row's menu is behind its handle.
+  more: "M3.2 7.1a.9.9 0 100 1.8.9.9 0 100-1.8M8 7.1a.9.9 0 100 1.8.9.9 0 100-1.8M12.8 7.1a.9.9 0 100 1.8.9.9 0 100-1.8",
 };

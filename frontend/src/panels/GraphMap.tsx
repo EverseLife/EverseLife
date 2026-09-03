@@ -54,6 +54,7 @@ import { type Look, type MapNode, type WorldMap } from "../api";
 import { useActions, useSession } from "../actions";
 import { createCamera, viewBoxOf, type Camera } from "./map/camera";
 import { t } from "../locale";
+import { PHONE } from "../narrow";
 import { cityWord } from "../planets";
 import { Inspector } from "./map/Inspector";
 import { NodeMenu } from "./map/NodeMenu";
@@ -87,6 +88,14 @@ import { STAR, horizon } from "./map/orbits";
  * of looking, not a preference worth writing down.
  */
 let cameraTied = true;
+
+/**
+ * How close the frame starts on a phone (brief section 9). Twice: the field
+ * there is 375px against a desktop's ~1000, and at 2 a node's name comes out
+ * at the size the desktop reads it. Well inside what the hand may zoom to
+ * (`map/hand`), so nothing about panning or pinching is special-cased.
+ */
+const PHONE_SCALE = 2;
 
 type Props = {
   look: Look;
@@ -306,9 +315,16 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
    * its own reasons never puts back a frame the animation has moved on from.
    */
   const camera = useRef<Camera | null>(null);
+  //: A phone's field is a third of a desktop's width, and the same frame
+  //: over it drew a node's name at five pixels. The frame starts twice as
+  //: close there: the body's neighbourhood, legible, and the rest a pan away.
+  //: Asked once, at creation, not subscribed to: the map is remounted when
+  //: a phone changes section, and a desktop that narrows keeps the frame it
+  //: had -- a hook here would redraw forty nodes for a value read once.
   if (!camera.current) {
     camera.current = createCamera({
       onFrame: (f) => svgRef.current?.setAttribute("viewBox", viewBoxOf(f)),
+      scale: window.matchMedia(PHONE).matches ? PHONE_SCALE : 1,
       still: () => window.matchMedia("(prefers-reduced-motion: reduce)").matches,
     });
   }

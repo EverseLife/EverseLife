@@ -24,7 +24,7 @@
  * field, asleep, and the ground about to shake.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Air, Frost as FrostState, Look } from "../api";
 import { Refusal, useActions, useSession } from "../actions";
 import { hands, stamp, worldTime } from "../clock";
@@ -33,6 +33,7 @@ import { Glyph } from "../Glyph";
 import { askSidebarTab } from "../hud";
 import { t } from "../locale";
 import { Logo } from "../Logo";
+import { usePopover } from "../popover";
 import { VIEWS, type View } from "../views";
 import { leftNow, reserveNow } from "../warmth";
 
@@ -146,35 +147,117 @@ export function TopBar({ look, waiting, narrow, onSummary, onIntro, onRefresh, v
         </nav>
       )}
 
+      {/* The service row: four controls on a desktop, one button on a phone.
+          The strip there is 375px wide and the four framed boxes took two
+          lines of it -- a third of the screen went to the header before the
+          first line of the world. Behind the overflow they are the same four,
+          and the summary's count rides the button so that "something is
+          waiting" is still read without opening it. */}
+      {narrow ? (
+        <More waiting={waiting} onSummary={onSummary} onIntro={onIntro} onRefresh={onRefresh} />
+      ) : (
+        <>
+          <button
+            className="quiet"
+            onClick={onSummary}
+            title={t("ui-top-summary-title")}
+          >
+            {t("ui-top-summary")}
+            {waiting > 0 && <span className="tally alarm">{waiting}</span>}
+          </button>
+          {/* The intro stays within reach: once read it must not become
+              unreachable, and unread it must not become mandatory (D-182). */}
+          <button className="quiet" onClick={onIntro} title={t("ui-top-intro-title")}>
+            ?
+          </button>
+          <button className="quiet" onClick={onRefresh}>
+            {t("ui-top-refresh")}
+          </button>
+          {/* The sources of this version. AGPL §13: whoever plays over the
+              network must be offered them, not sent to a README. The
+              machine-readable answer to the same question is `/public/source`. */}
+          <a
+            className="quiet"
+            href={SOURCE_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            title={t("ui-top-source-title")}
+          >
+            {t("ui-top-source")}
+          </a>
+        </>
+      )}
+    </header>
+  );
+}
+
+/**
+ * The phone's overflow: the service row behind one mark (brief section 9).
+ *
+ * A menu, not a second toolbar -- the same layer the inventory's row handle
+ * opens, hanging off the strip's right edge. The sources link stays a link:
+ * AGPL section 13 is answered by the same `href`, only a line lower.
+ */
+function More({
+  waiting,
+  onSummary,
+  onIntro,
+  onRefresh,
+}: Pick<Props, "waiting" | "onSummary" | "onIntro" | "onRefresh">) {
+  const [open, setOpen] = useState(false);
+  const anchor = useRef<HTMLSpanElement | null>(null);
+  const toggle = useRef<HTMLButtonElement | null>(null);
+  const pop = useRef<HTMLDivElement | null>(null);
+  const close = useCallback(() => setOpen(false), []);
+  usePopover({ open, close, anchor, toggle, pop });
+  //: Choosing unmounts the layer, and the focus with it: it goes back to the
+  //: button it came from, as it does on Escape -- a keyboard must never be
+  //: left pointing at nothing.
+  const pick = (what: () => void) => () => {
+    setOpen(false);
+    toggle.current?.focus();
+    what();
+  };
+
+  return (
+    <span className="hud-anchor more" ref={anchor}>
       <button
-        className="quiet"
-        onClick={onSummary}
-        title={t("ui-top-summary-title")}
+        ref={toggle}
+        className="bare hud"
+        onClick={() => setOpen((was) => !was)}
+        aria-expanded={open}
+        aria-haspopup="menu"
+        aria-label={t("ui-top-more")}
+        title={t("ui-top-more")}
       >
-        {t("ui-top-summary")}
+        <Glyph name="more" />
         {waiting > 0 && <span className="tally alarm">{waiting}</span>}
       </button>
-      {/* The intro stays within reach: once read it must not become
-          unreachable, and unread it must not become mandatory (D-182). */}
-      <button className="quiet" onClick={onIntro} title={t("ui-top-intro-title")}>
-        ?
-      </button>
-      <button className="quiet" onClick={onRefresh}>
-        {t("ui-top-refresh")}
-      </button>
-      {/* The sources of this version. AGPL §13: whoever plays over the
-          network must be offered them, not sent to a README. The
-          machine-readable answer to the same question is `/public/source`. */}
-      <a
-        className="quiet"
-        href={SOURCE_URL}
-        target="_blank"
-        rel="noopener noreferrer"
-        title={t("ui-top-source-title")}
-      >
-        {t("ui-top-source")}
-      </a>
-    </header>
+      {open && (
+        <div ref={pop} className="menu hud-menu" role="menu" aria-label={t("ui-top-more")}>
+          <button role="menuitem" onClick={pick(onSummary)} title={t("ui-top-summary-title")}>
+            {t("ui-top-summary")}
+            {waiting > 0 && <span className="tally alarm">{waiting}</span>}
+          </button>
+          <button role="menuitem" onClick={pick(onIntro)} title={t("ui-top-intro-title")}>
+            {t("ui-top-intro")}
+          </button>
+          <button role="menuitem" onClick={pick(onRefresh)}>
+            {t("ui-top-refresh")}
+          </button>
+          <a
+            role="menuitem"
+            href={SOURCE_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            title={t("ui-top-source-title")}
+            onClick={pick(() => undefined)}
+          >
+            {t("ui-top-source")}
+          </a>
+        </div>
+      )}
+    </span>
   );
 }
 
@@ -194,30 +277,11 @@ function MoneyQuick({ money }: { money: Look["money"] }) {
   const [memo, setMemo] = useState("");
   const anchor = useRef<HTMLSpanElement | null>(null);
   const toggle = useRef<HTMLButtonElement | null>(null);
-  const first = useRef<HTMLInputElement | null>(null);
-
-  //: A dialog owns the focus: opening moves it to the first field, closing by
-  //: Escape hands it back to the button that opened it. Any press outside
-  //: closes it too -- the popover convention of the client (`NodeMenu`, hints).
-  useEffect(() => {
-    if (!open) return;
-    first.current?.focus();
-    const onDown = (event: PointerEvent) => {
-      if (anchor.current && !anchor.current.contains(event.target as Node)) setOpen(false);
-    };
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setOpen(false);
-        toggle.current?.focus();
-      }
-    };
-    window.addEventListener("pointerdown", onDown);
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("pointerdown", onDown);
-      window.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
+  //: The form, not the whole layer: the focus goes to the first field, and a
+  //: refusal standing above the form must not take it instead.
+  const form = useRef<HTMLDivElement | null>(null);
+  const close = useCallback(() => setOpen(false), []);
+  usePopover({ open, close, anchor, toggle, pop: form });
 
   const transfer = () =>
     acting.act(async () => {
@@ -243,11 +307,10 @@ function MoneyQuick({ money }: { money: Look["money"] }) {
       {open && (
         <div className="hud-pop" role="dialog" aria-label={t("ui-top-transfer")}>
           <Refusal of={acting} />
-          <div className="form">
+          <div className="form" ref={form}>
             <label>
               <span>{t("ui-top-transfer-to")}</span>
               <input
-                ref={first}
                 value={to}
                 onChange={(e) => setTo(e.target.value)}
                 placeholder={t("ui-top-transfer-to-hint")}

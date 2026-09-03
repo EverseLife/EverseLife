@@ -16,8 +16,10 @@
 
 import { useEffect, useState } from "react";
 
-/** The same 56rem the frame unravels at in `index.css`. */
-const PHONE = "(max-width: 56rem)";
+/** The same 56rem the stylesheet turns the frame into one column at (`shell.css`).
+ *  Exported for the one reader that asks once rather than subscribes: the
+ *  map's camera, which is built for the screen it is born on. */
+export const PHONE = "(max-width: 56rem)";
 
 export function useNarrow(): boolean {
   const [narrow, setNarrow] = useState(() => window.matchMedia(PHONE).matches);

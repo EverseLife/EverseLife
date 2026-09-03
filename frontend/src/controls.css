@@ -59,8 +59,10 @@ button:not(:disabled) {
    structural control. It gets no fill, or the screen fills with white slabs.
    `:not(:disabled)` because the slab now means "an action you can take"
    (D-238): a refused button must fall through to the muted rule below, not
-   wear the slab it cannot honour. */
-button:not(.quiet):not(.link):not(.bare):not(:disabled) {
+   wear the slab it cannot honour. A menu's item is not a button-shaped thing
+   either: `menu.css` paints it as a line of the layer, and this rule used to
+   outrank that by specificity alone -- every menu was a stack of slabs. */
+button:not(.quiet):not(.link):not(.bare):not(:disabled):not([role="menuitem"]) {
   background-color: var(--base-50);
   color: var(--base-900);
   border-color: var(--base-50);
@@ -89,7 +91,7 @@ button:not(.link):disabled {
   font-weight: 400;
   cursor: not-allowed;
 }
-button:not(.quiet):not(.link):not(.bare):not(:disabled):hover {
+button:not(.quiet):not(.link):not(.bare):not(:disabled):not([role="menuitem"]):hover {
   filter: brightness(0.9);
 }
 button.quiet:not(:disabled):hover,

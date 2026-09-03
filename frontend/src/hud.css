@@ -562,7 +562,7 @@ button.emblem-pick[aria-pressed="true"] .glyph {
 }
 
 /* On a phone the sidebar is the "я" section at full width: the rail lies
-   down across the top and the panel takes the page's own scrolling. */
+   down across the top and stays there while the panel under it scrolls. */
 @media (max-width: 56rem) {
   .sidebar {
     flex-direction: column;
@@ -570,14 +570,37 @@ button.emblem-pick[aria-pressed="true"] .glyph {
   .rail {
     flex-direction: row;
     width: auto;
-    padding: 0.25rem 0.4rem;
+    gap: 0;
+    padding: 0.15rem 0.3rem;
     border-right: 0;
     border-bottom: 1px solid var(--hairline);
+    /* Eight marks on a 320px screen do not fit at 40px each: the row
+       scrolls sideways rather than squeezing a mark under the finger. */
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  /* The marks share the width: seven or eight of them, one row, no gaps
+     of a different size at the ends. The open one wears its bar along the
+     bottom -- there is no left edge to wear it on in a row. */
+  button.rail-tab {
+    flex: 1 1 0;
+    width: auto;
+    min-width: 40px;
+    height: 44px;
+  }
+  button.rail-tab.on {
+    box-shadow: inset 0 -2px 0 var(--act);
+  }
+  button.rail-tab .glyph {
+    width: 19px;
+    height: 19px;
   }
   .rail-line {
+    flex: none;
     width: 1px;
     height: 26px;
-    margin: 0 0.4rem;
+    margin: 0 0.2rem;
+    align-self: center;
   }
   button.rail-fold {
     display: none;
@@ -588,6 +611,18 @@ button.emblem-pick[aria-pressed="true"] .glyph {
     display: block;
   }
   .side-body {
+    padding: 0.75rem;
     overflow: visible;
+  }
+  /* The section on its own: the panel is the scroller under the rail. */
+  .frame.one .side-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  /* The gauge's label column is a third of a phone's width: shorter. */
+  .gauge {
+    grid-template-columns: 5.5rem 1fr auto;
   }
 }

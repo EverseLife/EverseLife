@@ -80,6 +80,10 @@ export function viewBoxOf(frame: Frame): string {
 type Wiring = {
   /** Show the frame: the component paints it onto the svg. */
   onFrame: (frame: Frame) => void;
+  /** How close the frame starts: 1 covers the whole `W`x`H` field. A phone
+   *  starts closer -- its field is 375px wide, and the whole world across it
+   *  puts a node's name at five pixels. */
+  scale?: number;
   /** Whether motion is unwanted altogether (`prefers-reduced-motion`). */
   still?: () => boolean;
   now?: () => number;
@@ -100,12 +104,13 @@ export type Camera = ReturnType<typeof createCamera>;
  */
 export function createCamera({
   onFrame,
+  scale = 1,
   still = () => false,
   now = () => performance.now(),
   raf = requestAnimationFrame,
   cancel = cancelAnimationFrame,
 }: Wiring) {
-  let frame: Frame = { x: 0, y: 0, scale: 1 };
+  let frame: Frame = { x: 0, y: 0, scale };
   //: The aim is a **middle**, not a ready-made frame: the scale can change
   //: under a chase (the wheel turns while the walker is followed), and a frame
   //: worked out for the old scale would land the body off centre.

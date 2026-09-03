@@ -180,6 +180,11 @@ ui-top-refresh = refresh
 ui-top-source = source
 ui-top-source-title = the source code of this version
 
+## On a phone the utility row folds behind one button: the instrument strip has no room for four.
+
+ui-top-more = more: summary, who you are, refresh, source
+ui-top-intro = who you are
+
 ## The account in the top bar, and the quick transfer under it.
 
 ui-top-money = { $money } ₭

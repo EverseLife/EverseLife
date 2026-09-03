@@ -21,6 +21,7 @@ import { Refusal, useActions, useSession } from "../actions";
 import { folded as foldedPane, rememberFolded } from "../hud";
 import { t } from "../locale";
 import { PersonName } from "../Name";
+import { usePopover } from "../popover";
 
 type Props = {
   busy: boolean;
@@ -195,7 +196,7 @@ export function Chat({ place }: Omit<Props, "busy" | "act">) {
           }}
           placeholder={t(SAY_HINTS[kind])}
         />
-        <button onClick={say} disabled={busy || !text.trim()}>
+        <button className="chat-send" onClick={say} disabled={busy || !text.trim()}>
           {t("ui-chat-say")}
         </button>
       </div>
@@ -240,26 +241,8 @@ function CircleChip({
       await onChanged();
     });
 
-  useEffect(() => {
-    if (!open) return;
-    //: A dialog owns the focus: the first control inside takes it.
-    pop.current?.querySelector<HTMLElement>("input, button")?.focus();
-    const onDown = (event: PointerEvent) => {
-      if (anchor.current && !anchor.current.contains(event.target as Node)) setOpen(false);
-    };
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setOpen(false);
-        chip.current?.focus();
-      }
-    };
-    window.addEventListener("pointerdown", onDown);
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("pointerdown", onDown);
-      window.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
+  const close = useCallback(() => setOpen(false), []);
+  usePopover({ open, close, anchor, toggle: chip, pop });
 
   return (
     <span className="hud-anchor" ref={anchor}>
