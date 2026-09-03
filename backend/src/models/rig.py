@@ -17,7 +17,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import ForeignKey, Index, Numeric, Uuid
+from sqlalchemy import CheckConstraint, ForeignKey, Index, Numeric, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.db.base import Base, created_column, uuid_pk
@@ -30,6 +30,14 @@ class Rig(Base):
     __table_args__ = (
         Index("ix_rig_node", "node_id"),
         Index("ix_rig_vein", "vein_id"),
+        CheckConstraint(
+            "hopper_remainder >= 0 AND hopper_remainder < 0.001",
+            name="hopper_remainder_under_a_thousandth",
+        ),
+        CheckConstraint(
+            "fuel_remainder >= 0 AND fuel_remainder < 0.001",
+            name="fuel_remainder_under_a_thousandth",
+        ),
     )
 
     id: Mapped[uuid.UUID] = uuid_pk()
@@ -45,6 +53,24 @@ class Rig(Base):
     #: What is already mined and awaits hauling. Hopper full -- the rig stands,
     #: and coming is mandatory: without a carter the enterprise does not work.
     hopper: Mapped[float] = mapped_column(Numeric(12, 3), nullable=False, default=0)
+    #: Ore raised that the hopper could not be credited with. It keeps
+    #: thousandths, and a short pass raises less than one -- and the vein was
+    #: being emptied for it all the same, so the ore left the world without
+    #: reaching anybody. Kept here it is credited on the next pass. It cannot
+    #: ride on `counted_at`: that stamp measures the mining, the fuel and the
+    #: wear, and holding it back would raise the same ore twice.
+    #: Always `0 <= hopper_remainder < 0.001`, and a check says so.
+    hopper_remainder: Mapped[float] = mapped_column(
+        Numeric(9, 9), nullable=False, default=0, server_default="0"
+    )
+    #: Coal owed for ore already raised. Fuel is written off in thousandths
+    #: too, and the coal a thousandth of ore costs is thinner than that again
+    #: -- so a rig settled often raised ore and burned nothing. Kept here it
+    #: is burned once it comes to a thousandth.
+    #: Always `0 <= fuel_remainder < 0.001`, and a check says so.
+    fuel_remainder: Mapped[float] = mapped_column(
+        Numeric(9, 9), nullable=False, default=0, server_default="0"
+    )
     #: Up to what moment work is computed. As with the energy pool: the machine
     #: lives by time, not by click.
 

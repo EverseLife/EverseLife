@@ -590,3 +590,51 @@ async def test_two_sellers_do_not_overfill_the_tank(
         "бак держит не больше своей ёмкости: второй налив увидел остаток места"
     )
     assert sum(poured) > 0, "первый налив прошёл"
+
+
+async def test_two_meals_at_once_are_both_eaten_and_both_paid_for(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    constants,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A meal is a read-modify-write of stamina, which is on the list (CLAUDE.md).
+
+    Two sockets of one identity biting into the same loaf in the same second.
+    Without the body's lock both read the same reserve and the second write
+    swallows the first: two portions leave the stack and one portion's worth
+    of strength comes back. The stack is counted the same way in the same
+    call, so it thins by one where it should thin by two -- the loaf feeds
+    twice and is charged once.
+    """
+    from src.engine import food
+    from src.models.inventory import Item
+
+    _slow(monkeypatch, food, "_varied")
+    stamp = uuid.uuid4().hex[:8]
+    node = await world.create_node(session, f"terra.inn.{stamp}", "Трактир", area_m2=100)
+    identity = await world.create_identity(session, f"Едок-{stamp}")
+    body = await world.print_body(session, identity, node)
+    pocket = await world.body_container(session, body)
+    loaf = await world.grant_item(session, pocket, "bread", amount=2, quality=60, origin="тест")
+    #: Room for both portions, so nothing is lost to the ceiling instead.
+    body.stamina = Decimal(0)
+    body_id, loaf_id = body.id, loaf.id
+    await session.commit()
+
+    async def bite() -> float:
+        async with factory() as db, db.begin():
+            who = await db.get(Body, body_id)
+            portion = await db.get(Item, loaf_id)
+            assert who is not None and portion is not None
+            return await food.eat(db, current(), current_catalog(), who, portion)
+
+    restored = await asyncio.gather(*(bite() for _ in range(2)))
+    async with factory() as db:
+        after = await db.get(Body, body_id)
+        left = await db.get(Item, loaf_id)
+        assert after is not None
+        assert float(after.stamina) == pytest.approx(sum(restored)), (
+            "вернулось ровно столько, сколько объявили обе еды"
+        )
+        assert left is None or int(left.amount) == 0, "обе порции ушли со стопки"

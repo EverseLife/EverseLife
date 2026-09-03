@@ -40,7 +40,6 @@ together with containers and warehouses (04-items).
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -53,7 +52,7 @@ from src.models.event import EventKind
 from src.models.food import Meal
 from src.models.identity import Body, BodyState
 from src.models.inventory import Item
-from src.units import PERCENT, amount
+from src.units import PERCENT, ROUND_STAMINA, amount, on_grid
 
 
 class FoodError(Refusal):
@@ -94,6 +93,52 @@ def drain_multiplier(constants: Constants, body: Body, now: datetime) -> float:
     return 1.0
 
 
+async def _lock(session: AsyncSession, body: Body) -> Body:
+    """The body's row, locked for this transaction.
+
+    Stamina is a quantity of the body and the meal is a read-modify-write of
+    it, so two sockets of one identity eating in the same second would each
+    read the same figure and the second write would swallow the first
+    (CLAUDE.md, review 2026-08-23).
+    """
+    return (
+        (
+            await session.execute(
+                select(Body)
+                .where(Body.id == body.id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        )
+        .scalars()
+        .one()
+    )
+
+
+async def _portion(session: AsyncSession, item: Item) -> Item:
+    """The stack's row, locked and reread.
+
+    Gone between the read and the lock means the last portion was eaten by
+    another socket in the meantime: it is no longer in the hands that were
+    reaching for it.
+    """
+    fresh = (
+        (
+            await session.execute(
+                select(Item)
+                .where(Item.id == item.id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        )
+        .scalars()
+        .one_or_none()
+    )
+    if fresh is None:
+        raise FoodError(key="food-not-in-hands")
+    return fresh
+
+
 async def eat(
     session: AsyncSession,
     constants: Constants,
@@ -117,6 +162,14 @@ async def eat(
     pocket = await world.body_container(session, body)
     if item.container_id != pocket.id:
         raise FoodError(key="food-not-in-hands")
+
+    body = await _lock(session, body)
+    #: And the portion's own row, in the order the rest of the engine takes
+    #: them: body, then stack. Locking the body is not enough for the stack --
+    #: it was read before the lock, so the count this session holds can already
+    #: be a meal out of date, and `item.amount -= one` would write that stale
+    #: count back and hand the second eater their portion free.
+    item = await _portion(session, item)
 
     recipe = _recipe_of(catalog, item.type_key)
     if recipe is None or not recipe.food:
@@ -155,8 +208,18 @@ async def eat(
 
     cap = constants[R.BODY_STAMINA_MAX]
     before = float(body.stamina)
-
-    body.stamina = Decimal(str(min(cap, before + restore)))
+    #: On the grid here rather than left to the column, so the answer this
+    #: command returns and the event it writes are the number the row took.
+    #: Left to the column they differed by up to half a hundredth, and `look`
+    #: a moment later contradicted the reply the player had just been given.
+    #:
+    #: To the nearest, and not down: a meal is one item and there is no loop,
+    #: so there is nothing to carry -- and flooring every meal would shave a
+    #: hundredth off each with nowhere to keep it, which is how an error that
+    #: cancels becomes one that always takes. (Not quite Postgres's own
+    #: rounding: it goes half away from zero, this half to even. They differ
+    #: only on an exact half of a hundredth, against a meal worth twenty.)
+    body.stamina = on_grid(min(cap, before + restore), ROUND_STAMINA)
 
     one = amount(1)
     if item.amount > one:
