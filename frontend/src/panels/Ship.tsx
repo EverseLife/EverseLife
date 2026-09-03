@@ -40,6 +40,7 @@ import { goodsName } from "../names";
 import { planetName } from "../planets";
 import { Chart } from "./ship/Chart";
 import { Course } from "./ship/Course";
+import { Feed } from "./ship/Feed";
 import { Plan } from "./ship/Plan";
 import { autonomy, wanted, type Pad, type Vessel } from "./ship/model";
 import { term } from "./map/orbits";
@@ -118,15 +119,13 @@ function Card({ v }: { v: Vessel }) {
             {v.ratio < v.min_ratio && ` · ${t("ui-ship-below-threshold")}`}
           </td>
         </tr>
-        {/* The air (D-233, D-234). Shown always, because "nothing is being
-            spent" is itself the answer to "how long can we stay out there". */}
+        {/* The air (D-233, D-288): what stands on the life support's line.
+            Shown always, because "nothing is being spent" is itself the answer
+            to "how long can we stay out there". */}
         <tr>
           <td>{t("ui-ship-air")}</td>
           <td className="note">
-            {t("ui-ship-air-tanks", {
-              units: v.air.units.toFixed(0),
-              water: v.air.water.toFixed(0),
-            })}
+            {t("ui-ship-air-line", { units: v.air.units.toFixed(0) })}
             {v.air.sealed
               ? hours != null
                 ? ` · ${t("ui-ship-air-burn", {
@@ -196,12 +195,7 @@ function Ascent({
             })}{" "}
         <button
           onClick={ascend}
-          disabled={
-            busy ||
-            !climb.reachable ||
-            vessel.crew > vessel.life_support ||
-            dry
-          }
+          disabled={busy || !climb.reachable || !vessel.life_support || dry}
           title={t(climb.reachable ? "ui-ship-ascend-hint" : "ui-ship-thrust-short")}
         >
           {t("ui-ship-ascend")}
@@ -442,8 +436,9 @@ export function Ship({
     const answer = await session.send("ship.view", ground ? { fleet: true } : {});
     setShips((answer.ships ?? []) as Vessel[]);
   }, [session, ground]);
-  //: Reread when the world says so (D-226), not on every look.
-  const edition = useEdition("ship.", "transport.");
+  //: Reread when the world says so (D-226), not on every look. A line drawn
+  //: changes what the tanks are worth to the engines (D-288).
+  const edition = useEdition("ship.", "transport.", "line.");
 
   useEffect(() => {
     void reload();
@@ -528,9 +523,11 @@ export function Ship({
             {v.ratio < v.min_ratio && <b> · {t("ui-ship-stuck")}</b>} ·{" "}
             {t("ui-ship-crew", {
               crew: String(v.crew),
-              support: String(v.life_support),
               fuel: v.fuel.toFixed(0),
             })}
+            {/* No number of people a system holds (D-288): what is worth a
+                word is a hull with no system at all, which does not cast off. */}
+            {!v.life_support && <b> · {t("ui-ship-no-life-support")}</b>}
             {v.stage === "orbit"
               ? ` · ${t("ui-ship-in-orbit", { planet: planetName(v.planet) })}`
               : v.docked
@@ -601,6 +598,18 @@ export function Ship({
                     }
                   />
                 </>
+              )}
+              {/* The plumbing (D-288): drawn from the console, because it is
+                  an order about the hull like any other, and the engine
+                  refuses it to anybody but the owner at a console. */}
+              {v.yours && (
+                <Feed
+                  vessel={v}
+                  busy={busy || deaf}
+                  plumb={(machine, port, vessels) =>
+                    go(() => session.send("line.set", { ship: v.ship, machine, port, vessels }))
+                  }
+                />
               )}
             </>
           ) : (

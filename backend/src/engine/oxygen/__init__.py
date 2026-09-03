@@ -12,24 +12,20 @@ nothing in this module is ever asked.
 Where there is none -- in flight and on Pyroxis -- two things breathe, and they
 breathe from different places:
 
-* **a hull** breathes what stands in it. Oxygen is a liquid (D-230) and exists
-  only inside a vessel, so the ship's reserve is what lies in any vessel
-  **standing in a compartment** -- a tank, a canister, a bottle. Wider than the
-  fuel a passage burns, and on purpose: the engines are plumbed to the tanks and
-  reach nothing else, while the life support is a machine standing in a room,
-  and what a crew carries to it, it uses. Narrower than the hold, and for the
-  same reason: a canister packed into a chest is stowed cargo, and nothing
-  rummages through luggage. The crew draws `oxygen.crew_draw` an hour a head,
-  and
-  the **life support makes air** to cover it: water out of the same tanks plus
-  charge out of the batteries of its own node, by the vault's own recipe for
-  «Кислород». One system covers as many people as it holds
-  (`ship.life_support_crew`) -- more crew than that wants a second system, the
-  same number that has always decided how many the ship may carry (D-202).
-  What it makes is **breathed, never stored**: the vessels aboard are what the
-  crew lives on when the water or the charge runs out, and filling them -- or a
-  cylinder for going outside -- is deliberate work at an «Электролизёр», which
-  is the very recipe this runs by;
+* **a hull** breathes off the life support's line (D-288). Oxygen is a liquid
+  (D-230) and exists only inside a vessel, so the ship's reserve is what lies
+  in the vessels the **life support** reaches: any vessel installed aboard by
+  default -- a tank, a canister, a cylinder put up in a compartment the way
+  furniture is -- or the ones the owner named when a line was drawn
+  (`ship.lines`). A cylinder in the hands, on the floor or packed in a chest
+  is luggage: nothing aboard breathes it, and the word for that is on the
+  thing itself. The crew draws `oxygen.crew_draw` an hour a head, and the
+  system **only drinks**: it makes nothing. Air is made by an electrolyser --
+  at a port's grid, where it is the spaceport's oxygen pump, or aboard by
+  hand or by an automat (D-253) -- and poured into the vessels the line
+  stands on. There is no number of people a system holds: the draw is the
+  ceiling, the way mass is the hold's (D-202), and the console shows the
+  hours. Without a system the hull breathes for nobody and does not cast off;
 * **a body outside** breathes a cylinder, and only through a suit. A cylinder
   in the bag gives nothing by itself: the suit is what connects the body to it
   (D-234), and a bare body on an airless node dies however many cylinders it
@@ -62,9 +58,7 @@ from src.engine.oxygen._base import (  # noqa: F401
     AIR,
     AIRLESS,
     ASPHYXIA,
-    ENERGY,
     SUIT,
-    WATER,
     Breath,
     NoAir,
     OxygenError,
@@ -87,8 +81,7 @@ from src.engine.oxygen.supply import (  # noqa: F401
     carried,
     cylinders,
     hull_draw,
-    hull_output,
     reserve,
     suited,
-    water_aboard,
+    systems_of,
 )

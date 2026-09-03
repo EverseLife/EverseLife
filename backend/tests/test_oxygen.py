@@ -8,9 +8,10 @@ Checked is what the whole mechanic rests on:
 
 * the question exists only where the **planet** says so. On Terra the reading is
   empty and nothing is ever spent -- the same shape the cold has;
-* a hull breathes its **tanks**, and the life support fills them out of water
-  and charge. Enough of both and the reserve holds; run out of either and it
-  falls, and the crew has one settling of grace before it dies;
+* a hull breathes off the life support's **line** (D-288): what stands
+  installed aboard, any of it by default, the named vessels when a line is
+  drawn. No system -- nothing aboard is breathed; the line runs dry -- the
+  crew has one settling of grace before it dies;
 * a body outside breathes a **cylinder through a suit**, and neither half alone
   is worth anything: a bare body dies with a full bag;
 * the step into a place with nothing to breathe is refused **before** it is
@@ -25,19 +26,19 @@ from __future__ import annotations
 import asyncio
 import uuid
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from src.constants import Catalog, Constants, current
+from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import energy, gear, oxygen, ship, storage, travel, world
+from src.engine import gear, oxygen, ship, storage, travel, world
 from src.models.estate import Building
 from src.models.identity import Body, BodyState
+from src.models.inventory import Item
 from src.models.ship import Ship
 from src.models.world import Layer, Node, Planet, Surface
-from src.units import AMOUNT_SCALE, ROUND_AMOUNT, ROUND_REMAINDER
+from src.units import AMOUNT_SCALE, ROUND_AMOUNT, ROUND_REMAINDER, amount_float
 
 AIR = "oxygen"
 WATER = "water"
@@ -46,9 +47,7 @@ CYLINDER = "oxygen_tank"
 CANISTER = "canister"
 CHEST = "chest"
 SUIT = "heatproof_suit"
-BATTERY = "battery"
 LIFE = "life_support_system"
-ENGINE = "engine_class_1"
 
 
 async def _sphere(session: AsyncSession, planet: Planet, *, airless: bool) -> Node:
@@ -100,20 +99,31 @@ async def _person(session: AsyncSession, node: Node) -> Body:
     return await world.print_body(session, identity, node)
 
 
-async def _in_tank(session: AsyncSession, node: Node, what: str, amount: float) -> None:
-    """A liquid aboard lives in a tank: the tank in the room, the liquid inside it."""
+async def _in_tank(session: AsyncSession, node: Node, what: str, amount: float) -> Item:
+    """A liquid aboard lives in a vessel: a tank standing in the room, the liquid inside it."""
     yard = await world.node_container(session, node)
     tank = await world.grant_item(session, yard, TANK, quality=60, origin="тест")
     inside = await storage.inside(session, tank)
     await world.grant_item(session, inside, what, amount=amount, quality=60, origin="тест")
+    return tank
 
 
-async def _in_canister(session: AsyncSession, node: Node, what: str, amount: float) -> None:
-    """A canister standing in the room, with a liquid in it. Not a tank."""
+async def _in_canister(
+    session: AsyncSession, node: Node, what: str, amount: float, *, installed: bool = True
+) -> Item:
+    """A canister in the room, with a liquid in it. Installed, it stands on the
+    lines like a tank (D-288); loose, it is luggage."""
     yard = await world.node_container(session, node)
-    can = await world.grant_item(session, yard, CANISTER, quality=60, origin="тест")
+    can = await world.grant_item(
+        session, yard, CANISTER, quality=60, origin="тест", installed=installed
+    )
     inside = await storage.inside(session, can)
     await world.grant_item(session, inside, what, amount=amount, quality=60, origin="тест")
+    return can
+
+
+async def _held(session: AsyncSession, box: Item) -> float:
+    return sum(amount_float(one.amount) for one in await storage.content(session, box))
 
 
 async def _cylinder(session: AsyncSession, body: Body, amount: float) -> None:
@@ -133,13 +143,10 @@ async def _suited(
     await gear.equip(session, constants, catalog, body, suit)
 
 
-async def _charged(session: AsyncSession, node: Node, cells: int) -> None:
-    """Batteries standing in the room, full. Charge is written, not granted."""
+async def _system(session: AsyncSession, node: Node) -> Item:
+    """A life support system standing in the room: what the air line hangs on (D-288)."""
     yard = await world.node_container(session, node)
-    pile = await world.grant_item(session, yard, BATTERY, amount=cells, quality=60, origin="тест")
-    pile.charge = Decimal(str(energy.capacity(current())))
-    pile.charged_at = datetime.now(UTC)
-    await session.flush()
+    return await world.grant_item(session, yard, LIFE, quality=60, origin="тест")
 
 
 async def _hull(session: AsyncSession, constants: Constants, port: Node) -> tuple[Ship, Body, Node]:
@@ -198,39 +205,76 @@ async def test_a_terran_reading_is_empty(
     assert await oxygen.view(session, constants, catalog, body, field) is None
 
 
-# --- the hull breathes its tanks ----------------------------------------------
+# --- the hull breathes off the life support's line -----------------------------
 
 
-async def test_life_support_makes_the_air_the_crew_breathes(
+async def test_the_life_support_breathes_the_crew_off_its_line(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Water and charge in, air out: with both, the reserve holds (D-233, D-234)."""
+    """The system drinks and makes nothing (D-288): an hour aboard costs the
+    crew's draw out of the vessels on its line, and a tank of water beside
+    them is not so much as looked at -- air is the electrolyser's to make.
+    """
     await _sphere(session, Planet.TERRA, airless=False)
     port = await _port(session)
     vessel, body, connector = await _hull(session, constants, port)
-    yard = await world.node_container(session, connector)
-    await world.grant_item(session, yard, LIFE, quality=60, origin="тест")
-    await _charged(session, connector, cells=8)
-    await _in_tank(session, connector, WATER, 5000)
+    await _system(session, connector)
     await _in_tank(session, connector, AIR, 10)
+    water = await _in_tank(session, connector, WATER, 5000)
 
     vessel.docked_node_id = None
     vessel.air_at = datetime.now(UTC) - timedelta(hours=1)
     await session.flush()
 
-    before = await oxygen.reserve(session, vessel)
-    made, dead = await oxygen.tick_ships(session, constants, catalog)
+    breathed, dead = await oxygen.tick_ships(session, constants, catalog)
+    draw = constants[R.OXYGEN_CREW_DRAW]
     assert dead == 0
-    assert made > 0, "жизнеобеспечение работало"
-    assert await oxygen.reserve(session, vessel) == pytest.approx(before, abs=0.01), (
-        "воздух сделан ровно на дыхание: баки не тронуты"
+    assert breathed == pytest.approx(draw, abs=0.01), "час на одного — расход одного"
+    assert await oxygen.reserve(session, constants, catalog, vessel) == pytest.approx(
+        10 - draw, abs=0.01
+    )
+    assert body.choking_since is None
+    assert await _held(session, water) == pytest.approx(5000), (
+        "вода не тронута: система не электролизёр"
     )
 
 
-async def test_without_water_the_tanks_drain_and_then_the_crew_dies(
+async def test_without_a_system_nothing_aboard_is_breathed(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """No water, no charge -- the reserve is all there is, and after it, death.
+    """A hull with oxygen in its tanks and no life support breathes none of it.
+
+    The system is the one thing aboard that breathes for people (D-288), and
+    casting off without one is refused for exactly this (`flight._leaving`);
+    a hull sealed anyway -- down on Pyroxis, unmoored by a test -- suffocates
+    its crew beside full tanks.
+    """
+    await _sphere(session, Planet.TERRA, airless=False)
+    port = await _port(session)
+    vessel, body, connector = await _hull(session, constants, port)
+    tank = await _in_tank(session, connector, AIR, 10)
+    vessel.docked_node_id = None
+    vessel.air_at = datetime.now(UTC) - timedelta(hours=1)
+    await session.flush()
+
+    assert await oxygen.reserve(session, constants, catalog, vessel) == 0
+    _, dead = await oxygen.tick_ships(session, constants, catalog)
+    assert dead == 0, "первый счёт только ставит отсчёт"
+    assert body.choking_since is not None
+
+    vessel.air_at = datetime.now(UTC) - timedelta(hours=1)
+    await session.flush()
+    _, dead = await oxygen.tick_ships(session, constants, catalog)
+    assert dead == 1
+    assert await _held(session, tank) == pytest.approx(10), (
+        "баллоны полны: без системы их никто не пьёт"
+    )
+
+
+async def test_when_the_line_runs_dry_the_crew_dies_after_one_settling_of_grace(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A drop on the line, then nothing: the reserve is all there is, and after it, death.
 
     One settling of grace on purpose: a tick landing a second after the last
     unit was spent must not be indistinguishable from suffocation.
@@ -238,6 +282,7 @@ async def test_without_water_the_tanks_drain_and_then_the_crew_dies(
     await _sphere(session, Planet.TERRA, airless=False)
     port = await _port(session)
     vessel, body, connector = await _hull(session, constants, port)
+    await _system(session, connector)
     await _in_tank(session, connector, AIR, 0.05)
 
     vessel.docked_node_id = None
@@ -245,8 +290,8 @@ async def test_without_water_the_tanks_drain_and_then_the_crew_dies(
     await session.flush()
 
     _, dead = await oxygen.tick_ships(session, constants, catalog)
-    assert dead == 0, "первый счёт только опустошает баки"
-    assert await oxygen.reserve(session, vessel) == pytest.approx(0, abs=0.01)
+    assert dead == 0, "первый счёт только опустошает линию"
+    assert await oxygen.reserve(session, constants, catalog, vessel) == pytest.approx(0, abs=0.01)
     assert body.choking_since is not None, "отсчёт до удушья пошёл"
 
     vessel.air_at = datetime.now(UTC) - timedelta(hours=1)
@@ -264,6 +309,7 @@ async def test_an_empty_hull_spends_nothing(
     await _sphere(session, Planet.TERRA, airless=False)
     port = await _port(session)
     vessel, body, connector = await _hull(session, constants, port)
+    await _system(session, connector)
     await _in_tank(session, connector, AIR, 20)
     body.node_id = port.id
     vessel.docked_node_id = None
@@ -271,7 +317,7 @@ async def test_an_empty_hull_spends_nothing(
     await session.flush()
 
     await oxygen.tick_ships(session, constants, catalog)
-    assert await oxygen.reserve(session, vessel) == pytest.approx(20, abs=0.01)
+    assert await oxygen.reserve(session, constants, catalog, vessel) == pytest.approx(20, abs=0.01)
 
 
 # --- a body outside breathes a cylinder through a suit -------------------------
@@ -491,53 +537,50 @@ async def test_refilling_gives_the_grace_back(
     assert body.choking_since is None, "заправился — отсрочка вернулась"
 
 
-async def test_the_gauge_says_the_tanks_are_going_down_when_there_is_no_water(
+async def test_the_gauge_reads_the_line_and_the_sky(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """A system with nothing to run on makes nothing, and the reading must say so.
-
-    This is the one refusal the whole scale exists for: a full bar and a calm
-    rate right up to the tick that starts killing would be exactly the death by
-    surprise the module is built against.
+    """The level is what stands on the line, the rate is the crew's draw --
+    and only under a sealed hull: at a Terran pier the hatch is open and
+    nothing is spent (D-233). Oxygen no line reaches is not on the gauge,
+    because it is not what the crew dies by.
     """
     await _sphere(session, Planet.TERRA, airless=False)
     port = await _port(session)
     vessel, body, connector = await _hull(session, constants, port)
-    yard = await world.node_container(session, connector)
-    await world.grant_item(session, yard, LIFE, quality=60, origin="тест")
-    await _charged(session, connector, cells=8)
+    await _system(session, connector)
     await _in_tank(session, connector, AIR, 10)
+    await _in_canister(session, connector, AIR, 4, installed=False)
+
+    open_hatch = await oxygen.gauge(session, constants, catalog, vessel, crew=1)
+    assert open_hatch["sealed"] is False
+    assert open_hatch["per_hour"] == 0
+    assert open_hatch["units"] == pytest.approx(10), "канистра на полу — не запас"
+
     vessel.docked_node_id = None
     await session.flush()
-
-    dry = await oxygen.gauge(session, constants, catalog, vessel, crew=1)
-    assert dry["sealed"] is True
-    assert dry["per_hour"] < 0, "воды нет: баки идут вниз, и шкала это говорит"
-
-    await _in_tank(session, connector, WATER, 5000)
-    wet = await oxygen.gauge(session, constants, catalog, vessel, crew=1)
-    assert wet["per_hour"] == 0, "вода есть: система покрывает дыхание ровно"
+    shut = await oxygen.gauge(session, constants, catalog, vessel, crew=2)
+    assert shut["sealed"] is True
+    assert shut["per_hour"] == pytest.approx(-2 * constants[R.OXYGEN_CREW_DRAW])
 
 
-async def test_two_hulls_settling_together_do_not_drink_one_tank_twice(
+async def test_two_hulls_settling_together_do_not_drink_one_cylinder_twice(
     factory: async_sessionmaker[AsyncSession], constants: Constants, catalog: Catalog
 ) -> None:
     """The tick and a second tick land on one hull at once.
 
-    The water a system turns into air is a quantity of a shared thing: read
-    without a lock, both passes would report air neither of them made and the
-    crew would live through an hour it did not live through.
+    The air on the line is a quantity of a shared thing: read without a lock,
+    both passes would breathe the same units and the crew would live through
+    an hour it did not live through.
     """
     async with factory() as session, session.begin():
         await _sphere(session, Planet.TERRA, airless=False)
         port = await _port(session)
         vessel, _, connector = await _hull(session, constants, port)
-        yard = await world.node_container(session, connector)
-        await world.grant_item(session, yard, LIFE, quality=60, origin="тест")
-        await _charged(session, connector, cells=40)
-        #: Water for exactly one hour of one system, and no more: the second
-        #: pass must find the tank empty rather than the reading it started from.
-        await _in_tank(session, connector, WATER, 10 * constants[R.OXYGEN_CREW_DRAW])
+        await _system(session, connector)
+        #: Air for exactly one hour of one person, and no more: the second
+        #: pass must find the line dry rather than the reading it started from.
+        await _in_tank(session, connector, AIR, constants[R.OXYGEN_CREW_DRAW])
         vessel.docked_node_id = None
         vessel.air_at = datetime.now(UTC) - timedelta(hours=1)
         await session.flush()
@@ -548,76 +591,68 @@ async def test_two_hulls_settling_together_do_not_drink_one_tank_twice(
     async def breathe() -> float:
         async with factory() as db, db.begin():
             #: Both transactions open and looking at the same hull before either
-            #: writes -- that is the window an unlocked settling drinks the tank
+            #: writes -- that is the window an unlocked settling drinks the line
             #: twice in. Nothing is written before the barrier on purpose: two
             #: writes to one row before it would simply deadlock and prove
             #: nothing about the code under test.
             await db.get(Ship, ship_id)
             await ready.wait()
-            made, _ = await oxygen.tick_ships(db, constants, catalog)
-            return made
+            breathed, _ = await oxygen.tick_ships(db, constants, catalog)
+            return breathed
 
-    made = sum(await asyncio.gather(breathe(), breathe()))
+    breathed = sum(await asyncio.gather(breathe(), breathe()))
 
     async with factory() as session:
         vessel = await session.get(Ship, ship_id)
-        water = await oxygen.water_aboard(session, vessel)
-    assert water == pytest.approx(0, abs=0.01), "вода списана вся"
-    assert made == pytest.approx(constants[R.OXYGEN_CREW_DRAW], abs=0.01), (
-        f"воздуха отчитано {made:.3f} при воде на {constants[R.OXYGEN_CREW_DRAW]:.3f}"
+        left = await oxygen.reserve(session, constants, catalog, vessel)
+    assert left == pytest.approx(0, abs=0.01), "линия выпита вся"
+    assert breathed == pytest.approx(constants[R.OXYGEN_CREW_DRAW], abs=0.01), (
+        f"воздуха отчитано {breathed:.3f} при запасе {constants[R.OXYGEN_CREW_DRAW]:.3f}"
     )
 
 
-async def test_the_life_support_reaches_a_canister_as_readily_as_a_tank(
+async def test_the_line_reaches_an_installed_canister_as_readily_as_a_tank(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Air and its water come from any vessel **standing in a compartment**.
-
-    Deliberately wider than the fuel a passage burns (D-230): the engines are
-    plumbed to the tanks, the life support is a machine somebody carries a
-    canister to. A crew suffocating beside a hold full of oxygen because the
-    bottles were the wrong shape would be a bug with an explanation. Where that
-    reach stops is pinned by the test below.
+    """What stands on a line is a vessel **installed** aboard (D-288), whatever
+    its shape: a canister put up in the room is breathed like a tank, one
+    lying in it is luggage -- and the word for the difference is on the
+    thing itself, not in the depth of the stowage.
     """
     await _sphere(session, Planet.TERRA, airless=False)
     port = await _port(session)
     vessel, body, connector = await _hull(session, constants, port)
-    yard = await world.node_container(session, connector)
-    await world.grant_item(session, yard, LIFE, quality=60, origin="тест")
-    await _charged(session, connector, cells=8)
-    #: Not one tank aboard: everything is in canisters.
-    await _in_canister(session, connector, AIR, 4)
-    await _in_canister(session, connector, WATER, 5000)
+    await _system(session, connector)
+    #: Not one tank aboard: everything is in canisters, one put up, one lying.
+    standing = await _in_canister(session, connector, AIR, 4)
+    lying = await _in_canister(session, connector, AIR, 9, installed=False)
     vessel.docked_node_id = None
     await session.flush()
 
-    assert await oxygen.reserve(session, vessel) == pytest.approx(4, abs=0.01)
-    assert await oxygen.water_aboard(session, vessel) == pytest.approx(5000, abs=0.01)
-    reading = await oxygen.gauge(session, constants, catalog, vessel, crew=1)
-    assert reading["per_hour"] == 0, "воду из канистры система видит и покрывает дыхание"
+    assert await oxygen.reserve(session, constants, catalog, vessel) == pytest.approx(4, abs=0.01)
 
-    #: And spends it: with the water gone the canister of air is the reserve.
     vessel.air_at = datetime.now(UTC) - timedelta(hours=2)
     await session.flush()
     await oxygen.tick_ships(session, constants, catalog)
-    assert await oxygen.water_aboard(session, vessel) < 5000, "вода из канистры израсходована"
-    assert await oxygen.reserve(session, vessel) == pytest.approx(4, abs=0.01), (
-        "воздуха хватило: баллоны трогать не пришлось"
-    )
+    assert await _held(session, standing) == pytest.approx(
+        4 - 2 * constants[R.OXYGEN_CREW_DRAW], abs=0.01
+    ), "система пьёт установленную канистру"
+    assert await _held(session, lying) == pytest.approx(9), "лежащая — груз, её не пьют"
 
 
 async def test_a_canister_packed_into_a_chest_is_stowed_cargo(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """The reach is one level: what stands in the room, and what is inside it.
+    """A vessel is on the line only when it stands installed in a room.
 
-    The rule is the same one step along -- nothing rummages through luggage --
-    and it is pinned here because it is exactly the kind of boundary a crew
-    finds out about by dying: the spare oxygen was put away tidily.
+    Packed into a chest it is luggage, and lying on the floor it is luggage
+    too -- pinned here because it is exactly the kind of boundary a crew finds
+    out about by dying: the spare oxygen was put away tidily.
     """
     await _sphere(session, Planet.TERRA, airless=False)
     port = await _port(session)
     vessel, _, connector = await _hull(session, constants, port)
+    await _system(session, connector)
     yard = await world.node_container(session, connector)
 
     chest = await world.grant_item(session, yard, CHEST, quality=60, origin="тест")
@@ -627,9 +662,18 @@ async def test_a_canister_packed_into_a_chest_is_stowed_cargo(
         session, await storage.inside(session, can), AIR, amount=9, quality=60, origin="тест"
     )
 
-    assert await oxygen.reserve(session, vessel) == 0, "убранное в сундук — груз, а не запас"
+    assert await oxygen.reserve(session, constants, catalog, vessel) == 0, (
+        "убранное в сундук — груз, а не запас"
+    )
 
-    #: The same canister standing in the room is the reserve.
+    #: Out of the chest and onto the floor: still luggage.
     can.container_id = yard.id
     await session.flush()
-    assert await oxygen.reserve(session, vessel) == pytest.approx(9, abs=0.01)
+    assert await oxygen.reserve(session, constants, catalog, vessel) == 0, (
+        "лежащее на полу — тоже груз"
+    )
+
+    #: Put up in the room, it stands on the line.
+    can.installed = True
+    await session.flush()
+    assert await oxygen.reserve(session, constants, catalog, vessel) == pytest.approx(9, abs=0.01)

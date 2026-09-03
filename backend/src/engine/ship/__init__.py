@@ -121,6 +121,7 @@ from src.engine.ship import course  # noqa: F401
 from src.engine.ship._base import (  # noqa: F401
     _EPS,
     ABOARD,
+    AIR,
     BRIDGE,
     CLIMB,
     DESCENT,
@@ -179,6 +180,12 @@ from src.engine.ship.command import (  # noqa: F401
     _landable,
     _will_take,
 )
+from src.engine.ship.feed import (  # noqa: F401
+    NoSuchPort,
+    NotOnLine,
+    set_lines,
+)
+from src.engine.ship.feed import view as lines_view  # noqa: F401
 from src.engine.ship.flight import (  # noqa: F401
     _moor_to,
     arrived,
@@ -196,6 +203,7 @@ from src.engine.ship.physics import (  # noqa: F401
     efficiency,
     engine_class,
     engines,
+    engines_aboard,
     fall_hours,
     fuel_aboard,
     fuel_energy,
@@ -213,8 +221,6 @@ from src.engine.ship.physics import (  # noqa: F401
     ratio,
     sky_days,
     spend_fuel,
-    tank_stacks,
-    tanks_of,
     thrust,
 )
 from src.engine.ship.shape import (  # noqa: F401

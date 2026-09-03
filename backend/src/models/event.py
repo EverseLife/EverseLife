@@ -117,6 +117,9 @@ class EventKind(StrEnum):
     #: The helm went over (D-242): the passage is dropped and the hull is coming
     #: back to the pier it left, for as long as it has already flown.
     SHIP_RECALLED = "ship.recalled"
+    #: The owner plumbed a port (D-288): which vessels a machine drinks from
+    #: and in what order. An empty list is the port going back to "any".
+    LINE_SET = "line.set"
 
     # transport and convoy (D-157)
     TRANSPORT_HARNESSED = "transport.harnessed"

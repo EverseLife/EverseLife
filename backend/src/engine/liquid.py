@@ -296,6 +296,16 @@ async def pour(
         await gear.check_carry(session, constants, catalog, body, liquid_name, fits)
 
     hold = await storage.inside(session, target)
+    #: One liquid per vessel (D-288): a tank of fuel with water in it is
+    #: nonsense, not a reserve, and a machine's outlet keeps the same rule.
+    other = next(
+        (one for one in await storage.content(session, target) if one.type_key != liquid_name),
+        None,
+    )
+    if other is not None:
+        raise LiquidError(
+            key="liquid-mixed", vessel=target.type_key, goods=liquid_name, have=other.type_key
+        )
     left = fits
     poured = 0.0
     for stack in stacks:

@@ -269,6 +269,11 @@ ENERGY_WATERWHEEL_RATE = Num("energy.waterwheel_rate")
 ENERGY_WINDMILL_RATE = Span("energy.windmill_rate")
 ENERGY_COAL_PLANT_RATE = Num("energy.coal_plant_rate")
 ENERGY_COAL_PLANT_FUEL_DRAW = Num("energy.coal_plant_fuel_draw")
+#: Generators that need neither river, wind nor fuel (D-288): the panel and
+#: the isotope generator, per hour. Off the grid they charge the batteries
+#: within reach; in a city they feed the pool like any other.
+ENERGY_SOLAR_RATE = Num("energy.solar_rate")
+ENERGY_ISOTOPE_RATE = Num("energy.isotope_rate")
 ENERGY_BATTERY_CAPACITY = Num("energy.battery_capacity")
 ENERGY_BATTERY_MASS = Num("energy.battery_mass")
 ENERGY_BATTERY_SELFDISCHARGE = Num("energy.battery_selfdischarge")
@@ -538,7 +543,8 @@ SHIP_FUEL_PER_TON_DAY = Num("ship.fuel_per_ton_day")
 #: computed in rocket-fuel units, the tanks pay by density -- kerosene burns
 #: fewer units for the same passage. Absent from the table -- worth one.
 SHIP_FUEL_ENERGY = Table("ship.fuel_energy")
-SHIP_LIFE_SUPPORT_CREW = Num("ship.life_support_crew")
+#: No number of people per life support system (D-288): the draw is the
+#: ceiling, as mass is the hold's -- `ship.life_support_crew` left with it.
 #: The orbital step (D-245): what it costs to leave a planet and to come back
 #: down to it. Multiplied by the planet's own gravity and stretched by
 #: thrust-to-mass, like every other passage. Descent is the shorter of the two:

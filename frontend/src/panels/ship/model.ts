@@ -80,8 +80,8 @@ export type Engine = { name: string; count: number; thrust: number; class: numbe
  * client counts the hand itself, as it does the cold and the clock (D-226).
  */
 export type Air = {
+  /** What stands on the life support's line (D-288): the oxygen the crew dies by. */
   units: number;
-  water: number;
   /** Whether the hull is breathing its own air at all: in port under a sky
    *  that has some, nothing is spent and the rate is zero. */
   sealed: boolean;
@@ -129,7 +129,10 @@ export type Vessel = {
   min_ratio: number;
   class: number | null;
   crew: number;
-  life_support: number;
+  /** Whether a life support system stands aboard at all (D-288): no number of
+   *  people any more -- the air on its line is the ceiling, and that is `air`. */
+  life_support: boolean;
+  /** What the engines' lines hold, in physical units (D-288). */
   fuel: number;
   air: Air;
   /** Which planet's sky the hull stands in -- where the chart draws it. */

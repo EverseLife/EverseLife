@@ -82,8 +82,18 @@ def is_furniture(catalog: Catalog, type_key: str) -> bool:
 
 
 def placeable(catalog: Catalog, type_key: str) -> bool:
-    """What is placeable in a building at all: a machine or furniture."""
-    return is_station(catalog, type_key) or is_furniture(catalog, type_key)
+    """What is placeable in a building at all: a machine, furniture -- or a vessel.
+
+    A vessel put up in a compartment stands on the hull's lines (D-288): the
+    engines and the life support drink from what is installed and nothing
+    else, so a canister or a cylinder is placed the way a chest is, whatever
+    its kind says. Taken down, it is luggage again.
+    """
+    return (
+        is_station(catalog, type_key)
+        or is_furniture(catalog, type_key)
+        or storage.is_vessel(catalog, type_key)
+    )
 
 
 async def may_build(session: AsyncSession, body: Body, node: Node) -> bool:

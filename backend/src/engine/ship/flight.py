@@ -40,7 +40,7 @@ from src.engine.ship._base import (
     is_orbit,
     orbit_node_of,
 )
-from src.engine.ship.belonging import crew_of, nodes_of
+from src.engine.ship.belonging import nodes_of
 from src.engine.ship.building import _planet_root
 from src.engine.ship.command import _commanded_by, _landable, _will_take
 from src.engine.ship.physics import (
@@ -135,10 +135,11 @@ async def _leaving(
     floor = constants[R.SHIP_MIN_THRUST_RATIO]
     if thrust_ratio < floor:
         raise NotEnoughThrust(key="ship-not-enough-thrust", have=thrust_ratio, need=floor)
-    crew = len(await crew_of(session, ship))
-    holds = await life_support(session, constants, ship)
-    if crew > holds:
-        raise NoLifeSupport(key="ship-no-life-support", crew=crew, holds=holds)
+    #: A system, not a number of people (D-288): the crew has no ceiling, the
+    #: air on the system's line is the ceiling, and the console shows the
+    #: hours. What is refused is a hull that breathes for nobody at all.
+    if not await life_support(session, ship):
+        raise NoLifeSupport(key="ship-no-life-support")
     return here, connector, thrust_ratio
 
 
@@ -196,7 +197,7 @@ async def _burn(
     #: and burnt under one lock (`burn_checked`): a tank drained between the
     #: two would otherwise let the leg fly on fuel it never paid. Burnt out
     #: of the tanks (D-230): the engines reach nothing else.
-    burnt, have = await burn_checked(session, constants, ship, need=need, whole=whole)
+    burnt, have = await burn_checked(session, constants, catalog, ship, need=need, whole=whole)
     if burnt <= 0 and have + _EPS < whole:
         raise NoFuel(key="ship-no-fuel", why=refusal, need=whole, goods=FUEL, have=have)
     return burnt, weight

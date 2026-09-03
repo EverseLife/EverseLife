@@ -312,8 +312,13 @@ async def profile(
         "min_ratio": constants[R.SHIP_MIN_THRUST_RATIO],
         "class": have_class,
         "crew": crew,
-        "life_support": await life_support(session, constants, ship, things=things),
-        "fuel": round(await fuel_aboard(session, ship), ROUND_MASS),
+        #: Whether a system stands aboard at all (D-288): not how many people
+        #: it holds -- nothing holds a number of people any more, the air on
+        #: its line does, and that is `air` below.
+        "life_support": await life_support(session, ship, things=things) > 0,
+        "fuel": round(
+            await fuel_aboard(session, constants, catalog, ship, things=things), ROUND_MASS
+        ),
         #: The air (D-233, D-234). On the console rather than in `look`, because
         #: it is a fact about the **hull** and not about the room one stands in:
         #: the whole ship shares one atmosphere, and every compartment of it

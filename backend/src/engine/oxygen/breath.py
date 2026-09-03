@@ -2,8 +2,8 @@
 # Copyright (C) 2026 Nurlan Urazkulov
 
 """The breathing itself: the step out that demands air, the body's hours
-settled from what it carries, the hull's hours that make air from water
-and charge -- and the deaths when either runs dry.
+settled from what it carries, the hull's hours breathed off the life
+support's line -- and the deaths when either runs dry.
 """
 
 from __future__ import annotations
@@ -21,11 +21,8 @@ from src.engine import events, stock
 from src.engine import ship as vessels
 from src.engine.oxygen._base import (
     _EPS,
-    AIR,
     ASPHYXIA,
-    ENERGY,
     SUIT,
-    WATER,
     Breath,
     NoAir,
     airless_planets,
@@ -33,20 +30,16 @@ from src.engine.oxygen._base import (
     sealed,
 )
 from src.engine.oxygen.supply import (
-    _liquids,
-    _per_unit,
     breathable_stacks,
     carried,
     cylinders,
     hull_draw,
-    hull_output,
     reserve,
     suited,
-    water_aboard,
 )
+from src.engine.ship import lines
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState
-from src.models.inventory import Item
 from src.models.ship import Ship
 from src.models.world import Node
 from src.units import (
@@ -87,7 +80,7 @@ async def require_air(
     if await free_air(session, target):
         return
     ship = await vessels.of_node(session, target)
-    if ship is not None and await reserve(session, ship) > _EPS:
+    if ship is not None and await reserve(session, constants, catalog, ship) > _EPS:
         return
     if not await suited(session, catalog, body):
         raise NoAir(key="oxygen-no-suit", node=target.name, suit=SUIT)
@@ -287,11 +280,11 @@ async def tick_ships(
     *,
     now: datetime | None = None,
 ) -> tuple[float, int]:
-    """Every sealed hull breathes its stretch. Returns (air made, crew lost).
+    """Every sealed hull breathes its stretch. Returns (air breathed, crew lost).
 
     A hull is settled once for its whole crew: the draw is a number of people
-    times an hourly rate, and asking it body by body would read the same tanks
-    once a head.
+    times an hourly rate, and asking it body by body would read the same
+    vessels once a head.
     """
     moment = now or datetime.now(UTC)
     #: Only the hulls with a stretch to settle: a fleet grows with the players,
@@ -302,25 +295,25 @@ async def tick_ships(
         .scalars()
         .all()
     )
-    made = 0.0
+    breathed = 0.0
     dead = 0
     open_hulls: list[uuid.UUID] = []
     for ship in afloat:
         if not await sealed(session, ship):
             #: A hull with the hatch open still moves its stamp: otherwise a
-            #: month at a Terran pier would be charged to the tanks the moment
+            #: month at a Terran pier would be charged to the line the moment
             #: it cast off. Gathered and written in one statement -- most of a
             #: world's ships stand at a pier, and each of them is not worth a
             #: round trip.
             open_hulls.append(ship.id)
             continue
-        grew, lost = await _breathe(session, constants, catalog, ship, now=moment)
-        made += grew
+        drawn, lost = await _breathe(session, constants, catalog, ship, now=moment)
+        breathed += drawn
         dead += lost
     if open_hulls:
         await session.execute(update(Ship).where(Ship.id.in_(open_hulls)).values(air_at=moment))
         await session.flush()
-    return made, dead
+    return breathed, dead
 
 
 async def _breathe(
@@ -331,7 +324,7 @@ async def _breathe(
     *,
     now: datetime,
 ) -> tuple[float, int]:
-    """One hull's stretch: make what can be made, spend the rest, count the dead."""
+    """One hull's stretch: breathe it off the life support's line, count the dead."""
     locked = (
         (
             await session.execute(
@@ -356,29 +349,31 @@ async def _breathe(
         await session.flush()
         return 0.0, 0
 
-    #: The hold, once. Everything below asks it something -- how many life
-    #: support systems stand there, how much water they have, where the air is
-    #: -- and each question used to walk the rooms again: five readings of one
-    #: hull per tick. It is a **reading**; every write-off below relocks its
-    #: stacks by id under `FOR UPDATE`, so nothing is decided from these numbers.
-    hold = await vessels._things(session, locked)
-    _, water = await _liquids(session, locked, things=hold)
+    #: The hold, once: which systems stand there and which vessels their
+    #: lines reach. It is a **reading**; the write-off below relocks its
+    #: stacks by id under `FOR UPDATE`, so nothing is decided from it.
+    hold = await lines.hold_of(session, locked)
 
     need = hull_draw(constants, len(crew)) * hours
-    can = (await hull_output(session, constants, catalog, locked, things=hold, water=water)) * hours
-    grew = await _make_air(session, constants, catalog, locked, min(need, can), things=hold)
-    short = max(0.0, need - grew)
-    if short > _EPS:
+    drawn = 0.0
+    if need > _EPS:
         stacks = await stock.lock_items(
-            session, await breathable_stacks(session, locked, AIR, things=hold)
+            session,
+            await breathable_stacks(session, constants, catalog, locked, things=hold),
+            ordered=True,
         )
-        short -= amount_float(await stock.consume(session, stacks, amount(short)))
+        #: What was **actually** written off is what was breathed, not what
+        #: the reading promised: another hand may have poured the cylinder out
+        #: between the two, and a crew credited with air it never had would
+        #: live through an hour it did not live through.
+        drawn = amount_float(await stock.consume(session, stacks, amount(need)))
+    short = max(0.0, need - drawn)
     await session.flush()
 
     if short <= _EPS:
         for member in crew:
             await _breathing(session, member)
-        return grew, 0
+        return drawn, 0
 
     #: The hull ran dry. One settling of grace, exactly as outside: a stretch
     #: only half covered kills nobody, and the next one begun on empty tanks
@@ -416,68 +411,4 @@ async def _breathe(
             crew=len(crew),
             **aboard,
         )
-    return grew, dead
-
-
-async def _make_air(
-    session: AsyncSession,
-    constants: Constants,
-    catalog: Catalog,
-    ship: Ship,
-    wanted: float,
-    *,
-    things: list[Item] | None = None,
-) -> float:
-    """Run the electrolysis: water out of the vessels, charge out of the batteries.
-
-    Makes less when either runs short, and that is the whole autonomy problem
-    (D-234): two tonnes of water and a crate of batteries are the price of
-    breathing for a season, and they are mass on every passage.
-
-    `things` is the hold when the caller has read it already; the write-off
-    below relocks whatever it takes, so a stale reading cannot overspend.
-    """
-    if wanted <= _EPS:
-        return 0.0
-    per_water = _per_unit(catalog, WATER)
-    per_energy = _per_unit(catalog, ENERGY)
-
-    if per_water > 0:
-        have = await water_aboard(session, ship, things=things)
-        wanted = min(wanted, have / per_water)
-    if wanted <= _EPS:
-        return 0.0
-    if per_energy > 0:
-        charge = await _charge_for(session, constants, ship, wanted * per_energy)
-        wanted = min(wanted, charge / per_energy)
-    if wanted <= _EPS:
-        return 0.0
-
-    if per_water <= 0:
-        return wanted
-    #: What was **actually** written off decides how much air there is, not what
-    #: the reading above promised: another hand may have drained the tank
-    #: between the two, and reporting air that was never made would let a crew
-    #: survive an hour it did not survive.
-    stacks = await stock.lock_items(
-        session, await breathable_stacks(session, ship, WATER, things=things)
-    )
-    spent = amount_float(await stock.consume(session, stacks, amount(wanted * per_water)))
-    return min(wanted, spent / per_water)
-
-
-async def _charge_for(
-    session: AsyncSession, constants: Constants, ship: Ship, wanted: float
-) -> float:
-    """Charge for the electrolysis, out of the batteries of the ship's own nodes."""
-    from src.engine import energy  # noqa: PLC0415 -- lazy: breaks the cycle with energy
-
-    left = wanted
-    taken = 0.0
-    for room in await vessels.nodes_of(session, ship):
-        if left <= 0:
-            break
-        got = await energy.drain_batteries(session, constants, room, left)
-        left -= got
-        taken += got
-    return taken
+    return drawn, dead

@@ -266,11 +266,13 @@ async def test_a_landing_moors_at_the_chosen_pad_and_carries_the_passenger(
         owner.node_id = connector.id
         await session.flush()
 
-        fuel_before = await ship.fuel_aboard(session, vessel)
+        fuel_before = await ship.fuel_aboard(session, constants, catalog, vessel)
         await _in_orbit(session, constants, catalog, owner, vessel)
         assert vessel.docked_node_id == (await _orbit(session)).id, "борт на орбите"
         flight = await ship.land(session, constants, catalog, owner, vessel, there)
-        assert await ship.fuel_aboard(session, vessel) < fuel_before, "рейс сжёг топливо"
+        assert await ship.fuel_aboard(session, constants, catalog, vessel) < fuel_before, (
+            "рейс сжёг топливо"
+        )
         term, ship_id, owner_id = flight.run_at, vessel.id, owner.id
         connector_id, there_id = connector.id, there.id
 
@@ -307,13 +309,15 @@ async def test_a_ship_under_way_takes_no_second_order(
     await session.flush()
 
     await ship.ascend(session, constants, catalog, owner, vessel)
-    burnt = await ship.fuel_aboard(session, vessel)
+    burnt = await ship.fuel_aboard(session, constants, catalog, vessel)
 
     with pytest.raises(ship.InFlight):
         await ship.land(session, constants, catalog, owner, vessel, elsewhere)
     with pytest.raises(ship.InFlight):
         await ship.ascend(session, constants, catalog, owner, vessel)
-    assert await ship.fuel_aboard(session, vessel) == burnt, "отказ всё равно сжёг топливо"
+    assert await ship.fuel_aboard(session, constants, catalog, vessel) == burnt, (
+        "отказ всё равно сжёг топливо"
+    )
 
 
 async def test_two_orders_in_one_second_send_the_ship_once(
@@ -335,7 +339,7 @@ async def test_two_orders_in_one_second_send_the_ship_once(
         owner.node_id = connector.id
         await session.flush()
         ship_id, owner_id = vessel.id, owner.id
-        fuel_before = await ship.fuel_aboard(session, vessel)
+        fuel_before = await ship.fuel_aboard(session, constants, catalog, vessel)
 
     #: Both transactions must be open and looking at the same hull before
     #: either writes -- that is the window a check-then-act loses the ship in.
@@ -372,7 +376,7 @@ async def test_two_orders_in_one_second_send_the_ship_once(
             .all()
         )
         assert len(flights) == 1, "в журнале два рейса одного корпуса"
-        spent = fuel_before - await ship.fuel_aboard(session, vessel)
+        spent = fuel_before - await ship.fuel_aboard(session, constants, catalog, vessel)
         assert spent > 0, "рейс не сжёг топлива"
 
 
@@ -596,11 +600,11 @@ async def test_the_slider_has_two_ends_and_the_order_names_one(
     with pytest.raises(ship.NoArc):
         await ship.fly(session, constants, catalog, owner, vessel, far, via="nowhere")
 
-    before = await ship.fuel_aboard(session, vessel)
+    before = await ship.fuel_aboard(session, constants, catalog, vessel)
     flight = await ship.fly(
         session, constants, catalog, owner, vessel, far, hours=fast["hours"], via=fast["via"]
     )
-    burnt = before - await ship.fuel_aboard(session, vessel)
+    burnt = before - await ship.fuel_aboard(session, constants, catalog, vessel)
     assert flight.run_at - flight.created_at == pytest.approx(
         timedelta(hours=fast["hours"]), abs=timedelta(minutes=1)
     ), "рейс идёт ровно выбранное время"
@@ -632,11 +636,11 @@ async def test_a_turn_back_from_an_arc_pays_the_arc_again(
     expected = ship.course.fuel_for_speed(
         constants, weight, paid, efficiency=ship.efficiency(constants, klass)
     )
-    before = await ship.fuel_aboard(session, vessel)
+    before = await ship.fuel_aboard(session, constants, catalog, vessel)
     back = await ship.recall(
         session, constants, catalog, owner, vessel, now=flight.created_at + timedelta(hours=2)
     )
-    burnt = before - await ship.fuel_aboard(session, vessel)
+    burnt = before - await ship.fuel_aboard(session, constants, catalog, vessel)
     assert burnt == pytest.approx(expected, rel=0.05), "разворот стоит ту же Δv, что рейс"
     #: Back along the flown part only: the way home starts where the helm
     #: went over and ends at the orbit the hull cast off from.
@@ -744,7 +748,9 @@ async def test_a_crossing_needs_more_fuel_than_the_climb(
     await _in_orbit(session, constants, catalog, owner, vessel)
     forecast = await ship.forecast(session, constants, catalog, vessel, Planet.AURORA)
     fast = next(one for one in forecast["samples"] if one["ok"])
-    assert fast["fuel"] + forecast["reserve"] > await ship.fuel_aboard(session, vessel)
+    assert fast["fuel"] + forecast["reserve"] > await ship.fuel_aboard(
+        session, constants, catalog, vessel
+    )
     with pytest.raises(ship.NoFuel):
         await ship.fly(session, constants, catalog, owner, vessel, far, hours=fast["hours"])
 

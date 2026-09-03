@@ -89,11 +89,11 @@ async def test_fuel_in_a_canister_is_cargo_not_reserve(
     canister = await _equip(session, connector, "canister")
     inside = await storage.inside(session, canister)
     await world.grant_item(session, inside, FUEL, amount=5, quality=60, origin="тест")
-    assert await ship.fuel_aboard(session, vessel) == 0
+    assert await ship.fuel_aboard(session, constants, catalog, vessel) == 0
     assert await ship.mass(session, constants, catalog, vessel) > bare, "канистра с топливом весит"
 
     await _fuel(session, connector, 40)
-    assert await ship.fuel_aboard(session, vessel) == pytest.approx(40)
+    assert await ship.fuel_aboard(session, constants, catalog, vessel) == pytest.approx(40)
 
 
 async def test_card_lists_engines_and_where_the_mass_comes_from(
@@ -230,12 +230,14 @@ async def test_turning_back_costs_the_way_already_flown(
     #: past the landing floor, so what is pinned here is the rule itself.
     gone = timedelta(hours=12)
     moment = flight.created_at + gone
-    before = await ship.fuel_aboard(session, vessel)
+    before = await ship.fuel_aboard(session, constants, catalog, vessel)
     back = await ship.recall(session, constants, catalog, owner, vessel, now=moment)
 
     assert back.payload["to"] == str(home.id)
     assert back.run_at - moment == gone
-    assert await ship.fuel_aboard(session, vessel) < before, "разворот сжёг своё топливо"
+    assert await ship.fuel_aboard(session, constants, catalog, vessel) < before, (
+        "разворот сжёг своё топливо"
+    )
 
     await session.refresh(flight)
     assert flight.state is JobState.CANCELLED, "прежний рейс снят: два прихода на один корпус"
@@ -265,12 +267,14 @@ async def test_a_turn_back_is_not_turned_back(
     moment = flight.created_at + timedelta(hours=12)
     back = await ship.recall(session, constants, catalog, owner, vessel, now=moment)
 
-    burnt = await ship.fuel_aboard(session, vessel)
+    burnt = await ship.fuel_aboard(session, constants, catalog, vessel)
     with pytest.raises(ship.InFlight):
         await ship.recall(
             session, constants, catalog, owner, vessel, now=moment + timedelta(seconds=1)
         )
-    assert await ship.fuel_aboard(session, vessel) == burnt, "отказ не сжёг топлива"
+    assert await ship.fuel_aboard(session, constants, catalog, vessel) == burnt, (
+        "отказ не сжёг топлива"
+    )
     #: And the way home is still the half day it was, not nought.
     await session.refresh(back)
     assert back.run_at - moment == timedelta(hours=12)
@@ -333,7 +337,7 @@ async def test_a_turn_back_never_costs_less_than_a_landing(
     flight = await ship.ascend(session, constants, catalog, owner, vessel)
     await session.refresh(flight)
 
-    before = await ship.fuel_aboard(session, vessel)
+    before = await ship.fuel_aboard(session, constants, catalog, vessel)
     #: Turned round the same second it set out.
     back = await ship.recall(session, constants, catalog, owner, vessel, now=flight.created_at)
 
@@ -342,7 +346,7 @@ async def test_a_turn_back_never_costs_less_than_a_landing(
     assert back.run_at - flight.created_at == pytest.approx(
         timedelta(hours=landing), abs=timedelta(seconds=1)
     ), "разворот в ту же секунду всё равно длится посадку"
-    assert await ship.fuel_aboard(session, vessel) < before, "и стоит топлива"
+    assert await ship.fuel_aboard(session, constants, catalog, vessel) < before, "и стоит топлива"
 
 
 async def test_somebody_elses_ground_console_is_refused(
@@ -466,7 +470,7 @@ async def test_two_turn_backs_in_one_second_burn_one_return(
         ship_id, owner_id = vessel.id, owner.id
         flown = 12.0
         moment = flight.created_at + timedelta(hours=flown)
-        before = await ship.fuel_aboard(session, vessel)
+        before = await ship.fuel_aboard(session, constants, catalog, vessel)
         #: What one turn-back costs, by the engine's own formula: the hours it
         #: has flown, priced by mass and by the class that pushes it.
         one_turn = ship.fuel_for(
@@ -499,7 +503,7 @@ async def test_two_turn_backs_in_one_second_burn_one_return(
 
     async with factory() as session:
         vessel = await session.get(Ship, ship_id)
-        left = await ship.fuel_aboard(session, vessel)
+        left = await ship.fuel_aboard(session, constants, catalog, vessel)
         going = (
             (
                 await session.execute(

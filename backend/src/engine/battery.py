@@ -38,7 +38,7 @@ from src.models.event import EventKind
 from src.models.identity import Body, BodyState
 from src.models.inventory import Item
 from src.models.ledger import AccountKind, PostingReason
-from src.models.world import Node
+from src.models.world import Node, is_aboard
 from src.units import (
     ENERGY_PER_TARIFF_UNIT,
     PERCENT,
@@ -260,20 +260,84 @@ async def charge_battery(
 
 
 async def batteries_in(session: AsyncSession, node: Node) -> list[Item]:
-    """The batteries standing in this node, locked for the transaction.
+    """The batteries standing in this node, locked for the transaction -- and
+    aboard a ship, in **every** room of the hull.
 
-    Locked because charge is a quantity of a shared thing (CLAUDE.md): the
-    ship's life support draws from the same cells a crew member is unplugging
-    to carry off. In id order, like every other write-off over a node's yard.
+    Locked because charge is a quantity of a shared thing (CLAUDE.md): a
+    machine draws from the same cells a crew member is unplugging to carry
+    off. In id order across the yards, like every other write-off.
+
+    The hull is one building (D-288): a cell in the hold feeds the machine in
+    the workshop, because a ship's rooms are one delegate node's children and
+    the wiring between them is not worth a picture. The rooms are read off
+    the node in hand -- its siblings -- so this asks nothing of the ship
+    package, which imports this module through the gear.
     """
-    yard = await world.node_container(session, node)
+    rooms = [node]
+    if is_aboard(node) and node.parent_id is not None:
+        rooms = list(
+            (await session.execute(select(Node).where(Node.parent_id == node.parent_id)))
+            .scalars()
+            .all()
+        )
+    yards = [await world.node_container(session, room) for room in rooms]
     #: The cells put up in the house (D-278): one dropped on the floor is cargo
     #: and feeds nothing until somebody stands it.
     return [
         cell
-        for cell in await stock.locked_stacks(session, yard.id, world.station_names(BATTERY))
+        for cell in await stock.locked_stacks(
+            session, [yard.id for yard in yards], world.station_names(BATTERY)
+        )
         if cell.installed
     ]
+
+
+async def fill_cells(
+    session: AsyncSession,
+    constants: Constants,
+    cells: list[Item],
+    offered: float,
+    *,
+    now: datetime | None = None,
+) -> float:
+    """Put charge into these locked cells, in order, up to their capacity.
+
+    Returns what the cells actually took. The mirror of `drain_cells`, and for
+    the same generator that never had a pool to fill (D-288): a panel or an
+    isotope generator off the grid charges what stands within reach, and what
+    nothing takes is not kept -- free energy for export does not exist.
+    """
+    moment = now or datetime.now(UTC)
+    if offered <= 0:
+        return 0.0
+    left = offered
+    banked = 0.0
+    for cell in cells:
+        if left <= 0:
+            break
+        have = await settle_charge(session, constants, cell, now=moment)
+        pile = amount_float(cell.amount)
+        room = capacity(constants) - have
+        if room <= 0 or pile <= 0:
+            continue
+        #: Evenly into the pile, as the drain takes evenly out of it: a stack
+        #: of cells stays one stack of one charge.
+        give = min(left, room * pile)
+        was = Decimal(str(have))
+        stored = min(
+            Decimal(str(capacity(constants))),
+            _on_grid(was + Decimal(str(give)) / Decimal(str(pile))),
+        )
+        if stored <= was:
+            continue
+        cell.charge = stored
+        cell.charged_at = moment
+        really = float((stored - was) * Decimal(str(pile)))
+        left -= really
+        banked += really
+    if banked > 0:
+        await session.flush()
+    return banked
 
 
 async def batteries_carried(session: AsyncSession, body: Body) -> list[Item]:

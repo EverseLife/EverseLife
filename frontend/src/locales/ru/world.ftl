@@ -173,17 +173,29 @@ ui-ship-ratio = { $ratio } тяги на кг массы
 ui-ship-class = класс { $class }
 ui-ship-below-threshold = ниже порога отрыва
 ui-ship-air = кислород
-ui-ship-air-tanks = { $units } в баках · вода { $water }
+ui-ship-air-line = { $units } на линии жизнеобеспечения
 ui-ship-air-burn = расход { $spend } в час · хватит на { $term }
-ui-ship-air-covered = жизнеобеспечение покрывает экипаж
-ui-ship-air-outside = за бортом воздух, генерация спит
+ui-ship-air-covered = на борту никто не дышит
+ui-ship-air-outside = за бортом воздух, система спит
+
+## Питание (D-288): линии от машины к таре.
+
+ui-ship-feed = Питание
+ui-ship-feed-hint = Порт без отметок пьёт из любой установленной тары на борту. Отметьте тару, чтобы сузить линию; порядок отметок — порядок расхода.
+ui-ship-feed-none = Машин с линиями на борту нет: двигатель и система жизнеобеспечения появятся здесь, когда встанут в отсек.
+ui-ship-feed-any = любая установленная тара на борту
+ui-ship-feed-reset = снова любая
+ui-ship-feed-no-vessels = Подходящей установленной тары на борту нет: поставьте бак, канистру или баллон в отсек.
+ui-ship-feed-empty = пусто
+ui-ship-feed-up = выше
 
 ## Строка о корпусе, одна на каждый: где он и чем дышит.
 
 ui-ship-sign = { $name } · { $nodes } узл. · тяга { $thrust } на массу { $mass } кг
 ui-ship-ratio-line = тяговооружённость { $ratio } при нужных { $min }
 ui-ship-stuck = не отрывается
-ui-ship-crew = экипаж { $crew } из { $support } · топлива в баках { $fuel }
+ui-ship-crew = экипаж { $crew } · топлива на линиях { $fuel }
+ui-ship-no-life-support = без системы жизнеобеспечения
 ui-ship-in-orbit = на околопланетной орбите { $planet }
 ui-ship-berthed = у верфи «{ $port }», место { $berth }
 ui-ship-on-voyage = в рейсе в «{ $name }»

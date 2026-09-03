@@ -13,6 +13,7 @@ from src.api.commands import (  # noqa: F401
     estate,
     farm,
     finance,
+    lines,
     look,
     market,
     mining,
