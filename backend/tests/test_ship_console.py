@@ -93,6 +93,9 @@ async def test_fuel_in_a_canister_is_cargo_not_reserve(
     assert await ship.fuel_aboard(session, constants, catalog, vessel) == 0
     assert await ship.mass(session, constants, catalog, vessel) > bare, "канистра с топливом весит"
 
+    #: A tank is fuel aboard once an engine's line reaches it (D-288 as
+    #: amended 2026-09-04); the kit plumbs the engine that stands here.
+    await _equip(session, connector, ENGINE)
     await _fuel(session, connector, 40)
     assert await ship.fuel_aboard(session, constants, catalog, vessel) == pytest.approx(40)
 

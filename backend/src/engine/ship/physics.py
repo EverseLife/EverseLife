@@ -204,16 +204,12 @@ async def fuel_stacks(
 ) -> list[Item]:
     """The fuel the engines can reach: what lies in the vessels on their lines (D-288).
 
-    Any vessel installed aboard by default, the ones the owner named when a
-    line is drawn -- a tank, a canister, a cylinder alike. What lies in the
-    hold uninstalled is cargo: it weighs and does not burn (D-230).
+    The vessels the owner named when a line was drawn, and no other (as
+    amended 2026-09-04: a port without a line draws from nothing) -- a tank, a
+    canister, a cylinder alike. What lies in the hold uninstalled is cargo: it
+    weighs and does not burn (D-230). No engine, no line, no fuel to reach.
     """
     engines = await engines_aboard(session, constants, ship, things=things)
-    if not engines:
-        #: No engine yet: the console still counts what the tanks hold -- the
-        #: port's own default, any vessel aboard -- and whether anything may be
-        #: burnt without one is the leg's question (`flight._burn`).
-        return await lines.hull_stacks(session, catalog, ship, lines.fuel_port(), things=things)
     return await lines.stacks_for(session, catalog, ship, engines, lines.fuel_port(), things=things)
 
 

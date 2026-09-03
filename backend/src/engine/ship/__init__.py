@@ -189,7 +189,7 @@ from src.engine.ship.command import (  # noqa: F401
     _landable,
     _will_take,
 )
-from src.engine.ship.crossing import fly, turn_home  # noqa: F401
+from src.engine.ship.crossing import cancel, circle_star, fly  # noqa: F401
 from src.engine.ship.feed import (  # noqa: F401
     NoSuchPort,
     NotOnLine,

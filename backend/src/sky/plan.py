@@ -29,7 +29,18 @@ import numpy as np
 
 from src import astro
 from src.constants import Constants
-from src.sky._base import Body, Drifter, Rows, System, Target, circle_speed, norms, place, place_any
+from src.sky._base import (
+    Body,
+    Drifter,
+    Rows,
+    System,
+    Target,
+    circle_speed,
+    norms,
+    place,
+    place_any,
+    star_circle,
+)
 from src.sky.guide import BRAKE_SHARE
 from src.units import HOURS_PER_DAY, MINUTES_PER_HOUR, TRACE_POINTS
 
@@ -95,6 +106,19 @@ def approach_quote(
         trace=(tuple(float(x) for x in r0), (float(there[0]), float(there[1]))),
         revs=0,
     )
+
+
+def circle_quote(
+    system: System, r0: tuple[float, float], v0: tuple[float, float], a_max: float
+) -> Sample:
+    """The price of the astrocentric orbit (D-289, 2026-09-04): the speed the
+    hull differs by from the circle round the star through its own place,
+    and the hours to shed it at full thrust. No arc: the hull stays where it
+    is and changes only how it moves."""
+    dv = float(np.hypot(*(star_circle(system, r0) - np.array(v0, dtype=float))))
+    hours = max(dv / a_max * HOURS_PER_DAY if a_max > 0 else 0.0, LEAST_HOURS)
+    here = (float(r0[0]), float(r0[1]))
+    return Sample(hours=hours, dv_out=dv, dv_in=0.0, dv=dv, trace=(here, here), revs=0)
 
 
 def escape_dv(body: Body, park: float, v_inf: float) -> float:

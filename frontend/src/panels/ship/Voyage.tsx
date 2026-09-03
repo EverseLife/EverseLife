@@ -27,12 +27,18 @@ export function Passage({
   busy,
   deaf,
   recall,
+  cancel,
+  orbit,
 }: {
   v: Vessel;
   busy: boolean;
   /** No console aboard: the hull hears nothing from the ground (D-242). */
   deaf: boolean;
   recall: () => void;
+  /** The two orders of a crossing under the sky (D-289, 2026-09-04): the
+   *  autopilot off, or the hull put onto the circle round the star. */
+  cancel: () => void;
+  orbit: () => void;
 }) {
   if (!v.flight) return null;
   //: What is left of the plan against the tanks (D-289): after the departure
@@ -42,7 +48,9 @@ export function Passage({
   return (
     <div className="doing">
       <span className="doing-what">
-        {t("ui-ship-flight", { back: String(Boolean(v.flight.back)), name: v.flight.name })}
+        {v.flight.star
+          ? t("ui-ship-flight-star")
+          : t("ui-ship-flight", { back: String(Boolean(v.flight.back)), name: v.flight.name })}
         {v.flight.planet && ` · ${planetName(v.flight.planet)}`}
         {v.course &&
           ` · ${t("ui-ship-course-dv", { need: v.course.left.toFixed(0), have: v.dv.toFixed(0) })}`}
@@ -55,18 +63,30 @@ export function Passage({
       />
       <span className="doing-aside note">
         {t("ui-ship-flight-autopilot")}
-        {!v.flight.back && ` ${t("ui-ship-may-turn")}`}
+        {v.course && ` ${t("ui-ship-may-cancel")}`}
       </span>
-      {/* The helm may still go over (D-242): the way back is as long as the way
-          out has been, and costs its own fuel. Named with the pier it aims at,
-          because "cancel" alone would not say where the hull ends up. */}
-      {/* Already going back: there is nothing left to turn (D-242). */}
-      {!v.flight.back && (
+      {/* A crossing under the sky (D-289, 2026-09-04) is not turned back: the
+          course is cancelled -- the autopilot off, the hull coasting from
+          where it is -- or the hull is put onto the circle round the star. */}
+      {v.course && (
+        <button className="quiet" onClick={cancel} disabled={busy || deaf}>
+          {t("ui-ship-cancel-course")}
+        </button>
+      )}
+      {v.course && !v.flight.star && (
+        <button className="quiet" onClick={orbit} disabled={busy || deaf}>
+          {t("ui-ship-star-orbit")}
+        </button>
+      )}
+      {v.course && !v.flight.star && <span className="note">{t("ui-ship-star-orbit-hint")}</span>}
+      {/* The tabled legs -- the climb and the descent -- still turn back to the
+          pier they left (D-245); a turn-back is not turned back (D-242). */}
+      {!v.course && !v.flight.back && (
         <button className="quiet" onClick={recall} disabled={busy || deaf || !v.left}>
           {t("ui-ship-recall", { known: String(Boolean(v.left)), port: v.left ?? "" })}
         </button>
       )}
-      {!v.flight.back && !v.left && (
+      {!v.course && !v.flight.back && !v.left && (
         <span className="note">{t("ui-ship-no-origin")}</span>
       )}
     </div>
@@ -82,11 +102,14 @@ export function Drift({
   busy,
   dock,
   undock,
+  orbit,
 }: {
   v: Vessel;
   busy: boolean;
   dock: (other: string) => void;
   undock: () => void;
+  /** The circle round the star, from the drift (D-289, 2026-09-04). */
+  orbit: () => void;
 }) {
   if (!v.sky) return null;
   const fate = v.sky.inertia;
@@ -141,6 +164,14 @@ export function Drift({
           {t("ui-ship-undock")}
         </button>
       )}
+      {/* Out of the drift and onto the circle round the star, if the tanks
+          pay for the burn (D-289, 2026-09-04). */}
+      {v.yours && (
+        <button className="quiet" onClick={orbit} disabled={busy}>
+          {t("ui-ship-star-orbit")}
+        </button>
+      )}
+      {v.yours && <span className="note">{t("ui-ship-star-orbit-hint")}</span>}
     </div>
   );
 }

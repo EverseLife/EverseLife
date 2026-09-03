@@ -181,10 +181,10 @@ ui-ship-air-outside = there is air outside, the system sleeps
 ## The feed (D-288): lines from a machine to a vessel.
 
 ui-ship-feed = Feed lines
-ui-ship-feed-hint = A port with nothing ticked drinks from any installed vessel aboard. Tick vessels to narrow the line; the order of ticking is the order of use.
+ui-ship-feed-hint = A port with nothing ticked draws from nothing. Tick the vessels the port draws from; the order of ticking is the order of use.
 ui-ship-feed-none = No machine with lines aboard: the engine and the life support system appear here once they stand in a compartment.
-ui-ship-feed-any = any installed vessel aboard
-ui-ship-feed-reset = back to any
+ui-ship-feed-nothing = no line, and the port draws nothing
+ui-ship-feed-reset = clear the line
 ui-ship-feed-no-vessels = No suitable installed vessel aboard: put up a fuel tank, a canister or an oxygen tank in a compartment.
 ui-ship-feed-empty = empty
 ui-ship-feed-up = up
@@ -236,7 +236,11 @@ ui-ship-flight = { $back ->
     } to “{ $name }”
 ui-ship-flight-label = passage
 ui-ship-flight-autopilot = The autopilot flies the hull on its own: at every step it lays the passage afresh from where the hull is, and the tanks pay as it goes. The course cannot be changed.
-ui-ship-may-turn = But it can turn back.
+ui-ship-may-cancel = The course may be cancelled, or the hull put into orbit round the star.
+ui-ship-cancel-course = Cancel course
+ui-ship-star-orbit = Enter astrocentric orbit
+ui-ship-star-orbit-hint = The engines burn off the difference between the hull's speed and the speed of the circle round the star at the hull's own radius; the tanks pay as they burn. From then on the hull hangs on the circle like a planet.
+ui-ship-flight-star = entering orbit round the star
 ui-ship-recall = Turn back{ $known ->
         [true] { " " }to “{ $port }”
        *[false] {""}

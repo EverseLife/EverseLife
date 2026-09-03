@@ -20,6 +20,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ship_kit import (
+    ENGINE,
     FUEL,
     TANK,
     _body_of,
@@ -37,11 +38,21 @@ from ship_kit import (
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import frost, jobs, ship, storage, world
+from src.engine.ship import lines
 from src.models.ship import Ship
 from src.models.world import Layer, Node, Planet
 from src.units import amount_float
 
 # --- the orbital step (D-245) -------------------------------------------------
+
+
+async def _tank_on_the_line(session: AsyncSession, connector: Node):
+    """A tank an engine reaches: a port without a line draws from nothing
+    (D-288 as amended 2026-09-04), so the engine is put up and plumbed here."""
+    engine = await _equip(session, connector, ENGINE)
+    tank = await _equip(session, connector, TANK)
+    await lines.replace(session, engine, "fuel", [tank.id])
+    return tank
 
 
 async def test_the_way_between_worlds_goes_orbit_to_orbit(
@@ -268,7 +279,7 @@ async def test_kerosene_closes_more_of_the_spend_per_unit(
     _, owner = await _shipwright(session, port)
     vessel = await _laid(session, constants, owner, port)
     connector = await session.get(Node, vessel.connector_node_id)
-    tank = await _equip(session, connector, TANK)
+    tank = await _tank_on_the_line(session, connector)
     inside = await storage.inside(session, tank)
     await world.grant_item(session, inside, "kerosene_fuel", amount=100, quality=60, origin="тест")
 
@@ -294,7 +305,7 @@ async def test_mixed_tanks_pay_stack_by_stack(
     _, owner = await _shipwright(session, port)
     vessel = await _laid(session, constants, owner, port)
     connector = await session.get(Node, vessel.connector_node_id)
-    tank = await _equip(session, connector, TANK)
+    tank = await _tank_on_the_line(session, connector)
     inside = await storage.inside(session, tank)
     await world.grant_item(session, inside, "rocket_fuel", amount=30, quality=60, origin="тест")
     await world.grant_item(session, inside, "kerosene_fuel", amount=100, quality=60, origin="тест")
@@ -336,7 +347,7 @@ async def test_two_burns_do_not_spend_the_same_fuel(
         _, owner = await _shipwright(session, port)
         vessel = await _laid(session, constants, owner, port)
         connector = await session.get(Node, vessel.connector_node_id)
-        tank = await _equip(session, connector, TANK)
+        tank = await _tank_on_the_line(session, connector)
         inside = await storage.inside(session, tank)
         await world.grant_item(session, inside, FUEL, amount=100, quality=60, origin="тест")
         ship_id = vessel.id

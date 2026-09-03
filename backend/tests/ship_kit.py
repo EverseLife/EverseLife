@@ -15,8 +15,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src import seed_parts
-from src.constants import Catalog, Constants
+from src.constants import Catalog, Constants, current
 from src.engine import ship, storage, world
+from src.engine.ship import lines
 from src.models.estate import Building
 from src.models.identity import Body
 from src.models.job import JobState
@@ -141,10 +142,24 @@ async def _equip(session: AsyncSession, node: Node, type_key: str, amount: float
 
 
 async def _fuel(session: AsyncSession, node: Node, amount: float):
-    """Fuel aboard is fuel in a tank (D-230): a tank in the room, the fuel inside it."""
+    """Fuel aboard is fuel in a tank (D-230), and a tank on the engines' line:
+    a port without a line draws from nothing (D-288 as amended 2026-09-04),
+    so every engine already aboard gets this tank appended to its fuel line,
+    and a hull a test fuels is a hull it can fly."""
     tank = await _equip(session, node, TANK)
     inside = await storage.inside(session, tank)
-    return await world.grant_item(session, inside, FUEL, amount=amount, quality=60, origin="тест")
+    fuel = await world.grant_item(session, inside, FUEL, amount=amount, quality=60, origin="тест")
+    hull = (
+        await session.execute(select(Ship).where(Ship.node_id == node.parent_id))
+    ).scalar_one_or_none()
+    if hull is not None:
+        for machine in await lines.hold_of(session, hull):
+            if lines.port_of(current(), machine.type_key, "fuel") is not None:
+                rows = await lines.lines_of(session, machine.id, "fuel")
+                await lines.replace(
+                    session, machine, "fuel", [*(row.vessel_item_id for row in rows), tank.id]
+                )
+    return fuel
 
 
 async def _flightworthy(

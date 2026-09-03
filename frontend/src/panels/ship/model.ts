@@ -147,6 +147,9 @@ export type Flight = {
   /** The arc itself, map units at equal time steps: the chart draws the hull
    *  along it. Absent on the climb and the descent. */
   arc?: [number, number][] | null;
+  /** Bound for the circle round the star (D-289, 2026-09-04): no node, no
+   *  planet and no hull name it, so the flight says so itself. */
+  star?: boolean;
 };
 
 export type Vessel = {

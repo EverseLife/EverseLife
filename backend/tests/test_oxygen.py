@@ -33,6 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import gear, oxygen, ship, storage, travel, world
+from src.engine.ship import lines
 from src.models.estate import Building
 from src.models.identity import Body, BodyState
 from src.models.inventory import Item
@@ -143,6 +144,12 @@ async def _suited(
     await gear.equip(session, constants, catalog, body, suit)
 
 
+async def _plumb(session: AsyncSession, system: Item, *vessels: Item) -> None:
+    """The life support's line, drawn by hand: a port without a line drinks
+    from nothing (D-288 as amended 2026-09-04)."""
+    await lines.replace(session, system, "oxygen", [one.id for one in vessels])
+
+
 async def _system(session: AsyncSession, node: Node) -> Item:
     """A life support system standing in the room: what the air line hangs on (D-288)."""
     yard = await world.node_container(session, node)
@@ -218,9 +225,10 @@ async def test_the_life_support_breathes_the_crew_off_its_line(
     await _sphere(session, Planet.TERRA, airless=False)
     port = await _port(session)
     vessel, body, connector = await _hull(session, constants, port)
-    await _system(session, connector)
-    await _in_tank(session, connector, AIR, 10)
+    system = await _system(session, connector)
+    air = await _in_tank(session, connector, AIR, 10)
     water = await _in_tank(session, connector, WATER, 5000)
+    await _plumb(session, system, air)
 
     vessel.docked_node_id = None
     vessel.air_at = datetime.now(UTC) - timedelta(hours=1)
@@ -282,8 +290,8 @@ async def test_when_the_line_runs_dry_the_crew_dies_after_one_settling_of_grace(
     await _sphere(session, Planet.TERRA, airless=False)
     port = await _port(session)
     vessel, body, connector = await _hull(session, constants, port)
-    await _system(session, connector)
-    await _in_tank(session, connector, AIR, 0.05)
+    system = await _system(session, connector)
+    await _plumb(session, system, await _in_tank(session, connector, AIR, 0.05))
 
     vessel.docked_node_id = None
     vessel.air_at = datetime.now(UTC) - timedelta(hours=2)
@@ -309,8 +317,8 @@ async def test_an_empty_hull_spends_nothing(
     await _sphere(session, Planet.TERRA, airless=False)
     port = await _port(session)
     vessel, body, connector = await _hull(session, constants, port)
-    await _system(session, connector)
-    await _in_tank(session, connector, AIR, 20)
+    system = await _system(session, connector)
+    await _plumb(session, system, await _in_tank(session, connector, AIR, 20))
     body.node_id = port.id
     vessel.docked_node_id = None
     vessel.air_at = datetime.now(UTC) - timedelta(hours=10)
@@ -548,8 +556,8 @@ async def test_the_gauge_reads_the_line_and_the_sky(
     await _sphere(session, Planet.TERRA, airless=False)
     port = await _port(session)
     vessel, body, connector = await _hull(session, constants, port)
-    await _system(session, connector)
-    await _in_tank(session, connector, AIR, 10)
+    system = await _system(session, connector)
+    await _plumb(session, system, await _in_tank(session, connector, AIR, 10))
     await _in_canister(session, connector, AIR, 4, installed=False)
 
     open_hatch = await oxygen.gauge(session, constants, catalog, vessel, crew=1)
@@ -577,10 +585,12 @@ async def test_two_hulls_settling_together_do_not_drink_one_cylinder_twice(
         await _sphere(session, Planet.TERRA, airless=False)
         port = await _port(session)
         vessel, _, connector = await _hull(session, constants, port)
-        await _system(session, connector)
+        system = await _system(session, connector)
         #: Air for exactly one hour of one person, and no more: the second
         #: pass must find the line dry rather than the reading it started from.
-        await _in_tank(session, connector, AIR, constants[R.OXYGEN_CREW_DRAW])
+        await _plumb(
+            session, system, await _in_tank(session, connector, AIR, constants[R.OXYGEN_CREW_DRAW])
+        )
         vessel.docked_node_id = None
         vessel.air_at = datetime.now(UTC) - timedelta(hours=1)
         await session.flush()
@@ -622,10 +632,12 @@ async def test_the_line_reaches_an_installed_canister_as_readily_as_a_tank(
     await _sphere(session, Planet.TERRA, airless=False)
     port = await _port(session)
     vessel, body, connector = await _hull(session, constants, port)
-    await _system(session, connector)
+    system = await _system(session, connector)
     #: Not one tank aboard: everything is in canisters, one put up, one lying.
     standing = await _in_canister(session, connector, AIR, 4)
     lying = await _in_canister(session, connector, AIR, 9, installed=False)
+    #: Both on the line: the lying one is skipped by the line, not by the list.
+    await _plumb(session, system, standing, lying)
     vessel.docked_node_id = None
     await session.flush()
 
@@ -652,12 +664,14 @@ async def test_a_canister_packed_into_a_chest_is_stowed_cargo(
     await _sphere(session, Planet.TERRA, airless=False)
     port = await _port(session)
     vessel, _, connector = await _hull(session, constants, port)
-    await _system(session, connector)
+    system = await _system(session, connector)
     yard = await world.node_container(session, connector)
 
     chest = await world.grant_item(session, yard, CHEST, quality=60, origin="тест")
     packed = await storage.inside(session, chest)
     can = await world.grant_item(session, packed, CANISTER, quality=60, origin="тест")
+    #: On the line from the start: the line is obeyed only where the can stands.
+    await _plumb(session, system, can)
     await world.grant_item(
         session, await storage.inside(session, can), AIR, amount=9, quality=60, origin="тест"
     )

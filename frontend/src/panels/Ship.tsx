@@ -500,7 +500,7 @@ export function Ship({
                     berth: String(v.berth ?? "—"),
                   })}`
                 : v.flight
-                  ? ` · ${t("ui-ship-on-voyage", { name: v.flight.name })}`
+                  ? ` · ${v.flight.star ? t("ui-ship-flight-star") : t("ui-ship-on-voyage", { name: v.flight.name })}`
                   : v.stage === "lost"
                     ? ` · ${t("ui-ship-lost-status")}`
                     : ` · ${t("ui-ship-adrift")}`}
@@ -550,6 +550,8 @@ export function Ship({
                   busy={busy}
                   deaf={deaf}
                   recall={() => go(() => session.send("ship.recall", { ship: v.ship }))}
+                  cancel={() => go(() => session.send("ship.cancel", { ship: v.ship }))}
+                  orbit={() => go(() => session.send("ship.orbit", { ship: v.ship }))}
                 />
               ) : (
                 <>
@@ -564,6 +566,7 @@ export function Ship({
                         go(() => session.send("ship.dock", { ship: v.ship, ship_target: other }))
                       }
                       undock={() => go(() => session.send("ship.undock", { ship: v.ship }))}
+                      orbit={() => go(() => session.send("ship.orbit", { ship: v.ship }))}
                     />
                   ) : (
                     <Landing

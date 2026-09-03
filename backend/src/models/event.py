@@ -123,6 +123,9 @@ class EventKind(StrEnum):
     #: The engines ran dry under way (D-289): the hull coasts from here, and
     #: the order is gone. Said to everybody aboard, like the air running out.
     SHIP_ADRIFT = "ship.adrift"
+    #: On the circle round the star (D-289, 2026-09-04): the order to circle
+    #: it is done, and the hull hangs there like a planet.
+    SHIP_STAR_ORBIT = "ship.star_orbit"
     #: The coast ended on a body or out of the system (D-289): the hull and
     #: everybody aboard are lost. Said to the owner and the crew.
     SHIP_LOST = "ship.lost"

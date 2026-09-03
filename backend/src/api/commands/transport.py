@@ -389,6 +389,26 @@ async def _ship_recall(state: dict, db: AsyncSession, message: dict) -> dict:
     return {"ship": str(vessel.id), "arrives_at": arrives.isoformat()}
 
 
+@command("ship.cancel")
+async def _ship_cancel(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Drop the course under way (D-289, 2026-09-04): the autopilot off, the
+    hull coasts from where it is. A confirmation; the drift comes as events."""
+    body = await _alive(state, db)
+    vessel = await _ship_of(db, body, message.get("ship"))
+    await ship.cancel(db, current(), current_catalog(), body, vessel)
+    return {"ship": str(vessel.id)}
+
+
+@command("ship.orbit")
+async def _ship_orbit(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Put the hull onto the circle round the star through its own place
+    (D-289, 2026-09-04): an order the helm flies, the tanks paying as it burns."""
+    body = await _alive(state, db)
+    vessel = await _ship_of(db, body, message.get("ship"))
+    arrives = await ship.circle_star(db, current(), current_catalog(), body, vessel)
+    return {"ship": str(vessel.id), "arrives_at": arrives.isoformat()}
+
+
 @command("ship.ports", readonly=True)
 async def _ship_ports(state: dict, db: AsyncSession, message: dict) -> dict:
     """Where a ship may actually land. Public: ports are not a secret.

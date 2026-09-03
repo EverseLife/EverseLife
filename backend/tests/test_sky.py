@@ -238,3 +238,29 @@ def test_the_quote_to_a_hull_is_what_the_approach_profile_flies() -> None:
         days += dt
     assert helm.captured, "профиль доводит до удержания"
     assert days * HOURS_PER_DAY <= quote.hours * 1.05
+
+
+def test_the_circle_round_the_star_is_matched_and_priced() -> None:
+    """The astrocentric orbit (D-289, 2026-09-04): the circle's velocity is
+    across the radius at the circle's speed, prograde; the helm burns toward
+    it at full thrust and is done within the capture speed; the quote is that
+    difference and the hours to burn it off."""
+    system = _system(bodies=False)
+    r = (10.0, 0.0)
+    wanted = sky.star_circle(system, r)
+    assert wanted[0] == pytest.approx(0.0) and wanted[1] == pytest.approx(
+        np.sqrt(system.mu / 10.0)
+    ), "prograde, across the radius"
+    still = guide._circle(system, r, (0.0, 0.0), a_max=4.0, dt=1.0 / HOURS_PER_DAY)
+    assert not still.captured and float(np.hypot(*still.thrust)) == pytest.approx(4.0), (
+        "full thrust toward the circle"
+    )
+    assert still.thrust[1] > 0 and still.thrust[0] == pytest.approx(0.0)
+    near = guide._circle(
+        system, r, (0.0, float(wanted[1]) - system.capture_speed / 2), a_max=4.0, dt=1.0
+    )
+    assert near.captured, "within the capture speed the order is done"
+    quote = sky.circle_quote(system, r, (0.0, 0.0), 4.0)
+    assert quote.dv == pytest.approx(float(wanted[1])) and quote.dv_in == 0.0
+    assert quote.hours == pytest.approx(float(wanted[1]) / 4.0 * HOURS_PER_DAY)
+    assert quote.trace == (r, r), "no line: the burn goes nowhere"

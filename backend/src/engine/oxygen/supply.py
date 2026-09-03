@@ -51,8 +51,8 @@ async def breathable_stacks(
     support's line (D-288).
 
     The system is the one thing aboard that breathes for people, and it
-    drinks where its lines say -- any vessel installed aboard by default, the
-    ones the owner named when a line is drawn. A cylinder in the hands, on the
+    drinks where its lines say -- the vessels the owner named when a line was
+    drawn, and nothing without one (D-288 as amended 2026-09-04). A cylinder in the hands, on the
     floor or packed in a chest is luggage: nothing aboard breathes it, and the
     word for that is on the thing itself (`installed`). No system at all --
     nothing is breathable, however much oxygen stands in the hold, and that is

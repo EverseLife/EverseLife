@@ -5,9 +5,9 @@
 
 Checked is what the plumbing rests on:
 
-* a port with no line drinks from **any** installed vessel aboard, in every
-  room; a line drawn narrows it to the named vessels, in the order given;
-  drawn empty, the port is back to any;
+* a port with no line drinks from nothing (D-288 as amended 2026-09-04); a
+  line drawn is the whole of what it reaches, in the order given; drawn
+  empty, the port reaches nothing again;
 * what stands on a line is a vessel **installed** aboard: a canister lying on
   the floor is luggage, the same canister put up is a tank's equal;
 * a loose vessel, a vessel of another hull and a port the machine has not are
@@ -32,6 +32,7 @@ from ship_kit import CONSOLE, ENGINE, FUEL, LIFE, TANK, _equip, _laid, _port, _s
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import battery, energy, estate, liquid, oxygen, ship, station, storage, world
+from src.engine.ship import lines
 from src.models.identity import Body
 from src.models.inventory import Item
 from src.models.job import JobState
@@ -98,29 +99,28 @@ async def _held(session: AsyncSession, box: Item) -> float:
 # --- where a port draws from --------------------------------------------------
 
 
-async def test_a_port_without_a_line_drinks_from_any_installed_vessel(
+async def test_a_port_without_a_line_drinks_from_nothing(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """The hull nobody plumbed behaves as it always did: the engines reach every
-    installed vessel aboard, in every room, and a canister standing in the
-    hold is as good as a tank."""
+    """The hull nobody plumbed reaches nothing (D-288 as amended 2026-09-04):
+    a line is a duty, not an upgrade -- the engines burn no tank they were
+    not given, and a canister in the hold is as far from them as the ground."""
     vessel, body, connector = await _hull(session, constants, foundations=2)
     hold = await _room(session, constants, body, vessel)
     await _equip(session, connector, ENGINE)
     await _vessel(session, connector, TANK, FUEL, 50)
     await _vessel(session, hold, CANISTER, FUEL, 10)
 
-    assert await ship.fuel_aboard(session, constants, catalog, vessel) == pytest.approx(60)
+    assert await ship.fuel_aboard(session, constants, catalog, vessel) == 0
     burnt = await ship.spend_fuel(session, constants, catalog, vessel, 55)
-    assert burnt == pytest.approx(55)
-    assert await ship.fuel_aboard(session, constants, catalog, vessel) == pytest.approx(5)
+    assert burnt == 0
 
 
 async def test_a_line_narrows_the_port_to_the_named_vessels_in_order(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
     """Drawn, a line is the whole of what the port reaches, in the order given;
-    drawn empty, the port is back to any."""
+    drawn empty, the port reaches nothing."""
     vessel, body, connector = await _hull(session, constants)
     engine = await _equip(session, connector, ENGINE)
     first = await _vessel(session, connector, TANK, FUEL, 50)
@@ -143,8 +143,8 @@ async def test_a_line_narrows_the_port_to_the_named_vessels_in_order(
 
     await ship.set_lines(session, constants, catalog, body, vessel, engine, "fuel", [])
     await _vessel(session, connector, CANISTER, FUEL, 5)
-    assert await ship.fuel_aboard(session, constants, catalog, vessel) == pytest.approx(25), (
-        "пустая линия — снова любая тара на борту"
+    assert await ship.fuel_aboard(session, constants, catalog, vessel) == 0, (
+        "пустая линия — порт ничего не берёт"
     )
 
 
@@ -156,8 +156,10 @@ async def test_a_loose_vessel_is_luggage_and_an_installed_one_stands_on_the_line
     assert station.placeable(catalog, CANISTER) and station.placeable(catalog, CYLINDER)
 
     vessel, body, connector = await _hull(session, constants)
-    await _equip(session, connector, ENGINE)
+    engine = await _equip(session, connector, ENGINE)
     can = await _vessel(session, connector, CANISTER, FUEL, 10, installed=False)
+    #: On the line from the start: the line is obeyed only where the can stands.
+    await lines.replace(session, engine, "fuel", [can.id])
     assert await ship.fuel_aboard(session, constants, catalog, vessel) == 0, (
         "канистра на полу — груз"
     )
@@ -167,8 +169,9 @@ async def test_a_loose_vessel_is_luggage_and_an_installed_one_stands_on_the_line
 
     #: The same word for the air: a cylinder put up in the room is what the
     #: life support breathes; lying there it is a bottle in the way.
-    await _equip(session, connector, LIFE)
+    system = await _equip(session, connector, LIFE)
     bottle = await _vessel(session, connector, CYLINDER, AIR, 3, installed=False)
+    await lines.replace(session, system, "oxygen", [bottle.id])
     assert await oxygen.reserve(session, constants, catalog, vessel) == 0
     bottle.installed = True
     await session.flush()
@@ -209,6 +212,7 @@ async def test_the_life_support_drinks_only_from_its_line(
     system = await _equip(session, connector, LIFE)
     first = await _vessel(session, connector, CYLINDER, AIR, 5)
     second = await _vessel(session, connector, CYLINDER, AIR, 4)
+    await lines.replace(session, system, "oxygen", [first.id, second.id])
     assert await oxygen.reserve(session, constants, catalog, vessel) == pytest.approx(9)
 
     await ship.set_lines(session, constants, catalog, body, vessel, system, "oxygen", [first])
@@ -394,23 +398,23 @@ async def test_a_machines_outlet_keeps_one_liquid_per_vessel(
     assert await _held(session, empty) == pytest.approx(5), "топливо ушло в пустую"
 
 
-async def test_a_line_to_nothing_is_a_port_back_to_any(
+async def test_a_line_to_a_tank_taken_down_reaches_nothing_until_it_is_back(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Every vessel of a line taken down: the port drinks from any again, and
+    """Every vessel of a line taken down: the port drinks from nothing, and
     the reading says so -- the engine and the window filter the rows alike."""
     vessel, body, connector = await _hull(session, constants)
     engine = await _equip(session, connector, ENGINE)
     first = await _vessel(session, connector, TANK, FUEL, 50)
-    second = await _vessel(session, connector, TANK, FUEL, 20)
+    await _vessel(session, connector, TANK, FUEL, 20)
     await ship.set_lines(session, constants, catalog, body, vessel, engine, "fuel", [first])
     assert await ship.fuel_aboard(session, constants, catalog, vessel) == pytest.approx(50)
 
     first.installed = False
     await session.flush()
-    assert await ship.fuel_aboard(session, constants, catalog, vessel) == pytest.approx(
-        await _held(session, second)
-    ), "линия в никуда — снова любая установленная тара"
+    assert await ship.fuel_aboard(session, constants, catalog, vessel) == 0, (
+        "линия в никуда — порт ничего не берёт"
+    )
     seen = await ship.lines_view(session, constants, catalog, body, vessel)
     port = next(p for m in seen["machines"] for p in m["ports"] if p["port"] == "fuel")
     assert port["lines"] == [], "окно говорит то же, что делает движок"
@@ -507,12 +511,14 @@ async def test_a_vessel_is_put_up_like_furniture(
     """The real door: `station.place` takes a canister out of the hands, stands
     it in the room, and it takes a place of the room like furniture does."""
     vessel, body, connector = await _hull(session, constants)
-    await _equip(session, connector, ENGINE)
+    engine = await _equip(session, connector, ENGINE)
     pocket = await world.body_container(session, body)
     can = await world.grant_item(session, pocket, CANISTER, quality=60, origin="тест")
     await world.grant_item(
         session, await storage.inside(session, can), FUEL, amount=5, quality=60, origin="тест"
     )
+    #: Named on the line while still in the hands: obeyed once it stands.
+    await lines.replace(session, engine, "fuel", [can.id])
     _, before = await estate.slots(session, constants, connector)
 
     await station.place(session, catalog, body, can)

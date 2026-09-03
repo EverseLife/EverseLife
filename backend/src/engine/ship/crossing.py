@@ -1,28 +1,31 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Nurlan Urazkulov
 
-"""The crossing between worlds: the order, and the turn-back (D-289).
+"""The crossing between worlds: the orders under the sky (D-289).
 
 Cut out of `flight` when the sky became a simulation: the legs to and from
 the ground stayed there -- hours by gravity, a job at the end -- and the
 crossing became an order the helm flies tick by tick (`sim`). What this
-module keeps is the two commands that lay such an order: `fly`, from the
-parking circle or from a drift, and `turn_home`, the same order aimed back.
-The legs' checks -- the gangway, the fitness, the mooring -- are borrowed from
-`flight`, which is why `flight.recall` reaches over here lazily.
+module keeps is the commands that lay or end such an order: `fly`, from the
+parking circle or from a drift; `cancel`, the autopilot off and the hull
+coasting; `circle_star`, the hull put onto the circle round the star
+(2026-09-04). No turn-back under the sky: the tabled legs alone come back
+(`flight.recall`). The legs' checks -- the gangway, the fitness, the
+mooring -- are borrowed from `flight`.
 """
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
 
+import numpy as np
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src import sky
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import events
-from src.engine.ship import hold, meet, sighting, sim
+from src.engine.ship import fate, hold, meet, sighting, sim
 from src.engine.ship._base import (
     PASSAGE,
     Docked,
@@ -35,12 +38,19 @@ from src.engine.ship._base import (
 )
 from src.engine.ship.command import _commanded_by, _landable, _will_take
 from src.engine.ship.flight import _cast_off, _fit, _leaving, _passage_of
-from src.engine.ship.physics import mass
+from src.engine.ship.physics import mass, sky_days
 from src.models.event import EventKind
 from src.models.identity import Body
 from src.models.ship import Ship
 from src.models.world import Node
-from src.units import HOURS_PER_DAY, ROUND_DV, ROUND_HOURS, ROUND_MASS, ROUND_RATIO
+from src.units import (
+    HOURS_PER_DAY,
+    MINUTES_PER_HOUR,
+    ROUND_DV,
+    ROUND_HOURS,
+    ROUND_MASS,
+    ROUND_RATIO,
+)
 
 
 async def fly(
@@ -53,7 +63,6 @@ async def fly(
     *,
     hours: float | None = None,
     now: datetime | None = None,
-    back: bool = False,
 ) -> datetime:
     """Cross to another planet's orbit -- flown, not tabled (D-289) -- or go
     to meet another hull on its coast (wave 3).
@@ -74,9 +83,9 @@ async def fly(
     rather than being kept at the pier, and adrift is a place one may be
     fetched from (D-289).
 
-    `back` marks the order as a turn-back (D-242): the journal records a
-    recall rather than a launch, the console keeps its button dark, and a
-    second turn-back is refused. Returns the hour the console promises.
+    Not turned back (D-289, 2026-09-04): a crossing under the sky is
+    cancelled into a coast, or replaced by another order. Returns the hour
+    the console promises.
     """
     moment = now or datetime.now(UTC)
     await _commanded_by(session, body, ship)
@@ -166,15 +175,10 @@ async def fly(
     #: Off a hold or a docking (wave 3): the edge to the other hull comes off
     #: the way the gangway does, and the pair parts.
     await meet.let_go(session, constants, ship)
-    if back:
-        #: Marked as the way back (D-242): the console keeps the button dark,
-        #: and a second turn-back is refused -- the hull is already going there.
-        ship.course = {**(ship.course or {}), "back": True}
-        await session.flush()
     arrives = datetime.fromisoformat(str((ship.course or {})["due_at"]))
     await events.record(
         session,
-        EventKind.SHIP_RECALLED if back else EventKind.SHIP_LAUNCHED,
+        EventKind.SHIP_LAUNCHED,
         actor_identity_id=body.identity_id,
         node_id=ship.connector_node_id if here is None else here.id,
         ship_id=str(ship.id),
@@ -195,27 +199,108 @@ async def fly(
     return arrives
 
 
-async def turn_home(
+async def cancel(
     session: AsyncSession,
     constants: Constants,
     catalog: Catalog,
     body: Body,
     ship: Ship,
     *,
-    now: datetime,
-) -> datetime:
-    """Turn a flown crossing back (D-289): the same order as any, aimed at
-    the planet the hull left, laid from where the hull actually is.
-
-    Not a second arc costing what the first did (D-242's rule for the tabled
-    passage): the sky is simulated now, and the way home is priced by where
-    the hull is and where home will be -- an hour out, an hour's worth; half
-    way, whatever the geometry says. The order under way is dropped first,
-    so the new one is laid from a coasting state.
-    """
-    home = None if ship.left_node_id is None else await session.get(Node, ship.left_node_id)
-    if home is None or not is_orbit(home):
-        raise NoPort(key="ship-no-home-to-turn-to", ship=ship.name)
+    now: datetime | None = None,
+) -> None:
+    """Drop the course under way (D-289, 2026-09-04): the autopilot off, and
+    that is all -- the hull coasts from where it is, a drifter like any
+    other, its inertia counted, its loss booked and its owner told why. No
+    fuel is spent; a new course may be laid from the drift."""
+    moment = now or datetime.now(UTC)
+    await _commanded_by(session, body, ship)
+    await session.refresh(ship, with_for_update=True)
+    if ship.lost_at is not None:
+        raise ShipError(key="ship-lost", ship=ship.name)
+    if not ship.course or ship.sky_at is None:
+        raise InFlight(key="ship-no-course-to-cancel", ship=ship.name)
+    world = await sim.system(session, constants)
+    #: The seconds since the last tick are coasted, not burnt: the helm's
+    #: minute is the tick's, and the order ends where the hull is.
+    t0 = await sky_days(session, ship.sky_at)
+    t1 = max(t0, await sky_days(session, moment))
+    r0, v0 = sim._state_of(ship)
+    step = float(constants[R.ORBIT_PLAN_STEP_MINUTES]) / MINUTES_PER_HOUR / HOURS_PER_DAY
+    rr, vv = sky.advance(
+        world, np.array([t0]), np.array([t1]), np.array([r0]), np.array([v0]), dt_max=step
+    )
+    r, v = sim._row(rr), sim._row(vv)
+    #: Whoever still holds on -- a holder the order's release skipped under
+    #: somebody's hand, and the sweep has not reached -- is let go now,
+    #: before this hull is a drifter they could be flying as one with.
+    await hold.release_holders(session, constants, world, ship, now=moment)
+    sim._write_state(ship, r, v, at=moment)
     ship.course = None
+    await fate._adrift(session, constants, ship, world, now=moment, t=t1, r=r, v=v, why="cancelled")
     await session.flush()
-    return await fly(session, constants, catalog, body, ship, home, now=now, back=True)
+
+
+async def circle_star(
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    body: Body,
+    ship: Ship,
+    *,
+    now: datetime | None = None,
+) -> datetime:
+    """Put the hull onto the circle round the star through its own place
+    (D-289, 2026-09-04): an order the helm flies at full thrust until the
+    hull moves as a planet does at that radius, the tanks paying as it
+    burns. Given from a drift or from under any order, which it replaces.
+    Refused off a pier -- the star's orbit is entered from space -- and for
+    a burn the tanks cannot pay for whole. Returns the hour the burn is due
+    to end."""
+    moment = now or datetime.now(UTC)
+    await _commanded_by(session, body, ship)
+    await session.refresh(ship, with_for_update=True)
+    if ship.lost_at is not None:
+        raise ShipError(key="ship-lost", ship=ship.name)
+    if ship.docked_node_id is not None:
+        raise Docked(key="ship-orbit-only-in-space", ship=ship.name)
+    if ship.sky_at is None:
+        #: On a tabled leg -- the climb or the descent: no state in the sky
+        #: to lay the circle from, and the leg takes no orders (D-245).
+        raise InFlight(key="ship-in-flight", ship=ship.name)
+    if ship.course and ship.course.get("target") == sky.STAR.key:
+        raise InFlight(key="ship-already-circling", ship=ship.name)
+    thrust_ratio = await _fit(session, constants, catalog, ship)
+    world = await sim.system(session, constants)
+    #: The circle from here, coasted ahead: one that passes through a
+    #: planet's hold is a circle into the planet, and is refused before the
+    #: burn rather than booked as a loss after it.
+    found = await sim.state_at(session, constants, ship, now=moment)
+    if found is not None:
+        r, _, t = found
+        wanted = sky.star_circle(world, r)
+        verdict = await fate.fate_of(session, constants, world, t, r, (wanted[0], wanted[1]))
+        if verdict.kind == sky.CRASH:
+            raise NoPort(key="ship-orbit-crosses-planet", body=verdict.body)
+    await hold.release_holders(session, constants, world, ship, now=moment)
+    plan, fuel = await sim.circle(
+        session, constants, catalog, ship, thrust_ratio=thrust_ratio, now=moment
+    )
+    await meet.let_go(session, constants, ship)
+    arrives = datetime.fromisoformat(str((ship.course or {})["due_at"]))
+    await events.record(
+        session,
+        EventKind.SHIP_LAUNCHED,
+        actor_identity_id=body.identity_id,
+        node_id=ship.connector_node_id,
+        ship_id=str(ship.id),
+        name=ship.name,
+        leg=PASSAGE,
+        to=sky.STAR.key,
+        hours=round(plan.hours, ROUND_HOURS),
+        fuel=round(fuel, ROUND_MASS),
+        mass=round(await mass(session, constants, catalog, ship), ROUND_MASS),
+        ratio=round(thrust_ratio, ROUND_RATIO),
+        arrives_at=arrives.isoformat(),
+        dv=round(plan.dv, ROUND_DV),
+    )
+    return arrives

@@ -13,6 +13,7 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src import sky
 from src.constants import Constants
 from src.db.base import remember
 from src.engine import world
@@ -26,6 +27,7 @@ from src.models.inventory import Container, ContainerKind, Item
 from src.models.job import Job, JobKind, JobState
 from src.models.ship import Ship
 from src.models.world import Layer, Node, Planet
+from src.units import ROUND_TRACE
 
 
 async def passages(session: AsyncSession) -> dict[uuid.UUID, dict[str, object]]:
@@ -315,6 +317,29 @@ async def _flight(session: AsyncSession, ship: Ship) -> dict[str, object] | None
                 "arrives_at": str(order.get("due_at") or order.get("arrive_at")),
                 "back": False,
                 "arc": order.get("trace"),
+            }
+        if order.get("target") == sky.STAR.key:
+            #: Bound for the circle round the star (2026-09-04): no node, no
+            #: planet, no hull -- and the console cannot tell that from the
+            #: absence of all three, so it is said (D-225). The line to draw
+            #: it along is no line: the burn goes nowhere, so the chart and
+            #: the map get the hull's own stamped place, as a drifter's.
+            here = order.get("trace")
+            if ship.sky_x is not None and ship.sky_y is not None:
+                point = [
+                    round(float(ship.sky_x), ROUND_TRACE),
+                    round(float(ship.sky_y), ROUND_TRACE),
+                ]
+                here = [point, point]
+            return {
+                "to": None,
+                "name": None,
+                "planet": None,
+                "started_at": str(order.get("since")),
+                "arrives_at": str(order.get("due_at") or order.get("arrive_at")),
+                "back": False,
+                "arc": here,
+                "star": True,
             }
         goal = (
             await session.execute(select(Node).where(Node.key == str(order.get("target"))))

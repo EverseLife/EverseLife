@@ -14,7 +14,9 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
+import numpy as np
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ship_kit import (
@@ -31,9 +33,13 @@ from ship_kit import (
     _port,
     _shipwright,
 )
+from src import sky
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import ship
+from src.engine.ship import sim
+from src.models.event import Event, EventKind
+from src.models.identity import Body
 from src.models.ship import Ship
 from src.models.world import Node, Planet
 
@@ -93,7 +99,10 @@ async def test_ship_takes_the_planet_of_the_port_it_stands_at(
         _, owner = await _shipwright(session, home)
         vessel = await _laid(session, constants, owner, home)
         connector = await session.get(Node, vessel.connector_node_id)
-        await _equip(session, connector, "Двигатель II класса")
+        #: Put up, as a machine on a line must be: the port reaches nothing
+        #: from a crate on the floor (D-288 as amended 2026-09-04).
+        engine = await _equip(session, connector, "Двигатель II класса")
+        engine.installed = True
         await _equip(session, connector, LIFE)
         await _equip(session, connector, CONSOLE)
         await _fuel(session, connector, 2000)
@@ -202,10 +211,10 @@ async def test_the_slider_has_two_ends_and_the_order_names_one(
     )
 
 
-async def test_a_turn_back_from_an_arc_is_a_new_order_home(
-    session: AsyncSession, constants: Constants, catalog: Catalog
-) -> None:
-    """The way home is a new order laid from where the hull is (D-242, D-289)."""
+async def _under_way(
+    session: AsyncSession, constants: Constants, catalog: Catalog, *, hours: float = 2
+) -> tuple[Ship, Body, datetime]:
+    """A hull `hours` into a crossing to Aurora, and the hour it is at."""
     here = await _port(session)
     await _port(session, name="Порт Авроры", planet=Planet.AURORA)
     far = await _orbit(session, Planet.AURORA)
@@ -217,31 +226,125 @@ async def test_a_turn_back_from_an_arc_is_a_new_order_home(
     owner.node_id = connector.id
     await session.flush()
     await _in_orbit(session, constants, catalog, owner, vessel)
-
     moment = datetime.now(UTC)
     fast = await _fast_sample(session, constants, catalog, vessel, Planet.AURORA)
     await ship.fly(session, constants, catalog, owner, vessel, far, hours=fast["hours"], now=moment)
-    out = list(vessel.course["trace"])
-    #: Two hours out, turned home: not the flown part paid again (D-242's
-    #: rule for the tabled passage) but a new order laid from where the hull
-    #: is, to where Terra will be (D-289).
-    later = moment + timedelta(hours=2)
+    later = moment + timedelta(hours=hours)
     await ship.helm.tick_sky(session, constants, catalog, now=later)
-    arrives = await ship.recall(session, constants, catalog, owner, vessel, now=later)
-    assert arrives > later
-    home = vessel.course
-    assert home["target"] == ship.orbit_key(Planet.TERRA), (
-        "разворот ведёт на орбиту, с которой ушли"
+    assert vessel.course is not None
+    return vessel, owner, later
+
+
+async def test_a_course_cancelled_is_a_coast_from_where_the_hull_is(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """«Отменить курс» (D-289, 2026-09-04): the autopilot is switched off and
+    the hull coasts from where it is -- a drifter, its inertia counted, its
+    owner told why; no fuel is spent, and a crossing under the sky has no
+    turn-back any more."""
+    vessel, owner, later = await _under_way(session, constants, catalog)
+    aboard = await ship.fuel_aboard(session, constants, catalog, vessel)
+    #: Under the sky the recall names what to do instead.
+    with pytest.raises(ship.InFlight) as turned:
+        await ship.recall(session, constants, catalog, owner, vessel, now=later)
+    assert "ship-course-not-turned" in str(turned.value)
+    at = later + timedelta(minutes=1)
+    await ship.cancel(session, constants, catalog, owner, vessel, now=at)
+    assert vessel.course is None and vessel.docked_node_id is None
+    assert vessel.sky_at == at and vessel.forecast is not None, "дрейф из точки отмены, с прогнозом"
+    assert await ship.fuel_aboard(session, constants, catalog, vessel) == pytest.approx(aboard), (
+        "отмена курса топлива не жжёт"
     )
-    assert home["back"] is True
-    assert home["trace"][0] != out[0], "и начинается там, где корпус сейчас, а не где начал"
+    told = [
+        one
+        for one in (await session.execute(select(Event).where(Event.kind == EventKind.SHIP_ADRIFT)))
+        .scalars()
+        .all()
+        if one.payload.get("ship_id") == str(vessel.id)
+    ]
+    assert [one.payload.get("why") for one in told] == ["cancelled"]
     summary = await ship.profile(session, constants, catalog, vessel)
-    assert summary["flight"]["back"] is True, "консоль знает, что это путь назад"
-    #: A turn-back is not turned back: the hull is already going home.
-    with pytest.raises(ship.ShipError):
-        await ship.recall(
-            session, constants, catalog, owner, vessel, now=later + timedelta(minutes=1)
-        )
+    assert summary["stage"] == "adrift"
+    with pytest.raises(ship.InFlight):
+        await ship.cancel(session, constants, catalog, owner, vessel, now=at + timedelta(minutes=1))
+    #: The turn-back is the tabled legs' only: under the sky there is no
+    #: passage to turn, and a drifter has nothing to turn either.
+    with pytest.raises(ship.Docked):
+        await ship.recall(session, constants, catalog, owner, vessel, now=at + timedelta(minutes=1))
+
+
+async def test_the_helm_circles_the_star_at_the_hulls_own_radius(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """«Выйти на астроцентрическую орбиту» (D-289, 2026-09-04): the order is
+    flown at full thrust until the hull moves as a planet does at its own
+    radius; the tanks pay for it; then there is no order, the inertia is a
+    stable circle, and the owner is told. Begun well clear of Terra: a
+    circle through a planet's hold is a circle into the planet."""
+    vessel, owner, later = await _under_way(session, constants, catalog, hours=12)
+    aboard = await ship.fuel_aboard(session, constants, catalog, vessel)
+    arrives = await ship.circle_star(session, constants, catalog, owner, vessel, now=later)
+    assert vessel.course is not None and vessel.course["target"] == "star"
+    assert vessel.course["dv"] > 0 and arrives > later
+    summary = await ship.profile(session, constants, catalog, vessel)
+    assert summary["flight"]["star"] is True and summary["flight"]["to"] is None
+    with pytest.raises(ship.InFlight):
+        await ship.circle_star(session, constants, catalog, owner, vessel, now=later)
+
+    at = await _flown(
+        session,
+        constants,
+        catalog,
+        vessel,
+        since=later,
+        until=arrives,
+        step=timedelta(minutes=10),
+        slack=timedelta(hours=6),
+    )
+    assert vessel.course is None and vessel.docked_node_id is None, (
+        f"приказ выполнен -- круг: {vessel.course}"
+    )
+    assert vessel.forecast is not None and vessel.forecast["kind"] == sky.STABLE
+    world = await sim.system(session, constants)
+    r, v = sim._state_of(vessel)
+    wanted = sky.star_circle(world, r)
+    #: On the circle within the capture speed, the same word as a planet's.
+    assert float(np.hypot(*(np.array(v) - wanted))) <= world.capture_speed, (
+        "скорость -- круговая вокруг звезды, прямая"
+    )
+    assert await ship.fuel_aboard(session, constants, catalog, vessel) < aboard, "баки заплатили"
+    told = (
+        (await session.execute(select(Event).where(Event.kind == EventKind.SHIP_STAR_ORBIT)))
+        .scalars()
+        .all()
+    )
+    assert [one.actor_identity_id for one in told] == [owner.identity_id]
+    assert at <= arrives + timedelta(hours=6)
+
+
+async def test_circling_the_star_needs_fuel_for_the_whole_burn(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Refused for a burn the tanks cannot pay for whole: the hull stays
+    under its order rather than half-way onto a circle."""
+    vessel, owner, later = await _under_way(session, constants, catalog, hours=12)
+    aboard = await ship.fuel_aboard(session, constants, catalog, vessel)
+    await ship._spend(
+        session, await ship.fuel_stacks(session, constants, catalog, vessel), aboard - 1
+    )
+    await session.flush()
+    with pytest.raises(ship.NoFuel):
+        await ship.circle_star(session, constants, catalog, owner, vessel, now=later)
+    assert vessel.course is not None and vessel.course.get("target") != "star"
+    #: And never from a pier: the star's orbit is entered from space.
+    here = await _port(session, name="Второй космодром")
+    _, other = await _shipwright(session, here)
+    moored = await _laid(session, constants, other, here)
+    await _flightworthy(session, constants, catalog, moored)
+    other.node_id = moored.connector_node_id
+    await session.flush()
+    with pytest.raises(ship.Docked):
+        await ship.circle_star(session, constants, catalog, other, moored)
 
 
 async def test_a_crossing_needs_more_fuel_than_the_climb(
@@ -260,7 +363,8 @@ async def test_a_crossing_needs_more_fuel_than_the_climb(
     _, owner = await _shipwright(session, port)
     vessel = await _laid(session, constants, owner, port)
     connector = await session.get(Node, vessel.connector_node_id)
-    await _equip(session, connector, "Двигатель II класса")
+    engine = await _equip(session, connector, "Двигатель II класса")
+    engine.installed = True
     await _equip(session, connector, LIFE)
     await _equip(session, connector, CONSOLE)
     #: Enough for the climb and the descent behind it several times over, and
@@ -288,3 +392,34 @@ async def test_a_crossing_needs_more_fuel_than_the_climb(
     await session.flush()
     with pytest.raises(ship.NoFuel):
         await ship.fly(session, constants, catalog, owner, vessel, far, hours=fast["hours"])
+
+
+async def test_a_circle_through_a_planet_is_refused_before_the_burn(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A hull beside Terra asks for the circle round the star: the circle
+    from there passes through Terra's hold, and the order is refused with
+    the planet named rather than booked as a loss an hour later."""
+    here = await _port(session)
+    _, owner = await _shipwright(session, here)
+    vessel = await _laid(session, constants, owner, here)
+    await _flightworthy(session, constants, catalog, vessel)
+    connector = await session.get(Node, vessel.connector_node_id)
+    await _fuel(session, connector, 5000)
+    owner.node_id = connector.id
+    await session.flush()
+    world = await sim.system(session, constants)
+    terra = world.body(Planet.TERRA.value)
+    now = datetime.now(UTC)
+    p, vp = sky.place(terra, await ship.sky_days(session, now))
+    #: Adrift half a unit off Terra, moving with it.
+    vessel.docked_node_id = None
+    vessel.park_phase = None
+    sim._write_state(
+        vessel, (float(p[0, 0]) + 0.5, float(p[0, 1])), (float(vp[0, 0]), float(vp[0, 1])), at=now
+    )
+    await session.flush()
+    with pytest.raises(ship.NoPort) as refused:
+        await ship.circle_star(session, constants, catalog, owner, vessel, now=now)
+    assert "ship-orbit-crosses-planet" in str(refused.value)
+    assert vessel.course is None

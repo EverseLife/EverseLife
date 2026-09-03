@@ -186,7 +186,18 @@ class Drifter:
         return np.stack([x, y], axis=1), np.stack([vx[seg], vy[seg]], axis=1)
 
 
-Target = Body | Drifter
+@dataclass(frozen=True)
+class Star:
+    """The star as a target (D-289, 2026-09-04): the centre of the sky, still.
+    What is aimed at is not the star but the circle round it through the
+    hull's own place -- the astrocentric orbit, prograde like the planets'."""
+
+    key: str = "star"
+
+
+STAR = Star()
+
+Target = Body | Drifter | Star
 
 
 def place_any(target: Target, t: np.ndarray | float) -> tuple[Rows, Rows]:
@@ -194,6 +205,9 @@ def place_any(target: Target, t: np.ndarray | float) -> tuple[Rows, Rows]:
     drifter on its forecast."""
     if isinstance(target, Drifter):
         return target.state(t)
+    if isinstance(target, Star):
+        still = np.zeros((np.size(t), 2))
+        return still, still
     return place(target, t)
 
 
@@ -212,6 +226,15 @@ def place(body: Body, t: np.ndarray | float) -> tuple[Rows, Rows]:
 def circle_speed(body: Body, radius: float) -> float:
     """The speed of a circular orbit round the planet at this radius."""
     return float(np.sqrt(body.mu / radius))
+
+
+def star_circle(system: System, r: np.ndarray | tuple[float, float]) -> np.ndarray:
+    """The velocity of the circle round the star through `r`, prograde -- the
+    planets' own sense (D-289, 2026-09-04)."""
+    pos = np.asarray(r, dtype=float)
+    radius = max(float(np.hypot(*pos)), 1e-9)
+    around = np.array([-pos[1], pos[0]]) / radius
+    return around * float(np.sqrt(system.mu / radius))
 
 
 def circle_rate(body: Body, radius: float) -> float:

@@ -26,9 +26,11 @@ and the journal.
 
 from src.sky._base import (  # noqa: F401
     DV_EPS,
+    STAR,
     TIME_EPS,
     Body,
     Drifter,
+    Star,
     System,
     Target,
     bearing,
@@ -37,9 +39,10 @@ from src.sky._base import (  # noqa: F401
     parking,
     place,
     place_any,
+    star_circle,
     system_of,
 )
 from src.sky.field import advance, pull, sample  # noqa: F401
 from src.sky.forecast import CRASH, ESCAPE, STABLE, Fate, inertia  # noqa: F401
 from src.sky.guide import BURN, CAPTURE, COAST, Helm, brake_days, steer  # noqa: F401
-from src.sky.plan import Sample, approach_quote, escape_dv, preview  # noqa: F401
+from src.sky.plan import Sample, approach_quote, circle_quote, escape_dv, preview  # noqa: F401

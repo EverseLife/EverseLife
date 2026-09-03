@@ -22,7 +22,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from src import astro
-from src.sky._base import Body, Drifter, System, Target, circle_speed, place_any
+from src.sky._base import Body, Drifter, Star, System, Target, circle_speed, place_any, star_circle
 
 #: The helm starts braking as soon as the way left is what braking at this
 #: thrust needs, with this margin. How many parking radii it matches the
@@ -73,6 +73,8 @@ def steer(
 ) -> Helm:
     """The burn for one step of `dt` days, given where the hull is and when
     it means to arrive. `a_max` is the hull's acceleration, units a day squared."""
+    if isinstance(target, Star):
+        return _circle(system, r, v, a_max=a_max, dt=dt)
     p, vp = place_any(target, t)
     rel = np.array(r) - p[0]
     v_rel = np.array(v) - vp[0]
@@ -181,6 +183,30 @@ def _meet(
     size = float(np.hypot(*need))
     if size < STILL:
         return Helm(thrust=(0.0, 0.0), phase=CAPTURE, captured=False)
+    accel = min(a_max, size / dt)
+    thrust = need / size * accel
+    return Helm(thrust=(float(thrust[0]), float(thrust[1])), phase=CAPTURE, captured=False)
+
+
+def _circle(
+    system: System,
+    r: tuple[float, float],
+    v: tuple[float, float],
+    *,
+    a_max: float,
+    dt: float,
+) -> Helm:
+    """Match the circle round the star through the hull's own place, prograde
+    -- the astrocentric orbit (D-289, 2026-09-04). Full thrust toward the
+    circle's velocity, and once within the helm's stillness of it the order
+    is done: the hull hangs on the circle like a planet, coasting."""
+    need = star_circle(system, r) - np.array(v, dtype=float)
+    size = float(np.hypot(*need))
+    #: On it within the capture speed, as on a planet's circle: the pull of
+    #: the planets shifts the wanted velocity a little every minute, and a
+    #: helm chasing stillness would burn for ever.
+    if size <= system.capture_speed:
+        return Helm(thrust=(0.0, 0.0), phase=CAPTURE, captured=True)
     accel = min(a_max, size / dt)
     thrust = need / size * accel
     return Helm(thrust=(float(thrust[0]), float(thrust[1])), phase=CAPTURE, captured=False)

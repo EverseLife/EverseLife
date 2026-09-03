@@ -11,10 +11,10 @@ support's is the oxygen it breathes for the crew. A port has a name -- `fuel`,
 and its two outlets arrive with wave 4 of D-288.
 
 **Lines.** A line is one vessel standing on one port, in a chosen order. An
-inlet drinks from its vessels in that order; a port with **no line at all**
-takes any suitable vessel of the hull -- the way a hull nobody has plumbed has
-always behaved, so that nobody suffocates for not having drawn a line. The
-picture the owner draws narrows that; it never adds an obligation.
+inlet drinks from its vessels in that order, and a port with **no line at
+all** drinks from nothing (D-288 as amended 2026-09-04): the line is a duty,
+not an upgrade -- a hull nobody has plumbed has no fuel to burn and no air
+to breathe, however full its tanks.
 
 **What stands on a line.** Only an **installed** vessel aboard: a tank, a
 canister or a cylinder put up in a compartment the way furniture is
@@ -160,21 +160,20 @@ async def lines_for(
 async def sources(
     session: AsyncSession, machine: Item, port: str, hull: Sequence[Item]
 ) -> list[Item]:
-    """The vessels this port draws from, in order: its lines, or any of the hull.
+    """The vessels this port draws from, in order: its lines, and nothing else.
 
     `hull` is the installed vessels aboard (`hull_vessels`). A line whose
     vessel is not among them -- taken down, carried off, packed away -- is
     skipped, not obeyed: the row is a memory, and what answers is what stands.
-    Every named vessel gone, the port is back to **any**: a line to nothing is
-    not a line, and a crew must not suffocate beside full tanks because a
-    bottle was carried off. The rows stay, so the bottle put back stands on
-    its line again -- and the reading (`feed.view`) says exactly what this
-    does, because it filters the rows the same way.
+    A port without a line draws from **nothing** (D-288 as amended 2026-09-04):
+    the line is a duty, not an upgrade, and a crew beside full cylinders
+    nobody plumbed has not been given air. The rows stay, so the bottle put
+    back stands on its line again -- and the reading (`feed.view`) says
+    exactly what this does, because it filters the rows the same way.
     """
     rows = await lines_of(session, machine.id, port)
     aboard = {one.id: one for one in hull}
-    found = [aboard[row.vessel_item_id] for row in rows if row.vessel_item_id in aboard]
-    return found or list(hull)
+    return [aboard[row.vessel_item_id] for row in rows if row.vessel_item_id in aboard]
 
 
 async def stacks_for(
@@ -190,9 +189,8 @@ async def stacks_for(
 
     Several machines of one kind -- two engines -- share one port and draw from
     the union of their lines, each vessel once, in the order the first machine
-    names it. No machine at all reaches nothing: what a hull without one is
-    worth is the caller's question, and each asks it once (`physics.fuel_stacks`
-    counts the tanks for the console, `oxygen.supply` breathes nothing).
+    names it. No machine at all reaches nothing, and so does a machine with no
+    line (D-288 as amended 2026-09-04).
     Unlocked: the spender relocks by id (`stock.lock_items`), so a stale
     reading cannot overspend.
     """
@@ -207,20 +205,6 @@ async def stacks_for(
                 seen.add(vessel.id)
                 order.append(vessel)
     return await stacks_in(session, order, port.liquids)
-
-
-async def hull_stacks(
-    session: AsyncSession,
-    catalog: Catalog,
-    ship: Ship,
-    port: Port,
-    *,
-    things: Sequence[Item] | None = None,
-) -> list[Item]:
-    """The port's liquids in **every** installed vessel aboard: the port's own
-    default, asked for by name rather than implied by an empty list."""
-    hull = await hull_vessels(session, catalog, ship, things=things)
-    return await stacks_in(session, hull, port.liquids)
 
 
 async def stacks_in(
@@ -264,7 +248,7 @@ async def replace(
     session: AsyncSession, machine: Item, port: str, vessel_ids: Sequence[uuid.UUID]
 ) -> int:
     """Write the port's lines afresh: these vessels, in this order. Empty --
-    the port goes back to "any". The caller holds the machine's row."""
+    the port draws from nothing. The caller holds the machine's row."""
     await session.execute(
         delete(FeedLine).where(FeedLine.machine_item_id == machine.id, FeedLine.port == port)
     )

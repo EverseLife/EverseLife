@@ -93,9 +93,16 @@ async def tick_sky(
         .all()
     )
     if not wanted:
-        return {"flown": 0, "moored": 0, "adrift": released, "held": 0, "fuel": 0.0}
+        return {
+            "flown": 0,
+            "moored": 0,
+            "adrift": released,
+            "held": 0,
+            "circled": 0,
+            "fuel": 0.0,
+        }
     world = await system(session, constants)
-    flown = moored = adrift = held = 0
+    flown = moored = adrift = held = circled = 0
     fuel = 0.0
     moved: list[Ship] = []
     for ship_id in wanted:
@@ -111,6 +118,7 @@ async def tick_sky(
             moored += done == "moored"
             adrift += done == "adrift"
             held += done == "held"
+            circled += done == "circled"
         elif moment - ship.sky_at >= stale:
             await _restamp(session, constants, world, ship, now=moment)
         else:
@@ -137,6 +145,7 @@ async def tick_sky(
         "moored": moored,
         "adrift": adrift + released,
         "held": held,
+        "circled": circled,
         "fuel": round(fuel, ROUND_MASS),
     }
 
@@ -183,6 +192,10 @@ async def _fly(
         if found_goal is None:
             return "flying", 0.0
         target = found_goal
+    elif order.get("target") == sky.STAR.key:
+        #: The circle round the star (2026-09-04): nothing to chase, only a
+        #: velocity to match where the hull is.
+        target = sky.STAR
     else:
         target = world.body(str(order["planet"]))
 
@@ -263,6 +276,23 @@ async def _fly(
     if outcome == "moored" and other is not None:
         await hold.begin(session, constants, ship, other, r, v, now=stamp)
         return "held", burnt
+    if outcome == "moored" and isinstance(target, sky.Star):
+        #: On the circle round the star: no order any more, a coast that is
+        #: stable by construction -- counted all the same, so the console
+        #: and the map read it like any drifter's -- and the owner told.
+        ship.course = None
+        verdict = await fate.book_loss(session, constants, ship, world, now=stamp, t=t, r=r, v=v)
+        _keep_forecast(ship, verdict, now=stamp, t=t)
+        await events.record(
+            session,
+            EventKind.SHIP_STAR_ORBIT,
+            actor_identity_id=ship.owner_identity_id,
+            node_id=ship.connector_node_id,
+            ship_id=str(ship.id),
+            name=ship.name,
+        )
+        await session.flush()
+        return "circled", burnt
     if outcome == "moored" and isinstance(target, sky.Body):
         orbit = await orbit_node_of(session, target_planet(target))
         if orbit is None:  # pragma: no cover -- the seed lays one per planet

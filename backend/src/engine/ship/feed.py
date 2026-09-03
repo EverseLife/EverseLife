@@ -52,7 +52,8 @@ async def set_lines(
     vessels: Sequence[Item],
 ) -> int:
     """Plumb one port: these vessels, in this order. An empty list is the port
-    going back to "any suitable vessel aboard". Returns how many stand on it.
+    drawing from nothing (D-288 as amended 2026-09-04). Returns how many stand
+    on it.
 
     The same door as every order (`_commanded_by`): the owner, at the bridge
     or at a ground console. What may stand on the line is what stands on the
@@ -99,8 +100,9 @@ async def view(
 
     The owner's reading, or a crew member's: it names every vessel aboard
     with what is in it, and a stranger at the pier gets the card (`ship.view`),
-    not the hold's inventory (D-240). A port's `lines` empty means "any": the
-    client draws the fan itself and is told nothing it could derive (D-225).
+    not the hold's inventory (D-240). A port's `lines` empty means nothing
+    reached (D-288 as amended 2026-09-04): the client says so itself and is
+    told nothing it could derive (D-225).
     Each thing names its compartment -- a vessel in another room is the
     ordinary case, and the room's name is not something the client holds for
     rooms it is not standing in.

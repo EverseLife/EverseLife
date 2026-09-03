@@ -123,7 +123,8 @@ ship-no-engines = the ship has not a single engine
 ship-no-fuel = { $why ->
         [climb] there is not enough fuel for the climb
         [cross] there is not enough fuel to leave the parking circle
-        [turn-back] there is not enough fuel to turn back: on empty tanks nobody turns around in the void, the passage goes through to the end
+        [turn-back] there is not enough fuel to turn back
+        [orbit] there is not enough fuel to enter orbit round the star
        *[land] there is not enough fuel to land
     }: you need { NUMBER($need, minimumFractionDigits: 1, maximumFractionDigits: 1) } “{ NAME($goods) }” counted in rocket-fuel units, and the tanks answer for { NUMBER($have, minimumFractionDigits: 1, maximumFractionDigits: 1) }
 ship-passage-already-queued = the passage is already queued
@@ -147,6 +148,11 @@ ship-dock-at-port = hull to hull only in space: at a pier it would be a bridge p
 ship-already-docked-ship = the ship is already docked · { $other }
 ship-not-docked-ship = the ship is not docked to another hull
 ship-no-route-to-ship = the sky offers no arc to the target · { $other }
+ship-no-course-to-cancel = no course to cancel · { $ship }
+ship-already-circling = the hull is already entering orbit round the star · { $ship }
+ship-orbit-only-in-space = the star's orbit is entered from space, and the hull is at a planet, on the parking circle or at a pier · { $ship }
+ship-course-not-turned = a course under the sky is not turned back: it is cancelled, or the hull put into orbit round the star · { $ship }
+ship-orbit-crosses-planet = the circle round the star from here passes through a planet · { PLANET($body) }
 ship-target-gone-by-then = the target will not be there by the hour of arrival: it comes down or leaves the system before then · { $other }
 ship-already-landed = “{ $ship }” already stands on a planet: there is nowhere to land from
 ship-land-not-into-orbit = “{ $node }” is an orbit, not a spaceport: from orbit one lands on the planet below it

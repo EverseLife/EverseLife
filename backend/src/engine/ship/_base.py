@@ -224,8 +224,9 @@ FUEL = "ship_fuel"
 
 
 #: The class of the tank (D-230). Since D-288 not the only vessel an engine
-#: reaches: any vessel **installed** aboard stands on the lines -- a tank, a
-#: canister, a cylinder -- and the engines drink from the ones on theirs.
+#: reaches: any vessel **installed** aboard may stand on a line -- a tank, a
+#: canister, a cylinder -- and the engines drink from the ones on theirs, and
+#: from nothing without a line (as amended 2026-09-04).
 TANK = "fuel_tank"
 
 

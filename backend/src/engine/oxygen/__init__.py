@@ -14,13 +14,14 @@ breathe from different places:
 
 * **a hull** breathes off the life support's line (D-288). Oxygen is a liquid
   (D-230) and exists only inside a vessel, so the ship's reserve is what lies
-  in the vessels the **life support** reaches: any vessel installed aboard by
-  default -- a tank, a canister, a cylinder put up in a compartment the way
-  furniture is -- or the ones the owner named when a line was drawn
-  (`ship.lines`). A cylinder in the hands, on the floor or packed in a chest
-  is luggage: nothing aboard breathes it, and the word for that is on the
-  thing itself. The crew draws `oxygen.crew_draw` an hour a head, and the
-  system **only drinks**: it makes nothing. Air is made by an electrolyser --
+  in the vessels the **life support** reaches: the vessels on its line -- a
+  tank, a canister, a cylinder put up in a compartment the way furniture is
+  -- the ones the owner named when the line was drawn, and none without a
+  line (D-288 as amended 2026-09-04; `ship.lines`). A cylinder in the hands,
+  on the floor or packed in a chest is luggage: nothing aboard breathes it,
+  and the word for that is on the thing itself. The crew draws
+  `oxygen.crew_draw` an hour a head, and the system **only drinks**: it
+  makes nothing. Air is made by an electrolyser --
   at a port's grid, where it is the spaceport's oxygen pump, or aboard by
   hand or by an automat (D-253) -- and poured into the vessels the line
   stands on. There is no number of people a system holds: the draw is the

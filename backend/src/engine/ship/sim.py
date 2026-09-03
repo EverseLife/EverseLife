@@ -42,6 +42,7 @@ from src.db.base import remember
 from src.engine import stock, travel
 from src.engine.ship import course
 from src.engine.ship._base import (
+    InFlight,
     NoArc,
     NoFuel,
     NotEnoughThrust,
@@ -347,6 +348,80 @@ async def offers(
 _PREVIEWS: OrderedDict[tuple, list[sky.Sample]] = OrderedDict()
 
 
+async def _afford(
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    ship: Ship,
+    dv: float,
+    *,
+    why: str,
+) -> tuple[float, int | None]:
+    """Whether the tanks pay for a burn of `dv`: refused if not, else the
+    hull's mass and its engines' class for the caller to price the rest by.
+    The tanks are locked for the check, as any amount is read before it is
+    written off."""
+    weight = await mass(session, constants, catalog, ship)
+    klass = await engine_class(session, constants, ship)
+    stacks = await stock.lock_items(
+        session, await fuel_stacks(session, constants, catalog, ship), ordered=True
+    )
+    worth = sum(amount_float(one.amount) * fuel_energy(constants, one.type_key) for one in stacks)
+    need = fuel_for_dv(constants, weight, dv, klass)
+    if worth + _DV_EPS < need:
+        raise NoFuel(key="ship-no-fuel", why=why, need=need, goods="ship_fuel", have=worth)
+    return weight, klass
+
+
+async def circle(
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    ship: Ship,
+    *,
+    thrust_ratio: float,
+    now: datetime,
+) -> tuple[sky.Sample, float]:
+    """The order to circle the star (D-289, 2026-09-04): the burn that matches
+    the circle round the star through the hull's own place, prograde, priced
+    and written onto the row. The helm flies it (`guide._circle`) and the
+    tanks pay as it burns; refused only for a burn the tanks cannot pay for
+    whole. Whatever order the hull was under is dropped for this one."""
+    found = await state_at(session, constants, ship, now=now)
+    if found is None:  # pragma: no cover -- the caller asks for a hull in the sky
+        raise NoArc(key="ship-no-arc", hours=0)
+    r, v, _ = found
+    world = await system(session, constants)
+    plan = sky.circle_quote(world, r, v, thrust_ratio * float(constants[R.ORBIT_THRUST_SCALE]))
+    if plan.dv <= world.capture_speed:
+        #: Already on the circle, within the helm's own word for it: the order
+        #: would be done on its first step and the owner told a second time.
+        raise InFlight(key="ship-already-circling", ship=ship.name)
+    weight, klass = await _afford(session, constants, catalog, ship, plan.dv, why="orbit")
+    _write_state(ship, r, v, at=now)
+    ship.park_phase = None
+    ship.held_ship_id = None
+    due = _stamp(now + timedelta(hours=plan.hours))
+    ship.course = {
+        "target": sky.STAR.key,
+        "planet": None,
+        "ship": None,
+        "since": _stamp(now),
+        "arrive_at": due,
+        "due_at": due,
+        "hours": round(plan.hours, ROUND_HOURS),
+        "dv": round(plan.dv, ROUND_DV),
+        "dv_out": round(plan.dv_out, ROUND_DV),
+        "dv_in": 0.0,
+        "trace": [[round(x, ROUND_TRACE), round(y, ROUND_TRACE)] for x, y in plan.trace],
+        "phase": sky.BURN,
+        "spent": 0.0,
+    }
+    ship.forecast = None
+    await session.flush()
+    return plan, fuel_for_dv(constants, weight, plan.dv, klass)
+
+
 async def depart(
     session: AsyncSession,
     constants: Constants,
@@ -419,15 +494,7 @@ async def depart(
     r, v, _ = found
     plan = sample
 
-    weight = await mass(session, constants, catalog, ship)
-    klass = await engine_class(session, constants, ship)
-    stacks = await stock.lock_items(
-        session, await fuel_stacks(session, constants, catalog, ship), ordered=True
-    )
-    worth = sum(amount_float(one.amount) * fuel_energy(constants, one.type_key) for one in stacks)
-    need = fuel_for_dv(constants, weight, plan.dv_out, klass)
-    if worth + _DV_EPS < need:
-        raise NoFuel(key="ship-no-fuel", why="cross", need=need, goods="ship_fuel", have=worth)
+    weight, klass = await _afford(session, constants, catalog, ship, plan.dv_out, why="cross")
 
     #: Whoever was holding on to this hull was let go of by the caller
     #: (`hold.release_holders`), from the state they shared; the hull's own

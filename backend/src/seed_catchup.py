@@ -32,6 +32,7 @@ from src.constants.catalog import ItemKind
 from src.engine import account as accounts
 from src.engine import city as town
 from src.engine import death, energy, estate, explore, places, props, ship, tick, travel, utility
+from src.engine.ship import lines
 from src.engine.world.things import stands
 from src.models.city import City
 from src.models.estate import Building, Deed
@@ -93,6 +94,7 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
     #: it. Relaid here rather than by the migration, for the same reason the
     #: gangways are: what a step is worth in seconds is the vault's number.
     await _ship_steps(session, constants)
+    await _lines_catch_up(session, constants)
 
     #: Login by email and password (D-187): identities created before it get
     #: the seed's test accounts. Only those without an email yet -- anything
@@ -721,6 +723,33 @@ async def _ship_steps(session: AsyncSession, constants) -> None:
         if edge.base_seconds != step:
             edge.base_seconds = step
     await session.flush()
+
+
+async def _lines_catch_up(session: AsyncSession, constants) -> int:
+    """Draw the lines of hulls that lived under the old default (D-288 as
+    amended 2026-09-04): a port without a line draws from nothing now, and a
+    hull plumbed by nobody used to reach every installed vessel aboard. Each
+    port that has no line gets one to every vessel installed aboard, in the
+    order they stood -- exactly what the port reached the day before -- and
+    is never touched again: the owner's plumbing from then on is the owner's.
+    Returns how many ports were drawn."""
+    catalog = current_catalog()
+    drawn = 0
+    for hull in (await session.execute(select(Ship))).scalars().all():
+        hold = await lines.hold_of(session, hull)
+        vessels = [one.id for one in lines.vessels_among(catalog, hold) if one.installed]
+        for machine in hold:
+            if not machine.installed:
+                continue
+            for port in lines.ports_of(constants, machine.type_key):
+                if await lines.lines_of(session, machine.id, port.name):
+                    continue
+                if vessels:
+                    await lines.replace(session, machine, port.name, vessels)
+                    drawn += 1
+    if drawn:
+        log.info("lines drawn for %s ports of old hulls", drawn)
+    return drawn
 
 
 async def _founder_powers_catch_up(session: AsyncSession, city: City) -> None:

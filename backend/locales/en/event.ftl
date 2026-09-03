@@ -32,6 +32,7 @@ event-utility-cut_off = node cut off for non-payment
 event-transport-broke = wagon broke apart
 # The sky (D-289): the tanks ran dry under way, or the coast ended.
 event-ship-adrift = ship went adrift
+event-ship-star_orbit = ship entered orbit round the star
 event-ship-lost = ship lost
 event-ship-sighted = ship sighted
 event-ship-held = hull alongside

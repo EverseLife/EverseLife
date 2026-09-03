@@ -7,9 +7,9 @@
  * One section per port of every machine aboard that drinks a liquid -- the
  * fuel of an engine, the oxygen of the life support -- and under it every
  * installed vessel of the hull that holds that liquid or nothing yet, each
- * with the room it stands in. Nothing ticked is the hull as it always was:
- * the port drinks from any of them. Ticking narrows the line to the ticked,
- * and the order of ticking is the order of use; «выше» moves one up.
+ * with the room it stands in. Nothing ticked is a port that draws from
+ * nothing (D-288 as amended 2026-09-04); ticking makes the line of the
+ * ticked, and the order of ticking is the order of use; «выше» moves one up.
  *
  * The picture is the server's (`line.view`) and is reread when the world
  * says the hull changed (D-226): a line drawn, a vessel put up or poured
@@ -30,7 +30,7 @@ export function Feed({
 }: {
   vessel: Vessel;
   busy: boolean;
-  /** Draw one port's lines: the vessels in order, or none for "any". */
+  /** Draw one port's lines: the vessels in order, or none for nothing. */
   plumb: (machine: string, port: string, vessels: string[]) => Promise<unknown>;
 }) {
   const session = useSession();
@@ -119,7 +119,7 @@ function Port({
         <b>{goodsName(names, machine.goods)}</b> · {machine.node_name} ·{" "}
         <span className="note">{port.liquids.map((one) => goodsName(names, one)).join(", ")}</span>
         {any ? (
-          <span className="note"> · {t("ui-ship-feed-any")}</span>
+          <span className="note"> · {t("ui-ship-feed-nothing")}</span>
         ) : (
           <>
             {" "}

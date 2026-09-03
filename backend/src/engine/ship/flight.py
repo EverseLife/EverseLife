@@ -194,8 +194,8 @@ async def _burn(
     #: worth -- kerosene closes more of it per unit than it shows. Checked
     #: and burnt under one lock (`burn_checked`): a tank drained between the
     #: two would otherwise let the leg fly on fuel it never paid. Burnt off
-    #: the engines' lines (D-288): any vessel installed aboard by default,
-    #: the named ones when a line is drawn.
+    #: the engines' lines (D-288): the vessels named when the line was
+    #: drawn, and nothing without one (as amended 2026-09-04).
     burnt, have = await burn_checked(session, constants, catalog, ship, need=need, whole=whole)
     if burnt <= 0 and have + _EPS < whole:
         raise NoFuel(key="ship-no-fuel", why=refusal, need=whole, goods=FUEL, have=have)
@@ -443,15 +443,11 @@ async def recall(
     #: (`jobs._claim`), and two orders that disagree about it deadlock.
     running = await _passage_of(session, ship, lock=True)
     await session.refresh(ship, with_for_update=True)
+    #: A crossing under the sky is not turned back (D-289, 2026-09-04): it is
+    #: cancelled into a coast (`crossing.cancel`) or replaced by another
+    #: order; only the tabled legs -- the climb and the descent -- come back.
     if running is None and ship.course and ship.docked_node_id is None:
-        if ship.course.get("back"):
-            raise ShipError(key="ship-turn-back-already-queued")
-        #: Lazy: the crossing is built on this module's legs (`_leaving`,
-        #: `_cast_off`, `_passage_of`), and the turn-back is the one leg
-        #: order that hands over to it.
-        from src.engine.ship.crossing import turn_home  # noqa: PLC0415 -- lazy: breaks the cycle
-
-        return await turn_home(session, constants, catalog, body, ship, now=moment)
+        raise InFlight(key="ship-course-not-turned", ship=ship.name)
     if running is None:
         raise Docked(key="ship-not-in-passage")
     #: A turn-back is not turned back. It is already going home, and the hours
