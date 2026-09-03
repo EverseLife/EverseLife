@@ -12,6 +12,7 @@
 
 import type { Thing } from "./api";
 import type { RecipeBook } from "./api";
+import { json, keep, kept } from "./kept";
 import { compare, t } from "./locale";
 import { goodsName, tierName, type Names } from "./names";
 
@@ -59,14 +60,30 @@ const KIND_WORDS: Record<string, string> = {
   money: "ui-arrange-kind-coins",
 };
 
-/** What kind of thing this is, in the player's words -- from vault data, not from the name. */
-export function kindOf(book: RecipeBook | null, thing: Thing): string {
-  if (thing.recipe) return t("ui-arrange-kind-carriers");
-  if (thing.fineness != null) return t("ui-arrange-kind-coins");
+/**
+ * What kind of thing this is, as a key -- from vault data, not from the name.
+ *
+ * Split from the word below because the two are asked for different things:
+ * the word is read, the key is stored and compared. `kindOf` spells the same
+ * answer in the player's language.
+ */
+export function kindKey(book: RecipeBook | null, thing: Thing): string {
+  if (thing.recipe) return "carriers";
+  if (thing.fineness != null) return "money";
   const recipe = (book?.recipes ?? []).find((r) => (r.id ?? r.name) === thing.goods);
-  if (!recipe) return t("ui-arrange-kind-raw");
-  if (recipe.food) return t("ui-arrange-kind-food");
-  return t(KIND_WORDS[recipe.kind] ?? "ui-arrange-kind-other");
+  if (!recipe) return "raw";
+  if (recipe.food) return "food";
+  return KIND_WORDS[recipe.kind] ? recipe.kind : "other";
+}
+
+/** The same answer in the player's words, for the group's header. */
+export function kindOf(book: RecipeBook | null, thing: Thing): string {
+  const key = kindKey(book, thing);
+  if (key === "carriers") return t("ui-arrange-kind-carriers");
+  if (key === "money") return t("ui-arrange-kind-coins");
+  if (key === "raw") return t("ui-arrange-kind-raw");
+  if (key === "food") return t("ui-arrange-kind-food");
+  return t(KIND_WORDS[key] ?? "ui-arrange-kind-other");
 }
 
 /** The group a stack falls into under this axis. The key doubles as the
@@ -88,6 +105,38 @@ export function groupKey(
       return kindOf(book, thing);
     case "maker":
       return thing.maker ?? t("ui-arrange-no-maker");
+    default:
+      return "";
+  }
+}
+
+/**
+ * The same group, spelled in ids (D-251).
+ *
+ * `groupKey` answers in the player's language, which makes it a **title** and
+ * nothing more: written down as the identity of a group -- in storage, in a
+ * set of what is unfolded -- it would be a Russian literal in the role of an
+ * identifier, and the fold would come undone the moment the player switched
+ * language. Nothing falls over; only the player would ever see it. So what is
+ * stored is this, and what is read is the other.
+ *
+ * `maker` is the exception and cannot be helped: the wire carries a maker as
+ * a name, and there is no id under it to reach for.
+ */
+export function groupId(
+  book: RecipeBook | null,
+  thing: Thing,
+  by: Grouping,
+): string {
+  switch (by) {
+    case "goods":
+      return thing.recipe ? `${thing.goods}:${thing.recipe}` : thing.goods;
+    case "tier":
+      return thing.quality == null ? "" : (thing.tier ?? "");
+    case "kind":
+      return kindKey(book, thing);
+    case "maker":
+      return thing.maker ?? "";
     default:
       return "";
   }
@@ -199,21 +248,28 @@ export function orderGroups(
 
 const STORE = "everselife.inventory.arrange";
 
+export type Axes = { group: Grouping; sort: Sorting; desc: boolean };
+
+const PLAIN: Axes = { group: "none", sort: "name", desc: false };
+
+//: Every field is checked against the word lists above rather than merely
+//: spread over the defaults: an axis renamed or dropped in a later build would
+//: otherwise come back out of storage as a grouping nothing groups by.
+const AXES = json<Axes>((value) => {
+  if (value === null || typeof value !== "object") return null;
+  const said = value as Record<string, unknown>;
+  return {
+    group: GROUPINGS.find((axis) => axis.id === said.group)?.id ?? PLAIN.group,
+    sort: SORTINGS.find((axis) => axis.id === said.sort)?.id ?? PLAIN.sort,
+    desc: said.desc === true,
+  };
+});
+
 /** The player's last choice of axes, if any. */
-export function remembered(): { group: Grouping; sort: Sorting; desc: boolean } {
-  try {
-    const raw = localStorage.getItem(STORE);
-    if (raw) return { group: "none", sort: "name", desc: false, ...JSON.parse(raw) };
-  } catch {
-    /* a browser without storage forgets, and that is fine */
-  }
-  return { group: "none", sort: "name", desc: false };
+export function remembered(): Axes {
+  return kept(STORE, PLAIN, AXES);
 }
 
-export function remember(choice: { group: Grouping; sort: Sorting; desc: boolean }): void {
-  try {
-    localStorage.setItem(STORE, JSON.stringify(choice));
-  } catch {
-    /* see above */
-  }
+export function remember(choice: Axes): void {
+  keep(STORE, choice, AXES);
 }

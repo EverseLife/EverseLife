@@ -6,6 +6,7 @@ import type { Look, Outlook } from "../../api";
 import { Deadline } from "../../Deadline";
 import { Hint } from "../../Hint";
 import { useNames, useSession } from "../../actions";
+import { oneOf, useKept } from "../../kept";
 import { t } from "../../locale";
 import { goodsName, type Names } from "../../names";
 import { LAYERS, type LayerId } from "./model";
@@ -62,6 +63,10 @@ const GOAL_WORD: Record<string, string> = {
  * The run's price is a property of the place (D-156): in untrodden surroundings
  * it is minutes and an almost certain find, in trodden ones hours and a roll.
  * The forecast is shown before leaving and updates on node change. */
+type Reach = "near" | "far";
+
+const REACH_WIRE = oneOf<Reach>(["near", "far"]);
+
 export function Search({
   look,
   busy,
@@ -78,8 +83,10 @@ export function Search({
   const [speciesList, setSpeciesList] = useState<string[]>([]);
   const [species, setSpecies] = useState("");
   //: Near or far (D-262): near keeps the find kindred to this place, far is
-  //: the lottery it always was. The server defaults to far when omitted.
-  const [reach, setReach] = useState<"near" | "far">("far");
+  //: the lottery it always was. The server defaults to far when omitted, and
+  //: so does the panel -- but a scout who works one way keeps working it, so
+  //: the choice is kept across reloads (`kept.ts`).
+  const [reach, setReach] = useKept<Reach>("everselife.search.reach", "far", REACH_WIRE);
   const [forecast, setForecast] = useState<Outlook | null>(null);
   //: Отдельный прогноз для леса: он сужает шанс на лесистость мира (D-191).
   const [woods, setWoods] = useState<Outlook | null>(null);

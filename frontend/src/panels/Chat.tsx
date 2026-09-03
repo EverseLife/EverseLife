@@ -44,8 +44,10 @@ const KINDS = [
   { value: "ooc", label: "ui-chat-kind-ooc" },
 ] as const;
 
+type Kind = (typeof KINDS)[number]["value"];
+
 /** The placeholder over the input, by the kind of line being written. */
-const SAY_HINTS: Record<(typeof KINDS)[number]["value"], string> = {
+const SAY_HINTS: Record<Kind, string> = {
   speech: "ui-chat-say-speech",
   action: "ui-chat-say-action",
   ooc: "ui-chat-say-ooc",
@@ -66,7 +68,15 @@ export function Chat({ place }: Omit<Props, "busy" | "act">) {
   const [lines, setLines] = useState<ChatLine[]>([]);
   const [circles, setCircles] = useState<Circle[]>([]);
   const [text, setText] = useState("");
-  const [kind, setKind] = useState<(typeof KINDS)[number]["value"]>("speech");
+  //: Sticky between two lines said in a row, and no further: both go out with
+  //: `chat.say` and both have consequences in the world. Out of character is
+  //: the mark D-050 pays a whole message type for, so that a week later nobody
+  //: has to guess what the character said and what the person did; speaking
+  //: under one's breath multiplies the chance of leaking to the next circle
+  //: (D-043). A choice made in the last session must not speak for a sentence
+  //: typed in this one, so neither is written down (`kept.ts`, the list of
+  //: what is never kept).
+  const [kind, setKind] = useState<Kind>("speech");
   const [quiet, setQuiet] = useState(false);
   //: The strip folds to one line (D-238): the talk gives the scene its
   //: height back when it is not being read. The fold is remembered, like
