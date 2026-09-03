@@ -7,6 +7,7 @@
 import { useState } from "react";
 import { Amount } from "../../Amount";
 import { chosen, tally } from "../../amounts";
+import { weightOf } from "../../arrange";
 import { useBook, useNames, useSession } from "../../actions";
 import { DropZone } from "../../DragMove";
 import { grip, noDrag } from "../../drag";
@@ -123,7 +124,7 @@ export function Floor({ look, busy, act, where = "floor" }: Props & { where?: Su
                   <td className="note">
                     {tally(thing.goods, thing.amount)}{" "}
                     {t("ui-place-floor-mass", {
-                      mass: (thing.mass * thing.amount).toFixed(1),
+                      mass: weightOf(thing).toFixed(1),
                     })}
                   </td>
                   <td {...noDrag}>
