@@ -592,7 +592,9 @@ export function Ship({
                   })}`
                 : v.flight
                   ? ` · ${t("ui-ship-on-voyage", { name: v.flight.name })}`
-                  : ` · ${t("ui-ship-adrift")}`}
+                  : v.stage === "lost"
+                    ? ` · ${t("ui-ship-lost-status")}`
+                    : ` · ${t("ui-ship-adrift")}`}
           </p>
           {/* A passage is a term like any other, and every term in this world
               is drawn the same way. At the console the whole card stands
@@ -631,6 +633,8 @@ export function Ship({
                   busy={busy || deaf}
                   ascend={() => go(() => session.send("ship.ascend", { ship: v.ship }))}
                 />
+              ) : v.stage === "lost" ? (
+                <p className="reason">{t("ui-ship-lost-note")}</p>
               ) : v.stage === "flight" ? (
                 <Passage
                   v={v}

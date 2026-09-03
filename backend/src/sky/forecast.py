@@ -15,7 +15,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from src.sky._base import Rows, System, norms, place
+from src import astro
+from src.sky._base import Body, Rows, System, norms, place
 from src.sky.field import advance
 from src.units import TRACE_POINTS
 
@@ -70,6 +71,14 @@ def inertia(
     way it walks a passage.
     """
     end = t0 + horizon
+    #: Bound to a planet -- the parking circle, or any ellipse that neither
+    #: grazes the ground nor reaches the edge of the planet's hold -- is
+    #: stable by arithmetic, and ninety days of five-body steps at the pace
+    #: the planet's pull demands were the dearest thing the tick did. One
+    #: lap of the ellipse is the line to draw.
+    bound = _bound_to(system, t0, r0, v0, points)
+    if bound is not None:
+        return Fate(kind=STABLE, at=end, body=None, trace=bound)
     t = np.array([t0], dtype=float)
     r = np.array([r0], dtype=float)
     v = np.array([v0], dtype=float)
@@ -109,6 +118,59 @@ def inertia(
         body=None if body is None else str(body),
         trace=_resample(times, path, at, points),
     )
+
+
+#: How much of a planet's Hill radius a bound ellipse may reach before the
+#: star's tug is no longer a perturbation: the classic third.
+_HOLD_SHARE = 1 / 3
+
+
+def _bound_to(
+    system: System,
+    t0: float,
+    r0: tuple[float, float],
+    v0: tuple[float, float],
+    points: int,
+) -> tuple[tuple[float, float], ...] | None:
+    """One lap of the ellipse round the nearest planet, if the hull is on
+    one that stays: negative two-body energy, periapsis above the ground,
+    apoapsis well inside the planet's hold. Nothing otherwise."""
+    if not system.bodies or system.mu <= 0:
+        return None
+    body, rel, v_rel = _nearest(system, t0, r0, v0)
+    gap = astro.norm(rel)
+    speed = astro.norm(v_rel)
+    if gap <= 0:
+        return None
+    energy = speed * speed / 2 - body.mu / gap
+    if energy >= 0:
+        return None
+    axis = -body.mu / (2 * energy)
+    momentum = astro.cross(rel, v_rel)
+    excess = 1 + 2 * energy * momentum * momentum / (body.mu * body.mu)
+    eccentricity = float(np.sqrt(max(0.0, excess)))
+    periapsis = axis * (1 - eccentricity)
+    apoapsis = axis * (1 + eccentricity)
+    hill = body.orbit[0] * (body.mu / (3 * system.mu)) ** (1 / 3)
+    if periapsis <= body.radius or apoapsis >= hill * _HOLD_SHARE:
+        return None
+    centre = place(body, t0)[0][0]
+    lap = astro.trace(body.mu, rel, v_rel, astro.lap(body.mu, axis), points)
+    return tuple((float(centre[0]) + x, float(centre[1]) + y) for x, y in lap)
+
+
+def _nearest(
+    system: System, t0: float, r0: tuple[float, float], v0: tuple[float, float]
+) -> tuple[Body, tuple[float, float], tuple[float, float]]:
+    """The planet the hull is closest to, and the hull's state relative to it."""
+    best: tuple[Body, tuple[float, float], tuple[float, float]] | None = None
+    for body in system.bodies:
+        p, vp = place(body, t0)
+        rel = (float(r0[0] - p[0, 0]), float(r0[1] - p[0, 1]))
+        if best is None or astro.norm(rel) < astro.norm(best[1]):
+            best = (body, rel, (float(v0[0] - vp[0, 0]), float(v0[1] - vp[0, 1])))
+    assert best is not None
+    return best
 
 
 def _resample(

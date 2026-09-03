@@ -75,6 +75,9 @@ export function Course({
   useEffect(() => {
     const held = planet !== null && samples !== null && pick !== null ? samples[pick] : null;
     onPlan(held?.trace ?? null);
+    //: And nothing once the slider is gone: a line left behind after the
+    //: order would lie on top of the order's own.
+    return () => onPlan(null);
   }, [onPlan, planet, samples, pick]);
 
   if (planet === null) {

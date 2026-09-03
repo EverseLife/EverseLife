@@ -1,20 +1,21 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Nurlan Urazkulov
 
-"""The plan of a passage (D-289): what the slider offers, and the one
-trajectory the order is flown by.
+"""The plan of a passage (D-289): what the slider offers, and the line the
+order carries.
 
-Two readings, deliberately unequal in cost:
+Two things, deliberately unequal in cost:
 
 * **the preview** -- every point of the slider priced as D-271 prices it: a
   Lambert arc round the star from where the hull is to where the planet
   will be, plus what leaving the parking circle and settling onto the far
   one cost by patched conics. Cheap, and drawn as the two-body arc; the
   chart redraws it as the slider moves;
-* **the refinement** -- the chosen point flown under the full pull of all
-  five bodies, the departure velocity corrected by shooting until the hull
-  arrives where the planet will be. This is the line the order carries and
-  the map draws the hull along; the autopilot re-plans from it every tick.
+* **the order's line** -- the preview's own two-body arc, no more. A
+  refinement by shooting under all five bodies was built and dropped in the
+  same wave: it diverged on the cheap end of the slider and bought only a
+  picture, since the helm re-solves the passage from where the hull is every
+  tick whatever line was drawn at the order.
 
 The plan is an approximation and the simulation is the truth (D-289): a
 plan is what one pays for, the tick is what one gets.

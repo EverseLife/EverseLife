@@ -58,11 +58,9 @@ from src.models.job import Job, JobKind, JobState
 from src.models.ship import Ship
 from src.models.world import Node, Surface
 from src.units import (
-    ROUND_DV,
     ROUND_HOURS,
     ROUND_MASS,
     ROUND_RATIO,
-    ROUND_TRACE,
     SECONDS_PER_HOUR,
 )
 
@@ -236,26 +234,16 @@ async def _launch(
     weight: float,
     thrust_ratio: float,
     at: datetime,
-    arc: course.Arc | None = None,
 ) -> Job:
     """Write the leg into the journal and queue its arrival.
 
     One shape for all three legs, and `leg` is the only thing that tells them
     apart in the record: a climb, a crossing and a descent differ in what they
-    cost, not in what happens at the end of them. A crossing carries its arc
-    (D-271): the delta-v it paid, the planet it bends round, and the line the
-    map draws it on -- none of which the map could work out from the two ends.
+    cost, not in what happens at the end of them. A crossing is no leg any
+    more (D-289): it is an order on the hull's row, and no job is queued.
     """
     arrives = at + timedelta(hours=hours)
-    told: dict[str, object] = {}
     payload: dict[str, object] = {"ship": str(ship.id), "to": str(to.id), "leg": leg}
-    if arc is not None:
-        told = {"dv": round(arc.dv, ROUND_DV), "via": arc.via}
-        payload.update(
-            dv=round(arc.dv, ROUND_DV),
-            via=arc.via,
-            arc=[[round(x, ROUND_TRACE), round(y, ROUND_TRACE)] for x, y in arc.trace],
-        )
     event = await events.record(
         session,
         EventKind.SHIP_LAUNCHED,
@@ -270,7 +258,6 @@ async def _launch(
         mass=round(weight, ROUND_MASS),
         ratio=round(thrust_ratio, ROUND_RATIO),
         arrives_at=arrives.isoformat(),
-        **told,
     )
     job = await enqueue(
         session,

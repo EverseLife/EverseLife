@@ -124,7 +124,11 @@ export function Chart({
   const home = by.get(vessel.planet);
   const goal = vessel.flight?.planet ? by.get(vessel.flight.planet) : undefined;
   const hull: Point | null = (() => {
-    if (vessel.stage !== "orbit" && vessel.sky) {
+    //: Adrift, the state the server read is the place: nothing moves it but
+    //: the next read. Under way the hull is walked along its line by the
+    //: clock, as the world map walks it, so it does not stand still between
+    //: two rereads of the console.
+    if (vessel.stage === "adrift" && vessel.sky) {
       return { x: STAR.x + vessel.sky.x * fit, y: STAR.y + vessel.sky.y * fit };
     }
     if (!home) return null;

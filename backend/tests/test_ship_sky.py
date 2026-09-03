@@ -286,7 +286,7 @@ async def test_two_ticks_on_one_hull_burn_once(
     """The row is locked for the stretch: two workers ticking the same hull
     to the same hour spend one stretch of fuel, not two.
 
-    The bound is physics: an hour at full thrust is all the Δv an hour can
+    The bound is physics: an hour at full thrust is all the delta-v an hour can
     burn, and a double burn is twice that.
     """
     async with factory() as session, session.begin():
@@ -357,3 +357,27 @@ async def test_a_coasting_hull_is_restamped_by_the_tick_and_read_without_writing
     assert len(await _events(session, EventKind.SHIP_ADRIFT)) == told
     assert summary["sky"]["inertia"]["kind"] == vessel.forecast["kind"]
     assert drawn[vessel.node_id]["arc"] == vessel.forecast["trace"]
+
+
+async def test_a_hull_under_way_carries_the_coast_ahead_at_the_coaster_cadence(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """ "If the engines fell silent now": the tick counts it for a hull under
+    an order too, at the coaster's cadence and not every minute, and never in
+    a read."""
+    vessel, _, _, moment, _ = await _under_way(session, constants, catalog)
+    assert vessel.forecast is None, "заказ прогноза не считает: его пишет тик"
+    first = moment + timedelta(hours=1)
+    await sim.tick_sky(session, constants, catalog, now=first)
+    await session.refresh(vessel)
+    assert vessel.forecast is not None and vessel.course is not None
+    counted = vessel.forecast["since"]
+    await sim.tick_sky(session, constants, catalog, now=first + timedelta(hours=1))
+    await session.refresh(vessel)
+    assert vessel.forecast["since"] == counted, "час спустя прогноз тот же"
+    later = first + timedelta(hours=float(constants[R.ORBIT_RESTAMP_HOURS]) + 1)
+    await sim.tick_sky(session, constants, catalog, now=later)
+    await session.refresh(vessel)
+    assert vessel.forecast["since"] != counted, "за каденцией прогноз пересчитан"
+    seen = (await ship.profile(session, constants, catalog, vessel))["sky"]
+    assert seen is not None and seen["inertia"]["kind"] == vessel.forecast["kind"]

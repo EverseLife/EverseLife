@@ -297,6 +297,7 @@ UNDER_WAY = "flight"
 #: And a fourth since D-289: moored to nothing and under no order -- a hull
 #: coasting on whatever inertia it has, for as long as it takes.
 ADRIFT = "adrift"
+LOST = "lost"
 
 
 #: The three legs a journey is made of (D-245). A ship is on the ground, in

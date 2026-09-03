@@ -134,6 +134,7 @@ from src.engine.ship._base import (  # noqa: F401
     FUEL,
     GROUND_BRIDGE,
     LIFE_SUPPORT,
+    LOST,
     OPEN_LANDING,
     ORBIT_NODE,
     PASSAGE,

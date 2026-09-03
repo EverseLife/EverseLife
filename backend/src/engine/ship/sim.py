@@ -23,8 +23,11 @@ helm asks the sky one Lambert solution a step.
 
 from __future__ import annotations
 
+import asyncio
 import math
 import uuid
+from collections import OrderedDict
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 
 import numpy as np
@@ -71,7 +74,8 @@ from src.units import (
     ROUND_HOURS,
     ROUND_MASS,
     ROUND_TRACE,
-    SECONDS_PER_HOUR,
+    SKY_CURVE_MEMO,
+    SKY_MEMO_PER_DAY,
     amount_float,
 )
 
@@ -182,6 +186,8 @@ async def moor(
     await moor_to(session, ship, orbit)
     ship.park_phase = phase
     ship.course = None
+    #: A moored hull carries no coast ahead: its circle the chart draws.
+    ship.forecast = None
     ship.sky_at = now
     ship.sky_x = ship.sky_y = ship.sky_vx = ship.sky_vy = None
     await session.flush()
@@ -234,7 +240,34 @@ async def offers(
         moored = await session.get(Node, ship.docked_node_id)
         if moored is not None and is_orbit(moored):
             leaving = world.body(moored.planet.value)
-    return sky.preview(world, constants, r, v, t, target, course.grid(constants), leaving=leaving)
+    #: Memoised on the state, rounded as the wire rounds it, and on the
+    #: sky's own minute: every console over a planet asks the same question
+    #: of the same sky, and forty Lambert solutions a planet on every reread
+    #: of `ship.view` were a tenth of a second each in the event loop. What
+    #: is not remembered is solved off the loop.
+    key = (
+        constants.digest,
+        target.key,
+        None if leaving is None else leaving.key,
+        round(t * SKY_MEMO_PER_DAY),
+        round(r[0], ROUND_TRACE),
+        round(r[1], ROUND_TRACE),
+        round(v[0], ROUND_DV),
+        round(v[1], ROUND_DV),
+    )
+    hit = _PREVIEWS.get(key)
+    if hit is None:
+        hit = await asyncio.to_thread(
+            sky.preview, world, constants, r, v, t, target, course.grid(constants), leaving=leaving
+        )
+        _PREVIEWS[key] = hit
+        while len(_PREVIEWS) > SKY_CURVE_MEMO:
+            _PREVIEWS.popitem(last=False)
+    return list(hit)
+
+
+#: The slider previews remembered across commands (see `offers`).
+_PREVIEWS: OrderedDict[tuple, list[sky.Sample]] = OrderedDict()
 
 
 async def depart(
@@ -247,6 +280,7 @@ async def depart(
     hours: float,
     thrust_ratio: float,
     now: datetime,
+    offered: Sequence[sky.Sample] | None = None,
 ) -> tuple[sky.Sample, float]:
     """Set the order: the chosen point of the slider, written onto the row.
     Returns the plan -- the slider's own sample -- and the fuel it will cost
@@ -266,9 +300,9 @@ async def depart(
     """
     world = await system(session, constants)
     goal = world.body(target.planet.value)
-    samples = {
-        one.hours: one for one in await offers(session, constants, catalog, ship, goal, now=now)
-    }
+    if offered is None:
+        offered = await offers(session, constants, catalog, ship, goal, now=now)
+    samples = {one.hours: one for one in offered}
     sample = samples.get(round(hours, ROUND_HOURS)) or samples.get(hours)
     if sample is None:
         raise NoArc(key="ship-no-arc", hours=round(hours, ROUND_HOURS))
@@ -346,30 +380,39 @@ async def tick_sky(
     """Move every hull in space up to `now`: fly the ordered, restamp the
     coasting. Returns what happened, for the tick's telemetry."""
     moment = now or datetime.now(UTC)
-    afloat = (
+    #: Which hulls have work this tick, read without a lock; then each one
+    #: is taken for update by itself, and one somebody is ordering right now
+    #: is skipped until the next minute. A single lock over every hull in
+    #: the sky held all of `ship.fly` and `ship.recall` behind the slowest
+    #: forecast (review of this wave).
+    stale = timedelta(hours=float(constants[R.ORBIT_RESTAMP_HOURS]))
+    wanted = (
         (
             await session.execute(
-                select(Ship)
+                select(Ship.id)
                 .where(
                     Ship.docked_node_id.is_(None),
                     Ship.sky_at.isnot(None),
                     Ship.lost_at.is_(None),
+                    (Ship.course.isnot(None)) | (Ship.sky_at <= moment - stale),
                 )
                 .order_by(Ship.id)
-                .with_for_update()
-                .execution_options(populate_existing=True)
             )
         )
         .scalars()
         .all()
     )
-    if not afloat:
+    if not wanted:
         return {"flown": 0, "moored": 0, "adrift": 0, "fuel": 0.0}
     world = await system(session, constants)
     flown = moored = adrift = 0
     fuel = 0.0
-    stale = timedelta(hours=float(constants[R.ORBIT_RESTAMP_HOURS]))
-    for ship in afloat:
+    for ship_id in wanted:
+        ship = await session.get(
+            Ship, ship_id, with_for_update={"skip_locked": True}, populate_existing=True
+        )
+        if ship is None or ship.docked_node_id is not None or ship.lost_at is not None:
+            continue
         if ship.course:
             done, burnt = await _fly(session, constants, catalog, world, ship, now=moment)
             flown += 1
@@ -573,7 +616,9 @@ async def fate_of(
 ) -> sky.Fate:
     horizon = float(constants[R.ORBIT_FORECAST_DAYS])
     step = float(constants[R.ORBIT_PLAN_STEP_MINUTES]) / MINUTES_PER_HOUR / HOURS_PER_DAY
-    return sky.inertia(world, t, r, v, horizon=horizon, dt_max=step)
+    #: Off the loop: a coast that really has to be flown is seconds of
+    #: numpy, and the worker's other steps must not wait on it.
+    return await asyncio.to_thread(sky.inertia, world, t, r, v, horizon=horizon, dt_max=step)
 
 
 async def book_loss(
@@ -586,10 +631,13 @@ async def book_loss(
     t: float,
     r: tuple[float, float],
     v: tuple[float, float],
+    fate: sky.Fate | None = None,
 ) -> sky.Fate:
     """The forecast's hour as a job: nothing polls a coast, the journal wakes
-    at the hour and asks the arithmetic once more."""
-    fate = await fate_of(session, constants, world, t, r, v)
+    at the hour and asks the arithmetic once more. `fate` is passed by a
+    caller that has just counted it, so the coast is not flown twice."""
+    if fate is None:
+        fate = await fate_of(session, constants, world, t, r, v)
     if fate.kind != sky.STABLE:
         at = now + timedelta(days=fate.at - t)
         await enqueue(
@@ -628,7 +676,7 @@ async def lost(session: AsyncSession, job: Job) -> None:
     #: Not yet -- the coast is slower than the forecast thought, or a nudge
     #: since moved the hour. Booked again at the new hour, if there is one.
     _write_state(ship, r, v, at=job.run_at)
-    fate = await book_loss(session, constants, ship, world, now=job.run_at, t=t, r=r, v=v)
+    await book_loss(session, constants, ship, world, now=job.run_at, t=t, r=r, v=v, fate=fate)
     _keep_forecast(ship, fate, now=job.run_at, t=t)
 
 
@@ -725,7 +773,3 @@ def _forecast_stale(constants: Constants, ship: Ship, now: datetime) -> bool:
         return True
     since = datetime.fromisoformat(str(stored.get("since")))
     return now - since >= timedelta(hours=float(constants[R.ORBIT_RESTAMP_HOURS]))
-
-
-def seconds_of(hours: float) -> float:
-    return hours * SECONDS_PER_HOUR

@@ -22,6 +22,7 @@ from src.engine.ship._base import (
     AT_PORT,
     BRIDGE,
     IN_ORBIT,
+    LOST,
     UNDER_WAY,
     is_orbit,
     orbit_key,
@@ -86,14 +87,17 @@ async def profile(
     #: would cost, and the window they may prefer to wait for is on the chart.
     moment = datetime.now(UTC)
     planet = Planet.TERRA if connector is None else connector.planet
-    #: Where the hull is in its journey (D-245, D-289). Four stages, and each
+    #: Where the hull is in its journey (D-245, D-289). Five stages, and each
     #: offers a different move: from the ground one only climbs, from orbit
-    #: one crosses or comes down, under way one only turns back, and adrift
-    #: one lays a new course from wherever inertia has taken the hull. Not
+    #: one crosses or comes down, under way one only turns back, adrift one
+    #: lays a new course from wherever inertia has taken the hull, and lost
+    #: one does nothing -- the hull and its crew are gone. Not
     #: derivable by the client -- `docked` is a key, and whether that key
     #: names an orbit is a fact about the world (D-225).
     flying = await _flight(session, ship)
-    if docked is not None:
+    if ship.lost_at is not None:
+        stage = LOST
+    elif docked is not None:
         stage = IN_ORBIT if is_orbit(docked) else AT_PORT
     elif flying is not None:
         stage = UNDER_WAY

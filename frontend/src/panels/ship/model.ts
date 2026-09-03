@@ -100,9 +100,10 @@ export type Air = {
  * The console is built round it -- each stage offers a different move, and no
  * other key says which. From the ground one only climbs; from orbit one
  * crosses to another world or comes down onto this one; under way one may only
- * turn back.
+ * turn back; adrift one lays a course from where inertia left the hull; lost
+ * one does nothing -- the hull is gone with its crew (D-289).
  */
-export type Stage = "port" | "orbit" | "flight" | "adrift";
+export type Stage = "port" | "orbit" | "flight" | "adrift" | "lost";
 
 /**
  * Where inertia takes the hull (D-289): round for ever, onto a body, or out
@@ -126,7 +127,7 @@ export type Sky = {
   inertia: Fate | null;
 };
 
-/** The order under way, in two numbers (D-289): the plan's Δv, and what is
+/** The order under way, in two numbers (D-289): the plan's delta-v, and what is
  *  left of it to burn. The line itself is `Flight.arc`. */
 export type Order = {
   dv: number;
@@ -197,7 +198,7 @@ export type Vessel = {
   flight: Flight | null;
   /** The hull in the sky (D-289), or nothing at a pad or on a leg. */
   sky: Sky | null;
-  /** What speed the tanks buy at this mass, units a day: the plan's Δv is
+  /** What speed the tanks buy at this mass, units a day: the plan's delta-v is
    *  read against it, and the console warns before the button (D-289). */
   dv: number;
   /** The order under way, in numbers; nothing when there is none. */

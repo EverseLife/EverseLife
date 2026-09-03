@@ -107,6 +107,7 @@ async def fly(
     if not await _landable(session, constants, target.planet):
         raise NoPort(key="ship-nowhere-to-land", node=target.name)
 
+    offered = None
     if hours is None:
         world = await sim.system(session, constants)
         offered = await sim.offers(
@@ -137,6 +138,7 @@ async def fly(
         hours=hours,
         thrust_ratio=thrust_ratio,
         now=moment,
+        offered=offered,
     )
     if here is not None and connector is not None:
         await _cast_off(session, ship, here, connector)
