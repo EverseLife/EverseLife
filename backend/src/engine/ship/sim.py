@@ -31,7 +31,9 @@ from datetime import datetime, timedelta
 from typing import Any
 
 import numpy as np
+from sqlalchemy import or_
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql import ColumnElement
 
 from src import sky
 from src.constants import Catalog, Constants, current
@@ -294,6 +296,7 @@ async def offers(
     target: sky.Target,
     *,
     now: datetime,
+    thrust_ratio: float,
 ) -> list[sky.Sample]:
     """The slider from where the hull is: the preview for every point of the
     grid (D-271, D-289) -- to a planet's circle, or to a drifter on its
@@ -303,6 +306,12 @@ async def offers(
         return []
     r, v, t = found
     world = await system(session, constants)
+    if isinstance(target, sky.Drifter):
+        #: A hull as the target (wave 3): one price, the approach profile's
+        #: own -- the helm flies that profile and no arc, so a slider of
+        #: arcs would quote hours and delta-v nobody flies.
+        a_max = thrust_ratio * float(constants[R.ORBIT_THRUST_SCALE])
+        return [sky.approach_quote(r, v, t, target, a_max)]
     leaving = None
     if ship.docked_node_id is not None:
         moored = await session.get(Node, ship.docked_node_id)
@@ -378,19 +387,32 @@ async def depart(
     else:
         goal = world.body(target.planet.value)
     if offered is None:
-        offered = await offers(session, constants, catalog, ship, goal, now=now)
-    samples = {one.hours: one for one in offered}
-    sample = samples.get(round(hours, ROUND_HOURS)) or samples.get(hours)
-    if sample is None:
-        raise NoArc(key="ship-no-arc", hours=round(hours, ROUND_HOURS))
-    can = course.deliverable(constants, thrust_ratio, hours)
-    if sample.dv > can:
-        raise NotEnoughThrust(
-            key="ship-too-fast-for-thrust",
-            hours=round(hours, ROUND_HOURS),
-            need=round(sample.dv, ROUND_DV),
-            have=round(can, ROUND_DV),
+        offered = await offers(
+            session, constants, catalog, ship, goal, now=now, thrust_ratio=thrust_ratio
         )
+    if isinstance(goal, sky.Drifter):
+        #: One price to a hull and no choice among prices: the quote of the
+        #: order's own moment, whatever hours the console read minutes ago
+        #: -- the profile's hours move with the geometry, and the profile
+        #: is laid within the thrust by construction.
+        (sample,) = offered
+        hours = sample.hours
+        if gone_by(goal, await sky_days(session, now), hours):
+            raise NoArc(key="ship-target-gone-by-then", other=target.name)
+    else:
+        samples = {one.hours: one for one in offered}
+        found_sample = samples.get(round(hours, ROUND_HOURS)) or samples.get(hours)
+        if found_sample is None:
+            raise NoArc(key="ship-no-arc", hours=round(hours, ROUND_HOURS))
+        sample = found_sample
+        can = course.deliverable(constants, thrust_ratio, hours)
+        if sample.dv > can:
+            raise NotEnoughThrust(
+                key="ship-too-fast-for-thrust",
+                hours=round(hours, ROUND_HOURS),
+                need=round(sample.dv, ROUND_DV),
+                have=round(can, ROUND_DV),
+            )
     found = await state_at(session, constants, ship, now=now)
     if found is None:  # pragma: no cover -- `offers` answered, so the hull is in the sky
         raise NoArc(key="ship-no-arc", hours=round(hours, ROUND_HOURS))
@@ -408,7 +430,7 @@ async def depart(
         raise NoFuel(key="ship-no-fuel", why="cross", need=need, goods="ship_fuel", have=worth)
 
     #: Whoever was holding on to this hull was let go of by the caller
-    #: (`helm.release_holders`), from the state they shared; the hull's own
+    #: (`hold.release_holders`), from the state they shared; the hull's own
     #: state is written here, and the hold it may itself have been on is
     #: over (wave 3).
     _write_state(ship, r, v, at=now)
@@ -459,6 +481,37 @@ def meetable(other: Ship) -> bool:
         and not other.course
         and other.held_ship_id is None
     )
+
+
+def unmeetable(rows: Any) -> ColumnElement[bool]:
+    """`not meetable`, said in SQL over `rows` (the `Ship` table or an alias
+    of it): the one predicate kept next to the other, so the tick's sweep
+    and the Python check cannot drift apart."""
+    return or_(
+        rows.lost_at.isnot(None),
+        rows.docked_node_id.isnot(None),
+        rows.sky_at.is_(None),
+        rows.course.isnot(None),
+        rows.held_ship_id.isnot(None),
+    )
+
+
+def gone_by(target: sky.Drifter, t0: float, hours: float) -> bool:
+    """Whether the target's line ends before `hours` from `t0`: a coast that
+    comes down or leaves is a line with an end, and a meeting past it is a
+    meeting with a hull that is no longer there. A lap has no end."""
+    return not target.loops and t0 + hours / HOURS_PER_DAY > target.t1
+
+
+async def part_hulls(session: AsyncSession, constants: Constants, one: Ship, other: Ship) -> None:
+    """The gangway between two hulls taken away (wave 3), if it stands: the
+    edge goes with the docking mark, whoever clears the mark."""
+    mine = await session.get(Node, one.connector_node_id)
+    theirs = await session.get(Node, other.connector_node_id)
+    if mine is None or theirs is None:
+        return
+    #: `disconnect` answers False for no edge: the check is the removal.
+    await travel.disconnect(session, mine, theirs)
 
 
 # --- what the console reads --------------------------------------------------------

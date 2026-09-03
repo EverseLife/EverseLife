@@ -15,7 +15,7 @@
 
 import { useEffect, useState } from "react";
 import { useEdition, useSession } from "../../actions";
-import { t } from "../../locale";
+import { refusalText, t } from "../../locale";
 import { planetName } from "../../planets";
 import { term } from "../map/orbits";
 import { range, type CourseAnswer, type Sample, type Target, type Vessel } from "./model";
@@ -40,6 +40,7 @@ export function Course({
   const [samples, setSamples] = useState<Sample[] | null>(null);
   const [reserve, setReserve] = useState(0);
   const [trouble, setTrouble] = useState<string | null>(null);
+  const [why, setWhy] = useState<CourseAnswer["why"]>(null);
   const [pick, setPick] = useState<number | null>(null);
 
   const planet = target !== null && "planet" in target ? target.planet : null;
@@ -51,6 +52,7 @@ export function Course({
     let live = true;
     setSamples(null);
     setTrouble(null);
+    setWhy(null);
     setPick(null);
     void session
       .send<CourseAnswer>(
@@ -62,6 +64,7 @@ export function Course({
         const got: Sample[] = answer.samples ?? [];
         setSamples(got);
         setReserve(answer.reserve ?? 0);
+        setWhy(answer.why ?? null);
         //: Start at the cheap end: the default the engine flies unnamed.
         const span = range(got);
         setPick(span ? span[1] : null);
@@ -108,7 +111,10 @@ export function Course({
   }
   const span = range(samples);
   if (!span || pick === null) {
-    return <p className="note">{t("ui-ship-no-arc-fits")}</p>;
+    //: Nothing to a hull comes with the engine's reason (D-289, wave 3): a
+    //: hull that will be gone by the hour is not the engines' fault.
+    const said = why ? refusalText("", why.code, why.args) : "";
+    return <p className={said ? "reason" : "note"}>{said || t("ui-ship-no-arc-fits")}</p>;
   }
   const [fast, cheap] = span;
   const chosen = samples[pick];
@@ -137,6 +143,9 @@ export function Course({
         )}
         {!reachable && ` · ${t("ui-ship-thrust-cut")}`}
       </p>
+      {/* One price to a hull (D-289, wave 3): the approach profile's own,
+          and no slider between two ends that do not exist. */}
+      {samples.length > 1 && (
       <p className="row">
         <span className="note">{t("ui-ship-end-fast", { term: term(samples[fast].hours) })}</span>
         <input
@@ -150,6 +159,7 @@ export function Course({
         />
         <span className="note">{t("ui-ship-end-cheap", { term: term(samples[cheap].hours) })}</span>
       </p>
+      )}
       <p>
         {t("ui-ship-arc-cost", {
           term: term(chosen.hours),

@@ -5,7 +5,9 @@ it (`held_ship_id`), the two may be joined connector to connector once both
 commanders agree (`docked_ship_id`, the consent given and not yet returned
 in `dock_ask_ship_id`), and a hull keeps which foreign hulls it has in
 sight so the journal says "sighted" once (`sightings`). All nullable: a
-hull that has met nobody has none of them.
+hull that has met nobody has none of them. The hold and the docking are
+indexed for the tick's sweep, the docking partially: marks are few, nulls
+are every other hull.
 
 Revision ID: 9c4e7a1f2b63
 Revises: 7b2e9d4c1a58
@@ -35,9 +37,21 @@ def upgrade() -> None:
         sa.Column("sightings", postgresql.JSONB(astext_type=sa.Text()), nullable=True),
     )
     op.create_index("ix_ship_held", "ship", ["held_ship_id"])
+    #: A Python None went into the JSON columns as the JSON value `null`
+    #: until the model said `none_as_null`; the rows written so far are made
+    #: to say what they meant, so `IS NULL` reads them.
+    for column in ("course", "forecast"):
+        op.execute(f"UPDATE ship SET {column} = NULL WHERE {column} = 'null'::jsonb")
+    op.create_index(
+        "ix_ship_docked_ship",
+        "ship",
+        ["docked_ship_id"],
+        postgresql_where=sa.text("docked_ship_id IS NOT NULL"),
+    )
 
 
 def downgrade() -> None:
+    op.drop_index("ix_ship_docked_ship", table_name="ship")
     op.drop_index("ix_ship_held", table_name="ship")
     op.drop_column("ship", "sightings")
     op.drop_column("ship", "dock_ask_ship_id")

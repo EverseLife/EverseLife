@@ -121,6 +121,7 @@ the names so `from src.engine import ship` reads as before.
 
 from src.engine.ship import (
     course,  # noqa: F401
+    fate,  # noqa: F401
     helm,  # noqa: F401
     sim,  # noqa: F401
 )

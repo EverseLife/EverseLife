@@ -266,6 +266,9 @@ export type CourseAnswer = {
   ship: string | null;
   reserve: number;
   samples: Sample[];
+  /** With no sample to a hull: the refusal the order would meet, quoted as
+   *  the socket quotes one -- the engine's key and its arguments. */
+  why?: { code: string; args?: Record<string, unknown> } | null;
 };
 
 /** What the console's course is set for: a planet's orbit, or another hull

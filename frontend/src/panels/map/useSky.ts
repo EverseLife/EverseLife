@@ -118,7 +118,9 @@ export function useSky({
           put(node.key, STAR.x + point[0] * fit, STAR.y + point[1] * fit);
           continue;
         }
-        const goal = places.current.get(spaceRepr(node.flight.to) ?? "");
+        //: A hull as the target (D-289, wave 3) names no node: nothing to go between.
+        const goal =
+          node.flight.to === null ? undefined : places.current.get(spaceRepr(node.flight.to) ?? "");
         if (!berth || !goal) continue;
         put(
           node.key,

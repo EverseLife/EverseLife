@@ -19,7 +19,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Float, ForeignKey, Index, Integer, Uuid
+from sqlalchemy import Float, ForeignKey, Index, Integer, Uuid, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -32,6 +32,13 @@ class Ship(Base):
         Index("ix_ship_owner", "owner_identity_id"),
         Index("ix_ship_docked", "docked_node_id"),
         Index("ix_ship_held", "held_ship_id"),
+        #: Partial: the sweep asks every minute for the few marks there are,
+        #: and never for the many nulls (`hold.sweep`).
+        Index(
+            "ix_ship_docked_ship",
+            "docked_ship_id",
+            postgresql_where=text("docked_ship_id IS NOT NULL"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = uuid_pk()
@@ -100,12 +107,16 @@ class Ship(Base):
     #: The order the autopilot flies (D-289): the target, the planned hour,
     #: the line to draw and the phase the helm is in. Empty -- no order: at a
     #: mooring, on a climb or a descent, or adrift. Written by `ship.sim`.
-    course: Mapped[dict[str, Any] | None] = mapped_column(nullable=True)
+    #: `none_as_null`: a Python None goes in as SQL NULL, not as the JSON
+    #: value `null` -- the tick and the hold's sweep filter on `course IS
+    #: NOT NULL` in SQL, and a JSON null passed for an order once, taking
+    #: every drifter for an ordered hull every minute (review of wave 3).
+    course: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
     #: The coast ahead as the tick last counted it (D-289): the verdict, its
     #: hour, the line to draw and the moment it was counted from. Written by
     #: the tick and the loss job, read by the console and the map -- a read
     #: never flies ninety days itself. Nothing on a moored hull.
-    forecast: Mapped[dict[str, Any] | None] = mapped_column(nullable=True)
+    forecast: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
 
     #: When the hull was lost -- on a body or out of the system (D-289). The
     #: rows stay as history; the map and the tick leave a lost hull alone.
@@ -121,6 +132,6 @@ class Ship(Base):
     held_ship_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
     docked_ship_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
     dock_ask_ship_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
-    sightings: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
+    sightings: Mapped[list[str] | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
 
     created_at: Mapped[datetime] = created_column()

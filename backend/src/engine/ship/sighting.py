@@ -119,8 +119,12 @@ async def ties(session: AsyncSession, ship: Ship) -> dict[str, object]:
     return {
         "held": (None if mate is None else {"ship": str(mate.id), "name": mate.name}),
         #: Joined by an edge or not: the edge is to the hull held, so its
-        #: name is `held.name` and is not sent twice (D-225).
-        "docked_to_ship": ship.docked_ship_id is not None,
+        #: name is `held.name` and is not sent twice (D-225). Read off both
+        #: rows: a mark on one side only is a parting the other side has
+        #: not yet been able to write (`meet._part`, `hold.sweep`).
+        "docked_to_ship": (
+            mate is not None and ship.docked_ship_id == mate.id and mate.docked_ship_id == ship.id
+        ),
         #: Consent given by this hull and not yet returned; consent the other
         #: hull has given and this one has not.
         "dock": {

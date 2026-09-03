@@ -5,7 +5,7 @@
 
 A hull may be sent to another as to a planet: the rendezvous is aimed at the
 other's forecast, and when the helm has come to rest beside it -- within the
-hold's radius, under the hold's speed -- the two fly as one (`helm._hold`).
+hold's radius, under the hold's speed -- the two fly as one (`hold.begin`).
 From the hold either commander may ask to dock; with **both** consents the
 connectors are joined by an edge, the way a hull is joined to a pier, and
 crew walk across with what they carry -- a canister of fuel for a drifter
@@ -73,17 +73,26 @@ async def dock(
         raise Docked(key="ship-dock-at-port")
     if ship.docked_ship_id is not None:
         joined = await session.get(Ship, ship.docked_ship_id)
-        if joined is not None:
+        if joined is not None and joined.docked_ship_id == ship.id:
             raise Docked(key="ship-already-docked-ship", other=joined.name)
-        #: A link to a row that is gone: nothing to be joined to. Healed here
-        #: rather than refused for.
+        #: A mark with no mirror -- the other side parted while this row was
+        #: under a hand, or the row is gone: nothing to be joined to. Healed
+        #: here rather than refused for.
         ship.docked_ship_id = None
-    if not sighting.paired(ship, other):
+    #: A pair, and one whose reference is still there to be held: a holder
+    #: whose reference has flown off under an order is a hold the tick has
+    #: not swept yet, not a hull alongside.
+    reference = other if ship.held_ship_id == other.id else ship
+    if not sighting.paired(ship, other) or not sim.meetable(reference):
         world = await sim.system(session, constants)
         raise NoPort(key="ship-not-held", radius=world.dock_radius, speed=world.dock_speed)
+    asked_before = ship.dock_ask_ship_id == other.id
     ship.dock_ask_ship_id = other.id
     await session.flush()
     if other.dock_ask_ship_id != ship.id:
+        #: Asked once: the other side is told once, whatever the button does.
+        if asked_before:
+            return False
         await events.record(
             session,
             EventKind.SHIP_DOCK_ASKED,
@@ -147,25 +156,33 @@ async def let_go(session: AsyncSession, constants: Constants, ship: Ship) -> Non
 
 
 async def _part(session: AsyncSession, ship: Ship, *, told_by: uuid.UUID) -> None:
-    other = None if ship.docked_ship_id is None else await session.get(Ship, ship.docked_ship_id)
-    if other is not None:
-        #: Both rows, in id order: two undockings from the two sides in one
-        #: second meet under one lock.
-        for one in sorted((ship, other), key=lambda row: row.id):
-            await session.refresh(one, with_for_update=True)
-        await travel.disconnect(
-            session, await _connector(session, ship), await _connector(session, other)
+    other = None
+    partner = None
+    if ship.docked_ship_id is not None:
+        #: The other's row is taken if it is free; one parting from its own
+        #: side this very second keeps its lock, and the edge is removed by
+        #: whichever of the two gets here -- the other's stale mark is the
+        #: tick's to clear (`hold.sweep`). Waiting on it instead would
+        #: be the deadlock: each side holds its own row and wants the other's.
+        other = await session.get(
+            Ship, ship.docked_ship_id, with_for_update={"skip_locked": True}, populate_existing=True
         )
-        other.docked_ship_id = None
-        other.dock_ask_ship_id = None
+        partner = other if other is not None else await session.get(Ship, ship.docked_ship_id)
+        if partner is not None:
+            await travel.disconnect(
+                session, await _connector(session, ship), await _connector(session, partner)
+            )
+        if other is not None:
+            other.docked_ship_id = None
+            other.dock_ask_ship_id = None
     ship.docked_ship_id = None
     ship.dock_ask_ship_id = None
     await session.flush()
     #: Both owners are told (D-226): the other console shows "docked" until
     #: it hears otherwise.
     tellers = {told_by, ship.owner_identity_id}
-    if other is not None:
-        tellers.add(other.owner_identity_id)
+    if partner is not None:
+        tellers.add(partner.owner_identity_id)
     for teller in tellers:
         await events.record(
             session,
@@ -174,8 +191,8 @@ async def _part(session: AsyncSession, ship: Ship, *, told_by: uuid.UUID) -> Non
             node_id=ship.connector_node_id,
             ship_id=str(ship.id),
             name=ship.name,
-            other_ship_id="" if other is None else str(other.id),
-            other="" if other is None else other.name,
+            other_ship_id="" if partner is None else str(partner.id),
+            other="" if partner is None else partner.name,
         )
 
 

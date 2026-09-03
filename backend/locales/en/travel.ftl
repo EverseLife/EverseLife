@@ -147,6 +147,7 @@ ship-dock-at-port = hull to hull only in space: at a pier it would be a bridge p
 ship-already-docked-ship = the ship is already docked · { $other }
 ship-not-docked-ship = the ship is not docked to another hull
 ship-no-route-to-ship = the sky offers no arc to the target · { $other }
+ship-target-gone-by-then = the target will not be there by the hour of arrival: it comes down or leaves the system before then · { $other }
 ship-already-landed = “{ $ship }” already stands on a planet: there is nowhere to land from
 ship-land-not-into-orbit = “{ $node }” is an orbit, not a spaceport: from orbit one lands on the planet below it
 ship-land-other-planet = “{ $node }” is on another planet: from orbit one lands on what is below, and another planet is reached by a crossing from orbit to orbit

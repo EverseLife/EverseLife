@@ -24,6 +24,8 @@ from src.engine.ship._base import (
     IN_ORBIT,
     LOST,
     UNDER_WAY,
+    NoArc,
+    ShipError,
     is_orbit,
     orbit_key,
     orbit_node_of,
@@ -43,6 +45,7 @@ from src.engine.ship.physics import (
     mass,
     mass_parts,
     ratio,
+    sky_days,
     thrust,
 )
 from src.engine.ship.view.sight import _oxygen
@@ -240,7 +243,13 @@ async def profile(
             #: `forecast`, read when the planet is chosen -- forty samples per
             #: world in every summary would be the redundancy D-225 names.
             samples = await sim.offers(
-                session, constants, catalog, ship, bodies.body(target.value), now=moment
+                session,
+                constants,
+                catalog,
+                ship,
+                bodies.body(target.value),
+                now=moment,
+                thrust_ratio=thrust_ratio,
             )
             if not samples:
                 continue
@@ -445,6 +454,19 @@ async def profile(
     }
 
 
+def _nothing(target: Ship, refused: ShipError) -> dict[str, object]:
+    """An empty slider to a hull, with the refusal the order would meet: the
+    key and its arguments as the socket quotes them, for the console to say
+    in the reader's language (D-225: nothing the client could derive)."""
+    return {
+        "planet": None,
+        "ship": str(target.id),
+        "reserve": 0.0,
+        "samples": [],
+        "why": {"code": refused.key, "args": refused.params},
+    }
+
+
 async def forecast(
     session: AsyncSession,
     constants: Constants,
@@ -473,16 +495,27 @@ async def forecast(
     goal: sky.Target | None
     if isinstance(target, Ship):
         #: A hull as the target (wave 3): only one in sight and coasting, with
-        #: a forecast to be met on -- else nothing to offer, and the console
-        #: says so in the engine's words when the order is given.
+        #: a forecast to be met on -- else nothing to offer, and the reason in
+        #: the engine's own words (`why`): an empty slider blamed the engines
+        #: before, and a hull that will be gone by the hour is not their fault.
+        try:
+            await sighting.aimable(session, constants, ship, target, now=moment)
+        except ShipError as refused:
+            return _nothing(target, refused)
         goal = await sim.drifter_of(session, constants, target)
-        if goal is None or not await sighting.aimable_quietly(
-            session, constants, ship, target, now=moment
-        ):
-            return {"planet": None, "ship": str(target.id), "reserve": 0.0, "samples": []}
+        if goal is None:
+            return _nothing(target, NoArc(key="ship-target-unknown"))
     else:
         goal = bodies.body(target.value)
-    offered = await sim.offers(session, constants, catalog, ship, goal, now=moment)
+    offered = await sim.offers(
+        session, constants, catalog, ship, goal, now=moment, thrust_ratio=thrust_ratio
+    )
+    t0 = await sky_days(session, moment)
+    if isinstance(goal, sky.Drifter) and any(sim.gone_by(goal, t0, one.hours) for one in offered):
+        #: The hull's line ends before the profile gets there: nothing is
+        #: offered, as nothing would be flown (`sim.depart` refuses it).
+        assert isinstance(target, Ship)
+        return _nothing(target, NoArc(key="ship-target-gone-by-then", other=target.name))
     share = 1.0 if have_class is None else efficiency(constants, have_class)
     #: The descent at the far end -- a planet's; a hull has no ground to come
     #: down onto, and nothing is kept for it.
@@ -499,7 +532,10 @@ async def forecast(
                 "hours": round(sample.hours, ROUND_HOURS),
                 "dv": round(sample.dv, ROUND_DV),
                 "fuel": round(burn, ROUND_MASS),
-                "ok": sample.dv <= course.deliverable(constants, thrust_ratio, sample.hours),
+                #: An arc is the engines' to deliver or not; the approach
+                #: profile to a hull is laid within the thrust by construction.
+                "ok": not isinstance(target, Planet)
+                or sample.dv <= course.deliverable(constants, thrust_ratio, sample.hours),
                 #: The arc the chart draws for this point while the slider is
                 #: held on it: the planner's two-body line, not the flown one
                 #: (D-289) -- the flown line is settled at the order.

@@ -155,7 +155,8 @@ export function SkyBackdrop({
           );
         }
         const from = at(node.parent ?? "");
-        const to = at(repr(node.flight.to, "space") ?? "");
+        //: A hull as the target (D-289, wave 3) names no node: no line to draw.
+        const to = node.flight.to === null ? null : at(repr(node.flight.to, "space") ?? "");
         if (!from || !to) return null;
         return (
           <line

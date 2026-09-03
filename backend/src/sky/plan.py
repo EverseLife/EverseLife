@@ -29,8 +29,9 @@ import numpy as np
 
 from src import astro
 from src.constants import Constants
-from src.sky._base import Body, Rows, System, Target, circle_speed, norms, place, place_any
-from src.units import HOURS_PER_DAY, TRACE_POINTS
+from src.sky._base import Body, Drifter, Rows, System, Target, circle_speed, norms, place, place_any
+from src.sky.guide import BRAKE_SHARE
+from src.units import HOURS_PER_DAY, MINUTES_PER_HOUR, TRACE_POINTS
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,6 +47,54 @@ class Sample:
     trace: tuple[tuple[float, float], ...]
     #: Full turns round the star before arrival (D-271).
     revs: int
+
+
+#: The least an order may promise: a minute. A hull already alongside is
+#: captured on its first step, and an order needs an hour above zero to be
+#: an order at all.
+LEAST_HOURS = 1.0 / MINUTES_PER_HOUR
+
+
+def approach_quote(
+    r0: tuple[float, float],
+    v0: tuple[float, float],
+    t0: float,
+    target: Drifter,
+    a_max: float,
+) -> Sample:
+    """The one price of going to a hull (D-289, wave 3): what the approach
+    profile the helm flies (`guide._meet`) will take and burn.
+
+    No slider: the helm toward a hull does not chase an arc to a planned
+    hour, it closes the gap along a profile bounded by the thrust -- so the
+    honest quote is the profile's own. Accelerate toward the hull at full
+    thrust, brake to rest beside it with the profile's share of it, plus
+    what shedding the speed the two differ by costs: twice the peak speed
+    the gap allows, and the hours to reach and shed it.
+    """
+    p, vp = place_any(target, t0)
+    rel = np.array(r0) - p[0]
+    v_rel = np.array(v0) - vp[0]
+    gap = float(np.hypot(*rel))
+    speed = float(np.hypot(*v_rel))
+    push = BRAKE_SHARE * a_max
+    if a_max <= 0:
+        peak, days = 0.0, 0.0
+    else:
+        #: Where the run-up at `a_max` meets the run-down at `push`.
+        peak = float(np.sqrt(2.0 * gap / (1.0 / a_max + 1.0 / push)))
+        days = peak / a_max + peak / push + speed / a_max
+    dv = 2 * peak + speed
+    hours = max(days * HOURS_PER_DAY, LEAST_HOURS)
+    there = place_any(target, t0 + hours / HOURS_PER_DAY)[0][0]
+    return Sample(
+        hours=hours,
+        dv_out=dv,
+        dv_in=0.0,
+        dv=dv,
+        trace=(tuple(float(x) for x in r0), (float(there[0]), float(there[1]))),
+        revs=0,
+    )
 
 
 def escape_dv(body: Body, park: float, v_inf: float) -> float:

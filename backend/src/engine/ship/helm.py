@@ -6,15 +6,13 @@
 The floor above `sim`, which owns the state: here the ordered hulls are
 flown step by step -- the helm decides, the engines burn what the tanks can
 pay, the sky pulls -- and come to their ends: moored on a planet's circle,
-come to rest beside another hull (wave 3), or adrift with the tanks dry. A
-coasting hull has its stamp moved along and its coast ahead counted; the
-hour a coast ends is a job that asks the arithmetic again before it kills.
-Who came into sight while a hull moved is told here too.
+come to rest beside another hull (`hold`, wave 3), or adrift with the tanks
+dry (`fate`). A coasting hull has its stamp moved along and its coast ahead
+counted. Who came into sight while a hull moved is told here too.
 """
 
 from __future__ import annotations
 
-import asyncio
 import math
 import uuid
 from collections.abc import Sequence
@@ -28,9 +26,8 @@ from src import sky
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import events, stock
-from src.engine.jobs import enqueue, handler
+from src.engine.ship import fate, hold
 from src.engine.ship._base import orbit_node_of
-from src.engine.ship.belonging import crew_of
 from src.engine.ship.physics import (
     engine_class,
     fuel_energy,
@@ -42,9 +39,6 @@ from src.engine.ship.physics import (
 )
 from src.engine.ship.sim import (
     _DV_EPS,
-    CRASHED,
-    LOST,
-    _constants,
     _forecast_stale,
     _keep_forecast,
     _row,
@@ -59,7 +53,6 @@ from src.engine.ship.sim import (
     system,
 )
 from src.models.event import EventKind
-from src.models.job import Job, JobKind
 from src.models.ship import Ship
 from src.models.world import Planet
 from src.units import HOURS_PER_DAY, MINUTES_PER_HOUR, ROUND_DV, ROUND_MASS, amount_float
@@ -81,6 +74,7 @@ async def tick_sky(
     #: the sky held all of `ship.fly` and `ship.recall` behind the slowest
     #: forecast (review of this wave).
     stale = timedelta(hours=float(constants[R.ORBIT_RESTAMP_HOURS]))
+    released = await hold.sweep(session, constants, now=moment)
     wanted = (
         (
             await session.execute(
@@ -99,7 +93,7 @@ async def tick_sky(
         .all()
     )
     if not wanted:
-        return {"flown": 0, "moored": 0, "adrift": 0, "held": 0, "fuel": 0.0}
+        return {"flown": 0, "moored": 0, "adrift": released, "held": 0, "fuel": 0.0}
     world = await system(session, constants)
     flown = moored = adrift = held = 0
     fuel = 0.0
@@ -141,7 +135,7 @@ async def tick_sky(
     return {
         "flown": flown,
         "moored": moored,
-        "adrift": adrift,
+        "adrift": adrift + released,
         "held": held,
         "fuel": round(fuel, ROUND_MASS),
     }
@@ -267,7 +261,7 @@ async def _fly(
     _write_state(ship, r, v, at=stamp)
 
     if outcome == "moored" and other is not None:
-        await _hold(session, constants, ship, other, r, v, now=stamp)
+        await hold.begin(session, constants, ship, other, r, v, now=stamp)
         return "held", burnt
     if outcome == "moored" and isinstance(target, sky.Body):
         orbit = await orbit_node_of(session, target_planet(target))
@@ -289,7 +283,7 @@ async def _fly(
             return outcome, burnt
     if outcome == "adrift":
         ship.course = None
-        await _adrift(session, constants, ship, world, now=now, t=t1, r=r, v=v)
+        await fate._adrift(session, constants, ship, world, now=now, t=t1, r=r, v=v)
         return outcome, burnt
     order["phase"] = phase
     order["spent"] = round(float(order.get("spent", 0.0)) + spent, ROUND_DV)
@@ -299,7 +293,7 @@ async def _fly(
     #: ninety days of five-body arithmetic is the tick's to spend, not a
     #: reading's, and not every tick's either.
     if _forecast_stale(constants, ship, now):
-        _keep_forecast(ship, await fate_of(session, constants, world, t1, r, v), now=now, t=t1)
+        _keep_forecast(ship, await fate.fate_of(session, constants, world, t1, r, v), now=now, t=t1)
     await session.flush()
     return outcome, burnt
 
@@ -371,78 +365,8 @@ async def _void(
     r, v = _row(rr), _row(vv)
     _write_state(ship, r, v, at=now)
     ship.course = None
-    await _adrift(session, constants, ship, world, now=now, t=t1, r=r, v=v, why="target")
+    await fate._adrift(session, constants, ship, world, now=now, t=t1, r=r, v=v, why="target")
     return "adrift", 0.0
-
-
-async def _hold(
-    session: AsyncSession,
-    constants: Constants,
-    ship: Ship,
-    other: Ship,
-    r: tuple[float, float],
-    v: tuple[float, float],
-    *,
-    now: datetime,
-) -> None:
-    """Come to rest beside another hull (D-289, wave 3): from here the two
-    fly as one, and this hull's place is read off the other's row."""
-    _write_state(ship, r, v, at=now)
-    ship.course = None
-    ship.forecast = None
-    ship.held_ship_id = other.id
-    await session.flush()
-    crew = await crew_of(session, ship)
-    aboard = {
-        f"crew{seat}_identity_id": str(member.identity_id) for seat, member in enumerate(crew)
-    }
-    #: Both owners are told: the one who came, and the one who was come to.
-    for teller in {ship.owner_identity_id, other.owner_identity_id}:
-        await events.record(
-            session,
-            EventKind.SHIP_HELD,
-            actor_identity_id=teller,
-            node_id=ship.connector_node_id,
-            ship_id=str(ship.id),
-            name=ship.name,
-            other_ship_id=str(other.id),
-            other=other.name,
-            crew=len(crew),
-            **aboard,
-        )
-
-
-async def release_holders(
-    session: AsyncSession, constants: Constants, world: sky.System, ship: Ship, *, now: datetime
-) -> None:
-    """Whoever holds on to this hull is let go of: each takes the shared state
-    as its own and coasts alone from here -- a drifter like any other, with
-    its coast counted, its loss booked and its owner told. Called before this
-    hull's own state changes (an order)."""
-    #: Each holder's row locked; one giving its own order this second is
-    #: skipped -- its `depart` ends its hold itself.
-    holders = (
-        (
-            await session.execute(
-                select(Ship)
-                .where(Ship.held_ship_id == ship.id)
-                .with_for_update(skip_locked=True)
-                .execution_options(populate_existing=True)
-            )
-        )
-        .scalars()
-        .all()
-    )
-    for holder in holders:
-        found = await state_at(session, constants, holder, now=now)
-        holder.held_ship_id = None
-        if found is None:  # pragma: no cover -- a hold is a state
-            continue
-        r, v, t = found
-        _write_state(holder, r, v, at=now)
-        await _adrift(session, constants, holder, world, now=now, t=t, r=r, v=v, why="released")
-    if holders:
-        await session.flush()
 
 
 async def _sight(
@@ -455,7 +379,19 @@ async def _sight(
     """Who is within the sight radius of a hull that just moved (D-289, wave 3):
     a foreign hull newly in sight is told of to both owners, once, and a hull
     gone out of sight may be sighted again. `table` is every hull's place
-    this tick (`sim.states_at`)."""
+    this tick (`sim.states_at`).
+
+    The memory of a sighting is on the rows of hulls that move: only this
+    hull's row is written -- the other's is not locked, and an update to it
+    would queue this tick behind that hull's own command -- and the pair is
+    known if either row lists it, so it is told once whichever moves first.
+    A hull gone out of sight takes itself off the other's row if that row is
+    free, so that a return is a sighting again; a row under a hand this
+    second is left for the next move, and nothing waits on it. A hull that
+    stops moving -- moored, held -- keeps the list of the tick it stopped in
+    (it is in `moved` that tick), and the hulls leaving its sight keep it
+    clean from then on.
+    """
     mine = table.get(ship.id)
     if mine is None:  # pragma: no cover -- the tick just wrote the state
         return
@@ -472,10 +408,10 @@ async def _sight(
     for other in afloat:
         if other.id == ship.id or other.owner_identity_id == ship.owner_identity_id:
             continue
-        #: Kept on both rows, so that when both hulls move in one tick the
-        #: second one's pass finds the pair already known and says nothing.
-        theirs_before = set(other.sightings or [])
-        if str(other.id) in seen and str(other.id) not in before:
+        theirs_too = str(ship.id) in (other.sightings or [])
+        if str(other.id) in seen:
+            if str(other.id) in before or theirs_too:
+                continue
             for teller, seer, seen_one in (
                 (ship.owner_identity_id, ship, other),
                 (other.owner_identity_id, other, ship),
@@ -490,9 +426,14 @@ async def _sight(
                     other_ship_id=str(seen_one.id),
                     other=seen_one.name,
                 )
-            other.sightings = sorted(theirs_before | {str(ship.id)})
-        elif str(other.id) not in seen and str(ship.id) in theirs_before:
-            other.sightings = sorted(theirs_before - {str(ship.id)})
+        elif theirs_too:
+            #: Out of sight, and the other's row still lists this hull from
+            #: its own last move: taken off it if the row is free.
+            row = await session.get(
+                Ship, other.id, with_for_update={"skip_locked": True}, populate_existing=True
+            )
+            if row is not None:
+                row.sightings = sorted(set(row.sightings or []) - {str(ship.id)})
     if sorted(seen) != sorted(before):
         ship.sightings = sorted(seen)
 
@@ -500,39 +441,6 @@ async def _sight(
 def _moment_of(now: datetime, t1: float, t: float) -> datetime:
     """The clock moment of sky day `t`, counted back from `now` at `t1`."""
     return now - timedelta(days=t1 - t)
-
-
-async def _adrift(
-    session: AsyncSession,
-    constants: Constants,
-    ship: Ship,
-    world: sky.System,
-    *,
-    now: datetime,
-    t: float,
-    r: tuple[float, float],
-    v: tuple[float, float],
-    why: str = "fuel",
-) -> None:
-    """The engines ran dry -- or the target went (wave 3): say so to everybody
-    aboard, and book the hour the coast ends, if it ends."""
-    crew = await crew_of(session, ship)
-    aboard = {
-        f"crew{seat}_identity_id": str(member.identity_id) for seat, member in enumerate(crew)
-    }
-    await events.record(
-        session,
-        EventKind.SHIP_ADRIFT,
-        actor_identity_id=ship.owner_identity_id,
-        node_id=ship.connector_node_id,
-        ship_id=str(ship.id),
-        name=ship.name,
-        why=why,
-        crew=len(crew),
-        **aboard,
-    )
-    fate = await book_loss(session, constants, ship, world, now=now, t=t, r=r, v=v)
-    _keep_forecast(ship, fate, now=now, t=t)
 
 
 async def _restamp(
@@ -546,132 +454,4 @@ async def _restamp(
     _write_state(ship, r, v, at=now)
     #: And the coast ahead, from the new stamp: what the console and the map
     #: read as the drifter's line and verdict.
-    _keep_forecast(ship, await fate_of(session, constants, world, t, r, v), now=now, t=t)
-
-
-async def fate_of(
-    session: AsyncSession, constants: Constants, world: sky.System, t: float, r, v
-) -> sky.Fate:
-    horizon = float(constants[R.ORBIT_FORECAST_DAYS])
-    step = float(constants[R.ORBIT_PLAN_STEP_MINUTES]) / MINUTES_PER_HOUR / HOURS_PER_DAY
-    #: Off the loop: a coast that really has to be flown is seconds of
-    #: numpy, and the worker's other steps must not wait on it.
-    return await asyncio.to_thread(sky.inertia, world, t, r, v, horizon=horizon, dt_max=step)
-
-
-async def book_loss(
-    session: AsyncSession,
-    constants: Constants,
-    ship: Ship,
-    world: sky.System,
-    *,
-    now: datetime,
-    t: float,
-    r: tuple[float, float],
-    v: tuple[float, float],
-    fate: sky.Fate | None = None,
-) -> sky.Fate:
-    """The forecast's hour as a job: nothing polls a coast, the journal wakes
-    at the hour and asks the arithmetic once more. `fate` is passed by a
-    caller that has just counted it, so the coast is not flown twice."""
-    if fate is None:
-        fate = await fate_of(session, constants, world, t, r, v)
-    if fate.kind != sky.STABLE:
-        at = now + timedelta(days=fate.at - t)
-        await enqueue(
-            session,
-            JobKind.SHIP_LOSS,
-            at,
-            payload={"ship": str(ship.id), "kind": fate.kind, "body": fate.body},
-            dedup_key=f"ship.loss:{ship.id}:{at.isoformat()}",
-        )
-    return fate
-
-
-@handler(JobKind.SHIP_LOSS)
-async def lost(session: AsyncSession, job: Job) -> None:
-    """The hour has come: is the hull where the forecast said? A hull that
-    burned, was refuelled and ordered on, or was moored since, is left alone;
-    one still coasting is asked the arithmetic again and lost only if it
-    really came down or really left."""
-    constants = await _constants(session)
-    ship = await session.get(Ship, uuid.UUID(str(job.payload["ship"])), with_for_update=True)
-    if ship is None or ship.lost_at is not None or ship.docked_node_id is not None:
-        return
-    if ship.course or ship.sky_at is None:
-        return
-    world = await system(session, constants)
-    found = await state_at(session, constants, ship, now=job.run_at)
-    if found is None:  # pragma: no cover -- the checks above are the same question
-        return
-    r, v, t = found
-    fate = await fate_of(session, constants, world, t, r, v)
-    #: Down or gone within a step of now: the forecast was right.
-    grace = float(constants[R.ORBIT_PLAN_STEP_MINUTES]) / MINUTES_PER_HOUR / HOURS_PER_DAY
-    if fate.kind != sky.STABLE and fate.at <= t + grace:
-        await _lose(session, constants, ship, fate, now=job.run_at)
-        return
-    #: Not yet -- the coast is slower than the forecast thought, or a nudge
-    #: since moved the hour. Booked again at the new hour, if there is one.
-    _write_state(ship, r, v, at=job.run_at)
-    await book_loss(session, constants, ship, world, now=job.run_at, t=t, r=r, v=v, fate=fate)
-    _keep_forecast(ship, fate, now=job.run_at, t=t)
-
-
-async def _lose(
-    session: AsyncSession, constants: Constants, ship: Ship, fate: sky.Fate, *, now: datetime
-) -> None:
-    from src.engine import death  # noqa: PLC0415 -- lazy: breaks the cycle with death
-
-    crew = await crew_of(session, ship)
-    for member in crew:
-        await death.die(
-            session, constants, member, cause=CRASHED if fate.kind == sky.CRASH else LOST, now=now
-        )
-    ship.lost_at = now
-    ship.course = None
-    await session.flush()
-    aboard = {
-        f"crew{seat}_identity_id": str(member.identity_id) for seat, member in enumerate(crew)
-    }
-    #: Whoever flies as one with this hull goes with it (wave 3): the hull on
-    #: its hold, and the hull docked to it -- they are at the same place.
-    #: Locked, and skipped when locked by an order of their own: a companion
-    #: that left a second ago is not at this place any more.
-    companions = list(
-        (
-            await session.execute(
-                select(Ship)
-                .where(Ship.held_ship_id == ship.id)
-                .with_for_update(skip_locked=True)
-                .execution_options(populate_existing=True)
-            )
-        )
-        .scalars()
-        .all()
-    )
-    if ship.docked_ship_id is not None:
-        partner = await session.get(
-            Ship, ship.docked_ship_id, with_for_update={"skip_locked": True}, populate_existing=True
-        )
-        if partner is not None:
-            companions.append(partner)
-    ship.held_ship_id = None
-    ship.docked_ship_id = None
-    for companion in companions:
-        if companion.lost_at is None and companion.id != ship.id and not companion.course:
-            companion.held_ship_id = None
-            companion.docked_ship_id = None
-            await _lose(session, constants, companion, fate, now=now)
-    await events.record(
-        session,
-        EventKind.SHIP_LOST,
-        actor_identity_id=ship.owner_identity_id,
-        node_id=ship.connector_node_id,
-        ship_id=str(ship.id),
-        name=ship.name,
-        fate=fate.kind,
-        body=fate.body or "",
-        crew=len(crew),
-        **aboard,
-    )
+    _keep_forecast(ship, await fate.fate_of(session, constants, world, t, r, v), now=now, t=t)

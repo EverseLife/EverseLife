@@ -22,8 +22,8 @@ import numpy as np
 import pytest
 
 from src import seed_parts, sky
-from src.sky import _base, field, forecast, guide
-from src.units import HOURS_PER_DAY, TRACE_POINTS
+from src.sky import _base, field, forecast, guide, plan
+from src.units import HOURS_PER_DAY, MINUTES_PER_HOUR, TRACE_POINTS
 
 #: The seed's system with D-289's starting numbers, built by hand: the
 #: arithmetic is tested against the vault's shape, not the vault's build.
@@ -200,3 +200,41 @@ def test_the_helm_coasts_on_an_arc_that_already_arrives() -> None:
         dt=1 / 24,
     )
     assert helm.phase == guide.COAST and helm.thrust == (0.0, 0.0)
+
+
+def test_the_quote_to_a_hull_is_what_the_approach_profile_flies() -> None:
+    """One price to a hull (D-289, wave 3): the hours and the delta-v of a
+    run-up at full thrust and a run-down at the profile's share, plus the
+    speed the two differ by -- and the profile the helm actually flies
+    (`guide._meet`) comes to rest inside them."""
+    system = _system(bodies=False)
+    a_max = 40.0
+    still = _base.Drifter(key="hull", t0=0.0, t1=10.0, trace=((0.0, 0.0), (0.0, 0.0)))
+    gap = 3.0
+    quote = sky.approach_quote((gap, 0.0), (0.0, 0.0), 0.0, still, a_max)
+    push = guide.BRAKE_SHARE * a_max
+    peak = np.sqrt(2.0 * gap / (1.0 / a_max + 1.0 / push))
+    assert quote.dv == pytest.approx(2 * peak) and quote.dv_in == 0.0
+    assert quote.hours == pytest.approx((peak / a_max + peak / push) * HOURS_PER_DAY)
+    assert quote.trace[0] == (gap, 0.0) and quote.trace[-1] == (0.0, 0.0)
+    #: Coming in at a speed: shedding it is paid for, in delta-v and in time.
+    moving = sky.approach_quote((gap, 0.0), (0.0, 2.0), 0.0, still, a_max)
+    assert moving.dv == pytest.approx(quote.dv + 2.0)
+    assert moving.hours > quote.hours
+    #: A hull already alongside is quoted a minute, not nothing.
+    assert sky.approach_quote((0.0, 0.0), (0.0, 0.0), 0.0, still, a_max).hours == plan.LEAST_HOURS
+
+    #: The profile flown step by step, no sky pulling, comes to rest in the
+    #: hold's radius no later than the quote says.
+    dt = 1.0 / HOURS_PER_DAY / MINUTES_PER_HOUR
+    rel, v_rel = np.array([gap, 0.0]), np.array([0.0, 0.0])
+    days = 0.0
+    while days < 2 * quote.hours / HOURS_PER_DAY:
+        helm = guide._meet(system, rel, v_rel, a_max=a_max, dt=dt)
+        if helm.captured:
+            break
+        v_rel = v_rel + np.array(helm.thrust) * dt
+        rel = rel + v_rel * dt
+        days += dt
+    assert helm.captured, "профиль доводит до удержания"
+    assert days * HOURS_PER_DAY <= quote.hours * 1.05

@@ -113,8 +113,33 @@ allow_indirect_imports = true
 source_modules = ["src.engine.ship.sim"]
 forbidden_modules = [
     "src.engine.ship.helm",
+    "src.engine.ship.hold",
+    "src.engine.ship.fate",
     "src.engine.ship.meet",
     "src.engine.ship.sighting",
+    "src.engine.ship.crossing",
+]
+
+[[tool.importlinter.contracts]]
+name = "The ship's fates sit under the hold and the helm"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = ["src.engine.ship.fate"]
+forbidden_modules = [
+    "src.engine.ship.hold",
+    "src.engine.ship.helm",
+    "src.engine.ship.meet",
+    "src.engine.ship.crossing",
+]
+
+[[tool.importlinter.contracts]]
+name = "The ship's hold sits under the helm"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = ["src.engine.ship.hold"]
+forbidden_modules = [
+    "src.engine.ship.helm",
+    "src.engine.ship.meet",
     "src.engine.ship.crossing",
 ]
 

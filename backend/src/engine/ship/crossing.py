@@ -22,7 +22,7 @@ from src import sky
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import events
-from src.engine.ship import helm, meet, sighting, sim
+from src.engine.ship import hold, meet, sighting, sim
 from src.engine.ship._base import (
     PASSAGE,
     Docked,
@@ -125,7 +125,9 @@ async def fly(
                 raise NoArc(key="ship-target-unknown")
         else:
             goal = world.body(target.planet.value)
-        offered = await sim.offers(session, constants, catalog, ship, goal, now=moment)
+        offered = await sim.offers(
+            session, constants, catalog, ship, goal, now=moment, thrust_ratio=thrust_ratio
+        )
         if not offered:
             if isinstance(target, Ship):
                 raise TooFar(key="ship-no-route-to-ship", other=target.name)
@@ -145,7 +147,7 @@ async def fly(
     #: they shared (wave 3); then the plan is written onto the row from the
     #: parking circle the hull still sits on; the gangway comes off after,
     #: and casting off leaves the state where the plan put it.
-    await helm.release_holders(
+    await hold.release_holders(
         session, constants, await sim.system(session, constants), ship, now=moment
     )
     plan, fuel = await sim.depart(
@@ -179,7 +181,9 @@ async def fly(
         name=ship.name,
         leg=PASSAGE,
         to=target.name if isinstance(target, Ship) else target.key,
-        hours=round(hours, ROUND_HOURS),
+        #: The plan's hours, not the command's: to a hull the order takes
+        #: the quote of its own moment, whatever the console read.
+        hours=round(plan.hours, ROUND_HOURS),
         #: What the plan will burn by its own delta-v: the tanks pay as the hull
         #: goes, and the journal names the price the order was given at.
         fuel=round(fuel, ROUND_MASS),

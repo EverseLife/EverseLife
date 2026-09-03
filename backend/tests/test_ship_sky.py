@@ -36,7 +36,7 @@ from src import sky
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import jobs, ship
-from src.engine.ship import helm, sim
+from src.engine.ship import fate, helm, sim
 from src.models.event import Event, EventKind
 from src.models.identity import Body
 from src.models.job import Job, JobKind, JobState
@@ -177,10 +177,10 @@ async def test_the_loss_job_asks_the_arithmetic_again_before_it_kills(
         doomed.park_phase = None
         sim._write_state(doomed, here, (falling[0], falling[1]), at=now)
         await session.flush()
-        fate = await helm.book_loss(
+        verdict = await fate.book_loss(
             session, constants, doomed, world, now=now, t=t, r=here, v=falling
         )
-        assert fate.kind == sky.CRASH and fate.body == "star"
+        assert verdict.kind == sky.CRASH and verdict.body == "star"
         booked = await _loss_jobs(session)
         assert len(booked) == 1
         due, doomed_id, owner_id = booked[0].run_at, doomed.id, owner.id
@@ -225,7 +225,7 @@ async def test_a_drifter_with_an_order_by_the_hour_is_left_alone(
         vessel.park_phase = None
         sim._write_state(vessel, here, (falling[0], falling[1]), at=now)
         await session.flush()
-        await helm.book_loss(session, constants, vessel, world, now=now, t=t, r=here, v=falling)
+        await fate.book_loss(session, constants, vessel, world, now=now, t=t, r=here, v=falling)
         booked = await _loss_jobs(session)
         due, ship_id = booked[0].run_at, vessel.id
         #: An order in the meantime: the tanks were filled and the hull sent
