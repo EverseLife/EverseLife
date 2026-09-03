@@ -192,8 +192,14 @@ jobs:
       # Only `check`: `format` would rewrite files this change never touched,
       # and a wholesale reformat is its own commit, not a rider on this one.
       - run: uvx ruff check .
-      - run: uv pip install --system -r requirements.txt pytest httpx
-      - run: pytest -q test_app.py
+
+      # The two dependencies arrive as an overlay over one command, not as an
+      # install. `uv pip install --system` aimed at the runner's Debian python,
+      # which is marked externally managed (PEP 668) and refuses -- so this job
+      # never once ran its tests. `uv run --with` builds the environment in
+      # uv's cache, the way `uvx` above does, and leaves no venv beside the
+      # sources for .gitignore to learn about.
+      - run: uv run --no-project --with-requirements requirements.txt --with pytest --with httpx pytest -q test_app.py
         env:
           LANDING_DB: ./ci-signups.db
 

@@ -34,7 +34,7 @@ ui-intro-step-look = Look around the node and gather the simple things: stone, b
 ui-intro-step-recipe = Take your first recipe at the Library of the capital. You were given no knowledge at all: a craft is knowledge, and you have to come for it.
 ui-intro-step-sell = Sell what you made at a terminal. Prices here are set by people, not by the world: your first earnings are your first meeting with them.
 ui-intro-go = Begin
-ui-intro-again = To open this again — the “?” in the header.
+ui-intro-again = To open this again — the “?” in the header, or “who you are” under “more” on a phone.
 
 ## Registration in four steps (D-187)
 
