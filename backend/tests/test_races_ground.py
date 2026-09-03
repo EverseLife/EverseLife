@@ -495,6 +495,100 @@ async def test_death_and_the_burning_ground_close_one_face_without_a_deadlock(
         assert total == 0, f"уложенное в поле должно сгореть с полем: {total}"
 
 
+async def test_a_swing_and_the_eruption_pass_each_other_without_a_deadlock(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    constants,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The third arm of the same ABBA: the pick against the fire's pre-lock.
+
+    `plates.erupted` takes the veins of a shaken node and only then the session
+    rows at their faces, and it says why in so many words: a swing holds its
+    vein and then writes its session row, so taking them here the other way
+    round would cross it. A swing that reached for the face's own row FOR
+    UPDATE **before** the vein would close exactly that circle -- and it does:
+    written that way, this test dies of `DeadlockDetectedError`.
+
+    Hence the swing takes no lock on the face at all. Two sockets of one
+    identity are serialised by the body's row, which they share and the
+    eruption never wants (`mining.face.swing`), and the face is only reread
+    there -- a plain read that waits for nobody.
+
+    The handshake rides on the stamina multiplier, asked after the body is
+    locked and before the vein is: the fire arrives with the swing provably
+    inside that window, by construction rather than after a guessed number of
+    milliseconds.
+    """
+    from src.engine import frost, mining
+    from src.models.mining import MiningSession, Pace, SessionState
+    from src.models.world import Layer, Planet
+
+    between_the_locks = asyncio.Event()
+    asking = frost.drain_multiplier
+
+    async def held(*args, **kwargs):
+        chill = await asking(*args, **kwargs)
+        between_the_locks.set()
+        await asyncio.sleep(0.2)
+        return chill
+
+    monkeypatch.setattr(frost, "drain_multiplier", held)
+    stamp = uuid.uuid4().hex[:8]
+    sphere = await world.create_node(
+        session, f"pyroxis.{stamp}", "Пироксис", planet=Planet.PYROXIS, area_m2=1, layer=Layer.SPACE
+    )
+    field = await world.create_node(
+        session,
+        f"pyroxis.{stamp}.field",
+        "Чёрное поле",
+        planet=Planet.PYROXIS,
+        area_m2=5000,
+        layer=Layer.PLANET,
+        parent=sphere,
+    )
+    vein = await world.create_vein(session, field, ORE, richness=70, remaining=100_000)
+    who = await world.create_identity(session, f"Вахтовик-{stamp}")
+    body = await world.print_body(session, who, field)
+    await world.grant_item(
+        session,
+        await world.body_container(session, body),
+        "stone_pickaxe",
+        quality=50,
+        origin="тест",
+    )
+    face = MiningSession(body_id=body.id, vein_id=vein.id, pace=Pace.STEADY, roof=100)
+    session.add(face)
+    await session.flush()
+    field_id, face_id = field.id, face.id
+    await session.commit()
+
+    async def swings() -> None:
+        async with factory() as db, db.begin():
+            own = await db.get(MiningSession, face_id)
+            assert own is not None
+            await mining.swing(db, current(), own)
+
+    async def ground_shakes() -> None:
+        #: The swing is past the body and not yet at the vein -- by construction.
+        await between_the_locks.wait()
+        async with factory() as db, db.begin():
+            #: The eruption's own order, mirrored from `plates.erupted`.
+            await db.execute(
+                select(Vein).where(Vein.node_id == field_id).order_by(Vein.id).with_for_update()
+            )
+            await db.execute(
+                select(MiningSession)
+                .join(Vein, Vein.id == MiningSession.vein_id)
+                .where(Vein.node_id == field_id, MiningSession.state == SessionState.ACTIVE)
+                .order_by(MiningSession.id)
+                .with_for_update(of=MiningSession)
+            )
+
+    outcome = await asyncio.gather(swings(), ground_shakes(), return_exceptions=True)
+    assert not [one for one in outcome if isinstance(one, BaseException)], outcome
+
+
 async def test_two_scouts_do_not_open_one_room_twice(
     session: AsyncSession,
     factory: async_sessionmaker[AsyncSession],

@@ -90,6 +90,7 @@ MINE_SIGN_BANDS = Table("mine.sign_bands")
 MINE_SIGN_NOISE = Num("mine.sign_noise")
 MINE_COLLAPSE_WEAR = Num("mine.collapse_wear")
 MINE_COLLAPSE_WOUND_CHANCE = Num("mine.collapse_wound_chance")
+MINE_COLLAPSES_SURVIVED = Num("mine.collapses_survived")
 
 # --- Wounds (D-096) ---------------------------------------------------------
 WOUND_RECOVERY_HOURS = Span("wound.recovery_hours")
@@ -305,7 +306,6 @@ DEATH_IRON_COST = Num("death.iron_cost")
 DEATH_PRINT_TIME_CITY = Num("death.print_time_city")
 DEATH_PRINT_TIME_CAPITAL = Num("death.print_time_capital")
 ENERGY_BODY_PRINT = Num("energy.body_print")
-MINE_COLLAPSE_DEATH_CHANCE = Num("mine.collapse_death_chance")
 
 # --- Node meter and maintenance (D-135, D-149) ------------------------------
 ENERGY_HOME_DRAW_PER_M2 = Num("energy.home_draw_per_m2")

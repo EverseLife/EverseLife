@@ -532,7 +532,7 @@ export default function App() {
                 sidebar stays -- the account, the orders and the knowledge
                 belong to the identity, not to the body. */}
             <div className="panels">
-              <Printer look={look} />
+              <Printer look={look} values={values} />
             </div>
           </div>
         </div>

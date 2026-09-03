@@ -260,7 +260,7 @@ function assemble(
         ? t("ui-stand-mine-going")
         : t("ui-stand-mine-vein", { goods: goodsName(names, look.veins[0].resource) }),
       about: t("ui-stand-mine-about"),
-      view: () => <Mine look={look} pow={pow} />,
+      view: () => <Mine look={look} values={values} pow={pow} />,
     });
   }
 

@@ -23,12 +23,13 @@ import { goodsName } from "../names";
 
 type Props = {
   look: Look;
+  values: Record<string, any> | null;
   pow: PowSettings | null;
   busy: boolean;
   act: (what: () => Promise<unknown>) => Promise<void>;
 };
 
-export function Mine({ look, pow }: Omit<Props, "busy" | "act">) {
+export function Mine({ look, values, pow }: Omit<Props, "busy" | "act">) {
   const session = useSession();
   const book = useBook();
   const names = useNames();
@@ -40,6 +41,14 @@ export function Mine({ look, pow }: Omit<Props, "busy" | "act">) {
   const [computing, setComputing] = useState(false);
   const scene = look.mining as Sight | null | undefined;
   const vein = look.veins?.[0];
+  //: The rock kills by a count, not by a coin (D-294), and a body that has
+  //: spent its grace looks no different from a fresh one. Shown only when the
+  //: next cave-in is the fatal one -- so the sentence names no number and
+  //: stays true whatever the vault sets the count to. A server that has not
+  //: sent the constants yet says nothing rather than guessing.
+  const spared = values?.["mine.collapses_survived"];
+  const doomed =
+    typeof spared === "number" && (look.body?.cave_ins ?? 0) >= spared;
 
   const start = () =>
     act(async () => {
@@ -69,6 +78,7 @@ export function Mine({ look, pow }: Omit<Props, "busy" | "act">) {
         {t("ui-mine-title")}
         <Rule>{t("ui-mine-rule")}</Rule>
       </h2>
+      {doomed && <p className="trouble">{t("ui-mine-last-cave-in")}</p>}
       {!scene && (
         <>
           <p className="note">

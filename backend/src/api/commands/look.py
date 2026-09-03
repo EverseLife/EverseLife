@@ -181,6 +181,14 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
     seen["body"] = {
         "id": str(body.id),
         "stamina": float(body.stamina),
+        #: How many cave-ins this body has lived through (D-294). Not derivable
+        #: from anything already sent -- `mining.collapsed` does not say whose
+        #: body it was, and the count is reset by a death the client would have
+        #: to reconstruct from the journal -- so it goes on the wire (D-225).
+        #: The roof's stability stays the one hidden number of the face (D-143);
+        #: how close this body is to its last cave-in is not a secret, and a
+        #: player who cannot see it learns the rule by dying of it.
+        "cave_ins": body.cave_ins,
         "sleeping_since": (
             None if body.sleeping_since is None else body.sleeping_since.isoformat()
         ),

@@ -125,6 +125,57 @@ async def test_two_swings_on_one_vein_do_not_mine_the_same_ore_twice(
     )
 
 
+async def test_two_last_swings_at_once_cost_one_cave_in(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A cave-in is counted on the body, and the count decides a death (D-294).
+
+    Two sockets of one identity send the **last** swing in the same second.
+    Without the lock on the face's own row both read it ACTIVE with the same
+    roof, both take that roof to nought from their own stale copy, and the body
+    lives through two cave-ins in one swing -- the second of which kills it.
+    One swing, one cave-in, and the loser is told the face is closed.
+    """
+    from src.engine import mining
+    from src.engine.mining import face as mining_face
+    from src.models.identity import BodyState
+    from src.models.mining import MiningSession, Pace
+
+    stamp = uuid.uuid4().hex[:8]
+    node = await world.create_node(session, f"terra.last.{stamp}", "Забой", area_m2=100)
+    vein = await world.create_vein(session, node, ORE, richness=60, remaining=100_000)
+    who = await world.create_identity(session, f"Шахтёр-{stamp}")
+    body = await world.print_body(session, who, node)
+    pocket = await world.body_container(session, body)
+    await world.grant_item(session, pocket, "stone_pickaxe", quality=50, origin="тест")
+    #: One swing from nought: both arrive at the collapse or neither does.
+    face = MiningSession(body_id=body.id, vein_id=vein.id, pace=Pace.STEADY, roof=1)
+    session.add(face)
+    await session.flush()
+    body_id, face_id = body.id, face.id
+    await session.commit()
+
+    #: The pause goes after the face is read and before anything is written.
+    _slow(monkeypatch, mining_face, "session_container")
+
+    async def swing() -> None:
+        async with factory() as db, db.begin():
+            own = await db.get(MiningSession, face_id)
+            assert own is not None
+            await mining.swing(db, current(), own)
+
+    outcomes = await asyncio.gather(swing(), swing(), return_exceptions=True)
+    closed = [it for it in outcomes if isinstance(it, mining.SessionClosed)]
+    assert len(closed) == 1, "второй удар обязан застать забой закрытым"
+
+    async with factory() as db:
+        again = await db.get(Body, body_id)
+        assert again.cave_ins == 1, f"один обвал засчитан {again.cave_ins} раза"
+        assert again.state is BodyState.ALIVE, "первый обвал щадит, и он здесь один"
+
+
 async def test_burning_coal_and_carrying_it_away_at_once_keep_the_count(
     session: AsyncSession,
     factory: async_sessionmaker[AsyncSession],
