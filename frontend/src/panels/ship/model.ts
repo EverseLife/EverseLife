@@ -16,10 +16,10 @@ export type Price = {
   /** What this move burns out of the tanks. */
   fuel: number | null;
   /**
-   * What must be **in** the tanks before the order is taken at all. Larger
-   * than `fuel` wherever the move ends somewhere with no bunker: an orbit is
-   * not a place to be stranded in, so the climb keeps the descent behind it
-   * and a crossing keeps the descent at the far end (D-245).
+   * What the round trip takes: this move and the way back down. Larger than
+   * `fuel` wherever the move ends somewhere with no bunker. The console's
+   * warning, not the engine's refusal (D-289): a hull short of it climbs and
+   * sits on its circle until fuel reaches it.
    */
   needs: number | null;
   /** Enough thrust to leave the ground at all. Class closes no route. */
@@ -35,12 +35,11 @@ export type Leg = Price & {
 };
 
 /** One arc of a crossing, priced for this hull (D-271): the flight time, the
- *  delta-v the sky asks for it, the planet it bends round and what it burns.
- *  What must be in the tanks besides is the route's `reserve`, sent once. */
+ *  delta-v the sky asks for it and what it burns. What must be in the tanks
+ *  besides is the route's `reserve`, sent once. */
 export type ArcPrice = {
   hours: number;
   dv: number;
-  via: string | null;
   fuel: number;
 };
 
@@ -55,8 +54,9 @@ export type Route = {
   reachable: boolean;
   cheap: ArcPrice | null;
   fast: ArcPrice | null;
-  /** The descent at the far end, kept in the tanks and not burnt by the
-   *  passage (pillar P6): an arc needs its own fuel plus this (D-225). */
+  /** The descent at the far end: an arc needs its own fuel plus this to
+   *  come down at the end (D-225). The console's warning, not the engine's
+   *  refusal (D-289): short of it, the hull goes adrift rather than stays. */
   reserve: number;
 };
 
@@ -73,7 +73,12 @@ export type Pad = {
   anywhere?: boolean;
 };
 
-export type Engine = { name: string; count: number; thrust: number; class: number };
+export type Engine = {
+  name: string;
+  count: number;
+  thrust: number;
+  class: number;
+};
 
 /**
  * The air aboard (D-233, D-234). A level and a rate rather than hours: the
@@ -97,7 +102,36 @@ export type Air = {
  * crosses to another world or comes down onto this one; under way one may only
  * turn back.
  */
-export type Stage = "port" | "orbit" | "flight";
+export type Stage = "port" | "orbit" | "flight" | "adrift";
+
+/**
+ * Where inertia takes the hull (D-289): round for ever, onto a body, or out
+ * of the system -- and when. The line is the coast ahead, map units at equal
+ * time steps, for the chart to draw.
+ */
+export type Fate = {
+  kind: "stable" | "crash" | "escape";
+  at: string;
+  body: string | null;
+  trace: [number, number][];
+};
+
+/** The hull in the sky (D-289): where it is at `at`, and the coast ahead as
+ *  the tick last counted it -- nothing until the first tick since the order.
+ *  Nothing at all at a pad, on a climb, or on the circle. */
+export type Sky = {
+  x: number;
+  y: number;
+  at: string;
+  inertia: Fate | null;
+};
+
+/** The order under way, in two numbers (D-289): the plan's Δv, and what is
+ *  left of it to burn. The line itself is `Flight.arc`. */
+export type Order = {
+  dv: number;
+  left: number;
+};
 
 /** A passage under way: where it ends and between which two moments. */
 export type Flight = {
@@ -109,8 +143,6 @@ export type Flight = {
   /** Whether this is the way back (D-242): a turn-back is not turned back, and
    *  the button must be dark rather than collect a refusal per click. */
   back: boolean;
-  /** The planet the arc bends round, if any (D-271). */
-  via?: string | null;
   /** The arc itself, map units at equal time steps: the chart draws the hull
    *  along it. Absent on the climb and the descent. */
   arc?: [number, number][] | null;
@@ -163,6 +195,13 @@ export type Vessel = {
   left: string | null;
   connector: string | null;
   flight: Flight | null;
+  /** The hull in the sky (D-289), or nothing at a pad or on a leg. */
+  sky: Sky | null;
+  /** What speed the tanks buy at this mass, units a day: the plan's Δv is
+   *  read against it, and the console warns before the button (D-289). */
+  dv: number;
+  /** The order under way, in numbers; nothing when there is none. */
+  course: Order | null;
   routes: Route[];
   /** Whether this hull is the viewer's own: a guest reads the card and is
    *  offered none of the buttons the engine would refuse (D-240). */
@@ -176,12 +215,11 @@ export type Vessel = {
 };
 
 /**
- * What must be in the tanks for the move the hull is offered here.
+ * What the tanks should hold for the move the hull is offered here.
  *
- * The engine refuses a leg that ends where there is no bunker without the fuel
- * to leave again (D-245, pillar P6), and `needs` is that number: for the climb
- * it is the climb plus the descent home. Nothing offered -- nothing to
- * compare, and the engine names the figure in its own refusal.
+ * The climb plus the descent home: what the console warns against, not what
+ * the engine refuses (D-289) -- a hull short of it climbs and stays on its
+ * circle until fuel reaches it. Nothing offered -- nothing to compare.
  */
 export function wanted(move: Price | null): number {
   return move?.needs ?? 0;
@@ -202,15 +240,20 @@ export function autonomy(air: Air): number | null {
 export type Sample = {
   hours: number;
   dv: number;
-  /** The planet the arc bends round, or nothing for a direct arc. */
-  via: string | null;
   fuel: number;
   /** Whether the engines can give that delta-v in that time. */
   ok: boolean;
+  /** The arc the chart draws while the slider stands on this point (D-289):
+   *  the planner's line, map units at equal time steps. */
+  trace?: [number, number][];
 };
 
 /** What `ship.course` answers: the samples, and the reserve once beside them. */
-export type CourseAnswer = { planet: string; reserve: number; samples: Sample[] };
+export type CourseAnswer = {
+  planet: string;
+  reserve: number;
+  samples: Sample[];
+};
 
 /**
  * The slider's range: from the first arc the engines deliver to the cheapest

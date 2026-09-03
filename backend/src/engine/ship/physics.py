@@ -483,17 +483,6 @@ async def sky_days(session: AsyncSession, at: datetime) -> float:
     return gone / SECONDS_PER_HOUR / HOURS_PER_DAY
 
 
-def _others(
-    constants: Constants, orbits: dict[Planet, course.Orbit], here: Planet, there: Planet
-) -> dict[str, tuple[course.Orbit, float]]:
-    """The planets a passage may be bent round: everything but its two ends."""
-    return {
-        planet.value: (orbit, gravity(constants, planet))
-        for planet, orbit in orbits.items()
-        if planet is not here and planet is not there
-    }
-
-
 async def passage_curve(
     session: AsyncSession,
     constants: Constants,
@@ -501,7 +490,6 @@ async def passage_curve(
     there: Planet,
     *,
     at: datetime,
-    flybys: bool = True,
 ) -> tuple[course.Sample, ...]:
     """Delta-v against flight time for a passage cast off at `at` (D-271).
 
@@ -514,8 +502,7 @@ async def passage_curve(
 
     Empty means the sky has no such passage at all -- a planet without an
     orbit, or the same planet twice: there is no corridor from a planet to
-    itself (D-245). `flybys` off asks for direct arcs only -- a letter's
-    delay needs no third planet.
+    itself (D-245).
 
     Off the event loop: a cold curve is a few hundred Lambert solutions, and
     every socket would wait for them.
@@ -526,42 +513,7 @@ async def passage_curve(
     if here not in orbits or there not in orbits:
         return ()
     days = await sky_days(session, at)
-    others = _others(constants, orbits, here, there) if flybys else None
-    return await asyncio.to_thread(
-        course.curve, constants, orbits[here], orbits[there], days, others=others
-    )
-
-
-async def passage_arc(
-    session: AsyncSession,
-    constants: Constants,
-    here: Planet,
-    there: Planet,
-    *,
-    at: datetime,
-    hours: float,
-    via: str | None,
-) -> course.Arc | None:
-    """The arc a passage of `hours` would fly, cast off at `at` -- or nothing.
-
-    Settled at the casting off (D-202): the console quoted a forecast, this is
-    the sky asked once more at the very moment, and it is what the tanks pay.
-    """
-    if here is there:
-        return None
-    orbits = await orbits_of(session)
-    if here not in orbits or there not in orbits:
-        return None
-    days = await sky_days(session, at)
-    others = _others(constants, orbits, here, there)
-    if via is not None:
-        if via not in others:
-            return None
-        orbit, pull = others[via]
-        return course.flyby(
-            constants, orbits[here], orbit, orbits[there], days, hours, via, gravity=pull
-        )
-    return course.arc(constants, orbits[here], orbits[there], days, hours)
+    return await asyncio.to_thread(course.curve, constants, orbits[here], orbits[there], days)
 
 
 async def corridors(

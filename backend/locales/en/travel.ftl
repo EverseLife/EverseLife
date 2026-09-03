@@ -121,8 +121,8 @@ ship-not-enough-thrust = thrust is { NUMBER($have, minimumFractionDigits: 2, max
 ship-no-life-support = there is no life support system aboard: without one the ship goes nowhere
 ship-no-engines = the ship has not a single engine
 ship-no-fuel = { $why ->
-        [climb] there is not enough fuel for the climb and the descent back, and nobody refuels in orbit
-        [cross] there is not enough fuel for the crossing and the landing at the end of it
+        [climb] there is not enough fuel for the climb
+        [cross] there is not enough fuel to leave the parking circle
         [turn-back] there is not enough fuel to turn back: on empty tanks nobody turns around in the void, the passage goes through to the end
        *[land] there is not enough fuel to land
     }: you need { NUMBER($need, minimumFractionDigits: 1, maximumFractionDigits: 1) } “{ NAME($goods) }” counted in rocket-fuel units, and the tanks answer for { NUMBER($have, minimumFractionDigits: 1, maximumFractionDigits: 1) }
@@ -134,6 +134,8 @@ ship-cross-to-orbit = “{ $node }” is not an orbit: a crossing runs from plan
 ship-already-over-planet = “{ $ship }” is already above this planet: from here one lands, one does not cross
 ship-nowhere-to-land = there is nowhere to land at { $node }: not one beacon is lit. The ship would go there and stay in orbit
 ship-no-such-route = the world has no route { PLANET($planet_from) } — { PLANET($planet_to) }
+ship-lost = “{ $ship }” is lost: no order and no turn-back reaches it any more
+ship-no-route-adrift = from where it drifts the sky offers no arc · { PLANET($planet_to) }
 ship-already-landed = “{ $ship }” already stands on a planet: there is nowhere to land from
 ship-land-not-into-orbit = “{ $node }” is an orbit, not a spaceport: from orbit one lands on the planet below it
 ship-land-other-planet = “{ $node }” is on another planet: from orbit one lands on what is below, and another planet is reached by a crossing from orbit to orbit
@@ -169,6 +171,5 @@ occupation-busy = the body is busy: { $what }{ $term ->
 # The arc between worlds (D-271).
 ship-hours-out-of-range = { NUMBER($hours) } h is off the slider: an arc flies from an hour to { NUMBER($limit) } h
 ship-no-arc = the sky offers no arc for { NUMBER($hours) } h: every one cuts through the star's corona. Pick another time on the slider
-ship-no-planet-to-pass = { PLANET($planet) } does not go round this star: there is nothing to bend round
 ship-too-fast-for-thrust = in { NUMBER($hours) } h the engines deliver { NUMBER($have) } units of speed and the arc needs { NUMBER($need) }: move the slider towards the cheap end, shed mass or add engines
 ship-hours-is-a-number = the flight time is a number of hours

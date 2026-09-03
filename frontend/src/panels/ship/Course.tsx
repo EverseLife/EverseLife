@@ -8,8 +8,9 @@
  * which pad the hull ends on is chosen over the planet, once it is there. What
  * is chosen **here** is the flight time -- and with it the arc the sky offers
  * for it, its delta-v and its fuel. The engine samples the curve (`ship.course`);
- * this window only lets the owner walk along it. The order sends the hours
- * back, and the casting off asks the sky once more (D-202).
+ * this window only lets the owner walk along it, and the chart draws the arc
+ * of the point it stands on (D-289). The order sends the hours back; the
+ * helm flies that point under the whole sky from there.
  */
 
 import { useEffect, useState } from "react";
@@ -24,11 +25,14 @@ export function Course({
   planet,
   busy,
   fly,
+  onPlan,
 }: {
   vessel: Vessel;
   planet: string | null;
   busy: boolean;
-  fly: (orbit: string, hours: number, via: string | null) => void;
+  fly: (orbit: string, hours: number) => void;
+  /** The arc of the point the slider stands on, for the chart to draw. */
+  onPlan: (trace: [number, number][] | null) => void;
 }) {
   const session = useSession();
   const edition = useEdition("ship.", "transport.");
@@ -66,6 +70,13 @@ export function Course({
     };
   }, [session, vessel.ship, planet, edition]);
 
+  //: The chart follows the thumb (D-289): the arc of the point under it, and
+  //: nothing once the planet is dropped.
+  useEffect(() => {
+    const held = planet !== null && samples !== null && pick !== null ? samples[pick] : null;
+    onPlan(held?.trace ?? null);
+  }, [onPlan, planet, samples, pick]);
+
   if (planet === null) {
     return <p className="note">{t("ui-ship-pick-planet")}</p>;
   }
@@ -86,7 +97,13 @@ export function Course({
   const [fast, cheap] = span;
   const chosen = samples[pick];
   const needs = chosen.fuel + reserve;
-  const dry = vessel.fuel < needs;
+  //: Warnings, not locks (D-289): the engine refuses only the departure
+  //: burn it cannot pay for. Two thresholds, two different ends -- short of
+  //: the crossing the hull goes adrift under way; short only of the landing
+  //: it reaches orbit and stays there -- said here, before the button, in
+  //: the tank's own numbers.
+  const shortCross = vessel.fuel < chosen.fuel;
+  const shortLand = !shortCross && vessel.fuel < needs;
   return (
     <div className="course">
       <p>
@@ -117,25 +134,26 @@ export function Course({
           fuel: chosen.fuel.toFixed(0),
           dv: chosen.dv.toFixed(0),
         })}
-        {chosen.via && ` · ${t("ui-ship-arc-via", { planet: planetName(chosen.via) })}`}{" "}
+        {" · "}
+        {t("ui-ship-dv-line", { have: vessel.dv.toFixed(0) })}{" "}
         <button
-          onClick={() => fly(route.node, chosen.hours, chosen.via)}
-          disabled={busy || !route.reachable || dry}
+          onClick={() => fly(route.node, chosen.hours)}
+          disabled={busy || !route.reachable}
           title={t(route.reachable ? "ui-ship-fly-hint" : "ui-ship-thrust-short")}
         >
           {t("ui-ship-fly")}
         </button>
-        {dry && (
-          <span className="note">
-            {" "}
-            ·{" "}
-            {t("ui-ship-dry-fly", {
-              fuel: vessel.fuel.toFixed(0),
-              needs: needs.toFixed(0),
-            })}
-          </span>
-        )}
       </p>
+      {shortCross && (
+        <p className="reason">
+          {t("ui-ship-short-cross", { fuel: vessel.fuel.toFixed(0), need: chosen.fuel.toFixed(0) })}
+        </p>
+      )}
+      {shortLand && (
+        <p className="reason">
+          {t("ui-ship-short-land", { fuel: vessel.fuel.toFixed(0), need: needs.toFixed(0) })}
+        </p>
+      )}
     </div>
   );
 }

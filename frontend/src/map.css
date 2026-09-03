@@ -441,3 +441,10 @@
   }
 }
 
+
+/* A drifter's line (D-289): bound nowhere, this is the coast inertia draws. */
+.route.drift {
+  stroke: var(--warning);
+  stroke-dasharray: 2 4;
+  opacity: 0.7;
+}

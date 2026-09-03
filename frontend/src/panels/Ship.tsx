@@ -165,9 +165,10 @@ function AirBar({ v }: { v: Vessel }) {
  * planet's gravity, fuel out of the tanks -- and it may be countermanded while
  * it lasts.
  *
- * Two numbers, not one: what the climb burns, and what the tanks must hold for
- * it to be allowed at all. The difference is the descent home, which is kept
- * back rather than spent -- an orbit has no bunker.
+ * Two numbers, not one: what the climb burns, and what the round trip takes.
+ * The difference is the descent home -- and since D-289 it is a warning, not
+ * a lock: a hull that climbs short of it sits on its circle until fuel
+ * reaches it, which is a place a rescue can be sent to.
  */
 function Ascent({
   vessel,
@@ -182,7 +183,12 @@ function Ascent({
   if (!climb) {
     return <p className="note">{t("ui-ship-no-orbit")}</p>;
   }
-  const dry = vessel.fuel < wanted(climb);
+  //: Two thresholds, two different ends (D-289): short of the climb itself
+  //: the hull does not leave the pad -- the engine refuses, so the button is
+  //: dark; short only of the descent back it climbs and sits on its circle
+  //: until fuel reaches it -- a warning, and the button stays lit.
+  const dryClimb = climb.fuel != null && vessel.fuel < climb.fuel;
+  const dry = !dryClimb && vessel.fuel < wanted(climb);
   return (
     <>
       <p>
@@ -195,7 +201,7 @@ function Ascent({
             })}{" "}
         <button
           onClick={ascend}
-          disabled={busy || !climb.reachable || !vessel.life_support || dry}
+          disabled={busy || !climb.reachable || !vessel.life_support || dryClimb}
           title={t(climb.reachable ? "ui-ship-ascend-hint" : "ui-ship-thrust-short")}
         >
           {t("ui-ship-ascend")}
@@ -204,11 +210,18 @@ function Ascent({
       {!climb.reachable && climb.hours != null && (
         <p className="note">{t("ui-ship-ratio-short")}</p>
       )}
-      {dry ? (
-        <p className="note">
+      {dryClimb ? (
+        <p className="reason">
+          {t("ui-ship-dry-climb", {
+            fuel: vessel.fuel.toFixed(0),
+            need: climb.fuel?.toFixed(0) ?? "",
+          })}
+        </p>
+      ) : dry ? (
+        <p className="reason">
           {t("ui-ship-dry-ascent", {
             fuel: vessel.fuel.toFixed(0),
-            needs: climb.needs?.toFixed(0) ?? "",
+            need: climb.needs?.toFixed(0) ?? "",
           })}
         </p>
       ) : (
@@ -307,20 +320,26 @@ function Passage({
   recall: () => void;
 }) {
   if (!v.flight) return null;
+  //: What is left of the plan against the tanks (D-289): after the departure
+  //: burn the tanks hold less than the whole plan by definition, so the
+  //: number that matters is the rest of it.
+  const short = v.course !== null && v.dv < v.course.left;
   return (
     <div className="doing">
       <span className="doing-what">
         {t("ui-ship-flight", { back: String(Boolean(v.flight.back)), name: v.flight.name })}
         {v.flight.planet && ` · ${planetName(v.flight.planet)}`}
-        {v.flight.via && ` · ${t("ui-ship-arc-via", { planet: planetName(v.flight.via) })}`}
+        {v.course &&
+          ` · ${t("ui-ship-course-dv", { need: v.course.left.toFixed(0), have: v.dv.toFixed(0) })}`}
       </span>
+      {short && <span className="reason">{t("ui-ship-course-short")}</span>}
       <Deadline
         until={v.flight.arrives_at}
         since={v.flight.started_at}
         label={t("ui-ship-flight-label")}
       />
       <span className="doing-aside note">
-        {t("ui-ship-flight-fixed")}
+        {t("ui-ship-flight-autopilot")}
         {!v.flight.back && ` ${t("ui-ship-may-turn")}`}
       </span>
       {/* The helm may still go over (D-242): the way back is as long as the way
@@ -334,6 +353,40 @@ function Passage({
       )}
       {!v.flight.back && !v.left && (
         <span className="note">{t("ui-ship-no-origin")}</span>
+      )}
+    </div>
+  );
+}
+
+/**
+ * A hull adrift (D-289): the engines are silent, inertia carries it, and the
+ * console says where to and by when -- the verdict a rescue is timed by.
+ */
+function Drift({ v }: { v: Vessel }) {
+  if (!v.sky) return null;
+  const fate = v.sky.inertia;
+  const body =
+    !fate || fate.body === null
+      ? ""
+      : fate.body === "star"
+        ? t("ui-ship-star")
+        : planetName(fate.body);
+  return (
+    <div className="doing">
+      <span className="doing-what">{t("ui-ship-fate-label")}</span>
+      {/* The verdict is the tick's, and the first tick since the drift may
+          still be to come: then the heading stands alone. */}
+      {fate && (
+        <span className="doing-aside note">
+          {fate.kind === "crash"
+            ? t("ui-ship-fate-crash", { body })
+            : fate.kind === "escape"
+              ? t("ui-ship-fate-escape")
+              : t("ui-ship-fate-stable")}
+        </span>
+      )}
+      {fate && fate.kind !== "stable" && (
+        <Deadline until={fate.at} since={v.sky.at} label={t("ui-ship-fate-label")} />
       )}
     </div>
   );
@@ -403,6 +456,8 @@ export function Ship({
   const [ships, setShips] = useState<Vessel[]>([]);
   const [name, setName] = useState("");
   const [course, setCourse] = useState<string | null>(null);
+  //: The arc under the slider's thumb, for the chart (D-289).
+  const [plan, setPlan] = useState<[number, number][] | null>(null);
   //: The spheres for the chart. The sky is answered to everybody (D-240), so
   //: this read works in flight, where the hull has no edges and the world map
   //: would otherwise be able to say nothing at all about where it is.
@@ -565,6 +620,7 @@ export function Ship({
                 epoch={look.clock?.epoch ?? null}
                 chosen={course}
                 onChoose={setCourse}
+                plan={plan}
               />
               {/* One stage, one set of orders (D-245). From the pad the
                   only move is up; under way the only move is back; from orbit
@@ -584,18 +640,26 @@ export function Ship({
                 />
               ) : (
                 <>
-                  <Landing
-                    vessel={v}
-                    busy={busy || deaf}
-                    land={(port) => go(() => session.send("ship.land", { ship: v.ship, port }))}
-                  />
+                  {/* Adrift, the hull has no planet under it to come down on;
+                      what it has is a coast and a verdict (D-289). A course
+                      it may lay from anywhere the tanks allow. */}
+                  {v.stage === "adrift" ? (
+                    <Drift v={v} />
+                  ) : (
+                    <Landing
+                      vessel={v}
+                      busy={busy || deaf}
+                      land={(port) => go(() => session.send("ship.land", { ship: v.ship, port }))}
+                    />
+                  )}
                   <Course
                     vessel={v}
                     planet={course}
                     busy={busy || deaf}
-                    fly={(port, hours, via) =>
-                      go(() => session.send("ship.fly", { ship: v.ship, port, hours, via }))
+                    fly={(port, hours) =>
+                      go(() => session.send("ship.fly", { ship: v.ship, port, hours }))
                     }
+                    onPlan={setPlan}
                   />
                 </>
               )}

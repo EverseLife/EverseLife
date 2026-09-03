@@ -30,6 +30,9 @@ event-justice-sanction_applied = sanction imposed
 event-bank-debt_withheld = withheld toward the debt
 event-utility-cut_off = node cut off for non-payment
 event-transport-broke = wagon broke apart
+# The sky (D-289): the tanks ran dry under way, or the coast ended.
+event-ship-adrift = ship went adrift
+event-ship-lost = ship lost
 event-road-laid = road laid
 event-deed-sold = deed sold
 event-land-reclaimed = the city took its location back

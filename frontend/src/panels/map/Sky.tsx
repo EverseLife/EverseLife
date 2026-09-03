@@ -140,8 +140,19 @@ export function SkyBackdrop({
         if (!node.flight) return null;
         const arc = node.flight.arc;
         if (arc && arc.length >= 2) {
-          const points = arc.map(([x, y]) => `${STAR.x + x * fit},${STAR.y + y * fit}`);
-          return <polyline key={`route|${node.key}`} className="route" points={points.join(" ")} />;
+          const points = arc.map(
+            ([x, y]) => `${STAR.x + x * fit},${STAR.y + y * fit}`,
+          );
+          //: Bound nowhere, the line is a drifter's coast (D-289): drawn in
+          //: the ink of a warning, because that is what it is.
+          const drift = node.flight.to === null;
+          return (
+            <polyline
+              key={`route|${node.key}`}
+              className={`route${drift ? " drift" : ""}`}
+              points={points.join(" ")}
+            />
+          );
         }
         const from = at(node.parent ?? "");
         const to = at(repr(node.flight.to, "space") ?? "");

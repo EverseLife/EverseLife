@@ -8,6 +8,7 @@ beacons and ports, where a landing is allowed and which planets open.
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -47,15 +48,18 @@ async def passages(session: AsyncSession) -> dict[uuid.UUID, dict[str, object]]:
         .scalars()
         .all()
     )
-    if not flights:
-        return {}
-
     afloat = {
         str(ship.id): ship
-        for ship in (await session.execute(select(Ship).where(Ship.docked_node_id.is_(None))))
+        for ship in (
+            await session.execute(
+                select(Ship).where(Ship.docked_node_id.is_(None), Ship.lost_at.is_(None))
+            )
+        )
         .scalars()
         .all()
     }
+    if not afloat:
+        return {}
     under_way: dict[uuid.UUID, dict[str, object]] = {}
     for job in flights:
         ship = afloat.get(str(job.payload.get("ship")))
@@ -69,6 +73,48 @@ async def passages(session: AsyncSession) -> dict[uuid.UUID, dict[str, object]]:
             #: the hull along it, at the share of the time gone. Legs to and
             #: from the ground carry none -- they are drawn beside the planet.
             "arc": job.payload.get("arc"),
+        }
+    #: Hulls flown by the sky (D-289): under an order, along the line the
+    #: order carries; adrift, at the point inertia has them at -- a state,
+    #: propagated for the reading, and the coast ahead as the line to draw.
+    targets = {
+        node.key: node.id
+        for node in (
+            await session.execute(
+                select(Node).where(
+                    Node.key.in_(
+                        sorted(str(one.course["target"]) for one in afloat.values() if one.course)
+                    )
+                )
+            )
+        )
+        .scalars()
+        .all()
+    }
+    for ship in afloat.values():
+        if ship.node_id in under_way or ship.sky_at is None:
+            continue
+        if ship.course:
+            order = ship.course
+            under_way[ship.node_id] = {
+                "to": targets.get(str(order.get("target"))),
+                "started_at": datetime.fromisoformat(str(order.get("since"))),
+                "arrives_at": datetime.fromisoformat(
+                    str(order.get("due_at") or order.get("arrive_at"))
+                ),
+                "arc": order.get("trace"),
+            }
+            continue
+        #: The coast the tick last wrote onto the row (D-289): the map reads,
+        #: it does not fly. A drifter the tick has not seen yet has no line.
+        stored = ship.forecast or None
+        if stored is None:
+            continue
+        under_way[ship.node_id] = {
+            "to": None,
+            "started_at": datetime.fromisoformat(str(stored["since"])),
+            "arrives_at": datetime.fromisoformat(str(stored["at"])),
+            "arc": stored.get("trace"),
         }
     return under_way
 
@@ -246,6 +292,23 @@ async def _flight(session: AsyncSession, ship: Ship) -> dict[str, object] | None
     #: Lazy: `flight` reads the beacon and the landings from this module.
     from src.engine.ship.flight import _passage_of  # noqa: PLC0415 -- lazy: breaks the cycle
 
+    #: An order under way (D-289) is the crossing itself: the line the hull
+    #: is flown along and the hour it is due -- the same shape a leg has, so
+    #: the chart draws both the same way.
+    if ship.course and ship.lost_at is None:
+        order = ship.course
+        goal = (
+            await session.execute(select(Node).where(Node.key == str(order.get("target"))))
+        ).scalar_one_or_none()
+        return {
+            "to": None if goal is None else goal.key,
+            "name": None if goal is None else goal.name,
+            "planet": str(order.get("planet")),
+            "started_at": str(order.get("since")),
+            "arrives_at": str(order.get("due_at") or order.get("arrive_at")),
+            "back": bool(order.get("back")),
+            "arc": order.get("trace"),
+        }
     job = await _passage_of(session, ship)
     if job is None:
         return None
@@ -261,8 +324,6 @@ async def _flight(session: AsyncSession, ship: Ship) -> dict[str, object] | None
         #: a refusal per click. Not derivable: the destination alone does not
         #: say which way the helm went.
         "back": bool(job.payload.get("back")),
-        #: The planet the arc bends round, if any (D-271): the console names
-        #: it. And the arc itself, for the chart to draw the hull along.
-        "via": job.payload.get("via"),
+        #: The arc itself, for the chart to draw the hull along.
         "arc": job.payload.get("arc"),
     }

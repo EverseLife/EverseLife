@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Nurlan Urazkulov
 
-"""The arithmetic of conics: Kepler, Lambert, and a flyby's free turn.
+"""The arithmetic of conics: Kepler and Lambert.
 
 A library, not a rule of the game -- the way `units` is a way of storing and
 not a property of the world. Nothing here knows a planet, a hull or a vault
@@ -23,6 +23,7 @@ Students* -- algorithms 3.4 (Kepler in the universal anomaly) and 5.2
 from __future__ import annotations
 
 import math
+from typing import NamedTuple
 
 type Vec = tuple[float, float]
 #: An orbit as the seed writes it: radius, period, phase at the epoch.
@@ -319,27 +320,52 @@ def trace(mu: float, r0: Vec, v0: Vec, tof: float, points: int) -> tuple[Vec, ..
     )
 
 
-# --- a flyby ------------------------------------------------------------------
+# --- the legs of a passage ------------------------------------------------------
 
 
-def turn_cost(mu_body: float, closest_pass: float, v_in: Vec, v_out: Vec) -> float:
-    """What the burn at a flyby costs, given what the body turns for free.
+class Leg(NamedTuple):
+    v1: Vec
+    v2: Vec
+    dv_out: float
+    dv_in: float
+    perihelion: float
+    revs: int
 
-    Patched conics: the body bends the hyperbolic excess by up to
-    `2 asin(1 / (1 + r v^2 / mu))` at closest approach `r`. What it does not
-    bend, and the difference between the speeds in and out, is paid for by
-    the engines -- a powered flyby, priced at the smaller of the two excesses.
+
+def legs(
+    mu: float, here: tuple[Vec, Vec], there: tuple[Vec, Vec], tof: float, *, max_revs: int
+) -> list[Leg]:
+    """Every arc between two moving places, priced at both ends.
+
+    Here rather than in the engine's `course` (D-289, wave 2): the numerics
+    package `src.sky` plans with these too, and it sits below the rules.
     """
-    s_in, s_out = norm(v_in), norm(v_out)
-    if s_in < _SMALL or s_out < _SMALL:
-        return abs(s_out - s_in)
-    cosine = max(-1.0, min(1.0, dot(v_in, v_out) / (s_in * s_out)))
-    turn = math.acos(cosine)
-    slow = min(s_in, s_out)
-    free = 2 * math.asin(1 / (1 + closest_pass * slow * slow / mu_body))
-    return abs(s_out - s_in) + 2 * slow * math.sin(max(0.0, turn - free) / 2)
+    (r1, vp1), (r2, vp2) = here, there
+    legs: list[Leg] = []
+    #: Both ways round for a direct arc; against the planets only a fast hull
+    #: gains, and a fast hull does not make full turns.
+    ways = [(revs, False) for revs in range(max_revs + 1)] + [(0, True)]
+    for revs, retrograde in ways:
+        for v1, v2 in lambert(mu, r1, r2, tof, revs, retrograde=retrograde):
+            legs.append(
+                Leg(
+                    v1,
+                    v2,
+                    norm(sub(v1, vp1)),
+                    norm(sub(v2, vp2)),
+                    closest(mu, r1, v1, r2, v2, revs),
+                    revs,
+                )
+            )
+    return legs
 
 
-#: Where along a whole flight a flyby may fall, as shares of the time: the
-#: split is searched over these, and the cheapest wins.
-FLYBY_SPLITS = (0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8)
+def max_revs(mu: float, here: Orbit, there: Orbit, tof: float) -> int:
+    """How many full turns a flight this long could possibly make.
+
+    A bound, not an answer: an arc cannot turn faster than a circle at the
+    inner of the two radii, so more turns than that fit in `tof` is not worth
+    asking the solver about.
+    """
+    inner = min(here[0], there[0])
+    return min(MAX_REVS, int(tof / lap(mu, inner)))

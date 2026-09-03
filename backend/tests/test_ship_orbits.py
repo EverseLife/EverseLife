@@ -14,17 +14,19 @@ lives in `test_ship_flight.py`.
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ship_kit import (
-    ENGINE,
     FUEL,
     TANK,
     _body_of,
     _equip,
+    _fast_sample,
     _flightworthy,
+    _flown,
     _fuel,
     _in_orbit,
     _laid,
@@ -35,7 +37,6 @@ from ship_kit import (
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import frost, jobs, ship, storage, world
-from src.models.job import JobState
 from src.models.ship import Ship
 from src.models.world import Layer, Node, Planet
 from src.units import amount_float
@@ -78,13 +79,18 @@ async def test_the_way_between_worlds_goes_orbit_to_orbit(
         with pytest.raises(ship.TooFar):
             await ship.fly(session, constants, catalog, owner, vessel, await _orbit(session))
 
-        crossing = await ship.fly(session, constants, catalog, owner, vessel, aurora)
-        term, ship_id, aurora_id, pad_id = crossing.run_at, vessel.id, aurora.id, pad.id
-
-    assert await jobs.run_one(factory, now=term) is not None
+        moment = datetime.now(UTC)
+        fast = await _fast_sample(session, constants, catalog, vessel, Planet.AURORA)
+        arrives = await ship.fly(
+            session, constants, catalog, owner, vessel, aurora, hours=fast["hours"], now=moment
+        )
+        ship_id, aurora_id, pad_id = vessel.id, aurora.id, pad.id
 
     async with factory() as session, session.begin():
         vessel = await session.get(Ship, ship_id)
+        #: Flown by the tick, hour by hour, until the helm puts the hull on
+        #: Aurora's circle (D-289).
+        await _flown(session, constants, catalog, vessel, since=moment, until=arrives)
         assert vessel.docked_node_id == aurora_id, "борт на орбите Авроры"
         connector = await session.get(Node, vessel.connector_node_id)
         assert connector.planet is Planet.AURORA, "и несёт планету, над которой висит"
@@ -189,67 +195,6 @@ async def test_an_orbit_is_the_void_whatever_hangs_below_it(
     assert not await oxygen.free_air(session, orbit), "орбита — пустота"
     assert await oxygen.sealed(session, vessel), "на орбите корпус живёт своим воздухом"
     assert not await oxygen.free_air(session, connector), "и отсек тоже"
-
-
-async def test_a_turn_back_into_orbit_keeps_the_descent(
-    session: AsyncSession, constants: Constants, catalog: Catalog
-) -> None:
-    """The turn-back is a leg, and it keeps what every leg keeps (D-245).
-
-    The way in was short. A crossing keeps back the descent onto the planet it
-    is aimed at, and a turn-back counts the hours it has flown -- nought, in
-    the first minute. Without a reserve of its own the hull came home to an
-    orbit it could not afford to leave: `fall_hours` is the planet's, and the
-    reserve it carried was measured against the other one.
-    """
-    #: Off the heaviest world in the system onto the lightest: Pyroxis costs
-    #: `planet.gravity` 1.3 to come down onto and Aurora 0.8, so the reserve the
-    #: crossing keeps is worth barely half the descent waiting at the other end
-    #: of a turn-back.
-    home = await _port(session, name="Плато Наковальни", planet=Planet.PYROXIS)
-    await _port(session, name="Космодром Мерида", planet=Planet.AURORA)
-    aurora = await _orbit(session, Planet.AURORA)
-    _, owner = await _shipwright(session, home)
-    vessel = await _laid(session, constants, owner, home)
-    await _flightworthy(session, constants, catalog, vessel)
-    connector = await session.get(Node, vessel.connector_node_id)
-    #: Ballast, and it is the point of the test as much as the planets are: a
-    #: hull whose mass is mostly fuel lightens as it burns, and the reserve it
-    #: measured at the casting off buys more descent than it was sold. A loaded
-    #: freighter does not -- its mass is its cargo -- and it is the loaded
-    #: freighter the reserve has to be right for.
-    await _equip(session, connector, "iron_ingot", amount=1200)
-    await _equip(session, connector, ENGINE, amount=40)
-    await _fuel(session, connector, 200)
-    owner.node_id = connector.id
-    await session.flush()
-
-    await _in_orbit(session, constants, catalog, owner, vessel)
-    crossing = await ship.fly(session, constants, catalog, owner, vessel, aurora)
-    await session.refresh(crossing)
-
-    #: Drained to exactly the descent the crossing kept back, and not a gram
-    #: more: that is the state the hole was reachable from.
-    thrust_ratio = await ship.ratio(session, constants, catalog, vessel)
-    kept = ship.fuel_for(
-        constants,
-        await ship.mass(session, constants, catalog, vessel),
-        ship.fall_hours(constants, Planet.AURORA, thrust_ratio),
-        klass=await ship.engine_class(session, constants, vessel),
-    )
-    await ship._spend(
-        session,
-        await ship.fuel_stacks(session, constants, catalog, vessel),
-        await ship.fuel_aboard(session, constants, catalog, vessel) - kept,
-    )
-    await session.flush()
-
-    with pytest.raises(ship.NoFuel):
-        await ship.recall(session, constants, catalog, owner, vessel, now=crossing.created_at)
-    #: And the hull goes on to Aurora, where the fuel it holds is exactly the
-    #: descent it was promised.
-    await session.refresh(crossing)
-    assert crossing.state is JobState.PENDING, "отказ не снял рейс"
 
 
 async def test_a_descent_is_not_aimed_at_the_orbit_itself(

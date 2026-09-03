@@ -295,8 +295,7 @@ async def _ship_fly(state: dict, db: AsyncSession, message: dict) -> dict:
             hours = float(hours)
         except (TypeError, ValueError) as exc:
             raise Refused(key="ship-hours-is-a-number") from exc
-    via = message.get("via")
-    job = await ship.fly(
+    arrives = await ship.fly(
         db,
         current(),
         current_catalog(),
@@ -304,9 +303,11 @@ async def _ship_fly(state: dict, db: AsyncSession, message: dict) -> dict:
         vessel,
         await _target(db, message),
         hours=hours,
-        via=None if via is None else str(via),
     )
-    return {"flight": str(job.id), "arrives_at": job.run_at.isoformat()}
+    #: A confirmation, not the state (the quality bar): the order lives on the
+    #: hull's row and comes back with `ship.view`; the hour is what the
+    #: player asked for and what the helm aims at.
+    return {"ship": str(vessel.id), "arrives_at": arrives.isoformat()}
 
 
 @command("ship.course", readonly=True)
@@ -343,8 +344,8 @@ async def _ship_recall(state: dict, db: AsyncSession, message: dict) -> dict:
     """
     body = await _alive(state, db)
     vessel = await _ship_of(db, body, message.get("ship"))
-    job = await ship.recall(db, current(), current_catalog(), body, vessel)
-    return {"recalled": str(job.id), "arrives_at": job.run_at.isoformat()}
+    arrives = await ship.recall(db, current(), current_catalog(), body, vessel)
+    return {"ship": str(vessel.id), "arrives_at": arrives.isoformat()}
 
 
 @command("ship.ports", readonly=True)

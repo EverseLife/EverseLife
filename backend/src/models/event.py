@@ -120,6 +120,12 @@ class EventKind(StrEnum):
     #: The owner plumbed a port (D-288): which vessels a machine drinks from
     #: and in what order. An empty list is the port going back to "any".
     LINE_SET = "line.set"
+    #: The engines ran dry under way (D-289): the hull coasts from here, and
+    #: the order is gone. Said to everybody aboard, like the air running out.
+    SHIP_ADRIFT = "ship.adrift"
+    #: The coast ended on a body or out of the system (D-289): the hull and
+    #: everybody aboard are lost. Said to the owner and the crew.
+    SHIP_LOST = "ship.lost"
 
     # transport and convoy (D-157)
     TRANSPORT_HARNESSED = "transport.harnessed"

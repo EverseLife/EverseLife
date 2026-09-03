@@ -9,6 +9,7 @@ keel, equipment and fuel aboard, a hull fit to fly. Used by the ship files
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -170,3 +171,39 @@ async def _body_of(session: AsyncSession, vessel: Ship) -> Body:
         .scalars()
         .one()
     )
+
+
+async def _fast_sample(
+    session: AsyncSession, constants: Constants, catalog: Catalog, vessel: Ship, planet: Planet
+) -> dict:
+    """The fastest arc the engines deliver to `planet`, off the slider.
+
+    The one a test flies: the tick steps the sky a minute at a time (D-289),
+    and forty days of the cheapest arc is not a test.
+    """
+    forecast = await ship.forecast(session, constants, catalog, vessel, planet)
+    return next(one for one in forecast["samples"] if one["ok"])
+
+
+async def _flown(
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    vessel: Ship,
+    *,
+    since: datetime,
+    until: datetime,
+    step: timedelta = timedelta(hours=1),
+    slack: timedelta = timedelta(hours=24),
+) -> datetime:
+    """Tick the sky from `since` past `until`, an hour at a time, until the
+    order is over -- the hull moored, or adrift (D-289). Returns the hour of
+    the last tick."""
+    now = since
+    while now < until + slack:
+        now += step
+        await ship.sim.tick_sky(session, constants, catalog, now=now)
+        await session.refresh(vessel)
+        if vessel.docked_node_id is not None or vessel.course is None:
+            return now
+    return now

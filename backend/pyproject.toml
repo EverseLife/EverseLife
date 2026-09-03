@@ -18,6 +18,9 @@ dependencies = [
     # Device fee: the server verifies the same estimate the client computes (D-112).
     "argon2-cffi>=23.1",
     "fluent-runtime>=0.4",
+    # The sky is integrated, not tabled (D-289): forty variants of a passage go
+    # through the integrator as one matrix.
+    "numpy>=2.1",
 ]
 
 [project.optional-dependencies]
@@ -82,9 +85,9 @@ root_package = "src"
 # `src.engine`. The layers contract is enforced now; the cycle contract for the
 # engine is the goal of wave 3 and stays commented until the cycles are broken.
 [[tool.importlinter.contracts]]
-name = "Layers: api -> engine -> models -> constants -> i18n"
+name = "Layers: api -> engine -> sky -> models -> constants -> i18n"
 type = "layers"
-layers = ["src.api", "src.engine", "src.models", "src.constants", "src.i18n"]
+layers = ["src.api", "src.engine", "src.sky", "src.models", "src.constants", "src.i18n"]
 
 # The city, cut out of a 1084-line `polity.py` that held founding, offices,
 # code-laws and citizenship at once and let all four reach into each other.

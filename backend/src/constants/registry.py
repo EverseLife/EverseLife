@@ -556,6 +556,9 @@ SHIP_DESCENT_HOURS = Num("ship.descent_hours")
 #: which planets differ from one another at all, before any geology: a heavy
 #: world is dear to leave and dear to land on.
 PLANET_GRAVITY = Table("planet.gravity")
+#: The body's radius in map units (D-289): nearer its centre than this a hull
+#: is on the ground, and a coasting hull is lost there.
+PLANET_RADIUS = Table("planet.radius")
 #: Fuel for a crossing between worlds, per ton of hull and per unit of delta-v
 #: (D-271): a passage pays for speed, not for hours -- the legs to and from
 #: the ground still pay per day (`SHIP_FUEL_PER_TON_DAY`).
@@ -578,10 +581,25 @@ ORBIT_BURN_SHARE = Num("orbit.burn_share")
 ORBIT_CORONA_RADIUS = Num("orbit.corona_radius")
 #: The slow end of the slider: no arc longer than this, however cheap.
 ORBIT_LONGEST_DAYS = Num("orbit.longest_days")
-#: A planet's pull at a flyby, per unit of `PLANET_GRAVITY`, and how close the
-#: hull may pass: together they bound the free turn of a gravity assist.
-ORBIT_FLYBY_MU = Num("orbit.flyby_mu")
-ORBIT_FLYBY_RADIUS = Num("orbit.flyby_radius")
+#: The sky simulated (D-289): a planet's pull all the way, per unit of
+#: `PLANET_GRAVITY`; the parking circle a moored hull runs on; the steps of
+#: the tick's integrator and of the planner's; the window a hull is put on
+#: the circle in; the edge of the system, the horizon of the forecast and
+#: how often a coasting hull's stamp is moved along.
+ORBIT_PLANET_MU = Num("orbit.planet_mu")
+ORBIT_PARK_RADIUS = Num("orbit.park_radius")
+ORBIT_STEP_MINUTES = Num("orbit.step_minutes")
+ORBIT_PLAN_STEP_MINUTES = Num("orbit.plan_step_minutes")
+ORBIT_CAPTURE_RADIUS = Num("orbit.capture_radius")
+ORBIT_CAPTURE_SPEED = Num("orbit.capture_speed")
+ORBIT_SYSTEM_RADIUS = Num("orbit.system_radius")
+ORBIT_FORECAST_DAYS = Num("orbit.forecast_days")
+ORBIT_RESTAMP_HOURS = Num("orbit.restamp_hours")
+#: Where the helm stops chasing the arc and matches the circle whatever
+#: its speed, in parking radii; and the shortest leg it lays when the
+#: planned hour has passed without a capture, days.
+ORBIT_APPROACH_RADII = Num("orbit.approach_radii")
+ORBIT_LATE_LEG_DAYS = Num("orbit.late_leg_days")
 #: The slider's grid: the shortest arc offered, hours, and the step between
 #: samples as a share; the map's calendar is coarser and looks this many
 #: days ahead.

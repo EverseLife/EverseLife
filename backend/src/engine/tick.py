@@ -46,6 +46,7 @@ from src.engine import (
     plates,
     rig,
     road,
+    ship,
     wear,
     works,
 )
@@ -172,6 +173,14 @@ async def _oxygen(session: AsyncSession, now: datetime) -> dict[str, Any]:
     return {"air_breathed": round(breathed, ROUND_MASS), "choked": lost + outside}
 
 
+async def _sky(session: AsyncSession, now: datetime) -> dict[str, Any]:
+    #: The sky is flown, not tabled (D-289): every hull under an order is
+    #: stepped to now -- the helm, the burn, the pull of five bodies -- and a
+    #: coasting one has its stamp moved along so a reading never propagates
+    #: weeks. A moored hull runs on its circle and costs nothing here.
+    return await ship.sim.tick_sky(session, current(), current_catalog(), now=now)
+
+
 async def _orphans(session: AsyncSession, now: datetime) -> dict[str, Any]:
     #: A batch whose job died would otherwise stay "running" for ever, and its
     #: master would count as busy for ever with it (D-211, D-217). The world
@@ -255,6 +264,7 @@ WORLD_STEPS: dict[str, tuple[Step, str]] = {
     "frost": (_frost, "first"),
     "exoskeletons": (_exoskeletons, "first"),
     "oxygen": (_oxygen, "first"),
+    "sky": (_sky, "first"),
 }
 DAILY_STEPS: dict[str, tuple[Step, str]] = {
     "wear": (_wear, "first"),

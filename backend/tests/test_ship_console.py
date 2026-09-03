@@ -36,6 +36,7 @@ from ship_kit import (
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import frost, ship, storage, travel, world
+from src.engine.ship.flight import _passage_of
 from src.models.identity import Body
 from src.models.job import Job, JobKind, JobState
 from src.models.ship import Ship
@@ -231,10 +232,11 @@ async def test_turning_back_costs_the_way_already_flown(
     gone = timedelta(hours=12)
     moment = flight.created_at + gone
     before = await ship.fuel_aboard(session, constants, catalog, vessel)
-    back = await ship.recall(session, constants, catalog, owner, vessel, now=moment)
+    arrives = await ship.recall(session, constants, catalog, owner, vessel, now=moment)
+    back = await _passage_of(session, vessel)
 
-    assert back.payload["to"] == str(home.id)
-    assert back.run_at - moment == gone
+    assert back is not None and back.payload["to"] == str(home.id)
+    assert back.run_at == arrives and arrives - moment == gone
     assert await ship.fuel_aboard(session, constants, catalog, vessel) < before, (
         "разворот сжёг своё топливо"
     )
@@ -265,7 +267,7 @@ async def test_a_turn_back_is_not_turned_back(
     flight = await ship.ascend(session, constants, catalog, owner, vessel)
     await session.refresh(flight)
     moment = flight.created_at + timedelta(hours=12)
-    back = await ship.recall(session, constants, catalog, owner, vessel, now=moment)
+    arrives = await ship.recall(session, constants, catalog, owner, vessel, now=moment)
 
     burnt = await ship.fuel_aboard(session, constants, catalog, vessel)
     with pytest.raises(ship.InFlight):
@@ -276,8 +278,7 @@ async def test_a_turn_back_is_not_turned_back(
         "отказ не сжёг топлива"
     )
     #: And the way home is still the half day it was, not nought.
-    await session.refresh(back)
-    assert back.run_at - moment == timedelta(hours=12)
+    assert arrives - moment == timedelta(hours=12)
 
 
 async def test_a_turn_back_to_a_pier_without_a_yard_is_refused(
@@ -339,11 +340,11 @@ async def test_a_turn_back_never_costs_less_than_a_landing(
 
     before = await ship.fuel_aboard(session, constants, catalog, vessel)
     #: Turned round the same second it set out.
-    back = await ship.recall(session, constants, catalog, owner, vessel, now=flight.created_at)
+    arrives = await ship.recall(session, constants, catalog, owner, vessel, now=flight.created_at)
 
     thrust_ratio = await ship.ratio(session, constants, catalog, vessel)
     landing = ship.fall_hours(constants, Planet.TERRA, thrust_ratio)
-    assert back.run_at - flight.created_at == pytest.approx(
+    assert arrives - flight.created_at == pytest.approx(
         timedelta(hours=landing), abs=timedelta(seconds=1)
     ), "разворот в ту же секунду всё равно длится посадку"
     assert await ship.fuel_aboard(session, constants, catalog, vessel) < before, "и стоит топлива"

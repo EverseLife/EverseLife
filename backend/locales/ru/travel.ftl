@@ -121,8 +121,8 @@ ship-not-enough-thrust = тяги { NUMBER($have, minimumFractionDigits: 2, maxi
 ship-no-life-support = на борту нет системы жизнеобеспечения: без неё корабль никуда не идёт
 ship-no-engines = на корабле нет ни одного двигателя
 ship-no-fuel = { $why ->
-        [climb] на подъём и спуск обратно топлива не хватает, а на орбите не заправляют
-        [cross] на переход и посадку в конце топлива не хватает
+        [climb] на подъём топлива не хватает
+        [cross] на уход со стоянки топлива не хватает
         [turn-back] на разворот топлива не хватает: с пустыми баками в пустоте не разворачиваются — идите до конца
        *[land] на посадку топлива не хватает
     }: нужно { NUMBER($need, minimumFractionDigits: 1, maximumFractionDigits: 1) } «{ NAME($goods) }» в пересчёте на ракетное, а баки закрывают { NUMBER($have, minimumFractionDigits: 1, maximumFractionDigits: 1) }
@@ -134,6 +134,8 @@ ship-cross-to-orbit = «{ $node }» — не орбита: переход идё
 ship-already-over-planet = «{ $ship }» уже над этой планетой: отсюда садятся, а не идут переходом
 ship-nowhere-to-land = на «{ $node }» садиться некуда: не светит ни один маяк. Корабль ушёл бы туда и остался на орбите
 ship-no-such-route = маршрута { PLANET($planet_from) } — { PLANET($planet_to) } в мире нет
+ship-lost = корабль «{ $ship }» потерян: ни приказа, ни разворота ему больше не отдать
+ship-no-route-adrift = из дрейфа небо дуги не даёт · { PLANET($planet_to) }
 ship-already-landed = «{ $ship }» уже стоит на планете: садиться неоткуда
 ship-land-not-into-orbit = «{ $node }» — орбита, а не космодром: с орбиты садятся на планету под ней
 ship-land-other-planet = «{ $node }» на другой планете: с орбиты садятся на то, что под ней, а до чужой планеты идут переходом с орбиты на орбиту
@@ -169,6 +171,5 @@ occupation-busy = тело занято: { $what }{ $term ->
 # The arc between worlds (D-271).
 ship-hours-out-of-range = { NUMBER($hours) } ч — вне ползунка: дуга летит от часа до { NUMBER($limit) } ч
 ship-no-arc = на { NUMBER($hours) } ч небо дуги не даёт: всякая срезает корону звезды. Выберите другое время на ползунке
-ship-no-planet-to-pass = планета { PLANET($planet) } не ходит вокруг этой звезды: огибать нечего
 ship-too-fast-for-thrust = за { NUMBER($hours) } ч двигатели выдают { NUMBER($have) } ед. скорости, а дуге нужно { NUMBER($need) }: сдвиньте ползунок к дешёвому краю, снимите массу или ставьте двигатели
 ship-hours-is-a-number = время полёта задаётся числом часов

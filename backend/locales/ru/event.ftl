@@ -30,6 +30,9 @@ event-justice-sanction_applied = наложена санкция
 event-bank-debt_withheld = с долга удержано
 event-utility-cut_off = узел отключён за неуплату
 event-transport-broke = повозка разбилась
+# The sky (D-289): the tanks ran dry under way, or the coast ended.
+event-ship-adrift = корабль лёг в дрейф
+event-ship-lost = корабль погиб
 event-road-laid = дорога уложена
 event-deed-sold = бумага продана
 event-land-reclaimed = город забрал свою локацию

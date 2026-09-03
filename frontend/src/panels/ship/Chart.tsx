@@ -10,7 +10,7 @@
  * and what does it cost" -- and the answer is different for every hull, because
  * hours and fuel come from this ship's thrust against this ship's mass.
  *
- * So the chart draws four things and nothing else:
+ * So the chart draws these things and nothing else:
  *
  * * the star and the orbits, because a passage is planned against them: the
  *   planets close and part, and half a day of waiting is worth four times the
@@ -20,7 +20,11 @@
  * * a **corridor** from this hull to every destination it may aim at, labelled
  *   with the hours and the fuel of **this** ship. Unreachable ones stay drawn
  *   and stay grey: what one cannot do today is exactly what one plans for;
- * * the hull itself, at its planet or along the corridor it is flying.
+ * * the hull itself, where the sky has it (D-289): at its planet, along the
+ *   line its order flies, or wherever inertia carried it;
+ * * the line ahead: the order's arc under way, the coast inertia draws for a
+ *   hull whose engines are silent, and -- while the slider is held -- the arc
+ *   of the point under the thumb.
  *
  * The course is set on it and nowhere else: a click picks the destination, and
  * the passage is ordered from the panel beneath. The list of routes the console
@@ -54,6 +58,7 @@ const ORBIT = 26;
 const TICK_MS = 60_000;
 
 type Sphere = { key: string; name: string; planet: string; x: number; y: number; r: number };
+type Point = { x: number; y: number };
 
 /** Where a planet stands `day` days after the epoch. The world map's arithmetic. */
 function place(orbit: { radius: number; period_days: number; phase: number }, day: number, fit: number) {
@@ -65,12 +70,18 @@ function place(orbit: { radius: number; period_days: number; phase: number }, da
   };
 }
 
+/** A line the server drew, in map units, as the chart's points. */
+function drawn(trace: [number, number][], fit: number): string {
+  return trace.map(([x, y]) => `${STAR.x + x * fit},${STAR.y + y * fit}`).join(" ");
+}
+
 export function Chart({
   vessel,
   planets,
   epoch,
   chosen,
   onChoose,
+  plan,
 }: {
   vessel: Vessel;
   /** The spheres, as the sky read gave them. Only those with an orbit are drawn. */
@@ -79,6 +90,8 @@ export function Chart({
   /** The planet the course is set for, if any. */
   chosen: string | null;
   onChoose: (planet: string | null) => void;
+  /** The arc of the point the slider stands on, while it stands there (D-289). */
+  plan: [number, number][] | null;
 }) {
   //: The sky turns while the console is open, and it turns slowly. Not a data
   //: timer (D-226) -- nothing is asked of the server here; this is a clock hand
@@ -105,12 +118,15 @@ export function Chart({
 
   //: Where the hull is. On a pad -- beside its planet's dot; in orbit -- out
   //: on a ring of its own, which is the whole visual point of the orbital step
-  //: (D-245); under way -- along the corridor, at the share of it the clock has
-  //: covered. The same share the world map draws a passage by, off the same two
-  //: moments.
+  //: (D-245); in the sky -- where the sky has it (D-289): the state the server
+  //: read, or along the order's line at the share of the time gone when the
+  //: state is not there to read.
   const home = by.get(vessel.planet);
   const goal = vessel.flight?.planet ? by.get(vessel.flight.planet) : undefined;
-  const hull = (() => {
+  const hull: Point | null = (() => {
+    if (vessel.stage !== "orbit" && vessel.sky) {
+      return { x: STAR.x + vessel.sky.x * fit, y: STAR.y + vessel.sky.y * fit };
+    }
     if (!home) return null;
     if (!vessel.flight || !goal) {
       const off = vessel.stage === "orbit" ? ORBIT : BERTH;
@@ -128,6 +144,9 @@ export function Chart({
     }
     return { x: home.x + (goal.x - home.x) * share, y: home.y + (goal.y - home.y) * share };
   })();
+  //: What the corridors start from: the planet under the hull, or, adrift,
+  //: the hull itself -- a course is laid from wherever inertia left it.
+  const origin: Point | undefined = vessel.stage === "adrift" && hull ? hull : home;
 
   /** One line per destination planet: the row carries both ends of the slider. */
   const corridors = useMemo(() => {
@@ -137,6 +156,18 @@ export function Chart({
     }
     return [...best.values()];
   }, [vessel.routes]);
+
+  //: The lines ahead (D-289). The coast inertia draws is shown whenever the
+  //: hull is in the sky and not on its circle: under way it is what happens
+  //: if the engines fall silent now, adrift it is the whole of the future.
+  const inertia =
+    vessel.sky?.inertia && vessel.stage !== "orbit" && vessel.sky.inertia.trace.length >= 2
+      ? vessel.sky.inertia.trace
+      : null;
+  const order =
+    vessel.stage === "flight" && vessel.flight?.arc && vessel.flight.arc.length >= 2
+      ? vessel.flight.arc
+      : null;
 
   return (
     <svg className="chart" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={t("ui-ship-chart")}>
@@ -149,11 +180,11 @@ export function Chart({
 
       {/* The corridors of this hull: where it may go, and what that costs it
           right now. The label is the whole point of the chart. */}
-      {home &&
+      {origin &&
         corridors.map((route) => {
           const there = by.get(route.planet);
           if (!there) return null;
-          const mid = { x: (home.x + there.x) / 2, y: (home.y + there.y) / 2 };
+          const mid = { x: (origin.x + there.x) / 2, y: (origin.y + there.y) / 2 };
           const picked = chosen === route.planet;
           return (
             <g
@@ -161,7 +192,7 @@ export function Chart({
               className={`chart-way${route.reachable ? "" : " off"}${picked ? " picked" : ""}`}
               onClick={() => onChoose(picked ? null : route.planet)}
             >
-              <line x1={home.x} y1={home.y} x2={there.x} y2={there.y} />
+              <line x1={origin.x} y1={origin.y} x2={there.x} y2={there.y} />
               <text x={mid.x} y={mid.y - 6} textAnchor="middle">
                 {route.cheap == null
                   ? "—"
@@ -182,9 +213,15 @@ export function Chart({
           );
         })}
 
+      {/* The lines ahead: the coast, the order, the plan under the thumb --
+          in that order, so the one being chosen lies on top. */}
+      {inertia && <polyline className="chart-inertia" points={drawn(inertia, fit)} />}
+      {order && <polyline className="chart-course" points={drawn(order, fit)} />}
+      {plan && plan.length >= 2 && <polyline className="chart-plan" points={drawn(plan, fit)} />}
+
       {/* The planets. The one under foot is marked, the chosen one is lit. */}
       {spheres.map((one) => {
-        const mine = one.planet === vessel.planet;
+        const mine = one.planet === vessel.planet && vessel.stage !== "adrift";
         const picked = chosen === one.planet;
         const route = corridors.find((r) => r.planet === one.planet);
         return (
@@ -214,7 +251,7 @@ export function Chart({
       )}
 
       {hull && (
-        <g className="chart-hull">
+        <g className={`chart-hull${vessel.stage === "adrift" ? " adrift" : ""}`}>
           <circle cx={hull.x} cy={hull.y} r={4} />
           <text x={hull.x + 8} y={hull.y + 4}>
             {vessel.name}

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Nurlan Urazkulov
 
-"""The sky's arithmetic (D-271): Kepler, Lambert, the slider and the flyby.
+"""The sky's arithmetic (D-271): Kepler, Lambert and the slider.
 
 Pure functions on orbits and constants -- no world, no rows. What is pinned
 here is the physics the passages rest on: the Hohmann transfer falls out of
@@ -17,7 +17,6 @@ import math
 
 import pytest
 
-from src import astro
 from src.constants import Constants
 from src.constants import registry as R
 from src.engine.ship import course
@@ -105,38 +104,6 @@ def test_the_slider_runs_from_the_engines_to_the_horizon(constants: Constants) -
     assert strong.dv <= course.deliverable(constants, 2.0, strong.hours)
     #: The memo answers the same question once: the same tuple object back.
     assert course.curve(constants, INNER, OUTER, 3.0 + 1e-4) is samples
-
-
-def test_a_planet_turns_the_hull_for_free_up_to_its_limit() -> None:
-    """Patched conics: within the free turn a flyby costs nothing; beyond it
-    the engines pay for the rest of the turn, and always for a change of speed."""
-    mu, closest = 150.0, 1.5
-    v_in = (10.0, 0.0)
-    free = 2 * math.asin(1 / (1 + closest * 100 / mu))
-    within = (10 * math.cos(free * 0.9), 10 * math.sin(free * 0.9))
-    beyond = (10 * math.cos(free * 1.5), 10 * math.sin(free * 1.5))
-    assert astro.turn_cost(mu, closest, v_in, within) == pytest.approx(0)
-    assert astro.turn_cost(mu, closest, v_in, beyond) > 0
-    assert astro.turn_cost(mu, closest, v_in, (12.0, 0.0)) == pytest.approx(2)
-
-
-def test_a_flyby_is_offered_where_it_is_cheaper(constants: Constants) -> None:
-    """Bent round a third planet the arc may cost less; the curve says so by
-    naming the planet, and never offers a dearer bend over a direct arc."""
-    middle: course.Orbit = (100.0 * 2 ** (2 / 3), 20.0, 0.5)
-    direct = course.curve(constants, INNER, OUTER, 3.0)
-    bent = course.curve(constants, INNER, OUTER, 3.0, others={"middle": (middle, 1.0)})
-    by_hours = {s.hours: s for s in direct}
-    for sample in bent:
-        straight = by_hours.get(sample.hours)
-        if sample.via is not None:
-            assert straight is None or sample.dv < straight.dv
-        elif straight is not None:
-            assert sample.dv == pytest.approx(straight.dv)
-    cheap_direct = course.cheapest(direct)
-    cheap_bent = course.cheapest(bent)
-    assert cheap_direct is not None and cheap_bent is not None
-    assert cheap_bent.dv <= cheap_direct.dv
 
 
 def test_the_calendar_names_the_window(constants: Constants) -> None:

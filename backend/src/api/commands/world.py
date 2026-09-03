@@ -302,5 +302,7 @@ TOLD = frozenset(
         EventKind.LAND_RECLAIMED.value,
         EventKind.CITY_GRANT_PAID.value,
         EventKind.ESTATE_SITE_READY.value,
+        EventKind.SHIP_ADRIFT.value,
+        EventKind.SHIP_LOST.value,
     }
 )

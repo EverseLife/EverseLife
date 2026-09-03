@@ -177,3 +177,29 @@
 .air-bar.low > span {
   background: var(--danger);
 }
+
+/* The lines ahead (D-289). The coast inertia draws -- the faintest, dashed:
+   it is what happens if nothing is done. The order under way, solid. The arc
+   under the slider's thumb, on top: it is the one being chosen. */
+.chart-inertia {
+  fill: none;
+  stroke: var(--base-500);
+  stroke-width: 1;
+  stroke-dasharray: 2 4;
+}
+
+.chart-course {
+  fill: none;
+  stroke: var(--base-300);
+  stroke-width: 1.5;
+}
+
+.chart-plan {
+  fill: none;
+  stroke: var(--base-50);
+  stroke-width: 2;
+}
+
+.chart-hull.adrift circle {
+  fill: var(--warning);
+}
