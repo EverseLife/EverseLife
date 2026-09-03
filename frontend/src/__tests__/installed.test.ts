@@ -20,6 +20,10 @@ const book = {
     { name: "Верстак", id: "workbench", kind: "station", roles: false },
     { name: "Сундук", id: "chest", kind: "furniture", roles: false },
     { name: "Гвозди", id: "nails", kind: "material", roles: false },
+    //: A vessel is a tool by kind and stands on the hull's lines only put up
+    //: (D-288): the button is offered for what holds a liquid, not for a pick.
+    { name: "Канистра", id: "canister", kind: "tool", roles: false, holds: "liquid", store: 20 },
+    { name: "Кирка", id: "pickaxe", kind: "tool", roles: false },
   ],
 } as unknown as RecipeBook;
 
@@ -41,6 +45,11 @@ describe("что ставят, а что кладут (D-278)", () => {
     expect(isGear(book, "nails")).toBe(false);
     expect(isGear(book, "iron_ore")).toBe(false);
     expect(isGear(null, "workbench")).toBe(false);
+  });
+
+  it("тару ставят, как мебель, а инструмент без тары -- нет (D-288)", () => {
+    expect(isGear(book, "canister")).toBe(true);
+    expect(isGear(book, "pickaxe")).toBe(false);
   });
 });
 
