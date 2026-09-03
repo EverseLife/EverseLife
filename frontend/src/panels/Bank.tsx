@@ -28,6 +28,7 @@ import { buildingKindName, goodsName } from "../names";
 import { span, when } from "../clock";
 import { Rule } from "../Rule";
 import { t } from "../locale";
+import { NumberField } from "../NumberField";
 
 type Props = {
   busy: boolean;
@@ -182,11 +183,10 @@ export function Bank({ busy, act }: Props) {
       <div className="form">
         <label>
           <span>{t("ui-bank-amount")}</span>
-          <input
-            type="number"
+          <NumberField
             min={1}
             value={qty}
-            onChange={(e) => setQty(Number(e.target.value))}
+            onChange={(typed) => setQty(typed ?? 0)}
           />
         </label>
         <button
@@ -319,13 +319,12 @@ function Council({ busy, act }: Props) {
               advised: Number(council.advised).toFixed(2),
             })}
           </span>
-          <input
-            type="number"
+          <NumberField
             step={0.5}
             min={Number(council.advised) - Number(council.corridor)}
             max={Number(council.advised) + Number(council.corridor)}
             value={desired}
-            onChange={(e) => setRate(Number(e.target.value))}
+            onChange={(typed) => setRate(typed ?? 0)}
           />
         </label>
         <button

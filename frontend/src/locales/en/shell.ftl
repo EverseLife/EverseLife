@@ -117,7 +117,7 @@ ui-side-reservation-aside = { $amount } at { $price } ₭ · { $node } · deposi
 ## Your own orders: managed from here, while the goods lie in the terminal.
 
 ui-side-orders = Orders
-ui-side-orders-rule = An order is managed from here; the goods lie in the terminal.
+ui-side-orders-rule = Every order of yours, wherever it stands; the ones standing in the node you are in are managed from its terminal as well. The goods lie in the terminal.
 ui-side-orders-none = no orders of your own
 # `buy` and `sell` are the wire's own words: the variant is named after them.
 # Only the verb differs, so the select sits inside the line: the tail is one,

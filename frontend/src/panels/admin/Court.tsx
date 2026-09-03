@@ -20,6 +20,7 @@ import { useState } from "react";
 import type { CourtCase, SanctionKind } from "../../api";
 import { t } from "../../locale";
 import { useSession } from "../../actions";
+import { NumberField } from "../../NumberField";
 
 /** The city court: cases and verdicts (D-095, D-117, D-166).
  *
@@ -104,11 +105,10 @@ export function Court({
                           </option>
                         ))}
                       </select>
-                      <input
-                        type="number"
+                      <NumberField
                         min={0}
                         value={qty}
-                        onChange={(e) => setQty(Number(e.target.value))}
+                        onChange={(typed) => setQty(typed ?? 0)}
                         title={t("ui-admin-fine-title")}
                       />
                       {/* Куда сажать — решает суд (D-176): каторга одна —

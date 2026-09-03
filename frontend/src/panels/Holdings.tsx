@@ -13,6 +13,13 @@
  *
  * Charging a battery is the only in-person action here, and it is named
  * in-person: the server refuses if there is no city around.
+ *
+ * The one exception to "this is money, not matter" is the way home: a holding
+ * is a place as well as a bill, and the row that names it is where one decides
+ * to go there. The button only sends `travel.go` -- the route builds itself
+ * (D-045) -- and the one refusal it answers itself is "the nodes share no
+ * edge", which belongs beside the row rather than in the panel's shared strip:
+ * it is a fact about that holding and no other.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -21,7 +28,9 @@ import { t } from "../locale";
 import { goodsName } from "../names";
 import * as api from "../api";
 import type { DeedView, Holding, Look, Thing } from "../api";
+import { Refused } from "../api";
 import { Rule } from "../Rule";
+import { NumberField } from "../NumberField";
 
 type Props = {
   look: Look;
@@ -122,6 +131,40 @@ export function Holdings({ look, busy, act }: Props) {
       await reload();
     });
 
+  //: Which holding the graph has no way to. Kept by node key rather than as a
+  //: flag: two rows may be asked in turn, and the answer belongs to the one it
+  //: was given about.
+  const [noWay, setNoWay] = useState<string | null>(null);
+  //: The answer was about where the body stood, not about the row: a road laid
+  //: since, or a step onto the other side of a river, and it is stale. Cleared
+  //: with every reread rather than only before the next attempt -- otherwise
+  //: it sat under the row for the rest of the session.
+  useEffect(() => setNoWay(null), [where, edition]);
+  const walk = (node: string) =>
+    go(async () => {
+      setNoWay(null);
+      try {
+        await session.send("travel.go", { node });
+      } catch (error) {
+        //: Matched on the key, never on the words (`session.Refused`). Only
+        //: the one on foot: with a convoy harnessed the same key means the
+        //: trackless ground will not take it, and the way out is to unhitch --
+        //: which the engine's own sentence says and this row's does not. Every
+        //: other refusal -- already on the road, no strength, confinement --
+        //: goes to the panel's shared strip in the engine's words: it is about
+        //: the body, not about the holding.
+        const foot =
+          error instanceof Refused &&
+          error.code === "travel-no-route" &&
+          error.args?.how === "foot";
+        if (foot) {
+          setNoWay(node);
+          return;
+        }
+        throw error;
+      }
+    });
+
   const debt = holdings.reduce((amount, node) => amount + node.debt, 0);
 
   return (
@@ -219,6 +262,23 @@ export function Holdings({ look, busy, act }: Props) {
                         {t("ui-holdings-pay")}
                       </button>
                     )}
+                    {/* Standing in it, one is home already: a button that can
+                        only be refused is not an offer. */}
+                    {where === node.node ? (
+                      <span className="note">{t("ui-holdings-home-here")}</span>
+                    ) : (
+                      <button
+                        className="quiet"
+                        onClick={() => walk(node.node)}
+                        disabled={busy || Boolean(look.travel)}
+                        title={t("ui-holdings-home-hint")}
+                      >
+                        {t("ui-holdings-home")}
+                      </button>
+                    )}
+                    {noWay === node.node && (
+                      <p className="reason">{t("ui-holdings-no-way")}</p>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -294,14 +354,15 @@ function Deeds({
                 <td>
                   {deed.sale_price == null ? (
                     <span className="row">
-                      <input
-                        type="number"
+                      <NumberField
                         min={0}
                         placeholder={t("ui-holdings-price")}
-                        value={prices[deed.id] ?? ""}
-                        onChange={(e) =>
-                          setPrices({ ...prices, [deed.id]: Number(e.target.value) })
-                        }
+                        //: Nothing typed yet is an empty box, not a zero: the
+                        //: placeholder is what says what the box is for.
+                        value={prices[deed.id] ?? null}
+                        //: An emptied box is no price at all, and the sale
+                        //: button is shut until there is one.
+                        onChange={(typed) => setPrices({ ...prices, [deed.id]: typed ?? 0 })}
                         title={t("ui-holdings-price-hint")}
                       />
                       <input

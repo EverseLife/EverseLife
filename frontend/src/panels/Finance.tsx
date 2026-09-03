@@ -23,6 +23,7 @@ import { groundGlyph } from "../marks";
 import { Bank } from "./Bank";
 import { Rule } from "../Rule";
 import { t } from "../locale";
+import { NumberField } from "../NumberField";
 
 type Props = {
   look: Look;
@@ -120,12 +121,11 @@ export function Finance({ look, busy, act }: Props) {
         </label>
         <label>
           <span>{t("ui-finance-amount")}</span>
-          <input
-            type="number"
+          <NumberField
             min={0}
             step="0.01"
             value={amount}
-            onChange={(e) => setAmount(Number(e.target.value))}
+            onChange={(typed) => setAmount(typed ?? 0)}
           />
         </label>
         <label>

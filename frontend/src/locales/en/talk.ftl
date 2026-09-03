@@ -148,6 +148,13 @@ ui-chat-head-circle = { " " }· circle “{ $named ->
         [true] { $name }
        *[false] unnamed
     }”
+# Who else stands in the room. The names go in as they are, so a label with a
+# colon leads them rather than a preposition (D-258).
+ui-chat-here = · here:
+ui-chat-here-more = and { $rest } more
+# When not one name fits the line: "and N more" with nothing before it is not a
+# phrase, so the count stands in place of the list.
+ui-chat-here-only = · here: { $rest }
 ui-chat-unfold = unfold ▸
 ui-chat-fold = fold ▾
 ui-chat-silent = Quiet. The talk lives while you are in the room.

@@ -12,6 +12,24 @@
  * owns the modal or the tab answers. One asking, many places.
  */
 
+/**
+ * Somebody standing in the same node, as `people.here` answers.
+ *
+ * Two places ask: the talk's head, which names the room (`panels/Here`), and
+ * the inventory, where the list is the set of possible receivers of a thing
+ * (`panels/Inventory`). One shape, so a cast is written once and neither place
+ * has to guess what the other reads.
+ */
+export type Person = { body: string; name: string };
+
+/** Who stands in this node besides you. */
+export async function whoIsHere(session: {
+  send: <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
+}): Promise<Person[]> {
+  const answer = await session.send<{ people?: Person[] }>("people.here");
+  return answer.people ?? [];
+}
+
 const PROFILE = "everselife:profile";
 const THREAD = "everselife:thread";
 

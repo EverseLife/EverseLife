@@ -66,7 +66,11 @@ export function Secret({
       <span key={blink} className="secret-flash" aria-hidden="true" />
       <button
         type="button"
-        className="eye"
+        //: `bare`: the eye is a mark on the field, not a button-shaped thing,
+        //: and it must not be dressed by the state it reports. Without it the
+        //: shut eye wore the primary slab and the open one did not, so the
+        //: control changed shape every time it was pressed.
+        className="bare eye"
         onClick={toggle}
         disabled={disabled}
         aria-pressed={open}

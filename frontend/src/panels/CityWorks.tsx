@@ -18,6 +18,7 @@ import * as api from "../api";
 import { when } from "../clock";
 import { t } from "../locale";
 import { Rule } from "../Rule";
+import { NumberField } from "../NumberField";
 
 type Props = {
   busy: boolean;
@@ -120,11 +121,10 @@ export function CityWorks({ busy, act, capital = false }: Props) {
         </label>
         <label>
           <span>{t("ui-city-works-offer")}</span>
-          <input
-            type="number"
+          <NumberField
             min={0}
             value={offer}
-            onChange={(e) => setOffer(Number(e.target.value))}
+            onChange={(typed) => setOffer(typed ?? 0)}
           />
         </label>
         <button
@@ -142,20 +142,18 @@ export function CityWorks({ busy, act, capital = false }: Props) {
         </label>
         <label>
           <span>{t("ui-city-works-footprint")}</span>
-          <input
-            type="number"
+          <NumberField
             min={1}
             value={footprint}
-            onChange={(e) => setFootprint(Number(e.target.value))}
+            onChange={(typed) => setFootprint(typed ?? 0)}
           />
         </label>
         <label>
           <span>{t("ui-city-works-floors")}</span>
-          <input
-            type="number"
+          <NumberField
             min={1}
             value={floors}
-            onChange={(e) => setFloors(Number(e.target.value))}
+            onChange={(typed) => setFloors(typed ?? 0)}
           />
         </label>
         <button
@@ -183,21 +181,19 @@ export function CityWorks({ busy, act, capital = false }: Props) {
         </label>
         <label>
           <span>{t("ui-city-works-amount")}</span>
-          <input
-            type="number"
+          <NumberField
             min={1}
             value={fuelAmount}
-            onChange={(e) => setFuelAmount(Number(e.target.value))}
+            onChange={(typed) => setFuelAmount(typed ?? 0)}
           />
         </label>
         <label>
           <span>{t("ui-city-works-price")}</span>
-          <input
-            type="number"
+          <NumberField
             min={0}
             step={0.1}
             value={fuelPrice}
-            onChange={(e) => setFuelPrice(Number(e.target.value))}
+            onChange={(typed) => setFuelPrice(typed ?? 0)}
           />
         </label>
         <button
@@ -251,11 +247,10 @@ export function CityWorks({ busy, act, capital = false }: Props) {
         ))}
       {!capital && (
         <div className="row">
-          <input
-            type="number"
+          <NumberField
             min={1}
             value={borrow}
-            onChange={(e) => setBorrow(Number(e.target.value))}
+            onChange={(typed) => setBorrow(typed ?? 0)}
           />
           <button
             onClick={() => go(() => session.send("city.borrow", { amount: borrow }))}

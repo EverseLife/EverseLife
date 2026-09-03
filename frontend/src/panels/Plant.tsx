@@ -19,6 +19,7 @@ import { duration } from "../clock";
 import { Refusal, useActions, useNames, useSession } from "../actions";
 import { t } from "../locale";
 import { goodsName } from "../names";
+import { NumberField } from "../NumberField";
 
 type Props = {
   look: Look;
@@ -99,12 +100,11 @@ export function Plant({ look }: Omit<Props, "busy" | "act">) {
 
       {inHands.length > 0 ? (
         <div className="row">
-          <input
-            type="number"
+          <NumberField
             min={0}
             max={atHand}
             value={qty ?? atHand}
-            onChange={(e) => setQty(Number(e.target.value))}
+            onChange={(typed) => setQty(typed ?? 0)}
             title={t("ui-plant-at-hand", { amount: atHand.toFixed(1) })}
           />
           <button

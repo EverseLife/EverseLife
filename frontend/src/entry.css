@@ -304,7 +304,13 @@ button.eye:not(:disabled):active {
   border-style: dashed;
 }
 
-/* Character lines: two cards side by side; the unavailable one is muted. */
+/* Character lines: two cards side by side; the unavailable one is muted.
+
+   Every rule below is scoped to the row it belongs to. `.line` alone is not
+   this screen's word: the room's talk and the Net's letters name a spoken line
+   with it too, and a bare rule here reached them: the speaker's name became a
+   flex item of full width and the words dropped to the line beneath it.
+   `talk.css` scopes its own half; this is the other half of the same pair. */
 .lines {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(18rem, 100%), 1fr));
@@ -312,29 +318,29 @@ button.eye:not(:disabled):active {
   align-items: stretch;
   margin: 0.75rem 0;
 }
-.line {
+.lines .line {
   display: flex;
   flex-direction: column;
 }
-.line ul {
+.lines .line ul {
   margin: 0.35rem 0;
   padding-left: 1.1rem;
   font-size: 0.9rem;
 }
-.line li {
+.lines .line li {
   margin: 0.2rem 0;
 }
-.line table {
+.lines .line table {
   margin-top: auto;
 }
 /* A promise, not a stub (D-104): the card is muted by tone and a dashed
    border, never by opacity -- its own hint would go under the floor. */
-.line.soon,
-.line.soon .note {
+.lines .line.soon,
+.lines .line.soon .note {
   border-style: dashed;
   color: var(--base-400);
 }
-.line.picked {
+.lines .line.picked {
   border-color: var(--act);
   box-shadow: inset 0 0 0 1px var(--act);
 }

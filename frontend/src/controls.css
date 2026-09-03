@@ -77,6 +77,60 @@ a.quiet {
   text-decoration: none;
 }
 /*
+ * A chosen thing is not an action (D-238).
+ *
+ * The slab above means "an action you can take". A button that says
+ * `aria-pressed` says something else entirely -- this is the goods the book is
+ * open at, this is the tier, this is the language -- and dressed in the slab it
+ * read as the loudest button on the screen while the actual verb beside it read
+ * as a hairline. Where such a button carries a mark the confusion was visible
+ * rather than merely felt: a glyph strokes in `currentColor`, and `currentColor`
+ * on the slab is `--base-900` -- the market's picker turned every icon black on
+ * the click that chose it.
+ *
+ * So a choice wears the action colour, like the open tab and the picked node:
+ * "here is your hand". Contrast and weight carry it as well -- the colour is
+ * never the only carrier. After the slab rule and with the same weight, so the
+ * later of two equals wins; `:not(.quiet)` and friends are kept so that a
+ * pressed toggle drawn as a quiet chip, a link or a bare row keeps its own
+ * shape (the rail's tabs, the stand's objects, the phone's bar).
+ */
+button[aria-pressed="true"]:not(.quiet):not(.link):not(.bare):not(:disabled) {
+  background-color: transparent;
+  color: var(--base-50);
+  border-color: var(--act);
+  font-weight: 600;
+}
+button[aria-pressed="true"]:not(.quiet):not(.link):not(.bare):not(:disabled):hover {
+  filter: none;
+  background-color: var(--wash);
+}
+/*
+ * The open tab is the same statement once more (D-238): an underline bar in
+ * the action colour instead of the slab. A tab has no frame to carry the mark,
+ * so it takes the bar; a chip has one, so it takes the frame.
+ *
+ * It stands here rather than in `shell.css`, where the rest of the tab styling
+ * lives, because it is a tie with the slab rule above -- the same count of
+ * classes -- and a tie is settled by which file `index.css` imported last.
+ * `shell.css` comes first, so for a long time the slab won and every open tab
+ * was drawn as the inverse button this rule exists to replace: black text on
+ * white, and with it a black glyph, since a glyph strokes in `currentColor`.
+ * Written beside the rule it has to beat, it wins by standing after it, and
+ * the next `.tabs` selector somebody adds cannot quietly bring the bug back.
+ */
+.tabs button:not(.quiet):not(.link):not(.bare):not(:disabled) {
+  background-color: transparent;
+  color: var(--base-50);
+  border-color: transparent;
+  font-weight: 600;
+  box-shadow: inset 0 -2px 0 var(--act);
+}
+.tabs button:not(.quiet):not(.link):not(.bare):not(:disabled):hover {
+  filter: none;
+  background-color: var(--wash);
+}
+/*
  * A refusal is shown together with its reason next to the control, so the
  * disabled state only has to read as "not now" -- but it still has to be read.
  * Muting by opacity is what made that impossible: it composites against
