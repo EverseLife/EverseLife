@@ -230,6 +230,32 @@ ui-finance-memo-hint = seen by the payee and by the court
 ui-finance-transfer = Transfer
 ui-finance-statement = Statement
 ui-finance-none = no postings yet
+# The pages turn by the last row read, newest first.
+ui-finance-newer = newer
+ui-finance-older = older
+# The eye on a row: what it opens into is asked over, so the row waits a
+# moment, and a row the server no longer shows comes back with nothing.
+ui-finance-peek = Details: { $ground }
+ui-finance-peek-wait = reading…
+ui-finance-peek-none = no details
+# The reader's own leg of the operation, where a name would stand.
+ui-finance-side-me = you
+ui-finance-ground = Ground: { $ground }
+# A sale, as the seller's row opens: the tier and the quantity are details
+# after the separator, the names stay after a label (D-258).
+ui-finance-deal-goods = Goods: { $goods }, { $tier } · { $amount }
+ui-finance-deal-price = Price: { $price } ₭ · total { $cost } ₭
+ui-finance-deal-buyer = Buyer: { $name }
+# The node the terminal stands in: a place's name, not a market's.
+ui-finance-node = Node: { $node }
+ui-finance-deal-charges = Tax: { $tax } ₭ · market fee: { $fee } ₭
+ui-finance-deal-reserved = redeemed reservation
+# A deposit, as the buyer's row opens: the order the money was frozen under,
+# and the deals settled against it -- the buyer's statement has no other
+# row that says what was bought.
+ui-finance-order = Buy order: { $goods }, { $tier } · { $amount } at { $price } ₭
+ui-finance-order-filled = Filled: { $filled } of { $amount }
+ui-finance-fill = { $name } · { $amount } at { $price } ₭ · { $when }
 
 ## The coin station
 

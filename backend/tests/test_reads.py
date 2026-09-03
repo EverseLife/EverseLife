@@ -194,6 +194,34 @@ async def test_look_gives_the_city_no_channel(
     assert await channels() == 0, "взгляд завёл городу канал -- чтение не пишет"
 
 
+async def test_the_statement_and_its_rows_write_nothing(
+    session: AsyncSession, factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """A page of the statement and a row of it opened (D-190, D-292) are
+    reads like `look`: no account for whoever has none, no row of any kind
+    for whoever has a history."""
+    from src.engine import finance
+    from src.models.ledger import PostingReason
+    from src.units import money
+
+    nobody = await world.create_identity(session, f"Никто-{uuid.uuid4().hex[:6]}")
+    payer = await world.create_identity(session, f"Хём-{uuid.uuid4().hex[:6]}")
+    genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
+    wallet = await ledger.account_for(session, AccountKind.IDENTITY, payer.id)
+    await ledger.transfer(
+        session, PostingReason.GENESIS, debit=genesis.id, credit=wallet.id, amount=money(5)
+    )
+    await session.commit()
+
+    async with factory() as db, db.begin(), _writes_forbidden(db):
+        assert await finance.statement(db, nobody.id) == ([], False)
+        rows, more = await finance.statement(db, payer.id)
+        assert len(rows) == 1 and not more
+        opened = await finance.posting(db, payer.id, rows[0]["id"])
+        assert [side["side"] for side in opened["sides"]] == ["genesis", None]
+    assert await ledger.find_account(session, AccountKind.IDENTITY, nobody.id) is None
+
+
 @contextlib.asynccontextmanager
 async def _writes_forbidden(db: AsyncSession) -> AsyncIterator[None]:
     """Fail on any flush of this session -- the only honest way to say "wrote
