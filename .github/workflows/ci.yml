@@ -352,7 +352,8 @@ jobs:
       # syntax.
       - name: Check the Prometheus config
         run: |
-          docker run --rm -v "$PWD/deploy/prometheus.yml:/prometheus.yml:ro"             --entrypoint promtool prom/prometheus:v2.54.1 check config /prometheus.yml
+          docker run --rm -v "$PWD/deploy/prometheus.yml:/prometheus.yml:ro" \
+            --entrypoint promtool prom/prometheus:v2.54.1 check config /prometheus.yml
 
       # The compose file and edge settings are edited in the repository, not on
       # the server. `.env` with passwords stays untouched: nobody puts it there.
