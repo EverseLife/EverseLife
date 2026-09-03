@@ -146,13 +146,15 @@ export function Holdings({ look, busy, act }: Props) {
       try {
         await session.send("travel.go", { node });
       } catch (error) {
-        //: Matched on the key, never on the words (`session.Refused`). Only
-        //: the one on foot: with a convoy harnessed the same key means the
-        //: trackless ground will not take it, and the way out is to unhitch --
-        //: which the engine's own sentence says and this row's does not. Every
+        //: Matched on the key, never on the words (`session.Refused`), and
+        //: only the branch that is about the graph: on foot there is no way at
+        //: all, and the row says exactly what the engine's own sentence says.
+        //: With a convoy harnessed the same key means the trackless ground
+        //: will not take it and the way out is to unhitch -- a different
+        //: answer, and the engine's words are the ones that give it. Every
         //: other refusal -- already on the road, no strength, confinement --
-        //: goes to the panel's shared strip in the engine's words: it is about
-        //: the body, not about the holding.
+        //: goes to the panel's shared strip for the same reason: it is about
+        //: the body, not about this holding.
         const foot =
           error instanceof Refused &&
           error.code === "travel-no-route" &&
