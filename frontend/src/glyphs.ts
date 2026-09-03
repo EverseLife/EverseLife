@@ -62,7 +62,8 @@ export type GlyphName =
   | "here"
   | "map"
   | "talk"
-  | "more";
+  | "more"
+  | "alpha";
 
 /** One stroke width for all of them, so a row of icons reads as one set. */
 export const GLYPH_WIDTH = 1.25;
@@ -157,4 +158,7 @@ export const SHAPES: Record<GlyphName, string> = {
   //: The header's overflow on a phone: what did not fit the strip is behind
   //: three dots, the way a row's menu is behind its handle.
   more: "M3.2 7.1a.9.9 0 100 1.8.9.9 0 100-1.8M8 7.1a.9.9 0 100 1.8.9.9 0 100-1.8M12.8 7.1a.9.9 0 100 1.8.9.9 0 100-1.8",
+  //: The alpha's debug tab (D-229): a flask -- a tool of the workshop the
+  //: game is built in, not a thing of the world. Goes out with the alpha.
+  alpha: "M6.2 2.6h3.6M7 2.6v4.2l-3.4 5.6c-.5.8.1 1.6 1 1.6h6.8c.9 0 1.5-.8 1-1.6L9 6.8V2.6M5 10.4h6",
 };

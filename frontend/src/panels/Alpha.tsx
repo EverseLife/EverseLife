@@ -2,19 +2,25 @@
 // Copyright (C) 2026 Nurlan Urazkulov
 
 /**
- * The alpha's debug widget: print a thing, finish the wait (D-229).
+ * The alpha's debug tab: print a thing, finish the wait, pour in energy (D-229).
  *
- * Deliberately **not** woven into the sidebar's tabs, though the activities
- * tab is where hurrying would belong by meaning. Two reasons, and both are about
- * the day this comes out: a tool nobody but a developer has must not read as
- * a game feature to whoever is watching over a shoulder, and when the alpha
- * ends the whole thing has to leave along one seam -- this file, the two
- * socket commands, `engine/alpha.py`, one rule in `index.css` and one block in
- * `App.tsx`. Nothing to disentangle.
+ * A tab on the sidebar's rail, below the line with the office tab, shown to
+ * the admin flag alone. It stood over the scene once, folded into a handle,
+ * for a working reason -- in-person tabs close on the road and in the field
+ * (D-107, D-152), and the road is exactly the wait a tester wants to skip.
+ * The sidebar has no such closing: it is the remote register, open from the
+ * road and from the cloud alike, so the tab keeps that property without a
+ * strip of its own over the map.
  *
- * It stands outside the tabs for a working reason too: in-person tabs close
- * while the body is on the road or in the field (D-107, D-152), and the road
- * is exactly the wait a tester wants to skip.
+ * When the alpha ends the whole thing leaves along one seam, and this is the
+ * list to take it out by: this file; `ALPHA_TAB` and its mentions in
+ * `Sidebar.tsx` (the type, `known`, `tabs`, the rail, the render); the
+ * `alpha` glyph; the `.alpha` block in `hud.css`; the `ui-alpha-*` keys in
+ * `system.ftl` and `ui-side-tab-alpha*` in `shell.ftl`, both languages; on
+ * the server the three commands in `api/commands/alpha.py`, `engine/alpha.py`
+ * and the `alpha` touch in `push/_base.py`. A tool nobody but a developer has
+ * must not read as a game feature to whoever is watching over a shoulder, and
+ * a tab that is not there is the quietest way of not being a feature.
  *
  * The names to print are not asked of the server: the catalogue is already
  * here in the recipe book -- what a recipe makes, plus the materials no recipe
@@ -52,18 +58,14 @@ const HANDS = "hands";
 const FLOOR = "floor";
 
 type Props = {
-  /** The vault's numbers as `/public/constants` serves them: the quality
-   *  scale is one of them, and writing 0..100 here would be a second copy of
-   *  a number the vault owns. */
-  values: Record<string, any> | null;
   /** Whether there is a body to print into. In the cloud there is not, and a
-   *  thing is printed into the hands: the half of the widget that does it is
+   *  thing is printed into the hands: the half of the tab that does it is
    *  hidden rather than left there to be refused. Hurrying stays -- the term
    *  running there is the printing of the body itself. */
   embodied?: boolean;
 };
 
-export function Alpha({ values, embodied = true }: Props) {
+export function Alpha({ embodied = true }: Props) {
   const session = useSession();
   const book = useBook();
   //: This panel's own waiting and its own refusal: printing a thing must not
@@ -74,7 +76,6 @@ export function Alpha({ values, embodied = true }: Props) {
   const order = useCompare();
   const { busy, act } = acting;
 
-  const [open, setOpen] = useState(false);
   const [goods, setGoods] = useState("");
   const [amount, setAmount] = useState("1");
   const [quality, setQuality] = useState("");
@@ -82,10 +83,14 @@ export function Alpha({ values, embodied = true }: Props) {
   const [energy, setEnergy] = useState("");
   const [said, setSaid] = useState<string | null>(null);
 
-  //: The scale the vault set (`quality.scale`). Absent -- the field simply
+  //: The scale the vault set (`quality.scale`), read off the book that carries
+  //: the constants to every panel (D-209): writing 0..100 here would be a
+  //: second copy of a number the vault owns. Absent -- the field simply
   //: carries no bounds, and the server's refusal names them: better an honest
   //: gap than an invented pair of numbers.
-  const scale = (values?.["quality.scale"] ?? null) as { min: number; max: number } | null;
+  const scale = (book?.constants?.["quality.scale"] ?? null) as
+    | { min: number; max: number }
+    | null;
 
   //: Everything a thing can be called: recipe outputs and the materials no
   //: recipe makes. Sorted and deduped -- a name may be both.
@@ -140,124 +145,98 @@ export function Alpha({ values, embodied = true }: Props) {
       );
     });
 
-  //: Folded, the whole thing is **one small button** and nothing else: no
-  //: card, no border, no heading, no strip of padding above the map. A tool
-  //: nobody but a developer has must not sit over the scene taking a hand's
-  //: width of it -- and "свернуть" that left a bordered header behind was not
-  //: folding anything, only emptying it.
-  if (!open) {
-    return (
-      <button
-        className="quiet alpha-handle"
-        onClick={() => setOpen(true)}
-        aria-expanded={false}
-        title={t("ui-alpha-open-title")}
-      >
-        {t("ui-alpha-name")}
-      </button>
-    );
-  }
-
+  //: The tab's title is the panel's (`side-title`): no heading and no fold of
+  //: its own -- the rail is the fold, and a second name under the first was
+  //: what the widget carried when it stood over the scene.
   return (
-    <section className="card alpha">
+    <section className="card flat alpha">
+      <Refusal of={acting} />
+      {embodied && (
+        <>
+          <label>
+            <span>{t("ui-alpha-what")}</span>
+            <input
+              list="alpha-goods"
+              value={goods}
+              onChange={(e) => setGoods(e.target.value)}
+              placeholder={t("ui-alpha-what-hint")}
+            />
+          </label>
+          <datalist id="alpha-goods">
+            {names.map((name) => (
+              <option key={name} value={name} />
+            ))}
+          </datalist>
+
+          <div className="row">
+            <label>
+              <span>{t("ui-alpha-amount")}</span>
+              <input
+                type="number"
+                min="0"
+                step="any"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+              />
+            </label>
+            <label>
+              <span>{t("ui-alpha-quality")}</span>
+              <input
+                type="number"
+                {...(scale ? { min: scale.min, max: scale.max } : {})}
+                step="any"
+                value={quality}
+                onChange={(e) => setQuality(e.target.value)}
+                placeholder={t("ui-alpha-no-quality")}
+              />
+            </label>
+            <label>
+              <span>{t("ui-alpha-where")}</span>
+              <select value={where} onChange={(e) => setWhere(e.target.value)}>
+                <option value={HANDS}>{t("ui-alpha-where-hands")}</option>
+                <option value={FLOOR}>{t("ui-alpha-where-floor")}</option>
+              </select>
+            </label>
+          </div>
+
+          <div className="row">
+            <label>
+              <span>{t("ui-alpha-energy")}</span>
+              <input
+                type="number"
+                min="0"
+                step="any"
+                value={energy}
+                onChange={(e) => setEnergy(e.target.value)}
+                placeholder={t("ui-alpha-energy-hint")}
+              />
+            </label>
+            <button onClick={energize} disabled={busy || !(Number(energy) > 0)}>
+              {t("ui-alpha-energize")}
+            </button>
+          </div>
+        </>
+      )}
+
       <div className="row">
-        <strong>{t("ui-alpha-name")}</strong>
-        <button className="quiet" onClick={() => setOpen(false)} aria-expanded>
-          {t("ui-alpha-fold")}
+        {embodied && (
+          <button onClick={spawn} disabled={busy || goods.trim() === ""}>
+            {t("ui-alpha-print")}
+          </button>
+        )}
+        <button onClick={hurry} disabled={busy}>
+          {t("ui-alpha-finish")}
         </button>
       </div>
 
-      {open && (
-        <>
-          {embodied && (
-            <>
-              <label>
-                <span>{t("ui-alpha-what")}</span>
-                <input
-                  list="alpha-goods"
-                  value={goods}
-                  onChange={(e) => setGoods(e.target.value)}
-                  placeholder={t("ui-alpha-what-hint")}
-                />
-              </label>
-              <datalist id="alpha-goods">
-                {names.map((name) => (
-                  <option key={name} value={name} />
-                ))}
-              </datalist>
-
-              <div className="row">
-                <label>
-                  <span>{t("ui-alpha-amount")}</span>
-                  <input
-                    type="number"
-                    min="0"
-                    step="any"
-                    value={amount}
-                    onChange={(e) => setAmount(e.target.value)}
-                  />
-                </label>
-                <label>
-                  <span>{t("ui-alpha-quality")}</span>
-                  <input
-                    type="number"
-                    {...(scale ? { min: scale.min, max: scale.max } : {})}
-                    step="any"
-                    value={quality}
-                    onChange={(e) => setQuality(e.target.value)}
-                    placeholder={t("ui-alpha-no-quality")}
-                  />
-                </label>
-                <label>
-                  <span>{t("ui-alpha-where")}</span>
-                  <select value={where} onChange={(e) => setWhere(e.target.value)}>
-                    <option value={HANDS}>{t("ui-alpha-where-hands")}</option>
-                    <option value={FLOOR}>{t("ui-alpha-where-floor")}</option>
-                  </select>
-                </label>
-              </div>
-
-              <div className="row">
-                <label>
-                  <span>{t("ui-alpha-energy")}</span>
-                  <input
-                    type="number"
-                    min="0"
-                    step="any"
-                    value={energy}
-                    onChange={(e) => setEnergy(e.target.value)}
-                    placeholder={t("ui-alpha-energy-hint")}
-                  />
-                </label>
-                <button onClick={energize} disabled={busy || !(Number(energy) > 0)}>
-                  {t("ui-alpha-energize")}
-                </button>
-              </div>
-            </>
-          )}
-
-          <div className="row">
-            {embodied && (
-              <button onClick={spawn} disabled={busy || goods.trim() === ""}>
-                {t("ui-alpha-print")}
-              </button>
-            )}
-            <button onClick={hurry} disabled={busy}>
-              {t("ui-alpha-finish")}
-            </button>
-          </div>
-
-          {said && <p className="note">{said}</p>}
-          <p className="note">
-            {/* Two sentences and not one with a variant: the first belongs to
-                the printing half, which is absent in the cloud, and the space
-                that joins them belongs to the pair rather than to either. */}
-            {embodied && `${t("ui-alpha-note-print")} `}
-            {t("ui-alpha-note-hurry")}
-          </p>
-        </>
-      )}
-      <Refusal of={acting} />
+      {said && <p className="note">{said}</p>}
+      <p className="note">
+        {/* Two sentences and not one with a variant: the first belongs to
+            the printing half, which is absent in the cloud, and the space
+            that joins them belongs to the pair rather than to either. */}
+        {embodied && `${t("ui-alpha-note-print")} `}
+        {t("ui-alpha-note-hurry")}
+      </p>
     </section>
   );
 }

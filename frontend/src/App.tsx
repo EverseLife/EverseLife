@@ -35,7 +35,6 @@ import {
   type Parts,
 } from "./api";
 import { Glyph } from "./Glyph";
-import { Alpha } from "./panels/Alpha";
 import { Chat } from "./panels/Chat";
 import { GraphMap } from "./panels/GraphMap";
 import { Intro } from "./panels/Intro";
@@ -529,11 +528,6 @@ export default function App() {
         <div className="frame">
           <Sidebar look={look} onLogout={() => void logout()} />
           <div className="main">
-            {/* The alpha's widget stands here too (D-229). Twelve hours at the
-                Forerunners' printer is the longest term in the world, and the
-                one state the widget used to be hidden in was the one that had
-                nothing to do but wait it out. */}
-            {session.current.admin && <Alpha values={values} embodied={false} />}
             {/* No body, no place: the only thing to do here is print one. The
                 sidebar stays -- the account, the orders and the knowledge
                 belong to the identity, not to the body. */}
@@ -575,12 +569,6 @@ export default function App() {
 
         {(!narrow || where_ !== "me") && (
           <div className="main">
-            {/* The alpha's debug widget: printing things and finishing terms
-                early (D-229). Outside the tabs and before them -- in-person
-                tabs close on the road and in the field, and that is exactly
-                the wait it is there to skip. The flag arrives once at the
-                greeting; an ordinary player never gets it. */}
-            {session.current.admin && <Alpha values={values} />}
             {((!narrow && (view === "map" || away)) ||
               (narrow && where_ === "map")) && (
               <GraphMap

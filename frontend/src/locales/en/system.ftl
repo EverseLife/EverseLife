@@ -61,11 +61,8 @@ ui-city-word-pyroxis-in = in the camp
 ui-city-word-aurora = abandoned city
 ui-city-word-aurora-in = in the abandoned city
 
-## The alpha debug window (D-229): printing things and cutting a term short.
+## The alpha debug tab (D-229): printing things and cutting a term short. The tab's name is in shell.ftl.
 
-ui-alpha-name = Alpha
-ui-alpha-open-title = the alpha debug window: printing things and finishing terms early
-ui-alpha-fold = fold
 ui-alpha-what = what to print
 # The example in an empty field is a name out of the catalog, not written here again.
 ui-alpha-what-hint = { NAME("iron_ore") }

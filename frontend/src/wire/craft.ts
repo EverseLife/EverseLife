@@ -43,8 +43,10 @@ export type RecipeBook = {
   synonyms: Record<string, string>;
   /** Russian class name -> class id (D-251). */
   class_ids?: Record<string, string>;
-  /** The world's constants ride along (D-209): one book through every panel. */
-  constants?: Record<string, number>;
+  /** The world's constants ride along (D-209): one book through every panel.
+   *  Not all of them are numbers -- `quality.scale` is a pair of bounds --
+   *  so a reader narrows what it takes. */
+  constants?: Record<string, unknown>;
 };
 
 /**

@@ -24,6 +24,7 @@ import { busyWith, CRAFT, SLEEP } from "../busy";
 import { Doing } from "../Deadline";
 import { Glyph, GoodsMark } from "../Glyph";
 import { Account } from "./Account";
+import { Alpha } from "./Alpha";
 import { Inventory } from "./Inventory";
 import { Finance } from "./Finance";
 import { Holdings } from "./Holdings";
@@ -85,9 +86,25 @@ const STATE_TAB = {
   icon: "state",
   of: "ui-side-tab-state-of",
 } as const;
-type Tab = (typeof TABS)[number]["id"] | (typeof STATE_TAB)["id"];
+//: The alpha's debug tab (D-229): printing things and finishing terms early.
+//: Below the line with the office tab -- it comes and goes with a flag the
+//: same way, and an ordinary player never sees it. Remote by nature, like
+//: everything on the rail: the road is exactly the wait it is there to skip,
+//: and the sidebar is the one place open on the road -- and in the cloud,
+//: where twelve hours at the Forerunners' printer is the longest wait of all.
+const ALPHA_TAB = {
+  id: "alpha",
+  label: "ui-side-tab-alpha",
+  icon: "alpha",
+  of: "ui-side-tab-alpha-of",
+} as const;
+type Tab =
+  | (typeof TABS)[number]["id"]
+  | (typeof STATE_TAB)["id"]
+  | (typeof ALPHA_TAB)["id"];
 
 export function Sidebar({ look, onLogout }: { look: Look; onLogout: () => void }) {
+  const session = useSession();
   //: This panel's own waiting and its own refusal: one action here
   //: must not grey out the chat, the map and somebody else's orders.
   const acting = useActions();
@@ -128,7 +145,7 @@ export function Sidebar({ look, onLogout }: { look: Look; onLogout: () => void }
   //: mount, and consumed either way so a stale one never reapplies later.
   useEffect(() => {
     const known = (name: string) =>
-      TABS.some((item) => item.id === name) || name === STATE_TAB.id;
+      TABS.some((item) => item.id === name) || name === STATE_TAB.id || name === ALPHA_TAB.id;
     const asked = pendingSidebarTab();
     if (asked && known(asked)) open(asked as Tab);
     return onSidebarTab((name) => {
@@ -140,7 +157,13 @@ export function Sidebar({ look, onLogout }: { look: Look; onLogout: () => void }
 
   //: A state office is at least one power in a city (D-155).
   const official = (look.city?.powers?.length ?? 0) > 0;
-  const tabs = official ? [...TABS, STATE_TAB] : TABS;
+  //: The flag arrives once at the greeting; an ordinary player never gets it.
+  const admin = Boolean(session.admin);
+  const tabs = [
+    ...TABS,
+    ...(official ? [STATE_TAB] : []),
+    ...(admin ? [ALPHA_TAB] : []),
+  ];
   const current: Tab = tabs.some((item) => item.id === tab) ? tab : "me";
 
   //: A counter means "there is something here to look at", so only what can be
@@ -219,12 +242,9 @@ export function Sidebar({ look, onLogout }: { look: Look; onLogout: () => void }
           moved rather than dropped). */}
       <nav className="rail" aria-label={t("ui-side-rail")}>
         {TABS.map(mark)}
-        {official && (
-          <>
-            <span className="rail-line" aria-hidden="true" />
-            {mark(STATE_TAB)}
-          </>
-        )}
+        {(official || admin) && <span className="rail-line" aria-hidden="true" />}
+        {official && mark(STATE_TAB)}
+        {admin && mark(ALPHA_TAB)}
         {/* The fold, at the foot of the rail: the panel goes, the marks stay,
             and a mark opens it again. Desktop only -- on a phone the rail
             lies across the top and there is nothing beside it to fold. */}
@@ -281,6 +301,7 @@ export function Sidebar({ look, onLogout }: { look: Look; onLogout: () => void }
           />
         )}
         {current === "state" && <State look={look} busy={busy} />}
+        {current === "alpha" && <Alpha embodied={look.body != null} />}
       </div>
     </aside>
   );

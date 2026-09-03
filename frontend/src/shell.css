@@ -83,9 +83,6 @@ header {
 .main > section:not(.chat):not(.map-pane) {
   padding: 0.8rem 0.9rem;
 }
-.main > .alpha {
-  margin: 0.5rem 0.9rem 0;
-}
 .main > .panels,
 .main > .stand,
 .main > section:not(.chat):not(.map-pane) {
@@ -105,24 +102,6 @@ header {
   border-top: 1px solid var(--line);
   padding: 0.35rem 0.9rem 0.5rem;
 }
-/* The alpha's debug widget (D-229): a compact strip above the view, not a
-   panel competing with it for the height. Everything else directly in `.main`
-   is a working surface and takes what is left; this one takes what it needs
-   and leaves. Goes out with the alpha, together with `panels/Alpha.tsx`. */
-.alpha {
-  flex: none;
-}
-
-/* Folded, the widget is a handle and takes the height of a line: the scene
-   below it is the working surface, and a debug tool does not compete with it
-   for room. */
-.alpha-handle {
-  flex: none;
-  align-self: flex-start;
-  padding: 0.1rem 0.4rem;
-  font-size: 0.8rem;
-}
-
 /* --- the phone (brief section 9) --------------------------------------------
  *
  * The screen is the app's, not the document's: the strip stays at the top,
@@ -236,9 +215,6 @@ header {
   .main > .stand,
   .main > section:not(.chat):not(.map-pane) {
     padding: 0.7rem 0.75rem;
-  }
-  .main > .alpha {
-    margin: 0.5rem 0.75rem 0;
   }
 }
 

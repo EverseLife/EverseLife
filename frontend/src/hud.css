@@ -551,6 +551,23 @@ button.emblem-pick[aria-pressed="true"] .glyph {
   color: var(--base-50);
 }
 
+/* The alpha's tab (D-229): a flat card (`entry.css`), and only what the card
+   does not give -- rows where two or three fields share the width. Goes out
+   with the alpha, with `panels/Alpha.tsx`. */
+.alpha .row {
+  align-items: flex-end;
+  /* The card spreads a row to its ends for a form's submit; here the two
+     verbs stand together at the left, like every row of the sidebar. */
+  justify-content: flex-start;
+}
+.alpha .row > label {
+  flex: 1 1 5.5rem;
+  min-width: 0;
+}
+.alpha .row input[type="number"] {
+  width: 100%;
+}
+
 /* The account tab: a panel now, not a modal (D-238). */
 .account > footer {
   margin-top: 1rem;

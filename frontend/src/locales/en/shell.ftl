@@ -41,6 +41,8 @@ ui-side-tab-net = network
 ui-side-tab-net-of = correspondence and channels
 ui-side-tab-state = city
 ui-side-tab-state-of = economy and population
+ui-side-tab-alpha = alpha
+ui-side-tab-alpha-of = debugging: print a thing, hurry a term, pour in energy
 
 # The rail button: the glyph says nothing, so the tab's name and its tally are read aloud.
 ui-side-tab-counted = { $tab } · { $n }

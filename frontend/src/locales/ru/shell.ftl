@@ -39,6 +39,8 @@ ui-side-tab-net = сеть
 ui-side-tab-net-of = переписка и каналы
 ui-side-tab-state = город
 ui-side-tab-state-of = экономика и население
+ui-side-tab-alpha = альфа
+ui-side-tab-alpha-of = отладка: напечатать вещь, подтянуть срок, влить энергию
 
 # Кнопка рельса: значок молчит, поэтому имя вкладки со счётчиком читают вслух.
 ui-side-tab-counted = { $tab } · { $n }
