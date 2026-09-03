@@ -18,6 +18,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChatLine, Circle } from "../api";
 import { Refusal, useActions, useSession } from "../actions";
+import { Glyph } from "../Glyph";
 import { folded as foldedPane, rememberFolded } from "../hud";
 import { Here } from "./Here";
 import { t } from "../locale";
@@ -209,14 +210,20 @@ export function Chat({ place }: Omit<Props, "busy" | "act">) {
             {t(option.label)}
           </button>
         ))}
-        <label className="note">
-          <input
-            type="checkbox"
-            checked={quiet}
-            onChange={(e) => setQuiet(e.target.checked)}
-          />{" "}
+        {/* Half a voice is a choice like the three kinds beside it, and wears
+            the same grammar (D-238): a slab that stays down while it is on,
+            `aria-pressed` for whoever is not looking at the slab. A tick in a
+            box was the one control in the strip shaped unlike its neighbours,
+            and the smallest thing to hit in it. The glyph changes with the
+            state the way the map's tether does -- two rings of voice or one. */}
+        <button
+          className={`chat-voice${quiet ? "" : " quiet"}`}
+          aria-pressed={quiet}
+          onClick={() => setQuiet(!quiet)}
+        >
+          <Glyph name={quiet ? "whisper" : "voice"} />
           {t("ui-chat-quiet-toggle")}
-        </label>
+        </button>
         <input
           className="chat-text"
           value={text}

@@ -42,9 +42,11 @@
   .chat-input .chat-send {
     order: 2;
   }
-  .chat-input > label {
+  /* Left last, so the field and its verb fill the line above and this wraps
+     under them by itself. Not stretched across the width: it is a button, and
+     a button as wide as the screen reads as the verb of the section. */
+  .chat-input .chat-voice {
     order: 3;
-    flex: 1 0 100%;
   }
 }
 
@@ -90,6 +92,18 @@
 .chat-text {
   flex: 1 1 12rem;
   min-width: 0;
+}
+
+/* Half a voice: a mark beside the word, the way a tab wears one. The three
+   properties are `tabs.css`'s and are repeated rather than borrowed -- the
+   strip is a row of controls, not a set of tabs, and making it one to inherit
+   three lines would give it a tab's wrapping and a tab's spacing too. Without
+   them `.glyph` is `display: block` and the word drops under the mark, leaving
+   one button in the row half a line taller than its neighbours. */
+.chat-voice {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
 }
 
 /* --- the Net (D-222) -------------------------------------------------------
