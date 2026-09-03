@@ -15,7 +15,7 @@ All terms are named by the vault, the engine only had to add them up:
     chance% = (chat.leak_base
                + chat.leak_per_person * (people in location - chat.leak_crowd_free)
                + chat.leak_group_size * (circle size - chat.leak_group_free))
-              * chat.leak_location_modifier[place type]
+              * chat.leak_location_modifier[class of what stands here]
               * chat.leak_quiet_multiplier   -- if in an undertone
 
 A leaked remark is one phrase without context, with the source circle named:
@@ -41,7 +41,7 @@ from datetime import UTC, datetime
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.constants import Constants
+from src.constants import Constants, current_catalog
 from src.constants import registry as R
 from src.engine import events, luck, travel, world
 from src.engine.errors import Refusal
@@ -379,21 +379,29 @@ async def _people_in(session: AsyncSession, node: Node) -> int:
     )
 
 
-async def _place_modifier(constants: Constants, session: AsyncSession, node: Node) -> float:
-    """Place type: a noisy forge muffles, a quiet library gives away.
+#: The library thing class (D-215): the quiet place of the leak table. Its
+#: own constant, apart from the station key `world.LIBRARY` that happens to
+#: spell the same -- a class renamed in the vault must not slip past here.
+LIBRARY_CLASS = "library"
 
-    The vault table is keyed by words ("forge", "library") -- the place is
-    recognised by what stands in it, not by a separate type field.
+
+async def _place_modifier(constants: Constants, session: AsyncSession, node: Node) -> float:
+    """Place sound: a noisy forge muffles, a quiet library gives away.
+
+    The vault table is keyed by thing classes (D-215, D-291) -- the place is
+    recognised by what stands in it, not by a separate type field, and a
+    second forge muffles without a code change. When both a noisy and a quiet
+    thing stand here, the smaller modifier wins: noise beats silence.
     """
 
     table = constants[R.CHAT_LEAK_LOCATION_MODIFIER]
-    if node.properties.get("library") and "library" in table:
-        return table["library"]
-
+    book = current_catalog().recipes
     #: What stands (D-278), read without making a yard: a tavern's noise is its
     #: counter's, and a counter lying in its crate is a crate.
-    for station in await world.thing_kinds(session, node):
-        modifier = table.get(station.lower())
-        if modifier is not None:
-            return modifier
-    return 1.0
+    classes = {book.class_of(kind) for kind in await world.thing_kinds(session, node)}
+    #: The `library` node property is a legacy of old worlds (D-176): the
+    #: catch-up seed places the machine, and until it has, the room is quiet.
+    if node.properties.get("library"):
+        classes.add(LIBRARY_CLASS)
+    found = [table[cls] for cls in classes if cls is not None and cls in table]
+    return min(found) if found else 1.0

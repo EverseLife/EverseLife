@@ -89,6 +89,7 @@ from src.engine.farm._base import (  # noqa: F401
     ripe_at,
 )
 from src.engine.farm.plot import (  # noqa: F401
+    FERTILIZER,
     fertilize,
     mark,
     merge,

@@ -14,7 +14,7 @@ from decimal import ROUND_DOWN, Decimal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.constants import Constants
+from src.constants import ConstantError, Constants, current_catalog
 from src.constants import registry as R
 from src.engine import estate, events
 from src.engine.farm._base import (
@@ -315,12 +315,10 @@ async def plow_done(session: AsyncSession, job: Job) -> None:
     await session.flush()
 
 
-#: The two fertilizers of the vault (D-264), by their D-251 ids. The dose is
-#: one for both -- the difference is strength, and it is these constants.
-FERTILIZERS = {
-    "compost": R.FARM_COMPOST_RECOVERY,
-    "mineral_fertilizer": R.FARM_MINERAL_RECOVERY,
-}
+#: The fertilizer thing class (D-215, D-291). The engine knows a fertilizer
+#: by its class and its strength by its row in `farm.fertilizer_recovery`: a
+#: third fertilizer is a recipe with the class and a row, not a code change.
+FERTILIZER = "fertilizer"
 
 
 async def fertilize(
@@ -336,10 +334,10 @@ async def fertilize(
 
     Into the **land**, not into what grows: a fallow or plowed strip. Feeding
     a growing bed is the "feeding" of the five care decisions and waits for
-    OQ-098. The dose is one norm for either kind (`farm.fertilizer_per_m2`);
-    the kinds differ in what they give back -- compost returns
-    `farm.compost_recovery`, the mineral one `farm.mineral_recovery`, most of
-    all, as the vault's table promises. No limit per cycle: the price is the
+    OQ-098. The dose is one norm for the whole class (`farm.fertilizer_per_m2`);
+    the kinds differ in what they give back -- a row per thing in
+    `farm.fertilizer_recovery`, and the mineral one gives most of all, as the
+    vault's table promises (D-291). No limit per cycle: the price is the
     limit -- compost costs waste and water, saltpeter comes from the Salt
     Wastes and is wanted by the rocket too.
     """
@@ -348,9 +346,17 @@ async def fertilize(
     _owned(plot, body)
     if plot.state not in (PlotState.IDLE, PlotState.PLOWED):
         raise WrongState(key="farm-fertilize-sown", plot=plot.name, state=plot.state.value)
-    spec = FERTILIZERS.get(goods)
-    if spec is None:
+    #: The canon key first: the class is asked by it, the table row is read
+    #: by it, and a synonym would otherwise pass the one and miss the other.
+    book = current_catalog().recipes
+    goods = book.resolve(goods)
+    if book.class_of(goods) != FERTILIZER:
         raise FarmError(key="farm-not-a-fertilizer", goods=goods)
+    recovery = constants[R.FARM_FERTILIZER_RECOVERY].get(goods)
+    if recovery is None:
+        #: The vault build promises a row per member of the class; a missing
+        #: one is a data defect at the seam, not a player's mistake.
+        raise ConstantError(f"farm.fertilizer_recovery: no row for the fertilizer {goods!r}")
 
     #: Fallow is credited first: the fertilizer tops up the healed land, and
     #: the ceiling refusal below judges the honest, current number.
@@ -367,7 +373,7 @@ async def fertilize(
         need,
         why=FarmError(key="farm-no-fertilizer", goods=goods, need=amount_float(need)),
     )
-    plot.fertility = on_grid(min(SCALE_MAX, fertility + constants[spec]), ROUND_QUALITY)
+    plot.fertility = on_grid(min(SCALE_MAX, fertility + recovery), ROUND_QUALITY)
     await session.flush()
 
     await events.record(
