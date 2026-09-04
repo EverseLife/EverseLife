@@ -26,6 +26,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from conftest import _slow
+from farm_kit import _stand
 from src.constants import current, current_catalog
 from src.engine import ledger, travel, world
 from src.models.city import City
@@ -694,11 +695,16 @@ async def test_two_harvests_of_one_strip_reap_it_once(
         reaped = sum(int(thing.amount) for thing in things if thing.type_key == plant.gives)
         fund = sum(int(thing.amount) for thing in things if thing.type_key == plant.seed)
         assert reaped == to_units(got[0]), "урожай в кармане — ровно одна жатва"
-        #: The engine's seed formula verbatim (D-257): full care and full
-        #: strength multiply by one, so only the soil share is left to mirror.
+        #: The engine's seed formula verbatim (D-257): full health and full
+        #: strength multiply by one, so the soil share and the unthinned stand's
+        #: share (D-295) are what is left to mirror.
         soil = min(55 / plant.requires.fertility, constants[R.FARM_SOIL_SHARE_CAP] / PERCENT)
         assert fund == to_units(
-            constants[R.FARM_SEED_RATE] * 10.0 * constants[R.FARM_SEED_RETURN] * soil
+            constants[R.FARM_SEED_RATE]
+            * 10.0
+            * constants[R.FARM_SEED_RETURN]
+            * soil
+            * _stand(constants, plant)
         ), "семенной фонд отложен один раз"
 
 

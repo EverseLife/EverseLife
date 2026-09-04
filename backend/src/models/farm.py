@@ -47,6 +47,7 @@ class Plot(Base):
         CheckConstraint("moisture >= 0 AND moisture <= 100", name="moisture_in_scale"),
         CheckConstraint("health >= 0 AND health <= 100", name="health_in_scale"),
         CheckConstraint("growth >= 0 AND growth <= 100", name="growth_in_scale"),
+        CheckConstraint("weeds >= 0 AND weeds <= 100", name="weeds_in_scale"),
     )
 
     id: Mapped[uuid.UUID] = uuid_pk()
@@ -104,6 +105,14 @@ class Plot(Base):
     )
     #: Feedings repeated within one stage: each costs its share of the harvest.
     overfed: Mapped[int] = mapped_column(nullable=False, default=0, server_default="0")
+    #: Weeds on the bed, 0-100 (D-295): up with the crop as of `settled_at`,
+    #: cleared by a weeding. Whether this sowing was thinned: once, and early.
+    weeds: Mapped[float] = mapped_column(
+        Numeric(6, 2), nullable=False, default=0, server_default="0"
+    )
+    thinned: Mapped[bool] = mapped_column(
+        nullable=False, default=False, server_default=text("false")
+    )
 
     #: Since when the land stands fallow: recovery is credited by elapsed time
     #: on the next action -- it needs no tick.

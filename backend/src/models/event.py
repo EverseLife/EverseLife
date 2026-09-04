@@ -198,6 +198,9 @@ class EventKind(StrEnum):
     #: The actions of care (D-293): a watering to a target, a feeding in a stage.
     PLOT_WATERED = "farm.watered"
     PLOT_FED = "farm.fed"
+    #: Wave 2 (D-295): the weeds pulled, the stand thinned.
+    PLOT_WEEDED = "farm.weeded"
+    PLOT_THINNED = "farm.thinned"
     #: The crop's health reached nothing, or its growth reached the top: told
     #: to the owner the hour it happens, by whoever settled the bed.
     PLOT_DIED = "farm.died"

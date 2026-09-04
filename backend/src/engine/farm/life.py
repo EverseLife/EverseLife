@@ -21,6 +21,12 @@ softened by the cultivar's hardiness (D-261), and heals inside it; growth
 adds its nominal share of the cycle scaled by health and by a feeding's
 boost, and a boost lasts to the end of the stage it was given in.
 
+Weeds come up with the crop (D-295): `farm.weed_per_day` scaled by the
+land's fertility -- rich soil feeds them too -- and a full cover drags the
+growth by `farm.weed_drag` and quickens the drying by `farm.weed_thirst`;
+a weeding clears them. Whether the stand was thinned is a fact of the
+sowing, not of time: the harvest reads it.
+
 Stepped by the hour rather than integrated in closed form: temperature
 breathes with the planetary day, and a boost ends at a stage bound the
 integral would have to know in advance. An hour is far below anything a
@@ -58,6 +64,10 @@ SOAKED = "soaked"
 PALE = "pale"
 BURN = "burn"
 FAT = "fat"
+#: Wave 2 (D-295): weeds past the threshold, and an unthinned stand once
+#: it is past sprouting -- shown to everybody, priced by the culture.
+WEEDY = "weedy"
+CROWDED = "crowded"
 
 #: What a feeding did, as the bed remembers it for the stage (`Plot.fed`).
 BOOST = "boost"
@@ -99,6 +109,9 @@ class Life:
     #: exactly once the growth crosses that stage's bound.
     boost: float = 0.0
     boost_stage: str | None = None
+    #: Weeds on the bed, 0-100, and whether this sowing was thinned (D-295).
+    weeds: float = 0.0
+    thinned: bool = False
 
     @property
     def dead(self) -> bool:
@@ -147,6 +160,16 @@ def dry_rate(
     return rate
 
 
+def weeds_thirst(constants: Constants, weeds: float) -> float:
+    """The drying multiplier the weeds add: they drink beside the crop (D-295)."""
+    return 1 + weeds / SCALE_MAX * constants[R.FARM_WEED_THIRST] / PERCENT
+
+
+def thinning_open(constants: Constants, stage: str) -> bool:
+    """Whether a stand in this stage can still be thinned: up to `farm.thin_until`."""
+    return STAGES.index(stage) <= STAGES.index(str(constants[R.FARM_THIN_UNTIL]))
+
+
 def stage_of(constants: Constants, growth: float) -> str:
     """Which stage the growth is in: the bounds are the vault's."""
     if growth >= SCALE_MAX:
@@ -176,29 +199,34 @@ def advance(
     *,
     hours: float,
     day_hours: float,
+    fertility: float = 0.0,
 ) -> Life:
     """Move the bed `hours` on from the moment `life` was true.
 
     `weather.temperature_at` counts its hours from that same moment. A dead
     bed stays dead and a step that ends the health ends the walk at once:
-    what grew in a bed's last hour is nobody's harvest.
+    what grew in a bed's last hour is nobody's harvest. `fertility` feeds the
+    weeds (D-295); bare rock -- the default -- grows none.
     """
     if hours <= 0 or life.dead:
         return life
     relief = 1 - constants[R.FARM_HARDINESS_RELIEF] / PERCENT * norms.hardiness / HARDINESS_SCALE
     stress = constants[R.FARM_STRESS_PER_POINT]
     heal = constants[R.FARM_HEAL_PER_DAY]
+    sprout = constants[R.FARM_WEED_PER_DAY] * max(fertility, 0.0) / SCALE_MAX
+    drag = constants[R.FARM_WEED_DRAG] / PERCENT
     #: The nominal pace: a healthy, unfed bed ripens in the catalog's cycle.
     pace = SCALE_MAX / max(norms.cycle_days, 1.0 / day_hours)
 
     moisture, health, growth = life.moisture, life.health, life.growth
-    boost, boost_stage = life.boost, life.boost_stage
+    boost, boost_stage, weeds = life.boost, life.boost_stage, life.weeds
     passed = 0.0
     while passed < hours:
         step = min(FARM_STEP_HOURS, hours - passed)
         days = step / day_hours
+        weeds = min(SCALE_MAX, weeds + sprout * days)
         rate = dry_rate(constants, norms, weather, weather.temperature_at(passed))
-        moisture *= math.exp(-rate * days)
+        moisture *= math.exp(-rate * weeds_thirst(constants, weeds) * days)
 
         gap = max(0.0, norms.band_min - moisture, moisture - norms.band_max)
         if gap > 0:
@@ -206,22 +234,26 @@ def advance(
         else:
             health = min(SCALE_MAX, health + heal * days)
         if health <= SCALE_MIN:
-            return Life(moisture, SCALE_MIN, growth)
+            return Life(moisture, SCALE_MIN, growth, weeds=weeds, thinned=life.thinned)
 
         if growth < SCALE_MAX:
+            held = 1 - weeds / SCALE_MAX * drag
             growth = min(
-                SCALE_MAX, growth + pace * (health / SCALE_MAX) * (1 + boost / PERCENT) * days
+                SCALE_MAX,
+                growth + pace * (health / SCALE_MAX) * (1 + boost / PERCENT) * held * days,
             )
             if boost_stage is not None and stage_of(constants, growth) != boost_stage:
                 boost, boost_stage = 0.0, None
         passed += step
-    return Life(moisture, health, growth, boost, boost_stage)
+    return Life(moisture, health, growth, boost, boost_stage, weeds, life.thinned)
 
 
 def symptoms(
+    constants: Constants,
     norms: Norms,
     life: Life,
     *,
+    stage: str,
     fertility: float,
     fertility_needed: float,
     fed: Iterable[Mapping[str, Any]],
@@ -229,7 +261,9 @@ def symptoms(
     """What the bed shows, to everybody alike (D-057): signs, never norms.
 
     `fed` is what this stage was given: a wrong feeding shows as a burn and a
-    repeated one as a bed running to leaf, until the stage is over.
+    repeated one as a bed running to leaf, until the stage is over. Weeds show
+    past `farm.weed_seen`; an unthinned stand shows as crowded from the leaf
+    stage on -- to every crop, though only some pay for it (D-295).
     """
     seen: list[str] = []
     if life.moisture < norms.band_min:
@@ -243,4 +277,8 @@ def symptoms(
         seen.append(BURN)
     if OVERFED in effects:
         seen.append(FAT)
+    if life.weeds >= constants[R.FARM_WEED_SEEN]:
+        seen.append(WEEDY)
+    if not life.thinned and stage not in (SPROUT, RIPE):
+        seen.append(CROWDED)
     return seen

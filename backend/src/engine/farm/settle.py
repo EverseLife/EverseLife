@@ -47,6 +47,8 @@ def _life_of(plot: Plot) -> life.Life:
         growth=float(plot.growth),
         boost=float(plot.growth_boost),
         boost_stage=plot.boost_stage,
+        weeds=float(plot.weeds),
+        thinned=plot.thinned,
     )
 
 
@@ -92,6 +94,7 @@ def peek(
         was,
         hours=hours,
         day_hours=day_hours(constants),
+        fertility=float(plot.fertility),
     )
 
 
@@ -102,6 +105,7 @@ def _store(plot: Plot, state: life.Life, moment: datetime) -> None:
     plot.growth = on_grid(clamp(state.growth), ROUND_QUALITY)
     plot.growth_boost = on_grid(max(0.0, state.boost), ROUND_QUALITY)
     plot.boost_stage = state.boost_stage
+    plot.weeds = on_grid(clamp(state.weeds), ROUND_QUALITY)
     plot.settled_at = moment
 
 
@@ -117,6 +121,8 @@ def _clear(plot: Plot, moment: datetime) -> None:
     plot.boost_stage = None
     plot.fed = {}
     plot.overfed = 0
+    plot.weeds = Decimal(0)
+    plot.thinned = False
     plot.state = PlotState.IDLE
     plot.idle_since = moment
 

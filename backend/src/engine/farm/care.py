@@ -1,14 +1,16 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Nurlan Urazkulov
 
-"""The actions of care (D-293): a watering up to a target and a feeding in a
-stage. Each is in person, each writes its effect at once, and each holds the
-hands for its minutes through a job whose only work is to be pending.
+"""The actions of care (D-293, D-295): a watering up to a target, a feeding in
+a stage, a weeding and a thinning. Each is in person, each writes its effect
+at once, and each holds the hands for its minutes through a job whose only
+work is to be pending.
 """
 
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -221,3 +223,93 @@ async def feed(
         await _die(session, constants, plot, plant, moment)
     await _hands_busy(session, body, plot, moment, minutes, event)
     return plot, stage, effect
+
+
+async def weed(
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    body: Body,
+    plot: Plot,
+    *,
+    now: datetime | None = None,
+) -> Plot:
+    """Pull the weeds (D-295): the cover goes to nought, the hands are busy.
+
+    Allowed whenever something grows, seen or not: a farmer who weeds early
+    and often pays in minutes, not in a refusal.
+    """
+    moment = now or datetime.now(UTC)
+    await _here(session, body)
+    _owned(plot, body)
+    if plot.state is not PlotState.SOWN or plot.culture_id is None:
+        raise WrongState(key="farm-nothing-grows", plot=plot.name)
+    node = await session.get(Node, plot.node_id)
+    state = await settle(session, constants, catalog, plot, now=moment, node=node)
+    if state.dead:
+        raise WrongState(key="farm-nothing-grows", plot=plot.name)
+    pulled = state.weeds
+    plot.weeds = Decimal(0)
+    await session.flush()
+
+    minutes = care_minutes(constants, float(plot.area_m2))
+    event = await events.record(
+        session,
+        EventKind.PLOT_WEEDED,
+        actor_identity_id=body.identity_id,
+        node_id=plot.node_id,
+        plot_id=str(plot.id),
+        pulled=pulled,
+        minutes=minutes,
+    )
+    await _hands_busy(session, body, plot, moment, minutes, event)
+    return plot
+
+
+async def thin(
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    body: Body,
+    plot: Plot,
+    *,
+    now: datetime | None = None,
+) -> Plot:
+    """Thin the stand (D-295): once, and only up to `farm.thin_until`.
+
+    What is pulled is not put back -- the thinning costs `farm.thin_loss` of
+    the harvest -- and what it buys is the culture's own: the crowd penalty
+    by its `density_risk`. Whether it pays is the text's to say; the window
+    offers it to every stand alike (D-057).
+    """
+    moment = now or datetime.now(UTC)
+    await _here(session, body)
+    _owned(plot, body)
+    if plot.state is not PlotState.SOWN or plot.culture_id is None:
+        raise WrongState(key="farm-nothing-grows", plot=plot.name)
+    node = await session.get(Node, plot.node_id)
+    state = await settle(session, constants, catalog, plot, now=moment, node=node)
+    if state.dead:
+        raise WrongState(key="farm-nothing-grows", plot=plot.name)
+    if state.thinned:
+        raise WrongState(key="farm-thinned-already", plot=plot.name)
+    stage = life.stage_of(constants, state.growth)
+    if not life.thinning_open(constants, stage):
+        raise WrongState(
+            key="farm-thin-late", plot=plot.name, until=str(constants[R.FARM_THIN_UNTIL])
+        )
+    plot.thinned = True
+    await session.flush()
+
+    minutes = care_minutes(constants, float(plot.area_m2))
+    event = await events.record(
+        session,
+        EventKind.PLOT_THINNED,
+        actor_identity_id=body.identity_id,
+        node_id=plot.node_id,
+        plot_id=str(plot.id),
+        stage=stage,
+        minutes=minutes,
+    )
+    await _hands_busy(session, body, plot, moment, minutes, event)
+    return plot

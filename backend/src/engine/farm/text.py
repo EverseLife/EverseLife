@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src import i18n
 from src.constants import Catalog, Constants
+from src.constants import registry as R
 from src.constants.catalog import Plant
 from src.engine import breed, travel, world
 from src.engine.farm.life import norms
@@ -64,6 +65,19 @@ def care_text(constants: Constants, plant: Plant, signs: Mapping[str, Any], *, l
     else:
         said.append(i18n.render("care-feeding-none", locale=locale))
     said.append(i18n.render("care-hardiness", {"hardiness": int(norm.hardiness)}, locale=locale))
+    #: Wave 2 (D-295): how much the crowd costs this crop, and when thinning
+    #: still works; the weeds are the same for every crop and said once.
+    said.append(
+        i18n.render(
+            "care-crowd",
+            {
+                "risk": int(signs.get("density_risk", plant.traits.density_risk)),
+                "until": str(constants[R.FARM_THIN_UNTIL]),
+            },
+            locale=locale,
+        )
+    )
+    said.append(i18n.render("care-weeds", locale=locale))
     return " ".join(said)
 
 

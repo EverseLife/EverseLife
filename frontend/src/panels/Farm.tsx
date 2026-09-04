@@ -61,6 +61,8 @@ type Row = {
   carried?: true;
   /** Present when this stage was already fed: a second feeding runs to leaf. */
   fed?: true;
+  /** Present once the stand was thinned (D-295): a fact of the sowing, once. */
+  thinned?: true;
   /** What everybody sees -- a sign, never a norm (D-057). */
   symptoms?: string[];
   /** The plough's progress (D-277): its share, and -- while a run is
@@ -83,6 +85,8 @@ const SYMPTOM: Record<string, string> = {
   pale: "ui-farm-symptom-pale",
   burn: "ui-farm-symptom-burn",
   fat: "ui-farm-symptom-fat",
+  weedy: "ui-farm-symptom-weedy",
+  crowded: "ui-farm-symptom-crowded",
 };
 
 const STATE: Record<Row["state"], string> = {
@@ -197,6 +201,7 @@ function PlotChips({ row }: { row: Row }) {
     );
   }
   if (row.fed) chips.push(<span className="chip dim" key="fed">{t("ui-farm-fed-stage")}</span>);
+  if (row.thinned) chips.push(<span className="chip dim" key="thinned">{t("ui-farm-thinned")}</span>);
   if (row.carried) {
     chips.push(
       <span className="chip" key="carried">
@@ -297,6 +302,12 @@ export function Farm({ look }: Omit<Props, "busy" | "act">) {
     targets[row.id] ??
     Math.min(100, Math.ceil(((row.moisture ?? 0) + TARGET_STEP) / TARGET_STEP) * TARGET_STEP);
   const feedOf = (row: Row) => feeds[row.id] || dung[0]?.goods || "";
+  //: Thinning is open up to the vault's stage (D-295): the catalog's constant,
+  //: read like the day length, so the button and the engine agree.
+  const stages = ["sprout", "leaf", "bloom", "fill", "ripe"];
+  const thinUntil = String(book?.constants?.["farm.thin_until"] ?? "leaf");
+  const thinningOpen = (row: Row) =>
+    !row.thinned && !!row.stage && stages.indexOf(row.stage) <= stages.indexOf(thinUntil);
 
   //: The holder runs the estate: civic land is bought first (06-farming).
   if (!mine) {
@@ -493,6 +504,23 @@ export function Farm({ look }: Omit<Props, "busy" | "act">) {
               >
                 {t("ui-farm-water-to", { target: String(targetOf(row)) })}
               </button>
+              <button
+                className="quiet"
+                onClick={() => go(() => session.send("farm.weed", { plot: row.id }))}
+                disabled={busy || occupied !== null}
+              >
+                {t("ui-farm-weed")}
+              </button>
+              {thinningOpen(row) && (
+                <button
+                  className="quiet"
+                  onClick={() => go(() => session.send("farm.thin", { plot: row.id }))}
+                  disabled={busy || occupied !== null}
+                  title={t("ui-farm-thin-why")}
+                >
+                  {t("ui-farm-thin")}
+                </button>
+              )}
               {dung.length > 0 && (
                 <>
                   {dung.length > 1 && (

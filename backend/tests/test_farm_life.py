@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import asyncio
 import math
-import uuid
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -32,7 +31,17 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from farm_kit import BROME, SPELT, _farmstead
+from farm_kit import (
+    BROME,
+    SPELT,
+    _farmstead,
+    _hands_free,
+    _norms,
+    _sown,
+    _stand,
+    _stock,
+    _weather,
+)
 from src.api.commands.farm import _plot
 from src.constants import Catalog, Constants, current, current_catalog
 from src.constants import registry as R
@@ -41,51 +50,11 @@ from src.engine.farm import life
 from src.models.event import Event, EventKind
 from src.models.farm import Plot, PlotState
 from src.models.identity import Body
-from src.models.inventory import Item
-from src.models.job import Job, JobKind, JobState
+from src.models.job import Job, JobKind
 from src.models.world import Node
-from src.units import PERCENT, SCALE_MAX, amount_float
+from src.units import PERCENT, SCALE_MAX
 
 FLAX = "flax"
-
-
-def _norms(constants: Constants, catalog: Catalog, culture: str = SPELT) -> life.Norms:
-    plant = catalog.plants.by_id(culture)
-    return life.norms(constants, plant, breed.traits_of_plant(plant))
-
-
-def _weather(rain: float = 0.0, river: bool = False, temperature: float | None = None):
-    return life.Weather(rain=rain, river=river, temperature_at=lambda _hours: temperature)
-
-
-async def _sown(session, constants, catalog, body, *, culture: str = SPELT, area: float = 10):
-    """A plot brought to sowing, skipping the wait for ploughing."""
-    plot = await farm.mark(session, constants, body, name="грядка", area=area)
-    plot.state = PlotState.PLOWED
-    await session.flush()
-    cultivar = await breed.landrace(session, catalog, culture)
-    pocket = await world.body_container(session, body)
-    seeds = await breed.seed_lot(session, catalog, pocket.id, cultivar, 200, PERCENT)
-    return await farm.sow(session, constants, catalog, body, plot, seeds)
-
-
-async def _hands_free(session: AsyncSession, body: Body) -> None:
-    """End the action's minutes: the job that held the hands is swept."""
-    jobs = await session.execute(
-        select(Job).where(Job.body_id == body.id, Job.kind == JobKind.FARM_CARE.value)
-    )
-    for job in jobs.scalars():
-        job.state = JobState.CANCELLED
-    await session.flush()
-
-
-async def _stock(session: AsyncSession, pocket_id: uuid.UUID, goods: str) -> float:
-    left = await session.scalar(
-        select(func.coalesce(func.sum(Item.amount), 0)).where(
-            Item.container_id == pocket_id, Item.type_key == goods
-        )
-    )
-    return amount_float(int(left))
 
 
 # --- the pure model ----------------------------------------------------------
@@ -341,7 +310,9 @@ async def test_harvest_asks_full_growth_and_pays_by_health(
     await session.flush()
     got = await farm.harvest(session, constants, catalog, body, plot, now=plot.settled_at)
     soil = min(55 / plant.requires.fertility, constants[R.FARM_SOIL_SHARE_CAP] / PERCENT)
-    assert got == pytest.approx(10 * plant.yield_per_m2 * soil * 0.5, rel=0.01)
+    assert got == pytest.approx(
+        10 * plant.yield_per_m2 * soil * 0.5 * _stand(constants, plant), rel=0.01
+    )
 
 
 # --- what is seen, and what is read ------------------------------------------

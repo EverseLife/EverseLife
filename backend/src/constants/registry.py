@@ -22,6 +22,7 @@ from src.constants.spec import (
     Span,
     Spec,
     Table,
+    Text,
     Tiers,
     Words,
 )
@@ -152,6 +153,17 @@ FARM_HEALTH_BANDS = Table("farm.health_bands")
 #: one in a stage costs this share of the harvest (D-293).
 FARM_FEED_WRONG_BURN = Num("farm.feed_wrong_burn")
 FARM_OVERFEED_YIELD_PENALTY = Num("farm.overfeed_yield_penalty")
+#: Weeds (D-295): up with the crop, faster on rich land; they drink beside
+#: it and drag its growth, and a weeding clears them. Seen from a threshold.
+FARM_WEED_PER_DAY = Num("farm.weed_per_day")
+FARM_WEED_DRAG = Num("farm.weed_drag")
+FARM_WEED_THIRST = Num("farm.weed_thirst")
+FARM_WEED_SEEN = Num("farm.weed_seen")
+#: Crowding (D-295): an unthinned stand loses by the culture's density_risk;
+#: thinning costs its own share and works up to a stage.
+FARM_CROWD_PENALTY = Num("farm.crowd_penalty")
+FARM_THIN_LOSS = Num("farm.thin_loss")
+FARM_THIN_UNTIL = Text("farm.thin_until")
 #: From this built share of the node's ground the place loses a light step (D-261).
 FARM_SHADE_BUILT_SHARE = Num("farm.shade_built_share")
 FARM_SOIL_DEPLETION = Num("farm.soil_depletion")

@@ -97,7 +97,7 @@ from src.engine.farm._base import (  # noqa: F401
     plow_paused,
     plow_progress_minutes,
 )
-from src.engine.farm.care import care_done, feed, water  # noqa: F401
+from src.engine.farm.care import care_done, feed, thin, water, weed  # noqa: F401
 from src.engine.farm.life import (  # noqa: F401
     HEALTH_WORDS,
     RIPE,
@@ -112,6 +112,8 @@ from src.engine.farm.life import (  # noqa: F401
     norms,
     stage_of,
     symptoms,
+    thinning_open,
+    weeds_thirst,
 )
 from src.engine.farm.plot import (  # noqa: F401
     fertilize,

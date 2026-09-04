@@ -24,7 +24,7 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from farm_kit import BEANS, BROME, SPELT, _farmstead
+from farm_kit import BEANS, BROME, SPELT, _farmstead, _stand
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import farm, world
@@ -187,7 +187,7 @@ async def test_harvest_from_vault_formula(
     collected = await farm.harvest(session, constants, catalog, body, plot, now=plot.settled_at)
     await session.commit()
 
-    expected = 10 * plant.yield_per_m2 * (40 / plant.requires.fertility)
+    expected = 10 * plant.yield_per_m2 * (40 / plant.requires.fertility) * _stand(constants, plant)
     assert collected == pytest.approx(expected, rel=0.01)
 
     #: The collected stack is not a seed sack: we search by harvest quality,
@@ -218,7 +218,9 @@ async def test_a_sick_bed_harvests_by_its_health(
     await session.flush()
     sick = await farm.harvest(session, constants, catalog, body, plot, now=plot.settled_at)
     soil = min(55 / plant.requires.fertility, constants[R.FARM_SOIL_SHARE_CAP] / 100)
-    assert sick == pytest.approx(10 * plant.yield_per_m2 * soil * 0.4, rel=0.01)
+    assert sick == pytest.approx(
+        10 * plant.yield_per_m2 * soil * 0.4 * _stand(constants, plant), rel=0.01
+    )
 
 
 # --- the land remembers ------------------------------------------------------
@@ -292,7 +294,9 @@ async def test_rich_land_is_an_edge_not_a_multiplier(
     _grown(plot)
     await session.flush()
     collected = await farm.harvest(session, constants, catalog, body, plot, now=plot.settled_at)
-    expected = 10 * plant.yield_per_m2 * constants[R.FARM_SOIL_SHARE_CAP] / 100
+    expected = (
+        10 * plant.yield_per_m2 * constants[R.FARM_SOIL_SHARE_CAP] / 100 * _stand(constants, plant)
+    )
     assert collected == pytest.approx(expected, rel=0.01)
 
 

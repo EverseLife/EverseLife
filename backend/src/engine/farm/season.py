@@ -36,7 +36,16 @@ from src.models.identity import Body
 from src.models.inventory import Item
 from src.models.plant import Variety
 from src.models.world import Node
-from src.units import PERCENT, ROUND_QUALITY, SCALE_MAX, SCALE_MIN, amount, amount_float, on_grid
+from src.units import (
+    HARDINESS_SCALE,
+    PERCENT,
+    ROUND_QUALITY,
+    SCALE_MAX,
+    SCALE_MIN,
+    amount,
+    amount_float,
+    on_grid,
+)
 
 
 async def sow(
@@ -119,6 +128,8 @@ async def sow(
     plot.boost_stage = None
     plot.fed = {}
     plot.overfed = 0
+    plot.weeds = Decimal(0)
+    plot.thinned = False
     plot.settled_at = moment
     await session.flush()
 
@@ -151,7 +162,9 @@ async def harvest(
     The harvest is proportional to area, fertility, the crop's health **and
     cultivar strength** (D-293); land depletion and recovery are credited
     right here -- the harvest closes the cycle. Feedings repeated in a stage
-    ran the crop to leaf and take their share off (`farm.overfeed_yield_penalty`).
+    ran the crop to leaf and take their share off (`farm.overfeed_yield_penalty`);
+    an unthinned stand pays its culture's crowd penalty, a thinned one the
+    thinning's own cost (D-295).
 
     Seeds come back as a multiple of what was sown (`farm.seed_return`, D-257),
     scaled by the same soil, health, leaf and lot-strength shares as the
@@ -187,6 +200,14 @@ async def harvest(
     fertility = float(plot.fertility)
     health_share = state.health / SCALE_MAX
     leaf_share = max(0.0, 1 - constants[R.FARM_OVERFEED_YIELD_PENALTY] / PERCENT * plot.overfed)
+    #: The stand (D-295): thinned, it paid its cost; crowded, it pays the
+    #: culture's -- `density_risk` on the five-point scale of the traits.
+    if plot.thinned:
+        stand_share = 1 - constants[R.FARM_THIN_LOSS] / PERCENT
+    else:
+        risk = float(signs.get("density_risk", plant.traits.density_risk))
+        stand_share = 1 - risk / HARDINESS_SCALE * constants[R.FARM_CROWD_PENALTY] / PERCENT
+    stand_share = max(0.0, stand_share)
     #: Capped above: rich land is an edge, not a multiplier (D-256).
     soil_share = min(
         fertility / float(signs.get("fertility", plant.requires.fertility)),
@@ -199,6 +220,7 @@ async def harvest(
         * soil_share
         * health_share
         * leaf_share
+        * stand_share
         * (strength / PERCENT)
     )
     quality = max(SCALE_MIN, min(SCALE_MAX, fertility * health_share))
@@ -230,6 +252,7 @@ async def harvest(
         * soil_share
         * health_share
         * leaf_share
+        * stand_share
         * (strength / PERCENT)
     )
     if seed_amount > 0:
@@ -251,6 +274,7 @@ async def harvest(
     plot.same_culture_cycles = plot.same_culture_cycles + 1 if plot.last_culture == plant.id else 1
     plot.last_culture = plant.id
     overfed = plot.overfed
+    thinned = plot.thinned
     _clear(plot, moment)
     await session.flush()
 
@@ -268,6 +292,7 @@ async def harvest(
         quality=quality,
         health=state.health,
         overfed=overfed,
+        thinned=thinned,
         fertility=float(plot.fertility),
     )
     return got
@@ -373,10 +398,16 @@ async def survey(
             given = (plot.fed or {}).get(stage, [])
             if given:
                 row["fed"] = True
+            #: Thinned is a fact of the sowing the client cannot derive (D-225):
+            #: the button goes with it.
+            if state.thinned:
+                row["thinned"] = True
             #: The engine names the sign, the client picks the word (D-057).
             row["symptoms"] = life.symptoms(
+                constants,
                 norm,
                 state,
+                stage=stage,
                 fertility=float(plot.fertility),
                 fertility_needed=float(signs.get("fertility", plant.requires.fertility)),
                 fed=given,

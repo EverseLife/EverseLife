@@ -23,3 +23,8 @@ care-feeding-row = «{ NAME($goods) }» { $stage ->
     }
 care-feeding-none = Подкормки не терпит: любое удобрение — ожог.
 care-hardiness = Выносливость: { $hardiness } из 5.
+care-crowd = Тесноты боится: { $risk } из 5 — прореживают { $until ->
+        [sprout] на всходах
+       *[leaf] на всходах или в лист
+    }, и выдернутого не вернуть.
+care-weeds = Сорняк полют, когда виден: он пьёт воду и тянет рост.

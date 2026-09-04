@@ -130,6 +130,23 @@ async def _farm_feed(state: dict, db: AsyncSession, message: dict) -> dict:
     return {"fed": str(plot.id), "goods": goods, "stage": stage}
 
 
+@command("farm.weed")
+async def _farm_weed(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Pull the weeds of the bed (D-295): the cover goes to nought, the hands
+    are busy for the action's minutes."""
+    body = await _alive(state, db)
+    plot = await farm.weed(db, current(), current_catalog(), body, await _plot(db, message))
+    return {"weeded": str(plot.id)}
+
+
+@command("farm.thin")
+async def _farm_thin(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Thin the stand (D-295): once, early, at the thinning's own cost."""
+    body = await _alive(state, db)
+    plot = await farm.thin(db, current(), current_catalog(), body, await _plot(db, message))
+    return {"thinned": str(plot.id)}
+
+
 @command("farm.harvest")
 async def _farm_harvest(state: dict, db: AsyncSession, message: dict) -> dict:
     """Harvest. With selection the fund keeps its strength, without it degrades (D-067)."""

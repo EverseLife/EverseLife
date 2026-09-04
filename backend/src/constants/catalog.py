@@ -392,6 +392,9 @@ class Plant(Strict):
     #: How many waterings the vault's model expects per cycle at the reference
     #: climate (D-293): the labour the yield was derived from, not a norm.
     waterings_per_cycle: float = 0
+    weedings_per_cycle: float = 0
+    thinnings_per_cycle: float = 0
+    actions_per_cycle: float = 0
     requires: PlantRequirements
     traits: PlantTraits
     restores_fertility: float = 0
