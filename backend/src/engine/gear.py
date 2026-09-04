@@ -24,6 +24,13 @@ their effect arrives with environment and combat.
 the limit would cease to exist; the slot is the constraint itself, not an
 interface decoration.
 
+**Worn means in the hands** (D-305). The slot names a thing, and a thing goes
+where hands take it; a slot naming a pack that lies on the floor names
+nothing. `is_worn` holds that rule for the whole engine -- the load, the
+exoskeleton's lift, the suit that breathes (`oxygen.suited`) and the suit that
+warms (`frost`) all ask it rather than the bare row -- and `require_off` is the
+same rule said to a player: a worn thing comes off before it goes anywhere.
+
 ## Where the limit is checked
 
 Where the player **takes a thing in hand**: purchase from the terminal,
@@ -32,7 +39,9 @@ wagons, caravans and the carter's profession exist.
 
 What is made at a machine does not fall under the limit: it lies where it was
 made and becomes a load only when taken. Likewise with what is mined at the
-face -- it stays at the face until somebody comes for it.
+face -- it stays at the face until somebody comes for it, and with a machine
+taken down off its stand: `station.take` leaves it lying, and the limit
+answers at the pick-up (D-308).
 
 ## What is not here yet
 
@@ -50,10 +59,11 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.constants import Catalog, Constants
+from src.constants import Catalog, Constants, current_catalog
 from src.constants import registry as R
 from src.engine import battery, events, stock, travel, world
 from src.engine.errors import Refusal
+from src.models.craft import BatchKind, BatchState, CraftBatch
 from src.models.event import EventKind
 from src.models.gear import Equipped
 from src.models.identity import Body, BodyState
@@ -73,15 +83,26 @@ class Overloaded(GearError):
     """No more than the limit is taken in hand. Everything above -- only by vehicle."""
 
 
+class Worn(GearError):
+    """A worn thing is not moved, sold or taken apart: it comes off first."""
+
+
+class Unmade(GearError):
+    """A thing already being taken apart is not put on: the work ends it."""
+
+
 def mass_of(catalog: Catalog, type_key: str, quantity: float) -> float:
     """The mass of this much of this item, kg."""
     return catalog.recipes.mass_of(type_key) * quantity
 
 
-async def load_of(
-    session: AsyncSession, constants: Constants, catalog: Catalog, body: Body
-) -> float:
-    """How much the body carries now, kg. What is worn counts along with everything."""
+async def carried_mass(session: AsyncSession, catalog: Catalog, body: Body) -> float:
+    """The matter in the hands, kg -- before a pack lightens any of it.
+
+    What is worn counts along with everything else. This is the figure a pack
+    is applied to, and the one in which kilograms may be added at all: the
+    felt load is not additive, so two readings of it must never be summed.
+    """
     things = await world.contents(session, await world.body_container(session, body))
     from src.engine import storage  # noqa: PLC0415 -- lazy: storage -> gear (the carry limit)
 
@@ -96,7 +117,31 @@ async def load_of(
         for held in inside.values()
         for thing in held
     )
-    return packed(constants, catalog, await equipped(session, body), own + fill)
+    return own + fill
+
+
+async def load_of(
+    session: AsyncSession, constants: Constants, catalog: Catalog, body: Body
+) -> float:
+    """How much the body carries now, kg. What is worn counts along with everything."""
+    return packed(
+        constants,
+        catalog,
+        await equipped(session, body),
+        await carried_mass(session, catalog, body),
+    )
+
+
+def _pack_of(
+    constants: Constants, catalog: Catalog, worn: dict[str, Item]
+) -> dict[str, float] | None:
+    """The worn pack, or nothing. One back, one pack -- the first found is it."""
+    packs = constants[R.INVENTORY_PACK]
+    for thing in worn.values():
+        pack = packs.get(catalog.recipes.resolve(thing.type_key))
+        if pack:
+            return pack
+    return None
 
 
 def packed(constants: Constants, catalog: Catalog, worn: dict[str, Item], mass: float) -> float:
@@ -106,38 +151,129 @@ def packed(constants: Constants, catalog: Catalog, worn: dict[str, Item], mass: 
     them by its `factor`; packing is implied -- the first kilograms ride in
     it. The rest is carried as it is. The pack raises no limit: that is the
     exoskeleton's business, and the two never compete.
+
+    The line is bent, not scaled: below the capacity a kilogram weighs
+    `factor` of itself, above it a whole one. So the reading of a load is not
+    the sum of the readings of its parts, and a question about a load that is
+    about to change is a question about the whole of it -- `check_carry` and
+    `matter_over` ask it in the two directions.
     """
-    packs = constants[R.INVENTORY_PACK]
-    for thing in worn.values():
-        pack = packs.get(catalog.recipes.resolve(thing.type_key))
-        if pack:
-            inside = min(mass, float(pack["capacity"]))
-            return mass - inside * (1 - float(pack["factor"]))
-    return mass
+    pack = _pack_of(constants, catalog, worn)
+    if pack is None:
+        return mass
+    inside = min(mass, float(pack["capacity"]))
+    return mass - inside * (1 - float(pack["factor"]))
+
+
+def matter_over(
+    constants: Constants, catalog: Catalog, worn: dict[str, Item], mass: float, limit: float
+) -> float:
+    """How much matter must leave a raw load of `mass` for it to fit `limit`, kg.
+
+    `packed` read backwards, and it has to be read backwards rather than
+    subtracted: with a pack the felt excess and the matter that removes it are
+    different kilograms. While the load sits inside the pack's capacity, a
+    kilogram out of the hands lightens the body by `factor` of itself, so
+    putting down the felt excess would leave the body over the limit still.
+    Past the capacity the two agree -- the only case the vault's packs have
+    ever produced, and a tripwire in the tests says so the day one of them
+    grows roomier than the limit.
+
+    Matter, hence the name: `overload.shed` is the door that drops it (D-306),
+    this is only the measure it drops by.
+    """
+    if packed(constants, catalog, worn, mass) <= limit:
+        return 0.0
+    pack = _pack_of(constants, catalog, worn)
+    if pack is None:
+        return mass - limit
+    room, factor = float(pack["capacity"]), float(pack["factor"])
+    #: Inside the pack the limit buys `limit / factor` kilograms of matter;
+    #: past it the pack's whole discount is spent and the rest weighs itself.
+    fits = limit / factor if factor > 0 and limit <= room * factor else limit + room * (1 - factor)
+    return mass - fits
+
+
+async def is_worn(session: AsyncSession, item: Item) -> bool:
+    """Whether this thing is worn **right now** -- the rule, in one place.
+
+    Worn is not a field on the thing and not a row in a table: it is a row and
+    a place together. The slot record points at a thing, and a thing goes
+    where hands take it -- onto the floor, into a chest, over a counter. The
+    record knows nothing of that, and for a while nobody asked: a pack on the
+    ground went on lightening the load, an exoskeleton in a hold went on
+    lifting the limit, a suit sold at the terminal went on breathing for its
+    former owner. So the question is put to the world: a thing is worn while
+    it lies in the pocket of the body whose slot names it.
+
+    A thing the vault gives no slot is answered without asking the database:
+    ore and grain are never worn, and this is asked on every move in the world.
+
+    **Not every reader of gear wants this.** `wear.daily_gear_wear` frays
+    everything of the gear kind in the hands, worn or not, and does not ask
+    here on purpose -- whether that matches its own "wears from wearing" is a
+    question D-305 leaves open, not one to settle by wiring this in. What the
+    slot *does* -- lift, lighten, breathe, warm -- is what asks.
+    """
+
+    if current_catalog().recipes.slot_of(item.type_key) is None:
+        return False
+    found = await session.scalar(
+        select(Equipped.id)
+        .join(Container, Container.owner_id == Equipped.body_id)
+        .where(
+            Equipped.item_id == item.id,
+            Container.kind == ContainerKind.BODY,
+            Container.id == item.container_id,
+        )
+        .limit(1)
+    )
+    return found is not None
+
+
+async def require_off(session: AsyncSession, item: Item) -> None:
+    """A worn thing does not leave the hands until it is taken off (D-305).
+
+    Said in words rather than silently taken off: the slot is a choice, and
+    the world does not undo a player's choice on their behalf.
+    """
+    if await is_worn(session, item):
+        raise Worn(key="gear-worn-take-off-first", goods=item.type_key)
 
 
 async def equipped(session: AsyncSession, body: Body) -> dict[str, Item]:
-    """What is worn: slot -> thing."""
-    lines = (
-        (await session.execute(select(Equipped).where(Equipped.body_id == body.id))).scalars().all()
-    )
-    result: dict[str, Item] = {}
-    for line in lines:
-        thing = await session.get(Item, line.item_id)
-        if thing is not None:
-            result[line.slot] = thing
-    return result
+    """What is worn: slot -> thing. The same rule as `is_worn`, for a whole
+    body at once: a slot naming a thing that is no longer in these hands names
+    nothing."""
+    pocket = await world.body_container(session, body)
+    rows = (
+        await session.execute(
+            select(Equipped.slot, Item)
+            .join(Item, Item.id == Equipped.item_id)
+            .where(Equipped.body_id == body.id, Item.container_id == pocket.id)
+        )
+    ).all()
+    return {slot: thing for slot, thing in rows}
 
 
 async def capacity(
-    session: AsyncSession, constants: Constants, catalog: Catalog, body: Body
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    body: Body,
+    worn: dict[str, Item] | None = None,
 ) -> float:
     """The carry limit with worn gear in mind, kg.
 
     An exoskeleton raises it (D-268) -- while a charged battery rides in the
     hands. Drained, it is a frame that weighs and lifts nothing.
+
+    `worn` is for a caller that has already read it: the load and the limit
+    are two questions about the same slots, and `look` asks both on every
+    glance. Left out, they are read here.
     """
-    worn = await equipped(session, body)
+    if worn is None:
+        worn = await equipped(session, body)
     lift = exo_bonus(constants, catalog, worn)
     if lift > 0 and not await battery.charged_carried(session, constants, body):
         lift = 0.0
@@ -179,6 +315,9 @@ async def wear_exoskeletons(
                     Container.kind == ContainerKind.BODY,
                     Item.type_key.in_(names),
                     Body.state == BodyState.ALIVE,
+                    #: Worn means in these hands (D-305): a frame left on the
+                    #: floor lifts nothing and so drinks nothing either.
+                    Item.container_id == Container.id,
                 )
                 .order_by(Container.id)
             )
@@ -209,14 +348,27 @@ async def check_carry(
     quantity: float,
 ) -> None:
     """Whether this fits in the hands. Did not fit -- not taken, and that is not an error but
-    weight."""
+    weight.
+
+    Weighed as the load **will be**, not as it was plus raw kilograms: a pack
+    that lightens the first kilograms lightens the ones about to arrive too
+    (D-268). Adding the thing's own mass to a load already read through the
+    pack charged full weight for what the pack was going to carry at
+    `factor`, and refused a pickup the body could make.
+    """
     bonus = mass_of(catalog, type_key, quantity)
     if bonus <= 0:
         return
-    carries = await load_of(session, constants, catalog, body)
-    limit = await capacity(session, constants, catalog, body)
-    if carries + bonus > limit:
-        raise Overloaded(key="gear-overloaded", carries=carries, limit=limit, extra=bonus)
+    worn = await equipped(session, body)
+    mass = await carried_mass(session, catalog, body)
+    carries = packed(constants, catalog, worn, mass)
+    after = packed(constants, catalog, worn, mass + bonus)
+    limit = await capacity(session, constants, catalog, body, worn)
+    if after > limit:
+        #: The refusal names what the body would feel, not what the thing
+        #: weighs on the ground: the three figures in the message have to add
+        #: up for whoever reads it.
+        raise Overloaded(key="gear-overloaded", carries=carries, limit=limit, extra=after - carries)
 
 
 async def equip(
@@ -248,6 +400,21 @@ async def equip(
     pocket = await world.body_container(session, body)
     if item.container_id != pocket.id:
         raise GearError(key="gear-not-in-hands")
+    #: A thing under the knife is not put on (D-305): recycling ends it, and
+    #: the slot would empty itself when the batch finished. Repair is the
+    #: opposite case and deliberately not here -- gear is mended without being
+    #: taken off, and the batch works on the row where it lies.
+    unmade = await session.scalar(
+        select(CraftBatch.id)
+        .where(
+            CraftBatch.target_item_id == item.id,
+            CraftBatch.kind == BatchKind.RECYCLE,
+            CraftBatch.state != BatchState.DONE,
+        )
+        .limit(1)
+    )
+    if unmade is not None:
+        raise Unmade(key="gear-taken-apart", goods=item.type_key)
 
     previous_ = (
         await session.execute(
@@ -258,6 +425,18 @@ async def equip(
         if previous_.item_id == item.id:
             return slot
         await session.delete(previous_)
+        await session.flush()
+
+    #: A slot row outlives the thing leaving the hands, and one row is all a
+    #: thing gets: without this, a pack somebody wore and sold could never be
+    #: worn again -- the buyer got a unique-key error instead of an answer.
+    #: The thing is in these hands, so whoever the old row names is not
+    #: wearing it (D-305), and the row is theirs no longer.
+    stale = (
+        await session.execute(select(Equipped).where(Equipped.item_id == item.id))
+    ).scalar_one_or_none()
+    if stale is not None:
+        await session.delete(stale)
         await session.flush()
 
     session.add(Equipped(body_id=body.id, slot=slot, item_id=item.id))
@@ -295,18 +474,3 @@ async def unequip(session: AsyncSession, body: Body, slot: str) -> Item | None:
         slot=slot,
     )
     return thing
-
-
-async def drop_missing(session: AsyncSession, item_id: uuid.UUID) -> None:
-    """Remove the worn record if the thing is gone.
-
-    A thing may run out by wear or go to the market -- the slot must not
-    remember what does not exist.
-    """
-
-    line = (
-        await session.execute(select(Equipped).where(Equipped.item_id == item_id))
-    ).scalar_one_or_none()
-    if line is not None:
-        await session.delete(line)
-        await session.flush()

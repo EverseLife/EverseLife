@@ -12,11 +12,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
 from src.constants import registry as R
+from src.engine import gear, world
 from src.engine import ship as vessels
-from src.engine import world
 from src.engine.oxygen._base import SUIT
 from src.engine.ship import lines
-from src.models.gear import Equipped
 from src.models.identity import Body
 from src.models.inventory import Container, ContainerKind, Item
 from src.models.ship import Ship
@@ -89,19 +88,14 @@ def hull_draw(constants: Constants, crew: int) -> float:
 
 
 async def suited(session: AsyncSession, catalog: Catalog, body: Body) -> bool:
-    """Whether a suit is worn. Not carried -- worn: the suit is the connection."""
-    worn = (
-        (
-            await session.execute(
-                select(Item)
-                .join(Equipped, Equipped.item_id == Item.id)
-                .where(Equipped.body_id == body.id)
-            )
-        )
-        .scalars()
-        .all()
-    )
+    """Whether a suit is worn. Not carried -- worn: the suit is the connection.
+
+    Worn is asked of `gear`, which asks it of the world (D-305): a suit sold at
+    the counter or dropped in a hold used to go on breathing for its former
+    owner, because the slot row outlives the thing leaving the hands.
+    """
     suits = world.station_names(SUIT)
+    worn = (await gear.equipped(session, body)).values()
     return any(catalog.recipes.resolve(thing.type_key) in suits for thing in worn)
 
 

@@ -25,6 +25,11 @@ new one in the vault and it is placeable without a code change (D-090). The
 one difference between them: one works at a station, furniture furnishes the
 household (a bed -- hibernation, a shelf -- storage), and the client shows
 them in separate windows.
+
+Standing and being carried are **two** doors, not one (D-308): `take` unbolts
+the thing and leaves it lying where it stood, and the hands take it off the
+floor through `storage.pick`, where the carry limit stands (D-146). One door
+had let a body pocket a machine it could never have lifted.
 """
 
 from __future__ import annotations
@@ -36,14 +41,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Catalog, current
 from src.constants import registry as R
 from src.constants.catalog import ItemKind
+from src.db.base import forget
 from src.engine import city as town
 from src.engine import craft, estate, events, storage, travel, world
 from src.engine.errors import Refusal
-from src.models.city import Power
+from src.models.city import City, Power
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState
 from src.models.inventory import Item
 from src.models.world import Node, storey_of
+from src.units import amount_float
 
 
 class StationError(Refusal):
@@ -57,6 +64,14 @@ class NotStation(StationError):
 class NotYours(StationError):
     """The node is not yours. A machine is placed at your own place -- that is the point of a
     home."""
+
+
+class OnePrinter(StationError):
+    """A city has one bioprinter, and a second one is not put up beside it."""
+
+
+class CityPlaces(StationError):
+    """Inside a city a bioprinter is put up by the city, not by whoever holds the plot."""
 
 
 class Busy(StationError):
@@ -126,6 +141,61 @@ async def may_build(session: AsyncSession, body: Body, node: Node) -> bool:
     return city is not None and await town.may(session, body.identity_id, city, Power.LAWS)
 
 
+async def require_printer_room(
+    session: AsyncSession, body: Body, node: Node, *, lock: bool = False
+) -> None:
+    """Whether a bioprinter may go up in this place at all (D-312).
+
+    Two rules, and both are about the city rather than the machine:
+
+    * **one city, one printer.** While the city has one, no second goes up
+      anywhere on its land -- not on civic ground, not in a private yard, not
+      by the authority itself. The centre of a city is the machine it counts
+      its land from (D-307) and the door its newcomers come through (D-208),
+      and both of those are answers that must not have a second candidate: with
+      one standing, `city.core` can never change its mind;
+    * **and the city puts it up.** Lost the machine, the city has no centre and
+      no door until the authority restores one. Leaving that to whoever holds a
+      plot would hand the city's door to a private yard -- which is the very
+      thing D-208 refuses -- and would move every land rate in town by one
+      person's decision.
+
+    Outside a city nothing is refused: land beyond the walls is nobody's, a
+    printer on it opens no door (`world.is_door`), and a city is founded where
+    one already stands (D-023). That is the road a new city takes.
+
+    Says nothing about the printers already standing: a world seeded before
+    this rule keeps what it has, and the capital keeps the several it was built
+    with. The rule is about putting one up, not about owning one.
+    """
+
+    city = await town.of_node(session, node)
+    if city is None:
+        return
+    #: The prison is the exception, and a named one (D-174): it prints the
+    #: prisoners who die on the spot, or a death in the face becomes an escape
+    #: through the capital. Its machine is nobody's centre and nobody's door
+    #: (`city.core`, `world.is_door`), so it neither counts as the city's one
+    #: printer nor is refused for it -- and building the penal colony is the
+    #: city's business anyway, by the right to the ground it stands on.
+    from src.engine import justice  # noqa: PLC0415 -- lazy: breaks the cycle with justice
+
+    if await justice.is_prison(session, node):
+        return
+    #: The city's row is taken before the question is asked, and only in the
+    #: doors that write: two hands putting a printer up in one printerless city
+    #: must not both read "none" and both stand one. `craft.plan` asks the same
+    #: question as a read and takes nothing -- a forecast that locks a row is a
+    #: read that waits (CLAUDE.md).
+    if lock:
+        await session.execute(select(City.id).where(City.id == city.id).with_for_update())
+        forget(session)
+    if await town.has_printer(session, city):
+        raise OnePrinter(key="station-city-has-printer", city=city.name)
+    if not await town.may(session, body.identity_id, city, Power.LAWS):
+        raise CityPlaces(key="station-printer-by-the-city", city=city.name)
+
+
 async def place(session: AsyncSession, catalog: Catalog, body: Body, item: Item) -> Item:
     """Put a machine or furniture up in the node's building: from the hands, or
     off the floor it lies on (D-278).
@@ -166,6 +236,12 @@ async def place(session: AsyncSession, catalog: Catalog, body: Body, item: Item)
         raise NotStation(key="station-not-placeable", goods=item.type_key)
     if not await may_build(session, body, node):
         raise NotYours(key="station-node-not-yours")
+    #: After the right to the place, not before it: somebody standing in
+    #: another's yard hears whose yard it is, which is the plainer answer. The
+    #: printer's own door (D-312) is for those who got past that one -- and the
+    #: holder of a plot inside a city is exactly who gets past it.
+    if item.type_key in world.station_names(world.BIOPRINTER):
+        await require_printer_room(session, body, node, lock=True)
 
     #: The building is capacity: `build.slots_per_area` m2 per thing. No
     #: building -- no room; the yard stays a yard. The plot row is taken for
@@ -205,7 +281,27 @@ async def place(session: AsyncSession, catalog: Catalog, body: Body, item: Item)
 
 
 async def take(session: AsyncSession, catalog: Catalog, body: Body, item: Item) -> Item:
-    """Take a machine or furniture back into the hands. One busy with work is not given up."""
+    """Take a machine or furniture **down**: it stops standing and lies where it stood.
+
+    Two doors, not one (D-308). This one unbolts the thing: it leaves the
+    slots and becomes cargo on the surface it stood on -- the floor of the
+    house, the ground where there is no house. Into the hands it goes through
+    the second door, `storage.pick`, and there the carry limit stands as it
+    stands at every door a thing is taken through (D-146). Until D-308 this
+    door did both at once and asked nothing, and a body pocketed a tank of
+    sixty-nine kilograms on a limit of thirty.
+
+    Whose the place is, is asked here and only here: a guest's `storage.pick`
+    refuses what stands (D-278), so the host's workbench is never carried off
+    past the host's door. Once the host has taken it down it lies like any
+    other cargo, and the floor is open to whoever the door let in (D-204) --
+    with one asymmetry the sack of ore beside it does not have: the heavy ones,
+    the thirteen this door was fixed for, the host cannot pick back up either.
+    What closes the window is standing it up again (`place` takes it off the
+    floor) or shutting the door, and whether that is enough is **OQ-131**.
+
+    One busy with work is not given up.
+    """
     if body.state is not BodyState.ALIVE:
         raise StationError(key="station-dead-takes")
     await travel.require_here(session, body)
@@ -213,6 +309,16 @@ async def take(session: AsyncSession, catalog: Catalog, body: Body, item: Item) 
     node = await session.get(Node, body.node_id)
     if node is None:  # pragma: no cover
         raise StationError(key="station-body-off-node")
+    #: The thing's own row first, and the plot's after it -- the order
+    #: `place` locks in, because the two doors meet on the same pair. And the
+    #: thing may be gone between the look and the click: the world's ordinary
+    #: answer, said in words (D-011). The name is read first: a failed refresh
+    #: leaves none.
+    named = item.type_key
+    try:
+        await session.refresh(item, with_for_update=True)
+    except InvalidRequestError as gone:
+        raise StationError(key="thing-gone", goods=named) from gone
     yard = await world.node_container(session, node)
     if item.container_id != yard.id:
         raise StationError(key="station-not-in-node")
@@ -228,30 +334,54 @@ async def take(session: AsyncSession, catalog: Catalog, body: Body, item: Item) 
     if not placeable(catalog, item.type_key):
         raise NotStation(key="station-not-a-station", goods=item.type_key)
     #: Built in place (D-268): a furnace, a column, a printer stand where they
-    #: were made and do not fit in anybody's hands.
+    #: were made and are not taken down at all.
     if catalog.recipes.built(item.type_key):
         raise NotStation(key="station-built-in-place", goods=item.type_key)
     if not await may_build(session, body, node):
         raise NotYours(key="station-take-not-yours")
     if item.busy_body_id is not None:
         raise Busy(key="station-busy")
-    #: A full chest is not carried away (D-181): otherwise "take the furniture"
-    #: would become a way to carry a ton of cargo in the pocket past the carry limit (D-146).
+    #: A full chest is not taken down (D-181). The reason moved with D-308:
+    #: it is no longer the pocket -- taking down fills no pocket -- but the
+    #: pick-up after it, which weighs the chest and not what is in it, so a
+    #: full one would leave in the hands with a ton nobody weighed.
+    #: The rule that a lying chest is cargo and not a storage is D-278's, and
+    #: the engine does not yet ask it (`storage._allowed` never looks at
+    #: `installed`): the same ton goes round this door through drop-fill-pick,
+    #: and that is **OQ-129**, older than this guard and not closed by it.
 
     if storage.is_storage(catalog, item.type_key) and not await storage.is_empty(session, item):
         raise NotEmpty(key="station-not-empty", chest=item.type_key)
 
-    pocket = await world.body_container(session, body)
-    item.container_id = pocket.id
-    #: In the hands there is no sky to be under: the mark means nothing here,
-    #: and a stale one would travel back out with the thing (D-244).
-    item.outdoors = False
+    #: The plot's row for the transaction: what stands pays by slots and what
+    #: lies pays by area (D-192, D-278), so taking down is a move between two
+    #: budgets, and two hands taking down onto the last free metre must not
+    #: both count it free (CLAUDE.md, the remainder rule).
+    await session.execute(select(Node.id).where(Node.id == node.id).with_for_update())
+    constants = current()
+    #: The surface is the node's, the one a person would name and `storage.drop`
+    #: asks for: a machine stands in a building, so it comes to lie on its
+    #: floor. Not the thing's own mark -- out of the hands everything arrives
+    #: "under a roof", so the mark would answer for the hands rather than for
+    #: the place. Its own slot comes back with the same move, and the floor is
+    #: measured with that place already given back.
+    inside = await storage.require_room(
+        session,
+        constants,
+        catalog,
+        node,
+        item.type_key,
+        amount_float(item.amount),
+        spare_indoors=constants[R.BUILD_SLOTS_PER_AREA],
+    )
+
+    item.outdoors = not inside
     item.installed = False
     #: A generator's stamp is the hour its output was last settled (D-288,
-    #: `battery.tick_offgrid`). Carried off it settles nothing, and put up
+    #: `battery.tick_offgrid`). Taken down it settles nothing, and put up
     #: again it must start from that moment rather than be credited the
-    #: months in the bag. A cell keeps its stamp: its charge leaks in the
-    #: hands as it does anywhere, and the stamp is what the leak is counted by.
+    #: months it lay. A cell keeps its stamp: its charge leaks lying as it
+    #: does anywhere, and the stamp is what the leak is counted by.
     if item.charge is None:
         item.charged_at = None
     await session.flush()

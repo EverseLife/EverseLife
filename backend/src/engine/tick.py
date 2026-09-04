@@ -180,6 +180,14 @@ async def _oxygen(session: AsyncSession, now: datetime) -> dict[str, Any]:
     return {"air_breathed": round(breathed, ROUND_MASS), "choked": lost + outside}
 
 
+async def _distances(session: AsyncSession, now: datetime) -> dict[str, Any]:
+    #: How far a plot is from its city's printer is a cache, and a read may not
+    #: fill it (CLAUDE.md): the plot screen used to write a row per plot from
+    #: inside `look`. Emptied wherever a road is laid (`estate.forget_distances`),
+    #: filled here. Costs one lookup per city while there is nothing to measure.
+    return {"cities_measured": await estate.measure_cities(session)}
+
+
 async def _sky(session: AsyncSession, now: datetime) -> dict[str, Any]:
     #: The sky is flown, not tabled (D-289): every hull under an order is
     #: stepped to now -- the helm, the burn, the pull of five bodies -- and a
@@ -273,6 +281,7 @@ WORLD_STEPS: dict[str, tuple[Step, str]] = {
     "exoskeletons": (_exoskeletons, "first"),
     "oxygen": (_oxygen, "first"),
     "sky": (_sky, "first"),
+    "distances": (_distances, "first"),
 }
 DAILY_STEPS: dict[str, tuple[Step, str]] = {
     "wear": (_wear, "first"),

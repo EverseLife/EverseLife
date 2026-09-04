@@ -348,7 +348,8 @@ async def test_demolition_waits_for_the_yard_to_empty(
     with pytest.raises(estate.NoRoom):
         await estate.demolish(session, constants, body, plot)
 
-    #: Taken into the hands -- and the way is clear.
+    #: Taken down -- it lies on the floor by weight instead of standing in a
+    #: place (D-308), and the way is clear: the blocker counts places.
     await station.take(session, catalog, body, bench)
     assert await estate.demolish_blockers(session, constants, plot) == []
     assert await estate.demolish(session, constants, body, plot) is not None

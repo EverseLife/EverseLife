@@ -32,6 +32,18 @@
 .goods td.mass .note {
   margin: 0;
 }
+/* Worn gear is a list of slots rather than of goods (D-305): the slot names
+   the row and the row is empty as often as it is full, so the first column is
+   a label and the last is the one verb the block keeps. Both hold their width;
+   the name and the note wrap instead, as everywhere in this table. */
+.goods.gear td.slot,
+.goods.gear td.act {
+  width: 1%;
+  white-space: nowrap;
+}
+.goods.gear td.act {
+  text-align: right;
+}
 .goods tr .dots {
   opacity: 0;
   transition: opacity 0.1s;
