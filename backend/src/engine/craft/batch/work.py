@@ -54,6 +54,16 @@ from src.units import (
 )
 
 
+def _tool_ids(tools: tuple[Item, ...] | list[Item]) -> list[str] | None:
+    """The tools of a batch, as the row stores them (D-309).
+
+    Empty means no tool at all -- a recipe at a bench asks for none -- and the
+    column stays null rather than holding an empty list: a key that would carry
+    nothing is not written down.
+    """
+    return [str(tool.id) for tool in tools] or None
+
+
 async def plan(
     session: AsyncSession,
     constants: Constants,
@@ -242,7 +252,11 @@ async def start(
         output=forecast.output,
         units=amount(forecast.units),
         station=None if ready.station is None else ready.station.type_key,
-        tool_item_id=tool_item_id,
+        #: The tools the requirements resolved to, not the one the client
+        #: happened to name: they wear by the hours worked (D-309), and a
+        #: batch that forgot them would wear nothing at all -- which is how
+        #: the axe stayed eternal while the pickaxe did not.
+        tool_item_ids=_tool_ids(ready.tools),
         quality=_num(forecast.quality),
         spread=_num(forecast.spread),
         spent=forecast.consumes,
@@ -329,7 +343,7 @@ async def cook(
         needs_recipe=True,
     )
     station = await _station_item(session, body, proc)
-    tools = await _tool_items(session, catalog, body, proc, None)
+    tools, _ = await _tool_items(session, catalog, body, proc, None)
     ceiling = min(wear.effective(constants, item) for item in [station, *tools])
 
     #: Into each filled role goes one unit of product per whole pot.
@@ -381,6 +395,9 @@ async def cook(
         output=recipe.type_key,
         units=amount(portions),
         station=None if station is None else station.type_key,
+        #: The pot wears from cooking like the axe from felling (D-309): it is
+        #: a tool of the work, and it sets the ceiling beside the hearth (D-119).
+        tool_item_ids=_tool_ids(tools),
         quality=_num(quality),
         spread=_num(constants[R.QUALITY_SPREAD_GOOD_RATIO]),
         spent=consumed,

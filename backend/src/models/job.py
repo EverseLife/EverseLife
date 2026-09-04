@@ -111,6 +111,18 @@ class Job(Base):
             postgresql_where=text("state = 'pending'"),
         ),
         Index("ix_job_state_kind", "state", "kind"),
+        #: What the body is at (D-211, D-310), asked in every `look`. The
+        #: lookup is `body_id AND kind IN (...) AND state IN (pending, running)`,
+        #: and without this it ran off (state, kind) and filtered the body out
+        #: by hand -- over a set that grows with the number of players and now
+        #: holds the longest-lived pending work in the game, a build and a road.
+        #: Partial: the journal keeps every job that ever ran (D-007), and the
+        #: finished ones are no part of this question.
+        Index(
+            "ix_job_body_running",
+            "body_id",
+            postgresql_where=text("state in ('pending', 'running')"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = uuid_pk()

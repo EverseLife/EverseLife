@@ -8,6 +8,7 @@ import { useState } from "react";
 import * as api from "../../api";
 import { tally } from "../../amounts";
 import { useNames, useSession } from "../../actions";
+import { busyWith } from "../../busy";
 import { t } from "../../locale";
 import { goodsName } from "../../names";
 import type { Props } from "./shared";
@@ -24,6 +25,9 @@ export function Demolition({ look, busy, act }: Props) {
   const names = useNames();
   const [plan, setPlan] = useState<any>(null);
   const going = api.houseOf(look.node).sites.length > 0;
+  //: Taking a house apart is an occupation (D-310): grey with the reason on
+  //: it, rather than a refusal after the click.
+  const occupied = busyWith(look);
 
   const count = async () => {
     setPlan(await session.send("build.demolish_estimate"));
@@ -69,21 +73,23 @@ export function Demolition({ look, busy, act }: Props) {
                   setPlan(null);
                 })
               }
-              disabled={busy || blocking.length > 0 || !plan.mine}
+              disabled={busy || blocking.length > 0 || !plan.mine || occupied !== null}
               title={
-                blocking.length > 0
+                occupied ??
+                (blocking.length > 0
                   ? t("ui-place-demolition-blocked-hint")
-                  : t("ui-place-demolition-hint")
+                  : t("ui-place-demolition-hint"))
               }
             >
               {t("ui-place-demolition-do", { area: plan.area.toFixed(0) })}
             </button>
             <span className="note">
-              {blocking.length > 0
-                ? t("ui-place-demolition-blocking", { what: blocking.join("; ") })
-                : t("ui-place-demolition-term", {
-                    hours: (plan.minutes / 60).toFixed(1),
-                  })}
+              {occupied ??
+                (blocking.length > 0
+                  ? t("ui-place-demolition-blocking", { what: blocking.join("; ") })
+                  : t("ui-place-demolition-term", {
+                      hours: (plan.minutes / 60).toFixed(1),
+                    }))}
             </span>
           </div>
         </>

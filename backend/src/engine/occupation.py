@@ -11,10 +11,21 @@ and a sleeper gaining stamina, all on the same hour. D-209 added a fourth on
 purpose -- a batch went on while the master slept, "the body is on the spot".
 
 An occupation is what takes the body's time: the road, the field, sleep, the
-search, work on a plot, a keel at a yard, a batch at a machine, a working face.
-Starting a second one while the first runs is refused, and the refusal names
-what the body is at and until when -- so that the player has a decision to make
-("finish the search, then lie down") rather than a mystery.
+search, work on a plot, a keel at a yard, a batch at a machine, a working face,
+and since D-310 the three works on land that used to hold nothing -- a house
+going up, a house coming down, a surface being laid. Starting a second one
+while the first runs is refused, and the refusal names what the body is at and
+until when -- so that the player has a decision to make ("finish the search,
+then lie down") rather than a mystery.
+
+## Holding the hands is not holding the feet
+
+None of this forbids walking away: the road asks presence, not freedom, and it
+never asked. What each occupation makes of a departure is its own business --
+a batch freezes (D-209), a repair stops (D-218), a search is abandoned -- and a
+build simply goes on, because the timber is already in the wall and the house
+rises by its own clock (D-131). So a builder may leave the yard; what they may
+not do is start a second work with the same pair of hands.
 
 ## Why this lives apart from `travel.require_here`
 
@@ -71,11 +82,33 @@ KEEL = "keel"
 #: A watering or a feeding of a bed (D-296): the hands are busy for the
 #: action's minutes, the effect was written when the button was pressed.
 CARE = "care"
+#: The three works on land that used to hold nothing (D-310): a house going
+#: up, a house coming down, a surface being laid. Each is a body's day of
+#: labour, and each used to run beside a search or a felling for free.
+BUILD = "build"
+DEMOLISH = "demolish"
+#: Not `road`: that word is the body walking one. This is the body **laying**
+#: one (D-158), and the two are told apart by the client on this very id.
+PAVING = "paving"
 
 #: Every kind there is. Written down rather than inferred because each one
 #: owes the locale a one-word title under `doing-<kind>` (see `Doing.title`),
 #: and a kind added without its word would show the player the key instead.
-KINDS: tuple[str, ...] = (ROAD, FIELD, SLEEP, FORAGE, PLOT, MINE, CRAFT, MEND, KEEL, CARE)
+KINDS: tuple[str, ...] = (
+    ROAD,
+    FIELD,
+    SLEEP,
+    FORAGE,
+    PLOT,
+    MINE,
+    CRAFT,
+    MEND,
+    KEEL,
+    CARE,
+    BUILD,
+    DEMOLISH,
+    PAVING,
+)
 
 
 @dataclass(frozen=True)
@@ -157,7 +190,15 @@ async def _foraging(session: AsyncSession, body: Body, jobs: Journal) -> Doing |
 #: The occupations the journal knows about: a job of this body's, still
 #: pending. All three are asked in one query -- `all_of` runs in every `look`,
 #: and three round-trips for one answer is three.
-_JOURNAL = (JobKind.FARM_PLOW, JobKind.FARM_CARE, JobKind.BUILD_REPAIR, JobKind.SHIP_KEEL)
+_JOURNAL = (
+    JobKind.FARM_PLOW,
+    JobKind.FARM_CARE,
+    JobKind.BUILD_REPAIR,
+    JobKind.SHIP_KEEL,
+    JobKind.BUILD_FINISH,
+    JobKind.BUILD_DEMOLISH,
+    JobKind.ROAD_WORK,
+)
 
 
 async def _own_jobs(session: AsyncSession, body: Body) -> dict[str, Job]:
@@ -265,6 +306,45 @@ async def _keeling(session: AsyncSession, body: Body, jobs: Journal) -> Doing | 
     )
 
 
+async def _building(session: AsyncSession, body: Body, jobs: Journal) -> Doing | None:
+    """A house of this body's going up (D-310).
+
+    The materials went into the wall when the button was pressed and the house
+    arrives hours later (D-131). Between those two moments the work was visible
+    only from the yard it stands in: walk off to fell timber and the plot looks
+    empty, the sack is empty too, and nothing anywhere says why. One job kind
+    covers both doors into a build -- the one-motion one and a site's (D-266).
+    """
+    job = await jobs.of(JobKind.BUILD_FINISH)
+    if job is None:
+        return None
+    return Doing(BUILD, Says("doing-build-what"), job.run_at)
+
+
+async def _demolishing(session: AsyncSession, body: Body, jobs: Journal) -> Doing | None:
+    """A house of this body's coming down (D-205, D-310).
+
+    Building's own shape in reverse: the work goes by time, and part of the
+    material comes back at its end.
+    """
+    job = await jobs.of(JobKind.BUILD_DEMOLISH)
+    if job is None:
+        return None
+    return Doing(DEMOLISH, Says("doing-demolish-what"), job.run_at)
+
+
+async def _paving(session: AsyncSession, body: Body, jobs: Journal) -> Doing | None:
+    """A surface this body is laying on an edge (D-158, D-310).
+
+    The surface is written off at the order and the road rises on schedule --
+    the same shape as a build, on a road instead of a plot.
+    """
+    job = await jobs.of(JobKind.ROAD_WORK)
+    if job is None:
+        return None
+    return Doing(PAVING, Says("doing-paving-what"), job.run_at)
+
+
 async def _crafting(session: AsyncSession, body: Body, jobs: Journal) -> Doing | None:
     """A batch of this body's that is actually moving.
 
@@ -301,6 +381,9 @@ _LOOKUP: tuple[
     (PLOT, _ploughing),
     (CARE, _caring),
     (MEND, _mending),
+    (BUILD, _building),
+    (DEMOLISH, _demolishing),
+    (PAVING, _paving),
     (KEEL, _keeling),
     (CRAFT, _crafting),
 )

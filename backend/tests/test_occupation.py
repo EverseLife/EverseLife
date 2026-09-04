@@ -1,12 +1,13 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Nurlan Urazkulov
 
-"""One body, one occupation (D-211).
+"""One body, one occupation (D-211, D-310).
 
 Checked is what the rule was introduced for -- three advances on one pair of
 hands. Before it a body could hold a search on the empty land, a plot under
 the plough and a night's sleep at the same hour, and D-209 let a batch run
-through that sleep on top.
+through that sleep on top. D-310 closed the last three that slipped past it:
+a house going up, a house coming down, a surface being laid.
 
 * a second occupation is refused, and the refusal names the first one;
 * the plough holds the hands even when the plot is somebody's whole day away:
@@ -27,9 +28,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src import i18n
 from src.constants import Catalog, Constants
-from src.engine import craft, farm, forage, occupation, rest, world
+from src.constants import registry as R
+from src.engine import craft, estate, farm, forage, occupation, rest, road, travel, world
 from src.models.craft import BatchState
 from src.models.farm import PlotState
+from src.models.job import JobState
 
 INGOT = "iron_ingot"
 NAILS = "nails"
@@ -274,3 +277,201 @@ async def test_the_queue_is_seen_through_orders(
     assert rows[str(second.id)]["waiting"] == "queued"
     assert rows[str(second.id)]["node"] == node.name
     assert rows[str(first.id)]["station"] is None
+
+
+# --- the works on land (D-310) ------------------------------------------------
+
+
+async def _woodland(session: AsyncSession, *, area: float = 400):
+    """A forest of one's own: there is timber to fell and room to build on."""
+    stamp = uuid.uuid4().hex[:8]
+    node = await world.create_node(
+        session,
+        f"terra.woods.{stamp}",
+        "Бор",
+        area_m2=area,
+        properties={"woods": True},
+    )
+    identity = await world.create_identity(session, f"Хозяин-{stamp}")
+    body = await world.print_body(session, identity, node)
+    node.owner_identity_id = identity.id
+    await session.flush()
+    return node, identity, body
+
+
+async def _materials(session: AsyncSession, constants: Constants, body, area: float) -> None:
+    """What a house of this size takes, and one unit over."""
+    for name, quantity in estate.estimate(
+        constants, footprint=area, floors=1, kind=estate.kinds(constants)[0]
+    ).items():
+        await _give(session, body, name, quantity + 1)
+
+
+async def test_a_build_holds_the_hands_and_says_so(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The case reported: felling went on beside a house going up (D-310).
+
+    The house is put up by a body, and a body already at something has none to
+    spare -- so the felling is refused, and the refusal names the build.
+    """
+    node, _, body = await _woodland(session)
+    await _materials(session, constants, body, 20.0)
+    await _give(session, body, "axe", 1)
+
+    await estate.construct(session, constants, body, node, 20.0)
+
+    doing = await occupation.current(session, body)
+    assert doing is not None and doing.kind == occupation.BUILD
+    assert doing.title == "doing-build"
+    assert doing.until is not None, "у стройки есть срок"
+
+    with pytest.raises(occupation.Busy) as refusal:
+        await craft.start(session, constants, catalog, body, "wood", 1, way="logging")
+    assert refusal.value.key == "occupation-busy"
+    assert refusal.value.inner["what"][0].key == "doing-build-what"
+
+
+async def test_a_build_is_drawn_in_the_list_from_anywhere(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """Walking off the yard used to leave the house invisible: the plot looked
+    empty, the sack was empty, and nothing said why.
+    """
+    node, _, body = await _woodland(session)
+    await _materials(session, constants, body, 20.0)
+    await estate.construct(session, constants, body, node, 20.0)
+
+    #: The body goes elsewhere -- the work is its own, not the plot's.
+    away = await world.create_node(
+        session, f"terra.away.{uuid.uuid4().hex[:8]}", "Тропа", area_m2=100
+    )
+    body.node_id = away.id
+    await session.flush()
+
+    doings = await occupation.all_of(session, body)
+    assert [(one.kind, one.says.key) for one in doings] == [(occupation.BUILD, "doing-build-what")]
+
+
+async def test_a_second_build_is_refused(session: AsyncSession, constants: Constants) -> None:
+    """Two houses at once, even on two plots: one pair of hands (D-310)."""
+    node, identity, body = await _woodland(session)
+    await _materials(session, constants, body, 20.0)
+    await _materials(session, constants, body, 20.0)
+    await estate.construct(session, constants, body, node, 20.0)
+
+    second = await world.create_node(
+        session, f"terra.plot.{uuid.uuid4().hex[:8]}", "Второй участок", area_m2=400
+    )
+    second.owner_identity_id = identity.id
+    body.node_id = second.id
+    await session.flush()
+
+    with pytest.raises(occupation.Busy):
+        await estate.construct(session, constants, body, second, 20.0)
+
+
+async def test_taking_a_house_apart_holds_the_hands(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """Demolition is building's own shape in reverse, and it holds the same hands."""
+    node, _, body = await _woodland(session)
+    await _materials(session, constants, body, 20.0)
+    job = await estate.construct(session, constants, body, node, 20.0)
+    await estate.finish_build(session, job)
+    #: The worker closes a finished job; a pending one would read as a build
+    #: still going on -- which is exactly what this file now tests for.
+    job.state = JobState.DONE
+    await session.flush()
+
+    await estate.demolish(session, constants, body, node)
+    doing = await occupation.current(session, body)
+    assert doing is not None and doing.kind == occupation.DEMOLISH
+    assert doing.title == "doing-demolish" and doing.until is not None
+
+    with pytest.raises(occupation.Busy):
+        await forage.start(session, constants, body)
+
+
+async def test_laying_a_surface_holds_the_hands(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A road is laid by a body too (D-158, D-310) -- and it is not the road walked."""
+    stamp = uuid.uuid4().hex[:8]
+    here = await world.create_node(session, f"terra.rda.{stamp}", "Здесь", area_m2=100)
+    there = await world.create_node(session, f"terra.rdb.{stamp}", "Там", area_m2=100)
+    edge = await travel.connect(session, here, there, base_seconds=600)
+    identity = await world.create_identity(session, f"Дорожник-{stamp}")
+    body = await world.print_body(session, identity, here)
+    await _give(session, body, "road_paving", constants[R.ROAD_SURFACE_PER_EDGE])
+
+    await road.lay(session, constants, catalog, body, edge)
+
+    doing = await occupation.current(session, body)
+    assert doing is not None and doing.kind == occupation.PAVING, (
+        "укладка — своё дело, а не «путь»: по этому id клиент их и различает"
+    )
+    assert doing.title == "doing-paving" and doing.until is not None
+
+    with pytest.raises(occupation.Busy):
+        await forage.start(session, constants, body)
+
+
+def test_every_kind_owes_a_word_in_every_language() -> None:
+    """A kind added without its one-word title shows the player the key."""
+    for kind in occupation.KINDS:
+        for locale in i18n.LOCALES:
+            said = i18n.render(f"doing-{kind}", locale=locale)
+            assert said and said != f"doing-{kind}", (kind, locale)
+
+
+async def test_a_site_is_not_started_by_busy_hands(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The other door into a build (D-266) keeps the same rule as the one-motion one."""
+    node, _, body = await _woodland(session)
+    site = await estate.lay_site(session, constants, body, node, 20)
+    for name, quantity in site.needed.items():
+        await _give(session, body, name, quantity)
+        await estate.contribute_to_site(session, constants, catalog, body, site, name, quantity)
+
+    await forage.start(session, constants, body)
+    strength = float(body.stamina)
+    with pytest.raises(occupation.Busy):
+        await estate.start_site(session, constants, body, site)
+    #: And the strength is untouched: the check stands before the price.
+    assert float(body.stamina) == strength
+
+    await forage.stop(session, body)
+    await estate.start_site(session, constants, body, site)
+    doing = await occupation.current(session, body)
+    assert doing is not None and doing.kind == occupation.BUILD
+
+
+async def test_the_builder_may_sleep_under_the_rising_roof(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """The works on land hold the hands, not the night (D-310).
+
+    They run by their own clock -- the house rises whether its builder is on
+    the plot, on the road or asleep -- so lying down neither stops them nor
+    earns anything the waking hours would not have. Refusing it would kill the
+    builder: the vault's own example house is twenty-three days of building,
+    and even a hut of twenty metres outlasts a night.
+    """
+    node, _, body = await _woodland(session)
+    await _materials(session, constants, body, 20.0)
+    await estate.construct(session, constants, body, node, 20.0)
+    body.stamina = body.stamina.__class__("10")
+
+    #: What the build forbids is unchanged -- checked awake, because a sleeper
+    #: is refused everything in person by the door before this one (D-091).
+    with pytest.raises(occupation.Busy):
+        await forage.start(session, constants, body)
+
+    await rest.sleep(session, constants, body)
+    assert body.sleeping_since is not None
+
+    #: Both are running now, and the list says so: the sleeper is not idle land.
+    kinds = {doing.kind for doing in await occupation.all_of(session, body)}
+    assert kinds == {occupation.BUILD, occupation.SLEEP}

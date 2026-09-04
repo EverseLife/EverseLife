@@ -697,3 +697,82 @@ async def test_a_loaf_carried_off_mid_bite_is_not_eaten_out_of_the_chest(
         assert eaten != "ate", "съели хлеб, которого в руках уже не было"
         assert left is not None and left.container_id == yard_id, "хлеб лежит в сундуке"
         assert float(after.stamina) == 0, "силы за чужой хлеб не начислены"
+
+
+def _wear_of_one_run(term, batch) -> float:
+    """What one run of that batch takes off an ordinary axe (D-309)."""
+    from src.engine import wear
+    from src.units import SECONDS_PER_HOUR
+
+    hours = (term - batch.run_started_at).total_seconds() / SECONDS_PER_HOUR
+    return current()[R.WEAR_TOOL_PER_HOUR] * hours / wear.life_factor(current(), 50)
+
+
+async def test_a_run_of_a_batch_wears_its_tool_once(
+    session: AsyncSession, factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """The axe's condition joins the list that changes only under a row's lock
+    (CLAUDE.md), and it has two writers: the job that lands the batch and the
+    freeze that stops it when the master walks away (D-209, D-309).
+
+    Both close the same run, and both would bill it -- the hour would be paid
+    for twice, and a batch left and finished on the same second would cost
+    double. Neither takes a lock of its own: they are serialised by the body's
+    row, which the worker takes with `FOR UPDATE` and every command takes in
+    `_alive`. This pins that, because the pause is exactly the window.
+    """
+    from src.engine import craft, jobs
+    from src.models.craft import BatchState, CraftBatch
+    from src.models.inventory import Item
+    from src.models.job import JobKind, JobState
+
+    stamp = uuid.uuid4().hex[:8]
+    forest = await world.create_node(
+        session, f"terra.woods.{stamp}", "Бор", area_m2=10_000, properties={"woods": True}
+    )
+    who = await world.create_identity(session, f"Дровосек-{stamp}")
+    body = await world.print_body(session, who, forest)
+    pocket = await world.body_container(session, body)
+    axe = await world.grant_item(session, pocket, "axe", quality=50, origin="тест")
+    batch = await craft.start(
+        session, current(), current_catalog(), body, "wood", 40, way="logging"
+    )
+    term, body_id, axe_id, batch_id = batch.ready_at, body.id, axe.id, batch.id
+    await session.commit()
+
+    async def leave() -> None:
+        """A command's shape: the body's row first, the work after it."""
+        async with factory() as db, db.begin():
+            who_ = (
+                await db.execute(select(Body).where(Body.id == body_id).with_for_update())
+            ).scalar_one()
+            #: The window the double bill needs: held between the lock and the
+            #: write, so the job below provably meets it.
+            await asyncio.sleep(0.2)
+            await craft.freeze(db, who_, now=term)
+
+    _, job = await asyncio.gather(leave(), jobs.run_one(factory, now=term))
+
+    async with factory() as db:
+        #: The job is asserted, not just awaited: `run_one` catches what a
+        #: handler throws and marks the job failed, so a `finish` that blew up
+        #: would roll its wear back and leave this test green on one charge.
+        assert job is not None and job.kind == JobKind.CRAFT_BATCH.value
+        assert job.state is JobState.DONE, job.last_error
+
+        again = await db.get(CraftBatch, batch_id)
+        assert again is not None
+        #: Whichever side won, the batch is in one of the two honest states --
+        #: never landed **after** the master walked away, which is the other
+        #: half of the same defect: goods out of a work that was stopped.
+        assert again.state in (BatchState.DONE, BatchState.WAITING)
+        if again.state is BatchState.WAITING:
+            assert again.ready_at is None, "замёрзшая партия не держит срок"
+
+        worn = await db.get(Item, axe_id)
+        assert worn is not None, "топор цел: часа работы ему хватает с запасом"
+        spent = 100 - float(worn.condition)
+        one = _wear_of_one_run(term, batch)
+        assert spent == pytest.approx(one, abs=0.01), (
+            f"пробег списан как {spent:.3f} вместо {one:.3f}: час оплачен дважды"
+        )
