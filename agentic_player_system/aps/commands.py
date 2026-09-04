@@ -247,13 +247,15 @@ def _flagged(call: ast.Call, name: str) -> bool:
     )
 
 
-def _helpers(source: str) -> dict[str, dict[str, list[str]]]:
-    """Module-level functions that read request keys: the keys they read and
-    which of them they parse as identifiers.
+def _helpers(source: str) -> dict[str, dict[str, Any]]:
+    """Module-level functions that read request keys: the keys they read,
+    which of them they parse as identifiers, and whom they hand the request to.
 
     Only those: a function that never touches the request tells the reference
     nothing, and leaving it out keeps the map small enough to search the
     engine's modules too, where a couple of parsers live (`check_profile`).
+    A parser that only forwards is one of those -- it reads no key of its own
+    and still stands between the command and the keys (`_craft_request`).
     """
     tree = ast.parse(source)
     found = {}
@@ -263,12 +265,14 @@ def _helpers(source: str) -> dict[str, dict[str, list[str]]]:
         keys = _keys(node)
         spots = _uuid_positions(node)
         key_params = _key_params(node)
-        if keys or spots or key_params:
+        passes = _passed_on(node)
+        if keys or spots or key_params or passes:
             found[node.name] = {
                 "keys": keys,
                 "ids": _id_keys(node),
                 "uuid_at": spots,
                 "key_params": key_params,
+                "passes": passes,
             }
     return found
 
@@ -299,14 +303,55 @@ def _passed_on(func: ast.AST) -> list[str]:
     return called
 
 
+def _resolved(known: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """The helper map with every chain of parsers followed to its end: the keys
+    each one reads and those its own parsers read for it, in one entry.
+
+    A parser hands the request on in its turn: `_craft_request` reads `units`
+    and takes the shape of the batch from `_craft_shape`, so a command parsing
+    through it borrowed one key and lost the other five the day that shape was
+    split out -- `craft.start` named `units` alone and answered the agents
+    `KeyError('output')` (CI, 2026-09-04). What a helper's helper reads, the
+    command asks for.
+
+    Keys and identifiers only. The other two ways a key is found -- a helper
+    that parses one of its own parameters (`uuid_at`) and one that takes the
+    key's name as a parameter (`key_params`) -- are read at the call site,
+    where the argument stands, and `extract` reads them off the command's own
+    body: through a chain of parsers they are still lost. No command parses
+    that way today; the day one does, the fix is here.
+    """
+    found: dict[str, dict[str, Any]] = {
+        name: {**entry, "keys": list(entry.get("keys") or ()), "ids": list(entry.get("ids") or ())}
+        for name, entry in known.items()
+    }
+    #: Until nothing moves: a fixed point rather than a walk, so that two
+    #: parsers calling each other end with the same keys instead of with
+    #: whichever set the walk reached them by.
+    moved = True
+    while moved:
+        moved = False
+        for entry in found.values():
+            for helper in entry.get("passes") or ():
+                deeper = found.get(helper)
+                if deeper is None:
+                    continue
+                for field in ("keys", "ids"):
+                    for key in deeper[field]:
+                        if key not in entry[field]:
+                            entry[field].append(key)
+                            moved = True
+    return found
+
+
 def extract(
-    source: str, helpers: dict[str, dict[str, list[str]]] | None = None
+    source: str, helpers: dict[str, dict[str, Any]] | None = None
 ) -> dict[str, dict[str, Any]]:
     """Commands of one module: every handler under `@command("name")` (the
     game's `api/registry.py`), its docstring and the request keys it reads --
     its own and those of the helpers it hands the request to."""
     tree = ast.parse(source)
-    known = {**(helpers or {}), **_helpers(source)}
+    known = _resolved({**(helpers or {}), **_helpers(source)})
     reference: dict[str, dict[str, Any]] = {}
     for node in tree.body:
         if not isinstance(node, ast.AsyncFunctionDef | ast.FunctionDef):
@@ -385,7 +430,7 @@ def load(path: Path, cached: str = "") -> dict[str, dict[str, Any]]:
         #: with one borrowed from a neighbouring module (`common.py`) or from
         #: the engine itself (`account.check_profile`). The package wins on a
         #: name it shares with the engine.
-        helpers: dict[str, list[str]] = {}
+        helpers: dict[str, dict[str, Any]] = {}
         engine = path.parent.parent / "engine"
         for source in modules.values():
             for name, keys in _helpers(source).items():
@@ -431,7 +476,12 @@ _CLAUSE_END = re.compile(r"(?<=[.;])\s")
 
 def headline(doc: str, limit: int = HEADLINE_LIMIT) -> str:
     """The first clause of a docstring: what the command does, and no more."""
-    line = _VAULT_REF.sub("", doc.strip().split("\n", 1)[0]).strip()
+    #: The docstring is prose wrapped to the width of the source, so the first
+    #: clause is not the first line: `ship.dock` wraps `(D-289, wave 3)` onto
+    #: the next one, and a pointer torn in half by the wrap matches nothing and
+    #: rides into every prompt. The first paragraph, read back as one line.
+    prose = " ".join(doc.strip().split("\n\n", 1)[0].split())
+    line = _VAULT_REF.sub("", prose).strip()
     clause = _CLAUSE_END.split(line, maxsplit=1)[0].rstrip(" .;:")
     if len(clause) > limit:
         clause = clause[:limit].rsplit(" ", 1)[0] + "…"
