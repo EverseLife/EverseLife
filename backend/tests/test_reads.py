@@ -589,6 +589,12 @@ READS: dict[str, dict[str, object]] = {
 #: proof that the answering path was walked.
 REFUSING = {"library.care", "line.view", "ship.course"}
 
+#: And the ones a place without a yard has nothing to answer either: no yard,
+#: no machine standing in it, no batch to price. Pinned rather than left to
+#: "at least `look` answered": a read that quietly began refusing in this
+#: world would otherwise walk through the sweep untouched.
+REFUSING_WITHOUT_A_YARD = REFUSING | {"craft.plan", "craft.most"}
+
 
 async def test_every_readonly_command_writes_nothing(
     session: AsyncSession, factory: async_sessionmaker[AsyncSession], monkeypatch
@@ -654,7 +660,7 @@ async def test_every_readonly_command_writes_nothing(
     assert await yards() == 0, "двор снесён -- это узел старого мира"
     #: Fewer of them answer without a yard -- a workshop with no machine in it
     #: refuses -- and the refusal is the very path the yard used to be made on.
-    assert "look" in await _swept(factory, who, declared)
+    assert await _swept(factory, who, declared) == sorted(set(READS) - REFUSING_WITHOUT_A_YARD)
     assert await yards() == 0, "чтение завело двор"
 
 
@@ -669,10 +675,14 @@ async def _swept(
 
     answered: list[str] = []
     for name in names:
-        async with factory() as db, db.begin():
-            try:
+        #: The refusal is caught outside the transaction and not inside it: a
+        #: read that refuses must take its transaction down with it, exactly
+        #: as the socket does (`api/session._dispatch`). Caught inside, the
+        #: block would end normally and commit whatever the refusal left.
+        try:
+            async with factory() as db, db.begin():
                 await COMMANDS[name].run({"identity_id": who}, db, {"cmd": name, **READS[name]})
-            except Refusal:
-                continue
+        except Refusal:
+            continue
         answered.append(name)
     return answered
