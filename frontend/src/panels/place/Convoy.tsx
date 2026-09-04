@@ -84,17 +84,17 @@ export function Convoy({ look }: Omit<Props, "busy" | "act">) {
                       key={thing.id}
                       {...grip({
                         item: thing.id,
-                        goods: thing.type_key,
-                        label: goodsName(names, thing.type_key),
+                        goods: thing.goods,
+                        label: goodsName(names, thing.goods),
                         amount: thing.amount,
                         zone: "hold",
                       })}
                     >
-                      <td>{goodsName(names, thing.type_key)}</td>
-                      <td className="note">{tally(thing.type_key, thing.amount)}</td>
+                      <td>{goodsName(names, thing.goods)}</td>
+                      <td className="note">{tally(thing.goods, thing.amount)}</td>
                       <td {...noDrag}>
                         <Amount
-                          goods={thing.type_key}
+                          goods={thing.goods}
                           value={parts[thing.id] ?? null}
                           max={thing.amount}
                           onChange={(value) => setPart(thing.id, value)}

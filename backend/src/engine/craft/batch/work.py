@@ -213,6 +213,10 @@ async def start(
         way=way,
         recipe_key=recipe_key,
         tiers=tiers,
+        #: The stacks are taken for the transaction here and not in the
+        #: forecast: what feeds a batch may lie in a chest or a hold two
+        #: people reach into (D-304), and the write-off below is a write.
+        lock=True,
     )
     forecast = ready.plan
 
@@ -333,7 +337,22 @@ async def cook(
     ceiling = min(wear.effective(constants, item) for item in [station, *tools])
 
     #: Into each filled role goes one unit of product per whole pot.
-    pocket = await body_container(session, body)
+    laid: dict[str, str] = {}
+    for role in weights:
+        product = filling.get(role)
+        if not product:
+            continue
+        name = catalog.recipes.resolve(product)
+        if not catalog.recipes.is_ingredient(name):
+            raise NotIngredient(key="craft-not-ingredient", goods=name)
+        laid[role] = name
+    #: Every ingredient the pot will take, locked **before** any of them is
+    #: spent and in one id order (`stock.py`). The roles are filled one at a
+    #: time below, and five locks taken one at a time are five chances for two
+    #: pots over one chest to wait on each other: the meat first for one cook,
+    #: the fat first for the other (D-304).
+    await _stock(session, body, sorted(set(laid.values())), lock=True)
+
     scale = constants[R.QUALITY_SCALE]
     one = amount(1)
     weighted = 0.0
@@ -341,16 +360,15 @@ async def cook(
     consumed: dict[str, float] = {}
     products: list[str] = []
     for role, weight in weights.items():
-        product = filling.get(role)
-        if not product:
+        name = laid.get(role)
+        if name is None:
             continue
-        name = catalog.recipes.resolve(product)
-        if not catalog.recipes.is_ingredient(name):
-            raise NotIngredient(key="craft-not-ingredient", goods=name)
         #: The tier is chosen per role: the good meat into the stew, the rest
         #: into the salting (D-058).
         chosen = (tiers or {}).get(role)
-        stock = await _stock(session, pocket, (name,), tiers={name: chosen} if chosen else None)
+        stock = await _stock(
+            session, body, (name,), tiers={name: chosen} if chosen else None, lock=True
+        )
         picks = _pick(stock, {name: amount_float(one)})
         quality = _material_quality(picks, scale.mid)
         for pick in picks:
@@ -501,7 +519,7 @@ async def _work_on(
 
     spent: dict[str, float] = {}
     if kind is BatchKind.REPAIR:
-        stock = await _stock(session, inventory, proc.inputs, tiers=_tiers_by(catalog, tiers))
+        stock = await _stock(session, body, proc.inputs, tiers=_tiers_by(catalog, tiers), lock=True)
         spent = {name: value * share for name, value in proc.per_unit.items()}
         for pick in _pick(stock, spent):
             if pick.item.amount > pick.take:

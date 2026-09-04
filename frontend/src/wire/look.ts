@@ -442,6 +442,37 @@ export function stationsOf(
   return [...kinds].sort((a, b) => compare(word(a), word(b)));
 }
 
+/**
+ * Everything a work started here draws its materials from (D-304).
+ *
+ * The server sends no such list, and it should not: it sends the pocket, the
+ * floor, the open ground, the chests one may open and one's own hold, and the
+ * reach is their sum (D-225). It is assembled here so that every window where
+ * a thing is chosen for work -- the bench, the pot, the die, the wall --
+ * counts the way the engine gathers, and a number on the screen is not a
+ * promise the batch breaks.
+ *
+ * The place gives up what lies on it only where the place is ours -- the same
+ * mark that opens a chest -- and `floor` and `ground` already carry only what
+ * lies loose. One's own hold is reached wherever the body works: it walks with
+ * the body and is held by the body's own harness.
+ *
+ * Three things the engine refuses off a floor cannot be told apart here -- a
+ * relic, a station built in place, and fuel where a fuel plant stands -- and
+ * none of the three is a recipe's input. Where one ever is, the forecast is
+ * the answer: `craft.plan` and `craft.most` count on the engine's own reach.
+ */
+export function reachOf(look: Pick<Look, "inventory" | "convoy" | "storages" | "floor" | "ground">): Thing[] {
+  const ours = look.floor?.mine === true;
+  return [
+    ...look.inventory,
+    ...(look.convoy?.cargo ?? []),
+    ...(ours ? (look.storages ?? []).filter((chest) => chest.mine).flatMap((chest) => chest.content) : []),
+    ...(ours ? (look.floor?.things ?? []) : []),
+    ...(ours ? (look.ground?.things ?? []) : []),
+  ];
+}
+
 /** The node's plot is the viewer's own: the holder is named, and it is us (D-178). */
 export function isMine(look: Pick<Look, "identity" | "node">): boolean {
   return look.node?.owner != null && look.node?.owner === look.identity;

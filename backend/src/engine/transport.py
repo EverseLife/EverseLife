@@ -434,33 +434,36 @@ async def wear_leg(
     return True
 
 
+async def cargo_of(session: AsyncSession, body: Body) -> list[Item]:
+    """What this body's convoy carries. Empty when it pulls nothing."""
+    wagon = await harnessed(session, body)
+    return [] if wagon is None else await cargo_items(session, wagon)
+
+
 async def view(
     session: AsyncSession, constants: Constants, catalog: Catalog, body: Body
 ) -> dict | None:
-    """The convoy through the client's eyes: what it is harnessed to, what it carries and where
-    it can pass."""
+    """The convoy through the client's eyes: what it is harnessed to, how much
+    it carries and where it can pass.
+
+    **Without the cargo itself.** The things in a hold are a list of things
+    like any other, and the window serialises them the way it serialises the
+    pocket and the floor -- with the tier, the mark and, for a vessel, what is
+    poured into it (D-230). A second shape for the same rows is how the hold
+    became the one list on the wire a batch could not be counted from -- and a
+    batch now reaches into one's own hold (D-304).
+    """
     wagon = await harnessed(session, body)
     if wagon is None:
         return None
-    limit = capacity(constants, wagon.type_key)
-    cargo = [
-        {
-            "id": str(thing.id),
-            "type_key": thing.type_key,
-            "amount": amount_float(thing.amount),
-            "quality": None if thing.quality is None else float(thing.quality),
-        }
-        for thing in await cargo_items(session, wagon)
-    ]
     return {
         "id": str(wagon.id),
         "type_key": wagon.type_key,
         "condition": float(wagon.condition),
-        "capacity": limit,
+        "capacity": capacity(constants, wagon.type_key),
         "mass": await cargo_mass(session, catalog, wagon),
         "speed_k": speed(constants, wagon.type_key),
         "heavy": heavy(constants, wagon.type_key),
-        "cargo": cargo,
     }
 
 

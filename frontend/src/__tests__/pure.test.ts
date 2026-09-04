@@ -27,6 +27,7 @@ import {
   type Names,
 } from "../names";
 import { stockOf, tierLabel, tiersOf } from "../tiers";
+import { reachOf } from "../wire/look";
 
 const thing = (over: Partial<Thing>): Thing =>
   ({ id: "x", goods: "Руда", amount: 1, tier: "обычное", mass: 1, condition: 100, ...over }) as Thing;
@@ -361,6 +362,53 @@ describe("tiers", () => {
       ["хорошее", 4],
       ["скверное", 6],
     ]);
+  });
+});
+
+describe("the reach of a work", () => {
+  //: What a batch may be counted from (D-304). The server sends no such list:
+  //: it sends the pocket, the hold, the chests one may open and the two
+  //: surfaces of the place, and the sum is this side's arithmetic (D-225).
+  const at = (over: Partial<Thing>) => thing(over);
+  const place = (mine: boolean) => ({
+    inventory: [at({ id: "pocket", goods: "Руда", amount: 1 })],
+    convoy: {
+      id: "cart",
+      type_key: "cart",
+      condition: 100,
+      capacity: 200,
+      mass: 10,
+      speed_k: 1.4,
+      heavy: false,
+      cargo: [at({ id: "hold", goods: "Руда", amount: 2 })],
+    },
+    storages: [
+      { id: "chest", goods: "chest", capacity: 100, mass: 4, mine, content: [at({ id: "chest-ore", goods: "Руда", amount: 4 })] },
+    ],
+    floor: {
+      space: { area: 20, used: 0, cargo_mass: 0, free: 20, slots: 2, slots_used: 0 },
+      things: [at({ id: "floor", goods: "Руда", amount: 8 })],
+      open: true,
+      mine,
+    },
+    ground: {
+      space: { area: 20, used: 0, cargo_mass: 0, free: 20 },
+      things: [at({ id: "yard", goods: "Руда", amount: 16 })],
+    },
+  });
+
+  it("adds the place to the hands where the place is ours", () => {
+    expect(stockOf(reachOf(place(true) as never), "Руда")).toBe(1 + 2 + 4 + 8 + 16);
+  });
+
+  it("keeps the place out where it is somebody else's, and the hold in", () => {
+    //: A guest is refused the host's chest and floor by the engine (D-181), and
+    //: their own convoy is theirs wherever it stands: it walks with the body.
+    expect(stockOf(reachOf(place(false) as never), "Руда")).toBe(1 + 2);
+  });
+
+  it("counts nothing that is not there: no convoy, no chest, no house", () => {
+    expect(stockOf(reachOf({ inventory: [at({ goods: "Руда", amount: 3 })] } as never), "Руда")).toBe(3);
   });
 });
 

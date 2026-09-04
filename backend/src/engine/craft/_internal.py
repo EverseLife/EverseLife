@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants, current, current_catalog
 from src.constants import registry as R
-from src.engine import goods, travel, wear
+from src.engine import goods, stock, travel, wear
 from src.engine.craft import power
 from src.engine.craft._base import (
     Busy,
@@ -47,7 +47,7 @@ from src.engine.craft.quality import (
 from src.engine.world import body_container, has_place, node_yard
 from src.models.craft import CraftBatch
 from src.models.identity import Body, BodyState, Knowledge, KnowledgeKind
-from src.models.inventory import Container, Item
+from src.models.inventory import Item
 from src.models.world import Node
 from src.units import (
     MINUTES_PER_HOUR,
@@ -71,6 +71,7 @@ async def _prepare(
     way: str | None = None,
     recipe_key: str | None = None,
     tiers: dict[str, str] | None = None,
+    lock: bool = False,
 ) -> _Ready:
     """The common flow of forecast and start.
 
@@ -131,10 +132,10 @@ async def _prepare(
     limiters = [wear.effective(constants, item) for item in [station, *tools] if item is not None]
     ceiling = min(limiters) if limiters else scale.max
 
-    inventory = await body_container(session, body)
     #: Which stacks feed the batch is the master's choice (D-058): by tier per
-    #: input, or worst first when nothing is said.
-    stock = await _stock(session, inventory, proc.inputs, tiers=_tiers_by(catalog, tiers))
+    #: input, or worst first when nothing is said. Where they lie is `reach`
+    #: (D-304): the pocket, one's own convoy, and the place where it is ours.
+    stock = await _stock(session, body, proc.inputs, tiers=_tiers_by(catalog, tiers), lock=lock)
     if proc.output in carrier_names(catalog):
         return await _prepare_write(
             session, constants, catalog, body, proc, units, stock, recipe_key
@@ -452,7 +453,13 @@ async def _tool_items(
     proc: Procedure,
     tool_item_id: uuid.UUID | None,
 ) -> list[Item]:
-    """The tool is carried along and takes part in the quality ceiling."""
+    """The tool is carried along and takes part in the quality ceiling.
+
+    In the **hands**, and the wider reach of D-304 does not touch this: a tool
+    is held while the work goes and wears by it, so it is a thing the body
+    carries, not a material the place gives up. A chest full of hammers is a
+    chest, not a hand.
+    """
     inventory = await body_container(session, body)
     found: list[Item] = []
 
@@ -485,52 +492,113 @@ async def _tool_items(
 
 async def _stock(
     session: AsyncSession,
-    container: Container,
+    body: Body,
     names: Iterable[str],
     *,
     tiers: dict[str, str] | None = None,
+    lock: bool = False,
 ) -> dict[str, list[Item]]:
-    """What lies for each input, worst first -- or only the chosen quality tier.
+    """What lies for each input within reach, worst first -- or only the chosen tier.
 
     The order is not accidental: the worse goes into the work, and the pure raw
     material stays for the batch it was mined for. `tiers` is the master's
     word on that: "this input -- from the good stacks only". Then nothing else
     is touched, and too little of the chosen tier is a refusal, not a silent
     fallback to worse -- the choice was made for a reason (D-058).
+
+    **Where it looks** is `engine.reach` and nowhere else (D-304): the pocket
+    and the vessels in it, one's own convoy, and -- where this body may dispose
+    of the place -- the floor, the yard and the chests standing here. One door
+    for every work that gathers materials, so a new one gets the rule rather
+    than a copy of it.
+
+    Only what **lies** is gathered: a machine, a chest or a piece of furniture
+    put up in the node works and is not spent (D-278). What the place will not
+    give up at all -- a relic, a thing built in place, fuel at a fuel plant --
+    is decided by `Reach.of`, per material.
+
+    `lock` takes the rows for the transaction, and every path that then writes
+    them off must ask for it: the pocket belonged to one body, the yard and the
+    chest belong to everybody entitled, so two works over one chest would
+    otherwise both find the stack full (CLAUDE.md). The forecast locks nothing:
+    it reads, and it must not hold a stack while the player is still typing.
+
+    Every input in **one** query and one lock order, split by name afterwards
+    (`stock.py`: "one query and one lock order, never two"). Two queries would
+    hold this recipe's iron while waiting for its coal against a batch taking
+    them the other way round -- and the two would wait on each other for ever.
     """
     from src.engine import (  # noqa: PLC0415 -- lazy: breaks the import cycle craft -> liquid -> station -> craft
-        liquid,
         market,
+        reach,
     )
 
     constants = current()
+    catalog = current_catalog()
     wanted = {name: tier for name, tier in (tiers or {}).items() if tier}
-    #: The container and the vessels in it (D-230): water for the dough is in
-    #: the canister, and the recipe need not know that.
-    within = await liquid.reach(session, current_catalog(), container)
-    out: dict[str, list[Item]] = {}
-    for name in names:
-        rows = (
+    asked = list(dict.fromkeys(names))
+    within = await reach.at_work(session, constants, catalog, body)
+    #: Where each material may come from: the place bars some of them and not
+    #: others, so the sets differ per name and the split below honours that.
+    allowed = {name: frozenset(within.of(catalog, name)) for name in asked}
+    everywhere = sorted({one for ones in allowed.values() for one in ones})
+
+    rows: list[Item] = []
+    if asked and everywhere:
+        rows = list(
             (
                 await session.execute(
                     select(Item)
-                    .where(Item.container_id.in_(within), Item.type_key == name)
+                    .where(
+                        Item.container_id.in_(everywhere),
+                        Item.type_key.in_(asked),
+                        #: What stands is not spent (D-278).
+                        Item.installed.is_(False),
+                    )
                     .order_by(Item.quality.asc().nulls_first(), Item.created_at.asc())
                 )
             )
             .scalars()
             .all()
         )
+        #: A material the place bars is dropped before the lock, not after:
+        #: holding the fuel plant's coal for a batch that may not have it would
+        #: make the batch wait on the tick over a stack it never wanted.
+        rows = [item for item in rows if item.container_id in allowed[item.type_key]]
+        if lock:
+            rows = _reread(await stock.lock_items(session, rows))
+
+    out: dict[str, list[Item]] = {}
+    for name in asked:
+        here = allowed[name]
+        kept = [item for item in rows if item.type_key == name and item.container_id in here]
         tier = wanted.get(name)
         if tier is not None:
-            rows = [
+            kept = [
                 item
-                for item in rows
+                for item in kept
                 if market.tier_of(constants, None if item.quality is None else float(item.quality))
                 == tier
             ]
-        out[name] = list(rows)
+        out[name] = kept
     return out
+
+
+def _reread(rows: Sequence[Item]) -> list[Item]:
+    """Locked stacks back in the gathering order, minus what slipped away.
+
+    `stock.lock_items` takes the rows in **id** order -- one order for
+    everybody, so two consumers of one chest never wait on each other -- and
+    hands them back in it. The work wants them worst first again, and it wants
+    only what is still material: between the reading and the lock a stack may
+    have been carried off, put up as furniture, or emptied to nothing.
+    """
+    #: `None` first, as `nulls_first()` had it: unqualified matter is not
+    #: quality nought, and it goes into the work before anything graded.
+    return sorted(
+        (item for item in rows if not item.installed),
+        key=lambda item: (item.quality is not None, float(item.quality or 0), item.created_at),
+    )
 
 
 def _tiers_by(catalog: Catalog, tiers: dict[str, str] | None) -> dict[str, str]:

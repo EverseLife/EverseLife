@@ -578,10 +578,13 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
         "things": [thing for thing in shown if thing["id"] in loose],
         #: Whether this one may reach the floor at all: everybody inside may.
         "open": await access.may_enter(db, node, identity.id),
-        #: Whose the place is -- the window says it in words, and the words differ
-        #: for the holder and for a guest.
-        "mine": await station.may_build(db, body, node)
-        or (node.owner_identity_id is None and node.owner_city_id is None),
+        #: Whose the place is -- the window says it in words, the words differ
+        #: for the holder and for a guest, and since D-304 the bench counts its
+        #: materials by this flag. So it is `may_build` and nothing beside it:
+        #: the second half used to add "nobody's land", which `may_build`
+        #: already answers True for -- except on a storey of somebody else's
+        #: house, where it answered True over the holder's refusal (D-247).
+        "mine": await station.may_build(db, body, node),
     }
     outside = {str(thing.id) for thing in await storage.lying(db, node, indoors=False)}
     #: The open ground: the same store, the other surface (D-244). The door and
@@ -614,6 +617,12 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
     #: (D-157). Without this the hands limit is a dead end: the player must see
     #: what gets around it.
     seen["convoy"] = await transport.view(db, constants, current_catalog(), body)
+    if seen["convoy"] is not None:
+        #: The hold in the same rows as the pocket and the floor (D-304): the
+        #: window counts what feeds a batch off what it was shown (D-225), and
+        #: a batch reaches into one's own hold -- so the hold needs the tier,
+        #: the mark and a vessel's fill, not four bare numbers.
+        seen["convoy"]["cargo"] = await _shown(db, constants, await transport.cargo_of(db, body))
     #: Vehicles standing in the node: you harness to what is nearby.
     seen["vehicles"] = await _vehicles(db, constants, node)
     #: An open face survives the player leaving: the session lives until "leave"

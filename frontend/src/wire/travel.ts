@@ -16,6 +16,7 @@
  * edge shows both.
  */
 import { t } from "../locale";
+import type { Thing } from "./thing";
 
 /** Vehicles standing in the node: one harnesses to them, not stands at them (D-157). */
 export type Vehicle = {
@@ -40,7 +41,10 @@ export type Convoy = {
   mass: number;
   speed_k: number;
   heavy: boolean;
-  cargo: { id: string; type_key: string; amount: number; quality?: number }[];
+  /** The hold, in the rows every list of things has: a batch reaches into
+   *  one's own hold (D-304), so the window counts it like the pocket -- with
+   *  the tier, the mark and, for a vessel, what is poured into it (D-230). */
+  cargo: Thing[];
 };
 
 /** A road as work on an edge (D-107, D-158). */

@@ -23,7 +23,7 @@ from src.engine.craft import power
 from src.engine.craft._base import BENCHLESS, CraftError, NotEnough, TooBig, Unmakeable
 from src.engine.craft._internal import _knows, _pick, _pick_station, _stock, _tiers_by
 from src.engine.craft.batch import start
-from src.engine.world import body_container, learn
+from src.engine.world import learn
 from src.models.craft import CraftBatch
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState, Identity
@@ -125,11 +125,11 @@ async def invent(
             now=moment,
         )
 
-    #: What is laid out is in the hands, whatever comes of it.
-    inventory = await body_container(session, body)
+    #: What is laid out is spent, whatever comes of it -- and it is gathered
+    #: from everything the hands reach (D-304), the chest by the bench included.
     #: Which stacks: the chosen tier per kind, or worst first (D-058).
     picked_tiers = _tiers_by(catalog, tiers)
-    stock = await _stock(session, inventory, laid, tiers=picked_tiers)
+    stock = await _stock(session, body, laid, tiers=picked_tiers, lock=True)
     #: What is actually taken out of the hands is whole pieces (D-212). The
     #: per-unit composition stays as it was written -- that is what the recipe
     #: is matched against, and a recipe norm is fractional by right (D-133).
