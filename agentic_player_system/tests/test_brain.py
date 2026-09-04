@@ -315,6 +315,9 @@ def test_observation_is_a_digest_with_changes_and_the_whole_look_every_few_turns
     text, mode = observe.observation(first, second, full=False, packed="x" * 5000)
     assert mode == "delta"
     assert "деньги 95" in text and "Сумка (2)" in text
+    #: Worn gear left `inventory` for `carry.equipped` (D-305): without a line
+    #: of its own the agent would carry an exoskeleton it never knew it had.
+    assert "Надето:" not in text, "нечего надевать — нечего и говорить"
     #: The shape of `look` after D-226: stations are the things standing here,
     #: citizenship lives in `city`, and the ways out are named in the digest.
     assert "Станции здесь: Биопринтер [bioprinter]" in text
@@ -327,6 +330,34 @@ def test_observation_is_a_digest_with_changes_and_the_whole_look_every_few_turns
     #: A diff no shorter than the whole thing is pointless: show the whole thing.
     text, mode = observe.observation(first, second, full=False, packed="{}")
     assert mode == "full"
+
+
+def test_digest_names_what_is_worn() -> None:
+    """Gear stands apart from the sack on the wire since D-305, and the digest
+    keeps it: an agent that cannot see its pack cannot take it off or mend it."""
+    from aps import observe
+
+    names.install({"goods": {"exoskeleton": "Экзоскелет", "bread": "Хлеб"}})
+    look = {
+        "look": {
+            "identity": "Марта",
+            "money": "120",
+            "body": {"stamina": 90.0, "sleeping_since": None},
+            "node": {"name": "Ядро", "key": "terra.capital.core"},
+            "carry": {
+                "load": 13.0,
+                "capacity": 130.0,
+                "equipped": {"frame": {"id": "1", "goods": "exoskeleton", "amount": 1}},
+            },
+            "inventory": [{"goods": "bread", "amount": 2}],
+            "doings": [],
+            "travel": None,
+            "clock": {"now": "1"},
+        }
+    }
+    text, _ = observe.observation(None, look, full=True, packed="{}")
+    assert "Надето: Экзоскелет [exoskeleton]" in text
+    assert "Сумка (1)" in text, "надетое не считается за содержимое сумки"
 
 
 def test_digest_says_whose_the_ground_is() -> None:

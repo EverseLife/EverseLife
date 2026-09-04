@@ -78,7 +78,13 @@ export type Carry = {
   load: number;
   capacity: number;
   slots: string[];
-  equipped: Record<string, { id: string; goods: string }>;
+  /**
+   * What is worn, by slot -- whole things rather than "id and name" (D-305).
+   * Worn things leave `inventory` so that nothing can be done to them by
+   * accident, and this is then the only place they are said at all: the gear
+   * block shows their mass and their wear like any other row (D-225).
+   */
+  equipped: Record<string, Thing>;
 };
 
 /** A machine in the node: one person works at a machine (D-150). */

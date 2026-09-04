@@ -184,7 +184,10 @@ export function Sidebar({ look, onLogout }: { look: Look; onLogout: () => void }
   const counts: Partial<Record<Tab, number>> = {
     work: look.batches.length + (look.doings ?? []).filter((d) => d.kind !== "craft").length,
     money: look.orders.length + look.reservations.length,
-    goods: look.inventory.length,
+    //: Worn gear left the list of things for its own block (D-305) and is
+    //: still in this tab: the counter says "there is something here", and the
+    //: pack on the back is something.
+    goods: look.inventory.length + Object.keys(look.carry?.equipped ?? {}).length,
     //: A poll waiting for one's answer counts the same as an unread letter:
     //: both are "there is something here", and the vote has a deadline the
     //: letter does not (D-161).

@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import occupation, travel, wear
+from src.engine import gear, occupation, travel, wear
 from src.engine.craft import power
 from src.engine.craft._base import (
     BENCHLESS,
@@ -494,6 +494,10 @@ async def _work_on(
     await occupation.require_free(session, body, besides=frozenset({occupation.CRAFT}))
     if item.container_id != inventory.id:
         raise CraftError(key="craft-item-not-in-hands")
+    #: A repair leaves the thing where it is and is done without taking it off
+    #: (D-305); taking it apart ends it, and that comes off first.
+    if kind is BatchKind.RECYCLE:
+        await gear.require_off(session, item)
 
     proc = procedure(catalog, item.type_key)
     station = await _station_item(session, body, proc)

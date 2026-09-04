@@ -175,7 +175,13 @@ export function Workshop({ look, machine }: Omit<Props, "busy" | "act">) {
     });
 
   //: Things are repaired and taken apart where they are made: at the machine the thing was made at.
-  const repair = look.inventory.filter(
+  //: Worn gear is repaired without being taken off (D-305): it left the list of
+  //: things for the gear block, and this is the one verb it keeps there --
+  //: a repair works on the row in the hands and moves it nowhere. Taking it
+  //: apart ends it, and that still comes off first, so the row says so.
+  const dressed = Object.values(look.carry?.equipped ?? {});
+  const worn = new Set(dressed.map((thing) => thing.id));
+  const repair = [...look.inventory, ...dressed].filter(
     (thing) => thing.condition < 100 && stationOf(book, thing.goods) === machine,
   );
 
@@ -416,14 +422,18 @@ export function Workshop({ look, machine }: Omit<Props, "busy" | "act">) {
               >
                 {t("ui-workshop-repair")}
               </button>
-              <button
-                className="quiet"
-                onClick={() => act(() => session.send("craft.recycle", { item: thing.id }))}
-                disabled={busy || occupied !== null}
-                title={occupied ?? ""}
-              >
-                {t("ui-workshop-recycle")}
-              </button>
+              {worn.has(thing.id) ? (
+                <span className="note">{t("ui-workshop-repair-worn")}</span>
+              ) : (
+                <button
+                  className="quiet"
+                  onClick={() => act(() => session.send("craft.recycle", { item: thing.id }))}
+                  disabled={busy || occupied !== null}
+                  title={occupied ?? ""}
+                >
+                  {t("ui-workshop-recycle")}
+                </button>
+              )}
             </div>
           ))}
         </>
