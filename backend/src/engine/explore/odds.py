@@ -178,6 +178,14 @@ def minutes_of(constants: Constants, node: Node, dice: random.Random) -> float:
     return min(_cap(constants), dice.uniform(run.min, run.max) * depletion)
 
 
+def span(constants: Constants, node: Node) -> tuple[float, float]:
+    """The shortest and the longest a run from here can turn out to be."""
+    run = constants[R.EXPLORE_ATTEMPT_MINUTES]
+    depletion = constants[R.EXPLORE_EFFORT_GROWTH] ** found_here(node)
+    cap = _cap(constants)
+    return min(cap, run.min * depletion), min(cap, run.max * depletion)
+
+
 def stamina_for(constants: Constants, minutes: float) -> float:
     """The run's price in stamina: by time in the field, not per piece.
 
@@ -186,6 +194,23 @@ def stamina_for(constants: Constants, minutes: float) -> float:
     with time.
     """
     return constants[R.EXPLORE_ATTEMPT_STAMINA] * minutes / _cap(constants)
+
+
+def price(constants: Constants, node: Node) -> float:
+    """The most a run from here can cost in stamina -- the price of its longest length.
+
+    The place's price, and the forecast and the door read it alike. The length
+    is rolled at departure, so a run has no single price in advance, and of the
+    possible thresholds only the ceiling is honest: it does not move between
+    one press and the next, while a threshold at the roll would turn a second
+    press into a second throw of the dice -- one would press until a short run
+    came up.
+
+    What the body does to this number is the body's own (`engine.food`,
+    `engine.frost`): the door multiplies it by the cold and the last meal, the
+    forecast cannot -- settling the cold writes, and a forecast may not.
+    """
+    return stamina_for(constants, span(constants, node)[1])
 
 
 async def outlook(
@@ -211,10 +236,7 @@ async def outlook(
     node = await session.get(Node, body.node_id)
     if node is None:  # pragma: no cover -- a body always stands in a node
         return None
-    run = constants[R.EXPLORE_ATTEMPT_MINUTES]
-    depletion = constants[R.EXPLORE_EFFORT_GROWTH] ** found_here(node)
-    short = min(_cap(constants), run.min * depletion)
-    long_ = min(_cap(constants), run.max * depletion)
+    short, long_ = span(constants, node)
     aim = aim_at(constants, current_catalog(), goal, resource)
     anchor = await anchor_of(session, node, goal)
     press = await crowding(session, constants, anchor)
@@ -226,8 +248,10 @@ async def outlook(
     return {
         "explored": found_here(node),
         "minutes": {"min": short, "max": long_},
-        #: The largest possible: the player must know the ceiling, not the average.
-        "stamina": stamina_for(constants, long_),
+        #: The largest this place can ask, and what the door asks before the
+        #: body's own cold and hunger are counted into it: the player must know
+        #: the ceiling, not the average.
+        "stamina": price(constants, node),
         "chance": chance(constants, node) * aim * press * wear,
         #: How much of the city is already open: a fact of the place the player
         #: can act on -- by walking to the next city (D-232).

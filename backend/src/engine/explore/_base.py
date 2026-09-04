@@ -75,6 +75,10 @@ class NotOut(ExploreError):
     """The body is not exploring: nowhere to return from."""
 
 
+class NoStrength(ExploreError):
+    """Not enough strength for a run. Nobody goes into the field on empty legs (D-147, D-293)."""
+
+
 def mineable(catalog: Catalog) -> tuple[str, ...]:
     """What is mined in this world at all -- the `gives` list of the "Mining" operation.
 

@@ -48,6 +48,11 @@ price of a full-length run; a one-minute one costs correspondingly less.
 Otherwise stamina would lock early runs instead of hours, and the fix would
 amount to swapping one lock for another.
 
+**Without the strength for it nobody leaves** (D-147, D-293). The length of a run is
+rolled at departure, so it is asked for by the longest the place can give --
+the very number the forecast shows -- and paid for by the length that came up.
+Any lower threshold would be a re-throw of the dice on the second press.
+
 The count lives on the node, not on the player: an exploration level would be
 character progress and turn the world into a backdrop for grinding. A trodden
 neighbourhood grows poorer for everyone at once, and a run from a fresh find is
@@ -126,6 +131,7 @@ from src.engine.explore._base import (  # noqa: F401
     WOODS,
     AlreadyOut,
     ExploreError,
+    NoStrength,
     NotOut,
     mineable,  # noqa: F401
 )
@@ -137,6 +143,7 @@ from src.engine.explore.odds import (  # noqa: F401
     found_here,
     outlook,
     possible,
+    price,
 )
 from src.engine.explore.run import (  # noqa: F401
     cancel,
