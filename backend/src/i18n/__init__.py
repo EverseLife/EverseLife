@@ -140,6 +140,7 @@ NAME_FUNCTIONS: tuple[str, ...] = (
     "TIER",
     "SLOT",
     "CULTURE",
+    "LORE",
     "LAW",
     "CHOICE",
 )

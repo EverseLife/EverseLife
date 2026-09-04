@@ -38,7 +38,16 @@ from src.models.world import Node
 def care_text(constants: Constants, plant: Plant, signs: Mapping[str, Any], *, locale: str) -> str:
     """The care text of a crop, or of a cultivar through its `signs`."""
     norm = norms(constants, plant, signs)
-    said = [
+    said: list[str] = []
+    #: The written paragraph first, where a culture has one (D-311): a person
+    #: meets the plant -- what it is for, what it forgives -- and the figures
+    #: follow. The words are the vault's and are said by key in the reader's
+    #: language; the engine only knows that they exist. A bred cultivar reads
+    #: its base culture's paragraph: the character is the crop's, the numbers
+    #: below are the line's own.
+    if plant.care_note:
+        said.append(i18n.render("care-lore", {"culture": plant.id}, locale=locale))
+    said.append(
         i18n.render(
             "care-band",
             {
@@ -51,7 +60,7 @@ def care_text(constants: Constants, plant: Plant, signs: Mapping[str, Any], *, l
             },
             locale=locale,
         )
-    ]
+    )
     if plant.feeding:
         #: The rows are one list in one sentence, so the separator is the
         #: language's own (`LIST_OUT`), the same one `NAMES()` uses.

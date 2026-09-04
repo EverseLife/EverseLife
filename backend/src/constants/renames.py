@@ -124,6 +124,11 @@ NAME_DOMAINS: dict[str, tuple[str, ...]] = {
     #: Not `PLANT`, which reads as `PLANET` at a glance in a message file.
     #: A culture is not its produce: «Полба» is sown, «Зерно» is harvested.
     "CULTURE": ("plants",),
+    #: The culture's written paragraph (D-311). Its own domain because it
+    #: is keyed by the culture's id and is not a name: a name is a word,
+    #: this is a paragraph, and one lookup for both would let a missing
+    #: paragraph read as a missing name.
+    "LORE": ("plant_care",),
     #: A code-law by its id: `tax_trade` -> «Налог с продажи». Its own domain
     #: because law ids are short and general -- `access`, `salary`, `toll` --
     #: and a table shared with goods would one day answer with the wrong one.
