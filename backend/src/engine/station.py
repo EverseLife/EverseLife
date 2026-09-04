@@ -25,6 +25,11 @@ new one in the vault and it is placeable without a code change (D-090). The
 one difference between them: one works at a station, furniture furnishes the
 household (a bed -- hibernation, a shelf -- storage), and the client shows
 them in separate windows.
+
+Standing and being carried are **two** doors, not one (D-308): `take` unbolts
+the thing and leaves it lying where it stood, and the hands take it off the
+floor through `storage.pick`, where the carry limit stands (D-146). One door
+had let a body pocket a machine it could never have lifted.
 """
 
 from __future__ import annotations
@@ -44,6 +49,7 @@ from src.models.event import EventKind
 from src.models.identity import Body, BodyState
 from src.models.inventory import Item
 from src.models.world import Node, storey_of
+from src.units import amount_float
 
 
 class StationError(Refusal):
@@ -205,7 +211,27 @@ async def place(session: AsyncSession, catalog: Catalog, body: Body, item: Item)
 
 
 async def take(session: AsyncSession, catalog: Catalog, body: Body, item: Item) -> Item:
-    """Take a machine or furniture back into the hands. One busy with work is not given up."""
+    """Take a machine or furniture **down**: it stops standing and lies where it stood.
+
+    Two doors, not one (D-308). This one unbolts the thing: it leaves the
+    slots and becomes cargo on the surface it stood on -- the floor of the
+    house, the ground where there is no house. Into the hands it goes through
+    the second door, `storage.pick`, and there the carry limit stands as it
+    stands at every door a thing is taken through (D-146). Until D-308 this
+    door did both at once and asked nothing, and a body pocketed a tank of
+    sixty-nine kilograms on a limit of thirty.
+
+    Whose the place is, is asked here and only here: a guest's `storage.pick`
+    refuses what stands (D-278), so the host's workbench is never carried off
+    past the host's door. Once the host has taken it down it lies like any
+    other cargo, and the floor is open to whoever the door let in (D-204) --
+    with one asymmetry the sack of ore beside it does not have: the heavy ones,
+    the thirteen this door was fixed for, the host cannot pick back up either.
+    What closes the window is standing it up again (`place` takes it off the
+    floor) or shutting the door, and whether that is enough is **OQ-131**.
+
+    One busy with work is not given up.
+    """
     if body.state is not BodyState.ALIVE:
         raise StationError(key="station-dead-takes")
     await travel.require_here(session, body)
@@ -213,6 +239,16 @@ async def take(session: AsyncSession, catalog: Catalog, body: Body, item: Item) 
     node = await session.get(Node, body.node_id)
     if node is None:  # pragma: no cover
         raise StationError(key="station-body-off-node")
+    #: The thing's own row first, and the plot's after it -- the order
+    #: `place` locks in, because the two doors meet on the same pair. And the
+    #: thing may be gone between the look and the click: the world's ordinary
+    #: answer, said in words (D-011). The name is read first: a failed refresh
+    #: leaves none.
+    named = item.type_key
+    try:
+        await session.refresh(item, with_for_update=True)
+    except InvalidRequestError as gone:
+        raise StationError(key="thing-gone", goods=named) from gone
     yard = await world.node_container(session, node)
     if item.container_id != yard.id:
         raise StationError(key="station-not-in-node")
@@ -228,30 +264,54 @@ async def take(session: AsyncSession, catalog: Catalog, body: Body, item: Item) 
     if not placeable(catalog, item.type_key):
         raise NotStation(key="station-not-a-station", goods=item.type_key)
     #: Built in place (D-268): a furnace, a column, a printer stand where they
-    #: were made and do not fit in anybody's hands.
+    #: were made and are not taken down at all.
     if catalog.recipes.built(item.type_key):
         raise NotStation(key="station-built-in-place", goods=item.type_key)
     if not await may_build(session, body, node):
         raise NotYours(key="station-take-not-yours")
     if item.busy_body_id is not None:
         raise Busy(key="station-busy")
-    #: A full chest is not carried away (D-181): otherwise "take the furniture"
-    #: would become a way to carry a ton of cargo in the pocket past the carry limit (D-146).
+    #: A full chest is not taken down (D-181). The reason moved with D-308:
+    #: it is no longer the pocket -- taking down fills no pocket -- but the
+    #: pick-up after it, which weighs the chest and not what is in it, so a
+    #: full one would leave in the hands with a ton nobody weighed.
+    #: The rule that a lying chest is cargo and not a storage is D-278's, and
+    #: the engine does not yet ask it (`storage._allowed` never looks at
+    #: `installed`): the same ton goes round this door through drop-fill-pick,
+    #: and that is **OQ-129**, older than this guard and not closed by it.
 
     if storage.is_storage(catalog, item.type_key) and not await storage.is_empty(session, item):
         raise NotEmpty(key="station-not-empty", chest=item.type_key)
 
-    pocket = await world.body_container(session, body)
-    item.container_id = pocket.id
-    #: In the hands there is no sky to be under: the mark means nothing here,
-    #: and a stale one would travel back out with the thing (D-244).
-    item.outdoors = False
+    #: The plot's row for the transaction: what stands pays by slots and what
+    #: lies pays by area (D-192, D-278), so taking down is a move between two
+    #: budgets, and two hands taking down onto the last free metre must not
+    #: both count it free (CLAUDE.md, the remainder rule).
+    await session.execute(select(Node.id).where(Node.id == node.id).with_for_update())
+    constants = current()
+    #: The surface is the node's, the one a person would name and `storage.drop`
+    #: asks for: a machine stands in a building, so it comes to lie on its
+    #: floor. Not the thing's own mark -- out of the hands everything arrives
+    #: "under a roof", so the mark would answer for the hands rather than for
+    #: the place. Its own slot comes back with the same move, and the floor is
+    #: measured with that place already given back.
+    inside = await storage.require_room(
+        session,
+        constants,
+        catalog,
+        node,
+        item.type_key,
+        amount_float(item.amount),
+        spare_indoors=constants[R.BUILD_SLOTS_PER_AREA],
+    )
+
+    item.outdoors = not inside
     item.installed = False
     #: A generator's stamp is the hour its output was last settled (D-288,
-    #: `battery.tick_offgrid`). Carried off it settles nothing, and put up
+    #: `battery.tick_offgrid`). Taken down it settles nothing, and put up
     #: again it must start from that moment rather than be credited the
-    #: months in the bag. A cell keeps its stamp: its charge leaks in the
-    #: hands as it does anywhere, and the stamp is what the leak is counted by.
+    #: months it lay. A cell keeps its stamp: its charge leaks lying as it
+    #: does anywhere, and the stamp is what the leak is counted by.
     if item.charge is None:
         item.charged_at = None
     await session.flush()

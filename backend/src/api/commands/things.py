@@ -229,7 +229,11 @@ async def _station_place(state: dict, db: AsyncSession, message: dict) -> dict:
 
 @command("station.take")
 async def _station_take(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Take a machine back into the hands. One busy with work is not given up."""
+    """Take a machine down: it stops standing and lies where it stood (D-308).
+
+    The hands are the next door, not this one -- off the floor by `ground.pick`,
+    where the carry limit answers (D-146). One busy with work is not given up.
+    """
     body = await _alive(state, db)
     item = await db.get(Item, uuid.UUID(message["item"]))
     if item is None:

@@ -184,7 +184,7 @@ estate-demolish-blocked = { $why }
 # What stands in the way of a demolition (D-197). Keys, not phrases: this list
 # is read by the refusal and by the window that greys the button out — both in
 # the language of whoever is looking.
-estate-blocker-equipment = there is equipment in the building ({ $count }): work stations and furniture are taken out before the demolition — after it they have nowhere to stand
+estate-blocker-equipment = there is equipment in the building ({ $count }): work stations and furniture are taken down before the demolition — after it they have nowhere to stand
 estate-blocker-overloaded = { NUMBER($floor, minimumFractionDigits: 1, maximumFractionDigits: 1) } kg on the floor and { NUMBER($yard, minimumFractionDigits: 1, maximumFractionDigits: 1) } kg in the yard, and the plot holds { NUMBER($holds, minimumFractionDigits: 1, maximumFractionDigits: 1) } kg: cart the excess away or pack it into a chest
 estate-blocker-building = a build is going on here: wait for its end first
 estate-blocker-demolishing = a demolition is going on already: it is not ordered twice
