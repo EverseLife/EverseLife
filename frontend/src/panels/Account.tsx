@@ -17,6 +17,7 @@ import { type FormEvent, useState } from "react";
 import { Refusal, useActions, useLocale, useSession } from "../actions";
 import type { Profile } from "../api";
 import { DENSITIES, DENSITY_NAMES, setDensity, useDensity } from "../density";
+import { oneOf, useKept } from "../kept";
 import { t } from "../locale";
 import { Rule } from "../Rule";
 import { Secret } from "./Secret";
@@ -40,6 +41,8 @@ const TABS = [
 ] as const;
 type Tab = (typeof TABS)[number]["id"];
 
+const TAB_WIRE = oneOf<Tab>(TABS.map((each) => each.id));
+
 export function Account({ profile, onLogout }: Props) {
   const session = useSession();
   const { locale } = useLocale();
@@ -47,7 +50,10 @@ export function Account({ profile, onLogout }: Props) {
   //: the map or the chat (same rule as every sidebar panel).
   const acting = useActions();
   const { busy, act } = acting;
-  const [tab, setTab] = useState<Tab>("who");
+  //: Which page of the account is open, kept across reloads (`kept.ts`) like
+  //: the rail's own tab: somebody adjusting the display comes back to the
+  //: display, not to their surname.
+  const [tab, setTab] = useKept<Tab>("everselife.account.tab", "who", TAB_WIRE);
   const [surname, setSurname] = useState(profile.surname);
   const [age, setAge] = useState(profile.age == null ? "" : String(profile.age));
   const [about, setAbout] = useState(profile.about);

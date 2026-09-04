@@ -13,7 +13,7 @@ from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import ship as vessels
 from src.engine.oxygen._base import free_air, sealed
-from src.engine.oxygen.supply import _liquids, carried, hull_draw, hull_output, suited
+from src.engine.oxygen.supply import carried, hull_draw, reserve, suited
 from src.models.identity import Body
 from src.models.inventory import Item
 from src.models.ship import Ship
@@ -35,33 +35,27 @@ async def gauge(
     crew: int,
     things: list[Item] | None = None,
 ) -> dict[str, object]:
-    """The hull's atmosphere in one reading: the level, the water and the rate.
+    """The hull's atmosphere in one reading: the level and the rate.
 
     Given as a level and a rate rather than as hours, so the client counts the
     hand itself and the figure never goes stale between pushes (D-226) -- the
-    same shape the cold's reading has. A rate of zero on a sealed hull is a ship
-    making exactly what it breathes; a negative one is the countdown.
+    same shape the cold's reading has. The level is what stands on the life
+    support's line (D-288): oxygen aboard that no line reaches is not counted,
+    and that is the one honest number, because it is the one the crew dies by.
 
     `things` is the hold when the caller has read it already: the console asks
     this of every hull it lists.
     """
-    air, water = await _liquids(session, ship, things=things)
+    air = await reserve(session, constants, catalog, ship, things=things)
     shut = await sealed(session, ship)
     drawn = hull_draw(constants, crew) if shut else 0.0
-    made = min(
-        drawn,
-        await hull_output(session, constants, catalog, ship, things=things, water=water),
-    )
     return {
-        #: What the hull holds and what the life support runs on: both are
-        #: liquids in the same tanks (D-230), and both are mass on every passage.
         "units": round(air, ROUND_MASS),
-        "water": round(water, ROUND_MASS),
         #: Whether the hull is breathing its own air at all: in port under a sky
         #: that has some, the hatch may as well be open and nothing is spent.
         "sealed": shut,
-        "per_hour": round(made - drawn, ROUND_RATIO),
-        #: The moment the tanks were last settled at, never the moment of the
+        "per_hour": round(-drawn, ROUND_RATIO),
+        #: The moment the line was last settled at, never the moment of the
         #: reading: the client counts down from what it is given, and "now"
         #: would hand it back the hour the tick has just charged.
         "at": ship.air_at.isoformat(),

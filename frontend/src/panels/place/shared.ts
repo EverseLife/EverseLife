@@ -41,7 +41,7 @@
 import type { RecipeBook } from "../../api";
 import * as api from "../../api";
 import type { Look } from "../../api";
-import { recipeKind } from "../../classes";
+import { isGear, recipeKind } from "../../classes";
 
 
 export type Props = {
@@ -115,9 +115,16 @@ export function gatherSigns(look: Look, book: RecipeBook | null): string[] {
   return signs;
 }
 
-/** What in the hands is equipment of this kind: the kind comes from vault data (D-090). */
+/** What in the hands is equipment of this kind: the kind comes from vault data
+ *  (D-090). A vessel is put up the way furniture is (D-288) -- a canister or a
+ *  cylinder stands on the hull's lines only installed -- so the furniture
+ *  window offers it too, whatever its own kind says. */
 export function placeable(look: Look, book: RecipeBook | null, kind: "station" | "furniture") {
-  return look.inventory.filter((thing) => recipeKind(book, thing.goods) === kind);
+  return look.inventory.filter(
+    (thing) =>
+      recipeKind(book, thing.goods) === kind ||
+      (kind === "furniture" && isGear(book, thing.goods) && recipeKind(book, thing.goods) !== "station"),
+  );
 }
 
 

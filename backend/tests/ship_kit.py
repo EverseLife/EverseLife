@@ -9,13 +9,15 @@ keel, equipment and fuel aboard, a hull fit to fly. Used by the ship files
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src import seed_parts
-from src.constants import Catalog, Constants
+from src.constants import Catalog, Constants, current
 from src.engine import ship, storage, world
+from src.engine.ship import lines
 from src.models.estate import Building
 from src.models.identity import Body
 from src.models.job import JobState
@@ -140,10 +142,24 @@ async def _equip(session: AsyncSession, node: Node, type_key: str, amount: float
 
 
 async def _fuel(session: AsyncSession, node: Node, amount: float):
-    """Fuel aboard is fuel in a tank (D-230): a tank in the room, the fuel inside it."""
+    """Fuel aboard is fuel in a tank (D-230), and a tank on the engines' line:
+    a port without a line draws from nothing (D-288 as amended 2026-09-04),
+    so every engine already aboard gets this tank appended to its fuel line,
+    and a hull a test fuels is a hull it can fly."""
     tank = await _equip(session, node, TANK)
     inside = await storage.inside(session, tank)
-    return await world.grant_item(session, inside, FUEL, amount=amount, quality=60, origin="тест")
+    fuel = await world.grant_item(session, inside, FUEL, amount=amount, quality=60, origin="тест")
+    hull = (
+        await session.execute(select(Ship).where(Ship.node_id == node.parent_id))
+    ).scalar_one_or_none()
+    if hull is not None:
+        for machine in await lines.hold_of(session, hull):
+            if lines.port_of(current(), machine.type_key, "fuel") is not None:
+                rows = await lines.lines_of(session, machine.id, "fuel")
+                await lines.replace(
+                    session, machine, "fuel", [*(row.vessel_item_id for row in rows), tank.id]
+                )
+    return fuel
 
 
 async def _flightworthy(
@@ -170,3 +186,39 @@ async def _body_of(session: AsyncSession, vessel: Ship) -> Body:
         .scalars()
         .one()
     )
+
+
+async def _fast_sample(
+    session: AsyncSession, constants: Constants, catalog: Catalog, vessel: Ship, planet: Planet
+) -> dict:
+    """The fastest arc the engines deliver to `planet`, off the slider.
+
+    The one a test flies: the tick steps the sky a minute at a time (D-289),
+    and forty days of the cheapest arc is not a test.
+    """
+    forecast = await ship.forecast(session, constants, catalog, vessel, planet)
+    return next(one for one in forecast["samples"] if one["ok"])
+
+
+async def _flown(
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    vessel: Ship,
+    *,
+    since: datetime,
+    until: datetime,
+    step: timedelta = timedelta(hours=1),
+    slack: timedelta = timedelta(hours=24),
+) -> datetime:
+    """Tick the sky from `since` past `until`, an hour at a time, until the
+    order is over -- the hull moored, or adrift (D-289). Returns the hour of
+    the last tick."""
+    now = since
+    while now < until + slack:
+        now += step
+        await ship.helm.tick_sky(session, constants, catalog, now=now)
+        await session.refresh(vessel)
+        if vessel.docked_node_id is not None or vessel.course is None:
+            return now
+    return now

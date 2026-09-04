@@ -46,7 +46,7 @@ import { Sidebar } from "./panels/Sidebar";
 import { Summary, markSeen, useDigest } from "./panels/Summary";
 import { Stand } from "./panels/Stand";
 import { TopBar } from "./panels/TopBar";
-import { type View } from "./views";
+import { VIEWS, type View } from "./views";
 import { powSettings, type PowSettings } from "./pow";
 import { wearPlanet } from "./theme";
 import { useNarrow } from "./narrow";
@@ -54,6 +54,7 @@ import { ActionsProvider, type LocaleState } from "./actions";
 import { DEFAULT_LOCALE, forget, learn, loadWords, t, type Words } from "./locale";
 import { namesOf, type Names, type Renames } from "./names";
 import { onSidebarTab } from "./hud";
+import { forgetKept, oneOf, useKept } from "./kept";
 import { onProfile, onThread } from "./people";
 
 /** The phone's four sections: the same zones, one at a time (brief section 9).
@@ -69,6 +70,9 @@ const ZONES = [
   { id: "talk", get label() { return t("ui-app-zone-talk"); } },
 ] as const;
 type Zone = (typeof ZONES)[number]["id"];
+
+const VIEW_WIRE = oneOf<View>(VIEWS.map((tab) => tab.id));
+const ZONE_WIRE = oneOf<Zone>(ZONES.map((zone) => zone.id));
 
 /** How long the screen gathers events before rereading, and the reserve poll (D-226). */
 const REREAD_DELAY_MS = 150;
@@ -129,21 +133,26 @@ export default function App() {
   //: Somebody's card, asked for by right-clicking a name anywhere (D-222).
   const [card, setCard] = useState<string | null>(null);
   useEffect(() => onProfile(setCard), []);
-  //: "Write" from the card: the Net lives in the sidebar, and on a phone the
-  //: sidebar is the "я" section. The header's quick buttons open sidebar tabs
-  //: the same way (D-238).
-  useEffect(() => onThread(() => setWhere_("me")), []);
-  useEffect(() => onSidebarTab(() => setWhere_("me")), []);
   const [intro, setIntro] = useState(false);
   //: The summary is shown once on arrival, not on every refresh: a curtain that
   //: comes back every five seconds is a fault, not a notification.
   const [digestShown, setDigestShown] = useState(false);
   const [trouble, setTrouble] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [view, setView] = useState<View>("map");
+  //: Which of the scene's tabs is open, and -- on a phone -- which of the four
+  //: sections. Both are kept across reloads (`kept.ts`): a player who reads the
+  //: room rather than the map is not sent back to the map by a refresh.
+  const [view, setView] = useKept<View>("everselife.scene.view", "map", VIEW_WIRE);
   //: On a phone the four zones become four sections, one at a time (03-screens).
   const narrow = useNarrow();
-  const [where_, setWhere_] = useState<Zone>("here");
+  const [where_, setWhere_] = useKept<Zone>("everselife.scene.zone", "here", ZONE_WIRE);
+  //: "Write" from the card: the Net lives in the sidebar, and on a phone the
+  //: sidebar is the "я" section. The header's quick buttons open sidebar tabs
+  //: the same way (D-238). Below the zone rather than above it, where these two
+  //: used to stand: the setter is named in the dependencies now, and a name is
+  //: read when the effect is written, not when it runs.
+  useEffect(() => onThread(() => setWhere_("me")), [setWhere_]);
+  useEffect(() => onSidebarTab(() => setWhere_("me")), [setWhere_]);
 
   //: Read through refs so the subscription below is made once per session
   //: and never loses what it gathered while the screen was rerendering.
@@ -348,6 +357,12 @@ export default function App() {
       //: a table kept across a logout would show the next player the previous
       //: one's words for everything the message functions name.
       forget();
+      //: Same reasoning one step further: a browser is not per-account, and
+      //: what the interface wrote down about **this** player's world -- the
+      //: nodes they stood in, the goods they held -- would greet the next
+      //: player of this browser out of the console. The arrangement itself is
+      //: the browser owner's and stays: nobody's tab or fold names a world.
+      forgetKept("everselife.stand.", "everselife.inventory.opened");
       setWords(null);
       setNames(null);
       namesRef.current = null;
@@ -465,7 +480,7 @@ export default function App() {
   //: you are not in the node.
   useEffect(() => {
     if (away) setView("map");
-  }, [away]);
+  }, [away, setView]);
 
   //: The last login's token is being checked -- the login screen does not flicker (D-187).
   if (!look && resuming) {

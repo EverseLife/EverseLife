@@ -109,18 +109,26 @@ planned.** Windows come round every two to five weeks of real time, and setting
 out at the wrong hour costs four to five times over, in hours and in fuel
 alike.
 
-The time is settled once, at casting off, and never recomputed: a sky turning
-under a ship already under way would make the passage longer than the one paid
-for.
+The hours are the order, not a table entry (D-289): the sky is simulated
+under five bodies, the helm re-solves the passage from where the hull is
+every tick, and the tanks pay as the engines burn. A hull that runs dry
+coasts -- for ever, onto a body, or out of the system, and the forecast says
+which and when -- until fuel reaches it and a new order is laid from there.
 
 A package: one module per section of the old file; this file re-exports
 the names so `from src.engine import ship` reads as before.
 """
 
-from src.engine.ship import course  # noqa: F401
+from src.engine.ship import (
+    course,  # noqa: F401
+    fate,  # noqa: F401
+    helm,  # noqa: F401
+    sim,  # noqa: F401
+)
 from src.engine.ship._base import (  # noqa: F401
     _EPS,
     ABOARD,
+    AIR,
     BRIDGE,
     CLIMB,
     DESCENT,
@@ -128,6 +136,7 @@ from src.engine.ship._base import (  # noqa: F401
     FUEL,
     GROUND_BRIDGE,
     LIFE_SUPPORT,
+    LOST,
     OPEN_LANDING,
     ORBIT_NODE,
     PASSAGE,
@@ -172,6 +181,7 @@ from src.engine.ship.building import (  # noqa: F401
     extend,
     found,
     keel_laid,
+    moor_to,  # noqa: F401
 )
 from src.engine.ship.command import (  # noqa: F401
     _commanded_by,
@@ -179,14 +189,20 @@ from src.engine.ship.command import (  # noqa: F401
     _landable,
     _will_take,
 )
+from src.engine.ship.crossing import cancel, circle_star, fly  # noqa: F401
+from src.engine.ship.feed import (  # noqa: F401
+    NoSuchPort,
+    NotOnLine,
+    set_lines,
+)
+from src.engine.ship.feed import view as lines_view  # noqa: F401
 from src.engine.ship.flight import (  # noqa: F401
-    _moor_to,
     arrived,
     ascend,
-    fly,
     land,
     recall,
 )
+from src.engine.ship.meet import dock, undock  # noqa: F401
 from src.engine.ship.physics import (  # noqa: F401
     _sphere,
     _things,
@@ -196,6 +212,7 @@ from src.engine.ship.physics import (  # noqa: F401
     efficiency,
     engine_class,
     engines,
+    engines_aboard,
     fall_hours,
     fuel_aboard,
     fuel_energy,
@@ -207,14 +224,11 @@ from src.engine.ship.physics import (  # noqa: F401
     mass,
     mass_parts,
     orbits_of,
-    passage_arc,
     passage_curve,
     passage_hours,
     ratio,
     sky_days,
     spend_fuel,
-    tank_stacks,
-    tanks_of,
     thrust,
 )
 from src.engine.ship.shape import (  # noqa: F401

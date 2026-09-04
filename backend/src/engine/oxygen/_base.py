@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.db.base import remember
 from src.engine import ship as vessels
 from src.engine.errors import Refusal
+from src.engine.ship._base import AIR as _AIR
 from src.models.ship import Ship
 from src.models.world import Node, Planet
 from src.units import (
@@ -32,14 +33,9 @@ ASPHYXIA = "asphyxia"
 
 #: What is breathed. A single name rather than a class, because it is a single
 #: substance: D-215 binds behaviour to classes so that a second stove or a
-#: second engine is data, and there is no second air.
-AIR = "oxygen"
-
-#: What the life support turns into air, together with charge. Both come from
-#: the vault's recipe for «Кислород», never from a number here.
-WATER = "water"
-
-ENERGY = "energy"
+#: second engine is data, and there is no second air. The ship names it,
+#: because the life support's line hangs on it (D-288).
+AIR = _AIR
 
 #: The class that connects a body to a cylinder. Without one worn, a cylinder
 #: is luggage (D-234).

@@ -38,6 +38,7 @@ import type {
   Look,
   SanctionKind,
 } from "../api";
+import { oneOf, useKept } from "../kept";
 import { t } from "../locale";
 import { Rule } from "../Rule";
 import { Refusal, useActions, useBook, useEdition, useNames, useSession } from "../actions";
@@ -64,6 +65,9 @@ const TABS = [
   { id: "power", label: "ui-admin-tab-power" },
   { id: "panel", label: "ui-admin-tab-panel" },
 ] as const;
+type Bench = (typeof TABS)[number]["id"];
+
+const BENCH_WIRE = oneOf<Bench>(TABS.map((each) => each.id));
 
 export function Admin({ look }: Omit<Props, "busy" | "act">) {
   const session = useSession();
@@ -111,7 +115,9 @@ export function Admin({ look }: Omit<Props, "busy" | "act">) {
   const [amount, setAmount] = useState(0);
   const [print, setPrint] = useState(0);
   const [plot, setPlot] = useState("");
-  const [kind, setKind] = useState<(typeof TABS)[number]["id"]>("power");
+  //: Which bench of the administration is open, kept across reloads
+  //: (`kept.ts`): an official reading the panel reloads into the panel.
+  const [kind, setKind] = useKept<Bench>("everselife.admin.tab", "power", BENCH_WIRE);
 
   const reload = useCallback(async () => {
     try {

@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import * as amounts from "../amounts";
 import type { CityVote, RecipeBook, Thing } from "../api";
-import { arrange, summarize, weightOf } from "../arrange";
+import { arrange, groupId, groupKey, summarize, weightOf } from "../arrange";
 import { answered, askless, CHEST_ANY, chestOf, chestZone, fits, halved } from "../drag";
 import { goodsGlyph, nodeGlyph } from "../marks";
 import { duration, hands, stamp, when, worldTime } from "../clock";
@@ -265,6 +265,22 @@ describe("arrange", () => {
     ];
     const names = { goods: { ore: "Руда", rope: "Верёвка" } } as never;
     expect(arrange(stacks, "name", false, names).map((t) => t.goods)).toEqual(["rope", "ore"]);
+  });
+
+  it("names a group in ids, apart from the title it is read by (D-251)", () => {
+    //: The title is the player's word and changes with the language; the id is
+    //: the wire's and does not. What is stored -- which groups are unfolded --
+    //: is stored under the id, or a switch of language would fold them all.
+    const names = { goods: { ore: "Руда" }, tiers: { plain: "скверное" } } as never;
+    const stack = thing({ id: "a", goods: "ore", tier: "plain", quality: 20 });
+    expect(groupId(null, stack, "goods")).toBe("ore");
+    expect(groupKey(null, names, stack, "goods")).toBe("Руда");
+    expect(groupId(null, stack, "tier")).toBe("plain");
+    //: A stack with no quality has no tier either, and both halves say so in
+    //: their own vocabulary rather than borrowing the other's.
+    expect(groupId(null, thing({ id: "b", goods: "ore" }), "tier")).toBe("");
+    //: With no catalog to ask, a thing is raw -- one word, one key.
+    expect(groupId(null, stack, "kind")).toBe("raw");
   });
 });
 

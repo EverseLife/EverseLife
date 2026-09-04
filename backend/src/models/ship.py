@@ -17,8 +17,10 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Any
 
-from sqlalchemy import ForeignKey, Index, Integer, Uuid
+from sqlalchemy import Float, ForeignKey, Index, Integer, Uuid, text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.db.base import Base, created_column, uuid_pk
@@ -29,6 +31,14 @@ class Ship(Base):
     __table_args__ = (
         Index("ix_ship_owner", "owner_identity_id"),
         Index("ix_ship_docked", "docked_node_id"),
+        Index("ix_ship_held", "held_ship_id"),
+        #: Partial: the sweep asks every minute for the few marks there are,
+        #: and never for the many nulls (`hold.sweep`).
+        Index(
+            "ix_ship_docked_ship",
+            "docked_ship_id",
+            postgresql_where=text("docked_ship_id IS NOT NULL"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = uuid_pk()
@@ -72,10 +82,56 @@ class Ship(Base):
 
     #: When the hull's air was last settled (D-233). A stamp, and the reserve is
     #: elsewhere for the same reason a body's is: oxygen is a liquid and lives
-    #: in the tanks aboard (D-230, D-234). Nothing is ticked while the ship sits
+    #: in the vessels on the life support's line (D-230, D-288). Nothing is
+    #: ticked while the ship sits
     #: at a port of a planet that has air -- the stamp simply moves with the
     #: clock, so a month at a Terran pier is never charged to the tanks the hour
     #: it casts off.
     air_at: Mapped[datetime] = created_column()
+
+    #: The hull in the sky (D-289): where it is and how it moves, and the
+    #: moment that was true. Map units and units a day, the sky's own clock.
+    #: Empty at a spaceport -- there the graph says where the hull is. Moored
+    #: to an orbital node it is the parking circle's state at that moment
+    #: (`park_phase` is the angle round the planet), and the circle is
+    #: analytic from there; under way or adrift it is the integrator's, moved
+    #: by the tick. Never derived from the passage job again: the crossing is
+    #: flown, not tabled.
+    sky_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    sky_x: Mapped[float | None] = mapped_column(Float, nullable=True)
+    sky_y: Mapped[float | None] = mapped_column(Float, nullable=True)
+    sky_vx: Mapped[float | None] = mapped_column(Float, nullable=True)
+    sky_vy: Mapped[float | None] = mapped_column(Float, nullable=True)
+    park_phase: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    #: The order the autopilot flies (D-289): the target, the planned hour,
+    #: the line to draw and the phase the helm is in. Empty -- no order: at a
+    #: mooring, on a climb or a descent, or adrift. Written by `ship.sim`.
+    #: `none_as_null`: a Python None goes in as SQL NULL, not as the JSON
+    #: value `null` -- the tick and the hold's sweep filter on `course IS
+    #: NOT NULL` in SQL, and a JSON null passed for an order once, taking
+    #: every drifter for an ordered hull every minute (review of wave 3).
+    course: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
+    #: The coast ahead as the tick last counted it (D-289): the verdict, its
+    #: hour, the line to draw and the moment it was counted from. Written by
+    #: the tick and the loss job, read by the console and the map -- a read
+    #: never flies ninety days itself. Nothing on a moored hull.
+    forecast: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
+
+    #: When the hull was lost -- on a body or out of the system (D-289). The
+    #: rows stay as history; the map and the tick leave a lost hull alone.
+    lost_at: Mapped[datetime | None] = mapped_column(nullable=True)
+
+    #: Two hulls that met (D-289, wave 3). `held_ship_id` is the hull this one
+    #: came to rest beside and now flies as one with: its state is that hull's,
+    #: and the tick moves the pair by moving that one. `docked_ship_id` is the
+    #: hull it is joined to by an edge connector to connector -- the hold plus
+    #: both commanders' consent -- and `dock_ask_ship_id` is the consent this
+    #: hull has given and not yet had returned. `sightings` is which foreign
+    #: hulls this one has in sight, so the journal says "sighted" once.
+    held_ship_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    docked_ship_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    dock_ask_ship_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    sightings: Mapped[list[str] | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
 
     created_at: Mapped[datetime] = created_column()

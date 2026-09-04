@@ -118,12 +118,13 @@ ship-in-passage = корабль уже в рейсе{ $known ->
     }: до конца перехода он приказов не берёт
 ship-no-connector-or-port = у корабля нет коннектора или порта
 ship-not-enough-thrust = тяги { NUMBER($have, minimumFractionDigits: 2, maximumFractionDigits: 2) } на килограмм при нужных { NUMBER($need, minimumFractionDigits: 2, maximumFractionDigits: 2) }: с такой массой корабль никуда не идёт. Ставьте двигатели или снимайте груз
-ship-no-life-support = на борту { $crew } человек, а жизнеобеспечение держит { $holds }: ставьте ещё систему
+ship-no-life-support = на борту нет системы жизнеобеспечения: без неё корабль никуда не идёт
 ship-no-engines = на корабле нет ни одного двигателя
 ship-no-fuel = { $why ->
-        [climb] на подъём и спуск обратно топлива не хватает, а на орбите не заправляют
-        [cross] на переход и посадку в конце топлива не хватает
-        [turn-back] на разворот топлива не хватает: с пустыми баками в пустоте не разворачиваются — идите до конца
+        [climb] на подъём топлива не хватает
+        [cross] на уход со стоянки топлива не хватает
+        [turn-back] на разворот топлива не хватает
+        [orbit] на выход на орбиту звезды топлива не хватает
        *[land] на посадку топлива не хватает
     }: нужно { NUMBER($need, minimumFractionDigits: 1, maximumFractionDigits: 1) } «{ NAME($goods) }» в пересчёте на ракетное, а баки закрывают { NUMBER($have, minimumFractionDigits: 1, maximumFractionDigits: 1) }
 ship-passage-already-queued = рейс уже поставлен
@@ -134,6 +135,25 @@ ship-cross-to-orbit = «{ $node }» — не орбита: переход идё
 ship-already-over-planet = «{ $ship }» уже над этой планетой: отсюда садятся, а не идут переходом
 ship-nowhere-to-land = на «{ $node }» садиться некуда: не светит ни один маяк. Корабль ушёл бы туда и остался на орбите
 ship-no-such-route = маршрута { PLANET($planet_from) } — { PLANET($planet_to) } в мире нет
+ship-lost = корабль «{ $ship }» потерян: ни приказа, ни разворота ему больше не отдать
+ship-no-route-adrift = из дрейфа небо дуги не даёт · { PLANET($planet_to) }
+# Встреча двух корпусов (D-289, волна 3).
+ship-target-self = корабль не летит сам к себе
+ship-dock-self = корабль не стыкуется сам с собой
+ship-target-unseen = цели не видно: чужой корпус виден ближе { NUMBER($radius) } ед. карты или на стоянке у той же планеты
+ship-target-not-adrift = целью бывает только дрейфующий корпус: под приказом, на стоянке или на удержании его не встретить
+ship-target-unknown = инерцию цели ещё не сочли: она только легла в дрейф, небо покажет её через минуту
+ship-not-held = стыкуются только на удержании: подойти ближе { NUMBER($radius) } ед. карты с относительной скоростью ниже { NUMBER($speed) } ед. скорости
+ship-dock-at-port = борт к борту стыкуются только в космосе: у причала это был бы мост мимо досмотра
+ship-already-docked-ship = корабль уже пристыкован · { $other }
+ship-not-docked-ship = корабль не пристыкован к другому корпусу
+ship-no-route-to-ship = небо не даёт дуги к цели · { $other }
+ship-no-course-to-cancel = курса нет — отменять нечего · { $ship }
+ship-already-circling = корабль уже выходит на орбиту звезды · { $ship }
+ship-orbit-only-in-space = на орбиту звезды выходят из космоса, а корабль у планеты — на стоянке или у причала · { $ship }
+ship-course-not-turned = курс под небом не разворачивают: его отменяют или выходят на орбиту звезды · { $ship }
+ship-orbit-crosses-planet = круг вокруг звезды отсюда проходит сквозь планету · { PLANET($body) }
+ship-target-gone-by-then = цели к часу прихода там уже не будет: она упадёт или уйдёт из системы раньше · { $other }
 ship-already-landed = «{ $ship }» уже стоит на планете: садиться неоткуда
 ship-land-not-into-orbit = «{ $node }» — орбита, а не космодром: с орбиты садятся на планету под ней
 ship-land-other-planet = «{ $node }» на другой планете: с орбиты садятся на то, что под ней, а до чужой планеты идут переходом с орбиты на орбиту
@@ -169,6 +189,5 @@ occupation-busy = тело занято: { $what }{ $term ->
 # The arc between worlds (D-271).
 ship-hours-out-of-range = { NUMBER($hours) } ч — вне ползунка: дуга летит от часа до { NUMBER($limit) } ч
 ship-no-arc = на { NUMBER($hours) } ч небо дуги не даёт: всякая срезает корону звезды. Выберите другое время на ползунке
-ship-no-planet-to-pass = планета { PLANET($planet) } не ходит вокруг этой звезды: огибать нечего
 ship-too-fast-for-thrust = за { NUMBER($hours) } ч двигатели выдают { NUMBER($have) } ед. скорости, а дуге нужно { NUMBER($need) }: сдвиньте ползунок к дешёвому краю, снимите массу или ставьте двигатели
 ship-hours-is-a-number = время полёта задаётся числом часов

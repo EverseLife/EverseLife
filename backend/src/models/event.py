@@ -117,6 +117,25 @@ class EventKind(StrEnum):
     #: The helm went over (D-242): the passage is dropped and the hull is coming
     #: back to the pier it left, for as long as it has already flown.
     SHIP_RECALLED = "ship.recalled"
+    #: The owner plumbed a port (D-288): which vessels a machine drinks from
+    #: and in what order. An empty list is the port going back to "any".
+    LINE_SET = "line.set"
+    #: The engines ran dry under way (D-289): the hull coasts from here, and
+    #: the order is gone. Said to everybody aboard, like the air running out.
+    SHIP_ADRIFT = "ship.adrift"
+    #: On the circle round the star (D-289, 2026-09-04): the order to circle
+    #: it is done, and the hull hangs there like a planet.
+    SHIP_STAR_ORBIT = "ship.star_orbit"
+    #: The coast ended on a body or out of the system (D-289): the hull and
+    #: everybody aboard are lost. Said to the owner and the crew.
+    SHIP_LOST = "ship.lost"
+    #: Two hulls meeting (D-289, wave 3): seen from the chart, come to rest
+    #: beside, asked to dock, docked connector to connector, parted again.
+    SHIP_SIGHTED = "ship.sighted"
+    SHIP_HELD = "ship.held"
+    SHIP_DOCK_ASKED = "ship.dock_asked"
+    SHIP_DOCKED_SHIP = "ship.docked_ship"
+    SHIP_UNDOCKED_SHIP = "ship.undocked_ship"
 
     # transport and convoy (D-157)
     TRANSPORT_HARNESSED = "transport.harnessed"

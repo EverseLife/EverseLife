@@ -48,6 +48,7 @@ from src.models.ledger import (
     PostingReason,
 )
 from src.models.library import LibraryEntry
+from src.models.lines import FeedLine
 from src.models.luck import Luck
 from src.models.market import (
     Order,
@@ -82,6 +83,7 @@ __all__ = [
     "Account",
     "Automat",
     "AutomatLink",
+    "FeedLine",
     "AccountKind",
     "Base",
     "BatchKind",

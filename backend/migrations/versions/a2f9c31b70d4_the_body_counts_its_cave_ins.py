@@ -20,7 +20,7 @@ matter any more; left behind it would be a counter of a rule that no longer
 exists, for whoever opens the table next.
 
 Revision ID: a2f9c31b70d4
-Revises: b8d3f01ca672
+Revises: 9c4e7a1f2b63
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "a2f9c31b70d4"
-down_revision: str | None = "b8d3f01ca672"
+down_revision: str | None = "9c4e7a1f2b63"
 branch_labels: str | None = None
 depends_on: str | None = None
 

@@ -248,6 +248,29 @@ export function Workshop({ look, machine }: Omit<Props, "busy" | "act">) {
               value={qty}
               onChange={(typed) => setQty(typed ?? 0)}
             />
+            {/* How much of it fits at all is the engine's answer, not a sum
+                over the visible stacks (D-225): the tier chosen for an input
+                narrows what feeds the batch (D-058), water for the dough is
+                counted inside its canister (D-230), and a counted input is
+                taken whole per batch (D-212). Counted here, the button would
+                land on a refusal exactly where it is most needed. */}
+            <button
+              className="quiet"
+              onClick={() =>
+                act(async () => {
+                  const answer = await session.send("craft.most", {
+                    output: selected,
+                    recipe: recipe ?? undefined,
+                    tiers: chosenTiers,
+                  });
+                  setQty(Number(answer.units));
+                })
+              }
+              disabled={busy}
+              title={t("ui-workshop-most-hint")}
+            >
+              {t("ui-workshop-most")}
+            </button>
           </div>
 
           {/* What goes in and which quality of it (D-058): a row per input,

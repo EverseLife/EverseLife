@@ -40,8 +40,10 @@ import { goodsName } from "../names";
 import { planetName } from "../planets";
 import { Chart } from "./ship/Chart";
 import { Course } from "./ship/Course";
+import { Drift, Passage } from "./ship/Voyage";
+import { Feed } from "./ship/Feed";
 import { Plan } from "./ship/Plan";
-import { autonomy, wanted, type Pad, type Vessel } from "./ship/model";
+import { autonomy, wanted, type Pad, type Target, type Vessel } from "./ship/model";
 import { term } from "./map/orbits";
 
 /**
@@ -118,15 +120,13 @@ function Card({ v }: { v: Vessel }) {
             {v.ratio < v.min_ratio && ` · ${t("ui-ship-below-threshold")}`}
           </td>
         </tr>
-        {/* The air (D-233, D-234). Shown always, because "nothing is being
-            spent" is itself the answer to "how long can we stay out there". */}
+        {/* The air (D-233, D-288): what stands on the life support's line.
+            Shown always, because "nothing is being spent" is itself the answer
+            to "how long can we stay out there". */}
         <tr>
           <td>{t("ui-ship-air")}</td>
           <td className="note">
-            {t("ui-ship-air-tanks", {
-              units: v.air.units.toFixed(0),
-              water: v.air.water.toFixed(0),
-            })}
+            {t("ui-ship-air-line", { units: v.air.units.toFixed(0) })}
             {v.air.sealed
               ? hours != null
                 ? ` · ${t("ui-ship-air-burn", {
@@ -166,9 +166,10 @@ function AirBar({ v }: { v: Vessel }) {
  * planet's gravity, fuel out of the tanks -- and it may be countermanded while
  * it lasts.
  *
- * Two numbers, not one: what the climb burns, and what the tanks must hold for
- * it to be allowed at all. The difference is the descent home, which is kept
- * back rather than spent -- an orbit has no bunker.
+ * Two numbers, not one: what the climb burns, and what the round trip takes.
+ * The difference is the descent home -- and since D-289 it is a warning, not
+ * a lock: a hull that climbs short of it sits on its circle until fuel
+ * reaches it, which is a place a rescue can be sent to.
  */
 function Ascent({
   vessel,
@@ -183,7 +184,12 @@ function Ascent({
   if (!climb) {
     return <p className="note">{t("ui-ship-no-orbit")}</p>;
   }
-  const dry = vessel.fuel < wanted(climb);
+  //: Two thresholds, two different ends (D-289): short of the climb itself
+  //: the hull does not leave the pad -- the engine refuses, so the button is
+  //: dark; short only of the descent back it climbs and sits on its circle
+  //: until fuel reaches it -- a warning, and the button stays lit.
+  const dryClimb = climb.fuel != null && vessel.fuel < climb.fuel;
+  const dry = !dryClimb && vessel.fuel < wanted(climb);
   return (
     <>
       <p>
@@ -196,12 +202,7 @@ function Ascent({
             })}{" "}
         <button
           onClick={ascend}
-          disabled={
-            busy ||
-            !climb.reachable ||
-            vessel.crew > vessel.life_support ||
-            dry
-          }
+          disabled={busy || !climb.reachable || !vessel.life_support || dryClimb}
           title={t(climb.reachable ? "ui-ship-ascend-hint" : "ui-ship-thrust-short")}
         >
           {t("ui-ship-ascend")}
@@ -210,11 +211,18 @@ function Ascent({
       {!climb.reachable && climb.hours != null && (
         <p className="note">{t("ui-ship-ratio-short")}</p>
       )}
-      {dry ? (
-        <p className="note">
+      {dryClimb ? (
+        <p className="reason">
+          {t("ui-ship-dry-climb", {
+            fuel: vessel.fuel.toFixed(0),
+            need: climb.fuel?.toFixed(0) ?? "",
+          })}
+        </p>
+      ) : dry ? (
+        <p className="reason">
           {t("ui-ship-dry-ascent", {
             fuel: vessel.fuel.toFixed(0),
-            needs: climb.needs?.toFixed(0) ?? "",
+            need: climb.needs?.toFixed(0) ?? "",
           })}
         </p>
       ) : (
@@ -293,58 +301,6 @@ function Landing({
   );
 }
 
-/**
- * A passage under way: where it goes, how far it has got, and when it ends.
- *
- * The bar is the one every term in this world wears (D-238). It matters more
- * here than anywhere: a hull in flight takes no orders at all, so the only
- * thing the console can honestly offer is the answer to "how long".
- */
-function Passage({
-  v,
-  busy,
-  deaf,
-  recall,
-}: {
-  v: Vessel;
-  busy: boolean;
-  /** No console aboard: the hull hears nothing from the ground (D-242). */
-  deaf: boolean;
-  recall: () => void;
-}) {
-  if (!v.flight) return null;
-  return (
-    <div className="doing">
-      <span className="doing-what">
-        {t("ui-ship-flight", { back: String(Boolean(v.flight.back)), name: v.flight.name })}
-        {v.flight.planet && ` · ${planetName(v.flight.planet)}`}
-        {v.flight.via && ` · ${t("ui-ship-arc-via", { planet: planetName(v.flight.via) })}`}
-      </span>
-      <Deadline
-        until={v.flight.arrives_at}
-        since={v.flight.started_at}
-        label={t("ui-ship-flight-label")}
-      />
-      <span className="doing-aside note">
-        {t("ui-ship-flight-fixed")}
-        {!v.flight.back && ` ${t("ui-ship-may-turn")}`}
-      </span>
-      {/* The helm may still go over (D-242): the way back is as long as the way
-          out has been, and costs its own fuel. Named with the pier it aims at,
-          because "cancel" alone would not say where the hull ends up. */}
-      {/* Already going back: there is nothing left to turn (D-242). */}
-      {!v.flight.back && (
-        <button className="quiet" onClick={recall} disabled={busy || deaf || !v.left}>
-          {t("ui-ship-recall", { known: String(Boolean(v.left)), port: v.left ?? "" })}
-        </button>
-      )}
-      {!v.flight.back && !v.left && (
-        <span className="note">{t("ui-ship-no-origin")}</span>
-      )}
-    </div>
-  );
-}
-
 /** The nameplate: the owner's word, and the engine makes nothing of it (D-240). */
 function Nameplate({
   vessel,
@@ -408,7 +364,9 @@ export function Ship({
 
   const [ships, setShips] = useState<Vessel[]>([]);
   const [name, setName] = useState("");
-  const [course, setCourse] = useState<string | null>(null);
+  const [course, setCourse] = useState<Target | null>(null);
+  //: The arc under the slider's thumb, for the chart (D-289).
+  const [plan, setPlan] = useState<[number, number][] | null>(null);
   //: The spheres for the chart. The sky is answered to everybody (D-240), so
   //: this read works in flight, where the hull has no edges and the world map
   //: would otherwise be able to say nothing at all about where it is.
@@ -442,8 +400,9 @@ export function Ship({
     const answer = await session.send("ship.view", ground ? { fleet: true } : {});
     setShips((answer.ships ?? []) as Vessel[]);
   }, [session, ground]);
-  //: Reread when the world says so (D-226), not on every look.
-  const edition = useEdition("ship.", "transport.");
+  //: Reread when the world says so (D-226), not on every look. A line drawn
+  //: changes what the tanks are worth to the engines (D-288).
+  const edition = useEdition("ship.", "transport.", "line.");
 
   useEffect(() => {
     void reload();
@@ -528,9 +487,11 @@ export function Ship({
             {v.ratio < v.min_ratio && <b> · {t("ui-ship-stuck")}</b>} ·{" "}
             {t("ui-ship-crew", {
               crew: String(v.crew),
-              support: String(v.life_support),
               fuel: v.fuel.toFixed(0),
             })}
+            {/* No number of people a system holds (D-288): what is worth a
+                word is a hull with no system at all, which does not cast off. */}
+            {!v.life_support && <b> · {t("ui-ship-no-life-support")}</b>}
             {v.stage === "orbit"
               ? ` · ${t("ui-ship-in-orbit", { planet: planetName(v.planet) })}`
               : v.docked
@@ -539,8 +500,10 @@ export function Ship({
                     berth: String(v.berth ?? "—"),
                   })}`
                 : v.flight
-                  ? ` · ${t("ui-ship-on-voyage", { name: v.flight.name })}`
-                  : ` · ${t("ui-ship-adrift")}`}
+                  ? ` · ${v.flight.star ? t("ui-ship-flight-star") : t("ui-ship-on-voyage", { name: v.flight.name })}`
+                  : v.stage === "lost"
+                    ? ` · ${t("ui-ship-lost-status")}`
+                    : ` · ${t("ui-ship-adrift")}`}
           </p>
           {/* A passage is a term like any other, and every term in this world
               is drawn the same way. At the console the whole card stands
@@ -568,6 +531,7 @@ export function Ship({
                 epoch={look.clock?.epoch ?? null}
                 chosen={course}
                 onChoose={setCourse}
+                plan={plan}
               />
               {/* One stage, one set of orders (D-245). From the pad the
                   only move is up; under way the only move is back; from orbit
@@ -578,29 +542,72 @@ export function Ship({
                   busy={busy || deaf}
                   ascend={() => go(() => session.send("ship.ascend", { ship: v.ship }))}
                 />
+              ) : v.stage === "lost" ? (
+                <p className="reason">{t("ui-ship-lost-note")}</p>
               ) : v.stage === "flight" ? (
                 <Passage
                   v={v}
                   busy={busy}
                   deaf={deaf}
                   recall={() => go(() => session.send("ship.recall", { ship: v.ship }))}
+                  cancel={() => go(() => session.send("ship.cancel", { ship: v.ship }))}
+                  orbit={() => go(() => session.send("ship.orbit", { ship: v.ship }))}
                 />
               ) : (
                 <>
-                  <Landing
-                    vessel={v}
-                    busy={busy || deaf}
-                    land={(port) => go(() => session.send("ship.land", { ship: v.ship, port }))}
-                  />
+                  {/* Adrift, the hull has no planet under it to come down on;
+                      what it has is a coast and a verdict (D-289). A course
+                      it may lay from anywhere the tanks allow. */}
+                  {v.stage === "adrift" ? (
+                    <Drift
+                      v={v}
+                      busy={busy || deaf}
+                      dock={(other) =>
+                        go(() => session.send("ship.dock", { ship: v.ship, ship_target: other }))
+                      }
+                      undock={() => go(() => session.send("ship.undock", { ship: v.ship }))}
+                      orbit={() => go(() => session.send("ship.orbit", { ship: v.ship }))}
+                    />
+                  ) : (
+                    <Landing
+                      vessel={v}
+                      busy={busy || deaf}
+                      land={(port) => go(() => session.send("ship.land", { ship: v.ship, port }))}
+                    />
+                  )}
                   <Course
                     vessel={v}
-                    planet={course}
+                    target={course}
                     busy={busy || deaf}
-                    fly={(port, hours, via) =>
-                      go(() => session.send("ship.fly", { ship: v.ship, port, hours, via }))
+                    fly={(to, hours) =>
+                      go(() =>
+                        session.send(
+                          "ship.fly",
+                          "planet" in to
+                            ? {
+                                ship: v.ship,
+                                port: v.routes.find((one) => one.planet === to.planet)?.node,
+                                hours,
+                              }
+                            : { ship: v.ship, ship_target: to.ship, hours },
+                        ),
+                      )
                     }
+                    onPlan={setPlan}
                   />
                 </>
+              )}
+              {/* The plumbing (D-288): drawn from the console, because it is
+                  an order about the hull like any other, and the engine
+                  refuses it to anybody but the owner at a console. */}
+              {v.yours && (
+                <Feed
+                  vessel={v}
+                  busy={busy || deaf}
+                  plumb={(machine, port, vessels) =>
+                    go(() => session.send("line.set", { ship: v.ship, machine, port, vessels }))
+                  }
+                />
               )}
             </>
           ) : (

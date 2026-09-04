@@ -53,9 +53,17 @@ async def locked_stacks(
     return list((await session.execute(stmt)).scalars().all())
 
 
-async def lock_items(session: AsyncSession, items: Sequence[Item]) -> list[Item]:
+async def lock_items(
+    session: AsyncSession, items: Sequence[Item], *, ordered: bool = False
+) -> list[Item]:
     """The same items, locked and reread, in id order. For consumers that
-    gathered their stacks from several containers (a ship's rooms)."""
+    gathered their stacks from several containers (a ship's rooms).
+
+    `ordered` hands them back in the order they were given instead: a line
+    drinks its vessels in the owner's order (D-288), and the lock -- always
+    taken in id order, so two consumers never deadlock -- must not reshuffle
+    it. A stack gone between the gathering and the lock is simply absent.
+    """
     if not items:
         return []
     ids = sorted(item.id for item in items)
@@ -72,7 +80,10 @@ async def lock_items(session: AsyncSession, items: Sequence[Item]) -> list[Item]
         .scalars()
         .all()
     )
-    return list(rows)
+    if not ordered:
+        return list(rows)
+    by_id = {row.id: row for row in rows}
+    return [by_id[item.id] for item in items if item.id in by_id]
 
 
 async def consume(session: AsyncSession, stacks: Sequence[Item], quantity: int) -> int:
