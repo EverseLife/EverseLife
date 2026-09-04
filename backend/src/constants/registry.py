@@ -654,6 +654,10 @@ ORBIT_PLANET_MU = Num("orbit.planet_mu")
 ORBIT_PARK_RADIUS = Num("orbit.park_radius")
 ORBIT_STEP_MINUTES = Num("orbit.step_minutes")
 ORBIT_PLAN_STEP_MINUTES = Num("orbit.plan_step_minutes")
+#: How often the helm re-solves the arc under way: between corrections it
+#: holds the velocity already found, so the passage is flown rather than
+#: derived afresh every minute (D-316).
+ORBIT_CORRECT_MINUTES = Num("orbit.correct_minutes")
 ORBIT_CAPTURE_RADIUS = Num("orbit.capture_radius")
 ORBIT_CAPTURE_SPEED = Num("orbit.capture_speed")
 ORBIT_SYSTEM_RADIUS = Num("orbit.system_radius")
