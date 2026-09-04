@@ -134,5 +134,5 @@ class CraftBatch(Base):
     #: How many times the batch was (re)started. The finishing job carries the
     #: number it was queued for: a job left over from a run that was frozen
     #: must not finish the batch ahead of the resumed one.
-    runs: Mapped[int] = mapped_column(nullable=False, default=0)
+    runs: Mapped[int] = mapped_column(nullable=False, default=0, server_default="0")
     finished_at: Mapped[datetime | None] = mapped_column(nullable=True)

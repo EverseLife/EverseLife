@@ -7,7 +7,9 @@ The world is eternal, no wipes (D-007) -- so a schema divergence from code
 is not fixed by recreating the database. The check catches it the day it appears.
 
 The test looks at a database upgraded by migrations (`alembic upgrade head`)
-and requires that autogeneration finds not a single difference.
+and requires that autogeneration finds not a single difference -- types and
+column defaults among them, both of which autogeneration passes over unless
+asked (`compare_type`, `compare_server_default`).
 
 The last pair goes further and looks at both schemas at once -- the migrated
 one and the one built from the models -- because what a model cannot express
@@ -49,8 +51,47 @@ def _differences(connection) -> list:
         )
         return not partition
 
+    #: Column defaults are compared only when asked, and the silence cost nine
+    #: columns: the migration wrote a `server_default` and the model declared
+    #: only a Python-side `default=`, so a `create_all` database left the
+    #: column bare where the deployed one filled it in. Neither this test nor
+    #: `--autogenerate` said a word. Five were an `add_column` that had rows to
+    #: backfill on a `NOT NULL` add, but four stood inside a `create_table`
+    #: with nothing to backfill -- the divergence is not a habit of one
+    #: operation, and it is worth looking for wherever a default is written in
+    #: a migration and not in the model.
+    #:
+    #: Plain `True` and no exceptions, though `event.id` looks like it needs
+    #: one: it holds `nextval('event_id_seq')` in the migrated schema and
+    #: nothing in the built one, where the `Sequence` is drawn ORM-side before
+    #: the insert. Alembic's Postgres dialect drops that default on reflection
+    #: when the sequence is *owned* by the column it feeds ("assuming SERIAL
+    #: and omitting"), so the comparison never reaches it. Only the migrated
+    #: database is reflected here, so it is that one's ownership this rests on:
+    #: take it away and the check starts reporting `event.id`. (The built
+    #: schema's ownership matters too, but for `TRUNCATE ... RESTART
+    #: IDENTITY` -- that is the pair at the end of this file.)
+    #:
+    #: What the comparison forgives is spelling, and not by normalizing text:
+    #: where the two differ it asks the server whether they are equal
+    #: (`SELECT <database default> = <model default>`), which is why
+    #: `server_default=text("0")` and `server_default="0"` pass as one. The
+    #: first reaches Postgres bare, the second quoted and then recorded by
+    #: type -- `0` for an integer, `'0'::bigint`, `'0'::numeric`. Alembic warns
+    #: in its own source that asking the server is a poor test for a default
+    #: that is a SQL function, which is worth knowing for a tenth column.
+    #:
+    #: The models here spell each default the way its own migration did, so a
+    #: raw diff of `information_schema.columns` between the two databases --
+    #: the reading that found all nine -- comes out empty as well. That half is
+    #: discipline and not a check: either spelling passes this test.
     context = MigrationContext.configure(
-        connection, opts={"compare_type": True, "include_name": include}
+        connection,
+        opts={
+            "compare_type": True,
+            "compare_server_default": True,
+            "include_name": include,
+        },
     )
     return compare_metadata(context, Base.metadata)
 

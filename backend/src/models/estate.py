@@ -30,6 +30,7 @@ from sqlalchemy import (
     Numeric,
     String,
     Uuid,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -116,7 +117,9 @@ class Deed(Base):
     owner_identity_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("identity.id"), nullable=False)
 
     #: The issue price: the purchase price in minor units, zero for taken wild land.
-    paid: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    paid: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0, server_default=text("0")
+    )
 
     #: Listed for sale: the price and, if the contract is addressed, the buyer.
     #: Empty -- the deed is not for sale. Sale is remote: the document lives in the Net.
