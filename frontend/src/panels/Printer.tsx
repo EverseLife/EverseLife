@@ -22,6 +22,7 @@ import { Refusal, useActions, useSession } from "../actions";
 
 type Props = {
   look: Look;
+  values: Record<string, any> | null;
   busy: boolean;
   act: (what: () => Promise<unknown>) => Promise<void>;
 };
@@ -41,7 +42,7 @@ function short(what: string, here: number, needed: number): string {
   return t("ui-printer-short", { what, here: here.toFixed(0), needed: needed.toFixed(0) });
 }
 
-export function Printer({ look }: Omit<Props, "busy" | "act">) {
+export function Printer({ look, values }: Omit<Props, "busy" | "act">) {
   const session = useSession();
   //: This panel's own waiting and its own refusal: one action here
   //: must not grey out the chat, the map and somebody else's orders.
@@ -58,7 +59,17 @@ export function Printer({ look }: Omit<Props, "busy" | "act">) {
         {t("ui-printer-title")}
         <Rule>{t("ui-printer-rule")}</Rule>
       </h2>
-      <p className="note">{t("ui-printer-note")}</p>
+      {/* What survived is `death.salvage_ratio` of the worn -- except under a
+          cave-in, which leaves the whole pocket lying (D-294). The share is
+          the vault's number, so it is asked for rather than spelled out: the
+          old note said "a third" in words and would have lied the day the
+          vault said something else. A server that has not sent the constants
+          yet leaves the number out instead of guessing. */}
+      <p className="note">
+        {t("ui-printer-note", {
+          share: (values?.["death.salvage_ratio"] ?? "").toString(),
+        })}
+      </p>
 
       {ongoing ? (
         <p className="sign">{t("ui-printer-printing", { when: left(ongoing.ready_at) })}</p>

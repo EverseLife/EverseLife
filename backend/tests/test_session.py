@@ -211,6 +211,10 @@ def test_look_answers_and_carries_the_clock(client, miner, constants: Constants)
     assert "refused" not in answer, answer
     seen = answer["look"]
     assert seen["node"] and seen["body"], "тело в узле, а окно в мир пустое"
+    #: The cave-ins this body has lived through ride along (D-294): the face's
+    #: window warns when the next one is the last, and the client has nothing
+    #: else to work it out from (D-225).
+    assert seen["body"]["cave_ins"] == 0, "свежее тело обвалов не помнит"
 
     clock = seen["clock"]
     assert clock["epoch"], "часам нужна точка отсчёта"

@@ -281,7 +281,7 @@ ui-mint-melt = Melt down
 
 ui-printer-title = No body
 ui-printer-rule = The city sells not life but speed: pay and you are back in minutes, do not pay and it is twelve hours at the Precursors' printer. That is why the price of a resurrection has a ceiling, and nobody can lock an identity away.
-ui-printer-note = The identity is whole: the name, the knowledge, the account and the obligations outlived the body. What the body carried is lost — and a third of it stayed lying where it died.
+ui-printer-note = The identity is whole: the name, the knowledge, the account and the obligations outlived the body. Of what the body carried, what survived stayed lying where the body fell: under a cave-in, all of it and whole; otherwise, { $share }% of it, damaged.
 ui-printer-printing = printing is under way · the body will be ready { $when }
 ui-printer-none = There is not one bioprinter in the world. This is a situation that must not arise: entry into the game is never blocked.
 ui-printer-precursor = Precursors

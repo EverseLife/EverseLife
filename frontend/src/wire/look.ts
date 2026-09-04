@@ -132,6 +132,9 @@ export type Look = {
     sleeping_home: boolean;
     /** Until this moment the stamina spend is reduced: a meal, not a buff (D-119). */
     satiated_until?: string;
+    /** Cave-ins this body has lived through: the next one past the vault's
+     *  count kills it, and a new body starts at nought (D-294). */
+    cave_ins: number;
   };
   /**
    * The node as facts the client cannot derive by itself (D-225). Whatever

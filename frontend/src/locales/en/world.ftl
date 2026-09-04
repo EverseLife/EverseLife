@@ -283,7 +283,7 @@ ui-ship-plan-align = Align to the grid
 ## The face: three buttons and a lever for the pace.
 
 ui-mine-title = The face
-ui-mine-rule = Timber costs beams and rope, a fast pace gives more output and more sag. There is no sequence to learn by heart: the optimum moves along with the price of timber.
+ui-mine-rule = Timber costs beams and rope, a fast pace gives more output and more sag. There is no sequence to learn by heart: the optimum moves along with the price of timber. A body lives through its first cave-in, not its second.
 ui-mine-vein = Vein: { $goods }, richness { $richness }
 ui-mine-no-vein = There is no vein in this node
 ui-mine-no-vein-here = no vein here
@@ -302,6 +302,7 @@ ui-mine-pace = pace: { $fast ->
     }
 ui-mine-collapsed = A cave-in. Everything mined this session is lost.
 ui-mine-collapsed-lost = mined: { $lost }
+ui-mine-last-cave-in = The next cave-in is this body's last: it stays under the rock, and everything it carries stays lying here whole.
 
 ## The rig: capital instead of labour.
 

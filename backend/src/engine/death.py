@@ -124,6 +124,7 @@ async def die(
     body: Body,
     *,
     cause: str,
+    buried: bool = False,
     now: datetime | None = None,
 ) -> float:
     """Kill the body. Returns how many units of the worn survived at the place.
@@ -131,6 +132,12 @@ async def die(
     What survived lands in the node where the body died: matter does not vanish
     with its owner and does not follow them. The rest is a sink, and an honest
     one: in an eternal world (D-007) what is lost does not come back.
+
+    `buried` is a death that leaves the whole pocket where it fell -- today the
+    second cave-in (D-294). The rock comes down on the body and its load in one
+    place: nothing is scattered, nothing burns, and the kit lies on the floor of
+    the node, whole, for whoever comes to the face next. The share below is the
+    one difference; everything else about dying is the same death.
     """
     moment = now or datetime.now(UTC)
     if body.state is not BodyState.ALIVE:
@@ -138,7 +145,7 @@ async def die(
 
     #: The roll is seeded by the body: replaying the episode after a failure gives the same.
     dice = random.Random(str(body.id))
-    share = constants[R.DEATH_SALVAGE_RATIO] / PERCENT
+    share = 1.0 if buried else constants[R.DEATH_SALVAGE_RATIO] / PERCENT
 
     #: The face closes **first**, before any other shared row is taken: the
     #: session row is the gate every closer of a face takes as its opening
@@ -183,7 +190,10 @@ async def die(
     yard = await world.node_container(session, node) if node is not None else None
     survived = 0.0
     for thing in things:
-        left = amount(amount_float(thing.amount) * share)
+        #: Whole means whole: a share of one goes past the arithmetic rather
+        #: than through it, so that a heap big enough for the float to shave a
+        #: unit off it does not lose that unit to a rule that took nothing.
+        left = thing.amount if share >= 1 else amount(amount_float(thing.amount) * share)
         #: The indivisible survives by roll: there is no half a pickaxe, and the
         #: rule must be one for everything worn. The roll remembers (D-213):
         #: losing every single tool of a kit was a fair coin's right, and it
@@ -201,8 +211,10 @@ async def die(
         #: Loot lies (D-278): a machine out of a dead hand is cargo on the ground.
         thing.installed = False
         #: "In damaged form": condition drops by the same share as the amount
-        #: survived. The vault gives no second number for this.
-        thing.condition = Decimal(str(float(thing.condition) * share))
+        #: survived. The vault gives no second number for this. A buried death
+        #: keeps everything, so by the same rule it damages nothing.
+        if share < 1:
+            thing.condition = Decimal(str(float(thing.condition) * share))
         #: Damaged the same way and lying in the same place, two heaps of ore
         #: are one heap (D-214). The tally is of what survived, not of stacks.
         await world.stack_up(session, thing)

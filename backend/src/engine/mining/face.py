@@ -169,6 +169,24 @@ async def swing(
     #: quietly go back to what it was.
     await session.flush()
     await session.refresh(body, with_for_update=True)
+    #: And the face is reread under that same lock, before anything is written.
+    #: Two sockets of one identity can send the **last** swing in one moment:
+    #: both read the face ACTIVE with the same roof, and each would take that
+    #: roof to nought from its own stale copy -- two cave-ins for one swing, and
+    #: since D-294 the second of them kills a body that lived through the first.
+    #: The reread needs no lock of its own: every swing of this face is a swing
+    #: of this body, so the body's row is where the two queue, and the loser
+    #: reads what the winner committed -- `_require_active` then tells it the
+    #: face is closed. Taking the face's own row FOR UPDATE here instead would
+    #: be a deadlock: the eruption locks veins before sessions (`plates.clock`)
+    #: precisely because a swing goes the other way round, and holding the
+    #: session while waiting for the vein closes that circle.
+    await session.execute(
+        select(MiningSession)
+        .where(MiningSession.id == mining.id)
+        .execution_options(populate_existing=True)
+    )
+    body, vein = await _require_active(session, mining)
 
     #: A swing costs stamina, and a body at zero does not swing: the vein is
     #: not mined by free willpower. The check comes before all effects so that a

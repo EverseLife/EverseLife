@@ -78,21 +78,21 @@ async def test_the_drought_makes_the_next_try_likelier(session: AsyncSession) ->
     stubborn = random.Random()
     stubborn.random = lambda: 0.999999
     for expected in range(1, 6):
-        assert await luck.hit(session, who, luck.MINE_DEATH, rare, dice=stubborn) is False
-        row = await luck._row(session, who, luck.MINE_DEATH)
+        assert await luck.hit(session, who, luck.MINE_WOUND, rare, dice=stubborn) is False
+        row = await luck._row(session, who, luck.MINE_WOUND)
         assert row.misses == expected
 
     lucky = random.Random()
     lucky.random = lambda: 0.0
-    assert await luck.hit(session, who, luck.MINE_DEATH, rare, dice=lucky) is True
-    row = await luck._row(session, who, luck.MINE_DEATH)
+    assert await luck.hit(session, who, luck.MINE_WOUND, rare, dice=lucky) is True
+    row = await luck._row(session, who, luck.MINE_WOUND)
     assert row.misses == 0, "удача обнуляет память"
 
     #: And the drought is not endless: within `1 / C` tries the threshold
     #: reaches certainty, and even the most stubborn roll comes good.
     ceiling = int(1 / luck.growth(rare / PERCENT)) + 1
     assert any(
-        [await luck.hit(session, who, luck.MINE_DEATH, rare, dice=stubborn) for _ in range(ceiling)]
+        [await luck.hit(session, who, luck.MINE_WOUND, rare, dice=stubborn) for _ in range(ceiling)]
     ), "засуха обязана кончиться сама"
 
 
@@ -106,7 +106,7 @@ async def test_luck_is_personal_and_by_matter(session: AsyncSession) -> None:
     await luck.hit(session, mine, luck.EXPLORE_FIND, 50.0, dice=stubborn)
 
     assert (await luck._row(session, mine, luck.EXPLORE_FIND)).misses == 2
-    assert (await luck._row(session, mine, luck.MINE_DEATH)).misses == 0
+    assert (await luck._row(session, mine, luck.MINE_WOUND)).misses == 0
     assert (await luck._row(session, theirs, luck.EXPLORE_FIND)).misses == 0
 
 

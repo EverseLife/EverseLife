@@ -11,11 +11,11 @@
  * remembered for exactly that reason, and every other flag of the arrangement
  * is remembered here for the same one.
  *
- * **No decision records this rule yet.** The two settings above were written
- * one at a time, and neither the redesign (D-238, `50-interface/09`) nor the
- * brief says anything about what outlives a session -- so this docstring is
- * the whole of the contract until a D-number is taken for it. Do not cite one
- * that does not say it.
+ * The rule is D-298, and the four exclusions below are the half of it worth
+ * reading. It was written after this code, because the settings above had been
+ * added one at a time and nothing recorded why: the redesign (D-238,
+ * `50-interface/09`) does not say what outlives a session, and an earlier
+ * draft of this file cited it for a rule it does not contain.
  *
  * What is **not** kept, and the line is what the rule is worth:
  *

@@ -233,6 +233,13 @@ class Body(Base):
     )
     choking_since: Mapped[datetime | None] = mapped_column(nullable=True)
 
+    #: How many cave-ins this body has lived through (D-294). The rock does not
+    #: roll dice: the first one spares, the second kills. It counts on the body
+    #: and not on the identity because the body is what the rock takes (D-012)
+    #: -- a newly printed one meets the roof with its grace back, and there is
+    #: no timer anywhere that has to forgive it.
+    cave_ins: Mapped[int] = mapped_column(nullable=False, default=0, server_default="0")
+
     #: When the body took its node: by print or by arrival. Before that moment
     #: it heard nothing here (D-043) -- a chat horizon, not a biography.
     node_since: Mapped[datetime] = created_column()
