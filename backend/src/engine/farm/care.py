@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Nurlan Urazkulov
 
-"""The actions of care (D-296, D-297): a watering up to a target, a feeding in
-a stage, a weeding and a thinning. Each is in person, each writes its effect
-at once, and each holds the hands for its minutes through a job whose only
-work is to be pending.
+"""The actions of care (D-296, D-297, D-299): a watering up to a target, a
+feeding in a stage, a weeding, a thinning and a treatment. Each is in
+person, each writes its effect at once, and each holds the hands for its
+minutes through a job whose only work is to be pending.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.constants import Catalog, Constants, current_catalog
+from src.constants import Catalog, ConstantError, Constants, current_catalog
 from src.constants import registry as R
 from src.engine import events, world
 from src.engine.farm import life
@@ -29,6 +29,7 @@ from src.engine.farm._base import (
     _here,
     _owned,
     care_minutes,
+    day_hours,
 )
 from src.engine.farm.settle import _die, _sown, settle
 from src.engine.jobs import enqueue, handler
@@ -321,3 +322,92 @@ async def thin(
     )
     await _hands_busy(session, body, plot, moment, minutes, event, "thin")
     return plot
+
+
+def cures(constants: Constants) -> dict[str, str]:
+    """Which class of thing puts out which pest: the vault's couple, reversed.
+
+    `farm.pest_cure` reads pest -> class because that is how the model asks
+    it; the action holds a thing and asks the other way round.
+    """
+    return {str(klass): str(pest) for pest, klass in constants[R.FARM_PEST_CURE].items()}
+
+
+async def treat(
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    body: Body,
+    plot: Plot,
+    goods: str,
+    *,
+    now: datetime | None = None,
+) -> tuple[Plot, str, bool]:
+    """Treat the bed with a preparation (D-299). Returns the pest it answers
+    and whether it caught a trouble already under way.
+
+    The dose is one norm for every class alike (`farm.protectant_per_m2`);
+    the classes differ in what they answer and in how long they hold
+    (`farm.protect_days`, a row per thing). Against its own pest the guard
+    zeroes the pressure and freezes it while it holds; against a trouble
+    already struck it stops the spread and **nothing more** -- what the pest
+    took is gone for this cycle. A preparation of the wrong class is a dose
+    spent: it guards what it guards, and the trouble at hand walks on. Which
+    sign answers to which class is the agrotech text's to teach (D-057), and
+    the window offers all four to everybody alike.
+    """
+    moment = now or datetime.now(UTC)
+    await _here(session, body)
+    _owned(plot, body)
+    if plot.state is not PlotState.SOWN or plot.culture_id is None:
+        raise WrongState(key="farm-nothing-grows", plot=plot.name)
+    #: The canon key first: the class is asked by it and the table read by it.
+    book = current_catalog().recipes
+    goods = book.resolve(goods)
+    answers = cures(constants)
+    klass = book.class_of(goods)
+    if klass not in answers:
+        raise FarmError(key="farm-not-a-protectant", goods=goods)
+    days = constants[R.FARM_PROTECT_DAYS].get(goods)
+    if days is None:
+        #: The vault build promises a row per member of the four classes; a
+        #: missing one is a defect at the seam, not a player's mistake.
+        raise ConstantError(f"farm.protect_days: no row for the protectant {goods!r}")
+
+    node = await session.get(Node, plot.node_id)
+    state = await settle(session, constants, catalog, plot, now=moment, node=node)
+    if state.dead:
+        raise WrongState(key="farm-nothing-grows", plot=plot.name)
+
+    area = float(plot.area_m2)
+    dose = amount(constants[R.FARM_PROTECTANT_PER_M2] * area)
+    await _consume(
+        session,
+        body,
+        goods,
+        dose,
+        why=FarmError(key="farm-no-protectant", goods=goods, need=amount_float(dose)),
+    )
+
+    pest = answers[str(klass)]
+    stopped = state.illness_kind == pest and state.illness > SCALE_MIN
+    plot.pest = {**(plot.pest or {}), pest: 0.0}
+    held = moment + timedelta(hours=float(days) * day_hours(constants))
+    plot.guard = {**(plot.guard or {}), str(klass): held.isoformat()}
+    await session.flush()
+
+    minutes = care_minutes(constants, area)
+    event = await events.record(
+        session,
+        EventKind.PLOT_TREATED,
+        actor_identity_id=body.identity_id,
+        node_id=plot.node_id,
+        plot_id=str(plot.id),
+        goods=goods,
+        stopped=stopped,
+        spent=amount_float(dose),
+        until=held.isoformat(),
+        minutes=minutes,
+    )
+    await _hands_busy(session, body, plot, moment, minutes, event, "treat")
+    return plot, pest, stopped

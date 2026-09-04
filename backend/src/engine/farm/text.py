@@ -78,6 +78,18 @@ def care_text(constants: Constants, plant: Plant, signs: Mapping[str, Any], *, l
         )
     )
     said.append(i18n.render("care-weeds", locale=locale))
+    #: Wave 3 (D-299): how much this cultivar fears the pests, and the four
+    #: couplings -- which mistake breeds which trouble, and which class of
+    #: preparation answers its sign. The couplings are one for every crop
+    #: and said once; the fear is the cultivar's own.
+    said.append(
+        i18n.render(
+            "care-pest-risk",
+            {"risk": int(signs.get("disease_risk", plant.traits.disease_risk))},
+            locale=locale,
+        )
+    )
+    said.append(i18n.render("care-pests", locale=locale))
     return " ".join(said)
 
 

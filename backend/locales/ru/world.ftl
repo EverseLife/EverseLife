@@ -57,6 +57,8 @@ farm-fertilize-sown = { $state ->
     }
 farm-not-a-fertilizer = «{ NAME($goods) }» — не удобрение: землю кормят компостом или минеральным
 farm-no-fertilizer = нужно { $need } «{ NAME($goods) }»: норма внесения считается по площади
+farm-not-a-protectant = «{ NAME($goods) }» — не средство защиты: делянку обрабатывают фунгицидом, акарицидом, инсектицидом или бактерицидом
+farm-no-protectant = нужно { $need } «{ NAME($goods) }»: норма обработки считается по площади
 farm-land-sated = «{ $plot }» и так сыта: плодородие на потолке, удобрение ушло бы впустую
 farm-no-water = нужно { $need } воды: реки здесь нет, воду носят руками
 farm-too-cold = «{ $culture }» здесь вымерзнет: ночь опускается до { $night }°

@@ -147,6 +147,21 @@ async def _farm_thin(state: dict, db: AsyncSession, message: dict) -> dict:
     return {"thinned": str(plot.id)}
 
 
+@command("farm.treat")
+async def _farm_treat(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Treat the bed against a pest (D-299): the class answers, or the dose is spent."""
+    body = await _alive(state, db)
+    plot, pest, stopped = await farm.treat(
+        db,
+        current(),
+        current_catalog(),
+        body,
+        await _plot(db, message),
+        str(message.get("goods") or ""),
+    )
+    return {"treated": str(plot.id), "pest": pest, "stopped": stopped}
+
+
 @command("farm.harvest")
 async def _farm_harvest(state: dict, db: AsyncSession, message: dict) -> dict:
     """Harvest. With selection the fund keeps its strength, without it degrades (D-067)."""
