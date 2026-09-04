@@ -9,7 +9,8 @@ what mass was introduced for:
 
 * an item has weight, and it comes from vault data, not code;
 * no more than the limit is taken in hand -- neither from the market nor from the hopper;
-* a backpack and an exoskeleton raise the limit, clothes and armour do not;
+* an exoskeleton raises the limit and a pack lightens the load (D-268), clothes and armour
+  do neither;
 * one slot per thing: you cannot wear three backpacks, otherwise the limit does not exist.
 """
 
@@ -130,6 +131,88 @@ async def test_only_the_worn_pack_lightens(
     assert await gear.capacity(session, constants, catalog, body) == pytest.approx(
         constants[R.INVENTORY_CARRY_MASS]
     )
+
+
+async def test_the_pack_lightens_what_is_being_taken(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The door weighs the load as it will be, not as it was plus raw kilograms.
+
+    A pack holds the first kilograms of the load (D-268) -- and the arriving
+    ones are load too. Charging them full weight against a limit the pack had
+    already lightened refused a pickup the body could make: with a sack on the
+    back the last four ingots of thirty-two were told to go by wagon.
+    """
+    _, _, body = await _body(session)
+    sack = await _give(session, body, SACK)
+    await gear.equip(session, constants, catalog, body, sack)
+    limit = constants[R.INVENTORY_CARRY_MASS]
+
+    #: 32 ingots and the sack are 32.12 kg of matter; the sack holds fifteen of
+    #: them at 0.85, so the body would feel 29.87 -- and 30.87 with one more
+    #: ingot. The limit sits between the two, or this test asks nothing.
+    worn = await gear.equipped(session, body)
+    assert await gear.carried_mass(session, catalog, body) == pytest.approx(0.12)
+    assert gear.packed(constants, catalog, worn, 32.12) == pytest.approx(29.87)
+    assert 29.87 < limit < 30.87
+
+    await gear.check_carry(session, constants, catalog, body, INGOT, 32)
+
+    #: And the thirty-third is honestly too much: 30.87 felt against thirty.
+    with pytest.raises(gear.Overloaded) as refused:
+        await gear.check_carry(session, constants, catalog, body, INGOT, 33)
+    told = refused.value.params
+    assert told["limit"] == pytest.approx(limit)
+    #: The three figures of the message add up: what is felt now, what the
+    #: limit is, and what this would add to the load -- not what it weighs on
+    #: the ground, which under a pack is a different number.
+    assert told["carries"] + told["extra"] == pytest.approx(30.87)
+    assert told["extra"] < 33, "рюкзак легчит и то, что берут"
+
+
+def test_matter_over_undoes_the_pack(constants: Constants, catalog: Catalog) -> None:
+    """What must leave the hands is matter, not the excess the body feels.
+
+    Inside a pack's capacity a kilogram out of the hands lightens the body by
+    `factor` of itself, so putting down the felt excess leaves it over the
+    limit still. No pack in the vault reaches that case, so the numbers below
+    are made up on purpose: the arithmetic must hold for a pack that has not
+    been written yet.
+    """
+    #: The tripwire the docstring of `matter_over` leans on. Every pack today
+    #: runs out of room below the limit, and while that holds the two readings
+    #: agree wherever the engine actually goes. A roomier pack is not a defect
+    #: -- it is the day somebody must read that arithmetic again.
+    carry = constants[R.INVENTORY_CARRY_MASS]
+    assert all(
+        pack["capacity"] * pack["factor"] < carry for pack in constants[R.INVENTORY_PACK].values()
+    ), "рюкзак просторнее предела: ветка расчёта меняется, и это надо заметить"
+
+    packs = Constants({"inventory.pack": {SACK: {"capacity": 100, "factor": 0.5}}}, source="тест")
+    worn = {"back": Item(type_key=SACK)}
+    limit = 30.0
+
+    #: Seventy kilograms all fit inside the hundred at half weight: the body
+    #: feels thirty-five, five over the limit. Dropping five would leave 32.5.
+    assert gear.packed(packs, catalog, worn, 70) == pytest.approx(35)
+    gone = gear.matter_over(packs, catalog, worn, 70, limit)
+    assert gone == pytest.approx(10)
+    assert gear.packed(packs, catalog, worn, 70 - gone) == pytest.approx(limit)
+
+    #: Even a load of two hundred comes down to those sixty: this pack is
+    #: roomier than the whole limit, so the hands never leave its half-price.
+    assert gear.matter_over(packs, catalog, worn, 200, limit) == pytest.approx(140)
+
+    #: A smaller pack -- the shape every pack in the vault has -- runs out of
+    #: room below the limit, and past it the felt excess is the matter again.
+    small = Constants({"inventory.pack": {SACK: {"capacity": 20, "factor": 0.5}}}, source="тест")
+    assert gear.matter_over(small, catalog, worn, 100, limit) == pytest.approx(
+        gear.packed(small, catalog, worn, 100) - limit
+    )
+
+    #: A load that fits puts nothing down, with a pack or without one.
+    assert gear.matter_over(packs, catalog, worn, 60, limit) == 0.0
+    assert gear.matter_over(packs, catalog, {}, 40, limit) == pytest.approx(10)
 
 
 async def _charged(session: AsyncSession, body, charge: float):
