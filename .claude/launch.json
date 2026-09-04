@@ -82,16 +82,6 @@
         "--no-browser"
       ],
       "port": 8766
-    },
-    {
-      "name": "frontend-lore",
-      "runtimeExecutable": "powershell",
-      "runtimeArgs": [
-        "-Command",
-        "$env:VITE_API = 'http://localhost:8003'; npm run dev -- --port 5180 --strictPort"
-      ],
-      "cwd": ".claude/worktrees/agrotech-seed/frontend",
-      "port": 5180
     }
   ]
 }
