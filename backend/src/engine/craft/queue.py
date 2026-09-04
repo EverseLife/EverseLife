@@ -15,11 +15,18 @@ from sqlalchemy import String as SqlString
 from sqlalchemy import case, cast, literal, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.constants import current_catalog
+from src.constants import current, current_catalog
 from src.engine import events, goods, travel
 from src.engine import world as world_engine
 from src.engine.craft._base import Busy, CutOff, NoStation
-from src.engine.craft._internal import _num, _occupy, _pick_station, _release
+from src.engine.craft._internal import (
+    _hours_run,
+    _num,
+    _occupy,
+    _pick_station,
+    _release,
+    _wear_tools,
+)
 from src.engine.jobs import enqueue
 from src.engine.world import body_container, node_container
 from src.models.craft import BatchState, CraftBatch
@@ -172,10 +179,26 @@ async def freeze(
     departure, going into the field, prison, death.
     """
     moment = now or datetime.now(UTC)
+    #: The body's row, before the batch is read. Most callers hold it already --
+    #: every command does, through `_alive` -- but three do not: a sentence
+    #: taking a convict off the bench (`justice`), and a hull lost or run out of
+    #: air, which kill a crew read without a lock (`ship.fate`, `oxygen.breath`).
+    #: Through those three this ran against the batch's own finishing job, and
+    #: since D-309 that costs more than a confused row: both would close the same
+    #: run and bill the tools for the same hours twice. Taken here rather than
+    #: asked of every caller -- a re-lock costs nothing where the row is held.
+    #: A bare id, not a `refresh`: refreshing would throw away whatever the
+    #: caller has changed on the body and not yet flushed.
+    await session.execute(select(Body.id).where(Body.id == body.id).with_for_update())
     batch = await running(session, body)
     if batch is None:
         return None
     left = max(0.0, (batch.ready_at - moment).total_seconds()) if batch.ready_at else 0.0
+    #: The tools are paid off before the run is closed: they wear by the hours
+    #: swung (D-309), and the hours of this run end here. Charged now rather
+    #: than added up at the finish because a batch may be frozen and resumed
+    #: any number of times, and hours nobody worked must not be billed.
+    await _wear_tools(session, current(), batch, hours=_hours_run(batch, moment))
     batch.state = BatchState.WAITING
     batch.remaining_seconds = _num(left)
     batch.ready_at = None

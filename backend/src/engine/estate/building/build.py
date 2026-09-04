@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants
 from src.constants import registry as R
-from src.engine import craft, events, goods, travel, world
+from src.engine import craft, events, goods, occupation, travel, world
 from src.engine.estate._base import (
     GROUND_FLOOR,
     STOREY,
@@ -389,6 +389,13 @@ async def construct(
     smallest = constants[R.BUILD_AREA_MIN]
     if area < smallest:
         raise TooSmall(key="estate-build-too-small", smallest=smallest, area=area)
+
+    #: A build is an occupation like any other (D-310): a house is put up by a
+    #: body, and a body already at something has none to spare. Asked after the
+    #: plot's own guards, so that a second order on the same yard is refused by
+    #: the yard rather than by the hands -- and before anything is locked or
+    #: spent, because a refusal must eat neither ground nor timber.
+    await occupation.require_free(session, body)
 
     #: The plot's metres are a remainder, and this is where they are spent.
     await hold_ground(session, node)
