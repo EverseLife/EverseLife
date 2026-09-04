@@ -57,20 +57,19 @@ async def _joined(session: AsyncSession, constants: Constants, a: Node, b: Node)
 
 
 #: Where on Terra's circle the hulls of a rescue are put: radians off Terra's
-#: own heading at the moment, not an absolute angle -- which way a hull
-#: leaves the circle decides whether its dry coast lasts or plunges into
-#: Terra, and Terra's heading turns with the year. A drifter sent off from
-#: `DRIFTER_HEADING` coasts for weeks; from `PLUNGE_HEADING` it comes down on
-#: Terra within the hour; the rescuer sits a little behind the drifter.
+#: own heading at the moment, not an absolute angle -- which way a hull leaves
+#: the circle decides how long its dry coast lasts, and Terra's heading turns
+#: with the year. A drifter sent off from `DRIFTER_HEADING` coasts for weeks;
+#: the rescuer sits a little behind it.
 #:
 #: Measured against the order these tests actually give, not derived: `_hull`
 #: pins the angle at the hull's stamp, `_drifting` casts off at the wall clock
 #: an ascent earlier, and the circle turns between the two. Move either hour
-#: and these three numbers want measuring again -- `PLUNGE_HEADING` stopped
-#: plunging when the cast-off was moved to the stamp.
+#: and both numbers want measuring again. A heading that plunges is no longer
+#: among them: since D-316 the helm may not steer a hull toward the world it
+#: is leaving, so a doomed coast is arranged by hand (`_plunging`).
 DRIFTER_HEADING = 2.5
 RESCUER_HEADING = DRIFTER_HEADING + 0.8
-PLUNGE_HEADING = -1.75
 
 #: A pair that is only ever two hulls: far enough apart on the circle to be
 #: two places, near enough to be in each other's sight (the whole circle is).
@@ -98,6 +97,33 @@ async def _hull(
     await session.flush()
     await _in_orbit(session, constants, catalog, owner, vessel, heading=heading)
     return vessel, owner
+
+
+async def _plunging(
+    session: AsyncSession, constants: Constants, vessel: Ship, *, now: datetime
+) -> sky.Fate:
+    """Put a coasting hull on a line into Terra by hand: the verdict on its row
+    and the loss booked, as the tick would have written them.
+
+    Arranged rather than flown into (D-316): the helm may not steer a hull
+    toward the world it is leaving, and a departure is where these tests used
+    to get a plunge from.
+    """
+    world = await sim.system(session, constants)
+    terra = world.body(Planet.TERRA.value)
+    t = await ship.sky_days(session, now)
+    p, vp = sky.place(terra, t)
+    gap = float(constants[R.ORBIT_PARK_RADIUS])
+    here = (float(p[0, 0]) + gap, float(p[0, 1]))
+    #: Straight at the centre at the circle's own speed: the ground in hours.
+    falling = (float(vp[0, 0]) - float(np.sqrt(terra.mu / gap)), float(vp[0, 1]))
+    sim._write_state(vessel, here, falling, at=now)
+    verdict = await fate.book_loss(
+        session, constants, vessel, world, now=now, t=t, r=here, v=falling
+    )
+    sim._keep_forecast(vessel, verdict, now=now, t=t)
+    await session.flush()
+    return verdict
 
 
 async def _drifting(
@@ -741,14 +767,15 @@ async def test_an_order_to_a_hull_gone_by_the_hour_is_refused(
     home = await _port(session, name="Космодром столицы")
     await _port(session, name="Космодром Мерида", planet=Planet.AURORA)
     doomed, doomed_owner = await _hull(
-        session, constants, catalog, home, fuel=5000, heading=PLUNGE_HEADING
+        session, constants, catalog, home, fuel=5000, heading=FIRST_HEADING
     )
     last = await _drifting(session, constants, catalog, doomed, doomed_owner)
+    await _plunging(session, constants, doomed, now=last + timedelta(minutes=1))
     assert doomed.forecast["kind"] == sky.CRASH and doomed.forecast["body"] == "terra"
     rescuer, rescuer_owner = await _hull(
-        session, constants, catalog, home, fuel=5000, heading=PLUNGE_HEADING + 0.8
+        session, constants, catalog, home, fuel=5000, heading=SECOND_HEADING
     )
-    since = last + timedelta(minutes=1)
+    since = last + timedelta(minutes=2)
     seen = await ship.forecast(session, constants, catalog, rescuer, doomed, now=since)
     assert seen["samples"] == [], "рубка не предлагает пути к тому, кого не будет"
     with pytest.raises(ship.NoArc) as refused:

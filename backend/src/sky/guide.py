@@ -72,7 +72,16 @@ def steer(
     dt: float,
 ) -> Helm:
     """The burn for one step of `dt` days, given where the hull is and when
-    it means to arrive. `a_max` is the hull's acceleration, units a day squared."""
+    it means to arrive. `a_max` is the hull's acceleration, units a day squared.
+
+    A crossing to a planet leaves the world it is on before it chases the arc
+    (D-316): the burn is kept from carrying the hull inward while it is still
+    in some other planet's hold. The arc is solved round the star alone, and
+    from the far side of a parking circle the velocity it asks for points
+    across the planet the hull is leaving -- which the hull then flew through,
+    the ground being unchecked under an order (OQ-120) and a point mass
+    flinging out what passes near its centre.
+    """
     if isinstance(target, Star):
         return _circle(system, r, v, a_max=a_max, dt=dt)
     p, vp = place_any(target, t)
@@ -116,7 +125,67 @@ def steer(
         return Helm(thrust=(0.0, 0.0), phase=COAST, captured=False)
     accel = min(a_max, size / dt)
     thrust = need / size * accel
-    return Helm(thrust=(float(thrust[0]), float(thrust[1])), phase=BURN, captured=False)
+    return Helm(thrust=_outward(system, target, t, r, v, thrust, dt), phase=BURN, captured=False)
+
+
+def _holding(system: System, target: Target, t: float, r: tuple[float, float]) -> Body | None:
+    """The planet whose hold the hull is still in and which is not where it is
+    going -- the world it is leaving, or one it is crossing over (D-316).
+
+    Nothing for a hull in the deep, and nothing at the far end: coming down on
+    the target's circle is the whole point of the arrival, and the same rule
+    there would forbid it.
+    """
+    if not isinstance(target, Body):
+        return None
+    hold = system.approach * system.park
+    found: Body | None = None
+    nearest = hold
+    for body in system.bodies:
+        if body.key == target.key:
+            continue
+        p, _ = place_any(body, t)
+        gap = float(np.hypot(r[0] - p[0, 0], r[1] - p[0, 1]))
+        if gap < nearest:
+            found, nearest = body, gap
+    return found
+
+
+def _outward(
+    system: System,
+    target: Target,
+    t: float,
+    r: tuple[float, float],
+    v: tuple[float, float],
+    thrust: np.ndarray,
+    dt: float,
+) -> tuple[float, float]:
+    """The burn with what would carry the hull inward taken off it (D-316).
+
+    While the hull is in a planet's hold, the step may not leave it moving
+    toward that planet: the inward part of the burn is dropped and what cancels
+    the inward drift the hull already has is added, within the same thrust. The
+    hull therefore climbs away from the world it is on -- gaining speed round
+    it, as a departure does -- and takes the arc up once it is clear.
+    """
+    body = _holding(system, target, t, r)
+    if body is None:
+        return (float(thrust[0]), float(thrust[1]))
+    p, vp = place_any(body, t)
+    rel = np.array(r) - p[0]
+    gap = float(np.hypot(*rel))
+    out = rel / max(gap, 1e-9)
+    v_rel = np.array(v) - vp[0]
+    if float(np.dot(v_rel + thrust * dt, out)) >= 0.0:
+        return (float(thrust[0]), float(thrust[1]))
+    inward = float(np.dot(thrust, out))
+    drift = max(0.0, -float(np.dot(v_rel, out)) / dt)
+    fixed = thrust - inward * out + drift * out
+    size = float(np.hypot(*fixed))
+    top = float(np.hypot(*thrust))
+    if size > top and size > 0.0:
+        fixed = fixed / size * top
+    return (float(fixed[0]), float(fixed[1]))
 
 
 def _capture(
