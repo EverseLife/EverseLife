@@ -198,7 +198,7 @@ function MoistureCurve({ row, dayHours }: { row: Row; dayHours: number }) {
 }
 
 /** One fact of the bed per chip; nothing to say -- no container either. */
-function PlotChips({ row }: { row: Row }) {
+function PlotChips({ row, names }: { row: Row; names: Names | null }) {
   const chips: React.ReactNode[] = [];
   //: All four words, the good one too (D-296): a bed that stands strong says
   //: so, and the absence of a warning is not a word.
@@ -425,7 +425,7 @@ export function Farm({ look }: Omit<Props, "busy" | "act">) {
             />
           )}
 
-          {row.state === "sown" && <PlotChips row={row} />}
+          {row.state === "sown" && <PlotChips row={row} names={names} />}
 
           <div className="card-act">
           {row.state === "idle" && (
