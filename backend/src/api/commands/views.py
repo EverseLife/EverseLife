@@ -17,6 +17,7 @@ from typing import Any
 from sqlalchemy import Select, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src import i18n
 from src.api.commands.common import _body, _node, _stamp, goods_key, tier_key
 from src.api.registry import Refused
 from src.constants import Constants, current, current_catalog
@@ -115,13 +116,19 @@ def _tiers(message: dict) -> dict[str, str]:
     return {goods_key(name): tier_key(tier) for name, tier in raw.items() if tier}
 
 
-def _sight(session: MiningSession, sight: mining.Sight) -> dict[str, Any]:
+def _sight(session: MiningSession, sight: mining.Sight, locale: str) -> dict[str, Any]:
     """Only what the player sees goes out.
 
     Built from `Sight`, not from the session model -- so that a hidden number
     physically cannot end up in the reply by oversight.
+
+    The sign is a band key until here (D-303). The engine keeps the thresholds
+    and knows no words; the words are the world's voice and live in its
+    locales, like a refusal, so this is where the band is finally said and the
+    window is left knowing nothing about bands.
     """
     payload = asdict(sight)
+    payload["sign"] = i18n.render(f"mine-sign-{sight.sign.replace('_', '-')}", locale=locale)
     payload["pace"] = sight.pace.value
     payload["state"] = sight.state.value
     payload["session"] = str(session.id)
