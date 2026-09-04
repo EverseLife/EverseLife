@@ -47,9 +47,17 @@ def downgrade() -> None:
     #: face accidentally immortal or bury it just the same, without saying so.
     #: Walking out banks the haul, and a face opened after the downgrade reads
     #: its roof from the vein as before.
+    #:
+    #: Closing those sessions instead would be quieter and worse. A face at a
+    #: roofless vein is not always an empty one: a neighbour's cave-in clears
+    #: the vein's roof (D-188) while everyone else at the face keeps digging,
+    #: so some of these hold ore -- and a session closed here holds it for
+    #: good, because `leave` refuses by state and nothing else opens that
+    #: container. The bottom of the scale leaves the door open: walk out with
+    #: the haul, or swing and pay for it.
     op.add_column("mining_session", sa.Column("roof", sa.Numeric(6, 2), nullable=True))
     op.execute(
-        "UPDATE mining_session SET roof = (SELECT v.roof FROM vein v WHERE v.id = vein_id)"
+        "UPDATE mining_session SET roof = (SELECT v.roof FROM vein v WHERE v.id = mining_session.vein_id)"
     )
     op.execute(
         sa.text("UPDATE mining_session SET roof = :floor WHERE roof IS NULL").bindparams(

@@ -135,6 +135,14 @@ ROUND_WARMTH = 2
 #: cold is charged against it, and a charge too thin to write is one nobody
 #: paid.
 ROUND_STAMINA = 2
+#: The working's roof stability, the same width again (`Vein.roof` is
+#: `Numeric(6, 2)`). The scale of the column, not a property of the game: how
+#: fast a swing sags it lies in `mine.*`. Its own name because the sign's lie
+#: is seeded by the roof (`engine.mining._base`), so a roof that came back
+#: from the column a hundredth off would redraw the lie on a face nobody has
+#: touched -- and a second reading with new information in it is the averaging
+#: D-143 forbids.
+ROUND_ROOF = 2
 
 #: Argon2id takes memory in KiB, while `pow.memory_per_session` is given in MB.
 KIB_PER_MIB = 1024

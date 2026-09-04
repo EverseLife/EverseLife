@@ -31,6 +31,7 @@ from src.engine.mining._base import (
     NotHere,
     NoTimber,
     NoTool,
+    RoofHolds,
     SessionClosed,
     Sight,
     VeinDepleted,
@@ -301,6 +302,9 @@ async def timber(session: AsyncSession, constants: Constants, mining: MiningSess
 
     The roof is read off that locked vein, so a support is set on the working
     as the last swing left it -- a neighbour's swing included (D-188, D-099).
+    A working already standing at or above `mine.roof_timber_cap` refuses the
+    support instead of spending it: see `RoofHolds` for why setting one there
+    used to make the face worse.
     """
     vein = await session.get(Vein, mining.vein_id)
     if vein is None:  # pragma: no cover -- a session without a vein is a bug
@@ -310,6 +314,16 @@ async def timber(session: AsyncSession, constants: Constants, mining: MiningSess
     await session.flush()
     await session.refresh(vein, with_for_update=True)
     body, _ = await _relock(session, mining)
+
+    #: Asked before the pocket is even looked in, and under the lock that
+    #: makes the answer good: a support that cannot raise this working is not
+    #: a support, and the timber is better kept than spent on making the roof
+    #: worse. A neighbour's swing between the refusal and the next command may
+    #: well make it worth setting -- the roof is theirs too now.
+    cap = constants[R.MINE_ROOF_TIMBER_CAP]
+    standing = roof_of(constants, vein)
+    if standing >= cap:
+        raise RoofHolds(key="mining-roof-holds")
 
     inventory = await body_container(session, body)
     #: Every stack of it, taken under the lock and reread there: two sockets
@@ -346,8 +360,7 @@ async def timber(session: AsyncSession, constants: Constants, mining: MiningSess
     else:
         await session.delete(stock)
 
-    cap = constants[R.MINE_ROOF_TIMBER_CAP]
-    raised = min(cap, roof_of(constants, vein) + constants[R.MINE_ROOF_PER_TIMBER])
+    raised = min(cap, standing + constants[R.MINE_ROOF_PER_TIMBER])
     mining.timbers += 1
     #: A support stands after the shift ends (D-188): that is what makes timber
     #: an investment in the working rather than a consumable of one visit. And

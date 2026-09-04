@@ -1,28 +1,33 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Nurlan Urazkulov
 
-""" "Roof" (D-143).
+""" "Roof" (D-143): the shift, its price and the ground under it.
 
 Checked is not "the function returns a number" but what the mechanic was written for:
 
-* roof stability **does not leak** out, neither as a number nor as a derivative;
-* the sign lies, and the roof cannot be reconstructed from one observation;
 * the stake grows during the session, and a collapse costs everything mined;
-* support is finite: the ceiling makes the session finite however much timber is spent;
-* neighbours change the yield in opposite directions on rich and poor veins.
+* the body pays for the second cave-in with itself, and a fresh one starts over;
+* a vein is finite and grows poorer as it is worked;
+* neighbours change the yield in opposite directions on rich and poor veins;
+* a face is not opened by a body that cannot swing, walk to it, or hold a pick.
+
+The one hidden number -- the roof, who shares it, what a support does to it
+and what the player is told instead of it -- fills its own file,
+`test_mining_roof.py`. What two transactions at once do to it is in
+`test_races_roof.py`, and to the ore in `test_races_mining.py`.
 """
 
 from __future__ import annotations
 
 import random
 import uuid
-from dataclasses import fields
 from decimal import Decimal
 
 import pytest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from mining_kit import ORE, _face, _spend_the_grace, _to_the_collapse, _tool
 from src.constants import Constants
 from src.constants import registry as R
 from src.engine import mining, world
@@ -31,64 +36,6 @@ from src.models.identity import BodyState, Identity, Wound
 from src.models.inventory import Item
 from src.models.world import Vein
 from src.units import PERCENT, amount_float
-
-ORE = "iron_ore"
-
-
-async def _face(
-    session: AsyncSession,
-    *,
-    richness: float = 60,
-    remaining: float = 100_000,
-    tooled: bool = True,
-):
-    stamp = uuid.uuid4().hex[:8]
-    node = await world.create_node(session, f"terra.mine.{stamp}", "Забой", area_m2=100)
-    vein = await world.create_vein(session, node, ORE, richness=richness, remaining=remaining)
-    identity = await world.create_identity(session, f"Шахтёр-{stamp}")
-    body = await world.print_body(session, identity, node)
-    if tooled:
-        #: The vault requires a pickaxe (`Добыча requires: [Кирка, Жила]`),
-        #: and since D-215 the engine checks it at the face.
-        pocket = await world.body_container(session, body)
-        await world.grant_item(
-            session, pocket, "stone_pickaxe", quality=50, origin="сценарий теста"
-        )
-    return node, vein, body
-
-
-async def _tool(session: AsyncSession, body):
-    container = await world.body_container(session, body)
-    return await world.grant_item(
-        session, container, "iron_pickaxe", quality=50, origin="сценарий теста"
-    )
-
-
-async def _spend_the_grace(
-    session: AsyncSession,
-    constants: Constants,
-    body,
-    vein,
-    rng: random.Random,
-) -> None:
-    """Drop the roof as many times as the vault spares this body (D-294)."""
-    for _ in range(int(constants[R.MINE_COLLAPSES_SURVIVED])):
-        sess = await mining.start(session, constants, body, vein)
-        await _to_the_collapse(session, constants, sess, rng)
-
-
-async def _to_the_collapse(
-    session: AsyncSession,
-    constants: Constants,
-    sess,
-    rng: random.Random,
-) -> None:
-    """Swing until the roof comes down: a face without timber is finite by design."""
-    for _ in range(100):
-        sight = await mining.swing(session, constants, sess, rng=rng)
-        if sight.state is SessionState.COLLAPSED:
-            return
-    raise AssertionError("свод так и не обрушился")
 
 
 async def test_mining_requires_a_pickaxe(session: AsyncSession, constants: Constants) -> None:
@@ -123,57 +70,6 @@ async def test_pick_refuses_a_liquid_vein(
 
 
 # --- hidden state ------------------------------------------------------------
-
-
-def test_roof_does_not_leak_out() -> None:
-    """The player is shown neither stability nor anything it could be derived from."""
-    visible_ = {field.name for field in fields(mining.Sight)}
-    assert "roof" not in visible_
-    assert visible_ == {"sign", "mined", "swings", "timbers", "stamina", "pace", "state"}
-
-
-def test_sign_lies_both_ways(constants: Constants) -> None:
-    """Without noise the bands are invertible into arithmetic, and the hidden number is gone."""
-    bands = constants[R.MINE_SIGN_BANDS]
-    border = bands["сыплется пыль"]
-    observations = {mining.sign_of(constants, border, random.Random(seed)) for seed in range(200)}
-    assert len(observations) > 1, "на границе полосы признак обязан быть неоднозначным"
-
-
-async def test_sign_cannot_be_reasked(session: AsyncSession, constants: Constants) -> None:
-    """Otherwise the average of readings yields the hidden number to any precision.
-
-    The roof changes only from a swing and a support -- so the sign must change
-    only with them, not on every look (D-143).
-    """
-    _, vein, body = await _face(session)
-    sess = await mining.start(session, constants, body, vein)
-
-    first = await mining.sight(session, constants, sess)
-    repeated = {(await mining.sight(session, constants, sess)).sign for _ in range(20)}
-    assert repeated == {first.sign}, "признак обязан быть одним и тем же до удара"
-
-    after_hit = await mining.swing(session, constants, sess)
-    more = {(await mining.sight(session, constants, sess)).sign for _ in range(5)}
-    assert more == {after_hit.sign}
-
-
-def test_rich_vein_gives_less_stability(constants: Constants) -> None:
-    """Richness is paid for with risk."""
-    poor = mining.starting_roof(constants, 10)
-    rich = mining.starting_roof(constants, 90)
-    assert rich < poor
-    #: But not below the support ceiling -- otherwise the session would end before starting.
-    assert rich >= constants[R.MINE_ROOF_TIMBER_CAP]
-
-
-def test_hour_of_mining_equals_session_without_support(constants: Constants) -> None:
-    """`mining.iron_per_hour` per hour, sixteen swings -- a short session."""
-    hits = constants[R.MINE_ROOF_START] / constants[R.MINE_ROOF_PER_SWING]
-    assert mining.swing_hours(constants) * hits == pytest.approx(1.0)
-
-
-# --- session flow ------------------------------------------------------------
 
 
 async def test_mined_accumulates_and_goes_to_inventory(
@@ -391,181 +287,6 @@ async def test_banking_the_haul_no_longer_buys_a_whole_roof(
     assert amount_float(int(dropped or 0)) == pytest.approx(banked), "накопанное лежит в забое"
 
 
-async def test_support_holds_roof_but_not_forever(
-    session: AsyncSession, constants: Constants
-) -> None:
-    """The `mine.roof_timber_cap` ceiling is the main knob: the session is finite."""
-    _, vein, body = await _face(session, richness=10)
-    container = await world.body_container(session, body)
-    await world.grant_item(session, container, "shaft_support", amount=50, origin="сценарий теста")
-
-    sess = await mining.start(session, constants, body, vein)
-    for _ in range(10):
-        await mining.timber(session, constants, sess)
-
-    assert mining.roof_of(constants, vein) == pytest.approx(constants[R.MINE_ROOF_TIMBER_CAP])
-
-
-async def test_roof_survives_leaving(session: AsyncSession, constants: Constants) -> None:
-    """Leaving the pit no longer resets the risk (D-188).
-
-    That was the hole: dig down to "it creaks", press "leave", come back --
-    and the roof was whole again, so support was never needed.
-    """
-    _, vein, body = await _face(session, richness=60)
-    await _tool(session, body)
-
-    first = await mining.start(session, constants, body, vein)
-    for _ in range(5):
-        await mining.swing(session, constants, first)
-    shaken = mining.roof_of(constants, vein)
-    await mining.leave(session, constants, first)
-
-    await mining.start(session, constants, body, vein)
-    assert mining.roof_of(constants, vein) == pytest.approx(shaken), "свод забоя обнулился уходом"
-
-
-async def test_support_stays_after_the_shift(session: AsyncSession, constants: Constants) -> None:
-    """A support is an investment in the working, not a consumable of one visit."""
-    _, vein, body = await _face(session, richness=60)
-    container = await world.body_container(session, body)
-    await world.grant_item(session, container, "shaft_support", amount=5, origin="сценарий теста")
-    await _tool(session, body)
-
-    first = await mining.start(session, constants, body, vein)
-    await mining.swing(session, constants, first)
-    await mining.timber(session, constants, first)
-    shored = mining.roof_of(constants, vein)
-    await mining.leave(session, constants, first)
-
-    await mining.start(session, constants, body, vein)
-    assert mining.roof_of(constants, vein) == pytest.approx(shored)
-
-
-async def test_collapse_starts_the_working_over(
-    session: AsyncSession, constants: Constants
-) -> None:
-    """The rubble is cleared: a collapsed vein is not locked forever (P2, D-188)."""
-    _, vein, body = await _face(session, richness=60)
-    await _tool(session, body)
-
-    sess = await mining.start(session, constants, body, vein)
-    #: One swing from nought, and the roof is the vein's (D-188).
-    vein.roof = Decimal("1")
-    await session.flush()
-    #: A collapse rolls for death and then for a wound (`_collapse`), and a dead
-    #: body cannot open a working. Those rolls go through `luck.hit`, which
-    #: draws `random()`; the sign of the roof draws `uniform()`. Both are pinned
-    #: to the top of the scale, so this test is about the rubble, not about luck.
-    unharmed = random.Random()
-    unharmed.uniform = lambda a, b: b  # noqa: ARG005 -- always the upper bound
-    unharmed.random = lambda: 1.0  # never below any chance
-    await mining.swing(session, constants, sess, rng=unharmed)
-    assert sess.state is SessionState.COLLAPSED
-    assert body.state is BodyState.ALIVE
-
-    await session.refresh(vein)
-    assert vein.roof is None, "после обвала забой начинается заново"
-    await mining.start(session, constants, body, vein)
-    assert mining.roof_of(constants, vein) == pytest.approx(
-        mining.starting_roof(constants, float(vein.richness))
-    )
-
-
-async def test_shaken_working_is_shared(session: AsyncSession, constants: Constants) -> None:
-    """The roof is common to everyone digging the vein (D-099, D-188)."""
-    node, vein, first_body = await _face(session, richness=60)
-    await _tool(session, first_body)
-    first = await mining.start(session, constants, first_body, vein)
-    for _ in range(4):
-        await mining.swing(session, constants, first)
-    shaken = mining.roof_of(constants, vein)
-    await mining.leave(session, constants, first)
-
-    stamp = uuid.uuid4().hex[:6]
-    neighbour = await world.create_identity(session, f"Сосед-{stamp}")
-    neighbour_body = await world.print_body(session, neighbour, node)
-    await _tool(session, neighbour_body)
-    second = await mining.start(session, constants, neighbour_body, vein)
-    #: Asserted through a swing rather than through the opening: a session
-    #: carries no roof of its own to compare, and what matters is that the
-    #: neighbour's own sag starts from where the first miner stopped.
-    await mining.swing(session, constants, second)
-    sagged = shaken - constants[R.MINE_ROOF_PER_SWING]
-    assert mining.roof_of(constants, vein) == pytest.approx(sagged), "сосед пришёл в целый забой"
-
-
-async def test_a_neighbours_swings_shake_an_open_face(
-    session: AsyncSession, constants: Constants
-) -> None:
-    """Shaken by one -- dangerous for all, while both are still in it (D-099, D-188).
-
-    The roof used to be copied onto the session at `start`, and every swing
-    worked from that copy: two bodies at one vein overwrote each other's sag,
-    so a neighbour who came in at a hundred put back ninety-four over somebody
-    else's forty and neither was told the truth. Here the working is left with
-    one swing in it, both faces are open, and the **first** swing spends it --
-    the second must bring the roof down, though it is the only one that body
-    has struck.
-    """
-    node, vein, first_body = await _face(session, richness=60)
-    await _tool(session, first_body)
-    stamp = uuid.uuid4().hex[:6]
-    neighbour = await world.create_identity(session, f"Сосед-{stamp}")
-    neighbour_body = await world.print_body(session, neighbour, node)
-    await _tool(session, neighbour_body)
-
-    #: One swing left in the working, and both open it in that state: the sag
-    #: of a single swing takes it to a hair above nought, and the next past it.
-    per_swing = constants[R.MINE_ROOF_PER_SWING]
-    vein.roof = Decimal(str(per_swing + 0.5))
-    await session.flush()
-    mine = await mining.start(session, constants, first_body, vein)
-    theirs = await mining.start(session, constants, neighbour_body, vein)
-
-    spent = await mining.swing(session, constants, mine)
-    assert spent.state is SessionState.ACTIVE, "первый удар ещё не роняет свод"
-    assert mining.roof_of(constants, vein) == pytest.approx(0.5)
-
-    buried = await mining.swing(session, constants, theirs)
-    assert buried.state is SessionState.COLLAPSED, "свод соседа не дрогнул от чужих ударов"
-    assert theirs.swings == 1, "обвалило с одного собственного удара — так и задумано"
-    await session.refresh(neighbour_body)
-    assert neighbour_body.cave_ins == 1
-
-    #: And the rubble is cleared for everyone at the face -- the miner still
-    #: standing in it goes on under a working as good as new (OQ-122).
-    assert vein.roof is None
-    assert mine.state is SessionState.ACTIVE
-
-
-async def test_the_sign_survives_the_database(session: AsyncSession, constants: Constants) -> None:
-    """The lie is seeded by the roof, so the roof must be one number everywhere.
-
-    Written unrounded, it would come back from the column rounded to two
-    decimals, seed a different lie and give a different sign for a face nobody
-    has touched -- a second reading with new information in it, which is the
-    averaging D-143 forbids. `remember_roof` rounds where it writes, and the
-    seed is formatted to the same scale.
-    """
-    _, vein, body = await _face(session, richness=37)
-    sess = await mining.start(session, constants, body, vein)
-    struck = await mining.swing(session, constants, sess)
-
-    #: Back out of the column, where `Numeric(6, 2)` has had its say: the same
-    #: roof must come back, and with it the same lie.
-    await session.refresh(vein)
-    assert (await mining.sight(session, constants, sess)).sign == struck.sign
-
-
-async def test_cannot_shore_without_support(session: AsyncSession, constants: Constants) -> None:
-    """Support costs timber and rope -- that is the whole point of the choice."""
-    _, vein, body = await _face(session)
-    sess = await mining.start(session, constants, body, vein)
-    with pytest.raises(mining.NoTimber):
-        await mining.timber(session, constants, sess)
-
-
 async def test_fast_pace_yields_more_and_risks_more(
     session: AsyncSession, constants: Constants
 ) -> None:
@@ -685,7 +406,6 @@ async def _node(session: AsyncSession, vein: Vein):
 
 async def test_no_digging_with_zero_stamina(session: AsyncSession, constants: Constants) -> None:
     """A body at zero does not mine: a swing costs strength, and without it the vein is closed."""
-    from decimal import Decimal
 
     _, vein, body = await _face(session)
     sess = await mining.start(session, constants, body, vein)
@@ -699,7 +419,6 @@ async def test_no_digging_with_zero_stamina(session: AsyncSession, constants: Co
 async def test_session_does_not_open_with_zero_stamina(
     session: AsyncSession, constants: Constants
 ) -> None:
-    from decimal import Decimal
 
     _, vein, body = await _face(session)
     body.stamina = Decimal("0")

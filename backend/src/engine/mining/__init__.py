@@ -38,6 +38,7 @@ from src.engine.mining._base import (  # noqa: F401
     NotHere,
     NoTimber,
     NoTool,
+    RoofHolds,
     SessionClosed,
     Sight,
     VeinDepleted,
