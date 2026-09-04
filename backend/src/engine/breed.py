@@ -89,7 +89,7 @@ FULL_VIGOR = PERCENT
 
 #: Traits that are inherited. The numbers are the same as the crop's in
 #: plants.json: a cultivar must substitute for the crop without unit conversion.
-TRAITS = ("yield_per_m2", "cycle_days", "fertility", "spoilage_k", "hardiness")
+TRAITS = ("yield_per_m2", "cycle_days", "fertility", "spoilage_k", "hardiness", "density_risk")
 
 
 class BreedError(Refusal):
@@ -120,6 +120,7 @@ def traits_of_plant(plant: Plant) -> dict[str, float]:
         "fertility": plant.requires.fertility,
         "spoilage_k": plant.traits.spoilage_k,
         "hardiness": plant.traits.hardiness,
+        "density_risk": plant.traits.density_risk,
     }
 
 
@@ -654,7 +655,7 @@ def agrotech_key(variety: Variety) -> str:
 
     For base cultivars -- the crop's id: their care text is common and lies in
     the Library (D-053). For a bred one -- its own id: the author alone reads
-    the text, and tells whom they like (D-293).
+    the text, and tells whom they like (D-296).
     """
     return variety.culture_id if variety.author_identity_id is None else str(variety.id)
 

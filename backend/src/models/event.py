@@ -195,10 +195,10 @@ class EventKind(StrEnum):
     PLOT_PLOW_PAUSED = "farm.plow_paused"
     PLOT_PLOW_RESET = "farm.plow_reset"
     PLOT_SOWN = "farm.sown"
-    #: The actions of care (D-293): a watering to a target, a feeding in a stage.
+    #: The actions of care (D-296): a watering to a target, a feeding in a stage.
     PLOT_WATERED = "farm.watered"
     PLOT_FED = "farm.fed"
-    #: Wave 2 (D-295): the weeds pulled, the stand thinned.
+    #: Wave 2 (D-297): the weeds pulled, the stand thinned.
     PLOT_WEEDED = "farm.weeded"
     PLOT_THINNED = "farm.thinned"
     #: The crop's health reached nothing, or its growth reached the top: told

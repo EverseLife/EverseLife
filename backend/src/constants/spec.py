@@ -128,7 +128,7 @@ class Span(Spec):
 
 @dataclass(frozen=True, slots=True)
 class Bands(Spec):
-    """A map `name -> {min, max}`: the moisture band a thirst asks for (D-293)."""
+    """A map `name -> {min, max}`: the moisture band a thirst asks for (D-296)."""
 
     def read(self, raw: Any) -> dict[str, dict[str, float]]:
         if not isinstance(raw, dict):

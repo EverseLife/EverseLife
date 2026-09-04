@@ -107,7 +107,7 @@ async def _farm_fertilize(state: dict, db: AsyncSession, message: dict) -> dict:
 
 @command("farm.water")
 async def _farm_water(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Water the bed up to a target moisture (D-293): the water is spent for the
+    """Water the bed up to a target moisture (D-296): the water is spent for the
     difference -- from the river where there is one, from the hands elsewhere
     -- and the hands are busy for the action's minutes."""
     body = await _alive(state, db)
@@ -119,7 +119,7 @@ async def _farm_water(state: dict, db: AsyncSession, message: dict) -> dict:
 
 @command("farm.feed")
 async def _farm_feed(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Feed the growing bed (D-293). What the fertilizer did is not in the
+    """Feed the growing bed (D-296). What the fertilizer did is not in the
     answer: the bed shows it the next day, the button confirms the action.
     The kind is named, never defaulted."""
     body = await _alive(state, db)
@@ -132,7 +132,7 @@ async def _farm_feed(state: dict, db: AsyncSession, message: dict) -> dict:
 
 @command("farm.weed")
 async def _farm_weed(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Pull the weeds of the bed (D-295): the cover goes to nought, the hands
+    """Pull the weeds of the bed (D-297): the cover goes to nought, the hands
     are busy for the action's minutes."""
     body = await _alive(state, db)
     plot = await farm.weed(db, current(), current_catalog(), body, await _plot(db, message))
@@ -141,7 +141,7 @@ async def _farm_weed(state: dict, db: AsyncSession, message: dict) -> dict:
 
 @command("farm.thin")
 async def _farm_thin(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Thin the stand (D-295): once, early, at the thinning's own cost."""
+    """Thin the stand (D-297): once, early, at the thinning's own cost."""
     body = await _alive(state, db)
     plot = await farm.thin(db, current(), current_catalog(), body, await _plot(db, message))
     return {"thinned": str(plot.id)}
@@ -199,7 +199,7 @@ async def _breed_name(state: dict, db: AsyncSession, message: dict) -> dict:
 
 @command("library.care", readonly=True)
 async def _library_care(ctx: Ctx) -> dict:
-    """Read a base crop's care text in the Library (D-293): on foot, like a
+    """Read a base crop's care text in the Library (D-296): on foot, like a
     recipe (D-053), in the reader's language. A read: nothing is written,
     and the body is not locked for it."""
     body = await _alive_read(ctx.state, ctx.db)
@@ -213,7 +213,7 @@ async def _library_care(ctx: Ctx) -> dict:
 @command("library.remember")
 async def _library_remember(state: dict, db: AsyncSession, message: dict) -> dict:
     """Remember a base crop's care text into the "knowledge" tab: free, for
-    good, on foot (D-053, D-293)."""
+    good, on foot (D-053, D-296)."""
     body = await _alive(state, db)
     knowledge = await farm.remember_care(db, current_catalog(), body, str(message["culture"]))
     return {"remembered": knowledge is not None, "culture": message["culture"]}

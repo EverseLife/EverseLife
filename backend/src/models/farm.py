@@ -78,7 +78,7 @@ class Plot(Base):
     seed_vigor: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
     sown_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    #: The three scales of a growing bed (D-293), as of `settled_at`: what
+    #: The three scales of a growing bed (D-296), as of `settled_at`: what
     #: happened since is a pure function of the elapsed time (`farm/life.py`),
     #: computed by every read, written by every action and by the world tick.
     #: None is shown as a number: the player reads a stage and a word.
@@ -105,7 +105,7 @@ class Plot(Base):
     )
     #: Feedings repeated within one stage: each costs its share of the harvest.
     overfed: Mapped[int] = mapped_column(nullable=False, default=0, server_default="0")
-    #: Weeds on the bed, 0-100 (D-295): up with the crop as of `settled_at`,
+    #: Weeds on the bed, 0-100 (D-297): up with the crop as of `settled_at`,
     #: cleared by a weeding. Whether this sowing was thinned: once, and early.
     weeds: Mapped[float] = mapped_column(
         Numeric(6, 2), nullable=False, default=0, server_default="0"

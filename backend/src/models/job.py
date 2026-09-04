@@ -50,7 +50,7 @@ class JobKind(StrEnum):
     MARKET_RESERVATION_EXPIRY = "market.reservation_expiry"
     FARM_PLOW = "farm.plow"
     #: An action on a bed -- a watering, a feeding -- holds the hands for its
-    #: minutes (D-211, D-293): the effect is written at once, the job only
+    #: minutes (D-211, D-296): the effect is written at once, the job only
     #: ends the occupation.
     FARM_CARE = "farm.care"
     #: Household meter: once every `energy.meter_period` hours (D-135, D-149).

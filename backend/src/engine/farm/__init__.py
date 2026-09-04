@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Nurlan Urazkulov
-"""Farming by plots (D-118, D-105, D-057, D-293).
+"""Farming by plots (D-118, D-105, D-057, D-296).
 
 Cultivars, seeds and crossing live next door in `engine/breed.py`: here is the
 land and the cycle, there is what grows on it.
@@ -19,7 +19,7 @@ engine's business.
 **A day.** All farming terms are given "in days", and a day here is planetary:
 `time.day_terra` hours (D-008). Terra has no other day length.
 
-**Three scales (D-293).** A sown bed carries moisture, health and growth,
+**Three scales (D-296).** A sown bed carries moisture, health and growth,
 none shown as a number, all written as of a stamp and moved by the clock in
 `life.py`: moisture leaves as a share of what is there (`farm.dry_rate` at
 the culture's own drinking pace, in the heat, under the rain, by the river);
@@ -58,7 +58,7 @@ The soil share is capped: rich land is an edge, not a multiplier, otherwise
 the degenerate optimum is the least demanding crop on the best land (OQ-107).
 
 `yield_per_m2` is not set by hand -- the vault derived it from `harvest.rates`
-and the actions the model asks for (D-136, D-293), and the engine takes it
+and the actions the model asks for (D-136, D-296), and the engine takes it
 ready. Harvest quality is fertility taken by the health share.
 
 **Depletion.** `farm.soil_depletion` for **every** harvest, whatever the crop;
@@ -74,7 +74,7 @@ died pays the depletion too: it fed the plant all the same.
 
 * **By-product** (straw for spelt) is not given: the share is not set by data,
   and inventing it here is not allowed (D-065);
-* **Weeding, thinning and disease** are the next waves of D-293: the three
+* **Weeding, thinning and disease** are the next waves of D-296: the three
   scales are in place, the actions that read `density_risk`,
   `disease_risk` and `farm.disease_spread` are not.
 """

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Nurlan Urazkulov
 
-"""The season's ends (D-293): sowing, the harvest with its seed return, and
+"""The season's ends (D-296): sowing, the harvest with its seed return, and
 the survey that tells the field's whole state without writing a thing. The
 care between them lives in `care.py`, the clock that moves the bed in
 `settle.py`.
@@ -63,7 +63,7 @@ async def sow(
     One sows with seeds, not harvest: the batch has a cultivar and its own
     strength. Both move to the plot -- the harvest is computed from them, not
     from the crop's numbers. The bed's life starts here: half-wet ground
-    (`farm.sown_moisture`), full health, nought grown (D-293).
+    (`farm.sown_moisture`), full health, nought grown (D-296).
     """
     moment = now or datetime.now(UTC)
     await _here(session, body)
@@ -160,15 +160,16 @@ async def harvest(
     """Harvest. Returns the collected amount.
 
     The harvest is proportional to area, fertility, the crop's health **and
-    cultivar strength** (D-293); land depletion and recovery are credited
+    cultivar strength** (D-296); land depletion and recovery are credited
     right here -- the harvest closes the cycle. Feedings repeated in a stage
     ran the crop to leaf and take their share off (`farm.overfeed_yield_penalty`);
     an unthinned stand pays its culture's crowd penalty, a thinned one the
-    thinning's own cost (D-295).
+    thinning's own cost (D-297).
 
     Seeds come back as a multiple of what was sown (`farm.seed_return`, D-257),
-    scaled by the same soil, health, leaf and lot-strength shares as the
-    goods -- the health and the leaf are the "care share" of D-257: the fund
+    scaled by the same soil, health, leaf, stand and lot-strength shares as
+    the goods -- the health, the leaf and the stand are the "care share" of
+    D-257, and a pulled seedling gives no seed: the fund
     reproduces by construction, and a sick or overfed bed, poor soil or a
     weak lot honestly sink the return below one. If the farmer did
     **selection** -- in-person work where mastery shows -- the fund keeps its
@@ -200,7 +201,7 @@ async def harvest(
     fertility = float(plot.fertility)
     health_share = state.health / SCALE_MAX
     leaf_share = max(0.0, 1 - constants[R.FARM_OVERFEED_YIELD_PENALTY] / PERCENT * plot.overfed)
-    #: The stand (D-295): thinned, it paid its cost; crowded, it pays the
+    #: The stand (D-297): thinned, it paid its cost; crowded, it pays the
     #: culture's -- `density_risk` on the five-point scale of the traits.
     if plot.thinned:
         stand_share = 1 - constants[R.FARM_THIN_LOSS] / PERCENT
@@ -304,7 +305,7 @@ async def survey(
     """Farm summary. Remote: readable from anywhere, care -- on foot.
 
     A growing bed is shown as of this very moment -- its life computed from
-    the last stamp and written nowhere (D-293). Two words and one curve: the
+    the last stamp and written nowhere (D-296). Two words and one curve: the
     stage, the word of health, and the moisture with the pace it leaves at,
     so the client draws the curve forward without a timer of its own (D-226).
     Nothing derivable rides along (D-225): ripeness is the stage, and the
@@ -386,8 +387,13 @@ async def survey(
             #: river in it, none of which the client is told (D-225).
             row["moisture"] = round(state.moisture, 1)
             row["moisture_at"] = now.isoformat()
+            #: With the weeds' thirst in it (D-297): the engine dries the bed by
+            #: it, and a curve drawn without it would show the ground wetter than
+            #: it is, and the farmer would water later than the bed asks.
             row["dry_per_day"] = round(
-                life.dry_rate(constants, norm, weather, weather.temperature_at(0.0)) * PERCENT,
+                life.dry_rate(constants, norm, weather, weather.temperature_at(0.0))
+                * life.weeds_thirst(constants, state.weeds)
+                * PERCENT,
                 ROUND_QUALITY,
             )
             #: Only where it is actually carried (D-126): by a river the
@@ -407,7 +413,6 @@ async def survey(
                 constants,
                 norm,
                 state,
-                stage=stage,
                 fertility=float(plot.fertility),
                 fertility_needed=float(signs.get("fertility", plant.requires.fertility)),
                 fed=given,

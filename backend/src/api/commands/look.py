@@ -77,7 +77,7 @@ from src.models.world import Layer, Node, Vein
 async def _knowledge_read(ctx: Ctx) -> dict:
     """What the identity knows: recipes (`knows`), which of them were opened
     by one's own experiment (`discovered`, D-064, D-209), the care texts
-    remembered (`care`, D-293), and the first discoverer's name per known
+    remembered (`care`, D-296), and the first discoverer's name per known
     recipe (`pioneers`, D-259). Read once and kept: `knowledge.learned` and
     `craft.invented` say when to read again (D-226)."""
     who = ctx.identity_id

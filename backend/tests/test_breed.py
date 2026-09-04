@@ -79,7 +79,7 @@ async def _until_harvest(
     await farm.sow(session, constants, catalog, body, plot, seeds)
 
     plant = catalog.plants.by_id(plot.culture_id)
-    #: The life by the test's hands (D-293): ripeness is checked in the farming
+    #: The life by the test's hands (D-296): ripeness is checked in the farming
     #: tests, and the health stands for the care given -- whole, or a share of the cycle.
     plot.growth = Decimal(100)
     plot.health = Decimal(100 if care_count is None else round(100 * care_count / plant.cycle_days))

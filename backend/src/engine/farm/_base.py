@@ -76,7 +76,7 @@ def day_hours(constants: Constants) -> float:
 
 
 def care_minutes(constants: Constants, area: float) -> float:
-    """One action's minutes (D-293): a vault formula. Land scales, hands do not."""
+    """One action's minutes (D-296): a vault formula. Land scales, hands do not."""
     return constants[R.FARM_PLOT_OVERHEAD] + constants[R.FARM_CARE_TIME_PER_M2] * area
 
 

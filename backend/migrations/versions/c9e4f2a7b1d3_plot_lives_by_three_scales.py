@@ -4,7 +4,7 @@
 """a bed lives by three scales: moisture, health, growth
 
 Care used to be a counter of credited days and a stamp of the last round
-(D-263). With D-293 a sown bed carries its state instead: the moisture in the
+(D-263). With D-296 a sown bed carries its state instead: the moisture in the
 ground, the health of the crop and the share grown, all as of `settled_at`,
 plus the boost a feeding gave and what each stage was fed. What happened
 since the stamp is a pure function of the elapsed time (`engine/farm/life`),

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Nurlan Urazkulov
 
-"""Weeds and crowding (D-295), wave 2 of D-293.
+"""Weeds and crowding (D-297), wave 2 of D-296.
 
 Checked is what the system is built this way for:
 
@@ -23,11 +23,11 @@ from decimal import Decimal
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from farm_kit import BROME, _farmstead, _hands_free, _norms, _sown, _weather
+from farm_kit import BROME, _farmstead, _hands_free, _norms, _sown, _stock, _weather
 from src.api.commands.farm import _plot
 from src.constants import Catalog, Constants, current, current_catalog
 from src.constants import registry as R
-from src.engine import farm, occupation
+from src.engine import farm, occupation, world
 from src.engine.farm import life
 from src.models.farm import Plot, PlotState
 from src.models.identity import Body
@@ -58,7 +58,7 @@ def test_weeds_come_up_with_the_land_and_drag_the_crop(
 
     #: A full cover drags the growth by its share and drinks beside the crop.
     weedy = life.Life(mid, SCALE_MAX, 0.0, weeds=SCALE_MAX)
-    choked = life.advance(constants, norm, weather, weedy, hours=day, day_hours=day)
+    choked = life.advance(constants, norm, weather, weedy, hours=day, day_hours=day, fertility=0)
     drag = constants[R.FARM_WEED_DRAG] / PERCENT
     assert choked.growth == pytest.approx(rock.growth * (1 - drag), rel=0.02)
     assert choked.moisture < rock.moisture
@@ -127,7 +127,7 @@ async def test_the_stand_pays_the_crowd_or_the_thinning(
     assert await reap(FLAX, False) == pytest.approx(full(FLAX) * (1 - flax * crowd), rel=0.01)
     assert await reap(FLAX, True) == pytest.approx(full(FLAX) * (1 - loss), rel=0.01)
     brome = catalog.plants.by_id(BROME).traits.density_risk / HARDINESS_SCALE
-    assert brome * crowd <= loss, "тесту нужна культура, которой прореживание не окупается"
+    assert brome * crowd <= loss, "the test needs a crop whose thinning does not pay"
     assert await reap(BROME, False) >= await reap(BROME, True)
 
 
@@ -143,6 +143,14 @@ async def test_the_survey_shows_weeds_and_the_crowd_to_everybody(
     (row,) = await farm.survey(session, constants, catalog, identity.id)
     assert life.WEEDY in row["symptoms"] and life.CROWDED in row["symptoms"]
     assert "thinned" not in row
+    #: The pace the curve is drawn with carries the weeds' thirst (D-297).
+    clean = life.dry_rate(constants, _norms(constants, catalog), _weather(river=True), None)
+    assert row["dry_per_day"] > clean * PERCENT
+    #: The crowd is paid for at the reaping, so the sign holds to the end.
+    plot.growth = Decimal(SCALE_MAX)
+    await session.flush()
+    (ripe,) = await farm.survey(session, constants, catalog, identity.id)
+    assert life.CROWDED in ripe["symptoms"]
 
     plot.thinned = True
     plot.weeds = Decimal(0)
@@ -179,3 +187,31 @@ async def test_two_thinnings_of_one_bed_leave_one(
     async with factory() as db:
         strip = await db.get(Plot, plot_id)
         assert strip is not None and strip.state is PlotState.SOWN and strip.thinned
+
+
+async def test_the_thinning_costs_the_seed_return_too(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A pulled seedling gives no seed (D-257, D-297): the fund comes back by
+    the same stand share as the goods."""
+    _, _, body = await _farmstead(session, water="river", fertility=55)
+    plot = await _sown(session, constants, catalog, body, culture=FLAX)
+    plant = catalog.plants.by_id(FLAX)
+    pocket = await world.body_container(session, body)
+    before = await _stock(session, pocket.id, plant.seed)
+    plot.growth = Decimal(SCALE_MAX)
+    plot.thinned = True
+    await session.flush()
+    await farm.harvest(session, constants, catalog, body, plot, now=plot.settled_at)
+
+    soil = min(55 / plant.requires.fertility, constants[R.FARM_SOIL_SHARE_CAP] / PERCENT)
+    expected = (
+        constants[R.FARM_SEED_RATE]
+        * 10
+        * constants[R.FARM_SEED_RETURN]
+        * soil
+        * (1 - constants[R.FARM_THIN_LOSS] / PERCENT)
+    )
+    assert await _stock(session, pocket.id, plant.seed) - before == pytest.approx(
+        expected, rel=0.01
+    )

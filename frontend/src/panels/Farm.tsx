@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Nurlan Urazkulov
 
 /**
- * Plots -- the location scene (D-118, D-293).
+ * Plots -- the location scene (D-118, D-296).
  *
  * Everything here is in-person: land is surveyed, ploughed, sown, watered, fed
  * and harvested on foot. Somebody else's land shows the owner; nobody's land
@@ -37,7 +37,9 @@ type Props = {
   act: (what: () => Promise<unknown>) => Promise<void>;
 };
 
-type Stage = "sprout" | "leaf" | "bloom" | "fill" | "ripe";
+/** The stages of growth in order, common to every crop (D-296). */
+const STAGES = ["sprout", "leaf", "bloom", "fill", "ripe"] as const;
+type Stage = (typeof STAGES)[number];
 type Health = "strong" | "weak" | "sick" | "dying";
 
 type Row = {
@@ -49,7 +51,7 @@ type Row = {
   fertility: number;
   culture: string | null;
   variety?: VarietyRef;
-  /** The two words of a growing bed (D-293): where it is and how it stands. */
+  /** The two words of a growing bed (D-296): where it is and how it stands. */
   stage?: Stage;
   health?: Health;
   /** The one curve: the moisture at `moisture_at`, leaving at `dry_per_day`
@@ -61,7 +63,7 @@ type Row = {
   carried?: true;
   /** Present when this stage was already fed: a second feeding runs to leaf. */
   fed?: true;
-  /** Present once the stand was thinned (D-295): a fact of the sowing, once. */
+  /** Present once the stand was thinned (D-297): a fact of the sowing, once. */
   thinned?: true;
   /** What everybody sees -- a sign, never a norm (D-057). */
   symptoms?: string[];
@@ -119,7 +121,7 @@ const CURVE_POINTS = 48;
 const TARGET_STEP = 5;
 
 /**
- * The moisture curve (D-293): the point the server gave, drawn forward at the
+ * The moisture curve (D-296): the point the server gave, drawn forward at the
  * pace it gave. `moisture(t) = m0 * exp(-k * days)` -- the same exponential
  * the engine walks, so the picture and the bed agree. Drawn at render time
  * and redrawn when the world says so (D-226), never by a timer.
@@ -180,7 +182,7 @@ function MoistureCurve({ row, dayHours }: { row: Row; dayHours: number }) {
 /** One fact of the bed per chip; nothing to say -- no container either. */
 function PlotChips({ row }: { row: Row }) {
   const chips: React.ReactNode[] = [];
-  //: All four words, the good one too (D-293): a bed that stands strong says
+  //: All four words, the good one too (D-296): a bed that stands strong says
   //: so, and the absence of a warning is not a word.
   if (row.health) {
     const tone = { strong: "good", weak: "dim", sick: "warn", dying: "warn" }[row.health];
@@ -242,7 +244,7 @@ export function Farm({ look }: Omit<Props, "busy" | "act">) {
   >([]);
   //: One sows with a batch of seeds, not a crop: the batch has its own cultivar and strength.
   const [batch, setBatch] = useState("");
-  //: The target of the next watering per bed (D-293): the slider's own
+  //: The target of the next watering per bed (D-296): the slider's own
   //: position, kept until the world redraws the card.
   const [targets, setTargets] = useState<Record<string, number>>({});
   //: The fertilizer picked for the next feeding per bed.
@@ -302,12 +304,15 @@ export function Farm({ look }: Omit<Props, "busy" | "act">) {
     targets[row.id] ??
     Math.min(100, Math.ceil(((row.moisture ?? 0) + TARGET_STEP) / TARGET_STEP) * TARGET_STEP);
   const feedOf = (row: Row) => feeds[row.id] || dung[0]?.goods || "";
-  //: Thinning is open up to the vault's stage (D-295): the catalog's constant,
-  //: read like the day length, so the button and the engine agree.
-  const stages = ["sprout", "leaf", "bloom", "fill", "ripe"];
-  const thinUntil = String(book?.constants?.["farm.thin_until"] ?? "leaf");
+  //: Thinning is open up to the vault's stage (D-297): the catalog's constant,
+  //: read like the day length, so the button and the engine agree. No
+  //: fallback: without the key there is no button, not a guessed one.
+  const thinUntil = book?.constants?.["farm.thin_until"];
   const thinningOpen = (row: Row) =>
-    !row.thinned && !!row.stage && stages.indexOf(row.stage) <= stages.indexOf(thinUntil);
+    !row.thinned &&
+    !!row.stage &&
+    typeof thinUntil === "string" &&
+    STAGES.indexOf(row.stage) <= STAGES.indexOf(thinUntil as Stage);
 
   //: The holder runs the estate: civic land is bought first (06-farming).
   if (!mine) {
@@ -366,7 +371,7 @@ export function Farm({ look }: Omit<Props, "busy" | "act">) {
           </div>
 
           {/* A bare track: the culture's norm is the Library's text, not a
-              notch of the window's (D-293). */}
+              notch of the window's (D-296). */}
           <Gauge label={t("ui-farm-fertility")} value={row.fertility} />
 
           {row.state === "sown" && <MoistureCurve row={row} dayHours={dayHours} />}
@@ -470,7 +475,7 @@ export function Farm({ look }: Omit<Props, "busy" | "act">) {
           )}
           {row.state === "sown" && row.stage !== "ripe" && (
             <>
-              {/* Watering to a target (D-293): the slider is the decision, the
+              {/* Watering to a target (D-296): the slider is the decision, the
                   water is the difference, and the target may run past what the
                   culture wants -- overwatering is the player's mistake, and
                   the bed will show it. */}

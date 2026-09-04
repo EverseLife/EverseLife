@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Nurlan Urazkulov
 
-"""The life of a sown bed: three hidden scales and how time moves them (D-293).
+"""The life of a sown bed: three hidden scales and how time moves them (D-296).
 
 Moisture, health and growth are the bed's state at one moment (`Life`), and
 everything between two moments is a pure function of the elapsed time, the
@@ -21,7 +21,7 @@ softened by the cultivar's hardiness (D-261), and heals inside it; growth
 adds its nominal share of the cycle scaled by health and by a feeding's
 boost, and a boost lasts to the end of the stage it was given in.
 
-Weeds come up with the crop (D-295): `farm.weed_per_day` scaled by the
+Weeds come up with the crop (D-297): `farm.weed_per_day` scaled by the
 land's fertility -- rich soil feeds them too -- and a full cover drags the
 growth by `farm.weed_drag` and quickens the drying by `farm.weed_thirst`;
 a weeding clears them. Whether the stand was thinned is a fact of the
@@ -41,7 +41,7 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from src.constants import Constants
+from src.constants import ConstantError, Constants
 from src.constants import registry as R
 from src.constants.catalog import Plant
 from src.runtime import FARM_STEP_HOURS
@@ -55,7 +55,7 @@ RIPE = "ripe"
 STAGES: tuple[str, ...] = (SPROUT, "leaf", "bloom", "fill", RIPE)
 
 #: The words the health is said in, from the strongest down (`farm.health_bands`).
-#: The number itself is never shown: the player reads a word (D-293).
+#: The number itself is never shown: the player reads a word (D-296).
 HEALTH_WORDS: tuple[str, ...] = ("strong", "weak", "sick", "dying")
 
 #: What the bed shows to everybody: a sign, never a number (D-057).
@@ -64,7 +64,7 @@ SOAKED = "soaked"
 PALE = "pale"
 BURN = "burn"
 FAT = "fat"
-#: Wave 2 (D-295): weeds past the threshold, and an unthinned stand once
+#: Wave 2 (D-297): weeds past the threshold, and an unthinned stand once
 #: it is past sprouting -- shown to everybody, priced by the culture.
 WEEDY = "weedy"
 CROWDED = "crowded"
@@ -105,11 +105,11 @@ class Life:
     health: float
     growth: float
     #: Per cent of speed a feeding added, until the end of the stage it was
-    #: given in (D-293): the stage is remembered so that the boost is dropped
+    #: given in (D-296): the stage is remembered so that the boost is dropped
     #: exactly once the growth crosses that stage's bound.
     boost: float = 0.0
     boost_stage: str | None = None
-    #: Weeds on the bed, 0-100, and whether this sowing was thinned (D-295).
+    #: Weeds on the bed, 0-100, and whether this sowing was thinned (D-297).
     weeds: float = 0.0
     thinned: bool = False
 
@@ -161,13 +161,20 @@ def dry_rate(
 
 
 def weeds_thirst(constants: Constants, weeds: float) -> float:
-    """The drying multiplier the weeds add: they drink beside the crop (D-295)."""
+    """The drying multiplier the weeds add: they drink beside the crop (D-297)."""
     return 1 + weeds / SCALE_MAX * constants[R.FARM_WEED_THIRST] / PERCENT
 
 
 def thinning_open(constants: Constants, stage: str) -> bool:
-    """Whether a stand in this stage can still be thinned: up to `farm.thin_until`."""
-    return STAGES.index(stage) <= STAGES.index(str(constants[R.FARM_THIN_UNTIL]))
+    """Whether a stand in this stage can still be thinned: up to `farm.thin_until`.
+
+    The constant is a word, and a word the stages do not know is a hole in
+    the data: named as such, not a `ValueError` on the first thinning.
+    """
+    until = str(constants[R.FARM_THIN_UNTIL])
+    if until not in STAGES:
+        raise ConstantError(f"farm.thin_until: {until!r} is not a stage of {STAGES}")
+    return STAGES.index(stage) <= STAGES.index(until)
 
 
 def stage_of(constants: Constants, growth: float) -> str:
@@ -199,14 +206,15 @@ def advance(
     *,
     hours: float,
     day_hours: float,
-    fertility: float = 0.0,
+    fertility: float,
 ) -> Life:
     """Move the bed `hours` on from the moment `life` was true.
 
     `weather.temperature_at` counts its hours from that same moment. A dead
     bed stays dead and a step that ends the health ends the walk at once:
     what grew in a bed's last hour is nobody's harvest. `fertility` feeds the
-    weeds (D-295); bare rock -- the default -- grows none.
+    weeds (D-297) and is asked for on purpose: a caller that forgot it would
+    grow a bed without a weed and nobody would say so.
     """
     if hours <= 0 or life.dead:
         return life
@@ -253,7 +261,6 @@ def symptoms(
     norms: Norms,
     life: Life,
     *,
-    stage: str,
     fertility: float,
     fertility_needed: float,
     fed: Iterable[Mapping[str, Any]],
@@ -263,7 +270,7 @@ def symptoms(
     `fed` is what this stage was given: a wrong feeding shows as a burn and a
     repeated one as a bed running to leaf, until the stage is over. Weeds show
     past `farm.weed_seen`; an unthinned stand shows as crowded from the leaf
-    stage on -- to every crop, though only some pay for it (D-295).
+    stage on -- to every crop, though only some pay for it (D-297).
     """
     seen: list[str] = []
     if life.moisture < norms.band_min:
@@ -279,6 +286,8 @@ def symptoms(
         seen.append(FAT)
     if life.weeds >= constants[R.FARM_WEED_SEEN]:
         seen.append(WEEDY)
-    if not life.thinned and stage not in (SPROUT, RIPE):
+    #: From the leaf stage to the harvest itself: the crowd is paid for at
+    #: the reaping, and the sign explaining the shortfall must not go out first.
+    if not life.thinned and STAGES.index(stage_of(constants, life.growth)) >= STAGES.index("leaf"):
         seen.append(CROWDED)
     return seen

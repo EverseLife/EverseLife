@@ -50,7 +50,7 @@ export function Library({ look }: Omit<Props, "busy" | "act">) {
   const [crops, setCrops] = useState<{ id: string; name: string }[]>([]);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
-  //: The care text opened here (D-293): read on foot, in the reader's
+  //: The care text opened here (D-296): read on foot, in the reader's
   //: language, and kept with "remember" in the knowledge tab.
   const [opened, setOpened] = useState<string | null>(null);
   const [text, setText] = useState("");
@@ -226,7 +226,7 @@ export function Library({ look }: Omit<Props, "busy" | "act">) {
         </>
       )}
 
-      {/* The care texts (D-293): a crop is opened, its words are read here,
+      {/* The care texts (D-296): a crop is opened, its words are read here,
           and "remember" keeps them in the knowledge tab for good. */}
       <h3>{t("ui-library-care")}</h3>
       <div className="row">

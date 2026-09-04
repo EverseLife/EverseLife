@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Nurlan Urazkulov
 
-"""The actions of care (D-293, D-295): a watering up to a target, a feeding in
+"""The actions of care (D-296, D-297): a watering up to a target, a feeding in
 a stage, a weeding and a thinning. Each is in person, each writes its effect
 at once, and each holds the hands for its minutes through a job whose only
 work is to be pending.
@@ -41,18 +41,25 @@ from src.units import ROUND_QUALITY, SCALE_MAX, SCALE_MIN, amount, amount_float,
 
 
 async def _hands_busy(
-    session: AsyncSession, body: Body, plot: Plot, moment: datetime, minutes: float, cause: Any
+    session: AsyncSession,
+    body: Body,
+    plot: Plot,
+    moment: datetime,
+    minutes: float,
+    cause: Any,
+    work: str,
 ) -> None:
-    """The action holds the hands for its minutes (D-211, D-293): a job whose
+    """The action holds the hands for its minutes (D-211, D-296): a job whose
     only work is to be pending -- the watering or the feeding wrote its effect
-    when the button was pressed. The key is the plough's shape: one job per
-    action, told apart by the moment it began."""
+    when the button was pressed. The key is the plough's shape -- one job per
+    action, told apart by the moment it began -- and by the work, so that two
+    different actions at one moment are two jobs and not one dropped."""
     await enqueue(
         session,
         JobKind.FARM_CARE,
         moment + timedelta(minutes=minutes),
-        payload={"plot": str(plot.id)},
-        dedup_key=f"farm.care:{plot.id}:{moment.timestamp()}",
+        payload={"plot": str(plot.id), "work": work},
+        dedup_key=f"farm.care:{plot.id}:{work}:{moment.timestamp()}",
         cause_event_id=cause.id,
         body_id=body.id,
     )
@@ -74,7 +81,7 @@ async def water(
     *,
     now: datetime | None = None,
 ) -> tuple[Plot, float]:
-    """Water the bed up to `target` moisture (D-293). Returns the litres it took.
+    """Water the bed up to `target` moisture (D-296). Returns the litres it took.
 
     The water is exactly the difference: `farm.water_per_m2` a metre takes
     the ground from dry to full, and a target takes its share of that. By a
@@ -128,7 +135,7 @@ async def water(
         litres=litres,
         minutes=minutes,
     )
-    await _hands_busy(session, body, plot, moment, minutes, event)
+    await _hands_busy(session, body, plot, moment, minutes, event, "water")
     return plot, litres
 
 
@@ -142,7 +149,7 @@ async def feed(
     *,
     now: datetime | None = None,
 ) -> tuple[Plot, str, str]:
-    """Feed the growing bed (D-293). Returns the stage it was fed in and what
+    """Feed the growing bed (D-296). Returns the stage it was fed in and what
     the feeding did -- for the journal and the tests, never for the answer:
     the bed shows its state the next day, the button confirms the action.
 
@@ -221,7 +228,7 @@ async def feed(
     )
     if float(plot.health) <= SCALE_MIN:
         await _die(session, constants, plot, plant, moment)
-    await _hands_busy(session, body, plot, moment, minutes, event)
+    await _hands_busy(session, body, plot, moment, minutes, event, "feed")
     return plot, stage, effect
 
 
@@ -234,9 +241,10 @@ async def weed(
     *,
     now: datetime | None = None,
 ) -> Plot:
-    """Pull the weeds (D-295): the cover goes to nought, the hands are busy.
+    """Pull the weeds (D-297): the cover goes to nought, the hands are busy.
 
-    Allowed whenever something grows, seen or not: a farmer who weeds early
+    Allowed while the bed is alive, ripe included -- a ripe bed still drinks
+    and can still die (D-296) -- and seen or not: a farmer who weeds early
     and often pays in minutes, not in a refusal.
     """
     moment = now or datetime.now(UTC)
@@ -262,7 +270,7 @@ async def weed(
         pulled=pulled,
         minutes=minutes,
     )
-    await _hands_busy(session, body, plot, moment, minutes, event)
+    await _hands_busy(session, body, plot, moment, minutes, event, "weed")
     return plot
 
 
@@ -275,7 +283,7 @@ async def thin(
     *,
     now: datetime | None = None,
 ) -> Plot:
-    """Thin the stand (D-295): once, and only up to `farm.thin_until`.
+    """Thin the stand (D-297): once, and only up to `farm.thin_until`.
 
     What is pulled is not put back -- the thinning costs `farm.thin_loss` of
     the harvest -- and what it buys is the culture's own: the crowd penalty
@@ -311,5 +319,5 @@ async def thin(
         stage=stage,
         minutes=minutes,
     )
-    await _hands_busy(session, body, plot, moment, minutes, event)
+    await _hands_busy(session, body, plot, moment, minutes, event, "thin")
     return plot

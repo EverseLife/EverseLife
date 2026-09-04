@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Nurlan Urazkulov
 
-"""A bed's life by three scales (D-293).
+"""A bed's life by three scales (D-296).
 
 Checked is what the system is built this way for:
 
@@ -69,11 +69,11 @@ def test_moisture_leaves_as_a_share_and_never_runs_dry(
     weather = _weather(temperature=constants[R.FARM_DRY_TEMP_REF])
     start = life.Life(moisture=80.0, health=SCALE_MAX, growth=0.0)
 
-    after = life.advance(constants, norm, weather, start, hours=day, day_hours=day)
+    after = life.advance(constants, norm, weather, start, hours=day, day_hours=day, fertility=0)
     rate = constants[R.FARM_DRY_RATE] / PERCENT * norm.drink
     assert after.moisture == pytest.approx(80 * math.exp(-rate), rel=1e-3)
 
-    later = life.advance(constants, norm, weather, start, hours=day * 7, day_hours=day)
+    later = life.advance(constants, norm, weather, start, hours=day * 7, day_hours=day, fertility=0)
     assert 0 < later.moisture < after.moisture
 
 
@@ -107,7 +107,7 @@ def test_health_falls_by_the_gap_and_drought_kills(constants: Constants, catalog
 
     #: Inside the band nothing is lost, and the day heals.
     inside = life.advance(
-        constants, norm, weather, life.Life(mid, 80.0, 0.0), hours=1, day_hours=day
+        constants, norm, weather, life.Life(mid, 80.0, 0.0), hours=1, day_hours=day, fertility=0
     )
     assert inside.health > 80
 
@@ -115,19 +115,25 @@ def test_health_falls_by_the_gap_and_drought_kills(constants: Constants, catalog
     #: the gap only widens as the ground dries further.
     parched = life.Life(5.0, SCALE_MAX, 0.0)
     relief = 1 - constants[R.FARM_HARDINESS_RELIEF] / PERCENT * norm.hardiness / 5
-    one_day = life.advance(constants, norm, weather, parched, hours=day, day_hours=day)
+    one_day = life.advance(constants, norm, weather, parched, hours=day, day_hours=day, fertility=0)
     floor = constants[R.FARM_STRESS_PER_POINT] * (norm.band_min - 5) * relief
     assert SCALE_MAX - one_day.health >= floor - 1e-6
 
     #: Left like that, the crop dies -- and stays dead.
-    dead = life.advance(constants, norm, weather, parched, hours=day * 30, day_hours=day)
+    dead = life.advance(
+        constants, norm, weather, parched, hours=day * 30, day_hours=day, fertility=0
+    )
     assert dead.dead and dead.health == 0
-    assert life.advance(constants, norm, weather, dead, hours=day, day_hours=day) is dead
+    assert (
+        life.advance(constants, norm, weather, dead, hours=day, day_hours=day, fertility=0) is dead
+    )
 
     #: Hardiness softens the same gap (D-261): a hardy line lasts longer.
     tough = replace(norm, hardiness=5)
     assert (
-        life.advance(constants, tough, weather, parched, hours=day, day_hours=day).health
+        life.advance(
+            constants, tough, weather, parched, hours=day, day_hours=day, fertility=0
+        ).health
         > one_day.health
     )
 
@@ -142,12 +148,18 @@ def test_growth_is_paced_by_health_and_a_boost_ends_with_its_stage(
     pace = SCALE_MAX / norm.cycle_days
 
     healthy = life.advance(
-        constants, norm, weather, life.Life(mid, SCALE_MAX, 0.0), hours=day, day_hours=day
+        constants,
+        norm,
+        weather,
+        life.Life(mid, SCALE_MAX, 0.0),
+        hours=day,
+        day_hours=day,
+        fertility=0,
     )
     assert healthy.growth == pytest.approx(pace, rel=0.02)
 
     sick = life.advance(
-        constants, norm, weather, life.Life(mid, 50.0, 0.0), hours=day, day_hours=day
+        constants, norm, weather, life.Life(mid, 50.0, 0.0), hours=day, day_hours=day, fertility=0
     )
     assert sick.growth < healthy.growth * 0.6
 
@@ -159,6 +171,7 @@ def test_growth_is_paced_by_health_and_a_boost_ends_with_its_stage(
         life.Life(mid, SCALE_MAX, 0.0, boost=100.0, boost_stage=life.SPROUT),
         hours=day,
         day_hours=day,
+        fertility=0,
     )
     leaf = constants[R.FARM_STAGE_BOUNDS]["leaf"]
     assert leaf < boosted.growth < 2 * pace
@@ -322,7 +335,7 @@ async def test_the_survey_says_two_words_and_one_curve(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
     """The stage, the word of health, the moisture with its pace -- and not a
-    norm among them (D-293): the band is the Library's text."""
+    norm among them (D-296): the band is the Library's text."""
     wet, identity, body = await _farmstead(session, water="river")
     plot = await _sown(session, constants, catalog, body)
     dry, _, _ = await _farmstead(session, water="none")
@@ -366,7 +379,7 @@ async def test_the_survey_says_two_words_and_one_curve(
 async def test_care_is_a_text_read_in_the_library_and_remembered(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """The norm is words, not a gate (D-293): read on foot, kept for good."""
+    """The norm is words, not a gate (D-296): read on foot, kept for good."""
     _, identity, body = await _farmstead(session)
     with pytest.raises(breed.BreedError):
         await farm.read_care(session, constants, catalog, body, SPELT, locale="ru")

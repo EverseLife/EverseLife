@@ -68,7 +68,7 @@ MINE = "mine"
 CRAFT = "craft"
 MEND = "mend"
 KEEL = "keel"
-#: A watering or a feeding of a bed (D-293): the hands are busy for the
+#: A watering or a feeding of a bed (D-296): the hands are busy for the
 #: action's minutes, the effect was written when the button was pressed.
 CARE = "care"
 
@@ -199,7 +199,7 @@ async def _ploughing(session: AsyncSession, body: Body, jobs: Journal) -> Doing 
 
 
 async def _caring(session: AsyncSession, body: Body, jobs: Journal) -> Doing | None:
-    """A watering or a feeding still holding the hands (D-293).
+    """A watering or a feeding still holding the hands (D-296).
 
     The effect was written when the button was pressed; the job only keeps
     the hands busy for the action's minutes, so once its hour has passed the

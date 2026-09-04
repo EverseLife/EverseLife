@@ -697,7 +697,7 @@ async def test_two_harvests_of_one_strip_reap_it_once(
         assert reaped == to_units(got[0]), "урожай в кармане — ровно одна жатва"
         #: The engine's seed formula verbatim (D-257): full health and full
         #: strength multiply by one, so the soil share and the unthinned stand's
-        #: share (D-295) are what is left to mirror.
+        #: share (D-297) are what is left to mirror.
         soil = min(55 / plant.requires.fertility, constants[R.FARM_SOIL_SHARE_CAP] / PERCENT)
         assert fund == to_units(
             constants[R.FARM_SEED_RATE]

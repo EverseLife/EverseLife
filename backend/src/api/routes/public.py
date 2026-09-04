@@ -116,7 +116,7 @@ async def recipes() -> dict[str, Any]:
 @router.get("/plants")
 async def plants() -> dict[str, Any]:
 
-    #: The feeding table stays out (D-293): what a fertilizer does in a stage
+    #: The feeding table stays out (D-296): what a fertilizer does in a stage
     #: is the Library's text, read on foot, not a catalog constant.
     return {"plants": [plant.model_dump(exclude={"feeding"}) for plant in catalog().plants.plants]}
 

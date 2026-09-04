@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Nurlan Urazkulov
 
-"""The words of care (D-293): a crop's norms said as a text a person reads in
+"""The words of care (D-296): a crop's norms said as a text a person reads in
 the Library, remembers into the "knowledge" tab and retells.
 
 Assembled from the data -- the moisture band, the feeding table, the
@@ -12,7 +12,7 @@ reads what their line actually asks for (D-057).
 
 Knowledge gates nothing here: the survey shows the same signs to everybody,
 and what to do about them is what this text says. The row in the identity is
-a bookmark, not a key (D-293).
+a bookmark, not a key (D-296).
 """
 
 from __future__ import annotations
@@ -65,7 +65,7 @@ def care_text(constants: Constants, plant: Plant, signs: Mapping[str, Any], *, l
     else:
         said.append(i18n.render("care-feeding-none", locale=locale))
     said.append(i18n.render("care-hardiness", {"hardiness": int(norm.hardiness)}, locale=locale))
-    #: Wave 2 (D-295): how much the crowd costs this crop, and when thinning
+    #: Wave 2 (D-297): how much the crowd costs this crop, and when thinning
     #: still works; the weeds are the same for every crop and said once.
     said.append(
         i18n.render(
@@ -98,7 +98,7 @@ async def read_care(
     *,
     locale: str,
 ) -> str:
-    """A base crop's care text, read in the Library (D-053, D-293)."""
+    """A base crop's care text, read in the Library (D-053, D-296)."""
     await _in_library(session, body)
     plant = catalog.plants.by_id(culture_id)
     return care_text(constants, plant, breed.traits_of_plant(plant), locale=locale)

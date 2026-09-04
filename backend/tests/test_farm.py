@@ -61,7 +61,7 @@ def _day(constants: Constants) -> timedelta:
 
 def _grown(plot: Plot, health: float = 100) -> None:
     """The bed brought to ripeness by the test's hands: the life itself is
-    checked in `test_farm_life` (D-293)."""
+    checked in `test_farm_life` (D-296)."""
     plot.growth = Decimal(100)
     plot.health = Decimal(str(health))
 
@@ -209,7 +209,7 @@ async def test_harvest_from_vault_formula(
 async def test_a_sick_bed_harvests_by_its_health(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """The harvest is the health's share (D-293): a bed that suffered gives
+    """The harvest is the health's share (D-296): a bed that suffered gives
     less, and the loss was visible as a word all along, never a surprise."""
     _, _, body = await _farmstead(session)
     plant = catalog.plants.by_id(SPELT)

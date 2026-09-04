@@ -3,7 +3,7 @@
 
 """weeds come up with the crop, and a stand is thinned once
 
-Wave 2 of D-293 (D-295): a sown bed carries its weeds as of `settled_at` --
+Wave 2 of D-296 (D-297): a sown bed carries its weeds as of `settled_at` --
 up from sowing, faster on rich land, drinking beside the crop and dragging
 its growth, cleared by a weeding -- and whether this sowing was thinned:
 once, early, at its own cost. Existing beds start clean and unthinned.

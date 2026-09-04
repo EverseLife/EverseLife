@@ -130,7 +130,7 @@ async def _rigs(session: AsyncSession, now: datetime) -> dict[str, Any]:
 
 
 async def _plots(session: AsyncSession, now: datetime) -> dict[str, Any]:
-    #: The beds do not wait for their farmer either (D-293): moisture leaves,
+    #: The beds do not wait for their farmer either (D-296): moisture leaves,
     #: health follows it, and a death or a ripening is told the hour it happens.
     return await farm.tick_plots(session, current(), current_catalog(), now=now)
 

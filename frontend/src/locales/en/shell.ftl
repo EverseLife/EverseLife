@@ -141,7 +141,7 @@ ui-side-recipe-by-hand = made by hand, no station needed
 ui-side-recipe-inputs = takes per unit: { $inputs }
 ui-side-recipe-source-learned = learned ready-made: taken at the Library or read off a carrier
 
-## Agronomy: the text remembered in the Library (D-293).
+## Agronomy: the text remembered in the Library (D-296).
 
 ui-side-care = Agronomy
 ui-side-care-rule = The agronomy remembered: the moisture band, the feeding by stage, the hardiness. Read in the Library; the knowledge lives in the person and is not lost.

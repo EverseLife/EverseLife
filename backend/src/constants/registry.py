@@ -122,44 +122,44 @@ FARM_PLOW_TIME_PER_M2 = Num("farm.plow_time_per_m2")
 FARM_SEED_RATE = Num("farm.seed_rate")
 FARM_CARE_TIME_PER_M2 = Num("farm.care_time_per_m2")
 FARM_PLOT_OVERHEAD = Num("farm.plot_overhead")
-#: Litres per square metre from dry ground to full moisture (D-293): a
+#: Litres per square metre from dry ground to full moisture (D-296): a
 #: watering to a target takes its share of this.
 FARM_WATER_PER_M2 = Num("farm.water_per_m2")
 #: The culture's thirst (requires.water 1-3) as the pace it drinks at: a
-#: multiplier to the drying rate (D-293; the watering norm before it).
+#: multiplier to the drying rate (D-296; the watering norm before it).
 FARM_WATER_BY_NEED = Table("farm.water_by_need")
-#: The band of moisture a culture asks for, by its thirst (D-293).
+#: The band of moisture a culture asks for, by its thirst (D-296).
 FARM_MOISTURE_BY_NEED = Bands("farm.moisture_by_need")
 #: What the ground holds when the seed goes in.
 FARM_SOWN_MOISTURE = Num("farm.sown_moisture")
 #: Moisture leaves as a share of what is there, per Terran day -- at the
-#: reference temperature, faster or slower by the degree (D-293).
+#: reference temperature, faster or slower by the degree (D-296).
 FARM_DRY_RATE = Num("farm.dry_rate")
 FARM_DRY_TEMP_REF = Num("farm.dry_temp_ref")
 FARM_DRY_PER_DEGREE = Num("farm.dry_per_degree")
 #: A river slows the drying to this share: it makes watering rare, not free of labour.
 FARM_RIVER_DRY_SHARE = Num("farm.river_dry_share")
 #: Health lost per day for every point of moisture outside the band, and
-#: regained per day inside it (D-293).
+#: regained per day inside it (D-296).
 FARM_STRESS_PER_POINT = Num("farm.stress_per_point")
 FARM_HEAL_PER_DAY = Num("farm.heal_per_day")
-#: How much hardiness 5/5 softens the stress (D-261, D-293).
+#: How much hardiness 5/5 softens the stress (D-261, D-296).
 FARM_HARDINESS_RELIEF = Num("farm.hardiness_relief")
 #: The stages' lower bounds on the growth scale, and the words of health by
 #: their lower bounds: the player reads a stage and a word, never a number.
 FARM_STAGE_BOUNDS = Table("farm.stage_bounds")
 FARM_HEALTH_BANDS = Table("farm.health_bands")
 #: A feeding not in the culture's table burns this much health; a repeated
-#: one in a stage costs this share of the harvest (D-293).
+#: one in a stage costs this share of the harvest (D-296).
 FARM_FEED_WRONG_BURN = Num("farm.feed_wrong_burn")
 FARM_OVERFEED_YIELD_PENALTY = Num("farm.overfeed_yield_penalty")
-#: Weeds (D-295): up with the crop, faster on rich land; they drink beside
+#: Weeds (D-297): up with the crop, faster on rich land; they drink beside
 #: it and drag its growth, and a weeding clears them. Seen from a threshold.
 FARM_WEED_PER_DAY = Num("farm.weed_per_day")
 FARM_WEED_DRAG = Num("farm.weed_drag")
 FARM_WEED_THIRST = Num("farm.weed_thirst")
 FARM_WEED_SEEN = Num("farm.weed_seen")
-#: Crowding (D-295): an unthinned stand loses by the culture's density_risk;
+#: Crowding (D-297): an unthinned stand loses by the culture's density_risk;
 #: thinning costs its own share and works up to a stage.
 FARM_CROWD_PENALTY = Num("farm.crowd_penalty")
 FARM_THIN_LOSS = Num("farm.thin_loss")

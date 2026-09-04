@@ -51,7 +51,7 @@ async def _farmstead(
 
 
 def _norms(constants: Constants, catalog: Catalog, culture: str = SPELT) -> life.Norms:
-    """The crop's own norms: what a bed of the base line asks for (D-293)."""
+    """The crop's own norms: what a bed of the base line asks for (D-296)."""
     plant = catalog.plants.by_id(culture)
     return life.norms(constants, plant, breed.traits_of_plant(plant))
 
@@ -93,7 +93,7 @@ async def _stock(session: AsyncSession, pocket_id: uuid.UUID, goods: str) -> flo
 
 
 def _stand(constants: Constants, plant) -> float:
-    """The share an unthinned stand keeps at the harvest (D-295): every test of
+    """The share an unthinned stand keeps at the harvest (D-297): every test of
     the harvest formula reaps a bed nobody thinned."""
     return (
         1 - plant.traits.density_risk / HARDINESS_SCALE * constants[R.FARM_CROWD_PENALTY] / PERCENT

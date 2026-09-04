@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Nurlan Urazkulov
 
-"""The bed's clock (D-293): the life read off a plot row, walked to a moment,
+"""The bed's clock (D-296): the life read off a plot row, walked to a moment,
 and written back -- by an action, or by the world tick.
 
 `peek` computes and writes nothing: it is what the survey shows. `settle`
@@ -138,7 +138,7 @@ async def _sown(
 async def _die(
     session: AsyncSession, constants: Constants, plot: Plot, plant: Plant, moment: datetime
 ) -> None:
-    """The crop is gone (D-293): the bed goes back to fallow, the seed with
+    """The crop is gone (D-296): the bed goes back to fallow, the seed with
     it, and the land pays the cycle's depletion (D-256) -- it fed the plant
     all the same, and a dead cycle counts in the crop history like a reaped
     one, or a killed bed would launder a monoculture.
@@ -209,7 +209,7 @@ async def settle(
 async def tick_plots(
     session: AsyncSession, constants: Constants, catalog: Catalog, *, now: datetime | None = None
 ) -> dict[str, int]:
-    """Walk every growing bed of the world (D-293) and write where it matters.
+    """Walk every growing bed of the world (D-296) and write where it matters.
 
     A death or a ripening is told the hour it happens, not when the owner
     next looks. Everything else is a read: the bed's life is a function of

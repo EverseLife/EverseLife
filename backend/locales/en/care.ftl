@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Nurlan Urazkulov
 #
-# The words of care (D-293): agronomy is a text assembled from the crop's
+# The words of care (D-296): agronomy is a text assembled from the crop's
 # data. Read in the Library, remembered into the "knowledge" tab, retold.
 # The numbers come from the vault -- the moisture band, the feeding table,
 # the hardiness -- so the text cannot lie after a retune.

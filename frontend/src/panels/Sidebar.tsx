@@ -668,7 +668,7 @@ function Knowledge({ look }: { look: Look }) {
         })
       )}
 
-      {/* The care texts beside the recipes (D-293): a crop's norms as words,
+      {/* The care texts beside the recipes (D-296): a crop's norms as words,
           remembered in the Library. The text is the knowledge; the window
           draws no norm of its own. */}
       <h3>
