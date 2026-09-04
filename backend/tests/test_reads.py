@@ -194,6 +194,61 @@ async def test_look_gives_the_city_no_channel(
     assert await channels() == 0, "взгляд завёл городу канал -- чтение не пишет"
 
 
+async def test_a_look_at_the_face_opens_it_no_container(
+    session: AsyncSession, factory: async_sessionmaker[AsyncSession], constants, catalog
+) -> None:
+    """The sight of a working counts the haul and opens no container for it.
+
+    What is mined lies apart, in a container of the session's own, and
+    `session_container` makes one where it finds none -- so the sight went to
+    the creating door for a number it could add up without it. Every `look` of
+    a miner ran through there, and `mining.sight` behind it. Nothing ever
+    fired, because `face.start` opens the container in the same breath as the
+    session; a face left by an older world, or one whose container is gone, is
+    all it takes.
+    """
+    from sqlalchemy import delete, func
+
+    from src.api.commands.look import _look
+    from src.engine import mining
+    from src.models.inventory import Container, ContainerKind
+    from src.models.mining import MiningSession
+
+    stamp = uuid.uuid4().hex[:8]
+    node = await world.create_node(session, f"terra.face.{stamp}", "Забой", area_m2=100)
+    vein = await world.create_vein(session, node, "iron_ore", richness=60, remaining=100_000)
+    identity = await world.create_identity(session, f"Шахтёр-{stamp}")
+    body = await world.print_body(session, identity, node)
+    pocket = await world.body_container(session, body)
+    #: The vault requires a pickaxe at the face (D-215).
+    await world.grant_item(session, pocket, "stone_pickaxe", quality=50, origin="тест")
+    face = await mining.start(session, constants, body, vein, catalog=catalog)
+    #: A working as an older world left it: open, with no container of its own.
+    await session.execute(
+        delete(Container).where(
+            Container.kind == ContainerKind.MINING_SESSION, Container.owner_id == face.id
+        )
+    )
+    await session.commit()
+
+    async def hauls() -> int:
+        return await session.scalar(
+            select(func.count())
+            .select_from(Container)
+            .where(Container.kind == ContainerKind.MINING_SESSION, Container.owner_id == face.id)
+        )
+
+    assert await hauls() == 0, "контейнер снесён -- это забой старого мира"
+
+    async with factory() as db, db.begin(), _writes_forbidden(db):
+        seen = await _look({"identity_id": identity.id}, db, {"cmd": "look"})
+        assert seen["look"]["mining"]["mined"] == 0, seen["look"]["mining"]
+        #: And the same through the engine's own door, not only through `look`.
+        sight = await mining.sight(db, current(), await db.get(MiningSession, face.id))
+        assert sight.mined == 0, sight
+    assert await hauls() == 0, "взгляд завёл забою контейнер -- чтение не пишет"
+
+
 async def test_the_statement_and_its_rows_write_nothing(
     session: AsyncSession, factory: async_sessionmaker[AsyncSession]
 ) -> None:
@@ -319,6 +374,51 @@ async def test_a_powered_machine_forecast_makes_no_pool(
             {"identity_id": identity.id}, db, {"output": "silicon", "units": 2}
         )
         assert plan["plan"]["energy"] > 0 and "price" in plan["plan"], plan
+
+
+async def test_the_largest_batch_is_counted_without_writing(
+    session: AsyncSession, factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """ "As much as fits" (`craft.most`) reads more than the forecast does --
+    the pool, the purse and the cells standing beside the machine -- and every
+    one of those reads has a creating twin a keystroke away: `pool_of` makes a
+    pool, `account_for` makes an account, `node_container` makes a yard.
+
+    The button is pressed while the player is still choosing, so a write here
+    would be an INSERT behind a question -- the very thing the rule forbids.
+    """
+    from src.api.commands.craft import _craft_most
+    from src.engine.craft import power
+    from src.models.world import Layer
+
+    stamp = uuid.uuid4().hex[:8]
+    capital = await world.create_node(
+        session, f"terra.most.{stamp}", "Столица", area_m2=1, layer=Layer.PLANET
+    )
+    yard = await world.create_node(
+        session, f"terra.most.{stamp}.yard", "Двор", area_m2=200, layer=Layer.CITY, parent=capital
+    )
+    identity = await world.create_identity(session, f"Литейщик-{stamp}")
+    body = await world.print_body(session, identity, yard)
+    await world.grant_item(
+        session,
+        await world.node_container(session, yard),
+        "blast_furnace",
+        quality=60,
+        origin="тест",
+    )
+    pocket = await world.body_container(session, body)
+    await world.grant_item(session, pocket, "quartz_sand", amount=40, quality=60, origin="тест")
+    await world.grant_item(session, pocket, "petroleum_coke", amount=20, quality=60, origin="тест")
+    await world.learn(session, identity, "silicon")
+    await session.commit()
+
+    async with factory() as db, db.begin(), _writes_forbidden(db):
+        #: A city without a pool row and a master without an account: the
+        #: machine has nothing to drink, and the answer is that refusal --
+        #: reached through every read the full answer would have gone through.
+        with pytest.raises(power.Unpowered):
+            await _craft_most({"identity_id": identity.id}, db, {"output": "silicon"})
 
 
 async def test_forecasts_make_no_yard_in_a_place_without_one(

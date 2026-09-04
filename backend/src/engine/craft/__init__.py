@@ -126,6 +126,7 @@ from src.engine.craft.batch import (  # noqa: F401
     cook,
     copy_recipe,
     finish,
+    most,
     plan,
     recycle,
     repair,

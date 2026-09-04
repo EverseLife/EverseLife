@@ -164,7 +164,8 @@ async def harvest(
     right here -- the harvest closes the cycle. Feedings repeated in a stage
     ran the crop to leaf and take their share off (`farm.overfeed_yield_penalty`);
     an unthinned stand pays its culture's crowd penalty, a thinned one the
-    thinning's own cost (D-297).
+    thinning's own cost (D-297); what a pest took is gone with it, by the
+    share of the bed it struck (D-299).
 
     Seeds come back as a multiple of what was sown (`farm.seed_return`, D-257),
     scaled by the same soil, health, leaf, stand and lot-strength shares as
@@ -209,6 +210,9 @@ async def harvest(
         risk = float(signs.get("density_risk", plant.traits.density_risk))
         stand_share = 1 - risk / HARDINESS_SCALE * constants[R.FARM_CROWD_PENALTY] / PERCENT
     stand_share = max(0.0, stand_share)
+    #: What the trouble took gave nothing (D-299): the same share off the
+    #: goods and off the fund, and a treatment never put any of it back.
+    sound_share = max(0.0, 1 - state.illness / SCALE_MAX)
     #: Capped above: rich land is an edge, not a multiplier (D-256).
     soil_share = min(
         fertility / float(signs.get("fertility", plant.requires.fertility)),
@@ -222,6 +226,7 @@ async def harvest(
         * health_share
         * leaf_share
         * stand_share
+        * sound_share
         * (strength / PERCENT)
     )
     quality = max(SCALE_MIN, min(SCALE_MAX, fertility * health_share))
@@ -254,6 +259,7 @@ async def harvest(
         * health_share
         * leaf_share
         * stand_share
+        * sound_share
         * (strength / PERCENT)
     )
     if seed_amount > 0:
@@ -276,6 +282,7 @@ async def harvest(
     plot.last_culture = plant.id
     overfed = plot.overfed
     thinned = plot.thinned
+    struck = float(plot.illness)
     _clear(plot, moment)
     await session.flush()
 
@@ -294,6 +301,7 @@ async def harvest(
         health=state.health,
         overfed=overfed,
         thinned=thinned,
+        illness=struck,
         fertility=float(plot.fertility),
     )
     return got
@@ -408,6 +416,16 @@ async def survey(
             #: the button goes with it.
             if state.thinned:
                 row["thinned"] = True
+            #: What a treatment still holds, class by class, and until when
+            #: (D-299). Not derivable either: the client would have to have
+            #: watched the bottle being opened.
+            held = {
+                str(klass): str(until)
+                for klass, until in (plot.guard or {}).items()
+                if datetime.fromisoformat(str(until)) > now
+            }
+            if held:
+                row["guard"] = held
             #: The engine names the sign, the client picks the word (D-057).
             row["symptoms"] = life.symptoms(
                 constants,

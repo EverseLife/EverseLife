@@ -60,6 +60,8 @@ farm-fertilize-sown = { $state ->
     }
 farm-not-a-fertilizer = { NAME($goods) } is not a fertilizer: the land is fed compost or the mineral one
 farm-no-fertilizer = { $need } of { NAME($goods) } needed: the dose goes by area
+farm-not-a-protectant = { NAME($goods) } is not a treatment: a plot is treated with a fungicide, an acaricide, an insecticide or a bactericide
+farm-no-protectant = { $need } of { NAME($goods) } needed: the treating dose goes by area
 farm-land-sated = { $plot } has had its fill: fertility is at the ceiling, and the fertilizer would go to waste
 farm-no-water = { $need } water needed: there is no river here, water is carried by hand
 farm-too-cold = { $culture } would freeze here: the night drops to { $night } degrees
@@ -285,6 +287,7 @@ explore-wrong-goal-here = that is not looked for from here: here one looks for {
        *[some] { $words }
     }
 explore-city-exhausted = “{ $city }” is worked out: everything that could be broken open already has been
+explore-no-strength = a run needs { NUMBER($need, minimumFractionDigits: 1, maximumFractionDigits: 1) } stamina and you have { NUMBER($have, minimumFractionDigits: 1, maximumFractionDigits: 1) }: the price is the longest run this place can give, so eat or sleep first
 explore-already-out = a run is already out: wait for the return
 explore-run-queued = a run is already queued
 explore-run-dangling = run { $job } points nowhere

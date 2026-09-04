@@ -27,6 +27,19 @@ growth by `farm.weed_drag` and quickens the drying by `farm.weed_thirst`;
 a weeding clears them. Whether the stand was thinned is a fact of the
 sowing, not of time: the harvest reads it.
 
+Pests come for a mistake and for nothing else (D-299). Four of them, and
+each has its own: soaking breeds a fungus, drought a mite, weeds the
+insects, a wrong or repeated feeding the bacteria. A hidden pressure builds
+by `farm.pest_pressure` a day times the share of that very mistake, the
+cultivar's `disease_risk` and the crowd of an unthinned stand
+(`farm.crowd_pest`); with the mistake gone it falls by `farm.pest_relief`.
+No roll anywhere: the same care gives the same outcome, and a bed kept in
+its band, weeded and thinned never falls ill at all. Past the scale the
+trouble strikes -- `farm.pest_onset` of the bed -- and spreads by
+`farm.disease_spread` a day within the plot, cutting the harvest by its
+share and taking `farm.pest_stress` of health at full cover. One trouble at
+a time: while a bed is struck the other three pressures stand still.
+
 Stepped by the hour rather than integrated in closed form: temperature
 breathes with the planetary day, and a boost ends at a stage bound the
 integral would have to know in advance. An hour is far below anything a
@@ -38,7 +51,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable, Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from src.constants import ConstantError, Constants
@@ -68,6 +81,26 @@ FAT = "fat"
 #: it is past sprouting -- shown to everybody, priced by the culture.
 WEEDY = "weedy"
 CROWDED = "crowded"
+#: Wave 3 (D-299): what a struck bed shows past `farm.pest_seen`. The sign
+#: says what the eye sees and never names the trouble or its cure: that
+#: coupling is the agrotech text's to teach (D-057).
+SPOTS = "spots"
+WEB = "web"
+BITTEN = "bitten"
+ROT = "rot"
+
+#: The four pests, and the sign each of them shows.
+FUNGUS = "fungus"
+MITE = "mite"
+INSECT = "insect"
+BACTERIA = "bacteria"
+PESTS: tuple[str, ...] = (FUNGUS, MITE, INSECT, BACTERIA)
+PEST_SIGNS: Mapping[str, str] = {
+    FUNGUS: SPOTS,
+    MITE: WEB,
+    INSECT: BITTEN,
+    BACTERIA: ROT,
+}
 
 #: What a feeding did, as the bed remembers it for the stage (`Plot.fed`).
 BOOST = "boost"
@@ -84,6 +117,9 @@ class Norms:
     drink: float
     hardiness: float
     cycle_days: float
+    #: How much the cultivar fears the pests, on the traits' five-point
+    #: scale (D-261): the multiplier of every pressure (D-299).
+    pest_risk: float
 
 
 @dataclass(frozen=True)
@@ -112,6 +148,15 @@ class Life:
     #: Weeds on the bed, 0-100, and whether this sowing was thinned (D-297).
     weeds: float = 0.0
     thinned: bool = False
+    #: What each stage of this sowing was fed and what it did: stage ->
+    #: rows of `{goods, effect}`. State of the bed, so it travels with it:
+    #: a wrong or repeated feeding is what the bacteria come for (D-299).
+    fed: Mapping[str, Any] = field(default_factory=dict)
+    #: The pests (D-299): the pressure of each, the trouble that struck
+    #: and the share of the bed it has taken.
+    pest: Mapping[str, float] = field(default_factory=dict)
+    illness: float = 0.0
+    illness_kind: str | None = None
 
     @property
     def dead(self) -> bool:
@@ -138,6 +183,7 @@ def norms(constants: Constants, plant: Plant, signs: Mapping[str, Any]) -> Norms
         drink=float(constants[R.FARM_WATER_BY_NEED][need]),
         hardiness=float(signs.get("hardiness", plant.traits.hardiness)),
         cycle_days=float(signs.get("cycle_days", plant.cycle_days)),
+        pest_risk=float(signs.get("disease_risk", plant.traits.disease_risk)),
     )
 
 
@@ -198,6 +244,32 @@ def health_word(constants: Constants, health: float) -> str:
     return HEALTH_WORDS[-1]
 
 
+def pest_drives(constants: Constants, norms: Norms, life: Life, stage: str) -> dict[str, float]:
+    """How wrong the bed is, per pest, as a share from nought to one (D-299).
+
+    One mistake of care to each trouble, and nothing else feeds them: the
+    moisture over the band soaks the roots and breeds the fungus, the
+    moisture under it dries the leaf and breeds the mite, the weeds shelter
+    the insects, and a burnt or an overfed stage opens the way to the
+    bacteria. A bed inside its band, weeded and fed by the table drives
+    nothing at all -- which is the whole promise of the decision.
+    """
+    seen = constants[R.FARM_WEED_SEEN]
+    given = list(life.fed.get(stage, ()) or ())
+    spoiled = {str(row.get("effect")) for row in given} & {BURN, OVERFED}
+    return {
+        FUNGUS: min(
+            1.0, max(0.0, life.moisture - norms.band_max) / max(1.0, SCALE_MAX - norms.band_max)
+        ),
+        MITE: min(1.0, max(0.0, norms.band_min - life.moisture) / max(1.0, norms.band_min)),
+        #: Past the sign and no sooner (`farm.weed_seen`): the text says
+        #: weeds are pulled when they show, and a farmer who does that must
+        #: drive nothing at all -- a cover below the sign is not a mistake.
+        INSECT: min(1.0, max(0.0, life.weeds - seen) / max(1.0, SCALE_MAX - seen)),
+        BACTERIA: 1.0 if spoiled else 0.0,
+    }
+
+
 def advance(
     constants: Constants,
     norms: Norms,
@@ -207,6 +279,7 @@ def advance(
     hours: float,
     day_hours: float,
     fertility: float,
+    guarded: Mapping[str, float] | None = None,
 ) -> Life:
     """Move the bed `hours` on from the moment `life` was true.
 
@@ -215,16 +288,32 @@ def advance(
     what grew in a bed's last hour is nobody's harvest. `fertility` feeds the
     weeds (D-297) and is asked for on purpose: a caller that forgot it would
     grow a bed without a weed and nobody would say so.
+
+    `guarded` is how many hours of a treatment are left at the start of this
+    walk, per pest (D-299); a bed nobody treated is guarded against nothing,
+    and that is the default. A guard freezes its own pressure and holds the
+    trouble it cures where it stands -- it never takes back what was struck.
     """
     if hours <= 0 or life.dead:
         return life
-    relief = 1 - constants[R.FARM_HARDINESS_RELIEF] / PERCENT * norms.hardiness / HARDINESS_SCALE
+    softer = 1 - constants[R.FARM_HARDINESS_RELIEF] / PERCENT * norms.hardiness / HARDINESS_SCALE
     stress = constants[R.FARM_STRESS_PER_POINT]
     heal = constants[R.FARM_HEAL_PER_DAY]
     sprout = constants[R.FARM_WEED_PER_DAY] * max(fertility, 0.0) / SCALE_MAX
     drag = constants[R.FARM_WEED_DRAG] / PERCENT
     #: The nominal pace: a healthy, unfed bed ripens in the catalog's cycle.
     pace = SCALE_MAX / max(norms.cycle_days, 1.0 / day_hours)
+
+    #: The pests' own numbers (D-299), read once: the walk is by the hour.
+    guard = dict(guarded or {})
+    pest = {name: float(life.pest.get(name, 0.0)) for name in PESTS}
+    struck, illness = life.illness_kind, life.illness
+    building = constants[R.FARM_PEST_PRESSURE]
+    relief = constants[R.FARM_PEST_RELIEF]
+    crowd = 1.0 if life.thinned else 1 + constants[R.FARM_CROWD_PEST] / PERCENT
+    fear = crowd * max(0.0, norms.pest_risk) / HARDINESS_SCALE
+    spread = constants[R.FARM_DISEASE_SPREAD]
+    ache = constants[R.FARM_PEST_STRESS]
 
     moisture, health, growth = life.moisture, life.health, life.growth
     boost, boost_stage, weeds = life.boost, life.boost_stage, life.weeds
@@ -238,11 +327,46 @@ def advance(
 
         gap = max(0.0, norms.band_min - moisture, moisture - norms.band_max)
         if gap > 0:
-            health -= stress * gap * relief * days
-        else:
+            health -= stress * gap * softer * days
+        elif struck is None:
+            #: A bed in its band mends -- unless a trouble is eating it (D-299):
+            #: a plant does not put on health while a pest takes it, and healing
+            #: that ran beside the pest's own stress would simply cancel it.
             health = min(SCALE_MAX, health + heal * days)
+
+        #: The pests (D-299). One trouble at a time: while a bed is struck the
+        #: other three pressures stand still -- the farmer is fighting what came.
+        here = Life(moisture, health, growth, weeds=weeds, thinned=life.thinned, fed=life.fed)
+        if struck is None:
+            drives = pest_drives(constants, norms, here, stage_of(constants, growth))
+            for name in PESTS:
+                if passed < guard.get(name, 0.0):
+                    continue
+                drive = drives[name]
+                if drive > 0:
+                    pest[name] += building * drive * fear * days
+                else:
+                    pest[name] = max(0.0, pest[name] - relief * days)
+                if pest[name] >= SCALE_MAX:
+                    struck, illness, pest[name] = name, constants[R.FARM_PEST_ONSET], 0.0
+                    break
+        else:
+            if passed >= guard.get(struck, 0.0):
+                illness = min(SCALE_MAX, illness + spread * days)
+            health -= ache * illness / SCALE_MAX * days
+
         if health <= SCALE_MIN:
-            return Life(moisture, SCALE_MIN, growth, weeds=weeds, thinned=life.thinned)
+            return Life(
+                moisture,
+                SCALE_MIN,
+                growth,
+                weeds=weeds,
+                thinned=life.thinned,
+                fed=life.fed,
+                pest=pest,
+                illness=illness,
+                illness_kind=struck,
+            )
 
         if growth < SCALE_MAX:
             held = 1 - weeds / SCALE_MAX * drag
@@ -253,7 +377,19 @@ def advance(
             if boost_stage is not None and stage_of(constants, growth) != boost_stage:
                 boost, boost_stage = 0.0, None
         passed += step
-    return Life(moisture, health, growth, boost, boost_stage, weeds, life.thinned)
+    return Life(
+        moisture,
+        health,
+        growth,
+        boost,
+        boost_stage,
+        weeds,
+        life.thinned,
+        life.fed,
+        pest,
+        illness,
+        struck,
+    )
 
 
 def symptoms(
@@ -290,4 +426,8 @@ def symptoms(
     #: the reaping, and the sign explaining the shortfall must not go out first.
     if not life.thinned and STAGES.index(stage_of(constants, life.growth)) >= STAGES.index("leaf"):
         seen.append(CROWDED)
+    #: What the trouble looks like, past the threshold (D-299): the sign, and
+    #: never its name -- which class puts it out is the text's to say.
+    if life.illness_kind is not None and life.illness >= constants[R.FARM_PEST_SEEN]:
+        seen.append(PEST_SIGNS[life.illness_kind])
     return seen

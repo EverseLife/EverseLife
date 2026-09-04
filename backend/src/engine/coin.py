@@ -154,7 +154,9 @@ async def mint(
     if count <= 0 or count != int(count):
         raise CoinError(key="coin-whole-only")
     if count > constants[R.CRAFT_BATCH_MAX]:
-        raise craft.TooBig(key="craft-batch-too-big", units=count)
+        raise craft.TooBig(
+            key="craft-batch-too-big", units=count, most=constants[R.CRAFT_BATCH_MAX]
+        )
 
     composition = per_coin(catalog, coin)
     proc = craft.Procedure(

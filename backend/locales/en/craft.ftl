@@ -24,7 +24,7 @@ craft-body-off-node = the body is outside the node
 craft-body-without-identity = a body without an identity
 
 craft-zero-batch = a batch of zero units
-craft-batch-too-big = batch larger than craft.batch_max: { $units }
+craft-batch-too-big = no more than { NUMBER($most, maximumFractionDigits: 0) } units are made at a time, and { NUMBER($units, maximumFractionDigits: 0) } were asked for
 craft-counted-whole = “{ NAME($goods) }” is counted in pieces: a batch of whole units
 craft-not-learned = the recipe “{ NAME($recipe) }” is not copied into the identity
 craft-not-enough = not enough “{ NAME($goods) }”: { $short } more needed

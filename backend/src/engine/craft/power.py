@@ -19,6 +19,7 @@ nothing at all, and the plan carries no key for it.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -42,6 +43,61 @@ def need_of(constants: Constants, catalog: Catalog, machine: str | None, hours: 
     if machine is None or hours <= 0 or not catalog.recipes.powered(machine):
         return 0.0
     return hours * constants[R.CRAFT_POWERED_ENERGY_PER_HOUR]
+
+
+@dataclass(frozen=True, slots=True)
+class Supply:
+    """What a machine can drink here without asking anybody, and out of what."""
+
+    have: float
+    #: From a city pool, as against the cells standing beside the machine: the
+    #: two run dry in different words, and the refusal must say which.
+    grid: bool
+    #: Neither grid nor a single cell put up: not "too little" but "nothing".
+    dry: bool
+
+
+async def at_hand(
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    body: Body,
+    machine: str | None,
+    *,
+    now: datetime | None = None,
+) -> Supply | None:
+    """How much electricity is to be had here for this machine -- a read.
+
+    `None` when the question does not arise: a machine driven by the hands
+    drinks nothing. Asked by "as much as fits" (`craft.most`), which must not
+    name a batch the grid will not power -- and asked without locking or
+    creating anything, because it is a forecast and a forecast may not write.
+    """
+    if machine is None or not catalog.recipes.powered(machine):
+        return None
+    node = await session.get(Node, body.node_id)
+    if node is None:  # pragma: no cover -- a body without a node is a bug
+        return Supply(have=0.0, grid=False, dry=True)
+    if await energy.grid_node(session, node) is not None:
+        have = await energy.at_the_counter(session, constants, node, body)
+        return Supply(have=have, grid=True, dry=False)
+    charge = await battery.charge_in(session, constants, node, now=now)
+    #: No charge at all and no grid is the "no grid" case: there is nothing
+    #: here to run a machine off, and `draw` says exactly that.
+    return Supply(have=charge, grid=False, dry=charge <= 0)
+
+
+def short_of(machine: str, supply: Supply, need: float) -> Unpowered:
+    """The refusal `draw` would raise for this shortage, in the same words.
+
+    Named here rather than in the caller: the three ways a machine goes
+    unpowered belong to this module, and a second wording of them would drift
+    from the first the day one of them changes.
+    """
+    if supply.dry:
+        return Unpowered(key="craft-unpowered-no-grid", goods=machine)
+    key = "craft-unpowered-short" if supply.grid else "craft-unpowered-cells"
+    return Unpowered(key=key, goods=machine, need=need, have=supply.have)
 
 
 async def forecast(

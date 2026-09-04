@@ -220,6 +220,10 @@ class EventKind(StrEnum):
     #: Wave 2 (D-297): the weeds pulled, the stand thinned.
     PLOT_WEEDED = "farm.weeded"
     PLOT_THINNED = "farm.thinned"
+    #: Wave 3 (D-299): a pest came for a mistake of care -- told by its
+    #: sign, never by its name -- and a bed was treated against one.
+    PLOT_STRUCK = "farm.struck"
+    PLOT_TREATED = "farm.treated"
     #: The crop's health reached nothing, or its growth reached the top: told
     #: to the owner the hour it happens, by whoever settled the bed.
     PLOT_DIED = "farm.died"

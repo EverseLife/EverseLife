@@ -49,6 +49,10 @@ def _life_of(plot: Plot) -> life.Life:
         boost_stage=plot.boost_stage,
         weeds=float(plot.weeds),
         thinned=plot.thinned,
+        fed=dict(plot.fed or {}),
+        pest={str(name): float(value) for name, value in (plot.pest or {}).items()},
+        illness=float(plot.illness),
+        illness_kind=plot.illness_kind,
     )
 
 
@@ -67,6 +71,33 @@ def _weather(
         river=world.has_place(node, world.WATER),
         temperature_at=temperature_at,
     )
+
+
+def guarded_hours(constants: Constants, plot: Plot, since: datetime) -> dict[str, float]:
+    """How many hours of a treatment are left at `since`, pest by pest (D-299).
+
+    The row keeps the guard by the class of the thing it was made with, and
+    the vault couples the class to the trouble it puts out (`farm.pest_cure`)
+    -- so a fifth preparation is a recipe and a row, never a branch here.
+    """
+    held: dict[str, float] = {}
+    for pest, klass in constants[R.FARM_PEST_CURE].items():
+        until = (plot.guard or {}).get(str(klass))
+        if not until:
+            continue
+        left = (datetime.fromisoformat(str(until)) - since).total_seconds() / SECONDS_PER_HOUR
+        if left > 0:
+            held[str(pest)] = left
+    return held
+
+
+def showing(constants: Constants, state: life.Life) -> bool:
+    """Whether the bed's trouble is far enough along to be seen (D-299).
+
+    The threshold is the sign's own (`farm.pest_seen`): the journal must not
+    say what the summary does not yet show.
+    """
+    return state.illness_kind is not None and state.illness >= constants[R.FARM_PEST_SEEN]
 
 
 def peek(
@@ -95,6 +126,7 @@ def peek(
         hours=hours,
         day_hours=day_hours(constants),
         fertility=float(plot.fertility),
+        guarded=guarded_hours(constants, plot, plot.settled_at),
     )
 
 
@@ -106,6 +138,11 @@ def _store(plot: Plot, state: life.Life, moment: datetime) -> None:
     plot.growth_boost = on_grid(max(0.0, state.boost), ROUND_QUALITY)
     plot.boost_stage = state.boost_stage
     plot.weeds = on_grid(clamp(state.weeds), ROUND_QUALITY)
+    #: The pressures go to the row as plain numbers: the column is JSONB, and
+    #: a Decimal has no place in it (D-299).
+    plot.pest = {name: round(clamp(value), ROUND_QUALITY) for name, value in state.pest.items()}
+    plot.illness = on_grid(clamp(state.illness), ROUND_QUALITY)
+    plot.illness_kind = state.illness_kind
     plot.settled_at = moment
 
 
@@ -123,6 +160,10 @@ def _clear(plot: Plot, moment: datetime) -> None:
     plot.overfed = 0
     plot.weeds = Decimal(0)
     plot.thinned = False
+    plot.pest = {}
+    plot.illness = Decimal(0)
+    plot.illness_kind = None
+    plot.guard = {}
     plot.state = PlotState.IDLE
     plot.idle_since = moment
 
@@ -193,15 +234,32 @@ async def settle(
     _store(plot, state, now)
     if state.dead:
         await _die(session, constants, plot, plant, now)
-    elif state.ripe and not was.ripe:
-        await events.record(
-            session,
-            EventKind.PLOT_RIPENED,
-            actor_identity_id=plot.owner_identity_id,
-            node_id=plot.node_id,
-            plot_id=str(plot.id),
-            culture=plant.id,
-        )
+    else:
+        #: Two crossings, not one choice: a bed can be struck and reach its
+        #: ripeness inside the same walk -- the stamp lives up to a Terran day
+        #: -- and an `elif` here would swallow the ripening for good.
+        if showing(constants, state) and not showing(constants, was):
+            #: Told when it shows, not when it starts (D-299): the journal
+            #: names the sign the eye can see, and the sign begins at
+            #: `farm.pest_seen`. Which bottle answers it is the text's to say.
+            await events.record(
+                session,
+                EventKind.PLOT_STRUCK,
+                actor_identity_id=plot.owner_identity_id,
+                node_id=plot.node_id,
+                plot_id=str(plot.id),
+                culture=plant.id,
+                sign=life.PEST_SIGNS[str(state.illness_kind)],
+            )
+        if state.ripe and not was.ripe:
+            await events.record(
+                session,
+                EventKind.PLOT_RIPENED,
+                actor_identity_id=plot.owner_identity_id,
+                node_id=plot.node_id,
+                plot_id=str(plot.id),
+                culture=plant.id,
+            )
     await session.flush()
     return state
 
@@ -231,7 +289,7 @@ async def tick_plots(
     )
     epoch = await world.epoch(session)
     stale = timedelta(hours=day_hours(constants))
-    died = ripened = 0
+    died = ripened = stricken = 0
     for plot_id in ids:
         plot = await session.get(Plot, plot_id)
         if (
@@ -245,18 +303,23 @@ async def tick_plots(
         plant, variety = await _sown(session, catalog, plot)
         seen = peek(constants, plant, _signs(plant, variety), node, epoch, plot, moment)
         was_ripe = float(plot.growth) >= SCALE_MAX
-        crossing = seen.dead or (seen.ripe and not was_ripe)
+        struck = showing(constants, seen) and not showing(constants, _life_of(plot))
+        crossing = seen.dead or struck or (seen.ripe and not was_ripe)
         if not crossing and moment - plot.settled_at < stale:
             continue
         locked = await session.get(Plot, plot_id, with_for_update=True, populate_existing=True)
         if locked is None or locked.state is not PlotState.SOWN:
             continue
         before = float(locked.growth) >= SCALE_MAX
+        was_struck = showing(constants, _life_of(locked))
         state = await settle(
             session, constants, catalog, locked, now=moment, node=node, epoch=epoch
         )
         if locked.state is not PlotState.SOWN:
             died += 1
-        elif state.ripe and not before:
-            ripened += 1
-    return {"plots_died": died, "plots_ripened": ripened}
+        else:
+            if showing(constants, state) and not was_struck:
+                stricken += 1
+            if state.ripe and not before:
+                ripened += 1
+    return {"plots_died": died, "plots_ripened": ripened, "plots_struck": stricken}

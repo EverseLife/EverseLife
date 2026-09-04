@@ -300,6 +300,44 @@ async def batteries_in(session: AsyncSession, node: Node) -> list[Item]:
     ]
 
 
+async def charge_in(
+    session: AsyncSession, constants: Constants, node: Node, *, now: datetime | None = None
+) -> float:
+    """The charge standing here, read the way a forecast must read.
+
+    The same cells `batteries_in` gathers and by the same two rules -- put up
+    rather than lying (D-278), and the whole hull rather than the one room
+    (D-288) -- but nothing is locked and no yard is made for the asking: this
+    answers "how much could be drunk here", and a question must not write to
+    the place it asks about (CLAUDE.md). A room nobody has put anything into
+    has no yard row at all, and no yard holds no charge.
+    """
+    rooms = [node]
+    if is_aboard(node) and node.parent_id is not None:
+        rooms = list(
+            (await session.execute(select(Node).where(Node.parent_id == node.parent_id)))
+            .scalars()
+            .all()
+        )
+    yards = [yard for yard in [await world.node_yard(session, room) for room in rooms] if yard]
+    if not yards:
+        return 0.0
+    cells = (
+        (
+            await session.execute(
+                select(Item).where(
+                    Item.container_id.in_([yard.id for yard in yards]),
+                    Item.type_key.in_(world.station_names(BATTERY)),
+                    Item.installed.is_(True),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return sum(charge_of(constants, cell, now=now) * amount_float(cell.amount) for cell in cells)
+
+
 async def fill_cells(
     session: AsyncSession,
     constants: Constants,

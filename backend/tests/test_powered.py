@@ -178,6 +178,60 @@ async def test_a_low_pool_refuses_before_a_material_is_touched(
     assert begun == []
 
 
+async def test_the_largest_batch_counts_the_current_too(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """ "As much as fits" is as much as **starts** (D-269).
+
+    Materials are not the only thing written off up front: a machine on
+    electricity drinks by the hour, and a size the cells cannot power is a
+    refusal on the very button pressed to avoid one. So the answer is capped
+    by the charge standing beside the machine -- and the batch it names runs.
+    """
+    node, _, body = await _shop(session, city=False)
+    yard = await world.node_container(session, node)
+    cell = await world.grant_item(session, yard, CELL, quality=60, origin="тест")
+    cell.charge = Decimal("1000")
+    cell.charged_at = datetime.now(UTC)
+    await session.flush()
+    by_stuff = await craft.most(session, constants, catalog, body, SILICON)
+
+    #: Charge for a batch smaller than the materials allow: the answer follows
+    #: the current, not the sand.
+    smaller = by_stuff / 2
+    plan = await craft.plan(session, constants, catalog, body, SILICON, smaller)
+    assert plan.energy is not None
+    cell.charge = Decimal(str(plan.energy))
+    await session.flush()
+
+    fits = await craft.most(session, constants, catalog, body, SILICON)
+    assert fits < by_stuff, "ток режет партию раньше материалов"
+    #: The boundary, from both sides: one more unit is refused for the current
+    #: -- materials are still there, since the current cut in first -- and the
+    #: named one starts.
+    with pytest.raises(power.Unpowered):
+        await craft.start(session, constants, catalog, body, SILICON, fits + 1)
+    await craft.start(session, constants, catalog, body, SILICON, fits)
+
+
+async def test_the_largest_batch_refuses_when_there_is_no_current(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Not one unit's worth of charge is answered in `power`'s own words, not
+    with a size that will not start."""
+    node, _, body = await _shop(session, city=False)
+    with pytest.raises(power.Unpowered):
+        await craft.most(session, constants, catalog, body, SILICON)
+
+    yard = await world.node_container(session, node)
+    cell = await world.grant_item(session, yard, CELL, quality=60, origin="тест")
+    cell.charge = Decimal("0.001")
+    cell.charged_at = datetime.now(UTC)
+    await session.flush()
+    with pytest.raises(power.Unpowered):
+        await craft.most(session, constants, catalog, body, SILICON)
+
+
 async def test_outside_a_city_the_cells_beside_the_machine_feed_it(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:

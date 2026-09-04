@@ -89,7 +89,15 @@ FULL_VIGOR = PERCENT
 
 #: Traits that are inherited. The numbers are the same as the crop's in
 #: plants.json: a cultivar must substitute for the crop without unit conversion.
-TRAITS = ("yield_per_m2", "cycle_days", "fertility", "spoilage_k", "hardiness", "density_risk")
+TRAITS = (
+    "yield_per_m2",
+    "cycle_days",
+    "fertility",
+    "spoilage_k",
+    "hardiness",
+    "density_risk",
+    "disease_risk",
+)
 
 
 class BreedError(Refusal):
@@ -121,6 +129,7 @@ def traits_of_plant(plant: Plant) -> dict[str, float]:
         "spoilage_k": plant.traits.spoilage_k,
         "hardiness": plant.traits.hardiness,
         "density_risk": plant.traits.density_risk,
+        "disease_risk": plant.traits.disease_risk,
     }
 
 

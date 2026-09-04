@@ -8,6 +8,7 @@ the work while the master stands at it.
 from __future__ import annotations
 
 import uuid
+from bisect import bisect_left
 from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -37,6 +38,7 @@ from src.engine.craft._internal import (
     _stock,
     _tiers_by,
     _tool_items,
+    demand,
 )
 from src.engine.craft.method_of_making import batch_minutes, procedure, step_hours
 from src.engine.craft.queue import _launch
@@ -81,6 +83,96 @@ async def plan(
         tiers=tiers,
     )
     return ready.plan
+
+
+async def most(
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    body: Body,
+    output: str,
+    *,
+    tool_item_id: uuid.UUID | None = None,
+    proportions: dict[str, float] | None = None,
+    way: str | None = None,
+    recipe_key: str | None = None,
+    tiers: dict[str, str] | None = None,
+) -> float:
+    """The largest batch these hands can pay for right now, in whole units.
+
+    **Why the engine is asked at all** (D-225). What feeds a batch is not the
+    stacks on the screen: a tier chosen for an input narrows them to that
+    tier alone (D-058), water for the dough is counted inside the canister it
+    stands in (D-230), a counted input is taken whole per batch and the waste
+    on top rounds to pieces (D-212), electricity is drunk by the hour at a
+    machine that runs on it (D-269), and `craft.batch_max` cuts the answer from
+    above. A client counting from the visible amounts would land on a refusal
+    every time one of those applied -- and a "maximum" that refuses is worse
+    than no button.
+
+    **Everything the start would refuse for, the answer counts.** Materials
+    and electricity both, because both are written off up front and either one
+    short stops the batch whole (D-135). Nothing that fits is answered with
+    less: the pool is read as it stands, so a batch that turns out affordable a
+    minute later was never promised away.
+
+    Found by halving, over the same arithmetic the forecast and the start run
+    on: the demand of a batch never falls as the batch grows, and neither does
+    its hour at the machine, so the largest that fits is where the halving
+    stops. A formula of its own would be a second arithmetic, and it would
+    drift (D-092).
+
+    A batch of one that does not fit is not answered with nought: the
+    preparation refuses in its own words -- what is missing and by how much --
+    and that is the answer the player needs. Electricity refuses in `power`'s
+    words, the very ones the start would have used.
+    """
+    ready = await _prepare(
+        session,
+        constants,
+        catalog,
+        body,
+        output,
+        1,
+        tool_item_id=tool_item_id,
+        proportions=proportions,
+        way=way,
+        recipe_key=recipe_key,
+        tiers=tiers,
+    )
+    have = {name: sum(item.amount for item in rows) for name, rows in ready.stock.items()}
+    #: What the machine could drink here, read without locking or creating
+    #: anything: `None` at a machine driven by the hands, and then the hour it
+    #: takes limits nothing.
+    machine = None if ready.station is None else ready.station.type_key
+    supply = await power.at_hand(session, constants, catalog, body, machine)
+    grind = wear.effective(constants, ready.station)
+
+    def juice(units: float) -> float:
+        """What a batch this size draws -- by the same clock the start bills."""
+        minutes = batch_minutes(constants, ready.proc, units, grind)
+        return power.need_of(constants, catalog, machine, minutes / MINUTES_PER_HOUR)
+
+    def fits(units: float) -> bool:
+        wanted = demand(constants, catalog, ready.proc, units, ready.stock, proportions=proportions)
+        if any(amount(value) > have.get(name, 0) for name, value in wanted.items()):
+            return False
+        return supply is None or juice(units) <= supply.have
+
+    #: Not even one unit's worth of current: the machine stands, and it says so
+    #: in `power`'s own words rather than answering a size that will not start.
+    if machine is not None and supply is not None and juice(1) > supply.have:
+        raise power.short_of(machine, supply, juice(1))
+
+    #: The sizes that fit are a run from one upwards -- neither the demand nor
+    #: the hour falls as the batch grows -- so the boundary is found by
+    #: halving. `bisect` counts the fitting ones from the left, and that count
+    #: **is** the largest that fits: the first size that does not stands
+    #: exactly one past it. One unit is known to fit -- `_prepare` took it off
+    #: these very stacks by this very arithmetic, and the current was just
+    #: asked for it -- so the count is never nought.
+    sizes = range(1, int(constants[R.CRAFT_BATCH_MAX]) + 1)
+    return float(bisect_left(sizes, True, key=lambda units: not fits(units)))
 
 
 async def start(

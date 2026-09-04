@@ -15,7 +15,7 @@ so an open face at a vein with no roof yet is one nobody has shaken -- exactly
 what an empty `vein.roof` means, and what `starting_roof` answers for.
 
 Revision ID: e5a1c73b9d04
-Revises: d4b7e1c2f9a5
+Revises: f3c7a0b5d21e
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ from alembic import op
 from src.units import SCALE_MIN
 
 revision: str = "e5a1c73b9d04"
-down_revision: str | None = "d4b7e1c2f9a5"
+down_revision: str | None = "f3c7a0b5d21e"
 branch_labels: str | None = None
 depends_on: str | None = None
 

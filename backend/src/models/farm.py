@@ -48,6 +48,7 @@ class Plot(Base):
         CheckConstraint("health >= 0 AND health <= 100", name="health_in_scale"),
         CheckConstraint("growth >= 0 AND growth <= 100", name="growth_in_scale"),
         CheckConstraint("weeds >= 0 AND weeds <= 100", name="weeds_in_scale"),
+        CheckConstraint("illness >= 0 AND illness <= 100", name="illness_in_scale"),
     )
 
     id: Mapped[uuid.UUID] = uuid_pk()
@@ -112,6 +113,23 @@ class Plot(Base):
     )
     thinned: Mapped[bool] = mapped_column(
         nullable=False, default=False, server_default=text("false")
+    )
+    #: The four pressures of D-299, pest id -> 0-100 as of `settled_at`:
+    #: each builds from its own mistake of care and discharges into the
+    #: trouble it feeds. Which trouble came and how much of the bed it has
+    #: taken; the share is what the harvest is cut by.
+    pest: Mapped[dict[str, Any]] = mapped_column(
+        nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
+    illness: Mapped[float] = mapped_column(
+        Numeric(6, 2), nullable=False, default=0, server_default="0"
+    )
+    illness_kind: Mapped[str | None] = mapped_column(nullable=True)
+    #: Until when a treatment holds, by the class of the thing it was made
+    #: with: class id -> ISO moment. A guard freezes its own pest and
+    #: stops the spread of the trouble that class cures (D-299).
+    guard: Mapped[dict[str, Any]] = mapped_column(
+        nullable=False, default=dict, server_default=text("'{}'::jsonb")
     )
 
     #: Since when the land stands fallow: recovery is credited by elapsed time

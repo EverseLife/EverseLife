@@ -84,7 +84,9 @@ async def _prepare(
     if units <= 0:
         raise CraftError(key="craft-zero-batch")
     if units > constants[R.CRAFT_BATCH_MAX]:
-        raise TooBig(key="craft-batch-too-big", units=units)
+        #: The ceiling travels in the refusal: it is the only place the player
+        #: hears the number, and the name of a config key is not a number.
+        raise TooBig(key="craft-batch-too-big", units=units, most=constants[R.CRAFT_BATCH_MAX])
 
     proc = procedure(catalog, output, way=way)
     #: A counted thing is made in whole pieces (D-212): there is no batch of
@@ -138,29 +140,9 @@ async def _prepare(
             session, constants, catalog, body, proc, units, stock, recipe_key
         )
 
-    optimal = optimal_amounts(constants, proc, units, _base_quality(proc, stock, scale.max))
-    actual = (
-        {catalog.recipes.resolve(name): value * units for name, value in proportions.items()}
-        if proportions
-        else {name: value * units for name, value in proc.per_unit.items()}
+    required, waste, accuracy = _consumption(
+        constants, catalog, proc, units, stock, proportions=proportions
     )
-    accuracy = 1.0 if not proc.mix else ratio_accuracy(actual, optimal)
-
-    waste = waste_share(constants, accuracy)
-    #: Waste is a share of the **inputs**, so it is taken on top of the norm,
-    #: not out of the output: a batch of ten nails does not give nine and a half nails.
-    #:
-    #: What a counted thing gives to the work, it gives whole (D-212): two and a
-    #: half boards means three boards, and the half that was cut is not returned.
-    #: The waste on top of that is dust until it gathers into a piece: five per
-    #: cent of two ingots does not cost a third one (`goods.spent`).
-    #: Rounding comes after the proportion is judged -- accuracy is about what
-    #: the master laid out, not about what the saw could not halve.
-    required = {
-        name: goods.spent(name, value, value / (1 - waste / PERCENT), catalog=catalog)
-        for name, value in actual.items()
-    }
-
     picks = _pick(stock, required)
     minutes = batch_minutes(constants, proc, units, wear.effective(constants, station))
     #: Electricity for a machine on it (D-269): the forecast reads it here, the
@@ -193,7 +175,81 @@ async def _prepare(
         energy=None if juice is None else juice[0],
         price=None if juice is None else juice[1],
     )
-    return _Ready(plan=forecast, picks=tuple(picks), station=station, recipe_key=recipe_key)
+    return _Ready(
+        plan=forecast,
+        picks=tuple(picks),
+        station=station,
+        proc=proc,
+        stock=stock,
+        recipe_key=recipe_key,
+    )
+
+
+def _consumption(
+    constants: Constants,
+    catalog: Catalog,
+    proc: Procedure,
+    units: float,
+    stock: dict[str, list[Item]],
+    *,
+    proportions: dict[str, float] | None,
+) -> tuple[dict[str, float], float, float]:
+    """What a batch of this size eats off the stacks, its waste share and its accuracy.
+
+    Asked by the forecast, by the start and by "as much as the hands hold"
+    alike (`craft.most`). A second arithmetic for the same question would
+    drift from the first, and the number shown before the batch would stop
+    being the number the batch runs on (D-092).
+    """
+    scale = constants[R.QUALITY_SCALE]
+    optimal = optimal_amounts(constants, proc, units, _base_quality(proc, stock, scale.max))
+    actual = (
+        {catalog.recipes.resolve(name): value * units for name, value in proportions.items()}
+        if proportions
+        else {name: value * units for name, value in proc.per_unit.items()}
+    )
+    accuracy = 1.0 if not proc.mix else ratio_accuracy(actual, optimal)
+
+    waste = waste_share(constants, accuracy)
+    #: Waste is a share of the **inputs**, so it is taken on top of the norm,
+    #: not out of the output: a batch of ten nails does not give nine and a half nails.
+    #:
+    #: What a counted thing gives to the work, it gives whole (D-212): two and a
+    #: half boards means three boards, and the half that was cut is not returned.
+    #: The waste on top of that is dust until it gathers into a piece: five per
+    #: cent of two ingots does not cost a third one (`goods.spent`).
+    #: Rounding comes after the proportion is judged -- accuracy is about what
+    #: the master laid out, not about what the saw could not halve.
+    required = {
+        name: goods.spent(name, value, value / (1 - waste / PERCENT), catalog=catalog)
+        for name, value in actual.items()
+    }
+    return required, waste, accuracy
+
+
+def _written(proc: Procedure, units: float) -> dict[str, float]:
+    """Blanks for a write: one recipe takes one blank whole, with no waste on top."""
+    return {name: value * units for name, value in proc.per_unit.items()}
+
+
+def demand(
+    constants: Constants,
+    catalog: Catalog,
+    proc: Procedure,
+    units: float,
+    stock: dict[str, list[Item]],
+    *,
+    proportions: dict[str, float] | None = None,
+) -> dict[str, float]:
+    """What a batch of this size takes off the stacks -- written or made.
+
+    The one door for a question asked from outside the flow: it never falls as
+    the batch grows, which is what lets `craft.most` find the largest that fits
+    by halving instead of by a formula of its own.
+    """
+    if proc.output in carrier_names(catalog):
+        return _written(proc, units)
+    return _consumption(constants, catalog, proc, units, stock, proportions=proportions)[0]
 
 
 async def _prepare_write(
@@ -224,7 +280,7 @@ async def _prepare_write(
         name: [item for item in rows if item.quality is None or float(item.quality) > 0]
         for name, rows in stock.items()
     }
-    required = {name: value * units for name, value in proc.per_unit.items()}
+    required = _written(proc, units)
     try:
         picks = _pick(live, required)
     except NotEnough:
@@ -250,7 +306,16 @@ async def _prepare_write(
         minutes=minutes,
         consumes=dict(required),
     )
-    return _Ready(plan=forecast, picks=tuple(picks), station=None, recipe_key=recipe_key)
+    #: The live blanks, not every blank: a dead one is not written on, and
+    #: "as much as fits" must not count it in (`craft.most`).
+    return _Ready(
+        plan=forecast,
+        picks=tuple(picks),
+        station=None,
+        proc=proc,
+        stock=live,
+        recipe_key=recipe_key,
+    )
 
 
 def write_seconds(constants: Constants, quality: float) -> float:

@@ -12,6 +12,7 @@ from where lives in `test_explore_finds.py`.
 
 from __future__ import annotations
 
+import random
 import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -50,28 +51,69 @@ async def test_run_costs_stamina(session: AsyncSession, constants: Constants) ->
     )
 
 
-async def test_lack_of_strength_lengthens_run_not_blocks(
+async def test_lack_of_strength_refuses_the_run(
     session: AsyncSession, constants: Constants
 ) -> None:
-    """What was missing the scout sleeps off in the field and continues.
+    """Without the legs for it nobody leaves at all (D-147).
 
     A run in trodden surroundings takes hours and costs accordingly; a body
-    with one unit leaves anyway but returns later -- by the sleep time per
-    `body.hibernation_rate` -- and with zero stamina.
+    with one unit stays where it stands -- and stays with its unit, because a
+    refusal costs nothing.
     """
     _, gate, body = await _scout(session)
     await _walk_over(session, gate, finds=10)
     body.stamina = Decimal("1")
     await session.flush()
 
-    start = datetime.now(UTC)
-    run = await explore.survey(session, constants, body, now=start)
-    assert float(body.stamina) == 0, "всё, что было, ушло в поле"
+    with pytest.raises(explore.NoStrength):
+        await explore.survey(session, constants, body)
+    assert float(body.stamina) == 1, "отказ не стоит выносливости"
+    assert await explore.pending(session, body) is None, "и никого не отправил"
 
-    #: Longer than an ordinary run's ceiling: sleep time was added.
-    ceiling = constants[R.EXPLORE_ATTEMPT_HOURS] * MINUTES_PER_HOUR
-    was_going = (run.run_at - start).total_seconds() / SECONDS_PER_MINUTE
-    assert was_going > ceiling, "дефицит сил досыпается в поле, и заход длиннее"
+
+async def test_strength_asked_by_the_longest_run(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """The threshold is the very number the forecast shows (D-156).
+
+    The length of a run is rolled at departure, so a lower threshold would let
+    a second press re-throw the dice. Whoever has the shown price leaves --
+    every time, and the run costs no more than it.
+    """
+    _, gate, body = await _scout(session)
+    await _walk_over(session, gate, finds=10)
+    shown = (await explore.outlook(session, constants, body))["stamina"]
+
+    #: A hair under the shown price: refused, however the dice might have fallen.
+    body.stamina = Decimal(str(shown * 0.99))
+    await session.flush()
+    with pytest.raises(explore.NoStrength):
+        await explore.survey(session, constants, body)
+
+    body.stamina = Decimal(str(shown))
+    await session.flush()
+    await explore.survey(session, constants, body)
+    assert float(body.stamina) >= 0, "заход не стоит больше показанного потолка"
+
+
+def test_a_run_never_costs_more_than_the_price_shown(constants: Constants) -> None:
+    """The roll stays inside the ceiling the door asks for (D-293).
+
+    The two are counted apart -- the ceiling by `span`, the roll by
+    `minutes_of` -- and the whole safety of the refusal rests on the second
+    never overshooting the first. Pinned over many throws and over a node at
+    every stage of depletion, because arithmetic that agrees by accident stops
+    agreeing the day one half is changed.
+    """
+    from src.engine.explore import odds
+
+    node = Node(key="terra.dice", name="Кости", area_m2=100, layer=Layer.PLANET)
+    dice = random.Random(20260904)
+    for finds in range(0, 30):
+        node.properties = {explore.FOUND_HERE: finds}
+        ceiling = odds.span(constants, node)[1]
+        for _ in range(50):
+            assert odds.minutes_of(constants, node, dice) <= ceiling
 
 
 async def test_scout_unavailable_like_sleeper(session: AsyncSession, constants: Constants) -> None:

@@ -296,12 +296,14 @@ async def test_the_tick_settles_every_bed_and_tells_the_ripening(
     assert await farm.tick_plots(session, constants, catalog) == {
         "plots_died": 0,
         "plots_ripened": 1,
+        "plots_struck": 0,
     }
     assert float(plot.growth) == SCALE_MAX
     #: Once: the next pass finds it ripe already and says nothing again.
     assert await farm.tick_plots(session, constants, catalog) == {
         "plots_died": 0,
         "plots_ripened": 0,
+        "plots_struck": 0,
     }
     told = await session.scalar(
         select(func.count()).select_from(Event).where(Event.kind == EventKind.PLOT_RIPENED.value)

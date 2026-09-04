@@ -165,6 +165,18 @@ FARM_WEED_SEEN = Num("farm.weed_seen")
 FARM_CROWD_PENALTY = Num("farm.crowd_penalty")
 FARM_THIN_LOSS = Num("farm.thin_loss")
 FARM_THIN_UNTIL = Text("farm.thin_until")
+#: The pests of a bed (D-299): a pressure that builds from a mistake of
+#: care, the trouble it discharges into, and what puts it out.
+FARM_PEST_PRESSURE = Num("farm.pest_pressure")
+FARM_PEST_RELIEF = Num("farm.pest_relief")
+FARM_CROWD_PEST = Num("farm.crowd_pest")
+FARM_PEST_ONSET = Num("farm.pest_onset")
+FARM_PEST_STRESS = Num("farm.pest_stress")
+FARM_PEST_SEEN = Num("farm.pest_seen")
+FARM_DISEASE_SPREAD = Num("farm.disease_spread")
+FARM_PROTECTANT_PER_M2 = Num("farm.protectant_per_m2")
+FARM_PROTECT_DAYS = Table("farm.protect_days")
+FARM_PEST_CURE = Words("farm.pest_cure")
 #: From this built share of the node's ground the place loses a light step (D-261).
 FARM_SHADE_BUILT_SHARE = Num("farm.shade_built_share")
 FARM_SOIL_DEPLETION = Num("farm.soil_depletion")

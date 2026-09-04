@@ -37,6 +37,20 @@ async def _craft_plan(state: dict, db: AsyncSession, message: dict) -> dict:
     return {"plan": {name: value for name, value in asdict(plan).items() if value is not None}}
 
 
+@command("craft.most", readonly=True)
+async def _craft_most(state: dict, db: AsyncSession, message: dict) -> dict:
+    """The largest batch of this the hands can pay for. Spends nothing.
+
+    The same request as the forecast, minus the size -- the tier chosen for
+    each input is part of the question, and an answer counted without it would
+    be about other stacks than the batch would eat.
+    """
+    body = await _alive_read(state, db)
+    output, extra = _craft_shape(message)
+    units = await craft.most(db, current(), current_catalog(), body, output, **extra)
+    return {"units": units}
+
+
 @command("craft.start")
 async def _craft_start(state: dict, db: AsyncSession, message: dict) -> dict:
     """Start a batch. From then on it runs by itself, including while the player is offline."""
@@ -187,15 +201,17 @@ async def _cook_pot(state: dict, db: AsyncSession, message: dict) -> dict:
     }
 
 
-def _craft_request(message: dict) -> tuple[str, float, dict[str, Any]]:
-    """Parsing a batch request -- identical for forecast and start.
+def _craft_shape(message: dict) -> tuple[str, dict[str, Any]]:
+    """What is being made and how -- a batch request save its size.
 
-    Otherwise the forecast would be computed for one request and the batch
-    would run on another.
+    Apart from the size because one command asks without one: "as much as
+    fits" is about the same bench, the same tiers and the same recipe, and
+    only the number is what it answers. Kept as a helper of its own rather
+    than a size thrown away, so the agents' directory of commands lists for
+    each command the keys it truly reads (`aps.commands._passed_on`).
     """
     return (
         goods_key(message["output"]),
-        float(message.get("units", 1)),
         {
             "tool_item_id": _optional_uuid(message.get("tool")),
             "proportions": message.get("proportions"),
@@ -207,3 +223,13 @@ def _craft_request(message: dict) -> tuple[str, float, dict[str, Any]]:
             "tiers": _tiers(message),
         },
     )
+
+
+def _craft_request(message: dict) -> tuple[str, float, dict[str, Any]]:
+    """Parsing a batch request -- identical for forecast and start.
+
+    Otherwise the forecast would be computed for one request and the batch
+    would run on another.
+    """
+    output, extra = _craft_shape(message)
+    return output, float(message.get("units", 1)), extra
