@@ -284,6 +284,7 @@ explore-wrong-goal-here = that is not looked for from here: here one looks for {
        *[some] { $words }
     }
 explore-city-exhausted = “{ $city }” is worked out: everything that could be broken open already has been
+explore-no-strength = a run needs { NUMBER($need, minimumFractionDigits: 1, maximumFractionDigits: 1) } stamina and you have { NUMBER($have, minimumFractionDigits: 1, maximumFractionDigits: 1) }: the price is the longest run this place can give, so eat or sleep first
 explore-already-out = a run is already out: wait for the return
 explore-run-queued = a run is already queued
 explore-run-dangling = run { $job } points nowhere

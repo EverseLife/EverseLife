@@ -321,6 +321,51 @@ async def test_a_powered_machine_forecast_makes_no_pool(
         assert plan["plan"]["energy"] > 0 and "price" in plan["plan"], plan
 
 
+async def test_the_largest_batch_is_counted_without_writing(
+    session: AsyncSession, factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """ "As much as fits" (`craft.most`) reads more than the forecast does --
+    the pool, the purse and the cells standing beside the machine -- and every
+    one of those reads has a creating twin a keystroke away: `pool_of` makes a
+    pool, `account_for` makes an account, `node_container` makes a yard.
+
+    The button is pressed while the player is still choosing, so a write here
+    would be an INSERT behind a question -- the very thing the rule forbids.
+    """
+    from src.api.commands.craft import _craft_most
+    from src.engine.craft import power
+    from src.models.world import Layer
+
+    stamp = uuid.uuid4().hex[:8]
+    capital = await world.create_node(
+        session, f"terra.most.{stamp}", "Столица", area_m2=1, layer=Layer.PLANET
+    )
+    yard = await world.create_node(
+        session, f"terra.most.{stamp}.yard", "Двор", area_m2=200, layer=Layer.CITY, parent=capital
+    )
+    identity = await world.create_identity(session, f"Литейщик-{stamp}")
+    body = await world.print_body(session, identity, yard)
+    await world.grant_item(
+        session,
+        await world.node_container(session, yard),
+        "blast_furnace",
+        quality=60,
+        origin="тест",
+    )
+    pocket = await world.body_container(session, body)
+    await world.grant_item(session, pocket, "quartz_sand", amount=40, quality=60, origin="тест")
+    await world.grant_item(session, pocket, "petroleum_coke", amount=20, quality=60, origin="тест")
+    await world.learn(session, identity, "silicon")
+    await session.commit()
+
+    async with factory() as db, db.begin(), _writes_forbidden(db):
+        #: A city without a pool row and a master without an account: the
+        #: machine has nothing to drink, and the answer is that refusal --
+        #: reached through every read the full answer would have gone through.
+        with pytest.raises(power.Unpowered):
+            await _craft_most({"identity_id": identity.id}, db, {"output": "silicon"})
+
+
 async def test_forecasts_make_no_yard_in_a_place_without_one(
     session: AsyncSession, factory: async_sessionmaker[AsyncSession]
 ) -> None:

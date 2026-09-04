@@ -24,7 +24,7 @@ craft-body-off-node = тело вне узла
 craft-body-without-identity = тело без личности
 
 craft-zero-batch = партия из нуля единиц
-craft-batch-too-big = партия больше craft.batch_max: { $units }
+craft-batch-too-big = за раз делают не больше { NUMBER($most, maximumFractionDigits: 0) } единиц, а заказано { NUMBER($units, maximumFractionDigits: 0) }
 craft-counted-whole = «{ NAME($goods) }» считается штуками: партия из целых единиц
 craft-not-learned = рецепт «{ NAME($recipe) }» не скопирован в личность
 craft-not-enough = не хватает «{ NAME($goods) }»: нужно ещё { $short }

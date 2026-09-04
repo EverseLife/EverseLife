@@ -281,6 +281,7 @@ explore-wrong-goal-here = отсюда так не ищут: здесь ищут
        *[some] { $words }
     }
 explore-city-exhausted = «{ $city }» выработан: всё, что можно было вскрыть, уже вскрыто
+explore-no-strength = на заход нужно { NUMBER($need, minimumFractionDigits: 1, maximumFractionDigits: 1) } выносливости, а есть { NUMBER($have, minimumFractionDigits: 1, maximumFractionDigits: 1) }: берут по самому долгому заходу отсюда — сначала поесть или поспать
 explore-already-out = заход уже идёт: дождитесь возвращения
 explore-run-queued = заход уже поставлен
 explore-run-dangling = заход { $job } ссылается в никуда

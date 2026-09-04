@@ -51,6 +51,7 @@ from src.engine.explore._base import (
     VEIN,
     AlreadyOut,
     ExploreError,
+    NoStrength,
     NotOut,
     mineable,
 )
@@ -59,7 +60,7 @@ from src.models.event import EventKind
 from src.models.identity import Body, BodyState
 from src.models.job import Job, JobKind, JobState
 from src.models.world import Node, Surface
-from src.units import MINUTES_PER_HOUR, SECONDS_PER_MINUTE
+from src.units import SECONDS_PER_MINUTE
 
 
 async def pending(session: AsyncSession, body: Body) -> Job | None:
@@ -99,9 +100,8 @@ async def survey(
     Duration and chance depend on how trodden the surroundings already are
     (D-156): the first run from here is minutes and an almost certain find, the
     sixth is hours and a roll. Stamina is written off up front, like batch
-    materials -- but a shortage does not lock the run: what was missing the
-    scout sleeps off in the field, and the run simply lasts longer -- by the
-    sleep time per `body.hibernation_rate`.
+    materials, and without it nobody leaves at all: the legs are the price of
+    the field, exactly as they are the price of the road (D-147, D-293).
     """
     moment = now or datetime.now(UTC)
     if goal not in GOALS:
@@ -158,21 +158,32 @@ async def survey(
     if await pending(session, body) is not None:
         raise AlreadyOut(key="explore-already-out")
 
-    minutes = forecast.minutes_of(constants, origin, random.Random())
-    spend = (
-        forecast.stamina_for(constants, minutes)
-        * food.drain_multiplier(constants, body, moment)
-        * await frost.drain_multiplier(session, constants, body)
+    #: Asked for by the longest run this place can give, not by the roll below
+    #: (`forecast.price`): that is the number the player was shown before
+    #: pressing, and the one threshold a second press cannot re-throw.
+    #:
+    #: The place names the price and the body multiplies it, as it multiplies
+    #: every price of work: the cold doubles it (D-231), a hot meal takes a
+    #: fifth off (D-119). The forecast shows the place's number alone -- it is
+    #: read on a door that must not write, and settling the cold writes -- so a
+    #: frozen scout is refused above what was shown, and the refusal names the
+    #: figure it actually asked for.
+    drain = food.drain_multiplier(constants, body, moment) * await frost.drain_multiplier(
+        session, constants, body
     )
-    #: A shortage of strength does not lock the run but lengthens it: what was
-    #: missing the scout sleeps off in the field per `body.hibernation_rate` and continues.
     have = float(body.stamina)
-    if spend > have:
-        deficit = spend - have
-        minutes += deficit / constants[R.BODY_HIBERNATION_RATE] * MINUTES_PER_HOUR
-        body.stamina = Decimal("0")
-    else:
-        body.stamina = Decimal(str(have - spend))
+    ceiling = forecast.price(constants, origin) * drain
+    if ceiling > have:
+        raise NoStrength(key="explore-no-strength", need=ceiling, have=have)
+
+    minutes = forecast.minutes_of(constants, origin, random.Random())
+    #: Paid for what the run actually turned out to be, within what was asked
+    #: for at the gate: a short roll costs less than the ceiling, never more.
+    spend = forecast.stamina_for(constants, minutes) * drain
+    #: Floored like every other write-off of the body's own quantity: the
+    #: threshold above makes the difference non-negative by arithmetic, and the
+    #: floor keeps a rounding tail from writing a negative into the column.
+    body.stamina = Decimal(str(max(0.0, have - spend)))
     await session.flush()
 
     #: The chance is named at departure and travels in the job: while the scout

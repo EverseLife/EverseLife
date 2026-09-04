@@ -16,6 +16,7 @@ from src.engine.craft.batch.finish import (  # noqa: F401
 from src.engine.craft.batch.work import (  # noqa: F401
     UTENSILS,
     cook,
+    most,
     plan,
     recycle,
     repair,

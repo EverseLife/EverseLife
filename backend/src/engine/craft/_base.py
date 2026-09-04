@@ -321,6 +321,12 @@ class _Ready:
     plan: Plan
     picks: tuple[_Pick, ...]
     station: Item | None
+    #: The operation the request resolved to, and the stacks it may eat from --
+    #: only the ones a write may touch, when it is a write. Kept because the
+    #: same preparation answers "and how much of it would fit at most"
+    #: (`craft.most`) without reading the hands a second time.
+    proc: Procedure
+    stock: dict[str, list[Item]]
     auto: bool = False
     #: For a knowledge carrier: the canonical name of the recipe going onto it.
     recipe_key: str | None = None
