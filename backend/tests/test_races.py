@@ -11,11 +11,14 @@ refused instead of both succeeding on the same coin.
 
 The method is the family's: `conftest._slow` holds a transaction between its
 check and its write, or a handshake starts the second side while the first
-provably holds its lock. The family has four files -- this one races money,
-orders and the body's reserves; `test_races_bank.py` races the loan, the limit
-and the city's line; `test_races_ground.py` races the ground itself;
-`test_races_mining.py` races what the ground gives up. What is not a race but
-shares the origin -- "чтение не пишет" -- lives in `test_reads.py`.
+provably holds its lock. The family is this file -- money, orders and the
+body's reserves -- and one file per contended thing beside it: `_bank` races
+the loan, the limit and the city's line; `_city`, `_citizenship` and
+`_treasury` race what a city decides, who belongs to it and what it owes;
+`_ground` races the ground itself; `_mining` races what the ground gives up;
+`_face` races a working against what closes it from outside; `_roof` races the
+stability of that working. What is not a race but shares the origin --
+"чтение не пишет" -- lives in `test_reads.py`.
 """
 
 from __future__ import annotations
