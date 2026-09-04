@@ -408,9 +408,11 @@ async def construct(
     #: construction has started, and the timber is already in the wall, not in the sack.
 
     needed = bill(constants, footprint=area, floors=floors, kind=kind)
-    pocket = await world.body_container(session, body)
-    #: Which stacks go into the wall is the builder's choice by tier (D-058).
-    stock = await craft._stock(session, pocket, tuple(needed), tiers=tiers)  # noqa: SLF001
+    #: Which stacks go into the wall is the builder's choice by tier (D-058);
+    #: where they lie is the reach of the hands on their own plot (D-315).
+    stock = await craft._stock(  # noqa: SLF001
+        session, body, tuple(needed), tiers=tiers, lock=True
+    )
     for pick in craft._pick(stock, needed):  # noqa: SLF001
         if pick.item.amount > pick.take:
             pick.item.amount -= pick.take

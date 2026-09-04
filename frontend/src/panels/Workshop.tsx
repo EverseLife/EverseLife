@@ -29,6 +29,7 @@
 import { useEffect, useState } from "react";
 import * as api from "../api";
 import type { Invention, Look, Plan, Thing } from "../api";
+import { reachOf } from "../wire/look";
 import { isBuilt, isRelic, membersOf } from "../classes";
 import { ownOrWild } from "./place/shared";
 import { tally } from "../amounts";
@@ -120,11 +121,14 @@ export function Workshop({ look, machine }: Omit<Props, "busy" | "act">) {
    * The pause debounces the arrow keys on the quantity field; a stale answer
    * from a superseded request is dropped rather than shown.
    */
-  //: The hands are part of the forecast too (live check 2026-09-02): a
-  //: material printed or picked up after the plan was read left "not enough"
-  //: and a grey button standing until the card was reopened. A string of the
-  //: stacks, not the array -- a fresh array every render would refire endlessly.
-  const stockKey = look.inventory.map((thing) => `${thing.id}:${thing.amount}`).join("|");
+  //: What the hands reach is part of the forecast too (live check 2026-09-02):
+  //: a material printed or picked up after the plan was read left "not enough"
+  //: and a grey button standing until the card was reopened. The whole reach
+  //: since D-315 -- a sack taken out of the chest by somebody else moves the
+  //: number as surely as one taken out of the pocket. A string of the stacks,
+  //: not the array -- a fresh array every render would refire endlessly.
+  const athand = reachOf(look, book);
+  const stockKey = athand.map((thing) => `${thing.id}:${thing.amount}`).join("|");
   useEffect(() => {
     if (selected === null) return;
     let dropped = false;
@@ -283,9 +287,9 @@ export function Workshop({ look, machine }: Omit<Props, "busy" | "act">) {
               always -- the choice is part of the batch, and it is seen even
               when the hands hold one tier or none. */}
           {inputs.length > 0 && (
-            <div className="inputs">
+            <div className="inputs" title={t("ui-work-reach")}>
               {inputs.map((name) => {
-                const have = stockOf(look.inventory, name);
+                const have = stockOf(athand, name);
                 return (
                   <div className="row" key={name}>
                     <span className="note">
@@ -295,7 +299,7 @@ export function Workshop({ look, machine }: Omit<Props, "busy" | "act">) {
                       })}
                     </span>
                     <TierPick
-                      things={look.inventory}
+                      things={athand}
                       goods={name}
                       value={tiers[name]}
                       onChange={(tier) => setTiers((was) => ({ ...was, [name]: tier }))}
@@ -475,11 +479,13 @@ function Invent({
   const [units, setUnits] = useState(1);
   const [answer, setAnswer] = useState<Invention | null>(null);
 
-  //: Kinds of things in the hands, one line each: the same wood twice is one
-  //: input with a bigger amount, not two. Ordered by the display word of the
-  //: player's language (D-251): the options show it, and an ASCII order of ids
-  //: reads as random.
-  const kinds = [...new Set((look.inventory ?? []).map((one: Thing) => one.goods))].sort((a, b) =>
+  //: Kinds of things within reach, one line each: the same wood twice is one
+  //: input with a bigger amount, not two. The reach and not the pocket alone
+  //: (D-315) -- an experiment is laid out of the same matter a batch is.
+  //: Ordered by the display word of the player's language (D-251): the options
+  //: show it, and an ASCII order of ids reads as random.
+  const athand = reachOf(look, book);
+  const kinds = [...new Set(athand.map((one: Thing) => one.goods))].sort((a, b) =>
     order(goodsName(names, a), goodsName(names, b)),
   );
   const cap: number = Number(book?.constants?.["invent.max_ingredients"] ?? 5);
@@ -541,7 +547,7 @@ function Invent({
             title={t("ui-workshop-invent-per-unit")}
           />
           <TierPick
-            things={look.inventory}
+            things={athand}
             goods={row.goods}
             value={row.tier}
             onChange={(tier) => change(i, { tier })}

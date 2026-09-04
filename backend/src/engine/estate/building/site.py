@@ -39,7 +39,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import craft, events, goods, travel, world
+from src.engine import craft, events, goods, travel
 from src.engine.estate._base import EstateError, NoRoom, TooSmall, storey_of
 from src.engine.estate.building.build import (
     bill,
@@ -236,10 +236,10 @@ async def contribute(
     #: the same stack. The site's row is already held -- site, then body,
     #: the same order `start` takes.
     await session.execute(select(Body.id).where(Body.id == body.id).with_for_update())
-    pocket = await world.body_container(session, body)
-    #: Which stacks go into the wall is the bringer's choice by tier (D-058).
+    #: Which stacks go into the wall is the bringer's choice by tier (D-058);
+    #: where they lie is the reach of the hands here (D-315).
     stock = await craft._stock(  # noqa: SLF001
-        session, pocket, (name,), tiers={name: tier} if tier else None
+        session, body, (name,), tiers={name: tier} if tier else None, lock=True
     )
     for pick in craft._pick(stock, {name: take}):  # noqa: SLF001
         if pick.item.amount > pick.take:

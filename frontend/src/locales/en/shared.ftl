@@ -69,12 +69,16 @@ ui-liquid-fill = { $what } · { $mass } of { $capacity } kg
 
 ## Choosing quality: what to put to use.
 
-ui-tier-none = quality: none in hand
-ui-tier-none-title = there is no “{ $goods }” in hand
+ui-tier-none = quality: none at hand
+ui-tier-none-title = there is no “{ $goods }” at hand
 ui-tier-any = quality: any (worst first)
 ui-tier-title = which quality of “{ $goods }” to put to use
-# The row of one tier in the list: how much of it is in hand, and across what quality span.
+# The row of one tier in the list: how much of it is at hand, and across what quality span.
 ui-tier-stock = { $tier } · { $amount } · qual. { $span }
+
+## The reach of a work: where it takes its materials from (D-315).
+
+ui-work-reach = A work takes its materials from the hands, from your own convoy and — where the place is yours — off the floor, the yard and the chests standing here
 
 ## The emblems an owner nails to a plot (D-238).
 
