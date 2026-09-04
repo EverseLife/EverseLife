@@ -44,6 +44,7 @@ lacks a quantity, it is added to `data/constants.yaml`, not to code (D-065).
 from __future__ import annotations
 
 import random
+import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
@@ -59,7 +60,15 @@ from src.models.identity import Body
 from src.models.inventory import Container, ContainerKind, Item
 from src.models.mining import MiningSession, Pace, SessionState
 from src.models.world import Vein
-from src.units import PERCENT, SCALE_MAX, SCALE_MIN, amount, amount_float
+from src.units import (
+    PERCENT,
+    ROUND_ROOF,
+    SCALE_MAX,
+    SCALE_MIN,
+    amount,
+    amount_float,
+    on_grid,
+)
 
 
 class MiningError(Refusal):
@@ -76,6 +85,26 @@ class SessionClosed(MiningError):
 
 class NoTimber(MiningError):
     """No support. It costs timber and rope -- that is the whole point of the choice."""
+
+
+class RoofHolds(MiningError):
+    """The roof is already at or above what a support can hold it at (D-300).
+
+    A support **raises** the roof (D-188), and `mine.roof_timber_cap` is the
+    ceiling it raises to -- not a value it sets. A working nobody has shaken
+    starts above that ceiling (`starting_roof` runs from `mine.roof_start`
+    down to the cap), so shoring one used to spend a timber and bring the roof
+    **down** to the cap. That was a loss the miner paid alone while the roof
+    was the session's own copy; shared, it is the artel's working they spoil,
+    and D-188 promises the opposite -- a support set by one holds for all.
+
+    The refusal is free and tells the asker the roof is at or above the cap,
+    which is a public number -- but a support already says more than that and
+    always did: raise a roof anywhere in `[cap - mine.roof_per_timber, cap)`
+    and it lands on the cap **exactly**, so whoever owns one timber knows the
+    one hidden number of the mechanic (D-143) and knows it thereafter by
+    counting swings. That is the vault's question, not this file's (OQ-123).
+    """
 
 
 class NoStrength(MiningError):
@@ -125,26 +154,48 @@ def starting_roof(constants: Constants, richness: float) -> float:
 
 
 def roof_of(constants: Constants, vein: Vein) -> float:
-    """The working's current stability (D-188).
+    """The working's current stability (D-188). **The only place it is read.**
 
     Stored on the vein and shared by everyone who digs it (D-099): one miner
     shakes the roof -- it is dangerous for the next. An untouched vein has none
     yet, and its first session starts from richness.
+
+    Read under the lock the caller already holds on the vein, and never
+    remembered past the command: the session used to carry a copy taken at
+    `start`, and every swing worked from that copy and wrote it back, so a
+    neighbour who opened the face at a hundred put back ninety-four over
+    somebody else's forty. Two bodies at one vein is the ordinary case --
+    `crowd_factor` counts them, and `start` refuses only a second face of the
+    **same** body -- so the copy erased the sag of whoever swung less recently
+    and told them both a sign sixty points off the rock.
     """
     if vein.roof is None:
         return starting_roof(constants, float(vein.richness))
     return float(vein.roof)
 
 
-async def remember_roof(
-    session: AsyncSession, mining: MiningSession, *, roof: float | None = None
-) -> None:
-    """Write the session's roof back into the vein, so leaving does not reset it."""
-    vein = await session.get(Vein, mining.vein_id)
-    if vein is None:  # pragma: no cover -- a session without a vein is a bug
-        return
-    vein.roof = None if roof is None else Decimal(str(roof))
-    await session.flush()
+def remember_roof(vein: Vein, roof: float) -> float:
+    """Write the working's stability onto the vein, and answer with what stands there.
+
+    Rounded to the scale the column keeps (`Vein.roof`, two decimals) and
+    handed back rounded, so that the caller goes on with the number the
+    database has rather than the one it computed. They must be one number: the
+    sign's lie is seeded by the roof (`_noise_of`), and a seed that changed on
+    the way through the column would redraw the lie on a re-read of a face
+    nobody has touched -- which is the averaging D-143 forbids.
+    """
+    vein.roof = on_grid(roof, ROUND_ROOF)
+    return float(vein.roof)
+
+
+def clear_roof(vein: Vein) -> None:
+    """The rubble is cleared and the working starts over (D-188).
+
+    Its own verb rather than an empty roof passed to the writer above: this is
+    not a value, it is the absence of one, and `roof_of` reads it as a working
+    nobody has shaken yet.
+    """
+    vein.roof = None
 
 
 def pace_factor(constants: Constants, pace: Pace) -> float:
@@ -344,15 +395,59 @@ def deplete(constants: Constants, vein: Vein, moment: datetime, extracted_before
         vein.depleted_at = moment
 
 
-def _noise_of(mining: MiningSession) -> random.Random:
-    """Sign noise bound to the face's state, not the moment of reading.
+def _noise_of(vein_id: uuid.UUID, roof: float) -> random.Random:
+    """Sign noise bound to the working and its roof, not to who is reading.
 
     Otherwise the sign can be read any number of times in a row, and the
     average of readings yields the hidden number to any precision. The roof
     changes only from a swing and a support -- so the sign must change only
-    with them (D-143).
+    with them, and now with **whosever** swing and support they were (D-188).
+
+    It used to be seeded by this session's own counters, which was the same
+    thing while the roof was the session's own copy. Shared, it is not, and
+    two things had to change with it.
+
+    **The lie moves with the roof.** A lie frozen across a roof that moves
+    under a neighbour is the averaging attack back again, with a partner
+    rather than patience: the neighbour shores to `mine.roof_timber_cap` -- a
+    public number -- and swings a counted number of times while I only look;
+    my noise never moves, so every band the sign crosses is one more
+    inequality on it, and a few crossings pin the hidden number for good.
+    Seeded by the roof, each value of it draws its own lie, so reading twice
+    at one roof still says one thing.
+
+    **And the lie belongs to the working, not to the reader.** Seeded by the
+    session, one roof would have as many independent lies as there are ways to
+    look at it -- and each is a fresh sample of one number, which is the
+    average again by another road. Two of those roads are cheap: leave and
+    walk back in, which costs an evaluation of the device fee and nothing
+    else, and a second body at the same face, which is the ordinary case
+    (D-099). Seeded by the vein, both give the answer already given: one face,
+    one roof, one sign, whoever is standing in it and however many times they
+    ask. That is why what comes in here is the working's id and not the
+    session standing at it: the session is the thing that must not reach the
+    seed, so it does not reach this function either.
+
+    The roof is formatted to the scale of the column it lives in, so that the
+    same roof seeds the same lie before and after a trip through the database
+    (`remember_roof` puts it on that grid for the same reason).
+
+    **What this does not close**, and never did: the seed is built from things
+    the client already has -- the vein's id goes out with the node, and
+    `mine.sign_noise` and `mine.sign_bands` are in `/public/constants` -- so a
+    program can try every roof the grid allows, draw the lie each one would
+    tell, and keep the candidates whose sign matches what it was shown. That
+    is not a hole this seed opened; a seed of public parts is a seed anybody
+    can recompute, and the counters it replaced were public too, more so --
+    with those the noise did not depend on the candidate at all, so the band
+    inverted straight into an interval. The vault answers this where it makes
+    the promise: the hidden state "is not protection against scripts (D-109)
+    -- and must not pretend to be". It makes a decision a decision for the
+    person reading the sign; against a program it buys the cost of writing
+    one. Making it more would take a secret the client cannot have -- a salt
+    per working, kept server-side -- and that is a decision, not a formula.
     """
-    return random.Random(f"{mining.id}:{mining.swings}:{mining.timbers}")
+    return random.Random(f"{vein_id}:{roof:.{ROUND_ROOF}f}")
 
 
 async def _sight(
@@ -360,9 +455,22 @@ async def _sight(
     constants: Constants,
     mining: MiningSession,
     body: Body,
+    roof: float,
 ) -> Sight:
+    """What the player sees, about the roof the caller names.
+
+    The roof is passed rather than read here, because the caller knows which
+    one it means and this function cannot: a swing shows the roof it has just
+    written, a collapse the roof that came down -- not the fresh one the
+    cleared rubble leaves on the vein -- and a look shows what is on the vein
+    now (`roof_of`). Reading the vein here would have shown the miner buried
+    by a cave-in a working as good as new.
+
+    The haul is counted through `_session_haul`, which opens no container: a
+    look does not write, and this function is on the read path.
+    """
     return Sight(
-        sign=sign_of(constants, float(mining.roof), _noise_of(mining)),
+        sign=sign_of(constants, roof, _noise_of(mining.vein_id, roof)),
         mined=amount_float(await _session_haul(session, mining)),
         swings=mining.swings,
         timbers=mining.timbers,

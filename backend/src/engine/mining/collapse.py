@@ -33,7 +33,7 @@ from src.engine.mining._base import (
     _sight,
     _tool,
     _wear_tool_for_session,
-    remember_roof,
+    clear_roof,
     session_container,
 )
 from src.models.event import EventKind
@@ -50,6 +50,7 @@ async def collapse(
     mining: MiningSession,
     body: Body,
     vein: Vein,
+    roof: float,
     noise: random.Random,
     moment: datetime,
 ) -> Sight:
@@ -57,6 +58,12 @@ async def collapse(
 
     The body's second cave-in is its last. The count is on the body and is
     read and written here under the row lock `face.swing` already holds.
+
+    `roof` is the one that came down -- the swing's own answer, passed in
+    because it no longer survives anywhere to be read: the rubble is cleared
+    below, and the vein is left saying the working starts over. The summary
+    the player gets must be of the face that buried them and not of the fresh
+    one they are not standing in.
     """
     container = await session_container(session, mining)
     lost_items = (
@@ -117,7 +124,12 @@ async def collapse(
     mining.ended_at = moment
     #: The rubble is cleared and the working starts over (D-188): otherwise a
     #: collapsed vein would be locked forever, and veins are finite already (P2).
-    await remember_roof(session, mining, roof=None)
+    #: The clearing is the whole working's, so a neighbour still swinging in
+    #: this face goes on under a roof as good as new -- one bought with a body
+    #: every second cave-in (D-294). Whether that is a price worth paying to
+    #: hand an artel a fresh working is a question for a playtest and for the
+    #: vault (OQ-122), not for this file.
+    clear_roof(vein)
     await session.flush()
 
     await events.record(
@@ -134,7 +146,7 @@ async def collapse(
     if killed:
         #: The summary is assembled **before** death: the player must see how
         #: the session ended, not an empty screen. The body is dead after that.
-        sight = await _sight(session, constants, mining, body)
+        sight = await _sight(session, constants, mining, body, roof)
 
         #: Buried, not scattered: the rock comes down on the body and its
         #: pocket in one place, so everything it carried stays lying on the
@@ -143,4 +155,4 @@ async def collapse(
         #: not a sink.
         await death.die(session, constants, body, cause="cave_in", now=moment, buried=True)
         return sight
-    return await _sight(session, constants, mining, body)
+    return await _sight(session, constants, mining, body, roof)

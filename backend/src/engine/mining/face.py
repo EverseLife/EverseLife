@@ -31,6 +31,7 @@ from src.engine.mining._base import (
     NotHere,
     NoTimber,
     NoTool,
+    RoofHolds,
     SessionClosed,
     Sight,
     VeinDepleted,
@@ -116,13 +117,17 @@ async def start(
     tool_item_id = tool.id if tool is not None else tool_item_id
 
     #: The roof belongs to the working, not to the session (D-188): rock does
-    #: not knit back together while the miner is away. An untouched vein starts
-    #: from its richness, a shaken one meets the next miner as it was left.
+    #: not knit back together while the miner is away, and it is the vein that
+    #: remembers -- an untouched one starts from its richness, a shaken one
+    #: meets the next miner as it was left. The session carries no copy of it
+    #: at all, which is why opening a face reads nothing here: a copy taken now
+    #: would be a second answer to a question the vein already answers, and it
+    #: was that second answer that let two bodies at one face overwrite each
+    #: other's sag.
     mining = MiningSession(
         body_id=body.id,
         vein_id=vein.id,
         pace=pace,
-        roof=Decimal(str(roof_of(constants, vein))),
         tool_item_id=tool_item_id,
     )
     session.add(mining)
@@ -252,10 +257,14 @@ async def swing(
     body.stamina = Decimal(str(max(SCALE_MIN, float(body.stamina) - hit_price)))
 
     mining.swings += 1
-    mining.roof = Decimal(str(float(mining.roof) - constants[R.MINE_ROOF_PER_SWING] * factor))
     #: The working remembers every swing (D-188): the sag stays after the miner
-    #: leaves, so "leave and re-enter" no longer resets the risk.
-    await remember_roof(session, mining, roof=float(mining.roof))
+    #: leaves, so "leave and re-enter" no longer resets the risk. Read off the
+    #: vein this swing holds and not off anything this session remembers, so
+    #: that a neighbour's swings are already in it: the roof is shared by
+    #: everyone digging the vein, and one who shakes it makes it dangerous for
+    #: the rest (D-099).
+    sagged = roof_of(constants, vein) - constants[R.MINE_ROOF_PER_SWING] * factor
+    roof = remember_roof(vein, sagged)
     await session.flush()
 
     #: A swing is told, not journaled (D-227): the journal is evidence and
@@ -271,10 +280,10 @@ async def swing(
         quality=quality,
     )
 
-    if float(mining.roof) <= SCALE_MIN:
-        return await collapse(session, constants, mining, body, vein, noise, moment)
+    if roof <= SCALE_MIN:
+        return await collapse(session, constants, mining, body, vein, roof, noise, moment)
 
-    return await _sight(session, constants, mining, body)
+    return await _sight(session, constants, mining, body, roof)
 
 
 async def timber(session: AsyncSession, constants: Constants, mining: MiningSession) -> Sight:
@@ -291,10 +300,12 @@ async def timber(session: AsyncSession, constants: Constants, mining: MiningSess
     row for the reason the whole package does: a swing holds the vein and then
     takes the session, and the reverse order here would cross it.
 
-    What the vein's lock does **not** buy is the roof of a neighbour's session:
-    the sag is read from this session's own copy, so two bodies at one vein
-    still overwrite each other's -- older than these locks and not theirs to
-    fix (D-188 says the roof is shared, D-099 says who shares it).
+    The roof is read off that locked vein, so a support is set on the working
+    as the last swing left it -- a neighbour's swing included (D-188, D-099).
+    A working already standing at or above `mine.roof_timber_cap` refuses the
+    support instead of spending it (D-300): see `RoofHolds` for why setting
+    one there used to make the face worse, and the comment at the check for
+    why it is asked after the pocket rather than before it.
     """
     vein = await session.get(Vein, mining.vein_id)
     if vein is None:  # pragma: no cover -- a session without a vein is a bug
@@ -334,19 +345,35 @@ async def timber(session: AsyncSession, constants: Constants, mining: MiningSess
     if stock is None:
         raise NoTimber(key="mining-no-timber")
 
+    #: **After** the pocket, and that order is the point. A support that cannot
+    #: raise this working is not a support, and the timber is better kept than
+    #: spent on making the roof worse -- but the refusal also answers, for
+    #: free and exactly, whether the roof is at or above a public number, and
+    #: the roof is the one thing the player is never told (D-143). Asked
+    #: first, that answer would cost nothing at all: a body with an empty
+    #: pocket could press the button after every swing and read the hidden
+    #: number off the moment the refusal changed, closer than the sign's lie
+    #: ever comes. Behind `NoTimber` it costs at least carrying a timber,
+    #: which is the price OQ-123 names for what a support already gives away.
+    #: The order is part of the decision, not an implementation detail (D-300).
+    cap = constants[R.MINE_ROOF_TIMBER_CAP]
+    standing = roof_of(constants, vein)
+    if standing >= cap:
+        raise RoofHolds(key="mining-roof-holds")
+
     one = amount(1)
     if stock.amount > one:
         stock.amount -= one
     else:
         await session.delete(stock)
 
-    cap = constants[R.MINE_ROOF_TIMBER_CAP]
-    raised = min(cap, float(mining.roof) + constants[R.MINE_ROOF_PER_TIMBER])
-    mining.roof = Decimal(str(raised))
+    raised = min(cap, standing + constants[R.MINE_ROOF_PER_TIMBER])
     mining.timbers += 1
     #: A support stands after the shift ends (D-188): that is what makes timber
-    #: an investment in the working rather than a consumable of one visit.
-    await remember_roof(session, mining, roof=raised)
+    #: an investment in the working rather than a consumable of one visit. And
+    #: it props the working for everyone at it, since it is the same roof --
+    #: the artel answers for the face together (D-099).
+    raised = remember_roof(vein, raised)
     await session.flush()
 
     await events.record(
@@ -356,16 +383,16 @@ async def timber(session: AsyncSession, constants: Constants, mining: MiningSess
         session_id=str(mining.id),
         timbers=mining.timbers,
     )
-    return await _sight(session, constants, mining, body)
+    return await _sight(session, constants, mining, body, raised)
 
 
 async def set_pace(
     session: AsyncSession, constants: Constants, mining: MiningSession, pace: Pace
 ) -> Sight:
-    body, _ = await _require_active(session, mining)
+    body, vein = await _require_active(session, mining)
     mining.pace = pace
     await session.flush()
-    return await _sight(session, constants, mining, body)
+    return await _sight(session, constants, mining, body, roof_of(constants, vein))
 
 
 async def leave(
@@ -513,11 +540,21 @@ async def abandon(session: AsyncSession, body: Body, *, now: datetime | None = N
 
 
 async def sight(session: AsyncSession, constants: Constants, mining: MiningSession) -> Sight:
-    """Look at the face. Asking again is pointless: the sign does not change."""
+    """Look at the face. Asking again is pointless: the sign does not change.
+
+    Pointless while the rock stands still, that is. The roof is read off the
+    vein, so a neighbour who swings between two looks does move the sign --
+    and its lie is redrawn with it, which is what keeps asking twice from
+    paying (`_noise_of`). The vein is **read**, not locked: a look does not
+    write, and it does not queue behind those who do (CLAUDE.md).
+    """
     body = await session.get(Body, mining.body_id)
     if body is None:  # pragma: no cover
         raise MiningError(key="mining-session-without-body")
-    return await _sight(session, constants, mining, body)
+    vein = await session.get(Vein, mining.vein_id)
+    if vein is None:  # pragma: no cover -- a session without a vein is a bug
+        raise MiningError(key="mining-session-dangling")
+    return await _sight(session, constants, mining, body, roof_of(constants, vein))
 
 
 # --- internal ----------------------------------------------------------------

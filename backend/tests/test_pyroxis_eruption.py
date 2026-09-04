@@ -342,7 +342,7 @@ async def test_a_moved_vein_ends_the_work_at_its_face(
     _, fields = await _surface(session, count=2)
     vein = await world.create_vein(session, fields[0], "tungsten", richness=70, remaining=1000)
     body = await _dweller(session, fields[0])
-    face = MiningSession(body_id=body.id, vein_id=vein.id, pace=Pace.STEADY, roof=100)
+    face = MiningSession(body_id=body.id, vein_id=vein.id, pace=Pace.STEADY)
     session.add(face)
     await session.flush()
     await world.grant_item(
@@ -412,7 +412,7 @@ async def test_a_face_at_a_worked_out_vein_still_lets_the_miner_out(
     _, fields = await _surface(session, count=2)
     vein = await world.create_vein(session, fields[0], "tungsten", richness=70, remaining=1000)
     body = await _dweller(session, fields[0])
-    face = MiningSession(body_id=body.id, vein_id=vein.id, pace=Pace.STEADY, roof=100)
+    face = MiningSession(body_id=body.id, vein_id=vein.id, pace=Pace.STEADY)
     session.add(face)
     await session.flush()
     await world.grant_item(
@@ -439,7 +439,7 @@ async def test_a_face_at_a_worked_out_vein_still_lets_the_miner_out(
     await session.flush()
     other = await world.create_vein(session, fields[0], "copper_ore", richness=70, remaining=1000)
     second = await _dweller(session, fields[0])
-    stuck = MiningSession(body_id=second.id, vein_id=other.id, pace=Pace.STEADY, roof=100)
+    stuck = MiningSession(body_id=second.id, vein_id=other.id, pace=Pace.STEADY)
     session.add(stuck)
     await session.flush()
     other.remaining = 0
@@ -470,7 +470,7 @@ async def test_a_dead_miner_leaves_the_haul_at_the_face(
     _, fields = await _surface(session, count=2)
     vein = await world.create_vein(session, fields[0], "tungsten", richness=70, remaining=1000)
     body = await _dweller(session, fields[0])
-    face = MiningSession(body_id=body.id, vein_id=vein.id, pace=Pace.STEADY, roof=100)
+    face = MiningSession(body_id=body.id, vein_id=vein.id, pace=Pace.STEADY)
     session.add(face)
     await session.flush()
     await world.grant_item(

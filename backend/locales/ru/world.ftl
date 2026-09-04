@@ -195,6 +195,9 @@ mining-penal-face = каторжный забой работает только 
 mining-no-strength = на удар нужно { NUMBER($need, minimumFractionDigits: 2, maximumFractionDigits: 2) } выносливости, а есть { NUMBER($have, minimumFractionDigits: 2, maximumFractionDigits: 2) }: сначала сон или обед
 mining-session-open = у тела уже открыта сессия: в двух забоях сразу не бьют
 mining-no-timber = нет шахтной крепи
+# Крепь поднимает свод, а не задаёт его (D-188): выше своего потолка ей нечего
+# поднимать, и поставленная там она только испортила бы выработку.
+mining-roof-holds = свод держит сам: крепь ставят, когда он просядет
 mining-session-without-body = сессия без тела
 mining-session-closed = сессия { $session } закрыта: { $state ->
         [left] из забоя вышли
