@@ -3,12 +3,16 @@
 
 """What the mining tests build a face out of.
 
-Helpers and constants shared by `test_mining.py` and `test_mining_roof.py`,
-which is why they are here and not beside one of them (the family's own
-pattern, see `ship_kit.py`). Pytest does not collect this file: it holds no
-tests and no fixtures -- a real `@pytest.fixture` must not live here, because
-the import that puts its name in a signature reads as unused to ruff and
-pytest never finds it.
+The face itself -- `_face`, `_tool` and the vein's name -- is shared by
+`test_mining.py` and `test_mining_roof.py`, which is why it is here and not
+beside one of them (the family's own pattern, see `ship_kit.py`). Bringing a
+roof down (`_to_the_collapse`, `_spend_the_grace`) is `test_mining.py`'s alone
+today; it lives here because it builds the same face one swing further, and a
+test of the roof that needs a cave-in will want it too.
+
+Pytest does not collect this file: it holds no tests and no fixtures -- a
+real `@pytest.fixture` must not live here, because the import that puts its
+name in a signature reads as unused to ruff and pytest never finds it.
 """
 
 from __future__ import annotations

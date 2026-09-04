@@ -39,7 +39,8 @@ from src.engine import mining, world
 from src.engine.mining import SessionState, _base
 from src.models.identity import BodyState
 from src.models.inventory import Item
-from src.units import amount_float
+from src.models.world import Vein
+from src.units import ROUND_ROOF, amount_float
 
 
 def test_roof_does_not_leak_out() -> None:
@@ -86,7 +87,7 @@ async def test_one_working_tells_one_sign(session: AsyncSession, constants: Cons
     """
     node, vein, body = await _face(session, richness=60)
     first = await mining.start(session, constants, body, vein)
-    struck = await mining.swing(session, constants, first)
+    await mining.swing(session, constants, first)
     await mining.leave(session, constants, first)
 
     again = await mining.start(session, constants, body, vein)
@@ -96,15 +97,25 @@ async def test_one_working_tells_one_sign(session: AsyncSession, constants: Cons
     await _tool(session, neighbour_body)
     theirs = await mining.start(session, constants, neighbour_body, vein)
 
-    #: Asserted on the draw and not only on the sign: a band is wide, so two
-    #: different lies about one roof land in the same one more often than not,
-    #: and a test that only compared the words would go green on a face that
-    #: hands out a fresh lie to everybody who walks into it.
-    roof = mining.roof_of(constants, vein)
-    draws = {_base._noise_of(face, roof).random() for face in (first, again, theirs)}
-    assert len(draws) == 1, "одна выработка раздаёт разные лжи об одном своде"
-    signs = {(await mining.sight(session, constants, face)).sign for face in (again, theirs)}
-    assert signs == {struck.sign}
+    #: Swept across the scale rather than asked once: a band is wide, so two
+    #: different lies about one roof land in the same word more often than
+    #: not, and a single reading would go green on a face that hands out a
+    #: fresh lie to everyone who walks into it. Twenty roofs do not.
+    for point in range(5, 100, 5):
+        _base.remember_roof(vein, float(point))
+        heard = {(await mining.sight(session, constants, face)).sign for face in (again, theirs)}
+        assert len(heard) == 1, f"на своде {point} забой сказал соседям разное: {heard}"
+
+
+def test_the_roof_column_is_as_wide_as_the_engine_rounds() -> None:
+    """`ROUND_ROOF` is the width of `Vein.roof`, and `units.py` promises a test.
+
+    The engine puts the roof on that grid before writing it (`remember_roof`)
+    and seeds the sign's lie off the same scale, so a column narrowed under
+    them would round finer than the row can hold and the lie would be redrawn
+    by a trip through the database -- silently, since nothing else objects.
+    """
+    assert Vein.__table__.c.roof.type.scale == ROUND_ROOF
 
 
 def test_rich_vein_gives_less_stability(constants: Constants) -> None:
@@ -321,10 +332,6 @@ async def test_the_sign_survives_the_database(session: AsyncSession, constants: 
 async def test_cannot_shore_without_support(session: AsyncSession, constants: Constants) -> None:
     """Support costs timber and rope -- that is the whole point of the choice."""
     _, vein, body = await _face(session)
-    #: A working already shaken below the ceiling, so what refuses here is the
-    #: empty pocket and not the roof (`RoofHolds`, which is asked first).
-    vein.roof = Decimal("1")
-    await session.flush()
     sess = await mining.start(session, constants, body, vein)
     with pytest.raises(mining.NoTimber):
         await mining.timber(session, constants, sess)
@@ -342,7 +349,7 @@ async def test_a_support_never_makes_the_working_worse(
     miner paid alone while the roof was their own copy, and the artel's
     working once it is shared.
     """
-    _, vein, body = await _face(session, richness=60)
+    node, vein, body = await _face(session, richness=60)
     pocket = await world.body_container(session, body)
     await world.grant_item(session, pocket, "shaft_support", amount=2, origin="сценарий теста")
 
@@ -353,6 +360,16 @@ async def test_a_support_never_makes_the_working_worse(
     with pytest.raises(mining.RoofHolds):
         await mining.timber(session, constants, sess)
     assert mining.roof_of(constants, vein) == pytest.approx(whole), "крепь опустила свод"
+    #: And the refusal is asked **after** the pocket, so an empty one hears
+    #: about itself and not about the roof: the answer «свод ≥ потолка» is a
+    #: fact about the one number the player is never told (D-143), and a body
+    #: carrying no timber must not get it for the price of a button.
+    bare = await world.create_identity(session, f"Порожняк-{uuid.uuid4().hex[:6]}")
+    bare_body = await world.print_body(session, bare, node)
+    await _tool(session, bare_body)
+    empty_handed = await mining.start(session, constants, bare_body, vein)
+    with pytest.raises(mining.NoTimber):
+        await mining.timber(session, constants, empty_handed)
     assert sess.timbers == 0
     left = await session.scalar(
         select(func.coalesce(func.sum(Item.amount), 0)).where(

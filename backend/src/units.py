@@ -93,7 +93,7 @@ TRACE_POINTS = 24
 SKY_MEMO_PER_DAY = 144
 SKY_CURVE_MEMO = 512
 SKY_CALENDAR_MEMO = 64
-#: Column scales, not presentation: the seven below say how wide the row is,
+#: Column scales, not presentation: the eight below say how wide the row is,
 #: not how a summary reads. Changing one alone leaves the code rounding coarser
 #: or finer than the column it writes to, and nothing objects -- so a scale tied
 #: to a single column is pinned to it by a test.

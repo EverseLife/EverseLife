@@ -44,6 +44,7 @@ lacks a quantity, it is added to `data/constants.yaml`, not to code (D-065).
 from __future__ import annotations
 
 import random
+import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
@@ -87,7 +88,7 @@ class NoTimber(MiningError):
 
 
 class RoofHolds(MiningError):
-    """The roof is already at or above what a support can hold it at.
+    """The roof is already at or above what a support can hold it at (D-300).
 
     A support **raises** the roof (D-188), and `mine.roof_timber_cap` is the
     ceiling it raises to -- not a value it sets. A working nobody has shaken
@@ -369,7 +370,7 @@ def deplete(constants: Constants, vein: Vein, moment: datetime, extracted_before
         vein.depleted_at = moment
 
 
-def _noise_of(mining: MiningSession, roof: float) -> random.Random:
+def _noise_of(vein_id: uuid.UUID, roof: float) -> random.Random:
     """Sign noise bound to the working and its roof, not to who is reading.
 
     Otherwise the sign can be read any number of times in a row, and the
@@ -398,7 +399,9 @@ def _noise_of(mining: MiningSession, roof: float) -> random.Random:
     else, and a second body at the same face, which is the ordinary case
     (D-099). Seeded by the vein, both give the answer already given: one face,
     one roof, one sign, whoever is standing in it and however many times they
-    ask.
+    ask. That is why what comes in here is the working's id and not the
+    session standing at it: the session is the thing that must not reach the
+    seed, so it does not reach this function either.
 
     The roof is formatted to the scale of the column it lives in, so that the
     same roof seeds the same lie before and after a trip through the database
@@ -419,7 +422,7 @@ def _noise_of(mining: MiningSession, roof: float) -> random.Random:
     one. Making it more would take a secret the client cannot have -- a salt
     per working, kept server-side -- and that is a decision, not a formula.
     """
-    return random.Random(f"{mining.vein_id}:{roof:.{ROUND_ROOF}f}")
+    return random.Random(f"{vein_id}:{roof:.{ROUND_ROOF}f}")
 
 
 async def _sight(
@@ -443,7 +446,7 @@ async def _sight(
         select(func.coalesce(func.sum(Item.amount), 0)).where(Item.container_id == container.id)
     )
     return Sight(
-        sign=sign_of(constants, roof, _noise_of(mining, roof)),
+        sign=sign_of(constants, roof, _noise_of(mining.vein_id, roof)),
         mined=amount_float(int(mined or 0)),
         swings=mining.swings,
         timbers=mining.timbers,

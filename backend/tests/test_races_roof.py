@@ -31,6 +31,7 @@ from src.constants import current
 from src.constants import registry as R
 from src.engine import world
 from src.models.identity import Body
+from src.units import amount_float
 
 ORE = "iron_ore"
 
@@ -153,6 +154,76 @@ async def test_two_last_swings_at_once_cost_one_cave_in(
         again = await db.get(Body, body_id)
         assert again.cave_ins == 1, f"один обвал засчитан {again.cave_ins} раза"
         assert again.state is BodyState.ALIVE, "первый обвал щадит, и он здесь один"
+
+
+async def test_the_support_that_arrived_at_the_ceiling_keeps_its_timber(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    constants,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One support was enough, and the second must not spend itself proving it.
+
+    The working is one support below the ceiling, and two sockets set one in
+    the same second. The winner raises it to the ceiling; the loser wakes at a
+    roof a support can no longer raise and is refused (`RoofHolds`) with its
+    timber still in the pocket. Read from a stale copy, the loser would have
+    computed the same rise from the same start, spent its timber and written
+    the ceiling again -- one support out of two lost, and since D-294 a lost
+    support is the difference between a body that lives through the next
+    cave-in and one that does not.
+
+    The pause holds the locks: `body_container` is the first thing asked
+    after them.
+    """
+    from src.engine import mining
+    from src.engine.mining import face as mining_face
+    from src.models.inventory import Item
+    from src.models.mining import MiningSession, Pace
+    from src.models.world import Vein
+
+    _slow(monkeypatch, mining_face, "body_container", 0.25)
+    stamp = uuid.uuid4().hex[:8]
+    node = await world.create_node(session, f"terra.cap.{stamp}", "Забой", area_m2=500)
+    vein = await world.create_vein(session, node, ORE, richness=60, remaining=100_000)
+    who = await world.create_identity(session, f"Крепильщик-{stamp}")
+    body = await world.print_body(session, who, node)
+    pocket = await world.body_container(session, body)
+    await world.grant_item(session, pocket, "shaft_support", amount=2, origin="тест")
+    #: Exactly one support below the ceiling, out of the constants: a playtest
+    #: moving `mine.roof_per_timber` must not redden a test about locks.
+    cap = constants[R.MINE_ROOF_TIMBER_CAP]
+    vein.roof = Decimal(str(max(1.0, cap - constants[R.MINE_ROOF_PER_TIMBER])))
+    face = MiningSession(body_id=body.id, vein_id=vein.id, pace=Pace.STEADY)
+    session.add(face)
+    await session.flush()
+    pocket_id, face_id, vein_id = pocket.id, face.id, vein.id
+    await session.commit()
+
+    async def props() -> None:
+        async with factory() as db, db.begin():
+            own = await db.get(MiningSession, face_id)
+            assert own is not None
+            await mining.timber(db, current(), own)
+
+    outcome = await asyncio.gather(props(), props(), return_exceptions=True)
+    refused = [one for one in outcome if isinstance(one, mining.RoofHolds)]
+    assert len(refused) == 1, f"вторая крепь обязана застать свод на потолке: {outcome}"
+    assert not [one for one in outcome if isinstance(one, BaseException) and one not in refused]
+
+    async with factory() as db:
+        propped = await db.get(Vein, vein_id)
+        assert propped is not None
+        assert float(propped.roof) == pytest.approx(cap)
+        again = await db.get(MiningSession, face_id)
+        assert again is not None and again.timbers == 1, f"стоек {again.timbers}, а поднимала одна"
+        left = await db.scalar(
+            select(Item).where(Item.container_id == pocket_id, Item.type_key == "shaft_support")
+        )
+        assert left is not None, "отказ съел бревно"
+        assert amount_float(left.amount) == 1, (
+            f"в кармане {amount_float(left.amount)} вместо одного"
+        )
 
 
 async def test_two_supports_set_at_once_are_two_supports(

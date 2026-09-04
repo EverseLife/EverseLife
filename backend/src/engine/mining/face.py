@@ -303,8 +303,9 @@ async def timber(session: AsyncSession, constants: Constants, mining: MiningSess
     The roof is read off that locked vein, so a support is set on the working
     as the last swing left it -- a neighbour's swing included (D-188, D-099).
     A working already standing at or above `mine.roof_timber_cap` refuses the
-    support instead of spending it: see `RoofHolds` for why setting one there
-    used to make the face worse.
+    support instead of spending it (D-300): see `RoofHolds` for why setting
+    one there used to make the face worse, and the comment at the check for
+    why it is asked after the pocket rather than before it.
     """
     vein = await session.get(Vein, mining.vein_id)
     if vein is None:  # pragma: no cover -- a session without a vein is a bug
@@ -314,16 +315,6 @@ async def timber(session: AsyncSession, constants: Constants, mining: MiningSess
     await session.flush()
     await session.refresh(vein, with_for_update=True)
     body, _ = await _relock(session, mining)
-
-    #: Asked before the pocket is even looked in, and under the lock that
-    #: makes the answer good: a support that cannot raise this working is not
-    #: a support, and the timber is better kept than spent on making the roof
-    #: worse. A neighbour's swing between the refusal and the next command may
-    #: well make it worth setting -- the roof is theirs too now.
-    cap = constants[R.MINE_ROOF_TIMBER_CAP]
-    standing = roof_of(constants, vein)
-    if standing >= cap:
-        raise RoofHolds(key="mining-roof-holds")
 
     inventory = await body_container(session, body)
     #: Every stack of it, taken under the lock and reread there: two sockets
@@ -353,6 +344,22 @@ async def timber(session: AsyncSession, constants: Constants, mining: MiningSess
     stock = next((one for one in stacks if one.container_id == inventory.id), None)
     if stock is None:
         raise NoTimber(key="mining-no-timber")
+
+    #: **After** the pocket, and that order is the point. A support that cannot
+    #: raise this working is not a support, and the timber is better kept than
+    #: spent on making the roof worse -- but the refusal also answers, for
+    #: free and exactly, whether the roof is at or above a public number, and
+    #: the roof is the one thing the player is never told (D-143). Asked
+    #: first, that answer would cost nothing at all: a body with an empty
+    #: pocket could press the button after every swing and read the hidden
+    #: number off the moment the refusal changed, closer than the sign's lie
+    #: ever comes. Behind `NoTimber` it costs at least carrying a timber,
+    #: which is the price OQ-123 names for what a support already gives away.
+    #: The order is part of the decision, not an implementation detail (D-300).
+    cap = constants[R.MINE_ROOF_TIMBER_CAP]
+    standing = roof_of(constants, vein)
+    if standing >= cap:
+        raise RoofHolds(key="mining-roof-holds")
 
     one = amount(1)
     if stock.amount > one:

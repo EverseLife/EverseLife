@@ -196,9 +196,9 @@ mining-penal-face = the penal face is worked by convicts only
 mining-no-strength = a swing needs { NUMBER($need, minimumFractionDigits: 2, maximumFractionDigits: 2) } stamina, and there is { NUMBER($have, minimumFractionDigits: 2, maximumFractionDigits: 2) }: sleep or a meal first
 mining-session-open = the body already has a session open: one does not swing in two faces at once
 mining-no-timber = there is no mine timber
-# A support raises the roof rather than setting it (D-188): above its own
-# ceiling it has nothing to raise, and set there it would only spoil the working.
-mining-roof-holds = the roof holds without a support: a prop has nothing to hold here
+# Timber raises the roof rather than setting it (D-188): above its own ceiling
+# it has nothing to raise, and set there it would only spoil the working.
+mining-roof-holds = the roof holds on its own: timber goes in once it sags
 mining-session-without-body = a session without a body
 mining-session-closed = session { $session } is closed: { $state ->
         [left] the face was left

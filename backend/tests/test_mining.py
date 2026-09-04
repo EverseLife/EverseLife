@@ -69,7 +69,7 @@ async def test_pick_refuses_a_liquid_vein(
     assert refused.value.params["goods"] == "crude_oil"
 
 
-# --- hidden state ------------------------------------------------------------
+# --- the shift ---------------------------------------------------------------
 
 
 async def test_mined_accumulates_and_goes_to_inventory(
