@@ -11,6 +11,26 @@ and requires that autogeneration finds not a single difference -- types and
 column defaults among them, both of which autogeneration passes over unless
 asked (`compare_type`, `compare_server_default`).
 
+**It must first be that database, and the check that it is was missing.** The
+comparison is only about the code when the database really is the chain's
+product; a database standing short of the head differs from the models by
+exactly the migrations not yet applied to it -- which says nothing about the
+code and everything about the database. Told that way round, the failure named
+some thirty columns and advised `alembic revision --autogenerate`, and taking
+the advice would have written a second migration for work already migrated,
+breaking the clean-database path that is the whole point. It cost more than
+confusion: the run was deselected for days across several sessions
+(`--deselect tests/test_migrations.py::...`), so the check was carrying the
+drift instead of catching it. Here the standing revision is read before
+anything is compared, and a database behind the head skips with a message
+saying so -- the local copy is the developer's to upgrade, and CI builds a
+fresh one at head on every push, which is where the comparison bites.
+
+The gate is worn by the comparison **alone** (`migrated_at_head`). The rest of
+what is asked of a migrated database -- the triggers, the sequence ownership --
+has been true since the revision that introduced it, so those questions go
+through `migrated` and keep being answered on a copy that is behind.
+
 The last pair goes further and looks at both schemas at once -- the migrated
 one and the one built from the models -- because what a model cannot express
 (sequence ownership, triggers, partitions) is exactly what diverges silently.
@@ -20,20 +40,25 @@ from __future__ import annotations
 
 import os
 import re
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 import pytest
+import pytest_asyncio
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
 from sqlalchemy import func, inspect, select, text
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncSession, create_async_engine
 
 from src.models import Base
+from tools.check_migration_parents import parse as parse_migration
 
 MIGRATED_URL = os.environ.get(
     "EVERSELIFE_MIGRATED_DATABASE_URL",
     "postgresql+asyncpg://everselife:everselife@localhost:5432/everselife",
 )
+
+VERSIONS = Path(__file__).resolve().parents[1] / "migrations" / "versions"
 
 
 PARTITION = re.compile(r"^event_(\d{6}|default)$")
@@ -96,18 +121,188 @@ def _differences(connection) -> list:
     return compare_metadata(context, Base.metadata)
 
 
-async def test_schema_from_migrations_matches_models() -> None:
+def _chain() -> tuple[dict[str, str], dict[str, tuple[str, ...]]]:
+    """The migrations lying here: revision -> file, and revision -> parents.
+
+    The same parser the pre-commit check uses (`tools/check_migration_parents`):
+    two copies of this regex would rot apart the day alembic changes its
+    template, and both would rot silently.
+    """
+    revisions: dict[str, str] = {}
+    parents: dict[str, tuple[str, ...]] = {}
+    for path in sorted(VERSIONS.glob("*.py")):
+        parsed = parse_migration(path.read_text(encoding="utf-8"))
+        assert parsed is not None, f"{path.name}: не найден `revision`"
+        revision, up = parsed
+        #: Two files under one id is a fault alembic itself trips over, and
+        #: a dict would swallow it: the second silently replaces the first.
+        assert revision not in revisions, (
+            f"ревизия {revision} объявлена дважды: {revisions[revision]} и {path.name}"
+        )
+        revisions[revision] = path.name
+        parents[revision] = up
+    return revisions, parents
+
+
+def _heads(revisions: dict[str, str], parents: dict[str, tuple[str, ...]]) -> list[str]:
+    """The revisions nothing follows. One, when the chain is sound."""
+    claimed = {parent for up in parents.values() for parent in up}
+    return sorted(set(revisions) - claimed)
+
+
+def _ancestry(revision: str, parents: dict[str, tuple[str, ...]]) -> set[str]:
+    """A revision and everything it stands on.
+
+    A walk, not a slice of the sorted list: `alembic merge` gives a revision
+    two parents, and a first-parent walk would count the other branch as never
+    applied.
+    """
+    seen: set[str] = set()
+    front = [revision]
+    while front:
+        at = front.pop()
+        if at in seen or at not in parents:
+            continue
+        seen.add(at)
+        front.extend(parents[at])
+    return seen
+
+
+#: How to get a database this file can question, and the second half is the
+#: half that matters. `alembic upgrade head` on its own points at the default
+#: -- the shared dev database every worktree sees and the dev server runs on --
+#: and the house rule is the opposite: "Миграция проверяется на чистой базе, а
+#: не на dev-овской". Told only the short version, a reader whose branch holds
+#: an unmerged migration writes that branch's schema into the database
+#: everybody shares, and nobody downgrades it back. The variable is named here
+#: because nothing else in the repository names it except CI.
+OWN_DATABASE = (
+    "нужна своя чистая база (CLAUDE.md: «Миграция проверяется на чистой базе»): "
+    "createdb, потом `EVERSELIFE_DATABASE_URL=...<своя> alembic upgrade head`, "
+    "и прогон с `EVERSELIFE_MIGRATED_DATABASE_URL=...<своя>` -- обе переменные в "
+    "той же команде, окружение между вызовами не сохраняется"
+)
+
+
+async def _not_migrated(connection: AsyncConnection) -> str | None:
+    """No `alembic_version` at all: nothing here was built by the chain."""
+    tables = await connection.run_sync(lambda c: inspect(c).get_table_names())
+    if "alembic_version" not in tables:
+        return f"база {MIGRATED_URL} не накатана миграциями. {OWN_DATABASE}"
+    return None
+
+
+async def _not_at_head(connection: AsyncConnection) -> str | None:
+    """Why this database cannot answer *for the models*, or `None` when it can."""
+    rows = await connection.execute(text("SELECT version_num FROM alembic_version"))
+    return _wrong_revision({row[0] for row in rows})
+
+
+def _wrong_revision(standing: set[str]) -> str | None:
+    """The judgement itself, apart from the database it was read from.
+
+    Split out so every branch below can be checked without arranging a
+    Postgres in that state: `alembic downgrade base` and a two-headed database
+    are exactly the states nobody sets up on purpose, and the first two
+    versions of these messages were wrong about both.
+
+    Anything returned here is a fact about the database in front of us, never
+    about the models: the point of the gate is that the two are not confused.
+    """
+    revisions, parents = _chain()
+    heads = _heads(revisions, parents)
+    if len(heads) != 1:
+        #: Nothing could have upgraded to a head that is not one. Which two
+        #: files disagree is `test_migrations_have_exactly_one_head`'s to say.
+        return f"у миграций в этом дереве {len(heads)} головы, накатывать было нечего"
+    head = heads[0]
+    if standing == {head}:
+        return None
+
+    #: `alembic downgrade base` empties the table rather than dropping it, so
+    #: the schema is gone while the marker of a migrated database remains.
+    if not standing:
+        return f"база {MIGRATED_URL} опущена до нуля: `alembic_version` пуста. {OWN_DATABASE}"
+
+    #: A revision this tree never wrote: a neighbour's branch, or one that was
+    #: merged away. Nothing here can say what such a database is missing, and
+    #: it is certainly not evidence about these models.
+    strangers = sorted(standing - set(revisions))
+    if strangers:
+        return (
+            f"база {MIGRATED_URL} стоит на ревизии, которой в этом дереве нет "
+            f"({', '.join(strangers)}): это чужая ветка, а не расхождение схемы с моделями"
+        )
+
+    #: At the head *and* somewhere else: a database with two heads of its own.
+    #: Nothing is missing from it, so "отставшая" would be a lie -- but the
+    #: extra branch is in its schema and in nobody's models.
+    if head in standing:
+        return (
+            f"база {MIGRATED_URL} стоит не только на голове {head}, но и на "
+            f"{', '.join(sorted(standing - {head}))}: у неё несколько голов, "
+            "и сравнивать такую схему с моделями нечего"
+        )
+
+    applied = {seen for at in standing for seen in _ancestry(at, parents)}
+    behind = _ancestry(head, parents) - applied
+    return (
+        f"база {MIGRATED_URL} стоит на {', '.join(sorted(standing))}, "
+        f"а голова цепочки -- {head} ({revisions[head]}). "
+        f"Не накатано миграций: {len(behind)}"
+        + (f" ({', '.join(revisions[at] for at in sorted(behind))})" if behind else "")
+        + f". Это отставшая база, а не расхождение схемы с моделями: {OWN_DATABASE}"
+    )
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def migrated() -> AsyncIterator[AsyncConnection]:
+    """A connection to a database built by migrations -- at whatever revision.
+
+    Deliberately **without** the head gate: what is asked through this fixture
+    are facts a migrated schema has held since the revision that introduced
+    them (the triggers of `db.ddl.RULES`, the journal's sequence ownership).
+    Gating those on the head would silence them on every developer's copy, and
+    they are the pair that once let a divergence into main.
+
+    The guard is deliberately **not** wrapped around the `yield`: an
+    `AssertionError` from the test body travels back through it, and an
+    `except Exception` there would turn a real divergence into a skip -- the
+    one outcome this file exists to prevent.
+    """
     engine = create_async_engine(MIGRATED_URL)
     try:
-        async with engine.connect() as connection:
-            tables = await connection.run_sync(lambda c: inspect(c).get_table_names())
-            if "alembic_version" not in tables:
-                pytest.skip("база не накатана миграциями: `alembic upgrade head`")
-            diff = await connection.run_sync(_differences)
+        connection = await engine.connect()
     except Exception as exc:  # noqa: BLE001
-        pytest.skip(f"нет базы {MIGRATED_URL}: {exc}")
-    finally:
         await engine.dispose()
+        pytest.skip(f"нет базы {MIGRATED_URL}: {exc}")
+
+    try:
+        reason = await _not_migrated(connection)
+        if reason is not None:
+            pytest.skip(reason)
+        yield connection
+    finally:
+        await connection.close()
+        await engine.dispose()
+
+
+@pytest_asyncio.fixture(loop_scope="session")
+async def migrated_at_head(migrated: AsyncConnection) -> AsyncConnection:
+    """The same connection, once the database is known to be the chain's end.
+
+    Only the comparison with the models needs this much: a database short of
+    the head differs from them by exactly its pending migrations, and that is
+    a fact about the database.
+    """
+    reason = await _not_at_head(migrated)
+    if reason is not None:
+        pytest.skip(reason)
+    return migrated
+
+
+async def test_schema_from_migrations_matches_models(migrated_at_head: AsyncConnection) -> None:
+    diff = await migrated_at_head.run_sync(_differences)
 
     assert not diff, (
         "схема разошлась с моделями: "
@@ -201,19 +396,10 @@ async def test_a_law_choice_is_rewritten_in_the_rows_themselves(
     assert city.laws["tax_trade"] == "7"
 
 
-async def test_database_rules_in_place() -> None:
+async def test_database_rules_in_place(migrated: AsyncConnection) -> None:
     """The balance and immutability triggers must be in the upgraded database."""
-    engine = create_async_engine(MIGRATED_URL)
-    try:
-        async with engine.connect() as connection:
-            rows = await connection.execute(
-                text("SELECT tgname FROM pg_trigger WHERE NOT tgisinternal")
-            )
-            names = {row[0] for row in rows}
-    except Exception as exc:  # noqa: BLE001
-        pytest.skip(f"нет базы {MIGRATED_URL}: {exc}")
-    finally:
-        await engine.dispose()
+    rows = await migrated.execute(text("SELECT tgname FROM pg_trigger WHERE NOT tgisinternal"))
+    names = {row[0] for row in rows}
 
     assert {
         "ledger_entry_balanced",
@@ -241,17 +427,11 @@ OWNER_OF_JOURNAL_SEQUENCE = text(
 )
 
 
-async def test_the_journal_counter_belongs_to_its_column_when_migrated() -> None:
+async def test_the_journal_counter_belongs_to_its_column_when_migrated(
+    migrated: AsyncConnection,
+) -> None:
     """The migrated schema: the sequence is owned by `event.id`."""
-    engine = create_async_engine(MIGRATED_URL)
-    try:
-        async with engine.connect() as connection:
-            owner = (await connection.execute(OWNER_OF_JOURNAL_SEQUENCE)).all()
-    except Exception as exc:  # noqa: BLE001
-        pytest.skip(f"нет базы {MIGRATED_URL}: {exc}")
-    finally:
-        await engine.dispose()
-
+    owner = (await migrated.execute(OWNER_OF_JOURNAL_SEQUENCE)).all()
     assert owner == [("event", "id")], owner
 
 
@@ -288,6 +468,79 @@ async def test_an_emptied_journal_counts_from_one(session: AsyncSession) -> None
     assert again == 1, again
 
 
+def test_a_database_is_told_what_is_wrong_with_it_and_not_something_else() -> None:
+    """Each state of `alembic_version` gets the sentence that is true of it.
+
+    Three of these are states nobody arranges on purpose -- an emptied version
+    table, a revision from a neighbour's branch, a database standing on two
+    heads -- and the first cut of the gate called all three "отставшая база",
+    which for a database already holding the head is simply false. A wrong
+    sentence here is worse than no sentence: this file exists because a
+    misdiagnosis sent several sessions to `--deselect`.
+    """
+    revisions, parents = _chain()
+    heads = _heads(revisions, parents)
+    assert len(heads) == 1, heads
+    head = heads[0]
+
+    assert _wrong_revision({head}) is None, "на голове -- спрашивать не о чем"
+
+    #: `alembic downgrade base` empties the table without dropping it.
+    emptied = _wrong_revision(set())
+    assert emptied is not None and "пуста" in emptied, emptied
+
+    #: A revision this tree never wrote is not a count of missing migrations.
+    stranger = _wrong_revision({"c0ffee000000"})
+    assert stranger is not None and "чужая ветка" in stranger, stranger
+    assert "Не накатано" not in stranger, stranger
+
+    #: The head *and* another revision of this tree: nothing is missing from
+    #: such a database, so "отставшая" would be a lie about it.
+    parent = parents[head][0]
+    two_headed = _wrong_revision({head, parent})
+    assert two_headed is not None and "несколько голов" in two_headed, two_headed
+    assert "отставшая" not in two_headed, two_headed
+
+    #: And a database genuinely behind is counted, not merely named.
+    behind = _wrong_revision({parent})
+    assert behind is not None and "Не накатано миграций: 1" in behind, behind
+    assert revisions[head] in behind, behind
+    #: With the way out, and the way out is a database of one's own.
+    assert "EVERSELIFE_MIGRATED_DATABASE_URL" in behind, behind
+
+
+def test_a_merge_is_counted_as_applied_through_both_its_parents() -> None:
+    """What the gate must not get wrong: a merge migration has two parents.
+
+    `_ancestry` decides whether a database is behind, and a database behind is
+    told to upgrade rather than accused of drift. Walking first parents only --
+    the obvious way to write it, and the way a sorted list of revisions
+    invites -- would count the second branch of every `alembic merge` as never
+    applied, and a database at the head would be sent away to upgrade to the
+    head it already stands on. Then the drift check never runs at all, which
+    is the failure this whole file is about, arrived at from the other side.
+
+    No database and no files: the shapes are written out here, so the walk is
+    checked on a merge whether or not the tree happens to hold one today.
+    """
+    #: root -> a -> \        root -> b -> /  merged, and `top` above it.
+    parents = {
+        "root": (),
+        "a": ("root",),
+        "b": ("root",),
+        "merged": ("a", "b"),
+        "top": ("merged",),
+    }
+
+    assert _ancestry("top", parents) == {"top", "merged", "a", "b", "root"}
+    assert _ancestry("a", parents) == {"a", "root"}
+    #: `top` is the one head -- not the merge, which `top` follows.
+    assert _heads({name: f"{name}.py" for name in parents}, parents) == ["top"]
+    #: A database standing on the merge is behind by `top` alone -- not by the
+    #: branch a first-parent walk would have missed.
+    assert _ancestry("top", parents) - _ancestry("merged", parents) == {"top"}
+
+
 def test_migrations_have_exactly_one_head() -> None:
     """One head, always -- checked by reading the files, not by upgrading.
 
@@ -306,25 +559,7 @@ def test_migrations_have_exactly_one_head() -> None:
     this tree. That is `tools/check_migration_parents.py`, run by the
     pre-commit hook, where the branches actually are.
     """
-    #: The same parser the pre-commit check uses (`tools/check_migration_parents`):
-    #: two copies of this regex would rot apart the day alembic changes its
-    #: template, and both would rot silently.
-    from tools.check_migration_parents import parse as parse_migration
-
-    versions = Path(__file__).resolve().parents[1] / "migrations" / "versions"
-    revisions: dict[str, str] = {}
-    parents: dict[str, tuple[str, ...]] = {}
-    for path in sorted(versions.glob("*.py")):
-        parsed = parse_migration(path.read_text(encoding="utf-8"))
-        assert parsed is not None, f"{path.name}: не найден `revision`"
-        revision, up = parsed
-        #: Two files under one id is a fault alembic itself trips over, and
-        #: a dict would swallow it: the second silently replaces the first.
-        assert revision not in revisions, (
-            f"ревизия {revision} объявлена дважды: {revisions[revision]} и {path.name}"
-        )
-        revisions[revision] = path.name
-        parents[revision] = up
+    revisions, parents = _chain()
 
     #: A parent nobody wrote is a broken chain that still counts one head, so
     #: the head test alone would pass over it.
@@ -347,7 +582,7 @@ def test_migrations_have_exactly_one_head() -> None:
             claimed.setdefault(parent, []).append(revisions[revision])
     named = {parent: sorted(names) for parent, names in claimed.items() if len(names) > 1}
 
-    heads = sorted(set(revisions) - {parent for up in parents.values() for parent in up})
+    heads = _heads(revisions, parents)
     assert len(heads) == 1, (
         f"голов должно быть одна, а их {len(heads)}: "
         + ", ".join(f"{head} ({revisions[head]})" for head in heads)

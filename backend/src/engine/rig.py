@@ -17,7 +17,7 @@ machine loses to a human on every measure but one -- it does not sleep.
 Craft mining remains the way to get **good ore**, the rig the way to get
 **a lot of average**.
 
-## Three obligations, and all three require people
+## Four obligations, and all of them require people
 
 **Fuel.** `rig.fuel_per_hour` of coal from the node where the rig stands.
 Ran out -- it stopped: hence a standing contract with a coal hauler rather
@@ -29,6 +29,10 @@ foot: matter moves only physically (D-047).
 
 **Maintenance.** `rig.wear_per_day` of wear per day. An abandoned one falls
 apart, and it is repaired by the same repair as any thing.
+
+**Standing.** It works only put up on its vein (D-278, D-314). Taken down,
+dropped by a demolition or fallen with its owner, it drills nothing: the row
+waits for the machine and dies with it.
 
 ## What is not here yet
 
@@ -47,9 +51,9 @@ from decimal import ROUND_FLOOR, Decimal
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.constants import Constants, current_catalog
+from src.constants import Constants, current, current_catalog
 from src.constants import registry as R
-from src.engine import events, liquid, stock, travel, wear, world
+from src.engine import events, liquid, station, stock, travel, wear, world
 from src.engine.errors import Refusal
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState
@@ -96,6 +100,10 @@ class NotYours(RigError):
     """Somebody else's rig: the hopper is emptied by the owner or their carter by contract."""
 
 
+class HopperNotEmpty(RigError):
+    """The hopper still holds ore of the vein it stood on: a rig moves empty (D-314)."""
+
+
 def hopper_capacity(constants: Constants) -> float:
     """Hopper capacity in ore units: the vault sets it in **hours of work**."""
     return constants[R.RIG_HOPPER_CAPACITY] * constants[R.RIG_OUTPUT_PER_HOUR]
@@ -119,30 +127,80 @@ async def place(
         raise NoRig(key="rig-not-a-rig", goods=item.type_key)
     if vein.node_id != body.node_id:
         raise RigError(key="rig-vein-not-here")
+    #: Whose plot, asked by the door that stands things -- D-278 requires it of
+    #: this very door. The rig never asked, and while a machine could only
+    #: be stood out of the **hands** that was harmless -- 44 kg does not come
+    #: off the floor without an exoskeleton. Standing one up off the floor
+    #: (D-314) removes that accidental guard, and the row's owner moves to
+    #: whoever stands it: without this door a passer-by would inherit a
+    #: knocked-over rig on somebody's plot and haul its hopper away. On
+    #: nobody's land this is true for everyone, and a wild vein stays open.
+    node_here = await session.get(Node, body.node_id)
+    if node_here is None:  # pragma: no cover -- a body without a node is a bug
+        raise RigError(key="rig-vein-not-here")
+    if not await station.may_build(session, body, node_here):
+        raise NotYours(key="rig-node-not-yours")
 
+    #: A machine that already has a row is being **put back up** -- taken down
+    #: and brought here, or knocked off its vein by a demolition (D-314). The
+    #: row is the enterprise, and it travels with the machine rather than with
+    #: the vein: the hopper, the stamp and the slivers go on where they
+    #: stopped. Taken under the transaction here, in the tick's own order
+    #: (row, then the machine's own row through `wear`), so two hands standing
+    #: one rig do not both re-point it.
     exists = (
-        await session.execute(select(RigRow).where(RigRow.item_id == item.id))
+        await session.execute(select(RigRow).where(RigRow.item_id == item.id).with_for_update())
     ).scalar_one_or_none()
     if exists is not None:
-        return exists
+        #: Settle where it stood before the row moves: standing already (the
+        #: same vein, a second click), it must not lose the pass it had not
+        #: banked yet; lying, this only brings the stamp up to now -- and
+        #: doing it **before** the machine is stood up is what keeps the hours
+        #: it lay from being mined.
+        await advance(session, current(), exists, now=moment)
+        #: The rock is read off the vein the machine stands on **now**, so ore
+        #: of the old vein would come out of the hopper as the new one's. A rig
+        #: moves empty, and back onto the same vein it moves loaded. Asked
+        #: **after** the settling and not before: a rig still standing on its
+        #: old vein banks the unsettled pass right here, and an emptiness read
+        #: before that would wave the fresh ore through onto the new vein.
+        if exists.vein_id != vein.id and float(exists.hopper) > 0:
+            raise HopperNotEmpty(key="rig-hopper-not-empty", goods=item.type_key)
 
     #: The machine moves from the hands into the node: it is stationary by definition.
-    node = await session.get(Node, body.node_id)
-    yard = await world.node_container(session, node)
+    yard = await world.node_container(session, node_here)
     item.container_id = yard.id
     #: And stands (D-278): a rig is put up on its vein the way a machine is put
     #: up in a house, and it drills only standing.
     item.installed = True
 
-    rig = RigRow(
-        item_id=item.id,
-        node_id=body.node_id,
-        vein_id=vein.id,
-        owner_identity_id=body.identity_id,
-        hopper=Decimal(0),
-        counted_at=moment,
-    )
-    session.add(rig)
+    if exists is not None:
+        moved = exists.vein_id != vein.id
+        exists.node_id = body.node_id
+        exists.vein_id = vein.id
+        #: Whoever puts it up is who placed it -- the words the field carries.
+        #: A machine that changed hands would otherwise keep a hopper only its
+        #: former owner could empty.
+        exists.owner_identity_id = body.identity_id
+        exists.counted_at = moment
+        if moved:
+            #: The slivers belong to where the machine was: the ore one is rock
+            #: of the old vein and must not come out as the new one's, the coal
+            #: one is a debt to the old yard. Both under a thousandth, which is
+            #: the scale these columns round away in any case.
+            exists.hopper_remainder = Decimal(0)
+            exists.fuel_remainder = Decimal(0)
+        rig = exists
+    else:
+        rig = RigRow(
+            item_id=item.id,
+            node_id=body.node_id,
+            vein_id=vein.id,
+            owner_identity_id=body.identity_id,
+            hopper=Decimal(0),
+            counted_at=moment,
+        )
+        session.add(rig)
     await session.flush()
 
     await events.record(
@@ -176,8 +234,34 @@ async def advance(
         return 0.0
 
     machine = await session.get(Item, rig.item_id)
+    if machine is None:
+        #: The machine is gone -- worn to nothing (`wear.spend` deletes what it
+        #: finishes), burnt, fallen with the house. The enterprise ends with
+        #: it, and so does the row: nothing else ever deleted one, and
+        #: `tick_rigs` takes every row in the world under lock each pass, so an
+        #: orphan is a lock the world pays for to the end of time. What the
+        #: hopper still held goes too -- the ore was **inside** the machine
+        #: (D-314). The automat buries its row the same way (D-253).
+        await session.delete(rig)
+        await session.flush()
+        return 0.0
     vein = await session.get(Vein, rig.vein_id)
-    if machine is None or vein is None:  # pragma: no cover -- the machine may have been dismantled
+    if vein is None:  # pragma: no cover -- a vein outlives every rig upon it
+        rig.counted_at = moment
+        await session.flush()
+        return 0.0
+
+    #: Standing, and in its own node (D-278, D-314). A machine taken down, put
+    #: on a counter, dropped by a demolition or fallen with its owner drills
+    #: nothing -- the rule the automat keeps at this very place, and the one
+    #: door the rig had not got. Only the stamp moves: the hopper, the vein and
+    #: the slivers wait for it to be stood up again, and a stamp held back
+    #: would mine the whole spell in the sack on the first pass after. Nor coal
+    #: nor wear: the rig's wear is the work's (`rig_work`), and "an abandoned
+    #: one falls apart" is said of a machine standing on its vein with nobody
+    #: coming, not of one lying in a chest.
+    yard = await world.node_container(session, await session.get(Node, rig.node_id))
+    if not machine.installed or machine.container_id != yard.id:
         rig.counted_at = moment
         await session.flush()
         return 0.0
@@ -190,7 +274,6 @@ async def advance(
 
     #: Coal: how many hours the rig could burn at all.
     fuel = constants[R.RIG_FUEL_PER_HOUR]
-    yard = await world.node_container(session, await session.get(Node, rig.node_id))
     coal = await _coal_available(session, yard.id)
     hours_by_fuel = coal / fuel if fuel > 0 else hours
     hours_by_bunker = place / output_per_hour if output_per_hour > 0 else 0.0
@@ -283,7 +366,13 @@ async def advance(
         if burns > 0:
             await _burn(session, yard.id, burns)
 
-    #: Wear goes by time, not by what is mined: an abandoned one falls apart.
+    #: Wear goes by the time it **stands**, not by what is mined: a rig with no
+    #: coal, a full hopper or an eaten-out vein wears exactly as fast as a
+    #: working one, and an abandoned one falls apart. Only a machine that
+    #: stands wears at all -- the standing check above returns before this, so
+    #: one taken into a chest is out of the weather (D-314). The automat
+    #: differs here on purpose (D-253 charges it before its own standing
+    #: check), and D-314 says which of the two this is.
     day = constants[R.TIME_DAY_TERRA]
     if hours > 0:
         await wear.spend(
@@ -311,6 +400,11 @@ async def empty_hopper(
 
     Quality by the vein, but **not above `rig.quality_cap`**: a human adapts to
     the seam, a machine works by its setting (D-058, D-115).
+
+    A machine that does not stand is emptied all the same (D-314): D-278
+    forbids a lying machine to work and to be programmed, and opening a hatch
+    is neither. Without this the ore would be stuck for good in everything that
+    knocks a rig down past the taking-down door -- a demolition, an owner's death.
     """
     moment = now or datetime.now(UTC)
     if body.state is not BodyState.ALIVE:
@@ -324,6 +418,25 @@ async def empty_hopper(
     #: Emptying is a write and races the world tick for the same row.
     await session.refresh(rig, with_for_update=True)
     await advance(session, constants, rig, now=moment)
+    #: The row says which node it belongs to, and the machine may have left it
+    #: without the row hearing: a counter takes an unsold machine off the yard
+    #: (`market.counter`), and the row would go on offering its hopper to
+    #: whoever stands where the rig used to be. The machine answers for itself
+    #: -- in the yard, standing or lying, or in the hands of whoever came.
+    machine = await session.get(Item, rig.item_id)
+    if machine is None:
+        #: The machine is gone, so there is nothing to open. `advance` above
+        #: asked for the row's burial, but the refusal rolls this transaction
+        #: back and takes the delete with it -- the row is buried by the next
+        #: `tick_rigs`, which is where it belongs anyway.
+        raise NoRig(key="rig-machine-gone")
+    yard = await world.node_container(session, await session.get(Node, rig.node_id))
+    pocket = await world.body_container(session, body)
+    if machine.container_id not in (yard.id, pocket.id):
+        #: Its own refusal, not the body's (`rig-not-here`): the carter is
+        #: standing in the right place, and "the hopper is hauled out on foot"
+        #: would send them walking after a machine that went onto a counter.
+        raise RigError(key="rig-machine-elsewhere")
     taken = float(rig.hopper)
     if taken <= 0:
         return 0.0
@@ -333,15 +446,28 @@ async def empty_hopper(
     resource = vein.resource if vein else "coal"
     catalog = current_catalog()
     #: The hopper is emptied by hand, and hands are not bottomless: without a
-    #: wagon the hopper cannot be emptied whole, and that is work for a carter
-    #: (D-146). A liquid is exempt: it goes into vessels, and a full canister
-    #: already weighs its fill (D-230) -- the carry limit judges the vessel.
-    if vein is not None and not liquid.is_liquid(catalog, resource):
+    #: wagon it does not come out whole, and that is work for a carter (D-146).
+    #: What fits is taken and the rest waits (D-314) -- the shape the liquid
+    #: branch below has had since D-252. All or nothing made a **full** hopper
+    #: impossible to empty at all: twelve hours of work is 60 kg of ore against
+    #: `inventory.carry_mass` = 30, so the enterprise's own obligation fell due
+    #: exactly when it could not be met. A liquid is exempt from the weighing:
+    #: it goes into vessels, and a full canister already weighs its fill
+    #: (D-230) -- there the carry limit judges the vessel.
+    if not liquid.is_liquid(catalog, resource):
         from src.engine import gear  # noqa: PLC0415 -- lazy: breaks the import cycle with gear
 
-        await gear.check_carry(session, constants, catalog, body, resource, taken)
+        room = await gear.room_for(session, constants, catalog, body, resource)
+        #: Only a bound that actually bites goes to the grid: a thing the
+        #: catalog gives no mass has no bound at all, and infinity is not a
+        #: number `on_grid` can round.
+        if room < taken:
+            taken = float(on_grid(room, ROUND_AMOUNT, ROUND_FLOOR))
+        if taken <= 0:
+            #: Not even a thousandth of room: the refusal is the carry door's
+            #: own, so the three figures in it add up for whoever reads them.
+            await gear.check_carry(session, constants, catalog, body, resource, float(rig.hopper))
 
-    machine = await session.get(Item, rig.item_id)
     #: Three ceilings, and the lowest is taken: the vein gives no more than its
     #: richness, the machine no more than `rig.quality_cap` (it works by its
     #: setting), and a worn machine no more than its effective quality (D-129).
@@ -350,7 +476,6 @@ async def empty_hopper(
         max(SCALE_MIN, min(SCALE_MAX, float(vein.richness) if vein else SCALE_MIN)),
         wear.effective(constants, machine),
     )
-    pocket = await world.body_container(session, body)
     emptied = Item(
         container_id=pocket.id,
         type_key=resource,
@@ -383,7 +508,9 @@ async def empty_hopper(
         rig.hopper = Decimal(str(left))
     else:
         await world.stack_up(session, emptied)
-        rig.hopper = Decimal(0)
+        #: What the hands could not take stays in the hopper: the machine is
+        #: emptied over as many trips as it takes, or in one by a carter (D-314).
+        rig.hopper = on_grid(float(rig.hopper) - taken, ROUND_AMOUNT)
     await session.flush()
 
     await events.record(
@@ -397,6 +524,29 @@ async def empty_hopper(
         quality=quality,
     )
     return taken
+
+
+async def hopper_left(session: AsyncSession, item: Item) -> float:
+    """What this machine's hopper still holds. Nought for anything but a placed rig.
+
+    Asked by the taking-down door, which must not let twelve hours of work ride
+    off in the hands past the carry limit and past the carter the hopper exists
+    for (D-181, D-314). The row is **locked**: the tick holds every rig row of
+    the world in one uncommitted transaction, and an unlocked read would see
+    the last committed hopper -- a nought where a whole pass already stands --
+    and wave the loaded machine out through the very rule this asks for. The
+    order is the tick's own (the rig row, then the machine's through
+    `wear.spend`), and the taking-down door locks nothing before this, so there
+    is no way round for the two to meet.
+    """
+    if item.type_key not in world.station_names(RIG):
+        return 0.0
+    held = (
+        await session.execute(
+            select(RigRow.hopper).where(RigRow.item_id == item.id).with_for_update()
+        )
+    ).scalar_one_or_none()
+    return 0.0 if held is None else float(held)
 
 
 async def tick_rigs(
@@ -437,6 +587,17 @@ async def status(session: AsyncSession, constants: Constants, node_id: uuid.UUID
         out.append(
             {
                 "id": str(rig.id),
+                #: The machine itself. Not the row's own state but the one fact
+                #: the window cannot reach from here: whether the rig stands is
+                #: read off this id among what stands (`bench`), and putting a
+                #: lying one back up (D-314) needs the thing to name (D-225).
+                "item": str(rig.item_id),
+                #: And the vein it sits on. Two veins of one rock in a node
+                #: make the resource ambiguous, so this is not derivable
+                #: either (D-225) -- and standing a rig back up (D-314) puts it
+                #: where it was, which is the only vein its loaded hopper may
+                #: go back onto.
+                "vein": str(rig.vein_id),
                 "resource": vein.resource if vein else None,
                 "hopper": float(rig.hopper),
                 #: When the hopper was last counted: the world tick moves it.
