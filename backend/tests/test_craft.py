@@ -419,6 +419,74 @@ async def test_short_of_inputs_batch_does_not_start(
         await craft.start(session, constants, catalog, body, NAILS, 10)
 
 
+async def test_most_is_the_largest_batch_that_starts(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """ "As much as fits" is exactly as much as fits: one more is a refusal.
+
+    The number the button fills in is worthless unless the batch behind it
+    starts, and worse than worthless if a batch one unit larger would have
+    started too.
+    """
+    _, identity, body = await _workshop(session)
+    await world.learn(session, identity, NAILS)
+    await _give(session, body, INGOT, 10, quality=80)
+
+    fits = await craft.most(session, constants, catalog, body, NAILS)
+    assert fits >= 1
+
+    with pytest.raises(craft.NotEnough):
+        await craft.plan(session, constants, catalog, body, NAILS, fits + 1)
+    #: And the answer is not a promise but the batch itself: it starts.
+    await craft.start(session, constants, catalog, body, NAILS, fits)
+
+
+async def test_most_stops_at_the_batch_ceiling(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Full hands do not raise the batch over `craft.batch_max` (D-129)."""
+    _, identity, body = await _workshop(session)
+    await world.learn(session, identity, NAILS)
+    await _give(session, body, INGOT, 10_000, quality=80)
+
+    fits = await craft.most(session, constants, catalog, body, NAILS)
+    assert fits == constants[R.CRAFT_BATCH_MAX]
+
+
+async def test_most_counts_the_chosen_tier_alone(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The tier named for an input narrows what feeds the batch (D-058) -- and
+    therefore how large a batch there can be.
+
+    This is the half a client counting from the visible stacks would get
+    wrong: on the screen the ingots are one heap.
+    """
+    from src.engine import market
+
+    _, identity, body = await _workshop(session)
+    await world.learn(session, identity, NAILS)
+    await _give(session, body, INGOT, 20, quality=25)
+    await _give(session, body, INGOT, 2, quality=85)
+    fine = market.tier_of(constants, 85)
+
+    whole_heap = await craft.most(session, constants, catalog, body, NAILS)
+    good_only = await craft.most(session, constants, catalog, body, NAILS, tiers={INGOT: fine})
+    assert good_only < whole_heap, "выбранный тир — это другая куча, и она меньше"
+    await craft.start(session, constants, catalog, body, NAILS, good_only, tiers={INGOT: fine})
+
+
+async def test_most_refuses_when_not_even_one_fits(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Empty hands are answered in words, not with a nought: what is missing
+    and by how much is what the player needs to hear."""
+    _, identity, body = await _workshop(session)
+    await world.learn(session, identity, NAILS)
+    with pytest.raises(craft.NotEnough):
+        await craft.most(session, constants, catalog, body, NAILS)
+
+
 async def test_batch_over_ceiling_not_started(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:

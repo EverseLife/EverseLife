@@ -68,6 +68,7 @@ from src.models.world import Layer, Node
 from src.units import (
     ENERGY_PER_TARIFF_UNIT,
     HOURS_PER_DAY,
+    MONEY_SCALE,
     ROUND_ENERGY,
     ROUND_REMAINDER,
     SECONDS_PER_HOUR,
@@ -679,6 +680,32 @@ async def draw_for_work(
         work=goods,
     )
     return price
+
+
+async def at_the_counter(
+    session: AsyncSession, constants: Constants, node: Node, body: Body
+) -> float:
+    """How much energy this grid would let this body take right now -- a read.
+
+    Two limits stand at the counter and the smaller one rules: what the pool
+    holds, and what the purse covers at the tariff -- whoever burns pays
+    (D-135), and a bill that cannot be paid stops the work as surely as an
+    empty pool. Read the way a forecast reads: the pool is taken as it stands,
+    without advancing its production and without locking it, so the answer can
+    only fall short of what `draw_for_work` will find -- never overshoot it.
+    """
+    pool = await pool_of(session, constants, node, create=False)
+    if pool is None:
+        return 0.0
+    stored = float(pool.stored)
+    tariff = float(pool.tariff)
+    if tariff <= 0:
+        return stored
+    account = await ledger.find_account(session, AccountKind.IDENTITY, body.identity_id)
+    if account is None:
+        return 0.0
+    purse = await ledger.balance(session, account.id)
+    return min(stored, purse / MONEY_SCALE * ENERGY_PER_TARIFF_UNIT / tariff)
 
 
 def price_at(constants: Constants, pool: EnergyPool | None, energy_needed: float) -> int:

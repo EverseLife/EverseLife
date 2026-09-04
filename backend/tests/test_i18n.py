@@ -203,11 +203,17 @@ def test_every_message_gets_the_arguments_it_interpolates(words: i18n.Words) -> 
     name into the sentence -- so this cannot be caught by rendering, only by
     reading both sides. Variants of a `select` are excluded on purpose: only
     one branch is ever taken, and the others may legitimately want more.
+
+    **Every site apart, not all of them together.** The sets used to be
+    merged per key, and a key raised from three places passed the check while
+    two of them passed nothing: `craft-batch-too-big` gained a `$most` at one
+    site, and the mint and the invention went on printing the word "most" into
+    the player's refusal. One site short is the whole bug.
     """
     from fluent.syntax import FluentParser
     from fluent.syntax import ast as ftl
 
-    passes: dict[str, set[str]] = {}
+    passes: dict[str, list[set[str]]] = {}
     for path in sorted(SRC.rglob("*.py")):
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             #: A payload that names its own line: `{"say": ..., "args": {...}}`.
@@ -231,7 +237,7 @@ def test_every_message_gets_the_arguments_it_interpolates(words: i18n.Words) -> 
                 }
                 for part in ast.walk(fields[SAY_FIELD]):
                     if isinstance(part, ast.Constant) and isinstance(part.value, str):
-                        passes.setdefault(part.value, set()).update(given)
+                        passes.setdefault(part.value, []).append(given)
                 continue
             if not isinstance(node, ast.Call):
                 continue
@@ -253,7 +259,7 @@ def test_every_message_gets_the_arguments_it_interpolates(words: i18n.Words) -> 
                     #: Reading only the first shape marked every `_said` key as
                     #: passing nothing, which read as a failure rather than as
                     #: the blind spot it was.
-                    passes.setdefault(first.value, set()).update(
+                    passes.setdefault(first.value, []).append(
                         {
                             name.value
                             for said in node.args[1:2]
@@ -294,7 +300,7 @@ def test_every_message_gets_the_arguments_it_interpolates(words: i18n.Words) -> 
                             for name in inner.keys
                             if isinstance(name, ast.Constant) and isinstance(name.value, str)
                         }
-            passes.setdefault(key, set()).update(given)
+            passes.setdefault(key, []).append(given)
 
     resource = FluentParser().parse(words.source(i18n.DEFAULT_LOCALE))
     short: list[str] = []
@@ -319,9 +325,10 @@ def test_every_message_gets_the_arguments_it_interpolates(words: i18n.Words) -> 
             and isinstance(element.expression, ftl.SelectExpression)
             for name in _variables_of(element.expression.selector)
         }
-        missing = (wanted | selectors) - passes[key]
-        if missing:
-            short.append(f"{key}: не передано {sorted(missing)}")
+        for given in passes[key]:
+            missing = (wanted | selectors) - given
+            if missing:
+                short.append(f"{key}: не передано {sorted(missing)}")
     assert not short, "; ".join(short)
 
 

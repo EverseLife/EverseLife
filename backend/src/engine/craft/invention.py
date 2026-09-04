@@ -95,7 +95,7 @@ async def invent(
     #: One body does one thing (D-211), and a queued batch is not a second.
     await occupation.require_free(session, body, besides=frozenset({occupation.CRAFT}))
     if units > constants[R.CRAFT_BATCH_MAX]:
-        raise TooBig(key="craft-batch-too-big", units=units)
+        raise TooBig(key="craft-batch-too-big", units=units, most=constants[R.CRAFT_BATCH_MAX])
 
     book = catalog.recipes
     laid: dict[str, float] = {}
