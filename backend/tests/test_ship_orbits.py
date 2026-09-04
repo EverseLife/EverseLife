@@ -14,7 +14,7 @@ lives in `test_ship_flight.py`.
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime
+from datetime import timedelta
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from ship_kit import (
     ENGINE,
     FUEL,
+    LATE_HOURS,
     TANK,
     _body_of,
     _equip,
@@ -38,7 +39,7 @@ from ship_kit import (
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import frost, jobs, ship, storage, world
-from src.engine.ship import lines
+from src.engine.ship import lines, sim
 from src.models.ship import Ship
 from src.models.world import Layer, Node, Planet
 from src.units import amount_float
@@ -90,8 +91,14 @@ async def test_the_way_between_worlds_goes_orbit_to_orbit(
         with pytest.raises(ship.TooFar):
             await ship.fly(session, constants, catalog, owner, vessel, await _orbit(session))
 
-        moment = datetime.now(UTC)
-        fast = await _fast_sample(session, constants, catalog, vessel, Planet.AURORA)
+        #: Cast off at the hour the hull moored, not at the wall clock: the
+        #: climb here is run by hand rather than by the journal, so the hull's
+        #: own stamp stands hours ahead of `now`, and the sky the passage is
+        #: planned under must be the sky the hull is actually in. That hour and
+        #: the pinned place on the circle (`PARK_HEADING`) are what make this
+        #: crossing one crossing rather than a fresh one every run.
+        moment = vessel.sky_at
+        fast = await _fast_sample(session, constants, catalog, vessel, Planet.AURORA, now=moment)
         arrives = await ship.fly(
             session, constants, catalog, owner, vessel, aurora, hours=fast["hours"], now=moment
         )
@@ -101,8 +108,14 @@ async def test_the_way_between_worlds_goes_orbit_to_orbit(
         vessel = await session.get(Ship, ship_id)
         #: Flown by the tick, hour by hour, until the helm puts the hull on
         #: Aurora's circle (D-289).
-        await _flown(session, constants, catalog, vessel, since=moment, until=arrives)
+        moored = await _flown(session, constants, catalog, vessel, since=moment, until=arrives)
         assert vessel.docked_node_id == aurora_id, "борт на орбите Авроры"
+        #: And moored at the hour the console promised, not merely in the end:
+        #: the fast end of the slider closes on time or it is a different
+        #: passage (`LATE_HOURS`).
+        assert moored - arrives <= timedelta(hours=LATE_HOURS), (
+            "и в обещанный час, а не когда-нибудь"
+        )
         connector = await session.get(Node, vessel.connector_node_id)
         assert connector.planet is Planet.AURORA, "и несёт планету, над которой висит"
 
@@ -246,6 +259,10 @@ async def test_an_orbit_has_no_pier_to_queue_at(
 
     Numbered berths would have made the twentieth hull over Terra climb a
     gangway twenty times the first one's, for a pier that does not exist.
+
+    Parked where the engine puts them (`heading=None`) rather than where the
+    kit pins them: hanging beside one another is the point, and this is the one
+    place the layout `sim.bearing_of` spins off the hulls' ids is looked at.
     """
     home = await _port(session, name="Космодром столицы")
     parked = []
@@ -256,9 +273,18 @@ async def test_an_orbit_has_no_pier_to_queue_at(
         connector = await session.get(Node, vessel.connector_node_id)
         owner.node_id = connector.id
         await session.flush()
-        parked.append(await _in_orbit(session, constants, catalog, owner, vessel))
+        parked.append(await _in_orbit(session, constants, catalog, owner, vessel, heading=None))
 
     assert [vessel.berth for vessel in parked] == [1, 1, 1], "на орбите причала нет"
+    #: And beside one another, not on top of one another: each hull's place on
+    #: the circle is its own id's, so a hull arriving over a planet never
+    #: inherits the point of the one already there. Asserted against the spin
+    #: itself rather than against "the three differ": the hash has 997 places
+    #: on the circle, and three draws out of them collide once in some three
+    #: hundred runs -- which is a flake, not a check.
+    assert [float(vessel.park_phase) for vessel in parked] == [
+        pytest.approx(sim.bearing_of(vessel)) for vessel in parked
+    ], "каждый борт встал туда, куда развернул его собственный id"
 
 
 # --- the kind of fuel (D-252) ------------------------------------------------

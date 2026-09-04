@@ -14,7 +14,6 @@ journal says so once; two consents in one second make one edge.
 from __future__ import annotations
 
 import asyncio
-import math
 from datetime import UTC, datetime, timedelta
 
 import numpy as np
@@ -23,6 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ship_kit import (
+    PARK_HEADING,
     _flightworthy,
     _flown,
     _fuel,
@@ -62,16 +62,20 @@ async def _joined(session: AsyncSession, constants: Constants, a: Node, b: Node)
 #: Terra, and Terra's heading turns with the year. A drifter sent off from
 #: `DRIFTER_HEADING` coasts for weeks; from `PLUNGE_HEADING` it comes down on
 #: Terra within the hour; the rescuer sits a little behind the drifter.
+#:
+#: Measured against the order these tests actually give, not derived: `_hull`
+#: pins the angle at the hull's stamp, `_drifting` casts off at the wall clock
+#: an ascent earlier, and the circle turns between the two. Move either hour
+#: and these three numbers want measuring again -- `PLUNGE_HEADING` stopped
+#: plunging when the cast-off was moved to the stamp.
 DRIFTER_HEADING = 2.5
 RESCUER_HEADING = DRIFTER_HEADING + 0.8
 PLUNGE_HEADING = -1.75
 
-
-async def _terra_heading(session: AsyncSession, constants: Constants) -> float:
-    world = await sim.system(session, constants)
-    terra = world.body(Planet.TERRA.value)
-    _, vp = sky.place(terra, await ship.sky_days(session, datetime.now(UTC)))
-    return math.atan2(float(vp[0, 1]), float(vp[0, 0]))
+#: A pair that is only ever two hulls: far enough apart on the circle to be
+#: two places, near enough to be in each other's sight (the whole circle is).
+FIRST_HEADING = PARK_HEADING
+SECOND_HEADING = PARK_HEADING + 0.8
 
 
 async def _hull(
@@ -81,10 +85,10 @@ async def _hull(
     port: Node,
     *,
     fuel: float,
-    heading: float | None = None,
+    heading: float = PARK_HEADING,
 ) -> tuple[Ship, Body]:
     """A flight-worthy hull of a fresh owner, in Terra's orbit -- `heading`
-    radians off Terra's own heading on the circle, or where its id spins it."""
+    radians off Terra's own heading on the circle (`PARK_HEADING`)."""
     _, owner = await _shipwright(session, port)
     vessel = await _laid(session, constants, owner, port)
     await _flightworthy(session, constants, catalog, vessel)
@@ -92,10 +96,7 @@ async def _hull(
     await _fuel(session, connector, fuel)
     owner.node_id = connector.id
     await session.flush()
-    await _in_orbit(session, constants, catalog, owner, vessel)
-    if heading is not None:
-        vessel.park_phase = await _terra_heading(session, constants) + heading
-        await session.flush()
+    await _in_orbit(session, constants, catalog, owner, vessel, heading=heading)
     return vessel, owner
 
 
@@ -255,8 +256,8 @@ async def test_docking_is_refused_before_the_hold_and_at_a_pier(
     hull to hull is space only."""
     home = await _port(session, name="Космодром столицы")
     await _port(session, name="Космодром Мерида", planet=Planet.AURORA)
-    one, owner = await _hull(session, constants, catalog, home, fuel=5000)
-    two, other = await _hull(session, constants, catalog, home, fuel=5000)
+    one, owner = await _hull(session, constants, catalog, home, fuel=5000, heading=FIRST_HEADING)
+    two, other = await _hull(session, constants, catalog, home, fuel=5000, heading=SECOND_HEADING)
     with pytest.raises(ship.Docked):
         await ship.dock(session, constants, owner, one, two)
     with pytest.raises(ship.TooFar):
@@ -357,8 +358,12 @@ async def test_a_foreign_hull_is_sighted_within_the_radius_and_told_once(
     sight, and again only after it has gone out of it."""
     home = await _port(session, name="Космодром столицы")
     await _port(session, name="Космодром Мерида", planet=Planet.AURORA)
-    watcher, owner = await _hull(session, constants, catalog, home, fuel=5000)
-    stranger, other = await _hull(session, constants, catalog, home, fuel=5000)
+    watcher, owner = await _hull(
+        session, constants, catalog, home, fuel=5000, heading=FIRST_HEADING
+    )
+    stranger, other = await _hull(
+        session, constants, catalog, home, fuel=5000, heading=SECOND_HEADING
+    )
     #: Moored at the same orbit: seen, and not a target.
     seen = await ship.profile(session, constants, catalog, watcher)
     found = next(one for one in seen["sightings"] if one["ship"] == str(stranger.id))

@@ -8,13 +8,14 @@ keel, equipment and fuel aboard, a hull fit to fly. Used by the ship files
 
 from __future__ import annotations
 
+import math
 import uuid
 from datetime import datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src import seed_parts
+from src import seed_parts, sky
 from src.constants import Catalog, Constants, current
 from src.engine import ship, storage, world
 from src.engine.ship import lines
@@ -81,16 +82,90 @@ async def select_node(session: AsyncSession, key: str) -> Node | None:
     return (await session.execute(select(Node).where(Node.key == key))).scalars().first()
 
 
+#: Where on the parking circle a test's hull is put, radians off the planet's
+#: own heading -- rather than the angle its id spins it to (`sim.bearing_of`).
+#: In the game that spin keeps two hulls over one planet off one point; in a
+#: test the id is a fresh `uuid4` every run, so the crossing to Aurora cast off
+#: from a fresh angle each time. That angle decides the run: `_fast_sample`
+#: flies the first `ok` point of the slider, which is by construction the arc
+#: the engines can barely deliver -- for the hull `_flightworthy` fits out its
+#: delta-v comes within two per cent of what the thrust gives over those hours
+#: (the margin is where the slider's ten-per-cent grid falls against
+#: `course.deliverable`, so another hull's is another number).
+#:
+#: What that angle decides, swept against the engine over the whole circle of
+#: it: twenty-three headings in twenty-four moor an hour or two past the hour
+#: the console promised, and one -- near 1.05 rad -- never moors at all, still
+#: under its order ten days on. That is the rate at which the crossing test
+#: used to go red, and the reason widening its slack would have been the wrong
+#: repair: on that one heading there is nothing to wait for. The angle picks
+#: the passage; why that passage does not close is not run down here, and it
+#: deserves a line in the vault rather than this comment.
+#:
+#: Off the planet's heading and not an absolute angle, as `test_ship_meet`
+#: reads it: which way a hull leaves the circle decides whether a dry coast
+#: lasts or plunges, and the planet's heading turns with its year.
+#:
+#: The pin is the kit's default, so no test observes the engine's own layout by
+#: accident any more; the one that observes it on purpose asks for it by name
+#: (`heading=None` in `test_ship_orbits.test_an_orbit_has_no_pier_to_queue_at`).
+PARK_HEADING = 0.0
+
+#: How late a crossing may moor and still be the crossing that was ordered.
+#: A pinned angle only holds while the vault's numbers stay put: retune
+#: `orbit.thrust_scale` or `orbit.slider_step` and the pin and the band move
+#: apart, so the tests that fly to a mooring say what they expect rather than
+#: leaning on the slack in `_flown`. Measured over the whole circle of
+#: departure angles, a passage that closes at all closes 1.6 to 2.6 hours past
+#: the promised hour -- the tick's own hour among them -- so this is roomy.
+LATE_HOURS = 6.0
+
+
+async def _heading_of(
+    session: AsyncSession, constants: Constants, planet: Planet, at: datetime
+) -> float:
+    """The planet's own heading on its solar orbit at `at`, radians.
+
+    Read at the hull's own stamp rather than at the wall clock, so that a run
+    is a run: a planet's year is short (Terra's is twenty-eight days), and the
+    climb alone turns Terra some five hundredths of a radian.
+    """
+    world_ = await ship.sim.system(session, constants)
+    _, speed = sky.place(world_.body(planet.value), await ship.sky_days(session, at))
+    return math.atan2(float(speed[0, 1]), float(speed[0, 0]))
+
+
 async def _in_orbit(
-    session: AsyncSession, constants: Constants, catalog: Catalog, body: Body, vessel: Ship
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    body: Body,
+    vessel: Ship,
+    *,
+    heading: float | None = PARK_HEADING,
 ) -> Ship:
-    """Climb and arrive: the hull hanging over the planet it set out from."""
+    """Climb and arrive: the hull hanging over the planet it set out from,
+    `heading` radians off that planet's own heading on the circle -- or, with
+    `heading=None`, wherever the hull's id spins it (see `PARK_HEADING`)."""
     job = await ship.ascend(session, constants, catalog, body, vessel)
     await ship.arrived(session, job)
     #: The climb is run by hand here, so close it by hand too: left pending it
     #: is a passage still under way, and the next order would be refused.
     job.state = JobState.DONE
     job.finished_at = job.run_at
+    if heading is not None:
+        #: Said out loud rather than guarded around: a climb that did not end
+        #: on a circle is the caller's mistake, and a pin quietly skipped would
+        #: hand the angle back to the id -- the lottery, in the one place
+        #: nobody would look for it.
+        assert vessel.sky_at is not None and vessel.docked_node_id is not None, (
+            "climb ended off the circle"
+        )
+        moored = await session.get(Node, vessel.docked_node_id)
+        assert moored is not None
+        vessel.park_phase = (
+            await _heading_of(session, constants, moored.planet, vessel.sky_at) + heading
+        )
     await session.flush()
     return vessel
 
@@ -189,14 +264,26 @@ async def _body_of(session: AsyncSession, vessel: Ship) -> Body:
 
 
 async def _fast_sample(
-    session: AsyncSession, constants: Constants, catalog: Catalog, vessel: Ship, planet: Planet
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    vessel: Ship,
+    planet: Planet,
+    *,
+    now: datetime | None = None,
 ) -> dict:
     """The fastest arc the engines deliver to `planet`, off the slider.
 
     The one a test flies: the tick steps the sky a minute at a time (D-289),
-    and forty days of the cheapest arc is not a test.
+    and the horizon's forty-five days of the cheapest arc is not a test
+    (`orbit.longest_days`, D-271). It is also the arc with
+    the least room in it -- the first `ok` point of the slider is the one the
+    thrust barely covers -- so a test that flies it and waits for the mooring
+    reads the sky at the hour it casts off from (`now`) and departs from a
+    pinned place on the circle (`PARK_HEADING`), or it is a different passage
+    every run.
     """
-    forecast = await ship.forecast(session, constants, catalog, vessel, planet)
+    forecast = await ship.forecast(session, constants, catalog, vessel, planet, now=now)
     return next(one for one in forecast["samples"] if one["ok"])
 
 
