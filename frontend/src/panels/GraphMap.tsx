@@ -80,7 +80,8 @@ import {
 import { STAR, horizon } from "./map/orbits";
 
 /**
- * Whether the camera was left tied to the body (D-238).
+ * Whether the camera was left tied to the body (D-238; that it survives a
+ * reload is D-298).
  *
  * It outlives the panel, which is unmounted every time one looks at the
  * location tab -- a player who set the camera loose to watch a road would find
