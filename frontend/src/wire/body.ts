@@ -60,6 +60,16 @@ export type Sight = {
   timbers: number;
   stamina: number;
   pace: "steady" | "fast";
+  /**
+   * The three states are the shape of the `mine.*` **replies**, where a
+   * session really does end. In `look.mining` this is always `"active"`:
+   * `look` selects the open face and nothing else, so the window reads a
+   * collapse from the event instead (`../mining`) and never from here.
+   *
+   * Left on the wire rather than cut out of the look copy: one `_sight` on
+   * the server builds both, and a second shape for a single enum is a worse
+   * trade than a constant a client may ignore.
+   */
   state: "active" | "left" | "collapsed";
   session: string;
 };

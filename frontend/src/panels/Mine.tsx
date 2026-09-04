@@ -9,15 +9,19 @@
  * change until you swing**: otherwise the average of readings would yield the hidden number.
  *
  * The session opens only after the device fee, and the browser computes it.
+ *
+ * How the bad ending gets said here at all is in `../mining`: `look` carries
+ * the open face and nothing else, so a collapse arrives as an event.
  */
 
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { Look, Sight } from "../api";
 import { solve, type PowSettings } from "../pow";
 import { Rule } from "../Rule";
 import { Refusal, useActions, useBook, useNames, useSession } from "../actions";
 import { classOf } from "../classes";
+import { caveIn, type CaveIn } from "../mining";
 import { t } from "../locale";
 import { goodsName } from "../names";
 
@@ -50,6 +54,30 @@ export function Mine({ look, values, pow }: Omit<Props, "busy" | "act">) {
   const doomed =
     typeof spared === "number" && (look.body?.cave_ins ?? 0) >= spared;
 
+  //: The roof came down, and `look` will never say so: it carries the open
+  //: session and a collapsed one is closed. The window hears it instead --
+  //: see `../mining` for why the event and not the reply to the swing.
+  //:
+  //: State of this component, and that is enough: a working collapses only
+  //: under one's own swing (`engine/mining/face`), so the panel is open and
+  //: mounted when the news arrives. Walking away or reloading loses it, and
+  //: that is the right price -- the return summary tells it again.
+  const [buried, setBuried] = useState<CaveIn | null>(null);
+  useEffect(
+    () =>
+      session.on("mining.collapsed", (happening) => {
+        const mine = caveIn(happening);
+        if (mine) setBuried(mine);
+      }),
+    [session],
+  );
+  //: A face opened again is the collapse read and done with: the notice
+  //: belongs to the walk back in, not to the next shift.
+  const digging = Boolean(scene);
+  useEffect(() => {
+    if (digging) setBuried(null);
+  }, [digging]);
+
   const start = () =>
     act(async () => {
       //: The button is dead without a vein, so this is a guard rather than a
@@ -81,6 +109,29 @@ export function Mine({ look, values, pow }: Omit<Props, "busy" | "act">) {
       {doomed && <p className="trouble">{t("ui-mine-last-cave-in")}</p>}
       {!scene && (
         <>
+          {buried && (
+            /* One alert, both lines: the sentence and the number it is about
+               are announced together, or the screen reader hears half of it. */
+            <div role="alert">
+              <p className="trouble">
+                {t("ui-mine-collapsed")}{" "}
+                <button
+                  className="link"
+                  onClick={() => setBuried(null)}
+                  aria-label={t("ui-refusal-dismiss")}
+                >
+                  ×
+                </button>
+              </p>
+              {/* A roof down on the first swing buried nothing: the sentence
+                  above says it whole, and "0.000" under it says less. */}
+              {buried.lost > 0 && (
+                <p className="note">
+                  {t("ui-mine-collapsed-lost", { lost: buried.lost.toFixed(3) })}
+                </p>
+              )}
+            </div>
+          )}
           <p className="note">
             {vein
               ? t("ui-mine-vein", {
@@ -124,36 +175,32 @@ export function Mine({ look, values, pow }: Omit<Props, "busy" | "act">) {
             </tbody>
           </table>
 
-          {scene.state === "active" ? (
-            <div className="row">
-              <button onClick={() => act(() => session.send("mine.swing"))} disabled={busy}>
-                {t("ui-mine-swing")}
-              </button>
-              <button onClick={() => act(() => session.send("mine.timber"))} disabled={busy}>
-                {t("ui-mine-timber")}
-              </button>
-              <button onClick={() => act(() => session.send("mine.leave"))} disabled={busy}>
-                {t("ui-mine-leave")}
-              </button>
-              <button
-                className="quiet"
-                onClick={() =>
-                  act(() =>
-                    session.send("mine.pace", {
-                      pace: scene.pace === "fast" ? "steady" : "fast",
-                    }),
-                  )
-                }
-                disabled={busy}
-              >
-                {t("ui-mine-pace", { fast: String(scene.pace === "fast") })}
-              </button>
-            </div>
-          ) : (
-            <p className="trouble">
-              {t(scene.state === "collapsed" ? "ui-mine-collapsed" : "ui-mine-closed")}
-            </p>
-          )}
+          {/* `look` sends the open face and only that, so there is no closed
+              one to draw here: the end of a session is the notice above. */}
+          <div className="row">
+            <button onClick={() => act(() => session.send("mine.swing"))} disabled={busy}>
+              {t("ui-mine-swing")}
+            </button>
+            <button onClick={() => act(() => session.send("mine.timber"))} disabled={busy}>
+              {t("ui-mine-timber")}
+            </button>
+            <button onClick={() => act(() => session.send("mine.leave"))} disabled={busy}>
+              {t("ui-mine-leave")}
+            </button>
+            <button
+              className="quiet"
+              onClick={() =>
+                act(() =>
+                  session.send("mine.pace", {
+                    pace: scene.pace === "fast" ? "steady" : "fast",
+                  }),
+                )
+              }
+              disabled={busy}
+            >
+              {t("ui-mine-pace", { fast: String(scene.pace === "fast") })}
+            </button>
+          </div>
         </>
       )}
     </section>

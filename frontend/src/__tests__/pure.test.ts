@@ -15,6 +15,7 @@ import { duration, hands, stamp, when, worldTime } from "../clock";
 import { groundName } from "../grounds";
 import { forget, learn, Words } from "../locale";
 import { catalogue, coins, exactly } from "../market";
+import { caveIn } from "../mining";
 import { lawOption } from "../names";
 import { pollTally, pollThreshold } from "../polls";
 import {
@@ -562,5 +563,38 @@ describe("market", () => {
     expect(exactly(4)).toBe("4");
     expect(exactly(0.5)).toBe("0.5");
     expect(exactly(0)).toBe("0");
+  });
+});
+
+describe("mining", () => {
+  const collapse = (over: Record<string, unknown> = {}) =>
+    ({
+      event: "mining.collapsed",
+      touches: ["mining", "inventory"],
+      lost: 3.412,
+      wounded: false,
+      killed: false,
+      ...over,
+    }) as never;
+
+  it("reads one's own cave-in: the haul the roof buried", () => {
+    expect(caveIn(collapse())).toEqual({ lost: 3.412 });
+  });
+
+  //: Nought is a cave-in like any other -- the roof came down on the first
+  //: swing -- and it must not read as "nothing happened" on the way out.
+  it("keeps a cave-in that buried an empty container", () => {
+    expect(caveIn(collapse({ lost: 0 }))).toEqual({ lost: 0 });
+  });
+
+  //: The room hears the same kind with the fact and no numbers, and a window
+  //: drawing that would mourn a stranger's haul in the reader's own face.
+  it("leaves somebody else's cave-in to them", () => {
+    const heard = { event: "mining.collapsed", touches: ["node"], who: "Тэрн" };
+    expect(caveIn(heard as never)).toBeNull();
+  });
+
+  it("hears nothing in another kind of news", () => {
+    expect(caveIn(collapse({ event: "mining.swing", mined: 0.2 }))).toBeNull();
   });
 });

@@ -301,8 +301,8 @@ ui-mine-pace = pace: { $fast ->
        *[false] steady
     }
 ui-mine-collapsed = A cave-in. Everything mined this session is lost.
+ui-mine-collapsed-lost = mined: { $lost }
 ui-mine-last-cave-in = The next cave-in is this body's last: it stays under the rock, and everything it carries stays lying here whole.
-ui-mine-closed = The session is closed.
 
 ## The rig: capital instead of labour.
 
