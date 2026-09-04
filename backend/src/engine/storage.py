@@ -24,11 +24,12 @@ Whether it is furniture or a machine the engine does not care: it looks at the f
   open location;
 * **the limit is mass**, in the same kilograms as hands and hold: there is no
   third unit of capacity in the world;
-* **a full storage is not taken down** (`station.take`): the pick-up weighs
-  the chest and not what is in it, so a full one would leave in the hands
-  with a ton nobody weighed. That D-278 also calls a lying chest cargo rather
-  than a storage this module does not yet enforce -- `_allowed` never asks
-  `installed`, and the same ton goes round through drop-fill-pick (OQ-129).
+* **a full storage weighs its fill** (D-313). A chest lying on the floor is a
+  storage like any other -- there is nothing to place it on in an open field,
+  and refusing there would take the field's only warehouse away -- but it is
+  picked up with what is in it, and the hands are told the honest number. A
+  full one is still not handed over by `station.take` (D-181): that door
+  weighs nothing at all.
 """
 
 from __future__ import annotations
@@ -37,6 +38,7 @@ import uuid
 from collections.abc import Sequence
 
 from sqlalchemy import select
+from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
@@ -78,8 +80,9 @@ def capacity(catalog: Catalog, type_key: str) -> float | None:
 
 
 def is_storage(catalog: Catalog, type_key: str) -> bool:
-    limit = capacity(catalog, type_key)
-    return limit is not None and limit > 0
+    """Whether the vault gave this thing capacity. One truth, kept in `gear`:
+    the carry limit stands below this module and asks the same question."""
+    return gear.has_store(catalog, type_key)
 
 
 #: The value of `Recipe.holds` that makes a storage a vessel (D-230).
@@ -159,12 +162,17 @@ async def contents_of(session: AsyncSession, chests: Sequence[Item]) -> dict[uui
 
 
 async def stored_mass(session: AsyncSession, catalog: Catalog, chest: Item) -> float:
-    """How many kilograms already lie inside."""
+    """How many kilograms already lie inside, a nested storage's own load included.
 
-    return sum(
-        gear.mass_of(catalog, thing.type_key, amount_float(thing.amount))
-        for thing in await content(session, chest)
-    )
+    A chest goes into a chest -- `admits` lets it -- and what the inner one
+    holds is mass in the outer one all the same (D-313). Without this a
+    nesting doll would be a way round both the capacity and the carry limit,
+    since the hands read the very same number one layer up.
+    """
+
+    things = await content(session, chest)
+    own = sum(gear.mass_of(catalog, thing.type_key, amount_float(thing.amount)) for thing in things)
+    return own + await gear.inner_mass(session, catalog, things)
 
 
 async def is_empty(session: AsyncSession, chest: Item) -> bool:
@@ -206,7 +214,11 @@ async def put(
             why="vessel" if is_vessel(catalog, chest.type_key) else "chest",
         )
 
-    bonus = gear.mass_of(catalog, item.type_key, qty)
+    #: A chest put into a chest brings its contents (D-313): the capacity is
+    #: mass, and a nesting doll must not be a way round it.
+    bonus = gear.mass_of(catalog, item.type_key, qty) + await gear.moved_inside(
+        session, catalog, item, qty
+    )
     limit = capacity(catalog, chest.type_key) or 0.0
     free = limit - await stored_mass(session, catalog, chest)
     if bonus > free:
@@ -246,7 +258,7 @@ async def take(
     if qty <= 0:
         raise StorageError(key="storage-nothing-to-take")
 
-    await gear.check_carry(session, constants, catalog, body, item.type_key, qty)
+    await gear.check_carry_thing(session, constants, catalog, body, item, qty)
 
     pocket = await world.body_container(session, body)
     carried = await world.move_stack(session, item, pocket, qty)
@@ -272,10 +284,12 @@ class NoRoom(StorageError):
 async def lying(session: AsyncSession, node: Node, *, indoors: bool = True) -> list[Item]:
     """What lies loose on one of the node's two surfaces.
 
-    What stands -- a machine or a chest put up -- is shown by its own window
-    and pays for its place by slots (D-106); a machine dropped here lies among
-    the sacks (D-278). `indoors` picks the surface: the floor of the house, or
-    the open ground beside it (D-244).
+    What stands -- a machine or a chest put up -- pays for its place by slots
+    (D-106) and a machine dropped here lies among the sacks (D-278). A chest
+    dropped here lies among them too **and** keeps its own window: it is
+    cargo to whoever picks it up and a store to whoever opens it (D-313).
+    `indoors` picks the surface: the floor of the house, or the open ground
+    beside it (D-244).
     """
 
     inside, outside = await estate.split(session, node)
@@ -481,7 +495,11 @@ async def pick(
     qty = amount_float(item.amount) if quantity is None else quantity
     if qty <= 0:
         raise StorageError(key="storage-nothing-to-pick")
-    await gear.check_carry(session, constants, catalog, body, item.type_key, qty)
+    #: A chest is picked up with what is in it (D-313): the load reads the
+    #: contents, so the ton in a chest lying on the floor is the ton the hands
+    #: are told about. Without this the floor was the cheapest warehouse in
+    #: the world -- no slot, no area under the goods, and no weight either.
+    await gear.check_carry_thing(session, constants, catalog, body, item, qty)
 
     pocket = await world.body_container(session, body)
     taken = await world.move_stack(session, item, pocket, qty)
@@ -535,7 +553,7 @@ async def hand(
     qty = amount_float(item.amount) if quantity is None else quantity
     if qty <= 0:
         raise StorageError(key="storage-nothing-to-hand")
-    await gear.check_carry(session, constants, catalog, taker, item.type_key, qty)
+    await gear.check_carry_thing(session, constants, catalog, taker, item, qty)
 
     hands = await world.body_container(session, taker)
     given = await world.move_stack(session, item, hands, qty)
@@ -564,6 +582,26 @@ async def _allowed(session: AsyncSession, catalog: Catalog, body: Body, chest: I
     node = await session.get(Node, body.node_id)
     if node is None:  # pragma: no cover -- a body without a node is a bug
         raise StorageError(key="storage-body-off-node")
+
+    #: The chest's row is taken for the transaction before a word is read off
+    #: it, and refreshed with the lock rather than merely locked: a chest
+    #: weighs its contents now (D-313), so both doors read them -- one for the
+    #: room left, the other for the weight of carrying the box away -- and a
+    #: fill that slips in between a reading and a move is how the carry limit
+    #: gets walked round (D-146). `gear.check_carry_thing` takes the same row
+    #: at the lifting door, so filling and lifting queue on it. Locking
+    #: without refreshing would be worse than not locking: the second in the
+    #: queue would wait its turn and then decide on the state it read before
+    #: waiting -- and pour a quarter of a ton into a chest already walking
+    #: away in somebody's hands.
+    named = chest.type_key
+    try:
+        await session.refresh(chest, with_for_update=True)
+    except InvalidRequestError as gone:
+        #: Burnt, fallen with the house, carried off between the look and the
+        #: click: the world's ordinary answer, said in words (D-011).
+        raise StorageError(key="thing-gone", goods=named) from gone
+
     yard = await world.node_container(session, node)
     if chest.container_id != yard.id:
         raise StorageError(key="storage-storage-not-here")

@@ -11,9 +11,11 @@ everything was built for cost nothing.
 ## How it is computed
 
 **Load** is the sum of masses of everything in the hands, including what is
-worn -- an exoskeleton does not become weightless because it is put on. A
-worn pack lightens the first kilograms it holds (`inventory.pack`, D-268);
-the rest weighs what it weighs.
+worn -- an exoskeleton does not become weightless because it is put on -- and
+including what those things hold inside (D-313): a full canister weighs its
+fill, a full chest weighs what is stacked in it. A worn pack lightens the
+first kilograms it holds (`inventory.pack`, D-268); the rest weighs what it
+weighs.
 
 **Limit** is `inventory.carry_mass` plus `inventory.exo_bonus` for a worn
 exoskeleton -- while a charged battery rides in the hands (D-268). A pack
@@ -37,6 +39,14 @@ Where the player **takes a thing in hand**: purchase from the terminal,
 harvest, emptying a hopper. This is not an error message but the reason
 wagons, caravans and the carter's profession exist.
 
+Two doors, because the question has two shapes. `check_carry` asks about
+**goods by name** -- a harvest, a poured litre, an hour at the face: matter
+that arrives without a row of its own and holds nothing. `check_carry_thing`
+asks about a **row that moves whole** -- off the floor, out of a chest, out
+of a hold, from another's hands -- and that one weighs what is inside it
+(D-313). A door that moves a thing and asks the first question has a hole
+the size of the thing's contents.
+
 What is made at a machine does not fall under the limit: it lies where it was
 made and becomes a load only when taken. Likewise with what is mined at the
 face -- it stays at the face until somebody comes for it, and with a machine
@@ -54,6 +64,7 @@ answers at the pick-up (D-308).
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import datetime
 
 from sqlalchemy import select
@@ -61,6 +72,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants, current_catalog
 from src.constants import registry as R
+from src.constants.catalog import ItemKind
 from src.engine import battery, events, stock, travel, world
 from src.engine.errors import Refusal
 from src.models.craft import BatchKind, BatchState, CraftBatch
@@ -96,27 +108,112 @@ def mass_of(catalog: Catalog, type_key: str, quantity: float) -> float:
     return catalog.recipes.mass_of(type_key) * quantity
 
 
+#: Containers a **thing** owns, and which therefore travel with it: a
+#: storage's inside (D-181) and a vehicle's hold (D-157). The market's cells
+#: belong to an identity and a pocket to a body, so neither is ever carried.
+INSIDE_KINDS = (ContainerKind.STORAGE, ContainerKind.VEHICLE)
+
+
+def has_store(catalog: Catalog, type_key: str) -> bool:
+    """Whether the vault gives this thing capacity (`store`, D-181).
+
+    The primitive `storage.is_storage` is built on; it lives here because the
+    carry limit is below both `storage` and `transport` in the import order
+    and cannot call up to either.
+    """
+    try:
+        return bool(catalog.recipes.recipe(type_key).store)
+    except Exception:  # noqa: BLE001 -- raw material has no recipe, and that is normal
+        return False
+
+
+def is_vehicle_kind(catalog: Catalog, type_key: str) -> bool:
+    """Whether the vault calls this a vehicle (`kind: vehicle`, D-090, D-157).
+
+    The primitive `transport.is_vehicle` is built on -- see `has_store`.
+    """
+    try:
+        return catalog.recipes.recipe(type_key).kind is ItemKind.VEHICLE
+    except Exception:  # noqa: BLE001 -- raw material has no recipe, and that is normal
+        return False
+
+
+def holds_things(catalog: Catalog, type_key: str) -> bool:
+    """Whether a thing of this kind can have anything inside it: a storage has
+    capacity, a vehicle has a hold. One question, so no door forgets a half."""
+    return has_store(catalog, type_key) or is_vehicle_kind(catalog, type_key)
+
+
+async def inner_mass(session: AsyncSession, catalog: Catalog, things: Sequence[Item]) -> float:
+    """The mass riding inside the things themselves, kg (D-313).
+
+    A full canister weighs its fill (D-230), and so do a full chest and a
+    loaded barrow: what is carried is carried, it only lives a container
+    deeper, and a lid is not a way out of the limit. Answered for a whole list
+    at once -- the inventory asks it of every hand at every `look`, and the
+    carry limit at every pick-up.
+
+    Containers nest -- a chest into a chest, a chest into a barrow -- so the
+    reading walks down until a layer holds nothing. Each layer is two queries,
+    not two per thing; hands holding no container at all cost none; and only
+    the three columns the mass needs are read, because a chest of two hundred
+    stacks would otherwise be hydrated whole at every `look`.
+
+    Containers visited are remembered. The doors cannot build a cycle -- to be
+    put into a box a thing must be in the hands, and a box that holds it lies
+    in a node -- but a walk that trusts that would hang a request inside a
+    transaction if one ever appeared, and the answer to "how would it get
+    there" must not be the only thing standing between a read and a hang.
+    """
+    total = 0.0
+    layer = [
+        (thing.id, thing.type_key) for thing in things if holds_things(catalog, thing.type_key)
+    ]
+    seen: set[uuid.UUID] = set()
+    while layer:
+        holds = [
+            hold
+            for hold in (
+                (
+                    await session.execute(
+                        select(Container.id).where(
+                            Container.kind.in_(INSIDE_KINDS),
+                            Container.owner_id.in_([owner for owner, _ in layer]),
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            if hold not in seen
+        ]
+        if not holds:
+            break
+        seen.update(holds)
+        rows = (
+            await session.execute(
+                select(Item.id, Item.type_key, Item.amount).where(Item.container_id.in_(holds))
+            )
+        ).all()
+        total += sum(mass_of(catalog, key, amount_float(amount)) for _, key, amount in rows)
+        layer = [(found, key) for found, key, _ in rows if holds_things(catalog, key)]
+    return total
+
+
 async def carried_mass(session: AsyncSession, catalog: Catalog, body: Body) -> float:
     """The matter in the hands, kg -- before a pack lightens any of it.
 
     What is worn counts along with everything else. This is the figure a pack
     is applied to, and the one in which kilograms may be added at all: the
     felt load is not additive, so two readings of it must never be summed.
+
+    What those things hold inside counts too (D-313): a full canister weighs
+    its fill, a full chest weighs what is stacked in it, a loaded barrow its
+    load.
     """
     things = await world.contents(session, await world.body_container(session, body))
-    from src.engine import storage  # noqa: PLC0415 -- lazy: storage -> gear (the carry limit)
-
-    #: A full canister weighs its fill (D-230): the liquid is carried, it only
-    #: lives one container deeper. One reading for all the vessels at once.
     own = sum(mass_of(catalog, thing.type_key, amount_float(thing.amount)) for thing in things)
-    inside = await storage.contents_of(
-        session, [t for t in things if storage.is_vessel(catalog, t.type_key)]
-    )
-    fill = sum(
-        mass_of(catalog, thing.type_key, amount_float(thing.amount))
-        for held in inside.values()
-        for thing in held
-    )
+    fill = await inner_mass(session, catalog, things)
     return own + fill
 
 
@@ -380,6 +477,8 @@ async def check_carry(
     body: Body,
     type_key: str,
     quantity: float,
+    *,
+    inside: float = 0.0,
 ) -> None:
     """Whether this fits in the hands. Did not fit -- not taken, and that is not an error but
     weight.
@@ -389,8 +488,13 @@ async def check_carry(
     (D-268). Adding the thing's own mass to a load already read through the
     pack charged full weight for what the pack was going to carry at
     `factor`, and refused a pickup the body could make.
+
+    `inside` is what rides within the thing itself (D-313): a chest arrives
+    with its contents, and weighing the lid alone would let a ton through a
+    door that asked about four kilograms. Doors that mint goods by name --
+    a harvest, a face, a poured litre -- have nothing inside and say nothing.
     """
-    bonus = mass_of(catalog, type_key, quantity)
+    bonus = mass_of(catalog, type_key, quantity) + inside
     if bonus <= 0:
         return
     worn = await equipped(session, body)
@@ -403,6 +507,47 @@ async def check_carry(
         #: weighs on the ground: the three figures in the message have to add
         #: up for whoever reads it.
         raise Overloaded(key="gear-overloaded", carries=carries, limit=limit, extra=after - carries)
+
+
+async def moved_inside(
+    session: AsyncSession, catalog: Catalog, item: Item, quantity: float
+) -> float:
+    """What rides inside a thing when it moves, kg (D-313).
+
+    Only a whole row brings its contents along: splitting a stack hands over a
+    bare thing, and what was inside stays with the row that keeps it. Every
+    door into something bounded by mass -- the hands, a chest, a hold -- adds
+    this to what it weighs, or it weighs the lid and lets the load through.
+    """
+    if quantity < amount_float(item.amount):
+        return 0.0
+    return await inner_mass(session, catalog, [item])
+
+
+async def check_carry_thing(
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    body: Body,
+    item: Item,
+    quantity: float,
+) -> None:
+    """Whether this **thing** fits in the hands, contents and all (D-313).
+
+    The door for a row that moves whole -- off the floor, out of a chest, out
+    of a hold, from another's hands.
+
+    The row is taken for the transaction first, and that is the point rather
+    than a precaution: what is inside it is read here and moved a moment
+    later, and between the two a second session may fill it. Read a chest
+    holding five kilograms, have three hundred put in, walk off with all of
+    it -- the very hole this door exists to shut, one window over. `put`
+    takes the same row, so the two serialise on it (CLAUDE.md, the remainder
+    rule); `world.move_stack` takes it again below, which costs nothing.
+    """
+    await session.execute(select(Item.id).where(Item.id == item.id).with_for_update())
+    inside = await moved_inside(session, catalog, item, quantity)
+    await check_carry(session, constants, catalog, body, item.type_key, quantity, inside=inside)
 
 
 async def equip(
