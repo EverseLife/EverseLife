@@ -45,7 +45,7 @@ from src.constants import Catalog, Constants, current_catalog
 from src.constants import registry as R
 from src.constants.catalog import ItemKind
 from src.constants.spec import ConstantError
-from src.engine import events
+from src.engine import events, gear
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState
 from src.models.inventory import Container, ContainerKind, Item
@@ -196,8 +196,19 @@ async def spend(
         cause="worn_out",
         doing=cause,
     )
+    #: Asked while the thing is still worn: the slot forgets it, and the excess
+    #: of this moment is read to be compared with the one it leaves behind. A
+    #: thing that was never worn -- a rig, a wagon, a heap of ore -- answers
+    #: `None` here without touching the database (D-305).
+    losing = await gear.losing_worn(session, constants, current_catalog(), item)
     await session.delete(item)
     await session.flush()
+    if losing is not None:
+        #: And **after** the thing is gone, what it was holding up comes down
+        #: -- only the difference its ending makes, never an overload another
+        #: door let in (D-306).
+        wearer, before = losing
+        await gear.settle_lost(session, constants, current_catalog(), wearer, before)
     return True
 
 
@@ -209,7 +220,7 @@ async def daily_gear_wear(session: AsyncSession, constants: Constants, catalog: 
     """
     rows = (
         await session.execute(
-            select(Item, Node.planet, Body.identity_id)
+            select(Item, Node.planet, Body.identity_id, Body.id)
             .join(Container, Container.id == Item.container_id)
             .join(Body, Body.id == Container.owner_id)
             .join(Node, Node.id == Body.node_id)
@@ -217,15 +228,36 @@ async def daily_gear_wear(session: AsyncSession, constants: Constants, catalog: 
                 Container.kind == ContainerKind.BODY,
                 Body.state == BodyState.ALIVE,
             )
+            #: **In body order, and the rows of one body together**, because
+            #: this step now takes body rows: a thing worn through ends under
+            #: `gear.losing_worn`, which locks its wearer to settle the load.
+            #: Tick steps run in transactions of their own (`tick.tick_step`),
+            #: so this walks beside every other sweep that locks bodies --
+            #: `gear.wear_exoskeletons`, `frost.tick_bodies`,
+            #: `oxygen.tick_bodies` -- and all of them take their bodies in id
+            #: order too. Two sweeps taking the same rows in two orders is a
+            #: deadlock; taking them in one order is not.
+            .order_by(Body.id)
         )
     ).all()
 
     per_day = constants[R.WEAR_GEAR_PER_DAY]
     modifiers = constants[R.WEAR_ENVIRONMENT_K]
     gone = 0
-    for item, planet, identity_id in rows:
+    held = None
+    for item, planet, identity_id, body_id in rows:
         if not _is_gear(catalog, item.type_key):
             continue
+        if body_id != held:
+            #: **The body first, then what lies in its hands.** Writing wear
+            #: takes the thing's row, and a thing worn through then takes its
+            #: wearer's to settle the load -- so without this the order here
+            #: would be the thing and then the body, against every other
+            #: holder in the world (`overload._fall` takes the body and then
+            #: the stacks it moves). One body's things are adjacent above, so
+            #: this locks each wearer once, in the id order of the query.
+            await session.execute(select(Body.id).where(Body.id == body_id).with_for_update())
+            held = body_id
         #: `wear.environment_k` keys are planet ids since D-251 normalization.
         environment = modifiers.get(planet.value, 1.0)
         if await spend(

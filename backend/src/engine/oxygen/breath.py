@@ -218,6 +218,12 @@ async def tick_bodies(
                     Body.state == BodyState.ALIVE,
                     Node.planet.in_([planet.value for planet in airless]),
                 )
+                #: In id order: this sweep locks a body row per body
+                #: (`_lock`), and it runs beside every other sweep that does
+                #: -- `wear.daily_gear_wear`, `gear.wear_exoskeletons`, the
+                #: other of cold and air -- each in a transaction of its own
+                #: (`tick.tick_step`). Same rows in two orders is a deadlock.
+                .order_by(Body.id)
             )
         )
         .scalars()

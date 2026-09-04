@@ -324,7 +324,7 @@ async def wear_exoskeletons(
                 Container.kind == ContainerKind.BODY,
                 Item.type_key.in_(names),
                 Body.state == BodyState.ALIVE,
-                #: Worn means in these hands (D-315): a frame left on the floor
+                #: Worn means in these hands (D-305): a frame left on the floor
                 #: lifts nothing and so drinks nothing either.
                 Item.container_id == Container.id,
             )
@@ -527,6 +527,97 @@ async def unequip(
     )
     await _settle(session, constants, catalog, body, over, spare=(line.item_id,))
     return thing
+
+
+async def losing_worn(
+    session: AsyncSession, constants: Constants, catalog: Catalog, item: Item
+) -> tuple[Body, float] | None:
+    """A worn thing is about to end: its wearer, and the excess of this moment.
+
+    Wear is the one road to a fallen limit that no sweep can walk. The tick
+    finds its wearers by joining the slot to the thing (`wear_exoskeletons`),
+    so a thing that ceases to exist takes its wearer out of that join at
+    exactly the moment the limit falls. The answer is given where the thing
+    dies -- and in two halves, because the excess has to be read while the
+    thing is still worn and the fall has to happen after it is gone
+    (`settle_lost`).
+
+    `None` for everything the vault gives no slot -- ore, a rig, a wagon --
+    answered without touching the database: this is asked of every thing that
+    ever wears through, and almost none of them were ever worn.
+
+    **The wearer is whose pocket the thing lies in**, not whoever the slot row
+    names. A row outlives the thing leaving the hands on purpose (D-305,
+    `models/gear`), so a stale one names a body that stopped wearing this long
+    ago -- and settling on the strength of it would drop a stranger's ore.
+
+    The row is removed here, with the body locked. D-305 does not ask for it:
+    a row that can never match again means nothing to any reader, and `equip`
+    clears a stale one itself. It goes because this is the one moment the
+    world knows the thing is dead.
+
+    **The body's row is taken before the excess is read**, and the caller must
+    already hold it if it holds anything else of this body's: `daily_gear_wear`
+    takes it before the first thing it wears down, so the order everywhere
+    stays the body first, then what lies in its hands.
+    """
+    if catalog.recipes.slot_of(item.type_key) is None:
+        return None
+    line = (
+        await session.execute(select(Equipped).where(Equipped.item_id == item.id))
+    ).scalar_one_or_none()
+    if line is None:
+        return None
+    #: Locked **and reread**: the fall below asks the body where it stands
+    #: (`body.node_id`) and moves matter there, so a snapshot taken before the
+    #: lock is the very thing the lock stands against.
+    body = (
+        (
+            await session.execute(
+                select(Body)
+                .where(Body.id == line.body_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        )
+        .scalars()
+        .one_or_none()
+    )
+    if body is None:  # pragma: no cover -- a slot without a body is a bug
+        return None
+    pocket = await world.body_container(session, body)
+    if item.container_id != pocket.id:
+        #: A stale row: the thing is somewhere else and this body has not been
+        #: wearing it. Nothing of theirs falls, and the row is left to `equip`,
+        #: which clears it for whoever puts the thing on next.
+        return None
+    before = await _over(session, constants, catalog, body)
+    await session.delete(line)
+    await session.flush()
+    return body, before
+
+
+async def settle_lost(
+    session: AsyncSession, constants: Constants, catalog: Catalog, body: Body, before: float
+) -> float:
+    """And what the lost thing was holding up comes down -- after it is gone.
+
+    The second half of `losing_worn`, and it must run **after** the thing has
+    been deleted: settled before, the dying thing still weighs in the load it
+    is about to settle, inflates the excess by its own mass and is itself a
+    candidate for the fall -- so more matter than owed reaches the ground and
+    the journal names a thing that is not lying there.
+
+    `before` is what `losing_worn` found, and it is passed on rather than
+    dropped: **only the difference this death makes falls** (D-306). A suit, a
+    pair of boots, a helmet lift nothing and lighten nothing, so their ending
+    leaves the excess where it was -- less their own weight -- and nothing
+    falls at all. An overload somebody else's door let in is not this one to
+    answer for.
+
+    Returns the kilograms that fell.
+    """
+    return await _settle(session, constants, catalog, body, before)
 
 
 async def _over(session: AsyncSession, constants: Constants, catalog: Catalog, body: Body) -> float:
