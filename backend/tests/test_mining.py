@@ -35,7 +35,7 @@ from src.engine.mining import Pace, SessionState
 from src.models.identity import BodyState, Identity, Wound
 from src.models.inventory import Item
 from src.models.world import Vein
-from src.units import PERCENT, amount_float
+from src.units import PERCENT, ROUND_ROOF, amount_float, step
 
 
 async def test_mining_requires_a_pickaxe(session: AsyncSession, constants: Constants) -> None:
@@ -294,20 +294,19 @@ async def test_fast_pace_yields_more_and_risks_more(
     _, vein_a, body_a = await _face(session)
     steady = await mining.start(session, constants, body_a, vein_a, pace=Pace.STEADY)
     calm = await mining.swing(session, constants, steady)
-    sag_steady = mining.starting_roof(constants, float(vein_a.richness)) - mining.roof_of(
-        constants, vein_a
-    )
+    sag_steady = mining.starting_roof(constants, vein_a) - mining.roof_of(constants, vein_a)
 
     _, vein_b, body_b = await _face(session)
     fast = await mining.start(session, constants, body_b, vein_b, pace=Pace.FAST)
     greedy = await mining.swing(session, constants, fast)
-    sag_fast = mining.starting_roof(constants, float(vein_b.richness)) - mining.roof_of(
-        constants, vein_b
-    )
+    sag_fast = mining.starting_roof(constants, vein_b) - mining.roof_of(constants, vein_b)
 
     k = constants[R.MINE_PACE_K]
     assert greedy.mined == pytest.approx(calm.mined * k, rel=0.01)
-    assert sag_fast == pytest.approx(sag_steady * k)
+    #: The sag is measured off the row, which keeps the roof on its own grid
+    #: (`ROUND_ROOF`), and the starting roof it is measured from is a real
+    #: number since D-302 -- so the two ends are a hundredth apart at worst.
+    assert sag_fast == pytest.approx(sag_steady * k, abs=2 * float(step(ROUND_ROOF)))
     spent_steady = constants[R.BODY_STAMINA_MAX] - calm.stamina
     spent_fast = constants[R.BODY_STAMINA_MAX] - greedy.stamina
     assert spent_fast == pytest.approx(spent_steady * k)

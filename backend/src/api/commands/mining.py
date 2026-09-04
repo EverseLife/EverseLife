@@ -14,7 +14,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.commands.common import _alive, _body, _own_item, _stamp
+from src.api.commands.common import _alive, _body, _own_item, _stamp, speaks
 from src.api.commands.views import _optional_uuid, _sight, _tiers
 from src.api.registry import Refused, command
 from src.constants import current, current_catalog
@@ -69,7 +69,7 @@ async def _mine_start(state: dict, db: AsyncSession, message: dict) -> dict:
     )
     task.spent_on_session_id = session.id
     state["session_id"] = session.id
-    return _sight(session, await mining.sight(db, constants, session))
+    return _sight(session, await mining.sight(db, constants, session), speaks(state))
 
 
 @command("mine.swing")
@@ -77,14 +77,14 @@ async def _mine_swing(state: dict, db: AsyncSession, message: dict) -> dict:
     """One swing of the pickaxe: ore into the hands, the roof a little weaker. The reply is the
     sight, not the hidden number (D-092)."""
     session = await _active(state, db)
-    return _sight(session, await mining.swing(db, current(), session))
+    return _sight(session, await mining.swing(db, current(), session), speaks(state))
 
 
 @command("mine.timber")
 async def _mine_timber(state: dict, db: AsyncSession, message: dict) -> dict:
     """Set a support: one timber from the hands props the roof (D-143)."""
     session = await _active(state, db)
-    return _sight(session, await mining.timber(db, current(), session))
+    return _sight(session, await mining.timber(db, current(), session), speaks(state))
 
 
 @command("mine.pace")
@@ -93,7 +93,7 @@ async def _mine_pace(state: dict, db: AsyncSession, message: dict) -> dict:
     (D-143)."""
     session = await _active(state, db)
     pace = Pace(message["pace"])
-    return _sight(session, await mining.set_pace(db, current(), session, pace))
+    return _sight(session, await mining.set_pace(db, current(), session, pace), speaks(state))
 
 
 @command("mine.leave")

@@ -38,6 +38,7 @@ from src.engine.mining._base import (  # noqa: F401
     NotHere,
     NoTimber,
     NoTool,
+    RoofBuried,
     RoofHolds,
     SessionClosed,
     Sight,
@@ -48,11 +49,13 @@ from src.engine.mining._base import (  # noqa: F401
     deplete,
     pace_factor,
     roof_of,
+    rubble_depth,
     session_container,
     sign_of,
     starting_roof,
     swing_cost,
     swing_hours,
+    timber_cap,
 )
 from src.engine.mining.face import (  # noqa: F401
     abandon,

@@ -31,6 +31,7 @@ from src.engine.mining._base import (
     NotHere,
     NoTimber,
     NoTool,
+    RoofBuried,
     RoofHolds,
     SessionClosed,
     Sight,
@@ -42,6 +43,7 @@ from src.engine.mining._base import (
     _tool,
     _wear_tool_for_session,
     active,
+    clear_roof,
     crowd_factor,
     deplete,
     pace_factor,
@@ -50,6 +52,7 @@ from src.engine.mining._base import (
     session_container,
     swing_cost,
     swing_hours,
+    timber_cap,
 )
 from src.engine.mining.collapse import collapse
 from src.engine.world import body_container, node_container
@@ -58,7 +61,7 @@ from src.models.identity import Body, BodyState
 from src.models.inventory import Item
 from src.models.mining import MiningSession, Pace, SessionState
 from src.models.world import Node, Vein
-from src.units import SCALE_MAX, SCALE_MIN, amount, amount_float
+from src.units import ROUND_ROOF, SCALE_MAX, SCALE_MIN, amount, amount_float, on_grid
 
 
 async def start(
@@ -221,6 +224,15 @@ async def swing(
     #: is. The stamina check stays above, so that a refusal still changes
     #: nothing in the world and takes no lock to say so.
     factor = pace_factor(constants, mining.pace)
+    #: A buried working is dug out before it is worked (D-301). The swing
+    #: costs what any swing costs -- the reserve and the shift's wear -- and
+    #: gives nothing: no ore, no depletion, no sag, and nothing to collapse,
+    #: because the roof is already down. Cleared, the working starts over,
+    #: which is what D-188 always promised; what changed is that it is no
+    #: longer free, so a cave-in stopped being a gift to whoever stayed.
+    if roof_of(constants, vein) < SCALE_MIN:
+        return await _clear_rubble(session, constants, mining, body, vein, hit_price, factor)
+
     crowd = await crowd_factor(constants, session, vein)
     #: An hour of mining gives `mining.iron_per_hour` on a vein of ordinary richness.
     per_swing = (
@@ -283,7 +295,7 @@ async def swing(
     if roof <= SCALE_MIN:
         return await collapse(session, constants, mining, body, vein, roof, noise, moment)
 
-    return await _sight(session, constants, mining, body, roof)
+    return await _sight(session, constants, mining, body, roof, vein.roof_salt)
 
 
 async def timber(session: AsyncSession, constants: Constants, mining: MiningSession) -> Sight:
@@ -302,10 +314,11 @@ async def timber(session: AsyncSession, constants: Constants, mining: MiningSess
 
     The roof is read off that locked vein, so a support is set on the working
     as the last swing left it -- a neighbour's swing included (D-188, D-099).
-    A working already standing at or above `mine.roof_timber_cap` refuses the
-    support instead of spending it (D-300): see `RoofHolds` for why setting
-    one there used to make the face worse, and the comment at the check for
-    why it is asked after the pocket rather than before it.
+    A working already standing at or above its own ceiling refuses the support
+    instead of spending it (D-300, D-302), and so does one still under its
+    rubble (D-301): see `RoofHolds` and `RoofBuried` for why a support set in
+    either place made the face worse, and the comments at the checks for why
+    both are asked after the pocket rather than before it.
     """
     vein = await session.get(Vein, mining.vein_id)
     if vein is None:  # pragma: no cover -- a session without a vein is a bug
@@ -345,19 +358,26 @@ async def timber(session: AsyncSession, constants: Constants, mining: MiningSess
     if stock is None:
         raise NoTimber(key="mining-no-timber")
 
-    #: **After** the pocket, and that order is the point. A support that cannot
-    #: raise this working is not a support, and the timber is better kept than
-    #: spent on making the roof worse -- but the refusal also answers, for
-    #: free and exactly, whether the roof is at or above a public number, and
-    #: the roof is the one thing the player is never told (D-143). Asked
-    #: first, that answer would cost nothing at all: a body with an empty
-    #: pocket could press the button after every swing and read the hidden
-    #: number off the moment the refusal changed, closer than the sign's lie
-    #: ever comes. Behind `NoTimber` it costs at least carrying a timber,
-    #: which is the price OQ-123 names for what a support already gives away.
-    #: The order is part of the decision, not an implementation detail (D-300).
-    cap = constants[R.MINE_ROOF_TIMBER_CAP]
+    #: **After** the pocket, and that order is the point (D-300). A support
+    #: that cannot raise this working is not a support, and the timber is
+    #: better kept than spent on making the roof worse -- but a refusal also
+    #: answers, for free, a question about the one thing the player is never
+    #: told (D-143). Asked first, that answer would cost nothing at all: a
+    #: body with an empty pocket could press the button after every swing and
+    #: watch for the moment the refusal changed. Behind `NoTimber` it costs at
+    #: least carrying a timber. What the answer is worth is smaller since
+    #: D-302 -- the ceiling is the working's own now, so "not higher than this
+    #: working goes" names no number -- but free is still free.
     standing = roof_of(constants, vein)
+    #: Below nought there is no roof to prop, only rubble, and D-301 gives the
+    #: clearing to swings. A support set here would lift the rubble instead --
+    #: `mine.roof_per_timber` of it for one timber, some four swings' worth --
+    #: and two of them would open the face again without the working ever
+    #: starting over, which is the one thing the decision says the clearing
+    #: must do.
+    if standing < SCALE_MIN:
+        raise RoofBuried(key="mining-roof-buried")
+    cap = timber_cap(constants, vein)
     if standing >= cap:
         raise RoofHolds(key="mining-roof-holds")
 
@@ -383,7 +403,7 @@ async def timber(session: AsyncSession, constants: Constants, mining: MiningSess
         session_id=str(mining.id),
         timbers=mining.timbers,
     )
-    return await _sight(session, constants, mining, body, raised)
+    return await _sight(session, constants, mining, body, raised, vein.roof_salt)
 
 
 async def set_pace(
@@ -392,7 +412,7 @@ async def set_pace(
     body, vein = await _require_active(session, mining)
     mining.pace = pace
     await session.flush()
-    return await _sight(session, constants, mining, body, roof_of(constants, vein))
+    return await _sight(session, constants, mining, body, roof_of(constants, vein), vein.roof_salt)
 
 
 async def leave(
@@ -554,10 +574,77 @@ async def sight(session: AsyncSession, constants: Constants, mining: MiningSessi
     vein = await session.get(Vein, mining.vein_id)
     if vein is None:  # pragma: no cover -- a session without a vein is a bug
         raise MiningError(key="mining-session-dangling")
-    return await _sight(session, constants, mining, body, roof_of(constants, vein))
+    return await _sight(session, constants, mining, body, roof_of(constants, vein), vein.roof_salt)
 
 
 # --- internal ----------------------------------------------------------------
+
+
+async def _clear_rubble(
+    session: AsyncSession,
+    constants: Constants,
+    mining: MiningSession,
+    body: Body,
+    vein: Vein,
+    hit_price: float,
+    factor: float,
+) -> Sight:
+    """One swing at a caved-in working: the rubble, not the rock (D-301).
+
+    Called with the vein and the face already held, from inside the swing and
+    nowhere else, so everything it writes is under the same locks the swing
+    took. It spends what a swing spends -- the body's reserve, and the shift's
+    wear at the end like any other -- and gives nothing back: no ore, no
+    depletion, no sag, and no roll for a cave-in, because the roof is already
+    down and cannot come down twice.
+
+    A swing lifts the rubble by exactly what it would have sagged the roof by,
+    pace and all, so a fast pace digs out faster and pays for it in the
+    reserve, the same bargain it makes at the face (D-091). Lifted to nought,
+    the working starts over: the vein forgets its roof and the next reading
+    takes it from richness and the working's own measure.
+    """
+    body.stamina = Decimal(str(max(SCALE_MIN, float(body.stamina) - hit_price)))
+    mining.swings += 1
+
+    #: Put on the roof's grid **before** it is compared with nought, not after
+    #: it is written. Compared raw, a lift landing a thousandth short of
+    #: nought is stored as `-0.00` -- which reads back as `-0.0`, does not
+    #: pass `< 0`, and sends the next swing into the mining branch with the
+    #: roof at nought, where it collapses. Today's numbers cannot reach it
+    #: (`mine.roof_per_swing` and `mine.pace_k` multiply to whole points), but
+    #: the vault is free to give the swing a fraction, and the docstring of
+    #: this package derives one.
+    lifted = float(
+        on_grid(roof_of(constants, vein) + constants[R.MINE_ROOF_PER_SWING] * factor, ROUND_ROOF)
+    )
+    if lifted < SCALE_MIN:
+        roof = remember_roof(vein, lifted)
+    else:
+        #: The last swing of the clearing does two things at once, and the
+        #: sight the player gets is of the working they have just opened
+        #: rather than of the rubble they have just finished.
+        clear_roof(vein)
+        roof = roof_of(constants, vein)
+    await session.flush()
+
+    #: Its own event, and not a swing that mined nought (D-301): while the
+    #: working is buried the sign stands in its bottom band -- it speaks of
+    #: the roof, and a buried roof is down -- so the window would read it as a
+    #: warning of what is coming rather than a word about what already
+    #: happened, and the empty haul as a defect. Told to the miner alone, like
+    #: every swing (D-227): the node hears cave-ins, not shovelling.
+    await events.announce(
+        session,
+        touches=("mining",),
+        identity_id=body.identity_id,
+        event="mining.rubble",
+        #: Read off the row rather than off a comparison: cleared is exactly
+        #: "the working forgot its roof", and that is the one thing the branch
+        #: above actually decided.
+        cleared=vein.roof is None,
+    )
+    return await _sight(session, constants, mining, body, roof, vein.roof_salt)
 
 
 async def _required_tool(

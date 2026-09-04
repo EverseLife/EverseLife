@@ -192,6 +192,15 @@ battery-give-too-little = that is too little to pour: energy is counted in thous
 # --- the face (engine/mining.py) ---------------------------------------------
 
 mining-vein-not-here = a vein is reached on foot
+
+# The bands of the roof's sign (D-143, D-303): the thresholds are in the
+# constants, the words here. The sign lies by `mine.sign_noise` -- but it is
+# the number that lies, not the word.
+mine-sign-roof-dry = the roof is dry
+mine-sign-roof-dust = dust is trickling
+mine-sign-roof-creaks = the roof creaks
+mine-sign-roof-cracking = the rock is cracking
+
 mining-dead-works = a dead body does not work
 mining-vein-depleted = vein { $vein } is worked out
 mining-penal-face = the penal face is worked by convicts only
@@ -200,6 +209,9 @@ mining-session-open = the body already has a session open: one does not swing in
 mining-no-timber = there is no mine timber
 # Timber raises the roof rather than setting it (D-188): above its own ceiling
 # it has nothing to raise, and set there it would only spoil the working.
+# Timber is for the roof, and rubble is cleared by swinging (D-301): a support
+# set into a cave-in would lift the rock rather than the roof.
+mining-roof-buried = the roof is already down: the rubble comes out first
 mining-roof-holds = the roof holds on its own: timber goes in once it sags
 mining-session-without-body = a session without a body
 mining-session-closed = session { $session } is closed: { $state ->

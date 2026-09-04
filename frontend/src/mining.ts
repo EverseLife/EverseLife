@@ -58,3 +58,23 @@ export function caveIn(happening: Happening): CaveIn | null {
   if (typeof happening.lost !== "number") return null;
   return { lost: happening.lost };
 }
+
+/**
+ * A swing that went to the spoil heap instead of the hands (D-301).
+ *
+ * A cave-in leaves rubble on the working, and it is dug out for no ore. The
+ * window has no other way to know: `look.mining` carries the shift, not the
+ * ground over it, and the sign speaks of the roof -- which, under a rubble,
+ * reads as "it is cracking" and would be taken for a warning. So the swing
+ * says what it was, and `cleared` marks the one that finished the job.
+ */
+export type Rubble = {
+  /** The rubble is out and the working starts over. */
+  cleared: boolean;
+};
+
+/** A swing at the rubble out of what the server said, or nothing. */
+export function rubbleOut(happening: Happening): Rubble | null {
+  if (happening.event !== "mining.rubble") return null;
+  return { cleared: happening.cleared === true };
+}

@@ -21,7 +21,7 @@ import { solve, type PowSettings } from "../pow";
 import { Rule } from "../Rule";
 import { Refusal, useActions, useBook, useNames, useSession } from "../actions";
 import { classOf } from "../classes";
-import { caveIn, type CaveIn } from "../mining";
+import { caveIn, rubbleOut, type CaveIn, type Rubble } from "../mining";
 import { t } from "../locale";
 import { goodsName } from "../names";
 
@@ -77,6 +77,41 @@ export function Mine({ look, values, pow }: Omit<Props, "busy" | "act">) {
   useEffect(() => {
     if (digging) setBuried(null);
   }, [digging]);
+  //: A new face is a new working: whatever the last one said about its
+  //: rubble belongs to it and not to this one.
+  const face = scene?.session;
+  useEffect(() => {
+    setRubble(null);
+  }, [face]);
+
+  //: A caved-in working is dug out before it is worked (D-301), and the swing
+  //: that does it brings nothing back. Nothing in `look` says so -- the roof
+  //: is the one number the player never sees, and the sign speaks of the roof
+  //: rather than of the rubble over it -- so the shovelling is told, the way
+  //: the collapse is. `cleared` on the last one, and then the working is a
+  //: working again.
+  const [rubble, setRubble] = useState<Rubble | null>(null);
+  useEffect(
+    () =>
+      session.on("mining.rubble", (happening) => {
+        const dug = rubbleOut(happening);
+        if (dug) setRubble(dug);
+      }),
+    [session],
+  );
+  //: And it goes when the swinging turns back into mining: a swing that
+  //: brought ore, or a roof that came down, says the shovelling is over
+  //: better than any timer. Without this the last line of a clearing --
+  //: "the rubble is cleared" -- would hang over every shift after it, on
+  //: this face and on the next, because the panel never unmounts.
+  useEffect(
+    () => session.on("mining.swing", () => setRubble(null)),
+    [session],
+  );
+  useEffect(
+    () => session.on("mining.collapsed", () => setRubble(null)),
+    [session],
+  );
 
   const start = () =>
     act(async () => {
@@ -107,6 +142,11 @@ export function Mine({ look, values, pow }: Omit<Props, "busy" | "act">) {
         <Rule>{t("ui-mine-rule")}</Rule>
       </h2>
       {doomed && <p className="trouble">{t("ui-mine-last-cave-in")}</p>}
+      {scene && rubble && (
+        <p className="note" role="status">
+          {t(rubble.cleared ? "ui-mine-rubble-out" : "ui-mine-rubble")}
+        </p>
+      )}
       {!scene && (
         <>
           {buried && (

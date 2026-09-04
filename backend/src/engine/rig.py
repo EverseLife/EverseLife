@@ -213,7 +213,15 @@ async def advance(
         raised = output_per_hour * workers + float(rig.hopper_remainder)
         banked = float(on_grid(raised, ROUND_AMOUNT, ROUND_FLOOR))
         #: Shared with the miners (`mining.swing`) and with any other rig on
-        #: the same vein; same lock order: rig -> vein. The hours above were
+        #: the same vein; same lock order: rig -> vein. The **roof** is not
+        #: shared and is meant not to be (D-304): it is a mechanic of the
+        #: swing -- a hidden number and a choice each time (D-143) -- and a
+        #: machine that works by the clock has no swing to choose at, so
+        #: reading `vein.roof` here would be the defect rather than the fix.
+        #: A cave-in does not stop a rig and a support does not help one. The
+        #: one place the two do meet is right below: richness is the ore
+        #: body's, the roof is computed from it, and a rig that eats a vein
+        #: twice as fast leaves every later working a kinder roof. The hours above were
         #: planned against a free read, and a plan may be stale -- so nothing
         #: the vein gives up is settled from that plan: it is all derived below,
         #: under this lock. The coal is another matter and not bounded here --

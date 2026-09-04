@@ -302,6 +302,8 @@ ui-mine-pace = pace: { $fast ->
     }
 ui-mine-collapsed = A cave-in. Everything mined this session is lost.
 ui-mine-collapsed-lost = mined: { $lost }
+ui-mine-rubble = The roof is already down: the rock goes to the waste heap until the rubble is cleared.
+ui-mine-rubble-out = The rubble is cleared. The face starts over.
 ui-mine-last-cave-in = The next cave-in is this body's last: it stays under the rock, and everything it carries stays lying here whole.
 
 ## The rig: capital instead of labour.
