@@ -281,14 +281,26 @@ def matter_over(
     """
     if packed(constants, catalog, worn, mass) <= limit:
         return 0.0
+    return mass - matter_within(constants, catalog, worn, limit)
+
+
+def matter_within(
+    constants: Constants, catalog: Catalog, worn: dict[str, Item], limit: float
+) -> float:
+    """How much raw matter a body may hold before `limit` is felt, kg.
+
+    `packed` inverted, and the one place it is inverted. Both directions need
+    the same arithmetic -- `matter_over` counts down to the limit from above
+    (D-306), `room_for` counts up to it from below (D-314) -- and two copies of
+    a bent line are two chances to disagree with `check_carry`.
+    """
     pack = _pack_of(constants, catalog, worn)
     if pack is None:
-        return mass - limit
+        return limit
     room, factor = float(pack["capacity"]), float(pack["factor"])
     #: Inside the pack the limit buys `limit / factor` kilograms of matter;
     #: past it the pack's whole discount is spent and the rest weighs itself.
-    fits = limit / factor if factor > 0 and limit <= room * factor else limit + room * (1 - factor)
-    return mass - fits
+    return limit / factor if factor > 0 and limit <= room * factor else limit + room * (1 - factor)
 
 
 async def is_worn(session: AsyncSession, item: Item) -> bool:
@@ -548,6 +560,29 @@ async def check_carry_thing(
     await session.execute(select(Item.id).where(Item.id == item.id).with_for_update())
     inside = await moved_inside(session, catalog, item, quantity)
     await check_carry(session, constants, catalog, body, item.type_key, quantity, inside=inside)
+
+
+async def room_for(
+    session: AsyncSession, constants: Constants, catalog: Catalog, body: Body, type_key: str
+) -> float:
+    """How much of this the hands still have room for, in units of the thing.
+
+    `check_carry` from the other end: that door answers "does this fit", this
+    one "how much of it fits". A door that hands over what it can rather than
+    refusing the lot needs the figure (`rig.empty_hopper`, D-314).
+
+    Counted in **matter**, through `matter_within`, and not by subtracting the
+    felt load from the limit: with a pack the two are different kilograms
+    (D-268), and the difference is what a hopper would hand over wrongly. A
+    weightless thing has no bound at all.
+    """
+    per = catalog.recipes.mass_of(type_key)
+    if per <= 0:
+        return float("inf")
+    worn = await equipped(session, body)
+    mass = await carried_mass(session, catalog, body)
+    limit = await capacity(session, constants, catalog, body, worn)
+    return max(0.0, (matter_within(constants, catalog, worn, limit) - mass) / per)
 
 
 async def equip(

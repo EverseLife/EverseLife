@@ -230,8 +230,14 @@ mining-no-tool = mining needs a tool of class “{ NAME($tool_class) }” ({ NAM
 rig-dead-works = a dead body does not work
 rig-not-a-rig = “{ NAME($goods) }” is not a drilling rig
 rig-vein-not-here = the vein is not here: a rig is set up on the spot
+rig-node-not-yours = the plot is not yours: a rig is set up on your own land or on nobody's
 rig-not-here = the rig is not here: the hopper is hauled out on foot
 rig-not-yours = another's rig: hauling out goes by contract with the owner
+# Moving to another vein (D-314): the rock is read off the vein it stands on now.
+# A hopper can hold oil as well, hence "not empty" rather than "ore left".
+rig-hopper-not-empty = the hopper of the rig “{ NAME($goods) }” is not empty: it moves to another vein only empty
+rig-machine-gone = the rig is no longer here: it is gone, and with it whatever was in its hopper
+rig-machine-elsewhere = the rig is not here: neither in the yard nor in your hands — a hopper is hauled out at the machine
 # A liquid hopper (D-252): pours only into vessels, the remainder waits in the hopper.
 rig-liquid-no-room = nowhere to pour “{ NAME($goods) }”: bring a vessel with room, in hand or in the node
 

@@ -320,6 +320,28 @@ async def test_a_cell_in_another_room_feeds_the_machine(
     assert float(cell.charge) == pytest.approx(battery.capacity(constants) - 100)
 
 
+async def test_a_cell_on_the_floor_feeds_nothing(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """ "A battery on the floor does not feed the house" -- D-278 in its own
+    words. The charge is there and is not touched: what is lying is cargo, and
+    a machine reaches only what stands (the same rule the rig was missing
+    until D-314)."""
+    vessel, body, connector = await _hull(session, constants, foundations=2)
+    hold = await _room(session, constants, body, vessel)
+    yard = await world.node_container(session, hold)
+    cell = await world.grant_item(session, yard, BATTERY, quality=60, origin="тест")
+    cell.charge = Decimal(str(battery.capacity(constants)))
+    cell.charged_at = datetime.now(UTC)
+    cell.installed = False
+    await session.flush()
+
+    assert await battery.batteries_in(session, connector) == []
+    assert await battery.charge_in(session, constants, connector) == 0
+    assert await battery.drain_batteries(session, constants, connector, 100) == 0
+    assert float(cell.charge) == pytest.approx(battery.capacity(constants)), "заряд не тронут"
+
+
 async def test_a_panel_off_the_grid_charges_the_hull(
     session: AsyncSession, constants: Constants
 ) -> None:

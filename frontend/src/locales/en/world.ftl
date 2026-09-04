@@ -317,6 +317,7 @@ ui-rig-no-fuel = the fuel has run out, the machine stands
 ui-rig-empty = Haul out the hopper
 ui-rig-in-hands = The rig is in hand. Set it on a vein — after that it works without you, as long as there is coal and room in the hopper.
 ui-rig-place = Set on the vein
+ui-rig-down = The rig lies rather than stands: taken down or knocked over, a machine drills nothing. The hopper can still be hauled out — to have it work, set it on its vein.
 
 ## The garden: plots, symptoms and work on foot.
 

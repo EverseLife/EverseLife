@@ -137,6 +137,37 @@ async def test_an_automat_settled_often_wears_as_much_as_one_settled_once(
     assert 100 - float(machine_b.condition) > worn - 0.01
 
 
+async def test_an_automat_taken_down_makes_nothing_and_keeps_its_programme(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A machine that does not stand does not work (D-278) -- the rule the rig
+    was missing until D-314, and the automat has kept at this place since
+    D-253. The programme is not lost with the standing: the row waits for the
+    machine to be put up again, and only the stamp moves."""
+    _, yard, identity, body, machine = await _factory_floor(session, constants)
+    await world.grant_item(session, yard, IRON, amount=100, quality=80, origin="тест")
+    await _lube_in(session, yard, 100)
+    await _learn(session, identity, NAILS)
+    row = await automat.program(session, constants, catalog, body, machine, NAILS)
+
+    machine.installed = False
+    await session.flush()
+    moment = row.counted_at + timedelta(hours=8)
+    assert await automat.advance(session, constants, row, catalog=catalog, now=moment) == 0
+    assert row.recipe_key == NAILS
+    assert row.counted_at == moment
+    made = (
+        (
+            await session.execute(
+                select(Item).where(Item.container_id == yard.id, Item.type_key == NAILS)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert not made, "лежащий автомат ничего не сделал"
+
+
 async def _lube_in(session: AsyncSession, yard, units: float) -> Item:
     """Lubricant standing in the node: a canister with the liquid inside (D-230)."""
     canister = await world.grant_item(session, yard, "canister", quality=60, origin="тест")
