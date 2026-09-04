@@ -86,3 +86,25 @@ export function trim(amount: number): string {
 export function step(goods: string): number | "any" {
   return counted(goods) ? 1 : "any";
 }
+
+//: Where a number stops being a number and becomes noise. Amounts live in
+//: thousandths, so 2.9999999 ingots are three ingots, not four (`goods._DUST`).
+const DUST = 1 / 1000;
+
+/**
+ * What a batch spends of one input at the recipe's norm (D-212).
+ *
+ * A counted thing gives itself to the work whole: a coin needs a tenth of an
+ * iron ingot, and seven coins eat the ingot as entirely as ten do. What is
+ * measured keeps its fraction, because a fraction of it is honest. The window
+ * says this before the click, because the forecast must be the number the
+ * batch runs on (D-092); the engine's half is `goods.whole(..., up=True)`.
+ *
+ * **The norm, not the bill.** Ordinary craft adds a waste share on top and
+ * rounds that share to the nearest piece (`goods.spent`), and that arithmetic
+ * belongs to the server, which the bench asks by `craft.plan`. This is for the
+ * mint, whose work has no waste: its inputs are the composition itself.
+ */
+export function spends(goods: string, amount: number): number {
+  return counted(goods) ? Math.ceil(amount - DUST) : amount;
+}

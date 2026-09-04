@@ -9,12 +9,17 @@
  * world -- 900 per mille: the composition is set by the recipe (0.9 refined
  * metal and 0.1 iron ingot as alloy), and there is no debasement mechanic --
  * a coin always contains what it promises.
+ *
+ * The composition is read in `coins.ts` off the same amounts the engine spends
+ * by, and what the batch costs is said by `amounts.spends`: the iron ingot is
+ * a counted thing and goes into the work whole (D-212), so seven coins eat it
+ * as entirely as ten do. The forecast says that before the click (D-092).
  */
 
 import { useMemo, useState } from "react";
-import type { RecipeBook } from "../api";
 import type { Look, Thing } from "../api";
-import { tally } from "../amounts";
+import { spends, tally, trim } from "../amounts";
+import { type Coin, coinsOf } from "../coins";
 import { Rule } from "../Rule";
 import { Refusal, useActions, useBook, useNames, useSession } from "../actions";
 import { goodsName, type Names } from "../names";
@@ -29,34 +34,6 @@ type Props = {
   busy: boolean;
   act: (what: () => Promise<unknown>) => Promise<void>;
 };
-
-type Coin = {
-  coin: string;
-  /** The refined metal: the input the coin is mostly made of. */
-  metal: string;
-  /** The alloy: the other input, a tenth of iron. */
-  alloy: string;
-  metalPerCoin: number;
-  alloyPerCoin: number;
-};
-
-/**
- * The coins and their composition, read off the vault (D-086, D-090): a money
- * recipe is a coin, its heavier input is the refined metal, the lighter one
- * the alloy. A third coin or a changed fineness is data, not a client change.
- */
-function coinsOf(book: RecipeBook | null): Coin[] {
-  return (book?.recipes ?? [])
-    .filter((r) => r.kind === "money")
-    .map((r) => {
-      const parts = Object.entries(r.amounts ?? {}) as [string, number][];
-      parts.sort((a, b) => b[1] - a[1]);
-      const [metal, metalPerCoin] = parts[0] ?? ["", 0];
-      const [alloy, alloyPerCoin] = parts[1] ?? ["", 0];
-      //: Ids throughout (D-251): the coin is what `knows` and `coin.mint` name.
-      return { coin: r.id ?? r.name, metal, alloy, metalPerCoin, alloyPerCoin };
-    });
-}
 
 export function Mint({ look, values }: Omit<Props, "busy" | "act">) {
   const session = useSession();
@@ -74,6 +51,9 @@ export function Mint({ look, values }: Omit<Props, "busy" | "act">) {
     coin: "", metal: "", alloy: "", metalPerCoin: 0, alloyPerCoin: 0,
   };
   const IRON = chosen.alloy;
+  //: Ten by default: the alloy is a tenth of an ingot, and ten coins are what
+  //: an ingot makes. Fewer is allowed and dearer -- the ingot goes whole
+  //: either way (D-212), and the forecast below says so.
   const [qty, setQty] = useState(10);
   //: Which quality of metal and of iron goes under the die (D-058).
   const [tiers, setTiers] = useState<Record<string, string | null>>({});
@@ -89,9 +69,10 @@ export function Mint({ look, values }: Omit<Props, "busy" | "act">) {
   }, [look.inventory, chosen.metal, IRON]);
 
   //: The coin's composition comes from the vault recipe: the forecast before
-  //: the click is computed from the same amounts the server spends by.
-  const metalNeeded = qty * chosen.metalPerCoin;
-  const ironNeeded = qty * chosen.alloyPerCoin;
+  //: the click is computed from the same amounts the server spends by, and
+  //: rounded the way the server rounds them (D-212).
+  const metalNeeded = spends(chosen.metal, qty * chosen.metalPerCoin);
+  const ironNeeded = spends(IRON, qty * chosen.alloyPerCoin);
   const enough =
     metalNeeded <= inHands.metal && ironNeeded <= inHands.iron;
 
@@ -143,13 +124,17 @@ export function Mint({ look, values }: Omit<Props, "busy" | "act">) {
       ))}
 
       <p className="note">
+        {/* The slots take a bare number -- the sentence names the thing right
+            after it -- so the unit word stays out of them: `tally` here would
+            read "1 pcs of “Iron ingot”". What changed is the number itself:
+            the ingot is spent whole, so it says 1 where it used to say 0.7. */}
         {t("ui-mint-cost", {
-          metal: metalNeeded.toFixed(1),
+          metal: trim(metalNeeded),
           metalName: goodsName(names, chosen.metal),
-          metalHave: inHands.metal.toFixed(1),
-          iron: ironNeeded.toFixed(1),
+          metalHave: trim(inHands.metal),
+          iron: trim(ironNeeded),
           ironName: goodsName(names, IRON),
-          ironHave: inHands.iron.toFixed(1),
+          ironHave: trim(inHands.iron),
         })}
       </p>
 

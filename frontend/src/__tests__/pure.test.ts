@@ -15,6 +15,7 @@ import { duration, hands, stamp, when, worldTime } from "../clock";
 import { groundName } from "../grounds";
 import { forget, learn, Words } from "../locale";
 import { catalogue, coins, exactly } from "../market";
+import { coinsOf } from "../coins";
 import { caveIn, rubbleOut } from "../mining";
 import { lawOption } from "../names";
 import { pollTally, pollThreshold } from "../polls";
@@ -90,6 +91,27 @@ describe("amounts", () => {
     expect(amounts.tally("Проволока", 2)).toBe("2 м");
     expect(amounts.step("Кирка")).toBe(1);
     expect(amounts.step("Вода")).toBe("any");
+  });
+
+  //: The forecast has to be the number the batch runs on (D-092), and the
+  //: engine spends a counted input whole (D-212): seven coins take a tenth of
+  //: an ingot each and eat the ingot as entirely as ten do.
+  it("spends a piece whole and a measured thing by its fraction", () => {
+    amounts.learn({
+      bulk: ["Вода"],
+      materials: [],
+      units: { Проволока: "м" },
+      operations: [],
+      recipes: [],
+      classes: {},
+      tool_classes: {},
+      synonyms: { "Вода родниковая": "Вода" },
+    });
+    expect(amounts.spends("Слиток", 0.7)).toBe(1);
+    expect(amounts.spends("Слиток", 1)).toBe(1);
+    expect(amounts.spends("Слиток", 1.0000001)).toBe(1);
+    expect(amounts.spends("Слиток", 2.1)).toBe(3);
+    expect(amounts.spends("Вода", 6.3)).toBe(6.3);
   });
 
   it("takes the whole stack when nothing was typed", () => {
@@ -620,5 +642,31 @@ describe("mining", () => {
 
   it("hears no shovelling in a cave-in", () => {
     expect(rubbleOut(collapse())).toBeNull();
+  });
+});
+
+describe("coins", () => {
+  const book = (amounts: Record<string, number>) =>
+    ({
+      recipes: [
+        { id: "gold_coin", kind: "money", amounts, inputs: Object.keys(amounts) },
+        { id: "pickaxe", kind: "tool", amounts: { iron_ingot: 2 } },
+      ],
+    }) as never;
+
+  it("reads the coin off the vault: the heavier input is the metal", () => {
+    const [gold] = coinsOf(book({ refined_gold: 0.9, iron_ingot: 0.1 }));
+    expect(gold).toMatchObject({
+      coin: "gold_coin",
+      metal: "refined_gold",
+      alloy: "iron_ingot",
+      metalPerCoin: 0.9,
+      alloyPerCoin: 0.1,
+    });
+  });
+
+  it("knows no coins in a book without a money recipe", () => {
+    expect(coinsOf(null)).toEqual([]);
+    expect(coinsOf({ recipes: [{ id: "pickaxe", kind: "tool" }] } as never)).toEqual([]);
   });
 });
