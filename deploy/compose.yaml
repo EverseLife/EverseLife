@@ -47,6 +47,13 @@ x-server: &server
     #: tested by its own developers. It spawns matter and finishes work out of
     #: turn, so it is switched on deliberately rather than switched off later.
     EVERSELIFE_ADMINS: ${EVERSELIFE_ADMINS:-[]}
+    #: A command declared `readonly=True` is held to writing nothing
+    #: (`db/readonly.py`). `warn` and not the default `raise`, because the
+    #: leak worth catching here is the one no test could furnish -- a city of
+    #: the old world, a node born without a yard -- and turning a player's
+    #: `look` into "the server failed" over one stray row is the worse answer.
+    #: The log names the command and what it wrote, once per shape per process.
+    EVERSELIFE_READONLY_GUARD: ${EVERSELIFE_READONLY_GUARD:-warn}
   restart: unless-stopped
 
 services:

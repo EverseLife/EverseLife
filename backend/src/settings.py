@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -92,6 +93,16 @@ class Settings(BaseSettings):
     #: a database where the seed has not made that identity yet, the first
     #: comer to type the name would register straight into the widget.
     admins: list[str] = []
+
+    #: Whether `readonly=True` on a socket command is a check or a
+    #: declaration (review 2026-08-23, wave 1 item 4, `db/readonly.py`).
+    #: `raise` -- a write inside a read stops the command and its transaction
+    #: carries nothing out; that is the default, i.e. every developer's copy
+    #: and the whole suite. Production sets `warn` (`deploy/compose.yaml`): a
+    #: leak of a shape no test could furnish must not cost the player their
+    #: `look`, so there it is named in the log instead. `off` takes the
+    #: listeners away altogether.
+    readonly_guard: Literal["off", "warn", "raise"] = "raise"
 
     log_level: str = "INFO"
 

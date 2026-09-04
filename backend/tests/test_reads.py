@@ -13,15 +13,15 @@ read queued behind a write is the wrong way round. The races proper live in
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import uuid
-from collections.abc import AsyncIterator
+from contextlib import AbstractAsyncContextManager
 
 import pytest
-from sqlalchemy import event, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.constants import current
+from src.db.readonly import writes_forbidden
 from src.engine import ledger, market, world
 from src.models.ledger import AccountKind
 from src.models.world import Layer
@@ -222,9 +222,8 @@ async def test_the_statement_and_its_rows_write_nothing(
     assert await ledger.find_account(session, AccountKind.IDENTITY, nobody.id) is None
 
 
-@contextlib.asynccontextmanager
-async def _writes_forbidden(db: AsyncSession) -> AsyncIterator[None]:
-    """Fail on any flush of this session -- the only honest way to say "wrote
+def _writes_forbidden(db: AsyncSession, what: str = "read") -> AbstractAsyncContextManager[None]:
+    """Fail on any write of this session -- the only honest way to say "wrote
     nothing".
 
     `db.new` / `db.dirty` / `db.deleted` are empty **after** a flush: the row
@@ -232,20 +231,14 @@ async def _writes_forbidden(db: AsyncSession) -> AsyncIterator[None]:
     the yard used to be created in -- `session.add` followed by
     `await session.flush()` -- passes those three checks in silence. The
     listener sees the flush itself, whoever caused it.
+
+    The listener moved to `db/readonly.py` on 2026-09-04, where every command
+    declaring `readonly=True` now runs under it: the tests here hold engine
+    calls to the same rule from below, one path at a time, and go on doing so
+    whatever a copy's `EVERSELIFE_READONLY_GUARD` says -- hence the mode named
+    outright.
     """
-    caught: list[str] = []
-
-    def watch(sync_session, context) -> None:
-        caught.extend(
-            repr(row) for row in (*sync_session.new, *sync_session.dirty, *sync_session.deleted)
-        )
-
-    event.listen(db.sync_session, "after_flush", watch)
-    try:
-        yield
-    finally:
-        event.remove(db.sync_session, "after_flush", watch)
-    assert not caught, caught
+    return writes_forbidden(db, what, mode="raise")
 
 
 async def _forecaster(session: AsyncSession, name: str) -> uuid.UUID:
@@ -504,3 +497,127 @@ async def test_forecast_does_not_wait_for_the_body_lock(
         priced = await asyncio.wait_for(plan(), timeout=5)
     assert counted["materials"], counted
     assert priced["plan"]["consumes"], priced
+
+
+#: What each read is asked, so that it gets far enough in to write if it is
+#: going to. A `readonly=True` command **missing from this map fails the sweep
+#: below**: nine leaks were found one at a time because nothing made the class
+#: answer as a class, and a class stays closed only if a new member of it
+#: cannot join quietly.
+READS: dict[str, dict[str, object]] = {
+    "auto.view": {},
+    "build.demolish_estimate": {},
+    "build.estimate": {"area": 20, "floors": 1},
+    "build.repair_estimate": {},
+    "craft.most": {"output": "nails"},
+    "craft.plan": {"output": "nails", "units": 3},
+    "deeds": {},
+    "explore.goals": {},
+    "knowledge": {},
+    "library.care": {"culture": "spelt"},
+    "line.view": {},
+    "look": {},
+    "orders": {},
+    "people.here": {},
+    "rig.status": {},
+    "road.here": {},
+    "ship.course": {"planet": "aurora"},
+    "ship.ports": {},
+    "ship.view": {},
+    "shelf": {},
+}
+
+#: The ones this world cannot answer: a landlubber has no hull to plumb, no
+#: hull to fly and no library to read a care text in (D-296). A refusal is not
+#: a write, and it is the path most of the nine leaked on -- "no such machine
+#: here" left a yard behind -- so they are swept too, they are simply not
+#: proof that the answering path was walked.
+REFUSING = {"library.care", "line.view", "ship.course"}
+
+
+async def test_every_readonly_command_writes_nothing(
+    session: AsyncSession, factory: async_sessionmaker[AsyncSession], monkeypatch
+) -> None:
+    """The flag is the check (`db/readonly.py`), and here it is aimed at the
+    whole class at once.
+
+    Every command that declares `readonly=True` is run against a furnished
+    world, each in a transaction of its own and each under the guard the socket
+    puts it under. A write of any kind -- a flush of the unit of work or a
+    statement handed to the session -- stops the command with `ReadWrote` and
+    fails the sweep naming what was written.
+
+    Twice over, and the second pass is the one that finds things: the same
+    place stripped of its yard, i.e. a node of the old world, born before
+    `create_node` made a yard with the node. That is where this family lives --
+    the read asks `node_container` what stands here, and a node without a yard
+    gets one from a glance. `auto.view` was doing exactly that on the day this
+    sweep was written (the tenth leak of the nine).
+
+    What it does **not** prove: that every branch of every read was walked.
+    Three of them have nothing here to answer about, and the ones that answer
+    about an empty place answer from their short branch. The runtime guard is
+    what covers the rest -- this holds the floor.
+    """
+    from sqlalchemy import delete, func  # noqa: PLC0415
+
+    import src.api.session  # noqa: F401, PLC0415 -- registers the commands
+    from src.api.registry import COMMANDS  # noqa: PLC0415
+    from src.models.identity import Body  # noqa: PLC0415
+    from src.models.inventory import Container, ContainerKind, Item  # noqa: PLC0415
+    from src.settings import settings  # noqa: PLC0415
+
+    #: Whatever this copy's environment says, the sweep is held to `raise`.
+    monkeypatch.setattr(settings(), "readonly_guard", "raise")
+    declared = sorted(name for name, one in COMMANDS.items() if one.readonly)
+    assert declared == sorted(READS), "a read of the socket is not swept here"
+
+    who = await _forecaster(session, "sweep")
+    assert await _swept(factory, who, declared) == sorted(set(READS) - REFUSING)
+
+    body = (await session.execute(select(Body).where(Body.identity_id == who))).scalars().one()
+    #: The forge goes with the yard: a container is not deleted from under the
+    #: things standing in it, and a node of the old world has neither.
+    yard = (
+        await session.execute(
+            select(Container).where(
+                Container.kind == ContainerKind.NODE, Container.owner_id == body.node_id
+            )
+        )
+    ).scalar_one()
+    await session.execute(delete(Item).where(Item.container_id == yard.id))
+    await session.execute(delete(Container).where(Container.id == yard.id))
+    await session.commit()
+
+    async def yards() -> int:
+        return await session.scalar(
+            select(func.count())
+            .select_from(Container)
+            .where(Container.kind == ContainerKind.NODE, Container.owner_id == body.node_id)
+        )
+
+    assert await yards() == 0, "двор снесён -- это узел старого мира"
+    #: Fewer of them answer without a yard -- a workshop with no machine in it
+    #: refuses -- and the refusal is the very path the yard used to be made on.
+    assert "look" in await _swept(factory, who, declared)
+    assert await yards() == 0, "чтение завело двор"
+
+
+async def _swept(
+    factory: async_sessionmaker[AsyncSession], who: uuid.UUID, names: list[str]
+) -> list[str]:
+    """Every named read, each on a transaction of its own, and which of them
+    answered. A refusal is not a write: it is swept like the rest, it simply
+    does not prove the answering path was walked."""
+    from src.api.registry import COMMANDS  # noqa: PLC0415
+    from src.engine.errors import Refusal  # noqa: PLC0415
+
+    answered: list[str] = []
+    for name in names:
+        async with factory() as db, db.begin():
+            try:
+                await COMMANDS[name].run({"identity_id": who}, db, {"cmd": name, **READS[name]})
+            except Refusal:
+                continue
+        answered.append(name)
+    return answered

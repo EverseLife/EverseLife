@@ -138,11 +138,20 @@ async def view(session: AsyncSession, catalog: Catalog, body: Body) -> dict:
     #: The wires of the floor: keyed by the machines standing here, so a
     #: wire between two unprogrammed machines is part of the picture too.
     node = await session.get(Node, body.node_id)
-    yard = await world.node_container(session, node)
-    here = (
-        (await session.execute(select(Item.id).where(Item.container_id == yard.id))).scalars().all()
+    #: The floor as it stands (`world.node_yard`), not made on the way: this is
+    #: a read, and `node_container` gives a yard to whatever node has none --
+    #: an INSERT behind a glance at the console (review 2026-08-23, wave 1
+    #: item 4). No yard, nothing standing, and the two answer alike.
+    yard = await world.node_yard(session, node)
+    standing = (
+        set()
+        if yard is None
+        else set(
+            (await session.execute(select(Item.id).where(Item.container_id == yard.id)))
+            .scalars()
+            .all()
+        )
     )
-    standing = set(here)
     wires = (
         (await session.execute(select(AutomatLink).where(AutomatLink.from_item_id.in_(standing))))
         .scalars()

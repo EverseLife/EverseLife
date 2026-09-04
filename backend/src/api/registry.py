@@ -9,7 +9,8 @@ registers its own with `@command("market.sell")`, and the socket loop looks
 the name up here. The decorator carries what the loop needs to know about a
 command without reading its body: whether it only reads (`readonly`), so a
 future replica can serve it, and its docstring, which the AI agent's
-reference is built from.
+reference is built from. `readonly` is a check and not a promise: the run
+below holds such a command to writing nothing (`db/readonly.py`).
 
 Handlers keep the signature `(state, db, message) -> dict`; the context
 object that replaces the 139 hand-written prologues (`Ctx`, below) is the
@@ -27,6 +28,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.db.readonly import writes_forbidden
 from src.engine.errors import Refusal
 from src.models.identity import Body, BodyState, Identity
 
@@ -41,6 +43,10 @@ class Refused(Refusal):
 class Command:
     name: str
     handler: Handler
+    #: This command only reads -- and is held to it (`db/readonly.py`): a write
+    #: inside it stops the command on a developer's copy and is named in
+    #: production's log. Nine reads that wrote were found one at a time while
+    #: the flag was a declaration (review 2026-08-23, wave 1 item 4).
     readonly: bool
     doc: str
     #: Declared as `async def f(ctx: Ctx)` -- the new shape; the loop builds
@@ -54,6 +60,14 @@ class Command:
     hidden: bool = False
 
     async def run(self, state: dict[str, Any], db: AsyncSession, message: dict[str, Any]) -> dict:
+        if not self.readonly:
+            return await self._called(state, db, message)
+        async with writes_forbidden(db, self.name):
+            return await self._called(state, db, message)
+
+    async def _called(
+        self, state: dict[str, Any], db: AsyncSession, message: dict[str, Any]
+    ) -> dict:
         if self.takes_ctx:
             return await self.handler(Ctx(state, db, message))  # type: ignore[arg-type]
         return await self.handler(state, db, message)
