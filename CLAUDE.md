@@ -177,7 +177,18 @@ python tools/spdx.py --apply
   приёмом: `test_vote.py` (864) → `test_vote.py` (опрос по закону: созыв,
   ценз, кворум, порог) + `test_vote_power.py` (выборы, отзыв, срок
   полномочий, правка устава — D-162, D-163) + `test_vote_council.py`
-  (совет — D-164, D-165), общее — в `vote_kit.py`.
+  (совет — D-164, D-165), общее — в `vote_kit.py`. 2026-09-04 в системе
+  агентов, без пакета и контрактов (`import-linter` настроен только на
+  `backend`): `aps/brain.py` (913) → `aps/waking.py` (когда ход стоит
+  того — D-224, D-310) + `aps/prompt.py` (`SYSTEM` и `TOOLS`), сам
+  `brain.py` остался ходом и дверью — импортирует из обоих то, чем
+  пользуется, так что `brain.run_turn` и `brain.Turn` у вызывающих не
+  изменились. `tests/test_brain.py` (1745) остался ходом, заметками и
+  диспетчером инструментов, а из него уехали
+  `test_waking.py`, `test_observe.py`, `test_commands.py`,
+  `test_advice.py`, `test_names.py` и `test_secrets.py` — по модулю, за
+  который каждый отвечает; фикстуры — в `tests/conftest.py`, хелперы
+  (`FakeGame`, `SESSION_SOURCE`) — в `tests/brain_kit.py`.
 - **Деньги, количества, остатки, выносливость** меняются только под
   блокировкой строки (`with_for_update`) или SQL-выражением
   (`col = col - :x`), и к каждой такой правке — тест-гонка на две сессии.
