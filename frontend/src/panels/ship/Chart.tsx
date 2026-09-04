@@ -26,9 +26,9 @@
  *   crew wants first;
  * * the two lines D-289 asks for, told apart on purpose: the **coast** inertia
  *   lays if the engines stay silent and the **course** the order under way
- *   still has to fly -- plus, while the slider is held, the arc of the point
- *   under the thumb. Behind the hull, dimmer than all three, the wake of the
- *   passage so far: this drawing's own addition too, and no decision's.
+ *   still has to fly -- plus, once a destination is picked and an arc worked
+ *   out, the one under the slider's thumb. Nothing is drawn behind the hull:
+ *   where it has been is not a thing one steers by.
  *
  * It is drawn as an instrument rather than as a picture: the hull is the middle
  * of the frame and stays there, the hand may only choose how near to look, and
@@ -264,8 +264,8 @@ export function Chart({
   //: the order's line at the share of the time gone.
   const home = by.get(vessel.planet);
   const goal = vessel.flight?.planet ? by.get(vessel.flight.planet) : undefined;
-  //: How much of the passage is behind: what splits the arc into wake and
-  //: course, and where along it the hull's nose is read.
+  //: How much of the passage is behind: where along the arc the hull stands,
+  //: where the line ahead begins, and which way the nose points.
   const share = (() => {
     if (!vessel.flight) return 0;
     const t0 = new Date(vessel.flight.started_at).getTime();
@@ -342,10 +342,10 @@ export function Chart({
     vessel.stage === "flight" && vessel.flight?.arc && vessel.flight.arc.length >= 2
       ? vessel.flight.arc
       : null;
-  //: An arc under way is two lines, not one: what has been flown is a fact and
-  //: what is left is a forecast, and the console must not draw them alike. The
-  //: cut is this drawing's own idea; D-289 asks only for the line ahead.
-  const wake = arc ? part(arc, 0, share) : null;
+  //: Only the part still to be flown. The arc the server drew is the whole
+  //: passage, and the half behind the hull is over: a display of where one is
+  //: going does not also draw where one has been, and D-289 asks only for the
+  //: line ahead.
   const ahead = arc ? part(arc, share, 1) : null;
   //: Which way the nose points. Under thrust it is the order's own arc; with
   //: the engines silent it is the coast -- and standing on a pad or on the
@@ -427,10 +427,9 @@ export function Chart({
             );
           })}
 
-        {/* The lines ahead: the wake behind, then the coast, the order and the
-            plan under the thumb -- in that order, so the one being chosen lies
-            on top of the ones that are merely true. */}
-        {wake && wake.length >= 2 && <polyline className="chart-wake" points={drawn(wake, scope)} />}
+        {/* The lines ahead: the coast, then the order, then the plan under the
+            thumb -- in that order, so the one being chosen lies on top of the
+            ones that are merely true. */}
         {inertia && <polyline className="chart-inertia" points={drawn(inertia, scope)} />}
         {ahead && ahead.length >= 2 && (
           <polyline className="chart-course" points={drawn(ahead, scope)} />

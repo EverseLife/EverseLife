@@ -186,10 +186,10 @@ export function drawn(trace: [number, number][], scope: Scope): string {
 /**
  * A stretch of a line, from one share of its length to another.
  *
- * What the hull has already flown is not what it is going to fly, and the two
- * halves of an arc under way are drawn as two different things (D-289): the
- * wake behind, the course ahead. The ends are interpolated, so the cut lands
- * exactly on the hull rather than at the nearest of the server's points.
+ * The arc the server draws is the whole passage, and the display wants the
+ * half of it still to be flown: the road already travelled is not a thing one
+ * steers by. The ends are interpolated, so the line begins exactly at the hull
+ * rather than at the nearest of the server's points.
  */
 export function part(trace: [number, number][], from: number, to: number): [number, number][] {
   const last = trace.length - 1;

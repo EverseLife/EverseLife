@@ -4,20 +4,21 @@
 /**
  * The glass of the bridge display: everything on it that is not the sky.
  *
- * The rest of this client is deliberately not a spacecraft HUD -- the brief
- * says so in as many words, because the game is about labour, money and
- * arguments, and a cockpit read on every screen would lie about all three
- * (D-055, D-238). The bridge is the one place where the player is not looking
- * at *our* interface but at the ship's own instrument, and an instrument that
- * looks like a table of numbers is the thing out of place there.
+ * The rest of this client is deliberately not a spacecraft HUD, because the
+ * game is about labour, money and arguments, and a cockpit read on every
+ * screen would lie about all three (D-055, D-238). The bridge is the one place
+ * where the player is not looking at *our* interface but at the ship's own
+ * instrument, and an instrument that looks like a table of numbers is the
+ * thing out of place there -- so D-317 stops the ban at the window's edge and
+ * names this one panel. What may be drawn here, and how slowly each of it may
+ * move, is a closed list, and the list lives in the vault (`50-interface/09`
+ * P3) so that it is widened by editing a document rather than a stylesheet.
  *
- * So the licence taken here is bounded, and the bound is the palette: not one
- * colour is added. The graticule, the range rings, the sweep, the brackets and
- * the scan are hairlines in the same greys every other panel is drawn with
- * (D-055), and what tells the display apart is **form** -- a lit screen behind
- * glass rather than a page. Everything below is decoration in the strict
- * sense: it carries no fact the sky does not already carry, it takes no
- * pointer, and a reader is told nothing by it (`aria-hidden`).
+ * Not one colour is added by any of it: the graticule, the sweep, the brackets
+ * and the scan are hairlines in the same greys every other panel is drawn with
+ * (D-055). Everything below is decoration in the strict sense: it carries no
+ * fact the sky does not already carry, it takes no pointer, and a reader is
+ * told nothing by it (`aria-hidden`).
  *
  * The two halves are ordered around the world: `Screen` is under the sky --
  * things drawn *on* the tube -- and `Bezel` is over it, the housing and the

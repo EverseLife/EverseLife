@@ -8,17 +8,20 @@
  * Both are maps and neither is *the* map, so they borrow the map's ink and none
  * of its furniture: no switcher, no inspector, no camera.
  *
- * The chart takes one licence the rest of the client does not: it is drawn as
- * an instrument rather than as a page -- a lit tube behind glass, with a
- * graticule, range rings, a sweep and a scan. The brief warns against a
- * spacecraft HUD, and rightly: this is a game about labour, money and
- * arguments, and a cockpit read on every screen would lie about all three. The
- * bridge is the exception it does not lie about -- there the player really is
- * looking at a ship's own screen. The licence is bounded by the palette, and
- * strictly: **no colour is added** (D-055, D-238). Every line below is one of
+ * The chart takes one licence the rest of the client does not, and it is the
+ * client's only one: it is drawn as an instrument rather than as a page -- a
+ * lit tube behind glass, with a graticule, a sweep, a scan and a bloom on the
+ * marks that matter. Everywhere else glow and continuous motion are forbidden,
+ * and rightly: this is a game about labour, money and arguments, and a cockpit
+ * read on every screen would lie about all three. The bridge is the one place
+ * where the player is not looking at our interface but at the ship's own
+ * instrument, so the ban stops at the window's edge -- D-317, with the list of
+ * what is allowed here and the limit on each line kept in the vault
+ * (`50-interface/09` P3) rather than in this file.
+ *
+ * No colour is added by any of it (D-055, D-238): every line below is one of
  * the same greys the rest of the client is drawn with, and the planet tints
- * still tell the destinations apart. What makes it a screen is form -- gaps,
- * hairlines, bloom and motion -- not a new ink.
+ * still only tell the destinations apart. What makes it a screen is form.
  */
 
 .hull-plan {
@@ -447,19 +450,12 @@
 }
 
 /* --- where the hull is going (D-289) ---------------------------------------
-   Four lines and four different truths, and the display must not draw them
-   alike. Behind: the wake, thick and dim -- a fact, and over with. Ahead: the
-   coast inertia lays if nothing is done, faintest and dashed; the course the
-   order still has to fly, flowing, because it is being flown; and the arc under
-   the slider's thumb, brightest, because it is the one being chosen. */
-.chart-wake {
-  fill: none;
-  stroke: var(--base-600);
-  stroke-width: 3;
-  stroke-linecap: round;
-  opacity: 0.5;
-}
-
+   Three lines and three different futures, and the display must not draw them
+   alike: the coast inertia lays if nothing is done, faintest and dashed; the
+   course the order still has to fly, flowing, because it is being flown; and
+   the arc under the slider's thumb, brightest, because it is the one being
+   chosen. Behind the hull there is nothing -- an instrument for steering does
+   not draw the road already travelled. */
 .chart-inertia {
   fill: none;
   stroke: var(--base-400);
