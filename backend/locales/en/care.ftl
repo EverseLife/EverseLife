@@ -31,3 +31,12 @@ care-crowd = Fear of crowding: { $risk } of 5. Thinning lifts the crowding but t
        *[fill] at sprouting, in leaf, in bloom or at filling
     }; what is pulled is not put back.
 care-weeds = Weeds are pulled when seen: they drink its water and hold its growth back.
+care-pest-risk = Fear of trouble: { $risk } of 5.
+care-pests = Trouble comes of a mistake, and each has its own answer.
+care-pests-row = { $pest ->
+        [fungus] Overwatering — spots on the leaf, answered by “{ NAME($cure) }”.
+        [mite] Drought — webbing, answered by “{ NAME($cure) }”.
+        [insect] Weeds — bitten leaves, answered by “{ NAME($cure) }”.
+       *[bacteria] A wrong feeding — rot in the axil, answered by “{ NAME($cure) }”.
+    }
+care-pests-after = A treatment holds while the preparation lasts, and a trouble already under way it only halts: what it took does not come back.

@@ -20,12 +20,12 @@ import { useCallback, useEffect, useState } from "react";
 import * as api from "../api";
 import { tally } from "../amounts";
 import { busyWith } from "../busy";
-import type { Look } from "../api";
+import type { Look, RecipeBook } from "../api";
 import { varietyText, type VarietyRef } from "../api";
 import { Refusal, useActions, useBook, useEdition, useNames, useSession } from "../actions";
 import { membersOf } from "../classes";
 import { t } from "../locale";
-import { goodsName, plantName, type Names } from "../names";
+import { className, goodsName, plantName, type Names } from "../names";
 import { Doing } from "../Deadline";
 import { Gauge } from "../Gauge";
 import { Glyph } from "../Glyph";
@@ -65,6 +65,9 @@ type Row = {
   fed?: true;
   /** Present once the stand was thinned (D-297): a fact of the sowing, once. */
   thinned?: true;
+  /** What a treatment still holds and until when (D-299): class id -> ISO
+   *  moment. Not derivable -- the window did not see the bottle opened. */
+  guard?: Record<string, string>;
   /** What everybody sees -- a sign, never a norm (D-057). */
   symptoms?: string[];
   /** The plough's progress (D-277): its share, and -- while a run is
@@ -89,7 +92,22 @@ const SYMPTOM: Record<string, string> = {
   fat: "ui-farm-symptom-fat",
   weedy: "ui-farm-symptom-weedy",
   crowded: "ui-farm-symptom-crowded",
+  //: The four pests (D-299): the sign says what the eye sees and never
+  //: which bottle answers it -- that is the agrotech text's to teach.
+  spots: "ui-farm-symptom-spots",
+  web: "ui-farm-symptom-web",
+  bitten: "ui-farm-symptom-bitten",
+  rot: "ui-farm-symptom-rot",
 };
+
+/** The classes a bed is treated with (D-299): the vault couples every pest
+ *  to the class that puts it out, and this reads that table rather than
+ *  keeping a second copy of it. A fifth class is a row there and a recipe. */
+function protectants(book: RecipeBook | null): string[] {
+  const cure = book?.constants?.["farm.pest_cure"];
+  if (!cure || typeof cure !== "object") return [];
+  return [...new Set(Object.values(cure as Record<string, unknown>).map(String))];
+}
 
 const STATE: Record<Row["state"], string> = {
   idle: "ui-farm-state-idle",
@@ -180,7 +198,7 @@ function MoistureCurve({ row, dayHours }: { row: Row; dayHours: number }) {
 }
 
 /** One fact of the bed per chip; nothing to say -- no container either. */
-function PlotChips({ row }: { row: Row }) {
+function PlotChips({ row, names }: { row: Row; names: Names | null }) {
   const chips: React.ReactNode[] = [];
   //: All four words, the good one too (D-296): a bed that stands strong says
   //: so, and the absence of a warning is not a word.
@@ -204,6 +222,15 @@ function PlotChips({ row }: { row: Row }) {
   }
   if (row.fed) chips.push(<span className="chip dim" key="fed">{t("ui-farm-fed-stage")}</span>);
   if (row.thinned) chips.push(<span className="chip dim" key="thinned">{t("ui-farm-thinned")}</span>);
+  for (const klass of Object.keys(row.guard ?? {})) {
+    //: One chip per class that still holds (D-299), named: two guards are two
+    //: chips, and the farmer sees which trouble is already answered for.
+    chips.push(
+      <span className="chip" key={`guard-${klass}`}>
+        {t("ui-farm-guarded", { guard: className(names, klass) })}
+      </span>,
+    );
+  }
   if (row.carried) {
     chips.push(
       <span className="chip" key="carried">
@@ -249,6 +276,8 @@ export function Farm({ look }: Omit<Props, "busy" | "act">) {
   const [targets, setTargets] = useState<Record<string, number>>({});
   //: The fertilizer picked for the next feeding per bed.
   const [feeds, setFeeds] = useState<Record<string, string>>({});
+  //: The preparation picked for the next treatment per bed (D-299).
+  const [cures, setCures] = useState<Record<string, string>>({});
 
   const current_ = look.node?.key;
   //: The curve counts Terran days (D-008): the farm's day is the same
@@ -271,6 +300,17 @@ export function Farm({ look }: Omit<Props, "busy" | "act">) {
     ...new Map(
       look.inventory
         .filter((thing) => fertilizers.has(thing.goods))
+        .map((thing) => [thing.goods, thing]),
+    ).values(),
+  ];
+  //: The preparations are four classes (D-299), asked of the catalog the
+  //: same way: what is in hand of any of them can be put on a bed, and the
+  //: window never says which sign it answers -- the text does.
+  const bottlesOf = new Set(protectants(book).flatMap((klass) => membersOf(book, klass)));
+  const bottles = [
+    ...new Map(
+      look.inventory
+        .filter((thing) => bottlesOf.has(thing.goods))
         .map((thing) => [thing.goods, thing]),
     ).values(),
   ];
@@ -304,6 +344,7 @@ export function Farm({ look }: Omit<Props, "busy" | "act">) {
     targets[row.id] ??
     Math.min(100, Math.ceil(((row.moisture ?? 0) + TARGET_STEP) / TARGET_STEP) * TARGET_STEP);
   const feedOf = (row: Row) => feeds[row.id] || dung[0]?.goods || "";
+  const cureOf = (row: Row) => cures[row.id] || bottles[0]?.goods || "";
   //: Thinning is open up to the vault's stage (D-297): the catalog's constant,
   //: read like the day length, so the button and the engine agree. No
   //: fallback: without the key there is no button, not a guessed one.
@@ -384,7 +425,7 @@ export function Farm({ look }: Omit<Props, "busy" | "act">) {
             />
           )}
 
-          {row.state === "sown" && <PlotChips row={row} />}
+          {row.state === "sown" && <PlotChips row={row} names={names} />}
 
           <div className="card-act">
           {row.state === "idle" && (
@@ -525,6 +566,34 @@ export function Farm({ look }: Omit<Props, "busy" | "act">) {
                 >
                   {t("ui-farm-thin")}
                 </button>
+              )}
+              {bottles.length > 0 && (
+                <>
+                  {bottles.length > 1 && (
+                    <select
+                      value={cureOf(row)}
+                      onChange={(e) => setCures({ ...cures, [row.id]: e.target.value })}
+                    >
+                      {bottles.map((jar) => (
+                        <option key={jar.goods} value={jar.goods}>
+                          {goodsName(names, jar.goods)}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  <button
+                    className="quiet"
+                    onClick={() =>
+                      go(() =>
+                        session.send("farm.treat", { plot: row.id, goods: cureOf(row) }),
+                      )
+                    }
+                    disabled={busy || occupied !== null}
+                    title={t("ui-farm-treat-why")}
+                  >
+                    {t("ui-farm-treat", { goods: goodsName(names, cureOf(row)) })}
+                  </button>
+                </>
               )}
               {dung.length > 0 && (
                 <>

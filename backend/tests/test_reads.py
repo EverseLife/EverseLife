@@ -194,6 +194,61 @@ async def test_look_gives_the_city_no_channel(
     assert await channels() == 0, "взгляд завёл городу канал -- чтение не пишет"
 
 
+async def test_a_look_at_the_face_opens_it_no_container(
+    session: AsyncSession, factory: async_sessionmaker[AsyncSession], constants, catalog
+) -> None:
+    """The sight of a working counts the haul and opens no container for it.
+
+    What is mined lies apart, in a container of the session's own, and
+    `session_container` makes one where it finds none -- so the sight went to
+    the creating door for a number it could add up without it. Every `look` of
+    a miner ran through there, and `mining.sight` behind it. Nothing ever
+    fired, because `face.start` opens the container in the same breath as the
+    session; a face left by an older world, or one whose container is gone, is
+    all it takes.
+    """
+    from sqlalchemy import delete, func
+
+    from src.api.commands.look import _look
+    from src.engine import mining
+    from src.models.inventory import Container, ContainerKind
+    from src.models.mining import MiningSession
+
+    stamp = uuid.uuid4().hex[:8]
+    node = await world.create_node(session, f"terra.face.{stamp}", "Забой", area_m2=100)
+    vein = await world.create_vein(session, node, "iron_ore", richness=60, remaining=100_000)
+    identity = await world.create_identity(session, f"Шахтёр-{stamp}")
+    body = await world.print_body(session, identity, node)
+    pocket = await world.body_container(session, body)
+    #: The vault requires a pickaxe at the face (D-215).
+    await world.grant_item(session, pocket, "stone_pickaxe", quality=50, origin="тест")
+    face = await mining.start(session, constants, body, vein, catalog=catalog)
+    #: A working as an older world left it: open, with no container of its own.
+    await session.execute(
+        delete(Container).where(
+            Container.kind == ContainerKind.MINING_SESSION, Container.owner_id == face.id
+        )
+    )
+    await session.commit()
+
+    async def hauls() -> int:
+        return await session.scalar(
+            select(func.count())
+            .select_from(Container)
+            .where(Container.kind == ContainerKind.MINING_SESSION, Container.owner_id == face.id)
+        )
+
+    assert await hauls() == 0, "контейнер снесён -- это забой старого мира"
+
+    async with factory() as db, db.begin(), _writes_forbidden(db):
+        seen = await _look({"identity_id": identity.id}, db, {"cmd": "look"})
+        assert seen["look"]["mining"]["mined"] == 0, seen["look"]["mining"]
+        #: And the same through the engine's own door, not only through `look`.
+        sight = await mining.sight(db, current(), await db.get(MiningSession, face.id))
+        assert sight.mined == 0, sight
+    assert await hauls() == 0, "взгляд завёл забою контейнер -- чтение не пишет"
+
+
 async def test_the_statement_and_its_rows_write_nothing(
     session: AsyncSession, factory: async_sessionmaker[AsyncSession]
 ) -> None:

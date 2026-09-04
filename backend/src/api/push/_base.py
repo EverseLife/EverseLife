@@ -117,6 +117,7 @@ TOUCHES_BY_KIND: dict[str, tuple[str, ...]] = {
     "farm.fed": ("farm", "inventory", "doings"),
     "farm.weeded": ("farm", "doings"),
     "farm.thinned": ("farm", "doings"),
+    "farm.treated": ("farm", "inventory", "doings"),
     "craft.invented": ("doings", "inventory", "knowledge", "orders"),
     #: The widget's energy goes into the city pool, not the hands (D-229).
     "alpha.energized": ("node",),
