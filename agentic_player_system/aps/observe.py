@@ -170,6 +170,16 @@ def standing(seen: dict[str, Any], look: dict[str, Any] | None = None) -> str:
     return "\n".join(lines)
 
 
+#: An occupation with no term ends by a decision, not by a clock (D-211): a
+#: working face, sleep, a forage whose find is already lying on the ground.
+#: Such a one is named alone -- "до None" reads as a value, and a model that
+#: takes it for one waits out a stamp that is never coming.
+def _doing(doing: dict[str, Any]) -> str:
+    name = doing.get("title") or doing.get("kind")
+    until = doing.get("until")
+    return f"{name} до {until}" if until else f"{name}"
+
+
 def digest(seen: dict[str, Any]) -> str:
     """The constant part, short: who, how much, where, what the body is up to."""
     look = _look(seen)
@@ -212,10 +222,7 @@ def digest(seen: dict[str, Any]) -> str:
         )
     doings = [d for d in look.get("doings") or [] if isinstance(d, dict)]
     if doings:
-        lines.append(
-            "Дела: "
-            + "; ".join(f"{d.get('title') or d.get('kind')} до {d.get('until')}" for d in doings)
-        )
+        lines.append("Дела: " + "; ".join(map(_doing, doings)))
     items = [i for i in look.get("inventory") or [] if isinstance(i, dict)]
     if items:
         named = [

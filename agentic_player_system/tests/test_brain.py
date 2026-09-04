@@ -360,6 +360,31 @@ def test_digest_names_what_is_worn() -> None:
     assert "Сумка (1)" in text, "надетое не считается за содержимое сумки"
 
 
+def test_digest_names_an_occupation_without_a_term() -> None:
+    """An occupation ends by a clock or by a decision (D-211), and the ones
+    that end by a decision -- a working face, sleep, a search whose find is
+    already lying there -- come with no term at all. Written out, "до None"
+    reads as a value, and a model that takes it for one waits out a stamp
+    that is never coming."""
+    from aps import observe
+
+    seen = {
+        "look": {
+            "identity": "Марта",
+            "money": "10",
+            "body": {"stamina": 90.0, "sleeping_since": None},
+            "node": {"name": "Ядро", "key": "terra.capital.core"},
+            "doings": [
+                {"kind": "mine", "title": "Забой", "until": None},
+                {"kind": "road", "title": "Дорога", "until": "2026-09-04T12:00:00+00:00"},
+            ],
+        }
+    }
+    text = observe.digest(seen)
+    assert "Дела: Забой; Дорога до 2026-09-04T12:00:00+00:00" in text
+    assert "None" not in text
+
+
 def test_digest_says_whose_the_ground_is() -> None:
     """Wild land is nobody's and needs no title (D-198): an agent that did not
     know it hunted for a way to own a node instead of building on one."""
