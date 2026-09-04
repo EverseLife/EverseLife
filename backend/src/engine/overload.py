@@ -97,8 +97,14 @@ async def settle_load(
             quantity = min(have, excess / unit)
         if quantity <= 0:
             continue
+        #: A container falls with what is in it (D-313), and the excess must
+        #: be counted down by the whole of what left the hands -- otherwise
+        #: one chest short of the limit would go on dropping the things
+        #: behind it. Read before the move: afterwards the row's own amount
+        #: has changed and "does the whole of it go" answers differently.
+        held = await gear.moved_inside(session, catalog, item, quantity)
         fell = await world.move_stack(session, item, yard, quantity, outdoors=not inside)
-        mass = unit * fell
+        mass = unit * fell + (held if fell >= quantity else 0.0)
         excess -= mass
         fallen += mass
         await events.record(

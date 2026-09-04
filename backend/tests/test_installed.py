@@ -17,7 +17,8 @@ Checked:
   where it was made, a portable one left at the bench lies;
 * two hands putting up into the last place: one of them is refused;
 * what stands is not picked off the floor by anybody: it is taken up, by the
-  holder; what lies is out of the scene -- no machine, no store, no programme;
+  holder; a lying machine is out of the scene -- no machine, no programme --
+  while a lying chest still opens, and pays in weight instead (D-313);
 * a plot with a house, or with a site laid, takes no second house.
 """
 
@@ -277,9 +278,15 @@ async def test_what_stands_is_not_picked_off_the_floor(
 async def test_a_lying_machine_is_out_of_the_scene(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """The look's machines and storages are what stands (D-278): a bench and
-    a chest dropped on the floor are in the floor's list and nowhere else,
-    and an automat lying there takes no programme."""
+    """The look's machines are what stands (D-278): a bench dropped on the
+    floor is in the floor's list and nowhere else, and an automat lying there
+    takes no programme.
+
+    A chest is not among them (D-313). Standing is what a machine is worked
+    at for, and a storage is not worked at: it opens where it lies, because in
+    an open field there is nowhere to stand one. What a lying chest costs is
+    weight -- it is picked up with everything in it -- not a shut lid.
+    """
     node, _, body = await _plot(session, constants, area=60)
     bench = await _in_hands(session, body, BENCH)
     chest = await _in_hands(session, body, CHEST)
@@ -287,7 +294,9 @@ async def test_a_lying_machine_is_out_of_the_scene(
     for thing in (bench, chest, robot):
         await storage.drop(session, constants, catalog, body, thing, indoors=True)
     assert await views._bench(session, node, body) == []
-    assert await views._storages(session, constants, node, body) == []
+    assert [one["goods"] for one in await views._storages(session, constants, node, body)] == [
+        CHEST
+    ]
     with pytest.raises(automat.NotAnAutomat) as refused:
         await automat.program(session, constants, catalog, body, robot, "nails")
     assert refused.value.key == "auto-not-installed"

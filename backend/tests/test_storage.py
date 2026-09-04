@@ -25,6 +25,7 @@ from src.constants import Catalog, Constants
 from src.engine import station, storage, world
 from src.models.estate import Building
 from src.models.world import PLOT
+from src.units import amount_float
 
 CHEST = "chest"
 GOODS = "pipe"
@@ -153,6 +154,164 @@ async def test_full_chest_not_carried_away(
     await station.take(session, catalog, body, chest)
     pocket = await world.body_container(session, body)
     assert chest.container_id == pocket.id
+
+
+async def _lying_chest(session: AsyncSession, constants: Constants, catalog: Catalog, body):
+    """A chest put down on the floor: still a storage, but cargo by weight (D-313)."""
+    pocket = await world.body_container(session, body)
+    chest = await world.grant_item(session, pocket, CHEST, quality=60, origin="тест")
+    await storage.drop(session, constants, catalog, body, chest)
+    assert not chest.installed
+    return chest
+
+
+async def test_lying_chest_is_still_a_storage(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Put down is not shut: there is nothing to stand a chest on in an open field (D-313).
+
+    The hole was never that a lying chest opens -- it was that what it holds
+    weighed nothing. The lid stays open and the weight is told the truth.
+    """
+    node, _, body = await _yard(session)
+    chest = await _lying_chest(session, constants, catalog, body)
+    thing = await _goods(session, body, 5)
+
+    put = await storage.put(session, constants, catalog, body, chest, thing, 5)
+    assert put == pytest.approx(5)
+    lies = (await storage.content(session, chest))[0]
+    assert await storage.take(session, constants, catalog, body, chest, lies, 2) == pytest.approx(2)
+
+
+async def test_picked_up_chest_weighs_its_fill(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The hole of OQ-129: drop a chest, stack a ton in it, pick it up for four kilograms.
+
+    A chest holds ten times what the hands do, so the floor was the cheapest
+    warehouse in the world -- no slot, no area under the goods, and no weight
+    either. Now the pick-up weighs what is inside (D-313).
+    """
+    from src.engine import gear
+
+    node, _, body = await _yard(session)
+    chest = await _lying_chest(session, constants, catalog, body)
+
+    #: Filled where it lies -- over many trips in play, each within the hands.
+    limit = await gear.capacity(session, constants, catalog, body)
+    heavy = limit / gear.mass_of(catalog, GOODS, 1) + 10
+    await world.grant_item(
+        session,
+        await storage.inside(session, chest),
+        GOODS,
+        amount=heavy,
+        quality=55,
+        origin="тест",
+    )
+
+    with pytest.raises(gear.Overloaded):
+        await storage.pick(session, constants, catalog, body, chest)
+    #: Refused means untouched: the chest stays lying where it was.
+    yard = await world.node_container(session, node)
+    assert chest.container_id == yard.id
+
+
+async def test_carried_chest_counts_against_the_next_pickup(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A chest in the hands is not a hole in them: its fill is part of the load (D-313)."""
+    from src.engine import gear
+
+    node, _, body = await _yard(session)
+    chest = await _lying_chest(session, constants, catalog, body)
+    limit = await gear.capacity(session, constants, catalog, body)
+    per_piece = gear.mass_of(catalog, GOODS, 1)
+
+    #: Half the hands' worth inside, and the chest goes up without complaint.
+    fill = (limit / 2) / per_piece
+    await world.grant_item(
+        session, await storage.inside(session, chest), GOODS, amount=fill, quality=55, origin="тест"
+    )
+    await storage.pick(session, constants, catalog, body, chest)
+    held = amount_float((await storage.content(session, chest))[0].amount)
+    carries = await gear.load_of(session, constants, catalog, body)
+    assert carries == pytest.approx(
+        gear.mass_of(catalog, CHEST, 1) + gear.mass_of(catalog, GOODS, held)
+    )
+
+    #: And the rest of the limit is gone: what is in the chest is carried.
+    ground = await world.grant_item(
+        session,
+        await world.node_container(session, node),
+        GOODS,
+        amount=limit / per_piece,
+        quality=55,
+        origin="тест",
+    )
+    with pytest.raises(gear.Overloaded):
+        await storage.pick(session, constants, catalog, body, ground, limit / per_piece)
+
+
+async def test_full_chest_is_not_handed_over(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A parcel weighs what is in it: handing over is a door the limit stands at too (D-313).
+
+    The receiver's hands are not bottomless (D-146), and a chest is the one
+    parcel whose weight is not written on the outside.
+    """
+    from src.engine import gear
+
+    node, _, giver = await _yard(session)
+    chest = await _lying_chest(session, constants, catalog, giver)
+    limit = await gear.capacity(session, constants, catalog, giver)
+    per_piece = gear.mass_of(catalog, GOODS, 1)
+    fill = (limit / 2) / per_piece
+    await world.grant_item(
+        session, await storage.inside(session, chest), GOODS, amount=fill, quality=55, origin="тест"
+    )
+    await storage.pick(session, constants, catalog, giver, chest)
+
+    stamp = uuid.uuid4().hex[:6]
+    taker = await world.print_body(
+        session, await world.create_identity(session, f"Сосед-{stamp}"), node
+    )
+    #: The neighbour is already carrying two thirds of what they can: the bare
+    #: chest would still fit, the chest with half a load in it would not.
+    await world.grant_item(
+        session,
+        await world.body_container(session, taker),
+        GOODS,
+        amount=(limit * 2 / 3) / per_piece,
+        quality=55,
+        origin="тест",
+    )
+    with pytest.raises(gear.Overloaded):
+        await storage.hand(session, constants, catalog, giver, taker, chest)
+
+
+async def test_chest_in_a_chest_takes_its_contents_room(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A nesting doll is not a way round capacity: the inner load is the outer's too (D-313)."""
+    from src.engine import gear
+
+    node, _, body = await _yard(session)
+    outer = await _chest(session, node)
+    inner = await _lying_chest(session, constants, catalog, body)
+    per_piece = gear.mass_of(catalog, GOODS, 1)
+    fill = ((await gear.capacity(session, constants, catalog, body)) / 2) / per_piece
+    await world.grant_item(
+        session, await storage.inside(session, inner), GOODS, amount=fill, quality=55, origin="тест"
+    )
+    await storage.pick(session, constants, catalog, body, inner)
+    await storage.put(session, constants, catalog, body, outer, inner)
+
+    held = amount_float((await storage.content(session, inner))[0].amount)
+    weighed = await storage.stored_mass(session, catalog, outer)
+    assert weighed == pytest.approx(
+        gear.mass_of(catalog, CHEST, 1) + gear.mass_of(catalog, GOODS, held)
+    )
 
 
 async def test_dropped_lies_here_and_is_picked_up(

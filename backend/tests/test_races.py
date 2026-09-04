@@ -38,6 +38,7 @@ from src.constants import registry as R
 from src.engine import ledger, market, world
 from src.models.energy import EnergyPool
 from src.models.identity import Body
+from src.models.inventory import Item
 from src.models.ledger import AccountKind, PostingReason
 from src.models.market import Order
 from src.models.world import Node, Surface
@@ -697,3 +698,86 @@ async def test_a_loaf_carried_off_mid_bite_is_not_eaten_out_of_the_chest(
         assert eaten != "ate", "съели хлеб, которого в руках уже не было"
         assert left is not None and left.container_id == yard_id, "хлеб лежит в сундуке"
         assert float(after.stamina) == 0, "силы за чужой хлеб не начислены"
+
+
+async def test_a_chest_filled_mid_lift_is_not_carried_off(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    constants,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reading what is in a chest and lifting it are two moments (D-313, D-146).
+
+    A chest weighs its contents now, so the lift reads them -- and between
+    that reading and the move a second pair of hands may fill it. Without the
+    row lock the lifter is weighed at five kilograms, has twenty-five more put
+    in behind its back and walks off with thirty-four in hands that hold
+    thirty: the very hole the decision was written to shut, one window over.
+
+    Whichever wins, exactly one is refused. The filler that arrives second
+    finds the chest gone from the floor; the lifter that arrives second finds
+    it too heavy.
+    """
+    from src.engine import gear, storage
+
+    _slow(monkeypatch, gear, "inner_mass")
+    catalog = current_catalog()
+    per_unit = gear.mass_of(catalog, ORE, 1)
+    stamp = uuid.uuid4().hex[:8]
+    #: Nobody's land, so both hands may reach the chest (D-198, D-204): the
+    #: race is about the weight, not about whose the plot is.
+    node = await world.create_node(session, f"terra.chest.{stamp}", "Поляна", area_m2=200)
+    lifter = await world.print_body(
+        session, await world.create_identity(session, f"Носильщик-{stamp}"), node
+    )
+    filler = await world.print_body(
+        session, await world.create_identity(session, f"Сосед-{stamp}"), node
+    )
+
+    chest = await world.grant_item(
+        session, await world.body_container(session, lifter), "chest", quality=60, origin="тест"
+    )
+    await storage.drop(session, constants, catalog, lifter, chest)
+    #: Light enough that the lift passes on its own.
+    await world.grant_item(
+        session,
+        await storage.inside(session, chest),
+        ORE,
+        amount=5 / per_unit,
+        origin="сценарий теста",
+    )
+    #: And what the neighbour is about to add, which takes it past the limit.
+    await world.grant_item(
+        session,
+        await world.body_container(session, filler),
+        ORE,
+        amount=25 / per_unit,
+        origin="сценарий теста",
+    )
+    await session.commit()
+
+    async def lift() -> None:
+        async with factory() as db, db.begin():
+            body = await db.get(Body, lifter.id)
+            box = await db.get(Item, chest.id)
+            assert body is not None and box is not None
+            await storage.pick(db, current(), current_catalog(), body, box)
+
+    async def fill() -> None:
+        async with factory() as db, db.begin():
+            body = await db.get(Body, filler.id)
+            box = await db.get(Item, chest.id)
+            assert body is not None and box is not None
+            load = (await world.contents(db, await world.body_container(db, body)))[0]
+            await storage.put(db, current(), current_catalog(), body, box, load)
+
+    outcomes = await asyncio.gather(lift(), fill(), return_exceptions=True)
+    refused = [one for one in outcomes if isinstance(one, Exception)]
+    assert len(refused) == 1, f"одна из двух рук должна уйти ни с чем: {outcomes}"
+
+    async with factory() as db:
+        body = await db.get(Body, lifter.id)
+        assert body is not None
+        carries = await gear.load_of(db, current(), current_catalog(), body)
+        limit = await gear.capacity(db, current(), current_catalog(), body)
+        assert carries <= limit, f"в руках {carries} кг при пределе {limit}"
