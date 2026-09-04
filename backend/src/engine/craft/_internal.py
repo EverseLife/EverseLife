@@ -527,8 +527,12 @@ async def _stock(
     (`stock.py`: "one query and one lock order, never two"). Two queries would
     hold this recipe's iron while waiting for its coal against a batch taking
     them the other way round -- and the two would wait on each other for ever.
+    For the same reason the **tier** is applied after the lock and not before:
+    a batch asking for good iron holds every stack of iron within reach for its
+    transaction. Wider than it takes, and deliberately -- picking first and
+    locking the picks second would lock rows chosen off numbers already stale.
     """
-    from src.engine import (  # noqa: PLC0415 -- lazy: breaks the import cycle craft -> liquid -> station -> craft
+    from src.engine import (  # noqa: PLC0415 -- lazy: breaks craft -> reach -> station -> craft and craft -> market -> craft
         market,
         reach,
     )

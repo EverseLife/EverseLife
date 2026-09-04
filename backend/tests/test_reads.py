@@ -298,13 +298,26 @@ def _writes_forbidden(db: AsyncSession, what: str = "read") -> AbstractAsyncCont
 
 async def _forecaster(session: AsyncSession, name: str) -> uuid.UUID:
     """A master on an empty plot with a forge in the yard: both forecasts have
-    everything they need -- a bill to count and a batch to price."""
+    everything they need -- a bill to count and a batch to price.
+
+    **Harnessed to an empty wagon**, and that is not decoration. A hold is made
+    on first need, and `harness` does not make one -- so a body pulling nothing
+    is exactly the world in which a read can furnish a hold from a glance. The
+    reach of a work walks the hold at every forecast (D-305) and the window
+    lists its cargo at every `look`: with no such body in this file the whole
+    family went unswept, and the leak was found by a reviewer rather than here.
+    """
+    from src.constants import current, current_catalog  # noqa: PLC0415
+    from src.engine import transport  # noqa: PLC0415
+
     stamp = uuid.uuid4().hex[:8]
     node = await world.create_node(session, f"terra.{name}.{stamp}", "Мастерская", area_m2=100)
     identity = await world.create_identity(session, f"Зодчий-{stamp}")
     body = await world.print_body(session, identity, node)
     yard = await world.node_container(session, node)
     await world.grant_item(session, yard, "forge", quality=60, origin="тест")
+    cart = await world.grant_item(session, yard, "cart", amount=1, origin="тест")
+    await transport.harness(session, current(), current_catalog(), body, cart)
     pocket = await world.body_container(session, body)
     await world.grant_item(session, pocket, "iron_ingot", amount=10, quality=80, origin="тест")
     await world.learn(session, identity, "nails")
@@ -646,6 +659,12 @@ async def test_every_readonly_command_writes_nothing(
             )
         )
     ).scalar_one()
+    #: The harness goes first, or the wagon cannot be deleted from under it:
+    #: a body pulling a wagon that no longer exists is not a world of the old
+    #: kind, it is a broken one.
+    from src.models.travel import Harness  # noqa: PLC0415
+
+    await session.execute(delete(Harness).where(Harness.body_id == body.id))
     await session.execute(delete(Item).where(Item.container_id == yard.id))
     await session.execute(delete(Container).where(Container.id == yard.id))
     await session.commit()

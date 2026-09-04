@@ -113,10 +113,14 @@ async def content(session: AsyncSession, chest: Item) -> list[Item]:
     return [] if container is None else list(await world.contents(session, container))
 
 
-async def contents_of(session: AsyncSession, chests: Sequence[Item]) -> dict[uuid.UUID, list[Item]]:
-    """What lies in each of several storages, in two queries rather than two
-    per chest: the inventory reads every canister in the hands at every
-    `look` (D-230), and the carry limit at every pick-up."""
+async def insides(session: AsyncSession, chests: Sequence[Item]) -> dict[uuid.UUID, Container]:
+    """The inside of each of several storages, in **one** query rather than one
+    per chest -- and, like `inside(create=False)`, making none of them.
+
+    An empty chest has no inside and is simply absent from the answer. Whoever
+    walks a yard full of chests asks this: the reach of a work does it at every
+    forecast (D-305), and once per role of a pot on top of that.
+    """
     if not chests:
         return {}
     holds = (
@@ -131,7 +135,16 @@ async def contents_of(session: AsyncSession, chests: Sequence[Item]) -> dict[uui
         .scalars()
         .all()
     )
-    by_hold = {hold.id: hold.owner_id for hold in holds}
+    return {hold.owner_id: hold for hold in holds}
+
+
+async def contents_of(session: AsyncSession, chests: Sequence[Item]) -> dict[uuid.UUID, list[Item]]:
+    """What lies in each of several storages, in two queries rather than two
+    per chest: the inventory reads every canister in the hands at every
+    `look` (D-230), and the carry limit at every pick-up."""
+    if not chests:
+        return {}
+    by_hold = {hold.id: owner for owner, hold in (await insides(session, chests)).items()}
     found: dict[uuid.UUID, list[Item]] = {chest.id: [] for chest in chests}
     if by_hold:
         rows = await session.execute(

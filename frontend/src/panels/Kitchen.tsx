@@ -84,8 +84,10 @@ export function Kitchen({ look }: Omit<Props, "busy" | "act">) {
             <span className="note">{t("ui-kitchen-whole")}</span>
           </div>
 
+          {/* Where the pot's products come from (D-305): the words are the
+              same in every window a thing is chosen for work. */}
           {ROLES.map((role) => (
-            <div className="row" key={role}>
+            <div className="row" key={role} title={t("ui-work-reach")}>
               <span className="role-name">{role}</span>
               <select
                 value={filling[role] ?? ""}

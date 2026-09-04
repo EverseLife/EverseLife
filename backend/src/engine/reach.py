@@ -51,6 +51,7 @@ run under the guard that says so (`db/readonly.py`).
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from sqlalchemy import select
@@ -124,7 +125,7 @@ async def _walk(session: AsyncSession, constants: Constants, catalog: Catalog, b
     #: One's own convoy: the harness is the title, and it is the body's own.
     wagon = await transport.harnessed(session, body)
     if wagon is not None:
-        hold = await _hold(session, wagon)
+        hold = await transport.hold_of(session, wagon)
         if hold is not None:
             carried.extend(await liquid.reach(session, catalog, hold))
 
@@ -138,10 +139,7 @@ async def _walk(session: AsyncSession, constants: Constants, catalog: Catalog, b
         if yard is not None:
             pile = yard.id
             here.extend(await liquid.reach(session, catalog, yard))
-            for chest in await _chests(session, catalog, yard):
-                inside = await storage.inside(session, chest, create=False)
-                if inside is not None:
-                    here.extend(await liquid.reach(session, catalog, inside))
+            here.extend(await _in_chests(session, catalog, yard))
         #: Fuel lying where a fuel plant stands is loaded, not stored (D-189).
         if await energy.plant_view(session, constants, node) is not None:
             barred = frozenset(constants[R.ENERGY_FUEL_ENERGY])
@@ -155,28 +153,51 @@ async def _walk(session: AsyncSession, constants: Constants, catalog: Catalog, b
     )
 
 
-async def _chests(session: AsyncSession, catalog: Catalog, yard: Container) -> list[Item]:
-    """The storages **put up** in the node (D-278).
+async def _in_chests(session: AsyncSession, catalog: Catalog, yard: Container) -> list[uuid.UUID]:
+    """Inside the storages **put up** in the node, and inside the vessels there.
 
-    A chest lying on the floor is cargo, and the window says so too
-    (`api.commands.views._storages`): the client derives the reach off what it
-    was shown (D-225), and the two must agree or the number on the bench would
-    promise what the batch refuses.
+    A chest lying on the floor is cargo, not a store (D-278), and the window
+    says so too (`api.commands.views._storages`): the client derives the reach
+    off what it was shown (D-225), and the two must agree, or the number on the
+    bench would promise what the batch refuses.
+
+    Three queries for a whole yard, not two per chest. The count matters here:
+    the forecast walks this while the player is still typing, and a pot walks
+    it again for every role it fills -- each write-off throws the command's
+    memory away, so the yard is read anew every time (`db.base.remember`).
     """
-    return [
+    chests = [
         thing
         for thing in await world.contents(session, yard)
         if thing.installed and storage.is_storage(catalog, thing.type_key)
     ]
+    holds = await storage.insides(session, chests)
+    if not holds:
+        return []
+    within = sorted(hold.id for hold in holds.values())
+    return within + await _in_vessels(session, catalog, within)
 
 
-async def _hold(session: AsyncSession, vehicle: Item) -> Container | None:
-    """The vehicle's hold as it stands -- **without** making one.
-
-    `transport.cargo` creates it on first need, and this is asked by the
-    forecast: an empty wagon must not get a hold row from a glance.
-    """
-    stmt = select(Container).where(
-        Container.kind == ContainerKind.VEHICLE, Container.owner_id == vehicle.id
+async def _in_vessels(
+    session: AsyncSession, catalog: Catalog, within: Sequence[uuid.UUID]
+) -> list[uuid.UUID]:
+    """Inside the vessels lying in these containers (D-230): a canister put
+    into a chest is still a canister, and the water in it is still water."""
+    things = (
+        (await session.execute(select(Item).where(Item.container_id.in_(within)))).scalars().all()
     )
-    return (await session.execute(stmt)).scalar_one_or_none()
+    vessels = [one.id for one in things if storage.is_vessel(catalog, one.type_key)]
+    if not vessels:
+        return []
+    holds = (
+        (
+            await session.execute(
+                select(Container).where(
+                    Container.kind == ContainerKind.STORAGE, Container.owner_id.in_(vessels)
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return sorted(hold.id for hold in holds)

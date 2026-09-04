@@ -183,7 +183,15 @@ async def test_what_stands_is_not_a_material(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
     """Put up, a thing works and is not spent (D-278). Without this the reach
-    would eat the machine it was standing at."""
+    would eat the machine it was standing at.
+
+    A standing **ingot** is a scene this test builds and the world cannot:
+    `station.place` puts up only what `placeable` admits, and a station built
+    in place is equipment too. So the filter is asked here of the column
+    itself, which is what the engine reads -- and the window's own list of
+    what lies loose (`estate.split`) drops only standing equipment and chests,
+    which in a live world is the same set.
+    """
     node, _, body = await _forge(session)
     yard = await world.node_container(session, node)
     await world.grant_item(
