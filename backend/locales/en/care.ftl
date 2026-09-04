@@ -40,3 +40,4 @@ care-pests-row = { $pest ->
        *[bacteria] A wrong feeding — rot in the axil, answered by “{ NAME($cure) }”.
     }
 care-pests-after = A treatment holds while the preparation lasts, and a trouble already under way it only halts: what it took does not come back.
+care-lore = { LORE($culture) }

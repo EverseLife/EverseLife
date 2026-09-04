@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import occupation, travel, wear
+from src.engine import gear, occupation, travel, wear
 from src.engine.craft import power
 from src.engine.craft._base import (
     BENCHLESS,
@@ -52,6 +52,16 @@ from src.units import (
     amount,
     amount_float,
 )
+
+
+def _tool_ids(tools: tuple[Item, ...] | list[Item]) -> list[str] | None:
+    """The tools of a batch, as the row stores them (D-309).
+
+    Empty means no tool at all -- a recipe at a bench asks for none -- and the
+    column stays null rather than holding an empty list: a key that would carry
+    nothing is not written down.
+    """
+    return [str(tool.id) for tool in tools] or None
 
 
 async def plan(
@@ -213,6 +223,10 @@ async def start(
         way=way,
         recipe_key=recipe_key,
         tiers=tiers,
+        #: The stacks are taken for the transaction here and not in the
+        #: forecast: what feeds a batch may lie in a chest or a hold two
+        #: people reach into (D-315), and the write-off below is a write.
+        lock=True,
     )
     forecast = ready.plan
 
@@ -242,7 +256,11 @@ async def start(
         output=forecast.output,
         units=amount(forecast.units),
         station=None if ready.station is None else ready.station.type_key,
-        tool_item_id=tool_item_id,
+        #: The tools the requirements resolved to, not the one the client
+        #: happened to name: they wear by the hours worked (D-309), and a
+        #: batch that forgot them would wear nothing at all -- which is how
+        #: the axe stayed eternal while the pickaxe did not.
+        tool_item_ids=_tool_ids(ready.tools),
         quality=_num(forecast.quality),
         spread=_num(forecast.spread),
         spent=forecast.consumes,
@@ -329,11 +347,26 @@ async def cook(
         needs_recipe=True,
     )
     station = await _station_item(session, body, proc)
-    tools = await _tool_items(session, catalog, body, proc, None)
+    tools, _ = await _tool_items(session, catalog, body, proc, None)
     ceiling = min(wear.effective(constants, item) for item in [station, *tools])
 
     #: Into each filled role goes one unit of product per whole pot.
-    pocket = await body_container(session, body)
+    laid: dict[str, str] = {}
+    for role in weights:
+        product = filling.get(role)
+        if not product:
+            continue
+        name = catalog.recipes.resolve(product)
+        if not catalog.recipes.is_ingredient(name):
+            raise NotIngredient(key="craft-not-ingredient", goods=name)
+        laid[role] = name
+    #: Every ingredient the pot will take, locked **before** any of them is
+    #: spent and in one id order (`stock.py`). The roles are filled one at a
+    #: time below, and five locks taken one at a time are five chances for two
+    #: pots over one chest to wait on each other: the meat first for one cook,
+    #: the fat first for the other (D-315).
+    await _stock(session, body, sorted(set(laid.values())), lock=True)
+
     scale = constants[R.QUALITY_SCALE]
     one = amount(1)
     weighted = 0.0
@@ -341,16 +374,15 @@ async def cook(
     consumed: dict[str, float] = {}
     products: list[str] = []
     for role, weight in weights.items():
-        product = filling.get(role)
-        if not product:
+        name = laid.get(role)
+        if name is None:
             continue
-        name = catalog.recipes.resolve(product)
-        if not catalog.recipes.is_ingredient(name):
-            raise NotIngredient(key="craft-not-ingredient", goods=name)
         #: The tier is chosen per role: the good meat into the stew, the rest
         #: into the salting (D-058).
         chosen = (tiers or {}).get(role)
-        stock = await _stock(session, pocket, (name,), tiers={name: chosen} if chosen else None)
+        stock = await _stock(
+            session, body, (name,), tiers={name: chosen} if chosen else None, lock=True
+        )
         picks = _pick(stock, {name: amount_float(one)})
         quality = _material_quality(picks, scale.mid)
         for pick in picks:
@@ -381,6 +413,9 @@ async def cook(
         output=recipe.type_key,
         units=amount(portions),
         station=None if station is None else station.type_key,
+        #: The pot wears from cooking like the axe from felling (D-309): it is
+        #: a tool of the work, and it sets the ceiling beside the hearth (D-119).
+        tool_item_ids=_tool_ids(tools),
         quality=_num(quality),
         spread=_num(constants[R.QUALITY_SPREAD_GOOD_RATIO]),
         spent=consumed,
@@ -494,6 +529,10 @@ async def _work_on(
     await occupation.require_free(session, body, besides=frozenset({occupation.CRAFT}))
     if item.container_id != inventory.id:
         raise CraftError(key="craft-item-not-in-hands")
+    #: A repair leaves the thing where it is and is done without taking it off
+    #: (D-305); taking it apart ends it, and that comes off first.
+    if kind is BatchKind.RECYCLE:
+        await gear.require_off(session, item)
 
     proc = procedure(catalog, item.type_key)
     station = await _station_item(session, body, proc)
@@ -501,7 +540,7 @@ async def _work_on(
 
     spent: dict[str, float] = {}
     if kind is BatchKind.REPAIR:
-        stock = await _stock(session, inventory, proc.inputs, tiers=_tiers_by(catalog, tiers))
+        stock = await _stock(session, body, proc.inputs, tiers=_tiers_by(catalog, tiers), lock=True)
         spent = {name: value * share for name, value in proc.per_unit.items()}
         for pick in _pick(stock, spent):
             if pick.item.amount > pick.take:

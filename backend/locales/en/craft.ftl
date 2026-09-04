@@ -112,25 +112,28 @@ coin-not-enough = not that many coins: { $have } in the stack
 # --- stations and furniture (D-106, D-150, D-181, D-232) ---------------------
 
 station-dead-places = a dead body puts nothing down
-station-dead-takes = a dead body carries nothing away
+station-dead-takes = a dead body takes nothing down
 station-body-off-node = the body is outside the node
 station-not-in-hands = this thing is not in hand
-station-not-installed = “{ NAME($goods) }” lies here rather than stands: what lies is picked up off the floor, what stands is taken up
+station-not-installed = “{ NAME($goods) }” lies here rather than stands: what lies is picked up off the floor, what stands is taken down
 station-not-in-node = this thing is not in this node
 station-not-placeable = “{ NAME($goods) }” is neither a station nor furniture: what goes into a building is equipment
 station-not-a-station = “{ NAME($goods) }” is neither a station nor furniture
-station-built-in-place = { NAME($goods) }: built in place, never taken up
+station-built-in-place = { NAME($goods) }: built in place, never taken down
 station-relic = “{ NAME($goods) }” is a relic of the Forerunners: it is neither taken down nor dismantled
 station-node-not-yours = the node is not yours: equipment goes up on your own land. An empty city plot is bought out, a wild one is taken
-station-take-not-yours = the node is not yours: another's equipment is not carried away
+station-city-has-printer = a city has one bioprinter, and “{ $city }” has it already
+station-printer-by-the-city = inside a city a bioprinter is put up by the authority of “{ $city }”, not by the plot holder
+craft-one-printer-at-a-time = inside a city bioprinters go up one at a time, not in a batch
+station-take-not-yours = the node is not yours: another's equipment is not taken down
 station-busy = someone is working at the station: wait for the batch to end
-station-not-empty = there are things in “{ NAME($chest) }”: empty it first, carry it away after
+station-not-empty = there are things in “{ NAME($chest) }”: empty it first, take it down after
 # By the full chest's rule (D-181, D-314): taking a thing down weighs nothing.
 station-hopper-not-empty = the hopper of the rig “{ NAME($goods) }” is not empty: haul the hopper out first, take the machine down after
 station-no-building = the plot has no building: first you build, then you furnish
 station-no-room = { $slots ->
-        [one] the building has { $slots } space of { $per } m², and it is taken: build more or carry the extra out
-       *[other] the building has { $slots } spaces of { $per } m² each, and all are taken: build more or carry the extra out
+        [one] the building has { $slots } space of { $per } m², and it is taken: build more or take the extra down
+       *[other] the building has { $slots } spaces of { $per } m² each, and all are taken: build more or take the extra down
     }
 
 # --- the library as a store of recipes (D-053, D-068) ------------------------
@@ -147,6 +150,8 @@ gear-dead-dresses = a dead body does not dress
 gear-not-in-hands = the thing is not in hand: you put on your own
 gear-no-slot = “{ NAME($goods) }” is not worn: it has no slot
 gear-unknown-slot = there is no “{ $slot }” slot in the world
+gear-worn-take-off-first = take it off first: “{ NAME($goods) }”
+gear-taken-apart = this is being taken apart and cannot be put on: “{ NAME($goods) }”
 gear-overloaded = too much to carry: { NUMBER($carries, minimumFractionDigits: 1, maximumFractionDigits: 1) } kg in hand out of { NUMBER($limit, maximumFractionDigits: 0) }, and this is { NUMBER($extra, minimumFractionDigits: 1, maximumFractionDigits: 1) } kg more. Anything over that goes by transport
 craft-unpowered-no-grid = the “{ NAME($goods) }” runs on the grid, and there is no grid here: outside a city a charged battery is stood beside it
 craft-unpowered-short = the “{ NAME($goods) }” needs { NUMBER($need, minimumFractionDigits: 0, maximumFractionDigits: 1) } energy, and the pool holds { NUMBER($have, minimumFractionDigits: 0, maximumFractionDigits: 1) }: a city without fuel stands still

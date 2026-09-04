@@ -16,6 +16,10 @@ Checked:
 * what falls out of overloaded hands lies; a station built in place stands
   where it was made, a portable one left at the bench lies;
 * two hands putting up into the last place: one of them is refused;
+* taking down is not taking into the hands (D-308): the machine lies where it
+  stood, and the carry limit answers at the pick-up -- a machine heavier than
+  the hands is not pocketed by unbolting it; two hands take one machine down
+  once; and matter needs room to lie in, on either surface;
 * what stands is not picked off the floor by anybody: it is taken up, by the
   holder; what lies is out of the scene -- no machine, no store, no programme;
 * a plot with a house, or with a site laid, takes no second house.
@@ -27,15 +31,17 @@ import asyncio
 import uuid
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from conftest import _slow
 from src.api.commands import views
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import alpha, automat, estate, overload, station, storage, world
+from src.engine import alpha, automat, estate, gear, overload, station, storage, world
 from src.engine.estate.building import site as sites
 from src.models.estate import Building
+from src.models.event import Event, EventKind
 from src.models.identity import Body
 from src.models.inventory import Item
 from src.models.world import Layer
@@ -46,6 +52,9 @@ CHEST = "chest"
 TERMINAL = "market_terminal"
 AUTOMAT = "auto_station"
 ORE = "iron_ore"
+#: Heavier than a pair of hands (`inventory.carry_mass`), and not built in
+#: place -- so it is a machine one may take down and may not carry off.
+HEAVY = AUTOMAT
 
 
 async def _plot(session: AsyncSession, constants: Constants, *, area: float = 20, owner=None):
@@ -325,3 +334,152 @@ async def test_the_catch_up_lays_the_heaps_back_down(
     await world.stack_up(session, more)
     heaps = [thing for thing in await world.node_things(session, node) if thing.type_key == ORE]
     assert len(heaps) == 1
+
+
+async def test_a_machine_is_taken_down_onto_the_floor_not_into_the_hands(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Two doors, not one (D-308). Taking down leaves the machine lying where
+    it stood; the hands answer at the second door, and a machine heavier than
+    they are is not pocketed by unbolting it."""
+    node, _, body = await _plot(session, constants, area=60)
+    yard = await world.node_container(session, node)
+    #: Standing it up off the floor, the way a machine too heavy to lift gets
+    #: put up at all (D-278): made at the bench, it fell and lay here.
+    robot = await world.grant_item(session, yard, HEAVY, quality=60, origin="тест", installed=False)
+    await station.place(session, catalog, body, robot)
+    assert robot.installed
+    assert gear.mass_of(catalog, HEAVY, 1) > await gear.capacity(
+        session, constants, catalog, body
+    ), "иначе тест ничего не ловит: машина должна быть тяжелее рук"
+
+    await station.take(session, catalog, body, robot)
+    pocket = await world.body_container(session, body)
+    assert robot.container_id == yard.id and robot.container_id != pocket.id, "легла на пол"
+    assert not robot.installed and not robot.outdoors
+    inside, _ = await estate.split(session, node)
+    assert [thing.id for thing in inside] == [robot.id], "в списке пола, по весу"
+    assert await _standing(session, constants, catalog, node) == 0
+
+    with pytest.raises(gear.Overloaded) as refused:
+        await storage.pick(session, constants, catalog, body, robot)
+    assert refused.value.key == "gear-overloaded"
+
+
+async def test_a_light_machine_goes_down_and_then_up_into_the_hands(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The second door is the ordinary one: what the hands hold, they take off
+    the floor. A house of exactly one place takes its only machine down --
+    standing, the machine holds that place, and it gives it back by lying."""
+    node, _, body = await _plot(session, constants, area=constants[R.BUILD_SLOTS_PER_AREA])
+    bench = await _in_hands(session, body, BENCH)
+    await station.place(session, catalog, body, bench)
+    assert (await estate.slots(session, constants, node))[0] == 1, "дом ровно на одно место"
+
+    await station.take(session, catalog, body, bench)
+    yard = await world.node_container(session, node)
+    assert bench.container_id == yard.id and not bench.installed
+
+    await storage.pick(session, constants, catalog, body, bench)
+    pocket = await world.body_container(session, body)
+    assert bench.container_id == pocket.id
+
+
+async def test_two_hands_do_not_both_take_one_machine_down(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    constants: Constants,
+    catalog: Catalog,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The thing's own row serialises the two: one takes the machine down, the
+    other finds it already lying and is told so -- never two takings of one
+    machine, and never two journal lines for it."""
+    _slow(monkeypatch, storage, "require_room")
+    node, owner, one = await _plot(session, constants, area=60)
+    two = await world.print_body(session, owner, node)
+    bench = await _in_hands(session, one, BENCH)
+    await station.place(session, catalog, one, bench)
+    hands = [one.id, two.id]
+    item_id, node_id = bench.id, node.id
+    await session.commit()
+
+    async def go(body_id: uuid.UUID) -> bool:
+        async with factory() as db, db.begin():
+            me = await db.get(Body, body_id)
+            thing = await db.get(Item, item_id)
+            assert me is not None and thing is not None
+            try:
+                await station.take(db, catalog, me, thing)
+            except station.StationError as refused:
+                assert refused.key == "station-not-installed"
+                return False
+            return True
+
+    done = await asyncio.gather(*(go(body) for body in hands))
+    assert sorted(done) == [False, True], "одна машина — одно снятие"
+    async with factory() as db:
+        again = await db.get(Item, item_id)
+        assert again is not None and not again.installed
+        lines = await db.execute(
+            select(Event).where(Event.kind == EventKind.STATION_TAKEN, Event.node_id == node_id)
+        )
+        assert len(lines.scalars().all()) == 1, "и одна строка в журнале"
+
+
+async def test_a_full_ground_refuses_to_take_a_machine_down(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Out on the ground the machine gives nothing back: standing on a vein it
+    was never charged to the yard (D-244), and lying it is new weight. A yard
+    with no metres left refuses the take-down the way it refuses any putting
+    down -- and says how many metres are missing."""
+    stamp = uuid.uuid4().hex[:8]
+    #: A bare plot, as a vein site is: no building, so no floor -- everything
+    #: lying here is out under the sky whatever its mark says.
+    bare = await world.create_node(
+        session, f"terra.vein.{stamp}", "Жила", area_m2=2, layer=Layer.PLANET
+    )
+    body = await world.print_body(
+        session, await world.create_identity(session, f"Буровик-{stamp}"), bare
+    )
+    yard = await world.node_container(session, bare)
+    robot = await world.grant_item(session, yard, HEAVY, quality=60, origin="тест")
+    assert robot.installed, "гранты в узел ставят машину стоять (D-278)"
+    #: Almost the whole yard under ore: `build.floor_per_m2` kilograms to the metre.
+    fills = 2 * constants[R.BUILD_FLOOR_PER_M2] - 1
+    await world.grant_item(
+        session, yard, ORE, amount=fills / catalog.recipes.mass_of(ORE), origin="тест"
+    )
+
+    with pytest.raises(storage.NoRoom) as refused:
+        await station.take(session, catalog, body, robot)
+    assert refused.value.key == "storage-no-room"
+    assert refused.value.params["inside"] == "false"
+    assert robot.installed, "отказ ничего не двигает"
+
+
+async def test_an_overfull_floor_refuses_too_but_counts_the_place_given_back(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Indoors the machine gives its place back before it lies, so a house of
+    one place takes its machine down. But the place given back is not a licence:
+    on a floor already over its weight the metres are counted honestly, from the
+    true remainder, and the take-down is refused."""
+    per = constants[R.BUILD_SLOTS_PER_AREA]
+    node, _, body = await _plot(session, constants, area=2 * per)
+    yard = await world.node_container(session, node)
+    robot = await world.grant_item(session, yard, HEAVY, quality=60, origin="тест")
+    #: More cargo than the floor holds -- a state the world reaches without any
+    #: door asking (D-265): what falls out of overloaded hands lies anyway.
+    over = 2 * per * constants[R.BUILD_FLOOR_PER_M2]
+    await world.grant_item(
+        session, yard, ORE, amount=over / catalog.recipes.mass_of(ORE), origin="тест"
+    )
+
+    with pytest.raises(storage.NoRoom) as refused:
+        await station.take(session, catalog, body, robot)
+    assert refused.value.key == "storage-no-room"
+    assert refused.value.params["inside"] == "true"
+    assert robot.installed

@@ -118,7 +118,15 @@ async def plants() -> dict[str, Any]:
 
     #: The feeding table stays out (D-296): what a fertilizer does in a stage
     #: is the Library's text, read on foot, not a catalog constant.
-    return {"plants": [plant.model_dump(exclude={"feeding"}) for plant in catalog().plants.plants]}
+    #: The written paragraph stays out for the same reason (D-311): it is
+    #: the opening of that same Library article, and it is said in the
+    #: reader's language by key -- raw Russian in an open catalogue would
+    #: be neither the text nor a translation of it.
+    return {
+        "plants": [
+            plant.model_dump(exclude={"feeding", "care_note"}) for plant in catalog().plants.plants
+        ]
+    }
 
 
 def _passage(under_way: dict[str, Any] | None, by_id: dict[Any, str]) -> dict[str, str] | None:

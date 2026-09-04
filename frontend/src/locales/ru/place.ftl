@@ -157,8 +157,8 @@ ui-place-equipment-charge = заряд { $charge } · заряжают в «хо
 ui-place-equipment-busy-mine = занята вами
 ui-place-equipment-busy = занята
 ui-place-equipment-free = свободна
-ui-place-equipment-take = Забрать
-ui-place-equipment-take-hint = забрать в руки
+ui-place-equipment-take = Снять
+ui-place-equipment-take-hint = снять — ляжет там же, где стояла; в руки — уже оттуда, сколько унесёте
 ui-place-equipment-drop-station = перетащите сюда станок, чтобы поставить его в здание
 ui-place-equipment-drop-furniture = перетащите сюда мебель, чтобы обставить здание
 ui-place-equipment-place = Поставить:
@@ -188,7 +188,7 @@ ui-place-floor-guest = Чужое место, но лежащее берёт в�
 
 ## Хранилища: сундук и бак. Жидкость живёт только в таре.
 
-ui-place-chest-rule = Дом хранит то, что не увезти в руках; полный сундук не уносят.
+ui-place-chest-rule = Дом хранит то, что не увезти в руках; полный сундук не снимают.
 ui-place-chest-taken = занято { $mass } из { $capacity } кг
 ui-place-chest-foreign = Чужое хранилище: что внутри — не ваше дело.
 ui-place-chest-drop = перетащите сюда предмет, чтобы убрать в хранилище
@@ -385,9 +385,9 @@ ui-place-site-title = стройплощадка: { $area } м² в { $floors } 
 ui-place-site-gathering = сбор ресурсов
 ui-place-site-brought = внесено { $brought } из { $needed }
 ui-place-site-need = { $need } по смете
-ui-place-site-in-hands = в руках { $have }
+ui-place-site-at-hand = под рукой { $have }
 ui-place-site-add = Внести
-ui-place-site-add-hint = внести из рук: сколько войдёт в смету
+ui-place-site-add-hint = внести: сколько войдёт в смету
 ui-place-site-start = Начать строительство · { $stamina } выносливости
 ui-place-site-start-hint = смета собрана: стройка возьмёт время и выносливость хозяина
 ui-place-site-waiting = ждёт, пока внесут всё по смете

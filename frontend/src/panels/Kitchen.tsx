@@ -13,13 +13,14 @@
  * the recipe is one. The pot is cooked whole -- a flow, not an order.
  */
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import type { Look } from "../api";
 import { Rule } from "../Rule";
 import { Refusal, useActions, useBook, useNames, useSession } from "../actions";
 import { goodsName } from "../names";
 import { t } from "../locale";
 import { TierPick } from "../Tier";
+import { reachOf } from "../wire/look";
 
 type Props = {
   look: Look;
@@ -53,11 +54,11 @@ export function Kitchen({ look }: Omit<Props, "busy" | "act">) {
   //: into the stew, the rest into the salting.
   const [tiers, setTiers] = useState<Record<string, string | null>>({});
 
+  //: Everything the pot reaches (D-315): the pocket, one's own hold and -- on
+  //: one's own place -- the floor, the yard and the chests standing here.
+  const athand = reachOf(look, book);
   //: Products go into a role: what is edible is decided by data, not the client.
-  const products = useMemo(
-    () => [...new Set(look.inventory.filter((one) => one.ingredient).map((one) => one.goods))],
-    [look.inventory],
-  );
+  const products = [...new Set(athand.filter((one) => one.ingredient).map((one) => one.goods))];
 
   const closed = ROLES.filter((role) => filling[role]).length;
 
@@ -83,8 +84,10 @@ export function Kitchen({ look }: Omit<Props, "busy" | "act">) {
             <span className="note">{t("ui-kitchen-whole")}</span>
           </div>
 
+          {/* Where the pot's products come from (D-315): the words are the
+              same in every window a thing is chosen for work. */}
           {ROLES.map((role) => (
-            <div className="row" key={role}>
+            <div className="row" key={role} title={t("ui-work-reach")}>
               <span className="role-name">{role}</span>
               <select
                 value={filling[role] ?? ""}
@@ -102,7 +105,7 @@ export function Kitchen({ look }: Omit<Props, "busy" | "act">) {
               </select>
               {filling[role] && (
                 <TierPick
-                  things={look.inventory}
+                  things={athand}
                   goods={filling[role]}
                   value={tiers[role]}
                   onChange={(tier) => setTiers((was) => ({ ...was, [role]: tier }))}

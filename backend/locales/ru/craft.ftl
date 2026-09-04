@@ -112,26 +112,29 @@ coin-not-enough = столько монет нет: в стопке { $have }
 # --- рабочие станции и мебель (D-106, D-150, D-181, D-232) -------------------
 
 station-dead-places = мёртвое тело ничего не ставит
-station-dead-takes = мёртвое тело ничего не уносит
+station-dead-takes = мёртвое тело ничего не снимает
 station-body-off-node = тело вне узла
 station-not-in-hands = этой вещи нет в руках
-station-not-installed = «{ NAME($goods) }» здесь лежит, а не стоит: лежащее берут с пола, забирают — стоящее
+station-not-installed = «{ NAME($goods) }» здесь лежит, а не стоит: лежащее берут с пола, стоящее — снимают
 station-not-in-node = этой вещи нет в этом узле
 station-not-placeable = «{ NAME($goods) }» — не рабочая станция и не мебель: в здание ставят оборудование
 station-not-a-station = «{ NAME($goods) }» — не рабочая станция и не мебель
-station-built-in-place = { NAME($goods) }: строится на месте и в руки не берётся
+station-built-in-place = { NAME($goods) }: строится на месте и не снимается
 station-relic = «{ NAME($goods) }» — наследие Предтеч: не снимается и не разбирается
 station-node-not-yours = узел не ваш: оборудование ставят у себя. Пустой городской участок выкупают, дикий — занимают
-station-take-not-yours = узел не ваш: чужое оборудование не уносят
+station-city-has-printer = биопринтер в городе один, а у города «{ $city }» он уже есть
+station-printer-by-the-city = биопринтер в городе ставит власть города «{ $city }», а не держатель участка
+craft-one-printer-at-a-time = биопринтер в городе ставят по одному, а не партией
+station-take-not-yours = узел не ваш: чужое оборудование не снимают
 station-busy = за рабочей станцией работают: дождитесь конца партии
-station-not-empty = в «{ NAME($chest) }» лежат вещи: сначала разберите, потом уносите
+station-not-empty = в «{ NAME($chest) }» лежат вещи: сначала разберите, потом снимайте
 # Тем же правилом, что и полный сундук (D-181, D-314): снятие ничего не взвешивает.
 station-hopper-not-empty = бункер установки «{ NAME($goods) }» не пуст: сначала вывезите, потом снимайте
 station-no-building = на участке нет здания: сначала строят, потом обставляют
 station-no-room = { $slots ->
-        [one] в здании { $slots } место по { $per } м², и все заняты: стройте больше либо уносите лишнее
-        [few] в здании { $slots } места по { $per } м², и все заняты: стройте больше либо уносите лишнее
-       *[many] в здании { $slots } мест по { $per } м², и все заняты: стройте больше либо уносите лишнее
+        [one] в здании { $slots } место по { $per } м², и все заняты: стройте больше либо снимайте лишнее
+        [few] в здании { $slots } места по { $per } м², и все заняты: стройте больше либо снимайте лишнее
+       *[many] в здании { $slots } мест по { $per } м², и все заняты: стройте больше либо снимайте лишнее
     }
 
 # --- библиотека как хранилище рецептов (D-053, D-068) ------------------------
@@ -148,6 +151,8 @@ gear-dead-dresses = мёртвое тело не одевается
 gear-not-in-hands = вещь не в руках: надевают своё
 gear-no-slot = «{ NAME($goods) }» не надевается: у него нет слота
 gear-unknown-slot = слота «{ $slot }» в мире нет
+gear-worn-take-off-first = сначала снимите с себя: «{ NAME($goods) }»
+gear-taken-apart = вещь разбирают, надеть уже нельзя: «{ NAME($goods) }»
 gear-overloaded = не унести: в руках { NUMBER($carries, minimumFractionDigits: 1, maximumFractionDigits: 1) } кг из { NUMBER($limit, maximumFractionDigits: 0) }, а это ещё { NUMBER($extra, minimumFractionDigits: 1, maximumFractionDigits: 1) } кг. Всё сверх — только транспортом
 craft-unpowered-no-grid = станок «{ NAME($goods) }» работает от сети, а сети здесь нет: вне города рядом ставят заряженный аккумулятор
 craft-unpowered-short = станку «{ NAME($goods) }» нужно { NUMBER($need, minimumFractionDigits: 0, maximumFractionDigits: 1) } энергии, а в пуле { NUMBER($have, minimumFractionDigits: 0, maximumFractionDigits: 1) }: город без топлива стоит

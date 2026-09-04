@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants, current
 from src.constants import registry as R
-from src.engine import events, goods, travel, world
+from src.engine import events, goods, occupation, travel, world
 from src.engine.errors import Says
 from src.engine.estate._base import EstateError, NoBuilding, NoRoom, NotOwner
 from src.engine.estate.building import (
@@ -188,6 +188,11 @@ async def demolish(
     blocking = await demolish_blockers(session, constants, node)
     if blocking:
         raise NoRoom(key="estate-demolish-blocked", inner={"why": blocking})
+    #: Taking a house apart is a work of these hands like putting one up
+    #: (D-310). After the yard's blockers, so that a second order on the same
+    #: house is refused by the house -- the salvage travels in the order's
+    #: payload, and paying for one house twice is what that guard exists for.
+    await occupation.require_free(session, body)
 
     back = salvage(constants, houses)
     minutes = demolish_minutes(constants, houses)

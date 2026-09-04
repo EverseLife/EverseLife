@@ -239,12 +239,25 @@ async def drop_missing(session: AsyncSession, item_id: uuid.UUID) -> None:
         await session.flush()
 
 
-async def cargo(session: AsyncSession, vehicle: Item) -> Container:
-    """This vehicle's hold. Created on first need."""
+async def hold_of(session: AsyncSession, vehicle: Item) -> Container | None:
+    """This vehicle's hold as it stands -- **without** making one.
+
+    For everybody who only looks. `harness` gives an empty wagon no hold, so
+    without this door the first `look` at a newly harnessed one would create it
+    -- and `look` is a `readonly=True` command: a read does not write (CLAUDE.md).
+    Nothing is lost by the absence: no hold and an empty hold answer every
+    read the same. The same shape as `world.node_yard` and `storage.inside`.
+    """
     stmt = select(Container).where(
         Container.kind == ContainerKind.VEHICLE, Container.owner_id == vehicle.id
     )
-    hold = (await session.execute(stmt)).scalar_one_or_none()
+    return (await session.execute(stmt)).scalar_one_or_none()
+
+
+async def cargo(session: AsyncSession, vehicle: Item) -> Container:
+    """This vehicle's hold. Created on first need -- so this is for whoever
+    **puts** something into it. Whoever only looks asks `hold_of`."""
+    hold = await hold_of(session, vehicle)
     if hold is None:
         hold = Container(kind=ContainerKind.VEHICLE, owner_id=vehicle.id)
         session.add(hold)
@@ -253,8 +266,9 @@ async def cargo(session: AsyncSession, vehicle: Item) -> Container:
 
 
 async def cargo_items(session: AsyncSession, vehicle: Item) -> list[Item]:
-
-    return list(await world.contents(session, await cargo(session, vehicle)))
+    """What rides in the hold. A read: no hold, nothing aboard."""
+    hold = await hold_of(session, vehicle)
+    return [] if hold is None else list(await world.contents(session, hold))
 
 
 async def cargo_mass(session: AsyncSession, catalog: Catalog, vehicle: Item) -> float:
@@ -361,11 +375,16 @@ async def unload(
 
 
 async def follow(session: AsyncSession, vehicle: Item, node: Node) -> None:
-    """The convoy arrived in the node: the vehicle itself and its hold now stand here."""
+    """The convoy arrived in the node: the vehicle itself and its hold now stand here.
+
+    An empty wagon has no hold and needs none: a leg of the road is no reason
+    to furnish one.
+    """
     yard = await world.node_container(session, node)
     vehicle.container_id = yard.id
-    hold = await cargo(session, vehicle)
-    hold.node_id = node.id
+    hold = await hold_of(session, vehicle)
+    if hold is not None:
+        hold.node_id = node.id
     await session.flush()
 
 
@@ -434,33 +453,36 @@ async def wear_leg(
     return True
 
 
+async def cargo_of(session: AsyncSession, body: Body) -> list[Item]:
+    """What this body's convoy carries. Empty when it pulls nothing."""
+    wagon = await harnessed(session, body)
+    return [] if wagon is None else await cargo_items(session, wagon)
+
+
 async def view(
     session: AsyncSession, constants: Constants, catalog: Catalog, body: Body
 ) -> dict | None:
-    """The convoy through the client's eyes: what it is harnessed to, what it carries and where
-    it can pass."""
+    """The convoy through the client's eyes: what it is harnessed to, how much
+    it carries and where it can pass.
+
+    **Without the cargo itself.** The things in a hold are a list of things
+    like any other, and the window serialises them the way it serialises the
+    pocket and the floor -- with the tier, the mark and, for a vessel, what is
+    poured into it (D-230). A second shape for the same rows is how the hold
+    became the one list on the wire a batch could not be counted from -- and a
+    batch now reaches into one's own hold (D-315).
+    """
     wagon = await harnessed(session, body)
     if wagon is None:
         return None
-    limit = capacity(constants, wagon.type_key)
-    cargo = [
-        {
-            "id": str(thing.id),
-            "type_key": thing.type_key,
-            "amount": amount_float(thing.amount),
-            "quality": None if thing.quality is None else float(thing.quality),
-        }
-        for thing in await cargo_items(session, wagon)
-    ]
     return {
         "id": str(wagon.id),
         "type_key": wagon.type_key,
         "condition": float(wagon.condition),
-        "capacity": limit,
+        "capacity": capacity(constants, wagon.type_key),
         "mass": await cargo_mass(session, catalog, wagon),
         "speed_k": speed(constants, wagon.type_key),
         "heavy": heavy(constants, wagon.type_key),
-        "cargo": cargo,
     }
 
 

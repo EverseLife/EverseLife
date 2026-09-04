@@ -118,8 +118,10 @@ async def connect(
     #:   all. Docking used to drop the whole world's measurements for nothing;
     #: * **a way between two places already on the map may be a short cut**, and
     #:   then a whole quarter is nearer the centre than it was measured to be.
-    #:   Which quarter is not asked: the measurements are dropped and taken
-    #:   again by whoever needs one. Nobody lays such an edge in play -- roads
+    #:   Which quarter is not asked: the measurements are dropped, and the next
+    #:   world tick takes them again (`estate.measure_cities`) -- a reader in
+    #:   between works the distance out and writes nothing, because a read does
+    #:   not write. Nobody lays such an edge in play -- roads
     #:   only re-surface edges that exist -- so in practice this is the seed
     #:   catching an already-living world up to a changed map, once per deploy.
 

@@ -75,6 +75,10 @@ const NAME_DOMAINS: Record<string, readonly (keyof Names)[]> = {
   SLOT: ["slots"],
   //: Not `PLANT`, which reads as `PLANET` at a glance in a message file.
   CULTURE: ["plants"],
+  //: The culture's written paragraph (D-311). Its own domain because it is
+  //: keyed by the culture and is not a name: a missing paragraph must not
+  //: read as a missing name.
+  LORE: ["plant_care"],
   //: A code-law by its id. Its own domain because law ids are short and
   //: general -- `access`, `salary`, `toll` -- and a table shared with goods
   //: would one day answer with the wrong one.

@@ -22,6 +22,9 @@ doing-craft = партия
 doing-mend = ремонт
 doing-keel = закладка
 doing-care = уход
+doing-build = стройка
+doing-demolish = снос
+doing-paving = укладка
 
 ## Что идёт и где это заканчивают
 
@@ -44,6 +47,12 @@ doing-care-what = { $named ->
 doing-keel-what = { $named ->
         [true] идёт закладка корабля «{ $ship }»
        *[false] идёт закладка узла корабля
+    }
+doing-build-what = идёт строительство дома
+doing-demolish-what = идёт снос дома
+doing-paving-what = { $mend ->
+        [true] идёт подсыпка дороги
+       *[false] идёт укладка покрытия
     }
 
 ## Сколько осталось. Часы и минуты приходят числами: сколько это слов и в

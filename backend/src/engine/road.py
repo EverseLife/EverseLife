@@ -55,7 +55,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants, current
 from src.constants import registry as R
-from src.engine import events, stock, travel, works, world
+from src.engine import events, occupation, stock, travel, works, world
 from src.engine.errors import Refusal
 from src.engine.jobs import enqueue, handler
 from src.models.event import EventKind
@@ -169,6 +169,11 @@ async def lay(
         goal = next_step(edge.surface)
     if await pending(session, edge) is not None:
         raise AlreadyWorking(key="road-edge-busy")
+    #: Laying a surface is an occupation (D-310): a day of these hands, the same
+    #: as a build. Asked after the edge's own guard, so that a crew already on
+    #: this very road hears about the road rather than about itself -- and
+    #: before the write-off, because a refusal must eat nothing.
+    await occupation.require_free(session, body)
 
     #: The check comes before the write-off: a refusal must not eat half the surface.
     need_amount = needed(constants, edge, mend=mend)

@@ -620,13 +620,15 @@ async def test_the_place_door_takes_a_rig_off_the_floor(
     have been shut."""
     import src.api.session  # noqa: F401 -- registers the commands
     from src.api.registry import COMMANDS, Refused
+    from src.constants import current_catalog
+    from src.engine import station
 
     node, vein, body, installation, machine = await _face(session)
-    yard = await world.node_container(session, node)
-    #: Lying where it stood, as everything that knocks a machine over leaves it.
-    machine.installed = False
-    machine.container_id = yard.id
-    await session.flush()
+    #: Through the real door: since D-308 taking a machine down lays it on the
+    #: surface it stood on, and that lying machine is exactly what this accepts.
+    await station.take(session, current_catalog(), body, machine)
+    assert machine.installed is False
+    assert machine.container_id == (await world.node_container(session, node)).id
 
     answer = await COMMANDS["rig.place"].run(
         {"identity_id": body.identity_id},

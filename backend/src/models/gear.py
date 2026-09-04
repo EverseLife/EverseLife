@@ -9,6 +9,12 @@ a player would wear three backpacks, and the carry limit would cease to exist.
 What is worn **stays in the inventory** and weighs along with everything else:
 an exoskeleton does not become weightless because it is put on. The slot
 decides not "where it lies" but "whether it works": only what is worn raises the limit.
+
+And "worn" is this row **and** a place together (D-305): the row survives the
+thing leaving the hands, so whoever asks whether something is worn asks
+`engine.gear.is_worn`, never this table alone. Hence no foreign key on
+`item_id` either -- a row whose thing is gone is not a defect to clean up, it
+is a row that has stopped meaning anything.
 """
 
 from __future__ import annotations

@@ -398,6 +398,11 @@ class Plant(Strict):
     requires: PlantRequirements
     traits: PlantTraits
     restores_fertility: float = 0
+    #: The written paragraph of D-311, in the vault's own language. The
+    #: engine reads it as a **fact** -- this culture has words of its own --
+    #: and says them by key in the reader's language (`LORE`), the way it
+    #: says every other word of the vault (D-251).
+    care_note: str | None = None
     #: Feeding by stage (D-296): what quickens the growth and when. Hidden
     #: from the player -- the Library's care text tells it, the wire never does.
     feeding: tuple[PlantFeeding, ...] = ()

@@ -199,6 +199,9 @@ FARM_FERTILIZER_RECOVERY = Table("farm.fertilizer_recovery")
 
 # --- Wear (D-129) -----------------------------------------------------------
 WEAR_TOOL_PER_SESSION = Num("wear.tool_per_session")
+#: The fifth stream (D-309): a tool in a batch's requirements wears by the hours
+#: worked -- felling has no machine at all, and until this the axe was eternal.
+WEAR_TOOL_PER_HOUR = Num("wear.tool_per_hour")
 WEAR_STATION_PER_BATCH = Num("wear.station_per_batch")
 WEAR_GEAR_PER_DAY = Num("wear.gear_per_day")
 WEAR_ENVIRONMENT_K = Table("wear.environment_k")

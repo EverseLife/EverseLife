@@ -245,7 +245,11 @@ export function Library({ look }: Omit<Props, "busy" | "act">) {
       </div>
       {opened && text && (
         <div className="state-card">
-          <p>{text}</p>
+          {/* The care text is two paragraphs where a culture has words of
+              its own (D-311): the written one, then the assembled figures.
+              The blank line between them is the engine's, and the panel
+              keeps it rather than folding both into one wall of type. */}
+          <p className="care-text">{text}</p>
           {remembered(opened) ? (
             <p className="note">{t("ui-library-care-remembered")}</p>
           ) : (
