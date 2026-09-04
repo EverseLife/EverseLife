@@ -48,9 +48,12 @@ doing-keel-what = { $named ->
         [true] the ship “{ $ship }” is being laid down
        *[false] a compartment of the ship is being laid down
     }
-doing-build-what = a house is going up
-doing-demolish-what = a house is being taken apart
-doing-paving-what = a surface is being laid
+doing-build-what = the house is going up
+doing-demolish-what = the house is being demolished
+doing-paving-what = { $mend ->
+        [true] the road is being patched
+       *[false] a road surface is being laid
+    }
 
 ## How much is left. Hours and minutes arrive as numbers: how many words that
 ## makes, and in which form, is the language's business and not that of the
