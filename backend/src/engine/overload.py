@@ -35,19 +35,21 @@ first, until what is left fits. What is **worn** never falls -- it is on the
 body rather than in the hands, and taking one thing off must not silently
 strip another.
 
-What this does **not** close: the frame's lift needs a charged battery in the
-hands (D-268), and that battery leaves the hands by other doors -- put down,
-given away, sold, spent as a recipe's input -- or simply runs dry in the tick.
-Every one of those lowers the limit the same way. Whether the load should fall
-there too is a question about dropping cargo in the middle of a road, not
-about a one-click exploit, and it is open (OQ-122).
+The frame's lift needs a charged battery in the hands (D-268), and the charge
+leaves them by many doors -- drunk to the bottom by the tick, or the cell put
+down, given away, sold, spent as a recipe's input. Every one of those lowers
+the limit the same way, and one sweep answers them all: the tick finds the
+wearer without a charge and sheds there (`gear.wear_exoskeletons`). So the
+frame is worn under the load and taken off under it, and there is no third
+state where the hands hold what nothing lifts.
 """
 
 from __future__ import annotations
 
 import logging
 import math
-from collections.abc import Sequence
+import uuid
+from collections.abc import Collection, Sequence
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -87,31 +89,113 @@ async def settle_load(
     return await _fall(session, constants, catalog, body, items)
 
 
-async def shed(session: AsyncSession, constants: Constants, catalog: Catalog, body: Body) -> float:
+async def shed(
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    body: Body,
+    *,
+    floor: float = 0.0,
+    spare: Collection[uuid.UUID] = (),
+) -> float:
     """The limit fell under a load that did not change: what no longer fits falls.
 
     Asked by whoever lowers it -- taking off an exoskeleton, putting a lighter
-    frame on in its place (D-306). Nothing arrived, so nothing is named as what
-    falls: the heaviest stack goes first and the rest keeps its place, and what
-    is worn is not touched at all.
+    frame on in its place, or the tick finding a wearer without a charge
+    (D-306). Nothing arrived, so nothing is named as what falls: the heaviest
+    stack goes first and the rest keeps its place.
+
+    `floor` is an excess this door does not answer for: dressing and undressing
+    pass the overload they found, so an act that added four kilograms takes
+    four and not the fifty somebody else's door let in. `spare` is what must
+    not fall whatever its weight -- the very thing just taken off, which D-306
+    keeps in the hands.
+
+    **Three things never fall.** What is **worn** -- it is on the body rather
+    than in the hands, and taking one thing off must not silently strip
+    another. What was just taken off (`spare`). And, where there is no air to
+    breathe (D-233, D-234), the vessels the body breathes from: a fall that
+    takes the cylinder off a body standing on Pyroxis is a death sentence
+    carried out while the player is offline, and no carry limit is worth that.
+    Air is safe to except: nothing but air goes into a breathing cylinder, so
+    the exception carries no ore.
 
     Returns the kilograms that fell.
     """
+    from src.engine import oxygen  # noqa: PLC0415 -- lazy: breaks oxygen -> gear -> overload
+
     pocket = await world.body_container(session, body)
     worn = {thing.id for thing in (await gear.equipped(session, body)).values()}
-    carried = [thing for thing in await world.contents(session, pocket) if thing.id not in worn]
+    keep = worn | set(spare)
+    node = await session.get(Node, body.node_id) if body.node_id is not None else None
+    contents = list(await world.contents(session, pocket))
+    fills = await storage.contents_of(
+        session, [one for one in contents if storage.is_vessel(catalog, one.type_key)]
+    )
+    if node is not None and not await oxygen.free_air(session, node):
+        breath = {one.id for one in await oxygen.cylinders(session, body)}
+        keep |= {
+            vessel for vessel, drops in fills.items() if any(one.id in breath for one in drops)
+        }
+
+    carried = [thing for thing in contents if thing.id not in keep]
+    if not carried:
+        return 0.0
+    weights = weigh(catalog, carried, fills)
     #: Heaviest stack first: the biggest heap is the one the frame was for, and
     #: it is the one that empties the excess in the fewest pieces. By id after
     #: the mass, so two identical stacks fall in a settled order.
-    carried.sort(
-        key=lambda thing: (
-            -gear.mass_of(catalog, thing.type_key, amount_float(thing.amount)),
-            thing.id,
+    carried.sort(key=lambda thing: (-weights[thing.id], thing.id))
+
+    #: **What cannot fall is a floor the shedding does not go under** (D-306).
+    #: Worn gear can weigh more than the bare hands together -- a heavy frame
+    #: and a suit do -- and then the excess is the gear's own, and the pocket
+    #: cannot answer it: emptying it would take the food, the tool and the air
+    #: and leave the body over the limit anyway, every tick and for ever. So
+    #: nothing is taken and the state is shouted: gear a bare pair of hands
+    #: cannot hold is a question for the vault's numbers (D-065, OQ-128).
+    carries = await gear.load_of(session, constants, catalog, body)
+    limit = await gear.capacity(session, constants, catalog, body)
+    stuck = carries - sum(weights.values())
+    if stuck > limit + floor + DUST:
+        log.error(
+            "nothing to shed for body %s: %.1f kg cannot fall of %.1f kg allowed",
+            body.id,
+            stuck,
+            limit + floor,
         )
-    )
-    if not carried:
         return 0.0
-    return await _fall(session, constants, catalog, body, carried)
+    return await _fall(session, constants, catalog, body, carried, weights, floor=floor)
+
+
+def weigh(
+    catalog: Catalog, items: Sequence[Item], fills: dict[uuid.UUID, list[Item]]
+) -> dict[uuid.UUID, float]:
+    """What each stack weighs as the **load** counts it, kg.
+
+    A vessel weighs its fill too (D-230, `gear.load_of`), and the tare alone is
+    what the falls used to read: a plastic canister of two and a half kilograms
+    holding forty sorted as the lightest thing in the hands and, when it did
+    fall, was subtracted from the excess as two and a half -- so the ore kept
+    going after it and the hands were emptied of everything.
+    """
+    return {
+        one.id: gear.mass_of(catalog, one.type_key, amount_float(one.amount))
+        + sum(
+            gear.mass_of(catalog, drop.type_key, amount_float(drop.amount))
+            for drop in fills.get(one.id, ())
+        )
+        for one in items
+    }
+
+
+async def fills_of(
+    session: AsyncSession, catalog: Catalog, items: Sequence[Item]
+) -> dict[uuid.UUID, list[Item]]:
+    """What is poured into each vessel among these things, in one reading."""
+    return await storage.contents_of(
+        session, [one for one in items if storage.is_vessel(catalog, one.type_key)]
+    )
 
 
 async def _fall(
@@ -120,17 +204,23 @@ async def _fall(
     catalog: Catalog,
     body: Body,
     items: Sequence[Item],
+    weights: dict[uuid.UUID, float] | None = None,
+    *,
+    floor: float = 0.0,
 ) -> float:
     """The fall itself: read the excess under the body's row, then move matter.
 
     The body's row is taken for the transaction: the load is read and then
     matter is moved on it, and two arrivals at once must not both find room
     that only one of them has.
+
+    `floor` is an excess this fall is not answering for: what somebody else's
+    door let in stays where it is (D-306).
     """
     await session.execute(select(Body.id).where(Body.id == body.id).with_for_update())
     carries = await gear.load_of(session, constants, catalog, body)
     limit = await gear.capacity(session, constants, catalog, body)
-    excess = carries - limit
+    excess = carries - limit - floor
     if excess <= DUST:
         return 0.0
 
@@ -147,15 +237,18 @@ async def _fall(
     )
     yard = await world.node_container(session, node)
 
+    #: The mass the load is counted by, so that what falls subtracts from the
+    #: excess exactly what it added to it -- a vessel's fill included (D-230).
+    weights = weights or weigh(catalog, items, await fills_of(session, catalog, items))
     fallen = 0.0
     for item in items:
         if excess <= DUST:
             break
-        unit = gear.mass_of(catalog, item.type_key, 1.0)
+        have = amount_float(item.amount)
+        unit = weights[item.id] / have if have > 0 else 0.0
         if unit <= 0:
             #: Weightless things -- energy, coin -- never overload anybody.
             continue
-        have = amount_float(item.amount)
         #: Whole pieces of a counted thing, the excess mass of a measured one --
         #: and never more than arrived.
         if goods.counted(item.type_key, catalog):

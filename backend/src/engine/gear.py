@@ -155,42 +155,63 @@ async def wear_exoskeletons(
 ) -> float:
     """Every worn exoskeleton drinks from the batteries in its wearer's hands (D-268).
 
-    Called by the tick for its own length. A wearer with no charge left keeps
-    the frame on and lifts nothing: the limit falls, and the doors that read it
-    refuse the next pickup. Nothing falls out of the hands by itself -- the one
-    hole D-306 left standing, on purpose: dropping a convoy's worth of ore in
-    the middle of a road because a cell ran dry is a decision of its own, and
-    it is open (OQ-122).
+    Called by the tick for its own length. **A wearer with no charge left drops
+    what the charge was carrying** (D-306): the frame stays on the shoulders
+    and lifts nothing, so the limit is the bare pair of hands and everything
+    above it lies down underfoot. One sweep answers every way the charge can
+    go -- drunk to the bottom here, or the cell put down, given away, sold or
+    spent as a recipe's input before the tick came round: whatever the road to
+    it, the wearer is found without a charge and settles at the next tick.
 
-    One query and one lock order for every wearer's cells at once
-    (`stock.locked_stacks` over all the pockets): a hand-over of a battery
-    locks cells in id order too, and two orders would be a deadlock.
     Returns the charge drunk, all wearers together.
+
+    **The lock order is the bodies first, then the cells**, and both in id
+    order. It is the order `overload._fall` takes when a frame comes off -- the
+    body's row, then the stacks it moves -- so a tick draining a cell and a
+    player undressing beside it never wait on each other. One query for every
+    wearer's cells at once (`stock.locked_stacks` over all the pockets): a
+    hand-over of a battery locks cells in id order too.
     """
     rate = constants[R.GEAR_EXO_ENERGY_PER_HOUR]
     if rate <= 0 or hours <= 0:
         return 0.0
     names = {catalog.recipes.resolve(name) for name in constants[R.INVENTORY_EXO_BONUS]}
-    pockets = (
+    #: Keyed by body: the join gives one row per worn frame, and a body that
+    #: ever wore two would otherwise be drunk from -- and shed -- twice.
+    found = (
+        await session.execute(
+            select(Body.id, Container.id)
+            .join(Container, Container.owner_id == Body.id)
+            .join(Equipped, Equipped.body_id == Body.id)
+            .join(Item, Item.id == Equipped.item_id)
+            .where(
+                Container.kind == ContainerKind.BODY,
+                Item.type_key.in_(names),
+                Body.state == BodyState.ALIVE,
+            )
+        )
+    ).all()
+    if not found:
+        return 0.0
+    pocket_of = dict(found)
+
+    #: Locked **and reread**: the rows below say where a fall lands
+    #: (`body.node_id`) and are moved on, so a snapshot taken before the lock
+    #: is the very thing the lock stands against (`stock.locked_stacks`).
+    wearers = (
         (
             await session.execute(
-                select(Container.id)
-                .join(Body, Body.id == Container.owner_id)
-                .join(Equipped, Equipped.body_id == Body.id)
-                .join(Item, Item.id == Equipped.item_id)
-                .where(
-                    Container.kind == ContainerKind.BODY,
-                    Item.type_key.in_(names),
-                    Body.state == BodyState.ALIVE,
-                )
-                .order_by(Container.id)
+                select(Body)
+                .where(Body.id.in_(list(pocket_of)))
+                .order_by(Body.id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
             )
         )
         .scalars()
         .all()
     )
-    if not pockets:
-        return 0.0
+    pockets = sorted(set(pocket_of.values()))
     cells = await stock.locked_stacks(session, pockets, world.station_names(battery.BATTERY))
     by_pocket: dict[uuid.UUID, list[Item]] = {}
     for cell in cells:
@@ -200,6 +221,16 @@ async def wear_exoskeletons(
         held = by_pocket.get(pocket)
         if held:
             drunk += await battery.drain_cells(session, constants, held, rate * hours, now=now)
+
+    #: The frame lifts on a charge, so no charge is a fallen limit (D-306).
+    #: Asked of the cells already read and locked above rather than of the
+    #: database again: `battery.charged_carried` would walk the same pocket a
+    #: second time, once per wearer, every minute of the world.
+    for body in wearers:
+        held = by_pocket.get(pocket_of[body.id], ())
+        if any(battery.charge_of(constants, cell, now=now) > 0 for cell in held):
+            continue
+        await _settle(session, constants, catalog, body)
     return drunk
 
 
@@ -258,9 +289,11 @@ async def equip(
             select(Equipped).where(Equipped.body_id == body.id, Equipped.slot == slot)
         )
     ).scalar_one_or_none()
+    taken_off: tuple[uuid.UUID, ...] = ()
     if previous_ is not None:
         if previous_.item_id == item.id:
             return slot
+        taken_off = (previous_.item_id,)
         await session.delete(previous_)
         await session.flush()
 
@@ -278,7 +311,7 @@ async def equip(
     #: Putting a thing on can **lower** the limit: one slot per thing, so a
     #: lighter frame takes the place of a heavier one and the previous came off
     #: above. What the old one lifted and the new one cannot falls (D-306).
-    await _settle(session, constants, catalog, body, over)
+    await _settle(session, constants, catalog, body, over, spare=taken_off)
     return slot
 
 
@@ -313,7 +346,7 @@ async def unequip(
         item_id=str(line.item_id),
         slot=slot,
     )
-    await _settle(session, constants, catalog, body, over)
+    await _settle(session, constants, catalog, body, over, spare=(line.item_id,))
     return thing
 
 
@@ -325,22 +358,36 @@ async def _over(session: AsyncSession, constants: Constants, catalog: Catalog, b
 
 
 async def _settle(
-    session: AsyncSession, constants: Constants, catalog: Catalog, body: Body, before: float
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    body: Body,
+    before: float | None = None,
+    *,
+    spare: tuple[uuid.UUID, ...] = (),
 ) -> float:
     """What no longer fits falls underfoot (D-265, D-306).
 
-    **Only when this act is what stopped it fitting.** Dressing and undressing
-    are asked for the excess before and after: a frame taken off leaves more
-    than it found and the difference lies down, while putting a suit on leaves
-    it exactly as it was and touches nothing. An overload that was already
-    there is not this door's to answer -- it arrived by another one, and which
-    of those should shed too is open (OQ-122).
+    `before` is the excess this act found, and dressing and undressing pass it:
+    a frame taken off leaves more than it found and **the difference** lies
+    down, while putting a suit on leaves it exactly as it was and touches
+    nothing. An overload that was already there is not this door to answer for
+    -- it arrived by another one, and that one settles it: a lost charge at the
+    tick, which passes no `before` at all because losing the lift **is** the
+    act, or an arrival past the limit where it lands (`overload.settle_load`).
+
+    `spare` is what this act must not drop whatever it weighs: the thing just
+    taken off stays in the hands (D-306), or "take the frame off" would end
+    with the frame on the ground and out of reach of the hands that dropped it.
     """
     from src.engine import overload  # noqa: PLC0415 -- lazy: breaks overload -> gear (the limit)
 
-    if await _over(session, constants, catalog, body) <= before + overload.DUST:
-        return 0.0
-    return await overload.shed(session, constants, catalog, body)
+    floor = 0.0
+    if before is not None:
+        if await _over(session, constants, catalog, body) <= before + overload.DUST:
+            return 0.0
+        floor = max(before, 0.0)
+    return await overload.shed(session, constants, catalog, body, floor=floor, spare=spare)
 
 
 async def drop_missing(session: AsyncSession, item_id: uuid.UUID) -> None:
