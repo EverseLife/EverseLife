@@ -42,6 +42,7 @@
 
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import type { MapNode } from "../../api";
+import { useBook } from "../../actions";
 import { Glyph } from "../../Glyph";
 import { t } from "../../locale";
 import { planetName } from "../../planets";
@@ -60,9 +61,12 @@ import {
   part,
   pinchZoom,
   project,
+  gridStep,
+  partOf,
+  ringSeen,
   span,
-  spread,
   unitFor,
+  zoomAt,
   zoomBy,
   type Point,
   type Scope,
@@ -82,8 +86,19 @@ const HANGS: Point = { x: Math.SQRT1_2, y: -Math.SQRT1_2 };
 const NOSE = { from: 9, to: 52 };
 /** How far inside the frame the marks of what fell off it stand. */
 const EDGE = 16;
-/** A readout's own room: two lines tall, and as wide as its longest line. */
-const READOUT = { apart: 26, wide: 132 };
+/**
+ * How far this hull sees another, in map units: the one ring left on the glass.
+ *
+ * A catalog number, so it comes from `/public/constants` with the rest of the
+ * book and not as a key of its own in `ship.view` (D-225): it is the same for
+ * every hull in the system and does not change while the session lasts.
+ */
+const SIGHT = "orbit.sight_radius";
+/** Below this the ring is a smudge round the hull rather than a circle. */
+const SIGHT_SEEN = 4;
+/** How many stops the slider has: fine enough that the thumb moves smoothly
+ *  over a range this wide, and an integer, which is all a range input takes. */
+const SLIDER = 1000;
 /**
  * How often the sky is redrawn. An orbit moves half a degree an hour, so a
  * minute is already generous -- this is a clock hand over numbers the server
@@ -170,6 +185,7 @@ function useNear() {
     zoom,
     svg,
     step: (steps: number) => look(zoomBy(held.current, steps)),
+    slide: (part: number) => look(zoomAt(part)),
     onPointerDown: (e: PointerEvent) => {
       if (fingers.current.size >= 2) return;
       fingers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -220,6 +236,10 @@ export function Chart({
     return () => clearInterval(timer);
   }, []);
   const near = useNear();
+  //: The one number the sky is drawn against that is not this hull's own: how
+  //: far a hull sees another. Catalog, so it rides with the book (D-225).
+  const book = useBook();
+  const sight = Number(book?.constants?.[SIGHT] ?? 0);
   //: The gradients and the pattern of the glass are named after the hull: two
   //: consoles on one screen would otherwise share one `id` and one of them
   //: would draw the other's.
@@ -287,7 +307,16 @@ export function Chart({
   };
   const to = (p: { x: number; y: number }) => project(scope, p.x, p.y);
   const star = to({ x: 0, y: 0 });
+  //: The graticule is ruled on the sky: the step is whatever the zoom asks
+  //: for, and the offset pins the lines to the world's origin, so the ruling
+  //: slides under the hull instead of standing still under a moving ship.
+  const ruling = (() => {
+    const step = span(scope, gridStep(scope));
+    const over = (at: number) => ((at % step) + step) % step;
+    return { step, x: over(star.x), y: over(star.y) };
+  })();
   const hull: Point | null = at ? CENTER : null;
+  const seesFar = sight > 0 ? span(scope, sight) : 0;
   //: What the corridors start from: the planet under the hull, or, adrift, the
   //: hull itself -- a course is laid from wherever inertia left it.
   const origin: Point | undefined =
@@ -341,18 +370,6 @@ export function Chart({
       route: corridors.find((r) => r.planet === one.planet),
     };
   });
-  //: Only the figures are moved out of each other's way, and only the worlds
-  //: that have any: the name stays at its world, where the eye looks for it,
-  //: and a world this hull has no route to reserves no room it will not use.
-  const priced = marks.filter((mark) => mark.route);
-  const drops = new Map(
-    spread(
-      priced.map((mark) => ({ x: mark.label.x, y: mark.label.cheap, away: mark.label.away })),
-      READOUT.apart,
-      READOUT.wide,
-    ).map((drop, i) => [priced[i].one.key, drop]),
-  );
-
   return (
     <div className="console">
       <svg
@@ -366,19 +383,18 @@ export function Chart({
         onPointerUp={near.onPointerUp}
         onPointerCancel={near.onPointerUp}
       >
-        <Screen mark={mark} />
+        <Screen mark={mark} grid={ruling} />
 
         {/* The rings: what the planets run along, and what makes a window a
             window. Drawn under everything, in the faintest ink there is. */}
-        {spheres.map((one) => (
-          <circle
-            key={`ring:${one.key}`}
-            className="chart-orbit"
-            cx={star.x}
-            cy={star.y}
-            r={span(scope, one.r)}
-          />
-        ))}
+        {spheres.map((one) => {
+          //: At the near end of the zoom an orbit is a circle forty thousand
+          //: pixels across whose middle is far off the frame. The ones that
+          //: cannot cross the glass are not drawn at all.
+          const r = span(scope, one.r);
+          if (!ringSeen(star, r)) return null;
+          return <circle key={`ring:${one.key}`} className="chart-orbit" cx={star.x} cy={star.y} r={r} />;
+        })}
         {/* The star. Two rings round the disc, because with the hull in the
             middle of the frame the star is off it -- and a lone bright dot
             among the planets would read as one more planet. */}
@@ -419,21 +435,26 @@ export function Chart({
         {ahead && ahead.length >= 2 && (
           <polyline className="chart-course" points={drawn(ahead, scope)} />
         )}
-        {plan && plan.length >= 2 && <polyline className="chart-plan" points={drawn(plan, scope)} />}
+        {/* The arc being chosen. Only with a destination picked, and only
+            once the panel below has actually worked one out: an instrument
+            standing idle shows what **is**, not what might be. */}
+        {chosen && plan && plan.length >= 2 && (
+          <polyline className="chart-plan" points={drawn(plan, scope)} />
+        )}
 
-        {/* The worlds, and what a passage to each costs this hull right now.
-            Two things make one mark: the readout belongs to its destination,
-            not to the middle of a line -- at a midpoint four of them crowd the
-            hull and overlap, and at the near end of the zoom they are off the
-            glass altogether.
+        {/* The worlds. A name apiece and nothing else: what a passage costs is
+            written only at the world the course is actually set for, and only
+            when it is. Four price blocks standing on the glass at all times are
+            a table drawn over a picture -- the question "what does it cost to
+            go there" is asked about **one** destination, by picking it.
 
-            A world the zoom pushed off the frame is not lost either: it keeps
-            its readout and moves to the edge, at its bearing. So the numbers
-            are on the display at every zoom, and none of the marks grows with
-            it -- a dot is the size the eye needs, at every distance. */}
+            A world the zoom pushed off the frame is not lost: it moves to the
+            edge at its bearing, with whatever it was carrying, and is picked
+            from there. So the numbers are on the display at every zoom, and no
+            mark grows with it -- a dot is the size the eye needs, at every
+            distance. */}
         {marks.map(({ one, seen, edge, spot, label, mine, route }) => {
           const picked = sameTarget(chosen, { planet: one.planet });
-          const drop = drops.get(one.key) ?? 0;
           return (
             <g
               key={one.key}
@@ -461,12 +482,12 @@ export function Chart({
               <text x={label.x} y={label.name} textAnchor={label.anchor}>
                 {planetName(one.planet)}
               </text>
-              {route && (
+              {route && picked && (
                 <>
                   <text
                     className="chart-cheap"
                     x={label.x}
-                    y={label.cheap + drop}
+                    y={label.cheap}
                     textAnchor={label.anchor}
                   >
                     {route.cheap == null
@@ -479,7 +500,7 @@ export function Chart({
                   <text
                     className="chart-fast"
                     x={label.x}
-                    y={label.fast + drop}
+                    y={label.fast}
                     textAnchor={label.anchor}
                   >
                     {route.fast == null
@@ -501,6 +522,17 @@ export function Chart({
             **this** one (D-245). */}
         {home && vessel.stage === "orbit" && (
           <circle className="chart-parking" cx={to(home).x} cy={to(home).y} r={ORBIT} />
+        )}
+
+        {/* How far this hull sees another (D-289): the one circle on the
+            glass, and a fact rather than a graduation. It is drawn in map
+            units like everything else, so it opens up with the zoom -- and at
+            rest it is two pixels across, which is itself the answer to "why
+            can I not see anybody": the sight radius is five units against a
+            system eight hundred wide. Below a few pixels it is a smudge round
+            the hull and is not drawn. */}
+        {hull && seesFar >= SIGHT_SEEN && (
+          <circle className="chart-sight" cx={hull.x} cy={hull.y} r={seesFar} />
         )}
 
         {/* The others in the sky (D-289, wave 3): one's own hulls always, foreign
@@ -579,9 +611,10 @@ export function Chart({
         <Bezel
           mark={mark}
           zoom={near.zoom}
+          sight={!!hull && seesFar >= SIGHT_SEEN}
           inertia={!!inertia}
           course={!!(ahead && ahead.length >= 2)}
-          plan={!!(plan && plan.length >= 2)}
+          plan={!!(chosen && plan && plan.length >= 2)}
         />
       </svg>
 
@@ -590,17 +623,14 @@ export function Chart({
           they would stretch with the panel instead of staying a scan. */}
       <div className="console-scan" aria-hidden="true" />
 
-      {/* The loupes. A wheel is not enough -- a phone has none -- and the
-          two ends of the zoom are the whole of what the hand may do here. */}
-      <div className="console-loupes">
-        <button
-          className="quiet"
-          aria-label={t("ui-zoom-in")}
-          title={t("ui-zoom-in")}
-          onClick={() => near.step(1)}
-        >
-          <Glyph name="nearer" />
-        </button>
+      {/* How near one is looking, and the three ways of changing it. A wheel
+          is not enough -- a phone has none -- and the loupes are not enough
+          either: the zoom runs from the whole system to a docking, seven
+          hundred and fifty fold, and crossing that by notches is a minute of
+          clicking. The slider is both the answer and the readout: where the
+          thumb stands **is** how near one is looking, at a glance, without
+          reading the figure in the corner. */}
+      <div className="console-near">
         <button
           className="quiet"
           aria-label={t("ui-zoom-out")}
@@ -608,6 +638,24 @@ export function Chart({
           onClick={() => near.step(-1)}
         >
           <Glyph name="farther" />
+        </button>
+        <input
+          type="range"
+          className="console-zoom"
+          min={0}
+          max={SLIDER}
+          step={1}
+          value={Math.round(partOf(near.zoom) * SLIDER)}
+          aria-label={t("ui-ship-chart-zoom")}
+          onChange={(e) => near.slide(Number(e.target.value) / SLIDER)}
+        />
+        <button
+          className="quiet"
+          aria-label={t("ui-zoom-in")}
+          title={t("ui-zoom-in")}
+          onClick={() => near.step(1)}
+        >
+          <Glyph name="nearer" />
         </button>
       </div>
     </div>

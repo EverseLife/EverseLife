@@ -27,33 +27,49 @@
 import { t } from "../../locale";
 import { CENTER, H, W } from "./scope";
 
-/** The graduations round the hull, in pixels of the display. */
-const RINGS = [64, 128, 192];
 /** How long the ticks on the hull's cross are, and where they start. */
 const CROSS = { gap: 10, arm: 7 };
 /** The bezel's corner brackets: how far in they sit and how long the arms are. */
 const BRACKET = { inset: 5, arm: 16 };
 
 /**
- * What is drawn on the tube, under the sky: the graticule, the rings round the
- * hull, and the sweep going round.
+ * What is drawn on the tube, under the sky: the graticule and the sweep.
  *
- * The rings measure nothing and are not offered as measuring anything -- there
- * is no unit on this display to read them in. They are fixed pixels round the
- * middle, and all they say is nearer and further **than each other**: which of
- * two worlds the hull is closer to today, without counting. Everything a
- * number can say here is already written where it belongs, at the world.
+ * The graticule is ruled on the **sky**, not on the glass: `grid` gives the
+ * spacing the zoom asks for and the offset that pins the lines to the world's
+ * own origin, so the ruling slides under the hull as it moves and opens up as
+ * one looks nearer. Ruled on the glass instead it was a decoration that said
+ * nothing -- the same squares at every scale, over a display that never pans.
+ *
+ * There used to be three graduation rings round the middle here as well. They
+ * were fixed pixels: they did not move with the zoom, so they measured nothing
+ * and could not be made to. The one ring left on this display is a fact and is
+ * drawn with the sky (`Chart`) -- how far this hull sees another.
  */
-export function Screen({ mark }: { mark: string }) {
-  const grid = `${mark}-grid`;
+export function Screen({
+  mark,
+  grid,
+}: {
+  mark: string;
+  /** The graticule's spacing on the glass, and where the world's origin puts
+   *  its first line: both in pixels, both moving with the hull and the zoom. */
+  grid: { step: number; x: number; y: number };
+}) {
+  const ruling = `${mark}-grid`;
   const sweep = `${mark}-sweep`;
   return (
     <g aria-hidden="true">
       <defs>
         {/* The graticule is fixed to the glass rather than to the sky: an
             instrument's ruled screen, not a grid the world is laid on. */}
-        <pattern id={grid} width="32" height="32" patternUnits="userSpaceOnUse">
-          <path className="chart-graticule" d="M32 0H0v32" />
+        <pattern
+          id={ruling}
+          width={grid.step}
+          height={grid.step}
+          patternUnits="userSpaceOnUse"
+          patternTransform={`translate(${grid.x} ${grid.y})`}
+        >
+          <path className="chart-graticule" d={`M${grid.step} 0H0v${grid.step}`} />
         </pattern>
         <linearGradient id={sweep} x1="0" y1="0" x2="1" y2="0">
           <stop offset="0%" stopColor="var(--base-50)" stopOpacity="0.1" />
@@ -61,11 +77,7 @@ export function Screen({ mark }: { mark: string }) {
         </linearGradient>
       </defs>
 
-      <rect className="chart-grid" x="0" y="0" width={W} height={H} fill={`url(#${grid})`} />
-
-      {RINGS.map((r) => (
-        <circle key={r} className="chart-ring" cx={CENTER.x} cy={CENTER.y} r={r} />
-      ))}
+      <rect className="chart-grid" x="0" y="0" width={W} height={H} fill={`url(#${ruling})`} />
 
       {/* The sweep. It detects nothing -- there is nothing here to detect that
           is not already drawn -- and it is not pretending to: it is the one
@@ -122,18 +134,21 @@ export function Screen({ mark }: { mark: string }) {
 export function Bezel({
   mark,
   zoom,
+  sight,
   inertia,
   course,
   plan,
 }: {
   mark: string;
   zoom: number;
+  sight: boolean;
   inertia: boolean;
   course: boolean;
   plan: boolean;
 }) {
   const dim = `${mark}-dim`;
   const legend: { key: string; word: string }[] = [
+    ...(sight ? [{ key: "chart-sight", word: t("ui-ship-chart-sight") }] : []),
     ...(inertia ? [{ key: "chart-inertia", word: t("ui-ship-chart-inertia") }] : []),
     ...(course ? [{ key: "chart-course", word: t("ui-ship-chart-course") }] : []),
     ...(plan ? [{ key: "chart-plan", word: t("ui-ship-chart-choice") }] : []),
@@ -177,8 +192,14 @@ export function Bezel({
         {t("ui-ship-chart-scale", { zoom })}
       </text>
 
+      {/* Stacked upwards from the foot, so the list reads top to bottom in the
+          order it is written; and clear of the corner bracket beside it. */}
       {legend.map((one, i) => (
-        <g key={one.key} className="chart-key" transform={`translate(14 ${H - 16 - i * 14})`}>
+        <g
+          key={one.key}
+          className="chart-key"
+          transform={`translate(28 ${H - 16 - (legend.length - 1 - i) * 14})`}
+        >
           <line className={one.key} x1="0" y1="-4" x2="22" y2="-4" />
           <text x="28" y="0">
             {one.word}

@@ -473,6 +473,10 @@ ui-ship-chart-scale = ×{ NUMBER($zoom, minimumFractionDigits: 1, maximumFractio
 ui-ship-chart-inertia = инерция
 ui-ship-chart-course = курс
 ui-ship-chart-choice = выбор
+# The ring round the hull and the slider beside it. «Видимость» is the world's
+# own word for the radius: `ship-target-unseen` says «чужой корпус виден ближе».
+ui-ship-chart-sight = видимость
+ui-ship-chart-zoom = приближение
 # The sky flown, not tabled (D-289): the drift, its verdict, and the Δv the
 # console reads the plan against.
 ui-ship-fate-stable = Инерция: устойчивый круг. Так можно висеть вечно; заправят — можно прокладывать курс.

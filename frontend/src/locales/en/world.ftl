@@ -473,6 +473,10 @@ ui-ship-chart-scale = ×{ NUMBER($zoom, minimumFractionDigits: 1, maximumFractio
 ui-ship-chart-inertia = inertia
 ui-ship-chart-course = course
 ui-ship-chart-choice = choice
+# The ring round the hull and the slider beside it. "Sight" is the world's own
+# word for the radius: `ship-target-unseen` says "seen within N map units".
+ui-ship-chart-sight = sight
+ui-ship-chart-zoom = zoom
 # The sky flown, not tabled (D-289): the drift, its verdict, and the Δv the
 # console reads the plan against.
 ui-ship-fate-stable = Inertia: a stable circle. It can hang like this for ever; refuelled, it can be given a course.

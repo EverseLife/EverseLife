@@ -27,9 +27,12 @@ import {
   part,
   pinchZoom,
   project,
+  gridStep,
+  partOf,
+  ringSeen,
   span,
-  spread,
   unitFor,
+  zoomAt,
   zoomBy,
   type Scope,
 } from "../panels/ship/scope";
@@ -208,57 +211,65 @@ describe("labelAt", () => {
   });
 });
 
-describe("spread", () => {
-  it("leaves readouts that do not meet exactly where they are", () => {
-    const drops = spread(
-      [
-        { x: 100, y: 100, away: 1 },
-        { x: 400, y: 104, away: 1 },
-      ],
-      26,
-      132,
-    );
-    expect(drops).toEqual([0, 0]);
+describe("the slider", () => {
+  it("stands at the ends where the zoom does", () => {
+    expect(partOf(FURTHEST)).toBeCloseTo(0);
+    expect(partOf(NEAREST)).toBeCloseTo(1);
+    expect(zoomAt(0)).toBeCloseTo(FURTHEST);
+    expect(zoomAt(1)).toBeCloseTo(NEAREST);
   });
 
-  it("steps a clashing one to just clear of what it ran into", () => {
-    //: Two worlds share a bearing for a week at a time, and then two blocks of
-    //: hours and fuel are drawn one over the other. The second steps away --
-    //: to just below the first, not by a blind notch that could land it in the
-    //: same place again and walk it far off its own world.
-    const drops = spread(
-      [
-        { x: 100, y: 120, away: 1 },
-        { x: 140, y: 110, away: 1 },
-      ],
-      26,
-      132,
-    );
-    expect(drops[0]).toBe(0);
-    expect(110 + drops[1]).toBe(146);
+  it("reads back the zoom it was set to", () => {
+    for (const zoom of [FURTHEST, 1, 7, 60, NEAREST]) {
+      expect(zoomAt(partOf(zoom))).toBeCloseTo(zoom);
+    }
   });
 
-  it("steps the way the block grows, never towards the edge it fled", () => {
-    //: A block laid upwards from the bottom of the glass, pushed down, walks
-    //: straight off it -- which is the edge it was turned about to avoid.
-    const drops = spread(
-      [
-        { x: 100, y: 380, away: -1 },
-        { x: 140, y: 390, away: -1 },
-      ],
-      26,
-      132,
-    );
-    expect(drops[0]).toBe(0);
-    expect(390 + drops[1]).toBe(354);
+  it("spends the same travel on every notch of the wheel", () => {
+    //: The scale is multiplicative, so the slider is logarithmic: a notch near
+    //: the system's own scale must move the thumb as far as a notch at the
+    //: docking end, or the near half of the range would be a pixel wide.
+    const near = partOf(zoomBy(2, 1)) - partOf(2);
+    const far = partOf(zoomBy(80, 1)) - partOf(80);
+    expect(near).toBeCloseTo(far);
+  });
+});
+
+describe("gridStep", () => {
+  const at = (zoom: number) => ({ at: { x: 0, y: 0 }, off: { x: 0, y: 0 }, unit: 0.42, zoom });
+
+  it("keeps the ruling readable at every zoom", () => {
+    //: Ruled on the sky, a step fixed in map units is a wall of lines at one
+    //: end of the zoom and none at the other. It climbs a ladder instead, and
+    //: what the eye sees stays within a factor of a few.
+    for (const zoom of [FURTHEST, 1, 12, 90, NEAREST]) {
+      const scope = at(zoom);
+      const onGlass = span(scope, gridStep(scope));
+      expect(onGlass).toBeGreaterThanOrEqual(40);
+      expect(onGlass).toBeLessThan(160);
+    }
   });
 
-  it("gives the same sky the same layout twice", () => {
-    const spots = [
-      { x: 100, y: 100, away: 1 as const },
-      { x: 120, y: 108, away: 1 as const },
-      { x: 130, y: 112, away: 1 as const },
-    ];
-    expect(spread(spots, 26, 132)).toEqual(spread(spots, 26, 132));
+  it("climbs the 1-2-5 ladder and nothing else", () => {
+    for (const zoom of [0.5, 1, 3, 9, 40, 200]) {
+      const step = gridStep(at(zoom));
+      const rung = step / 10 ** Math.floor(Math.log10(step));
+      expect([1, 2, 5]).toContain(Math.round(rung));
+    }
+  });
+});
+
+describe("ringSeen", () => {
+  it("drops a circle that cannot cross the glass", () => {
+    //: At the near end an orbit is forty thousand pixels across with its
+    //: middle far off the frame: handing that to the renderer to find out it
+    //: shows nothing is work for nothing.
+    expect(ringSeen(CENTER, 40_000)).toBe(false);
+    expect(ringSeen({ x: -50_000, y: 0 }, 120)).toBe(false);
+  });
+
+  it("keeps the one whose arc runs through it", () => {
+    expect(ringSeen(CENTER, 100)).toBe(true);
+    expect(ringSeen({ x: -40_000, y: CENTER.y }, 40_000 + CENTER.x)).toBe(true);
   });
 });

@@ -99,23 +99,69 @@
   }
 }
 
-/* The two loupes: the whole of what the hand may do to this frame. In the
-   corner of the glass rather than in a bar above it -- the display is the
-   control, and a phone has no wheel to turn. */
-.console-loupes {
+/* How near one is looking: two loupes and the slider between them. On the
+   glass rather than in a bar above it -- the display is the control, a phone
+   has no wheel to turn, and the thumb's place on the slider is the readout:
+   the zoom runs seven hundred and fifty fold, and no one crosses that by
+   clicking. */
+.console-near {
   position: absolute;
   right: var(--s2);
   bottom: var(--s2);
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: center;
+  gap: var(--s1);
 }
 
-.console-loupes button {
+.console-near button {
   padding: var(--s1);
   line-height: 0;
   background: var(--base-900);
   border: 1px solid var(--base-600);
+}
+
+/* The slider is drawn from scratch: the browser's own is a light-theme
+   control with a coloured track, and this is a hairline instrument. */
+.console-zoom {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 130px;
+  height: 18px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.console-zoom::-webkit-slider-runnable-track {
+  height: 1px;
+  background: var(--base-600);
+}
+
+.console-zoom::-moz-range-track {
+  height: 1px;
+  background: var(--base-600);
+}
+
+.console-zoom::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 3px;
+  height: 13px;
+  margin-top: -6px;
+  border-radius: 0;
+  background: var(--base-50);
+}
+
+.console-zoom::-moz-range-thumb {
+  width: 3px;
+  height: 13px;
+  border: 0;
+  border-radius: 0;
+  background: var(--base-50);
+}
+
+.console-zoom:focus-visible {
+  outline: 1px solid var(--act);
+  outline-offset: 2px;
 }
 
 /* --- the glass ------------------------------------------------------------- */
@@ -132,14 +178,18 @@
   opacity: 0.85;
 }
 
-/* The range rings round the hull. Graduations of the display, in its own
-   pixels: what they measure changes with the zoom, and that is what a range
-   ring is for -- nearer than that, further than that. */
-.chart-ring {
+/* How far this hull sees another. The one circle on the glass, and the only
+   one that ever meant anything: it is drawn in map units, so it opens up with
+   the zoom instead of standing still while the sky moves under it. The three
+   graduation rings that used to be here were fixed pixels and measured
+   nothing. */
+.chart-sight {
   fill: none;
-  stroke: var(--base-700);
+  stroke: var(--base-400);
   stroke-width: 1;
-  stroke-dasharray: 1 7;
+  stroke-dasharray: 2 6;
+  opacity: 0.8;
+  pointer-events: none;
 }
 
 .chart-sweep {
@@ -197,6 +247,11 @@
 .chart-key text {
   fill: var(--base-400);
   font-size: 10px;
+}
+
+/* The ring's own sample in the legend: dashes, like the ring. */
+.chart-key .chart-sight {
+  stroke: var(--base-400);
 }
 
 /* --- the sky itself -------------------------------------------------------- */

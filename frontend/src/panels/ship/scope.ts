@@ -49,17 +49,41 @@ const MARGIN = 40;
  * At rest the frame holds the outermost orbit's **diameter** -- which is the
  * hull's own half of the system, not all of it: the middle is the ship, and
  * from a hull out on that orbit the far side is twice as far again and stands
- * on the edge as a bearing. Far out is the whole system and then some; the near
- * end is close quarters -- a hull, its parking circle and the planet under it.
- * The map's own limits (`map/hand`) are narrower because the map may also be
- * dragged: there, going far in is a way of getting lost, and here there is
- * nothing to get lost from.
+ * on the edge as a bearing.
+ *
+ * The near end is set by the smallest thing on this display that matters, and
+ * that is not a planet: hulls see each other across `orbit.sight_radius`, and
+ * they dock inside `orbit.dock_radius` -- five map units and a fifth of one,
+ * against a system eight hundred across. At rest the sight radius is two
+ * pixels. So the zoom runs to three hundred, where it is most of the frame and
+ * a rendezvous can actually be flown; anything less and the near end of this
+ * instrument stops before the work it exists for begins.
+ *
+ * The map's own limits (`map/hand`) are far narrower because the map may also
+ * be dragged: there, going far in is a way of getting lost, and here there is
+ * nothing to get lost from -- the hull is the middle whatever happens.
  */
 export const FURTHEST = 0.4;
-export const NEAREST = 24;
+export const NEAREST = 300;
 //: The same notch the world map turns by (`map/hand`): one click of a wheel
 //: must mean the same thing on both drawings of one client.
 const NOTCH = 1.15;
+
+/**
+ * Where a zoom stands on the slider, from 0 to 1, and the zoom at a place on
+ * it. The scale is multiplicative, so the slider is **logarithmic**: a notch
+ * of the wheel moves it the same distance wherever it stands, and the thumb
+ * spends as much of its travel on the near end as on the far one. Linear, the
+ * first tenth of the slider would hold everything from the whole system to a
+ * planet and the other nine tenths would hold nothing at all.
+ */
+export function partOf(zoom: number): number {
+  return Math.log(clampZoom(zoom) / FURTHEST) / Math.log(NEAREST / FURTHEST);
+}
+
+export function zoomAt(part: number): number {
+  return clampZoom(FURTHEST * (NEAREST / FURTHEST) ** Math.min(1, Math.max(0, part)));
+}
 
 /** A zoom kept within what the display may show. */
 export function clampZoom(zoom: number): number {
@@ -110,6 +134,38 @@ export function project(scope: Scope, x: number, y: number): Point {
     x: CENTER.x - scope.off.x + (x - scope.at.x) * k,
     y: CENTER.y - scope.off.y + (y - scope.at.y) * k,
   };
+}
+
+/**
+ * How far apart the graticule's lines stand, in map units.
+ *
+ * The ruling is of the sky, not of the glass: it slides under the hull and
+ * opens up with the zoom, which is the whole of what makes movement and scale
+ * visible on a display that never pans. A step fixed in map units would be a
+ * wall of lines at one end of the zoom and none at the other, so it climbs the
+ * 1-2-5 ladder: the rung whose spacing on the glass is nearest above `WANT`.
+ */
+const WANT = 48;
+
+export function gridStep(scope: Scope): number {
+  const raw = WANT / (scope.unit * scope.zoom);
+  const rung = 10 ** Math.floor(Math.log10(raw));
+  for (const times of [1, 2, 5]) {
+    if (rung * times >= raw) return rung * times;
+  }
+  return rung * 10;
+}
+
+/**
+ * Whether a circle drawn about `at` crosses the glass at all.
+ *
+ * At the near end of the zoom an orbit is a circle forty thousand pixels
+ * across whose middle is far off the frame; most of them cannot be seen and
+ * none of them should be handed to the renderer to find that out.
+ */
+export function ringSeen(at: Point, radius: number): boolean {
+  const away = Math.hypot(CENTER.x - at.x, CENTER.y - at.y);
+  return Math.abs(away - radius) <= Math.hypot(W, H) / 2;
 }
 
 /** How long a map-unit length is on the display right now. */
@@ -272,44 +328,4 @@ export function labelAt(spot: Point, onEdge: boolean): Label {
     fast: spot.y + LABEL.under + LABEL.line,
     away: 1,
   };
-}
-
-/**
- * How far each readout has to move so that two of them do not pile up.
- *
- * Four worlds on four orbits stand where the clock puts them, and nothing stops
- * two of them sharing a bearing for a week -- and then two blocks of hours and
- * fuel are drawn one over the other and neither can be read. The one that comes
- * second steps out of the way and stays under its own mark: a readout a little
- * further from its world beats two in one place.
- *
- * It steps the way its block already grows (`away`), never towards the edge the
- * block was turned about to avoid -- pushed down, a block laid upwards from the
- * bottom of the glass would walk straight off it.
- *
- * Order in, order out: the shift is a function of the list, so the display does
- * not reshuffle itself between two draws of the same sky.
- */
-export function spread(
-  spots: (Point & { away: number })[],
-  apart: number,
-  wide: number,
-): number[] {
-  const placed: Point[] = [];
-  return spots.map((spot) => {
-    let shift = 0;
-    //: Each block already placed can push this one once; more steps than that
-    //: means a loop, not a layout.
-    for (let step = 0; step <= placed.length; step++) {
-      const clash = placed.find(
-        (one) => Math.abs(one.x - spot.x) < wide && Math.abs(one.y - (spot.y + shift)) < apart,
-      );
-      if (!clash) break;
-      //: Just clear of the block it ran into -- a blind notch can land it in
-      //: the same place a second time and walk it far off its world.
-      shift = clash.y + apart * spot.away - spot.y;
-    }
-    placed.push({ x: spot.x, y: spot.y + shift });
-    return shift;
-  });
 }
