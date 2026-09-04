@@ -8,15 +8,18 @@ contested thing is the working itself -- the session row every closer of a
 face takes as its gate, the haul lying in its container, and the roof the vein
 under it remembers (D-188).
 
-A face has one way to end from the inside and three from the outside, and the
-three are what fills this file: a death (`mining.abandon`), the ground
-carrying the vein away (`plates._close_faces`), and a `leave` sent from a
-second socket of the same identity. The lock order they all agree on is
-`body -> vein -> session`, and the eruption goes `veins -> sessions` for the
-same reason -- reverse either and the database kills one of the two.
+Here the face meets what closes it **from outside the socket working it**: a
+death (`mining.abandon`) and the ground carrying the vein away
+(`plates._close_faces`), each against the other and against a swing. The face
+against the hands on it -- two sockets of one identity swinging, leaving and
+shoring -- is the diggings' own subject and lives in `test_races_mining.py`.
+
+The lock order everyone here agrees on is `body -> vein -> session`, and the
+eruption goes `veins -> sessions` for the same reason: reverse either and the
+database kills one of the two.
 
 Cut out of `test_races_ground.py` when it outgrew the length the quality bar
-allows one file.
+allows one file, and kept under it since.
 """
 
 from __future__ import annotations
@@ -30,9 +33,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from conftest import _slow
 from src.constants import current
-from src.constants import registry as R
 from src.engine import travel, world
 from src.models.identity import Body
 from src.models.world import Node, Surface, Vein
@@ -689,268 +690,3 @@ async def test_the_ground_waiting_at_the_vein_carries_out_the_swing_it_waited_fo
             if thing.type_key == ORE
         )
         assert pocket > 0, "добытое последним ударом осталось в закрытом забое"
-
-
-async def test_a_swing_and_a_leave_of_one_face_do_not_strand_the_ore(
-    session: AsyncSession,
-    factory: async_sessionmaker[AsyncSession],
-    constants,
-    catalog,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The third closer, and the only one that shares no lock with a swing.
-
-    A death takes the body FOR UPDATE before it reaches the face, and the
-    eruption meets a swing on the vein. `leave` does neither: it takes the
-    session row and nothing else. So a `leave` that reads the face's things
-    before a swing lays its ore down, and writes LEFT after, walks off with the
-    old haul and leaves the new ore in a container `leave` itself will refuse
-    to open ever again -- refused by state, and there is no other door.
-
-    Nothing weaker than a lock closes that: a reread narrows the window and
-    does not shut it, because the two never queue anywhere. So the swing takes
-    the session row **after** the vein -- the eruption's own direction, which
-    closes no circle -- and the leave waits at it, then carries out everything,
-    the swing's ore included.
-
-    Without that lock the pair does not merely lose the ore here, it crosses:
-    `stack_up` takes the twins in the face's container under a lock, so the
-    swing holds the old heap and waits for the session row, while the leave
-    holds the session row and waits for that heap to carry it out -- ABBA, and
-    the database kills one of the two. The quiet loss is the same defect on an
-    empty face, where there is no heap to contend and nothing to collide with.
-
-    **The handshake has to land in the right window**, and it is a narrow one:
-    between the flush that inserts the ore and the flush that writes the
-    session row. `remember_roof`, a line later, is already too late -- that
-    second flush takes the row by writing it, so a leave arriving then queues
-    anyway and the test passes with no lock at all. So the pause sits in
-    `stack_up`, the flush that lays the ore down, and only on its first call:
-    the leave folds heaps of its own, and slowing those proves nothing.
-    """
-    from src.engine import mining
-    from src.models.mining import MiningSession, SessionState
-
-    laid_the_ore = asyncio.Event()
-    folding = world.stack_up
-
-    async def held(*args, **kwargs):
-        heap = await folding(*args, **kwargs)
-        if not laid_the_ore.is_set():
-            laid_the_ore.set()
-            await asyncio.sleep(0.25)
-        return heap
-
-    monkeypatch.setattr(world, "stack_up", held)
-    stamp = uuid.uuid4().hex[:8]
-    node = await world.create_node(session, f"terra.face.{stamp}", "Забой", area_m2=500)
-    vein = await world.create_vein(session, node, ORE, richness=60, remaining=100_000)
-    who = await world.create_identity(session, f"Шахтёр-{stamp}")
-    body = await world.print_body(session, who, node)
-    pocket = await world.body_container(session, body)
-    await world.grant_item(session, pocket, "stone_pickaxe", quality=50, origin="тест")
-    face = await mining.start(session, current(), body, vein)
-    #: A haul already at the face: what the leave carries out must be this and
-    #: the swing's, and the two are told apart by the vein's own bookkeeping.
-    await world.grant_item(
-        session,
-        await mining.session_container(session, face),
-        ORE,
-        amount=9,
-        quality=60,
-        origin="тест",
-    )
-    body_id, vein_id, face_id = body.id, vein.id, face.id
-    rock_was = vein.remaining
-    await session.commit()
-
-    async def swings() -> None:
-        async with factory() as db, db.begin():
-            own = await db.get(MiningSession, face_id)
-            assert own is not None
-            await mining.swing(db, current(), own)
-
-    async def leaves() -> None:
-        #: The swing has laid its ore down and not yet written the session
-        #: row -- by construction.
-        await asyncio.wait_for(laid_the_ore.wait(), timeout=5)
-        async with factory() as db, db.begin():
-            own = await db.get(MiningSession, face_id)
-            assert own is not None
-            await mining.leave(db, current(), own)
-
-    outcome = await asyncio.gather(swings(), leaves(), return_exceptions=True)
-    assert not [one for one in outcome if isinstance(one, BaseException)], outcome
-
-    async with factory() as db:
-        closed = await db.get(MiningSession, face_id)
-        assert closed is not None and closed.state is SessionState.LEFT
-        assert closed.swings == 1, "удар по открытому забою не засчитан"
-        stuck = await world.contents(db, await mining.session_container(db, closed))
-        assert not stuck, "руда осталась в контейнере закрытой сессии"
-        mined = amount_float(
-            rock_was - await db.scalar(select(Vein.remaining).where(Vein.id == vein_id))
-        )
-        carried = sum(
-            amount_float(thing.amount)
-            for thing in await world.contents(
-                db, await world.body_container(db, await db.get(Body, body_id))
-            )
-            if thing.type_key == ORE
-        )
-        assert carried == pytest.approx(9 + mined), (
-            f"вынесено {carried}, а добыто и лежало {9 + mined}"
-        )
-
-
-async def test_a_leave_that_won_the_face_refuses_the_swing_behind_it(
-    session: AsyncSession,
-    factory: async_sessionmaker[AsyncSession],
-    constants,
-    catalog,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The same pair with the gate the other way round.
-
-    The leave holds the session row, so the swing queues at it and finds the
-    face closed when it gets there. It must refuse rather than work a face
-    somebody has walked out of -- and refuse having written nothing: the vein
-    keeps its remainder, the body its strength.
-
-    The handshake rides on `session_container`, the first thing `leave` asks
-    after taking the row.
-    """
-    from src.engine import mining
-    from src.engine.mining import face as mining_face
-    from src.models.mining import MiningSession, SessionState
-
-    holds_the_face = asyncio.Event()
-    asking = mining_face.session_container
-
-    async def held(*args, **kwargs):
-        container = await asking(*args, **kwargs)
-        if not holds_the_face.is_set():
-            holds_the_face.set()
-            await asyncio.sleep(0.25)
-        return container
-
-    monkeypatch.setattr(mining_face, "session_container", held)
-    stamp = uuid.uuid4().hex[:8]
-    node = await world.create_node(session, f"terra.face.{stamp}", "Забой", area_m2=500)
-    vein = await world.create_vein(session, node, ORE, richness=60, remaining=100_000)
-    who = await world.create_identity(session, f"Шахтёр-{stamp}")
-    body = await world.print_body(session, who, node)
-    pocket = await world.body_container(session, body)
-    await world.grant_item(session, pocket, "stone_pickaxe", quality=50, origin="тест")
-    face = await mining.start(session, current(), body, vein)
-    await world.grant_item(
-        session,
-        await mining.session_container(session, face),
-        ORE,
-        amount=9,
-        quality=60,
-        origin="тест",
-    )
-    body_id, vein_id, face_id = body.id, vein.id, face.id
-    rock_was, stamina = vein.remaining, float(body.stamina)
-    await session.commit()
-
-    refused: list[BaseException] = []
-
-    async def swings() -> None:
-        #: The leave is past the gate and holding it -- by construction.
-        await asyncio.wait_for(holds_the_face.wait(), timeout=5)
-        try:
-            async with factory() as db, db.begin():
-                own = await db.get(MiningSession, face_id)
-                assert own is not None
-                await mining.swing(db, current(), own)
-        except mining.SessionClosed as refusal:
-            refused.append(refusal)
-
-    async def leaves() -> None:
-        async with factory() as db, db.begin():
-            own = await db.get(MiningSession, face_id)
-            assert own is not None
-            await mining.leave(db, current(), own)
-
-    outcome = await asyncio.gather(swings(), leaves(), return_exceptions=True)
-    assert not [one for one in outcome if isinstance(one, BaseException)], outcome
-
-    async with factory() as db:
-        closed = await db.get(MiningSession, face_id)
-        assert closed is not None and closed.state is SessionState.LEFT
-        assert closed.swings == 0, "удар по закрытому забою засчитан"
-        assert await db.scalar(select(Vein.remaining).where(Vein.id == vein_id)) == rock_was
-        mine = await db.get(Body, body_id)
-        assert mine is not None and float(mine.stamina) == stamina
-        assert refused, "удар по покинутому забою прошёл молча"
-
-
-async def test_two_supports_set_at_once_are_two_supports(
-    session: AsyncSession,
-    factory: async_sessionmaker[AsyncSession],
-    constants,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A support is a write to the roof, and the roof is a remainder.
-
-    Two sockets of one identity set a support in the same second. Without the
-    locks both read the same roof and the same stack of timber, and both write
-    their own answer back: one of the two supports is free, and the roof rises
-    once for two timbers -- or, with the stack read stale, one timber pays for
-    both. After D-294 a lost support is the difference between a body that
-    lives through the next cave-in and one that does not.
-
-    `timber` takes the vein first and the face's row second, the order the
-    whole package keeps, and the timber in the pocket under its own lock --
-    not because the vein's would not do here, but because a remainder guarded
-    by somebody else's lock is guarded by a coincidence.
-
-    The pause holds those locks: `body_container` is the first thing asked
-    after them.
-    """
-    from src.engine import mining
-    from src.engine.mining import face as mining_face
-    from src.models.inventory import Item
-    from src.models.mining import MiningSession, Pace
-
-    _slow(monkeypatch, mining_face, "body_container", 0.25)
-    stamp = uuid.uuid4().hex[:8]
-    node = await world.create_node(session, f"terra.prop.{stamp}", "Забой", area_m2=500)
-    vein = await world.create_vein(session, node, ORE, richness=60, remaining=100_000)
-    who = await world.create_identity(session, f"Крепильщик-{stamp}")
-    body = await world.print_body(session, who, node)
-    pocket = await world.body_container(session, body)
-    #: Exactly two, so a stack read twice from the same value leaves one
-    #: standing where none should.
-    await world.grant_item(session, pocket, "shaft_support", amount=2, origin="тест")
-    #: Low enough that both supports raise the roof: two by
-    #: `mine.roof_per_timber` from twenty stays under `mine.roof_timber_cap`.
-    face = MiningSession(body_id=body.id, vein_id=vein.id, pace=Pace.STEADY, roof=20)
-    session.add(face)
-    await session.flush()
-    pocket_id, face_id = pocket.id, face.id
-    await session.commit()
-
-    async def props() -> None:
-        async with factory() as db, db.begin():
-            own = await db.get(MiningSession, face_id)
-            assert own is not None
-            await mining.timber(db, current(), own)
-
-    outcome = await asyncio.gather(props(), props(), return_exceptions=True)
-    assert not [one for one in outcome if isinstance(one, BaseException)], outcome
-
-    async with factory() as db:
-        again = await db.get(MiningSession, face_id)
-        assert again is not None
-        assert again.timbers == 2, f"две стойки — две, а не {again.timbers}"
-        raised = 20 + 2 * constants[R.MINE_ROOF_PER_TIMBER]
-        assert float(again.roof) == pytest.approx(raised), (
-            f"свод поднят на одну стойку из двух: {float(again.roof)} вместо {raised}"
-        )
-        left = await db.scalar(
-            select(Item).where(Item.container_id == pocket_id, Item.type_key == "shaft_support")
-        )
-        assert left is None, "две стойки поставлены из одного бревна"
