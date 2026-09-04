@@ -10,12 +10,14 @@ from __future__ import annotations
 
 import uuid
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog
 from src.engine import city as town
 from src.engine import ledger, world
 from src.models.city import Citizen
+from src.models.inventory import Item
 from src.models.ledger import AccountKind, PostingReason
 from src.models.world import PLOT, Layer, Node, Surface
 from src.units import money
@@ -105,3 +107,29 @@ async def _buyer(
             memo={},
         )
     return identity, body
+
+
+async def _printer_of(session: AsyncSession, node: Node) -> Item:
+    """The bioprinter standing in this node's yard.
+
+    Taken through the object rather than by a bulk statement: that is how the
+    engine carries a machine away, and only that empties the command's memory
+    (`db.base.remember`) -- a test that deletes with an `UPDATE` would be
+    asking about a centre the session still remembers.
+    """
+
+    yard = await world.node_container(session, node)
+    found = (
+        (
+            await session.execute(
+                select(Item).where(
+                    Item.container_id == yard.id,
+                    Item.type_key.in_(world.station_names(world.BIOPRINTER)),
+                )
+            )
+        )
+        .scalars()
+        .first()
+    )
+    assert found is not None, f"в узле {node.key} нет биопринтера"
+    return found

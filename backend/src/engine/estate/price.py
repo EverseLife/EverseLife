@@ -11,7 +11,7 @@ from __future__ import annotations
 import uuid
 from collections import deque
 
-from sqlalchemy import and_, or_, select, update
+from sqlalchemy import ColumnElement, and_, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
@@ -55,36 +55,50 @@ async def center_of(session: AsyncSession, city: City) -> Node | None:
 
 
 async def forget_distances(session: AsyncSession) -> None:
-    """Drop every measured distance: the graph itself has changed.
+    """Drop what can be measured again: the graph itself has changed.
 
     Called where an edge appears or goes, and nowhere else -- `travel.connect`
     and the undocking that removes a gangway. A trail laid by a scout may
     shorten the way to the centre for a whole quarter, so measuring is not
-    patched here -- it is dropped, and the next reader measures again.
+    patched here -- it is dropped, and the next world tick takes it again
+    (`measure_cities`). Until it does, whoever asks a price works the distance
+    out and writes nothing: a read does not write, and the answer is the same
+    answer.
 
-    Not free, and known not to be: **any** new edge drops the measurements of
-    the whole world, and Pyroxis lays one on every eruption (`plates._bridge`,
-    through `connect` like everything else). The next world tick measures the
-    cities again (`measure_cities`) -- the same cost a scout's trail already
-    has, paid a few times a week rather than a few times a day. Until it does,
-    whoever asks a price works the distance out and writes nothing: a read does
-    not write, and the answer is the same answer.
+    **A city with no printer is left alone** (D-307). Dropping is a way of
+    saying "measure this again", and there is nothing to measure a printerless
+    city with: `nodes_from_center` would fall back to nought, which is the
+    centre's own rate -- the dearest in town -- for every plot of a city that
+    just lost its centre. That is precisely what D-307 forbids, and until this
+    line it was one eruption away: Pyroxis lays an edge on every eruption
+    (`plates._bridge`, through `connect` like everything else) and the deploy
+    seed lays them too, so "what was measured while the printer stood" survived
+    only until the next tremor. So the drop asks, city by city, whether there
+    is a centre to measure from, and passes over the cities that have none.
 
     The tearing side of an eruption deletes its edges itself and does not come
     here, and that is not an omission: what is measured is the way to a city's
     centre, and Pyroxis has no cities and never will (D-230, D-233). No node of
     it carries a distance to drop.
 
-    One statement for the world: this happens when a road is laid or a ship
-    casts off, not in the course of a day's play. It touches only what was
-    measured, so building a world -- where every second call lays an edge and
-    nothing has been measured yet -- writes nothing at all.
+    One statement per city, and this happens when a road is laid or a ship
+    casts off, not in the course of a day's play. A world with nothing measured
+    in it leaves by the first question -- and that is the whole of seeding,
+    where every second call lays an edge and there is not a number yet to drop.
     """
-    await session.execute(
-        update(Node)
-        .where(Node.center_steps.is_not(None))
-        .values(center_node_id=None, center_steps=None)
-    )
+    anything = await session.scalar(select(Node.id).where(Node.center_steps.is_not(None)).limit(1))
+    if anything is None:
+        return
+
+    cities = (await session.execute(select(City))).scalars().all()
+    for city in cities:
+        if await center_of(session, city) is None:
+            continue
+        await session.execute(
+            update(Node)
+            .where(_owned(city), Node.center_steps.is_not(None))
+            .values(center_node_id=None, center_steps=None)
+        )
 
 
 async def note_new_place(session: AsyncSession, one: Node, other: Node) -> None:
@@ -184,6 +198,24 @@ async def _walk_from(session: AsyncSession, center: Node) -> dict[uuid.UUID, int
     return _walk(await _graph(session), center.id)
 
 
+def _owned(city: City) -> ColumnElement[bool]:
+    """Which nodes are this city's -- and "this city's" must mean exactly what
+    `city.of_node` means, in the same order: land the city holds, its own
+    delegate node, and what hangs off that node while no other city holds it.
+
+    Measuring every node the walk reached instead would have the two cities of
+    one road overwrite each other's measurements turn by turn. Written once
+    because the tick asks the same question the writer answers: what is behind
+    must be the very set that gets written.
+    """
+
+    return or_(
+        Node.owner_city_id == city.id,
+        Node.id == city.node_id,
+        and_(Node.parent_id == city.node_id, Node.owner_city_id.is_(None)),
+    )
+
+
 async def measure_city(
     session: AsyncSession, center: Node, city: City, graph: Graph | None = None
 ) -> dict[uuid.UUID, int]:
@@ -200,26 +232,7 @@ async def measure_city(
     #: No road to the node -- the land lies beyond the farthest ring the city
     #: reaches, and it is counted as further than any of them.
     beyond = len(steps)
-    #: Written for this city's nodes only, and "this city's" must mean exactly
-    #: what `city.of_node` means, in the same order: land the city holds, its
-    #: own delegate node, and what hangs off that node while no other city
-    #: holds it. Writing every node the walk reached instead would have the two
-    #: cities of one road overwrite each other's measurements turn by turn.
-    mine = (
-        (
-            await session.execute(
-                select(Node).where(
-                    or_(
-                        Node.owner_city_id == city.id,
-                        Node.id == city.node_id,
-                        and_(Node.parent_id == city.node_id, Node.owner_city_id.is_(None)),
-                    )
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
+    mine = (await session.execute(select(Node).where(_owned(city)))).scalars().all()
     for plot in [*mine, center]:
         plot.center_node_id = center.id
         plot.center_steps = steps.get(plot.id, beyond)
@@ -248,19 +261,25 @@ async def nodes_from_center(session: AsyncSession, node: Node, city: City) -> in
     center = await center_of(session, city)
     if center is None:
         #: The printer is gone from the core -- carried out, or never put back.
-        #: What was measured while it stood stays: the land did not move, and
-        #: the last rate the city announced is the last one it announced. The
-        #: alternative was to call the distance nought, and a city that lost
-        #: its machine would start charging every plot the centre's own rate --
-        #: the dearest in town, for the place that just lost its centre.
+        #: What was measured while it stood stays (D-307): the land did not
+        #: move, and the last rate the city announced is the last one it
+        #: announced. The alternative was to call the distance nought, and a
+        #: city that lost its machine would start charging every plot the
+        #: centre's own rate -- the dearest in town, for the place that just
+        #: lost its centre. Put the machine down somewhere else and the city is
+        #: measured from there instead, all of it at once: the centre is the
+        #: machine and not a mark on the map (D-208), so moving it is a move of
+        #: the city's own, and every rate in town follows.
         #:
         #: A plot nobody had measured by then has nothing to keep, and the
         #: engine does not invent it a distance: it stands at nought until a
-        #: printer is put back and the city is measured again. Nought is the
-        #: **centre's** own rate, the dearest in town, so this is a window and
-        #: not a rule: it opens where a city has never been measured and a
-        #: printer goes in the same breath, and the world tick shuts it. What
-        #: a city with no centre ought to charge at all is OQ-126.
+        #: printer stands in the city again and the tick measures it. Nought is
+        #: the **centre's** own rate, the dearest in town, so the only city this
+        #: may befall is one that never had its distances taken at all and lost
+        #: its printer before the first tick after that. A city measured once
+        #: keeps what it has: a new road no longer drops it either, because a
+        #: drop means "measure this again" and there is nothing to measure it
+        #: with (`forget_distances`, D-307).
         return node.center_steps if node.center_steps is not None else 0
     if node.center_node_id == center.id and node.center_steps is not None:
         return node.center_steps
@@ -278,52 +297,49 @@ async def measure_cities(session: AsyncSession) -> int:
     is standing at. So the tick picks the work up rather than the next player
     to open a plot screen.
 
-    One query when there is nothing to do, and one reading of the map when
-    there is -- however many cities are behind. And it matters that the tick
-    writes rather than a reader: what was measured while the printer stood is
-    what a city keeps when the printer is carried away (`nodes_from_center`),
-    and leaving that to whoever happened to look first made a city's rates
-    depend on whether anybody had (OQ-126).
+    One question per city while there is nothing to do, and one reading of the
+    map when there is -- however many cities are behind. And it matters that
+    the tick writes rather than a reader: what was measured while the printer
+    stood is what a city keeps when the printer is carried away (D-307), and
+    leaving that to whoever happened to look first made a city's rates depend
+    on whether anybody had.
     """
 
-    #: Asked of the database rather than city by city: a world where nothing
-    #: is missing costs this one query and stops. And it asks the right
-    #: question -- **is any node of this city unmeasured** -- rather than "is
-    #: the centre unmeasured": a plot the growing rule refuses to measure (a
-    #: node that is not city land, an anchor with no distance of its own) would
-    #: otherwise stay NULL for ever behind a measured centre, and every read of
-    #: it would walk the graph again, for ever.
-    behind = (
-        (
-            await session.execute(
-                select(City).where(
-                    select(Node.id)
-                    .where(
-                        or_(
-                            Node.owner_city_id == City.id,
-                            Node.id == City.node_id,
-                            and_(Node.parent_id == City.node_id, Node.owner_city_id.is_(None)),
-                        ),
-                        Node.center_steps.is_(None),
-                    )
-                    .exists()
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
-    if not behind:
-        return 0
-
-    graph = await _graph(session)
+    #: City by city, and each answered with one question: **is anything of
+    #: this city measured to the wrong centre, or not measured at all**. Both
+    #: halves matter and neither covers the other. A plot the growing rule
+    #: refuses (a node that is not city land, an anchor with no distance of its
+    #: own) stays NULL behind a measured centre, and every read of it would
+    #: walk the graph again for ever. And a printer put down in a new place
+    #: leaves every number in the city measured to the old one -- non-NULL,
+    #: every one, so a question about NULLs alone would call the city done and
+    #: leave it counting from a machine that is no longer there (D-307).
+    cities = (await session.execute(select(City))).scalars().all()
+    graph: Graph | None = None
     measured = 0
-    for city in behind:
+    for city in cities:
         center = await center_of(session, city)
         #: No printer, no centre to count from, and nothing to write: what was
-        #: measured while it stood is what the city keeps (`nodes_from_center`).
+        #: measured while it stood is what the city keeps (D-307).
         if center is None:
             continue
+        behind = await session.scalar(
+            select(Node.id)
+            .where(
+                _owned(city),
+                or_(
+                    Node.center_steps.is_(None),
+                    Node.center_node_id.is_distinct_from(center.id),
+                ),
+            )
+            .limit(1)
+        )
+        if behind is None:
+            continue
+        #: The map is read once for however many cities are behind, and not at
+        #: all for a world where none are.
+        if graph is None:
+            graph = await _graph(session)
         await measure_city(session, center, city, graph)
         measured += 1
     return measured

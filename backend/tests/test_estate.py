@@ -19,7 +19,7 @@ import pytest
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from estate_kit import _buyer, _city
+from estate_kit import _buyer, _city, _printer_of
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import city as town
@@ -158,7 +158,6 @@ async def test_a_city_that_lost_its_printer_keeps_its_rates(
     its centre. What was measured while the printer stood is kept instead: the
     land did not move.
     """
-    from sqlalchemy import select as sql_select
 
     from src.engine import city as town_
 
@@ -172,26 +171,108 @@ async def test_a_city_that_lost_its_printer_keeps_its_rates(
     assert steps == 2
     priced = await estate.price_of(session, constants, catalog, city, far)
 
-    #: Taken out through the objects, not by a bulk statement: that is how the
-    #: engine carries a machine away, and it is what empties the command's memory.
-    yard = await world.node_container(session, core)
-    printer = (
-        (
-            await session.execute(
-                sql_select(Item).where(
-                    Item.container_id == yard.id,
-                    Item.type_key.in_(world.station_names(world.BIOPRINTER)),
-                )
-            )
-        )
-        .scalars()
-        .first()
-    )
-    await session.delete(printer)
+    await session.delete(await _printer_of(session, core))
     await session.flush()
 
     assert await town_.core(session, city) is None, "ядра у города больше нет"
     assert await estate.nodes_from_center(session, far, city) == steps
+    assert await estate.price_of(session, constants, catalog, city, far) == priced
+
+
+async def test_the_centre_moves_to_the_printer_the_city_has_left(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The centre is the machine, not a mark on the map (D-208, D-307).
+
+    A bioprinter is built where it stands and never taken into the hands
+    (D-268), so a centre does not move by being carried: it moves when the
+    machine the city counted from is gone and another one is what the city has.
+    Then the whole city is measured from there at once -- what was two steps
+    out is the centre, and the old core is two steps from it.
+    """
+    from src.engine import city as town_
+
+    city, core, near, far = await _city(session, catalog)
+    await estate.measure_cities(session)
+    assert (core.center_steps, near.center_steps, far.center_steps) == (0, 1, 2)
+    was = await estate.price_of(session, constants, catalog, city, far)
+
+    #: Built out there and lost at the core: the reachable shape of "the city's
+    #: printer is another node now".
+    yard = await world.node_container(session, far)
+    await world.grant_item(session, yard, world.BIOPRINTER, quality=60, origin="тест")
+    await session.delete(await _printer_of(session, core))
+    await session.flush()
+    found = await town_.core(session, city)
+    assert found is not None and found.id == far.id, "центр там, где машина города"
+
+    #: A read already counts from the new place -- and writes nothing.
+    assert await estate.nodes_from_center(session, core, city) == 2
+    assert core.center_steps == 0, "чтение не переписывает меру"
+
+    assert await estate.measure_cities(session) == 1
+
+    assert (core.center_steps, near.center_steps, far.center_steps) == (2, 1, 0)
+    assert core.center_node_id == far.id
+    #: The far plot is the centre now, so it costs what the centre costs.
+    assert await estate.price_of(session, constants, catalog, city, far) > was
+    assert await estate.measure_cities(session) == 0, "второй раз мерить нечего"
+
+
+async def test_a_second_printer_does_not_move_the_centre(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A city counts from the machine it grew from, not from the newest one
+    (D-208, `city.core`): the Forerunners' printer first, the oldest otherwise.
+
+    So building another one changes no rate in town, and the lever of D-307 is
+    not "put up a printer where you would like the centre" -- it is the city
+    losing the machine it had.
+    """
+    from src.engine import city as town_
+
+    city, core, near, far = await _city(session, catalog)
+    await estate.measure_cities(session)
+    kept = [(node.center_node_id, node.center_steps) for node in (core, near, far)]
+
+    yard = await world.node_container(session, far)
+    await world.grant_item(session, yard, world.BIOPRINTER, quality=60, origin="тест")
+    await session.flush()
+
+    found = await town_.core(session, city)
+    assert found is not None and found.id == core.id, "центр остался у старой машины"
+    assert await estate.measure_cities(session) == 0, "мерить нечего: центр тот же"
+    assert [(node.center_node_id, node.center_steps) for node in (core, near, far)] == kept
+
+
+async def test_a_city_without_a_printer_keeps_its_measurements_through_a_new_road(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """No machine, no centre to measure from -- so nothing drops the measure
+    either (D-307).
+
+    Dropping is how the engine says "take this again", and a printerless city
+    has nothing to take it with: dropped, it would answer nought, which is the
+    centre's own rate for every plot of a city that just lost its centre. And
+    the road that would have dropped it is not a rare event -- Pyroxis lays an
+    edge on every eruption, and the deploy seed lays them too.
+    """
+    from src.engine import travel
+
+    city, core, near, far = await _city(session, catalog)
+    await estate.measure_cities(session)
+    kept = [(node.center_node_id, node.center_steps) for node in (core, near, far)]
+    priced = await estate.price_of(session, constants, catalog, city, far)
+
+    await session.delete(await _printer_of(session, core))
+    await session.flush()
+
+    #: A short cut between two places already on the map: the one edge that
+    #: drops what was measured.
+    await travel.connect(session, core, far, base_seconds=30, surface=Surface.PAVED)
+
+    assert [(node.center_node_id, node.center_steps) for node in (core, near, far)] == kept
+    assert await estate.measure_cities(session) == 0, "мерить не от чего"
     assert await estate.price_of(session, constants, catalog, city, far) == priced
 
 
@@ -205,7 +286,6 @@ async def test_a_find_is_measured_without_a_printer_too(
     Without this a find in a city that lost its printer would have had nothing
     to keep and would have stood, absurdly, at the centre's own rate.
     """
-    from sqlalchemy import select as sql_select
 
     from src.engine import city as town_
     from src.engine import travel
@@ -214,20 +294,7 @@ async def test_a_find_is_measured_without_a_printer_too(
     await estate.measure_cities(session)
     assert await estate.nodes_from_center(session, far, city) == 2
 
-    yard = await world.node_container(session, core)
-    printer = (
-        (
-            await session.execute(
-                sql_select(Item).where(
-                    Item.container_id == yard.id,
-                    Item.type_key.in_(world.station_names(world.BIOPRINTER)),
-                )
-            )
-        )
-        .scalars()
-        .first()
-    )
-    await session.delete(printer)
+    await session.delete(await _printer_of(session, core))
     await session.flush()
     assert await town_.core(session, city) is None
 
