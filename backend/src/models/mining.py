@@ -3,7 +3,13 @@
 
 """Mining session and device fee.
 
-The key field here is `roof`. It is **hidden**: never shown to the player,
+The roof is **not** here. It belongs to the working and lives on `Vein.roof`
+(D-188), one number shared by everyone digging that vein (D-099); a session
+kept a copy of it once, and the copy is what let two miners at one face
+overwrite each other's sag. What is left here is the shift: whose body, which
+vein, at what pace, how many swings and supports it took, and how it ended.
+
+The roof stays **hidden** wherever it is kept: never shown to the player,
 neither as a number nor as a derivative of one. Only a sign string with noise
 goes out (D-143). If roof stability ever leaks into an API response, the
 mechanic turns into arithmetic, and no noise will bring it back.
@@ -15,7 +21,7 @@ import uuid
 from datetime import datetime
 from enum import StrEnum
 
-from sqlalchemy import ForeignKey, Index, Integer, LargeBinary, Numeric, Uuid
+from sqlalchemy import ForeignKey, Index, Integer, LargeBinary, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.db.base import Base, created_column, enum_column, uuid_pk
@@ -54,9 +60,6 @@ class MiningSession(Base):
         SessionState, "mining_session_state", nullable=False, default=SessionState.ACTIVE
     )
     pace: Mapped[Pace] = enum_column(Pace, "mining_pace", nullable=False, default=Pace.STEADY)
-
-    #: HIDDEN state. Not shown to the player under any circumstances.
-    roof: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False)
 
     #: The tool worked with. Wears per session, not per swing.
     tool_item_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)

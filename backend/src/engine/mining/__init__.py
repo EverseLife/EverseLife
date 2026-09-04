@@ -46,7 +46,6 @@ from src.engine.mining._base import (  # noqa: F401
     crowd_factor,
     deplete,
     pace_factor,
-    remember_roof,
     roof_of,
     session_container,
     sign_of,

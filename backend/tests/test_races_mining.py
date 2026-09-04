@@ -63,7 +63,7 @@ async def test_two_swings_at_once_are_paid_for_twice(
     who = await world.create_identity(session, f"Шахтёр-{stamp}")
     body = await world.print_body(session, who, node)
     body.stamina = Decimal("90")
-    face = MiningSession(body_id=body.id, vein_id=vein.id, pace=Pace.STEADY, roof=100)
+    face = MiningSession(body_id=body.id, vein_id=vein.id, pace=Pace.STEADY)
     session.add(face)
     await session.flush()
     body_id, face_id = body.id, face.id
@@ -131,6 +131,73 @@ async def test_two_swings_on_one_vein_do_not_mine_the_same_ore_twice(
     )
 
 
+async def test_two_bodies_swinging_one_vein_shake_one_roof(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    constants,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The roof is the working's, and two miners sag it together (D-188, D-099).
+
+    Two **different** bodies at one vein -- the ordinary case, since `start`
+    refuses only a second face of the same body and `crowd_factor` exists to
+    count the neighbours. They share no row but the vein's, and that is the
+    one they must share: each swing has to read the roof the other left.
+
+    The session used to carry a copy of it, taken at `start` and written back
+    on every swing, so the second of these two put its own start minus one
+    swing over the first's answer: one of the two sags was erased, and both
+    miners were told a sign for a roof that was not there. The pause is before
+    the vein's lock, so the two provably arrive at it together and the loser's
+    read happens after the winner's commit.
+    """
+    from src.engine import frost, mining
+    from src.models.mining import MiningSession, Pace
+    from src.models.world import Vein
+
+    #: Asked after the body is locked and before the vein is -- the one place
+    #: to stand if both arms are to reach the vein's lock at once.
+    _slow(monkeypatch, frost, "drain_multiplier")
+    stamp = uuid.uuid4().hex[:8]
+    node = await world.create_node(session, f"terra.artel.{stamp}", "Забой", area_m2=500)
+    vein = await world.create_vein(session, node, ORE, richness=60, remaining=100_000)
+    #: A working already shaken, so the assertion is about these two swings and
+    #: not about the value an untouched vein is worth.
+    started = constants[R.MINE_ROOF_TIMBER_CAP]
+    vein.roof = Decimal(str(started))
+    faces = []
+    for who in ("Старший", "Подручный"):
+        person = await world.create_identity(session, f"{who}-{stamp}")
+        body = await world.print_body(session, person, node)
+        await world.grant_item(
+            session, await world.body_container(session, body), "stone_pickaxe", origin="тест"
+        )
+        face = MiningSession(body_id=body.id, vein_id=vein.id, pace=Pace.STEADY)
+        session.add(face)
+        faces.append(face)
+    await session.flush()
+    vein_id = vein.id
+    face_ids = [face.id for face in faces]
+    await session.commit()
+
+    async def swing(face_id) -> None:
+        async with factory() as db, db.begin():
+            own = await db.get(MiningSession, face_id)
+            assert own is not None
+            await mining.swing(db, current(), own)
+
+    outcome = await asyncio.gather(*(swing(one) for one in face_ids), return_exceptions=True)
+    assert not [one for one in outcome if isinstance(one, BaseException)], outcome
+
+    async with factory() as db:
+        shaken = await db.get(Vein, vein_id)
+        assert shaken is not None
+        expected = started - 2 * constants[R.MINE_ROOF_PER_SWING]
+        assert float(shaken.roof) == pytest.approx(expected), (
+            f"два удара просадили свод на один: {float(shaken.roof)} вместо {expected}"
+        )
+
+
 async def test_a_swing_that_waited_out_the_last_of_the_vein_pays_for_nothing(
     session: AsyncSession,
     factory: async_sessionmaker[AsyncSession],
@@ -152,6 +219,10 @@ async def test_a_swing_that_waited_out_the_last_of_the_vein_pays_for_nothing(
     is also why the assertions on stamina, roof and swings below hold either
     way. What tells the two apart is the refusal: the world must answer with
     its own word and not with a crash.
+
+    The roof is counted on the vein, where the working keeps it (D-188), so
+    what is asserted is that it carries **one** swing's sag: the swing that
+    took the last of the rock. The empty one adds nothing to it.
     """
     from src.engine import frost, mining
     from src.models.mining import MiningSession
@@ -172,7 +243,8 @@ async def test_a_swing_that_waited_out_the_last_of_the_vein_pays_for_nothing(
         faces.append(await mining.start(session, current(), body, vein))
     late, first = faces
     late_id, first_id, late_body_id = late.id, first.id, late.body_id
-    sag, stamina = float(late.roof), float((await session.get(Body, late_body_id)).stamina)
+    whole = mining.roof_of(current(), vein)
+    stamina = float((await session.get(Body, late_body_id)).stamina)
     await session.commit()
 
     #: **A handshake, not a pause**, and patched only after the two sessions
@@ -226,7 +298,12 @@ async def test_a_swing_that_waited_out_the_last_of_the_vein_pays_for_nothing(
         late_again = await db.get(MiningSession, late_id)
         assert late_again is not None
         assert late_again.swings == 0, "удар по пустой жиле засчитан"
-        assert float(late_again.roof) == sag, "свод просел от удара, который ничего не добыл"
+        sagged = await db.get(Vein, vein.id)
+        assert sagged is not None
+        one_swing = whole - constants[R.MINE_ROOF_PER_SWING]
+        assert float(sagged.roof) == pytest.approx(one_swing), (
+            "свод просел от удара, который ничего не добыл"
+        )
         body = await db.get(Body, late_body_id)
         assert body is not None
         assert float(body.stamina) == stamina, "выносливость списана за пустой удар"
@@ -259,8 +336,10 @@ async def test_two_last_swings_at_once_cost_one_cave_in(
     body = await world.print_body(session, who, node)
     pocket = await world.body_container(session, body)
     await world.grant_item(session, pocket, "stone_pickaxe", quality=50, origin="тест")
-    #: One swing from nought: both arrive at the collapse or neither does.
-    face = MiningSession(body_id=body.id, vein_id=vein.id, pace=Pace.STEADY, roof=1)
+    #: One swing from nought: both arrive at the collapse or neither does. The
+    #: roof sits on the vein, which is where the working keeps it (D-188).
+    vein.roof = Decimal("1")
+    face = MiningSession(body_id=body.id, vein_id=vein.id, pace=Pace.STEADY)
     session.add(face)
     await session.flush()
     body_id, face_id = body.id, face.id
@@ -727,6 +806,7 @@ async def test_two_supports_set_at_once_are_two_supports(
     from src.engine.mining import face as mining_face
     from src.models.inventory import Item
     from src.models.mining import MiningSession, Pace
+    from src.models.world import Vein
 
     _slow(monkeypatch, mining_face, "body_container", 0.25)
     stamp = uuid.uuid4().hex[:8]
@@ -744,12 +824,11 @@ async def test_two_supports_set_at_once_are_two_supports(
     #: playtest moving `mine.roof_per_timber` reddens a test about locks.
     per_timber = constants[R.MINE_ROOF_PER_TIMBER]
     start = max(1.0, constants[R.MINE_ROOF_TIMBER_CAP] - 2 * per_timber)
-    face = MiningSession(
-        body_id=body.id, vein_id=vein.id, pace=Pace.STEADY, roof=Decimal(str(start))
-    )
+    vein.roof = Decimal(str(start))
+    face = MiningSession(body_id=body.id, vein_id=vein.id, pace=Pace.STEADY)
     session.add(face)
     await session.flush()
-    pocket_id, face_id = pocket.id, face.id
+    pocket_id, face_id, vein_id = pocket.id, face.id, vein.id
     await session.commit()
 
     async def props() -> None:
@@ -765,9 +844,11 @@ async def test_two_supports_set_at_once_are_two_supports(
         again = await db.get(MiningSession, face_id)
         assert again is not None
         assert again.timbers == 2, f"две стойки — две, а не {again.timbers}"
+        propped = await db.get(Vein, vein_id)
+        assert propped is not None
         raised = min(constants[R.MINE_ROOF_TIMBER_CAP], start + 2 * per_timber)
-        assert float(again.roof) == pytest.approx(raised), (
-            f"свод поднят на одну стойку из двух: {float(again.roof)} вместо {raised}"
+        assert float(propped.roof) == pytest.approx(raised), (
+            f"свод поднят на одну стойку из двух: {float(propped.roof)} вместо {raised}"
         )
         left = await db.scalar(
             select(Item).where(Item.container_id == pocket_id, Item.type_key == "shaft_support")

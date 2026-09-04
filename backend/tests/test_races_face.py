@@ -115,7 +115,7 @@ async def test_death_and_leaving_one_face_do_not_both_carry_the_haul(
     vein = await world.create_vein(session, field, ORE, richness=70, remaining=1000)
     who = await world.create_identity(session, f"Вахтовик-{stamp}")
     body = await world.print_body(session, who, field)
-    face = MiningSession(body_id=body.id, vein_id=vein.id, pace=Pace.STEADY, roof=100)
+    face = MiningSession(body_id=body.id, vein_id=vein.id, pace=Pace.STEADY)
     session.add(face)
     await session.flush()
     await world.grant_item(
@@ -243,7 +243,7 @@ async def test_death_and_the_burning_ground_close_one_face_without_a_deadlock(
     vein = await world.create_vein(session, field, ORE, richness=70, remaining=1000)
     who = await world.create_identity(session, f"Вахтовик-{stamp}")
     body = await world.print_body(session, who, field)
-    face = MiningSession(body_id=body.id, vein_id=vein.id, pace=Pace.STEADY, roof=100)
+    face = MiningSession(body_id=body.id, vein_id=vein.id, pace=Pace.STEADY)
     session.add(face)
     await session.flush()
     await world.grant_item(
@@ -389,7 +389,7 @@ async def test_a_swing_and_the_eruption_pass_each_other_without_a_deadlock(
         quality=50,
         origin="тест",
     )
-    face = MiningSession(body_id=body.id, vein_id=vein.id, pace=Pace.STEADY, roof=100)
+    face = MiningSession(body_id=body.id, vein_id=vein.id, pace=Pace.STEADY)
     session.add(face)
     await session.flush()
     field_id, face_id = field.id, face.id
@@ -503,7 +503,7 @@ async def test_a_swing_queued_at_the_vein_does_not_work_a_face_the_ground_took(
     vein.roof = Decimal("80")
     who = await world.create_identity(session, f"Вахтовик-{stamp}")
     body = await world.print_body(session, who, field)
-    face = MiningSession(body_id=body.id, vein_id=vein.id, pace=Pace.STEADY, roof=80)
+    face = MiningSession(body_id=body.id, vein_id=vein.id, pace=Pace.STEADY)
     session.add(face)
     await session.flush()
     #: A haul already lying in the face, so the count afterwards tells the two
@@ -607,9 +607,10 @@ async def test_the_ground_waiting_at_the_vein_carries_out_the_swing_it_waited_fo
     lost swing, which is the opposite defect and a worse one -- it would fire
     on every pass of the tick rather than in the second of a collision.
 
-    The handshake rides on `remember_roof`: the last thing a swing does with
-    the vein in hand, and a call neither `leave` nor `abandon` ever makes, so
-    the eruption arrives with the swing provably holding the lock.
+    The handshake rides on `crowd_factor`: the first thing a swing asks once
+    it holds both the vein and the face, and a call neither `leave` nor
+    `abandon` ever makes, so the eruption arrives with the swing provably
+    holding the lock and waits there for the rest of the swing.
     """
     from src.engine import mining, plates
     from src.engine.mining import face as mining_face
@@ -617,14 +618,15 @@ async def test_the_ground_waiting_at_the_vein_carries_out_the_swing_it_waited_fo
     from src.models.world import Layer, Planet
 
     holds_the_vein = asyncio.Event()
-    stamping = mining_face.remember_roof
+    counting = mining_face.crowd_factor
 
     async def held(*args, **kwargs):
-        await stamping(*args, **kwargs)
+        neighbours = await counting(*args, **kwargs)
         holds_the_vein.set()
         await asyncio.sleep(0.2)
+        return neighbours
 
-    monkeypatch.setattr(mining_face, "remember_roof", held)
+    monkeypatch.setattr(mining_face, "crowd_factor", held)
     stamp = uuid.uuid4().hex[:8]
     sphere = await world.create_node(
         session, f"pyroxis.{stamp}", "Пироксис", planet=Planet.PYROXIS, area_m2=1, layer=Layer.SPACE
@@ -641,7 +643,7 @@ async def test_the_ground_waiting_at_the_vein_carries_out_the_swing_it_waited_fo
     vein = await world.create_vein(session, field, ORE, richness=70, remaining=100_000)
     who = await world.create_identity(session, f"Вахтовик-{stamp}")
     body = await world.print_body(session, who, field)
-    face = MiningSession(body_id=body.id, vein_id=vein.id, pace=Pace.STEADY, roof=100)
+    face = MiningSession(body_id=body.id, vein_id=vein.id, pace=Pace.STEADY)
     session.add(face)
     await session.flush()
     field_id, body_id, vein_id, face_id = field.id, body.id, vein.id, face.id

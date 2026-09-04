@@ -17,6 +17,7 @@ from __future__ import annotations
 import random
 import uuid
 from dataclasses import fields
+from decimal import Decimal
 
 import pytest
 from sqlalchemy import func, select
@@ -402,7 +403,7 @@ async def test_support_holds_roof_but_not_forever(
     for _ in range(10):
         await mining.timber(session, constants, sess)
 
-    assert float(sess.roof) == pytest.approx(constants[R.MINE_ROOF_TIMBER_CAP])
+    assert mining.roof_of(constants, vein) == pytest.approx(constants[R.MINE_ROOF_TIMBER_CAP])
 
 
 async def test_roof_survives_leaving(session: AsyncSession, constants: Constants) -> None:
@@ -417,11 +418,11 @@ async def test_roof_survives_leaving(session: AsyncSession, constants: Constants
     first = await mining.start(session, constants, body, vein)
     for _ in range(5):
         await mining.swing(session, constants, first)
-    shaken = float(first.roof)
+    shaken = mining.roof_of(constants, vein)
     await mining.leave(session, constants, first)
 
-    second = await mining.start(session, constants, body, vein)
-    assert float(second.roof) == pytest.approx(shaken), "свод забоя обнулился уходом"
+    await mining.start(session, constants, body, vein)
+    assert mining.roof_of(constants, vein) == pytest.approx(shaken), "свод забоя обнулился уходом"
 
 
 async def test_support_stays_after_the_shift(session: AsyncSession, constants: Constants) -> None:
@@ -434,11 +435,11 @@ async def test_support_stays_after_the_shift(session: AsyncSession, constants: C
     first = await mining.start(session, constants, body, vein)
     await mining.swing(session, constants, first)
     await mining.timber(session, constants, first)
-    shored = float(first.roof)
+    shored = mining.roof_of(constants, vein)
     await mining.leave(session, constants, first)
 
-    second = await mining.start(session, constants, body, vein)
-    assert float(second.roof) == pytest.approx(shored)
+    await mining.start(session, constants, body, vein)
+    assert mining.roof_of(constants, vein) == pytest.approx(shored)
 
 
 async def test_collapse_starts_the_working_over(
@@ -449,7 +450,8 @@ async def test_collapse_starts_the_working_over(
     await _tool(session, body)
 
     sess = await mining.start(session, constants, body, vein)
-    sess.roof = 1
+    #: One swing from nought, and the roof is the vein's (D-188).
+    vein.roof = Decimal("1")
     await session.flush()
     #: A collapse rolls for death and then for a wound (`_collapse`), and a dead
     #: body cannot open a working. Those rolls go through `luck.hit`, which
@@ -464,8 +466,10 @@ async def test_collapse_starts_the_working_over(
 
     await session.refresh(vein)
     assert vein.roof is None, "после обвала забой начинается заново"
-    fresh = await mining.start(session, constants, body, vein)
-    assert float(fresh.roof) == pytest.approx(mining.starting_roof(constants, float(vein.richness)))
+    await mining.start(session, constants, body, vein)
+    assert mining.roof_of(constants, vein) == pytest.approx(
+        mining.starting_roof(constants, float(vein.richness))
+    )
 
 
 async def test_shaken_working_is_shared(session: AsyncSession, constants: Constants) -> None:
@@ -475,7 +479,7 @@ async def test_shaken_working_is_shared(session: AsyncSession, constants: Consta
     first = await mining.start(session, constants, first_body, vein)
     for _ in range(4):
         await mining.swing(session, constants, first)
-    shaken = float(first.roof)
+    shaken = mining.roof_of(constants, vein)
     await mining.leave(session, constants, first)
 
     stamp = uuid.uuid4().hex[:6]
@@ -483,7 +487,75 @@ async def test_shaken_working_is_shared(session: AsyncSession, constants: Consta
     neighbour_body = await world.print_body(session, neighbour, node)
     await _tool(session, neighbour_body)
     second = await mining.start(session, constants, neighbour_body, vein)
-    assert float(second.roof) == pytest.approx(shaken), "сосед пришёл в целый забой"
+    #: Asserted through a swing rather than through the opening: a session
+    #: carries no roof of its own to compare, and what matters is that the
+    #: neighbour's own sag starts from where the first miner stopped.
+    await mining.swing(session, constants, second)
+    sagged = shaken - constants[R.MINE_ROOF_PER_SWING]
+    assert mining.roof_of(constants, vein) == pytest.approx(sagged), "сосед пришёл в целый забой"
+
+
+async def test_a_neighbours_swings_shake_an_open_face(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """Shaken by one -- dangerous for all, while both are still in it (D-099, D-188).
+
+    The roof used to be copied onto the session at `start`, and every swing
+    worked from that copy: two bodies at one vein overwrote each other's sag,
+    so a neighbour who came in at a hundred put back ninety-four over somebody
+    else's forty and neither was told the truth. Here the working is left with
+    one swing in it, both faces are open, and the **first** swing spends it --
+    the second must bring the roof down, though it is the only one that body
+    has struck.
+    """
+    node, vein, first_body = await _face(session, richness=60)
+    await _tool(session, first_body)
+    stamp = uuid.uuid4().hex[:6]
+    neighbour = await world.create_identity(session, f"Сосед-{stamp}")
+    neighbour_body = await world.print_body(session, neighbour, node)
+    await _tool(session, neighbour_body)
+
+    #: One swing left in the working, and both open it in that state: the sag
+    #: of a single swing takes it to a hair above nought, and the next past it.
+    per_swing = constants[R.MINE_ROOF_PER_SWING]
+    vein.roof = Decimal(str(per_swing + 0.5))
+    await session.flush()
+    mine = await mining.start(session, constants, first_body, vein)
+    theirs = await mining.start(session, constants, neighbour_body, vein)
+
+    spent = await mining.swing(session, constants, mine)
+    assert spent.state is SessionState.ACTIVE, "первый удар ещё не роняет свод"
+    assert mining.roof_of(constants, vein) == pytest.approx(0.5)
+
+    buried = await mining.swing(session, constants, theirs)
+    assert buried.state is SessionState.COLLAPSED, "свод соседа не дрогнул от чужих ударов"
+    assert theirs.swings == 1, "обвалило с одного собственного удара — так и задумано"
+    await session.refresh(neighbour_body)
+    assert neighbour_body.cave_ins == 1
+
+    #: And the rubble is cleared for everyone at the face -- the miner still
+    #: standing in it goes on under a working as good as new (OQ-122).
+    assert vein.roof is None
+    assert mine.state is SessionState.ACTIVE
+
+
+async def test_the_sign_survives_the_database(session: AsyncSession, constants: Constants) -> None:
+    """The lie is seeded by the roof, so the roof must be one number everywhere.
+
+    Written unrounded, it would come back from the column rounded to two
+    decimals, seed a different lie and give a different sign for a face nobody
+    has touched -- a second reading with new information in it, which is the
+    averaging D-143 forbids. `remember_roof` rounds where it writes, and the
+    seed is formatted to the same scale.
+    """
+    _, vein, body = await _face(session, richness=37)
+    sess = await mining.start(session, constants, body, vein)
+    struck = await mining.swing(session, constants, sess)
+
+    #: Back out of the column, where `Numeric(6, 2)` has had its say: the same
+    #: roof must come back, and with it the same lie.
+    await session.refresh(vein)
+    assert (await mining.sight(session, constants, sess)).sign == struck.sign
 
 
 async def test_cannot_shore_without_support(session: AsyncSession, constants: Constants) -> None:
@@ -501,12 +573,16 @@ async def test_fast_pace_yields_more_and_risks_more(
     _, vein_a, body_a = await _face(session)
     steady = await mining.start(session, constants, body_a, vein_a, pace=Pace.STEADY)
     calm = await mining.swing(session, constants, steady)
-    sag_steady = mining.starting_roof(constants, float(vein_a.richness)) - float(steady.roof)
+    sag_steady = mining.starting_roof(constants, float(vein_a.richness)) - mining.roof_of(
+        constants, vein_a
+    )
 
     _, vein_b, body_b = await _face(session)
     fast = await mining.start(session, constants, body_b, vein_b, pace=Pace.FAST)
     greedy = await mining.swing(session, constants, fast)
-    sag_fast = mining.starting_roof(constants, float(vein_b.richness)) - float(fast.roof)
+    sag_fast = mining.starting_roof(constants, float(vein_b.richness)) - mining.roof_of(
+        constants, vein_b
+    )
 
     k = constants[R.MINE_PACE_K]
     assert greedy.mined == pytest.approx(calm.mined * k, rel=0.01)

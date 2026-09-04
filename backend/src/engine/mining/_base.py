@@ -46,7 +46,7 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass
 from datetime import datetime
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -124,27 +124,55 @@ def starting_roof(constants: Constants, richness: float) -> float:
     return ceiling - (ceiling - floor) * richness / SCALE_MAX
 
 
+#: The scale `Vein.roof` keeps: two decimals, as the column declares. Not a
+#: balance number -- the shape of the storage, and the step the sign's seed is
+#: quantised to so that a roof survives the database unchanged.
+ROOF_STEP = Decimal("0.01")
+
+
 def roof_of(constants: Constants, vein: Vein) -> float:
-    """The working's current stability (D-188).
+    """The working's current stability (D-188). **The only place it is read.**
 
     Stored on the vein and shared by everyone who digs it (D-099): one miner
     shakes the roof -- it is dangerous for the next. An untouched vein has none
     yet, and its first session starts from richness.
+
+    Read under the lock the caller already holds on the vein, and never
+    remembered past the command: the session used to carry a copy taken at
+    `start`, and every swing worked from that copy and wrote it back, so a
+    neighbour who opened the face at a hundred put back ninety-four over
+    somebody else's forty. Two bodies at one vein is the ordinary case --
+    `crowd_factor` counts them, and `start` refuses only a second face of the
+    **same** body -- so the copy erased the sag of whoever swung less recently
+    and told them both a sign sixty points off the rock.
     """
     if vein.roof is None:
         return starting_roof(constants, float(vein.richness))
     return float(vein.roof)
 
 
-async def remember_roof(
-    session: AsyncSession, mining: MiningSession, *, roof: float | None = None
-) -> None:
-    """Write the session's roof back into the vein, so leaving does not reset it."""
-    vein = await session.get(Vein, mining.vein_id)
-    if vein is None:  # pragma: no cover -- a session without a vein is a bug
-        return
-    vein.roof = None if roof is None else Decimal(str(roof))
-    await session.flush()
+def remember_roof(vein: Vein, roof: float) -> float:
+    """Write the working's stability onto the vein, and answer with what stands there.
+
+    Rounded to the scale the column keeps (`Vein.roof`, two decimals) and
+    handed back rounded, so that the caller goes on with the number the
+    database has rather than the one it computed. They must be one number: the
+    sign's lie is seeded by the roof (`_noise_of`), and a seed that changed on
+    the way through the column would redraw the lie on a re-read of a face
+    nobody has touched -- which is the averaging D-143 forbids.
+    """
+    vein.roof = Decimal(str(roof)).quantize(ROOF_STEP, ROUND_HALF_UP)
+    return float(vein.roof)
+
+
+def clear_roof(vein: Vein) -> None:
+    """The rubble is cleared and the working starts over (D-188).
+
+    Its own verb rather than an empty roof passed to the writer above: this is
+    not a value, it is the absence of one, and `roof_of` reads it as a working
+    nobody has shaken yet.
+    """
+    vein.roof = None
 
 
 def pace_factor(constants: Constants, pace: Pace) -> float:
@@ -319,15 +347,30 @@ def deplete(constants: Constants, vein: Vein, moment: datetime, extracted_before
         vein.depleted_at = moment
 
 
-def _noise_of(mining: MiningSession) -> random.Random:
-    """Sign noise bound to the face's state, not the moment of reading.
+def _noise_of(mining: MiningSession, roof: float) -> random.Random:
+    """Sign noise bound to the roof itself, not to the moment of reading.
 
     Otherwise the sign can be read any number of times in a row, and the
     average of readings yields the hidden number to any precision. The roof
     changes only from a swing and a support -- so the sign must change only
-    with them (D-143).
+    with them, and now with **whosever** swing and support they were (D-188).
+
+    It used to be seeded by this session's own counters, which was the same
+    thing while the roof was the session's own copy. Shared, it is not: a lie
+    frozen across a roof that moves under a neighbour is the averaging attack
+    back again, and with a partner rather than patience. The neighbour shores
+    to `mine.roof_timber_cap` -- a public number -- and swings a counted number
+    of times while I only look; my noise never moves, so every band the sign
+    crosses is one more inequality on it, and a few crossings pin the hidden
+    number for good. Seeded by the roof, each value of it draws its own lie:
+    reading twice at one roof still says one thing, and there is nothing to
+    average across two.
+
+    The roof is formatted to the scale of the column it lives in, so that the
+    same roof seeds the same lie before and after a trip through the database
+    (`remember_roof` rounds it there for the same reason).
     """
-    return random.Random(f"{mining.id}:{mining.swings}:{mining.timbers}")
+    return random.Random(f"{mining.id}:{roof:.2f}")
 
 
 async def _sight(
@@ -335,13 +378,23 @@ async def _sight(
     constants: Constants,
     mining: MiningSession,
     body: Body,
+    roof: float,
 ) -> Sight:
+    """What the player sees, about the roof the caller names.
+
+    The roof is passed rather than read here, because the caller knows which
+    one it means and this function cannot: a swing shows the roof it has just
+    written, a collapse the roof that came down -- not the fresh one the
+    cleared rubble leaves on the vein -- and a look shows what is on the vein
+    now (`roof_of`). Reading the vein here would have shown the miner buried
+    by a cave-in a working as good as new.
+    """
     container = await session_container(session, mining)
     mined = await session.scalar(
         select(func.coalesce(func.sum(Item.amount), 0)).where(Item.container_id == container.id)
     )
     return Sight(
-        sign=sign_of(constants, float(mining.roof), _noise_of(mining)),
+        sign=sign_of(constants, roof, _noise_of(mining, roof)),
         mined=amount_float(int(mined or 0)),
         swings=mining.swings,
         timbers=mining.timbers,
