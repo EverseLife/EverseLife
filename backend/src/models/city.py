@@ -177,13 +177,19 @@ class UtilityMeter(Base):
     counted_at: Mapped[datetime] = created_column()
     #: Unpaid, in minor units. Debt neither expires nor grows by interest:
     #: interest is the bank's business (E4), not the utility service's.
-    debt: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    debt: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0, server_default=text("0")
+    )
     #: Disconnected for non-payment: the node's machines do not work until the
     #: debt is settled. The engine may not take the node for debt -- that is a court decision
     #: (D-149).
-    cut_off: Mapped[bool] = mapped_column(nullable=False, default=False)
+    cut_off: Mapped[bool] = mapped_column(
+        nullable=False, default=False, server_default=text("false")
+    )
     #: How much energy went to household over the last period -- for showing the holder.
-    last_energy: Mapped[float] = mapped_column(Numeric(12, 3), nullable=False, default=0)
+    last_energy: Mapped[float] = mapped_column(
+        Numeric(12, 3), nullable=False, default=0, server_default=text("0")
+    )
 
     created_at: Mapped[datetime] = created_column()
 
