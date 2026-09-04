@@ -225,6 +225,15 @@ def digest(seen: dict[str, Any]) -> str:
         lines.append(f"Сумка ({len(items)}): " + ", ".join(named) + more)
     else:
         lines.append("Сумка пуста.")
+    #: Worn gear is no longer in the sack (D-305): it left `inventory` for its
+    #: own block, and an agent reading only the sack would carry an exoskeleton
+    #: it never knew it had -- and never take it off, sell it or mend it.
+    worn = look.get("carry") or {}
+    dressed = [thing for thing in (worn.get("equipped") or {}).values() if isinstance(thing, dict)]
+    if dressed:
+        lines.append(
+            "Надето: " + ", ".join(label("goods", thing.get("goods")) for thing in dressed) + "."
+        )
     #: Recipes, orders and batches are not in `look` any more (D-226, step 2):
     #: the commands `knowledge` and `orders` read them when the model asks.
     counts = []

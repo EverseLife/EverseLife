@@ -24,6 +24,13 @@ their effect arrives with environment and combat.
 the limit would cease to exist; the slot is the constraint itself, not an
 interface decoration.
 
+**Worn means in the hands** (D-305). The slot names a thing, and a thing goes
+where hands take it; a slot naming a pack that lies on the floor names
+nothing. `is_worn` holds that rule for the whole engine -- the load, the
+exoskeleton's lift, the suit that breathes (`oxygen.suited`) and the suit that
+warms (`frost`) all ask it rather than the bare row -- and `require_off` is the
+same rule said to a player: a worn thing comes off before it goes anywhere.
+
 ## Where the limit is checked
 
 Where the player **takes a thing in hand**: purchase from the terminal,
@@ -52,10 +59,11 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.constants import Catalog, Constants
+from src.constants import Catalog, Constants, current_catalog
 from src.constants import registry as R
 from src.engine import battery, events, stock, travel, world
 from src.engine.errors import Refusal
+from src.models.craft import BatchKind, BatchState, CraftBatch
 from src.models.event import EventKind
 from src.models.gear import Equipped
 from src.models.identity import Body, BodyState
@@ -73,6 +81,14 @@ class NotGear(GearError):
 
 class Overloaded(GearError):
     """No more than the limit is taken in hand. Everything above -- only by vehicle."""
+
+
+class Worn(GearError):
+    """A worn thing is not moved, sold or taken apart: it comes off first."""
+
+
+class Unmade(GearError):
+    """A thing already being taken apart is not put on: the work ends it."""
 
 
 def mass_of(catalog: Catalog, type_key: str, quantity: float) -> float:
@@ -178,17 +194,66 @@ def matter_over(
     return mass - fits
 
 
-async def equipped(session: AsyncSession, body: Body) -> dict[str, Item]:
-    """What is worn: slot -> thing."""
-    lines = (
-        (await session.execute(select(Equipped).where(Equipped.body_id == body.id))).scalars().all()
+async def is_worn(session: AsyncSession, item: Item) -> bool:
+    """Whether this thing is worn **right now** -- the rule, in one place.
+
+    Worn is not a field on the thing and not a row in a table: it is a row and
+    a place together. The slot record points at a thing, and a thing goes
+    where hands take it -- onto the floor, into a chest, over a counter. The
+    record knows nothing of that, and for a while nobody asked: a pack on the
+    ground went on lightening the load, an exoskeleton in a hold went on
+    lifting the limit, a suit sold at the terminal went on breathing for its
+    former owner. So the question is put to the world: a thing is worn while
+    it lies in the pocket of the body whose slot names it.
+
+    A thing the vault gives no slot is answered without asking the database:
+    ore and grain are never worn, and this is asked on every move in the world.
+
+    **Not every reader of gear wants this.** `wear.daily_gear_wear` frays
+    everything of the gear kind in the hands, worn or not, and does not ask
+    here on purpose -- whether that matches its own "wears from wearing" is a
+    question D-305 leaves open, not one to settle by wiring this in. What the
+    slot *does* -- lift, lighten, breathe, warm -- is what asks.
+    """
+
+    if current_catalog().recipes.slot_of(item.type_key) is None:
+        return False
+    found = await session.scalar(
+        select(Equipped.id)
+        .join(Container, Container.owner_id == Equipped.body_id)
+        .where(
+            Equipped.item_id == item.id,
+            Container.kind == ContainerKind.BODY,
+            Container.id == item.container_id,
+        )
+        .limit(1)
     )
-    result: dict[str, Item] = {}
-    for line in lines:
-        thing = await session.get(Item, line.item_id)
-        if thing is not None:
-            result[line.slot] = thing
-    return result
+    return found is not None
+
+
+async def require_off(session: AsyncSession, item: Item) -> None:
+    """A worn thing does not leave the hands until it is taken off (D-305).
+
+    Said in words rather than silently taken off: the slot is a choice, and
+    the world does not undo a player's choice on their behalf.
+    """
+    if await is_worn(session, item):
+        raise Worn(key="gear-worn-take-off-first", goods=item.type_key)
+
+
+async def equipped(session: AsyncSession, body: Body) -> dict[str, Item]:
+    """What is worn: slot -> thing. The same rule as `is_worn`, for a whole
+    body at once: a slot naming a thing that is no longer in these hands names
+    nothing."""
+    pocket = await world.body_container(session, body)
+    rows = (
+        await session.execute(
+            select(Equipped.slot, Item)
+            .join(Item, Item.id == Equipped.item_id)
+            .where(Equipped.body_id == body.id, Item.container_id == pocket.id)
+        )
+    ).all()
+    return {slot: thing for slot, thing in rows}
 
 
 async def capacity(
@@ -250,6 +315,9 @@ async def wear_exoskeletons(
                     Container.kind == ContainerKind.BODY,
                     Item.type_key.in_(names),
                     Body.state == BodyState.ALIVE,
+                    #: Worn means in these hands (D-305): a frame left on the
+                    #: floor lifts nothing and so drinks nothing either.
+                    Item.container_id == Container.id,
                 )
                 .order_by(Container.id)
             )
@@ -332,6 +400,21 @@ async def equip(
     pocket = await world.body_container(session, body)
     if item.container_id != pocket.id:
         raise GearError(key="gear-not-in-hands")
+    #: A thing under the knife is not put on (D-305): recycling ends it, and
+    #: the slot would empty itself when the batch finished. Repair is the
+    #: opposite case and deliberately not here -- gear is mended without being
+    #: taken off, and the batch works on the row where it lies.
+    unmade = await session.scalar(
+        select(CraftBatch.id)
+        .where(
+            CraftBatch.target_item_id == item.id,
+            CraftBatch.kind == BatchKind.RECYCLE,
+            CraftBatch.state != BatchState.DONE,
+        )
+        .limit(1)
+    )
+    if unmade is not None:
+        raise Unmade(key="gear-taken-apart", goods=item.type_key)
 
     previous_ = (
         await session.execute(
@@ -342,6 +425,18 @@ async def equip(
         if previous_.item_id == item.id:
             return slot
         await session.delete(previous_)
+        await session.flush()
+
+    #: A slot row outlives the thing leaving the hands, and one row is all a
+    #: thing gets: without this, a pack somebody wore and sold could never be
+    #: worn again -- the buyer got a unique-key error instead of an answer.
+    #: The thing is in these hands, so whoever the old row names is not
+    #: wearing it (D-305), and the row is theirs no longer.
+    stale = (
+        await session.execute(select(Equipped).where(Equipped.item_id == item.id))
+    ).scalar_one_or_none()
+    if stale is not None:
+        await session.delete(stale)
         await session.flush()
 
     session.add(Equipped(body_id=body.id, slot=slot, item_id=item.id))
@@ -379,18 +474,3 @@ async def unequip(session: AsyncSession, body: Body, slot: str) -> Item | None:
         slot=slot,
     )
     return thing
-
-
-async def drop_missing(session: AsyncSession, item_id: uuid.UUID) -> None:
-    """Remove the worn record if the thing is gone.
-
-    A thing may run out by wear or go to the market -- the slot must not
-    remember what does not exist.
-    """
-
-    line = (
-        await session.execute(select(Equipped).where(Equipped.item_id == item_id))
-    ).scalar_one_or_none()
-    if line is not None:
-        await session.delete(line)
-        await session.flush()

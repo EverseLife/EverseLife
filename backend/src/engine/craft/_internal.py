@@ -518,6 +518,7 @@ async def _stock(
     fallback to worse -- the choice was made for a reason (D-058).
     """
     from src.engine import (  # noqa: PLC0415 -- lazy: breaks the import cycle craft -> liquid -> station -> craft
+        gear,
         liquid,
         market,
     )
@@ -548,7 +549,12 @@ async def _stock(
                 if market.tier_of(constants, None if item.quality is None else float(item.quality))
                 == tier
             ]
-        out[name] = list(rows)
+        #: What is worn is not material (D-305). This picks stacks by name and
+        #: worst-first, exactly as the counter does, so without the rule an
+        #: invention of "one backpack" would take the one on the master's back
+        #: and a failed one would burn it. The third and last stack-picker in
+        #: the world; the other two are `world.move_stack` and `market._stacks`.
+        out[name] = [item for item in rows if not await gear.is_worn(session, item)]
     return out
 
 
