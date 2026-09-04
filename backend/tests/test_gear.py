@@ -317,7 +317,7 @@ async def test_removed_stops_raising_limit(
     _, _, body = await _body(session)
     backpack = await _give(session, body, BACKPACK)
     await gear.equip(session, constants, catalog, body, backpack)
-    removed = await gear.unequip(session, body, "back")
+    removed = await gear.unequip(session, constants, catalog, body, "back")
 
     assert removed is not None and removed.id == backpack.id
     assert await gear.capacity(session, constants, catalog, body) == pytest.approx(

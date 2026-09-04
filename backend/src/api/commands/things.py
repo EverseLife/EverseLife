@@ -46,7 +46,7 @@ async def _gear_equip(state: dict, db: AsyncSession, message: dict) -> dict:
 async def _gear_unequip(state: dict, db: AsyncSession, message: dict) -> dict:
     """Take off a worn thing. It stays in the hands -- it was there anyway."""
     body = await _alive(state, db)
-    removed = await gear.unequip(db, body, str(message["slot"]))
+    removed = await gear.unequip(db, current(), current_catalog(), body, str(message["slot"]))
     return {
         "unequipped": None if removed is None else removed.type_key,
         "capacity": round(await gear.capacity(db, current(), current_catalog(), body), 2),

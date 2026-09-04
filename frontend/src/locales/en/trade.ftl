@@ -125,6 +125,8 @@ ui-inventory-carry = in hand { $load } of { $capacity } kg
 ui-inventory-carry-rule = Looking is done from anywhere, eating out of your hands and on the road too, but the rest is touched on foot only. Handing over is hand to hand: both people stand in one place, and the others see it — a line about it appears in the talk. Full hands take no parcel: the carrying limit is another's too.
 ui-inventory-slot-empty = empty
 ui-inventory-unequip = take off
+# Taking a frame off lowers the carry limit, and the excess lies down underfoot (D-306).
+ui-inventory-unequip-drops = take the frame off: whatever does not fit in the hands will lie underfoot
 ui-inventory-group = group
 ui-inventory-sort = sort
 ui-inventory-desc = descending — click for ascending

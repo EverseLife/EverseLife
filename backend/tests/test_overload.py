@@ -17,6 +17,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
+from datetime import UTC, datetime
+from decimal import Decimal
 
 import pytest
 from sqlalchemy import func, select
@@ -82,11 +84,122 @@ async def _lying(session: AsyncSession, node: Node, type_key: str) -> float:
     return amount_float(int(total or 0))
 
 
+async def _hold(session: AsyncSession, body: Body, type_key: str, quantity: float) -> Item:
+    """Put a thing straight into the hands, past every door: what the load is
+    made of is not what this file is about."""
+    pocket = await world.body_container(session, body)
+    return await world.grant_item(
+        session, pocket, type_key, amount=quantity, quality=60, origin="сценарий теста"
+    )
+
+
+async def _charged(session: AsyncSession, body: Body, charge: float = 50) -> Item:
+    """A cell with charge in it: without one the frame is a frame, and lifts
+    nothing (D-268). Every test below that leans on the exoskeleton's limit
+    needs it, or the limit it measures is the bare thirty kilograms."""
+    cell = await _hold(session, body, "battery", 1)
+    cell.charge = Decimal(str(charge))
+    cell.charged_at = datetime.now(UTC)
+    await session.flush()
+    return cell
+
+
 async def _told(session: AsyncSession, identity_id: uuid.UUID, kind: EventKind) -> list[Event]:
     rows = await session.execute(
         select(Event).where(Event.kind == kind.value, Event.actor_identity_id == identity_id)
     )
     return list(rows.scalars().all())
+
+
+async def test_taking_the_frame_off_drops_what_it_was_carrying(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The limit falls with the exoskeleton, and the load falls with it (D-265).
+
+    The hole the rule was written against, from the other side: nothing
+    arrives, the limit simply shrinks. Wear the frame, fill the hands to its
+    limit, take it off -- and before this the ore stayed in the pocket and
+    walked out of the node. "An overloaded body does not exist any more"
+    (D-265, D-268) was true only of the doors things came in through.
+    """
+    node, _, body = await _ground(session)
+    base = constants[R.INVENTORY_CARRY_MASS]
+    exo = await _hold(session, body, "exoskeleton", 1)
+    await _charged(session, body)
+    await gear.equip(session, constants, catalog, body, exo)
+    assert await gear.capacity(session, constants, catalog, body) > base, "каркас поднимает"
+    #: A hundred kilograms of ore: nothing a bare pair of hands could hold.
+    await _hold(session, body, ORE, 100 / catalog.recipes.mass_of(ORE))
+
+    await gear.unequip(session, constants, catalog, body, "frame")
+
+    carries = await gear.load_of(session, constants, catalog, body)
+    assert carries <= base + 1e-6, f"после снятия каркаса тело несёт {carries} при пределе {base}"
+    assert await _lying(session, node, ORE) > 0, "лишнее легло под ноги"
+    assert await _held(session, body, "exoskeleton") == 1, "снятый каркас остаётся в руках"
+
+
+async def test_the_lighter_frame_drops_what_the_heavier_carried(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """One slot, two frames: putting on the weaker one is the same shrinking
+    limit, and the previous frame comes off by itself (`gear.equip`)."""
+    node, _, body = await _ground(session)
+    heavy = await _hold(session, body, "heavy_exoskeleton", 1)
+    light = await _hold(session, body, "exoskeleton", 1)
+    await _charged(session, body)
+    await gear.equip(session, constants, catalog, body, heavy)
+    await _hold(session, body, ORE, 250 / catalog.recipes.mass_of(ORE))
+
+    await gear.equip(session, constants, catalog, body, light)
+
+    carries = await gear.load_of(session, constants, catalog, body)
+    limit = await gear.capacity(session, constants, catalog, body)
+    assert carries <= limit + 1e-6, f"тело несёт {carries} при пределе {limit}"
+    assert await _lying(session, node, ORE) > 0
+
+
+async def test_what_is_worn_never_falls(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The shedding strips nobody: a pack on the back is on the body, not in
+    the hands, and taking one thing off must not silently take another."""
+    node, _, body = await _ground(session)
+    exo = await _hold(session, body, "exoskeleton", 1)
+    await _charged(session, body)
+    pack = await _hold(session, body, "sturdy_backpack", 1)
+    await gear.equip(session, constants, catalog, body, exo)
+    await gear.equip(session, constants, catalog, body, pack)
+    await _hold(session, body, ORE, 200 / catalog.recipes.mass_of(ORE))
+
+    await gear.unequip(session, constants, catalog, body, "frame")
+
+    worn = await gear.equipped(session, body)
+    assert "back" in worn and worn["back"].id == pack.id, "рюкзак остался на теле"
+    assert await _lying(session, node, "sturdy_backpack") == 0
+
+
+async def test_dressing_that_lowers_nothing_drops_nothing(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Only the act that lowered the limit sheds (D-306).
+
+    A suit is put on over a load already past the limit -- the world puts one
+    there past every door, and until the "before and after" test the dressing
+    answered for an overload it had not caused: the cylinder in the hands hit
+    the ground and the wearer suffocated in a suit they had just donned.
+    """
+    node, _, body = await _ground(session)
+    suit = await _hold(session, body, "heatproof_suit", 1)
+    #: Past the limit before a finger is lifted: nothing here arrived by a door.
+    await _hold(session, body, ORE, 60 / catalog.recipes.mass_of(ORE))
+    before = await gear.load_of(session, constants, catalog, body)
+    assert before > await gear.capacity(session, constants, catalog, body)
+
+    await gear.equip(session, constants, catalog, body, suit)
+
+    assert await gear.load_of(session, constants, catalog, body) == pytest.approx(before)
+    assert await _lying(session, node, ORE) == 0, "надетое ничего не опустило -- ничего и не упало"
 
 
 async def test_a_print_past_the_limit_falls_in_whole_pieces(

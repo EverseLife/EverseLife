@@ -17,6 +17,30 @@ it is counted, by the excess mass if it is measured. The floor's own budget
 it lies there anyway and the floor is **overfull** -- written to the journal
 and shouted in the log, because every such case is a question for somebody
 to look into, not a state the game meant to reach.
+
+## The other side of the same hole (D-306)
+
+D-265 and D-268 both say it outright -- an overloaded body does not exist any
+more -- and both meant the doors a thing **comes in** through. The limit can also
+**fall** while the hands stay as full as they were: an exoskeleton is taken
+off, or a lighter frame put on in its place, and a hundred kilograms that only
+the frame could lift stay in the pocket and walk out of the node. Then the
+carry limit is again a door for some things and a decoration for others -- the
+very state D-265 was written against, reached from the other side (report
+2026-09-04). So `shed` is the same fall, asked by whoever lowers the limit.
+
+Which stack falls is the one thing the two doors cannot share. Nothing has
+just arrived, so "what arrived falls" has nothing to name: the heaviest goes
+first, until what is left fits. What is **worn** never falls -- it is on the
+body rather than in the hands, and taking one thing off must not silently
+strip another.
+
+What this does **not** close: the frame's lift needs a charged battery in the
+hands (D-268), and that battery leaves the hands by other doors -- put down,
+given away, sold, spent as a recipe's input -- or simply runs dry in the tick.
+Every one of those lowers the limit the same way. Whether the load should fall
+there too is a question about dropping cargo in the middle of a road, not
+about a one-click exploit, and it is open (OQ-122).
 """
 
 from __future__ import annotations
@@ -40,7 +64,9 @@ from src.units import AMOUNT_SCALE, amount_float
 log = logging.getLogger(__name__)
 
 #: Below a thousandth an excess is the arithmetic's dust, not a piece owed.
-_DUST = 1 / AMOUNT_SCALE
+#: Public because whoever lowers a limit compares the excess before and after
+#: against it (`gear._settle`), and two thresholds for one question would drift.
+DUST = 1 / AMOUNT_SCALE
 
 
 async def settle_load(
@@ -54,17 +80,58 @@ async def settle_load(
 
     `items` are the things that just arrived -- they are what falls, in the
     order given, never what was carried before them. Returns the kilograms
-    that fell. The body's row is taken for the transaction: the load is read
-    and then matter is moved on it, and two arrivals at once must not both
-    find room that only one of them has.
+    that fell.
     """
     if not items:
         return 0.0
+    return await _fall(session, constants, catalog, body, items)
+
+
+async def shed(session: AsyncSession, constants: Constants, catalog: Catalog, body: Body) -> float:
+    """The limit fell under a load that did not change: what no longer fits falls.
+
+    Asked by whoever lowers it -- taking off an exoskeleton, putting a lighter
+    frame on in its place (D-306). Nothing arrived, so nothing is named as what
+    falls: the heaviest stack goes first and the rest keeps its place, and what
+    is worn is not touched at all.
+
+    Returns the kilograms that fell.
+    """
+    pocket = await world.body_container(session, body)
+    worn = {thing.id for thing in (await gear.equipped(session, body)).values()}
+    carried = [thing for thing in await world.contents(session, pocket) if thing.id not in worn]
+    #: Heaviest stack first: the biggest heap is the one the frame was for, and
+    #: it is the one that empties the excess in the fewest pieces. By id after
+    #: the mass, so two identical stacks fall in a settled order.
+    carried.sort(
+        key=lambda thing: (
+            -gear.mass_of(catalog, thing.type_key, amount_float(thing.amount)),
+            thing.id,
+        )
+    )
+    if not carried:
+        return 0.0
+    return await _fall(session, constants, catalog, body, carried)
+
+
+async def _fall(
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    body: Body,
+    items: Sequence[Item],
+) -> float:
+    """The fall itself: read the excess under the body's row, then move matter.
+
+    The body's row is taken for the transaction: the load is read and then
+    matter is moved on it, and two arrivals at once must not both find room
+    that only one of them has.
+    """
     await session.execute(select(Body.id).where(Body.id == body.id).with_for_update())
     carries = await gear.load_of(session, constants, catalog, body)
     limit = await gear.capacity(session, constants, catalog, body)
     excess = carries - limit
-    if excess <= _DUST:
+    if excess <= DUST:
         return 0.0
 
     node = await session.get(Node, body.node_id)
@@ -82,7 +149,7 @@ async def settle_load(
 
     fallen = 0.0
     for item in items:
-        if excess <= _DUST:
+        if excess <= DUST:
             break
         unit = gear.mass_of(catalog, item.type_key, 1.0)
         if unit <= 0:
@@ -92,7 +159,7 @@ async def settle_load(
         #: Whole pieces of a counted thing, the excess mass of a measured one --
         #: and never more than arrived.
         if goods.counted(item.type_key, catalog):
-            quantity = min(have, float(math.ceil(excess / unit - _DUST)))
+            quantity = min(have, float(math.ceil(excess / unit - DUST)))
         else:
             quantity = min(have, excess / unit)
         if quantity <= 0:

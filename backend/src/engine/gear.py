@@ -157,7 +157,10 @@ async def wear_exoskeletons(
 
     Called by the tick for its own length. A wearer with no charge left keeps
     the frame on and lifts nothing: the limit falls, and the doors that read it
-    refuse the next pickup. Nothing falls out of the hands by itself.
+    refuse the next pickup. Nothing falls out of the hands by itself -- the one
+    hole D-306 left standing, on purpose: dropping a convoy's worth of ore in
+    the middle of a road because a cell ran dry is a decision of its own, and
+    it is open (OQ-122).
 
     One query and one lock order for every wearer's cells at once
     (`stock.locked_stacks` over all the pockets): a hand-over of a battery
@@ -249,6 +252,7 @@ async def equip(
     if item.container_id != pocket.id:
         raise GearError(key="gear-not-in-hands")
 
+    over = await _over(session, constants, catalog, body)
     previous_ = (
         await session.execute(
             select(Equipped).where(Equipped.body_id == body.id, Equipped.slot == slot)
@@ -271,11 +275,25 @@ async def equip(
         type_key=item.type_key,
         slot=slot,
     )
+    #: Putting a thing on can **lower** the limit: one slot per thing, so a
+    #: lighter frame takes the place of a heavier one and the previous came off
+    #: above. What the old one lifted and the new one cannot falls (D-306).
+    await _settle(session, constants, catalog, body, over)
     return slot
 
 
-async def unequip(session: AsyncSession, body: Body, slot: str) -> Item | None:
-    """Take off what is worn from a slot. The thing stays in the hands -- it was there anyway."""
+async def unequip(
+    session: AsyncSession, constants: Constants, catalog: Catalog, body: Body, slot: str
+) -> Item | None:
+    """Take off what is worn from a slot. The thing stays in the hands -- it was there anyway.
+
+    **And what the frame was carrying does not.** The limit falls with the
+    exoskeleton, and a load raised to its ceiling would otherwise stay in the
+    pocket and walk out of the node: an overloaded body was said not to exist
+    (D-265, D-268), and that was true only of the doors a thing comes in
+    through. What no longer fits falls underfoot, heaviest first
+    (`overload.shed`, D-306).
+    """
     line = (
         await session.execute(
             select(Equipped).where(Equipped.body_id == body.id, Equipped.slot == slot)
@@ -283,6 +301,7 @@ async def unequip(session: AsyncSession, body: Body, slot: str) -> Item | None:
     ).scalar_one_or_none()
     if line is None:
         return None
+    over = await _over(session, constants, catalog, body)
     thing = await session.get(Item, line.item_id)
     await session.delete(line)
     await session.flush()
@@ -294,7 +313,34 @@ async def unequip(session: AsyncSession, body: Body, slot: str) -> Item | None:
         item_id=str(line.item_id),
         slot=slot,
     )
+    await _settle(session, constants, catalog, body, over)
     return thing
+
+
+async def _over(session: AsyncSession, constants: Constants, catalog: Catalog, body: Body) -> float:
+    """By how many kilograms the hands are over the limit right now."""
+    return await load_of(session, constants, catalog, body) - await capacity(
+        session, constants, catalog, body
+    )
+
+
+async def _settle(
+    session: AsyncSession, constants: Constants, catalog: Catalog, body: Body, before: float
+) -> float:
+    """What no longer fits falls underfoot (D-265, D-306).
+
+    **Only when this act is what stopped it fitting.** Dressing and undressing
+    are asked for the excess before and after: a frame taken off leaves more
+    than it found and the difference lies down, while putting a suit on leaves
+    it exactly as it was and touches nothing. An overload that was already
+    there is not this door's to answer -- it arrived by another one, and which
+    of those should shed too is open (OQ-122).
+    """
+    from src.engine import overload  # noqa: PLC0415 -- lazy: breaks overload -> gear (the limit)
+
+    if await _over(session, constants, catalog, body) <= before + overload.DUST:
+        return 0.0
+    return await overload.shed(session, constants, catalog, body)
 
 
 async def drop_missing(session: AsyncSession, item_id: uuid.UUID) -> None:

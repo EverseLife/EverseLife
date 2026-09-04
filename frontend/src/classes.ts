@@ -58,6 +58,18 @@ export function recipeKind(book: RecipeBook | null, name: string): string | null
  *  machine, a piece of furniture -- or a vessel, which stands on the hull's
  *  lines once put up (D-288) -- what `station.place` accepts, and so what
  *  the "install" button is offered for. */
+/**
+ * Whether this worn thing is a frame that **lifts** (D-268): the vault's
+ * `inventory.exo_bonus` names them, and it is the same table the engine reads.
+ *
+ * Asked before taking one off: the limit falls with it, and what no longer
+ * fits lies down underfoot (D-306). Told before the click, not after.
+ */
+export function lifts(book: RecipeBook | null, name: string): boolean {
+  const bonuses = book?.constants?.["inventory.exo_bonus"] as Record<string, number> | undefined;
+  return Boolean(bonuses && (bonuses[name] ?? 0) > 0);
+}
+
 export function isGear(book: RecipeBook | null, name: string): boolean {
   const kind = recipeKind(book, name);
   return kind === "station" || kind === "furniture" || isVessel(book, name);

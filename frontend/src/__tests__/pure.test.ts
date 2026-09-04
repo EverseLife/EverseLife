@@ -26,6 +26,7 @@ import {
   tierName,
   type Names,
 } from "../names";
+import { lifts } from "../classes";
 import { stockOf, tierLabel, tiersOf } from "../tiers";
 import { reachOf } from "../wire/look";
 
@@ -362,6 +363,21 @@ describe("tiers", () => {
       ["хорошее", 4],
       ["скверное", 6],
     ]);
+  });
+});
+
+describe("gear the window asks about", () => {
+  it("knows a frame that lifts by the vault's own table", () => {
+    //: Taking one off lowers the limit and lays the excess underfoot (D-306);
+    //: the window says so before the click, and it reads the same table the
+    //: engine does rather than a list of names of its own.
+    const book = {
+      constants: { "inventory.exo_bonus": { exoskeleton: 100, heavy_exoskeleton: 300 } },
+    } as never;
+    expect(lifts(book, "exoskeleton")).toBe(true);
+    expect(lifts(book, "heavy_exoskeleton")).toBe(true);
+    expect(lifts(book, "sturdy_backpack")).toBe(false);
+    expect(lifts(null, "exoskeleton")).toBe(false);
   });
 });
 
