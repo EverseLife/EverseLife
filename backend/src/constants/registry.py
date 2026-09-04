@@ -270,6 +270,12 @@ ENERGY_WATERWHEEL_RATE = Num("energy.waterwheel_rate")
 ENERGY_WINDMILL_RATE = Span("energy.windmill_rate")
 ENERGY_COAL_PLANT_RATE = Num("energy.coal_plant_rate")
 ENERGY_COAL_PLANT_FUEL_DRAW = Num("energy.coal_plant_fuel_draw")
+#: Generators that need neither river, wind nor fuel (D-288): the panel and
+#: the isotope generator, per hour. Off the grid only -- aboard a hull, on
+#: airless ground -- into the batteries within reach; a city's pool they
+#: never feed (`battery.tick_offgrid`).
+ENERGY_SOLAR_RATE = Num("energy.solar_rate")
+ENERGY_ISOTOPE_RATE = Num("energy.isotope_rate")
 ENERGY_BATTERY_CAPACITY = Num("energy.battery_capacity")
 ENERGY_BATTERY_MASS = Num("energy.battery_mass")
 ENERGY_BATTERY_SELFDISCHARGE = Num("energy.battery_selfdischarge")
@@ -538,7 +544,8 @@ SHIP_FUEL_PER_TON_DAY = Num("ship.fuel_per_ton_day")
 #: computed in rocket-fuel units, the tanks pay by density -- kerosene burns
 #: fewer units for the same passage. Absent from the table -- worth one.
 SHIP_FUEL_ENERGY = Table("ship.fuel_energy")
-SHIP_LIFE_SUPPORT_CREW = Num("ship.life_support_crew")
+#: No number of people per life support system (D-288): the draw is the
+#: ceiling, as mass is the hold's -- `ship.life_support_crew` left with it.
 #: The orbital step (D-245): what it costs to leave a planet and to come back
 #: down to it. Multiplied by the planet's own gravity and stretched by
 #: thrust-to-mass, like every other passage. Descent is the shorter of the two:
@@ -549,6 +556,9 @@ SHIP_DESCENT_HOURS = Num("ship.descent_hours")
 #: which planets differ from one another at all, before any geology: a heavy
 #: world is dear to leave and dear to land on.
 PLANET_GRAVITY = Table("planet.gravity")
+#: The body's radius in map units (D-289): nearer its centre than this a hull
+#: is on the ground, and a coasting hull is lost there.
+PLANET_RADIUS = Table("planet.radius")
 #: Fuel for a crossing between worlds, per ton of hull and per unit of delta-v
 #: (D-271): a passage pays for speed, not for hours -- the legs to and from
 #: the ground still pay per day (`SHIP_FUEL_PER_TON_DAY`).
@@ -571,10 +581,30 @@ ORBIT_BURN_SHARE = Num("orbit.burn_share")
 ORBIT_CORONA_RADIUS = Num("orbit.corona_radius")
 #: The slow end of the slider: no arc longer than this, however cheap.
 ORBIT_LONGEST_DAYS = Num("orbit.longest_days")
-#: A planet's pull at a flyby, per unit of `PLANET_GRAVITY`, and how close the
-#: hull may pass: together they bound the free turn of a gravity assist.
-ORBIT_FLYBY_MU = Num("orbit.flyby_mu")
-ORBIT_FLYBY_RADIUS = Num("orbit.flyby_radius")
+#: The sky simulated (D-289): a planet's pull all the way, per unit of
+#: `PLANET_GRAVITY`; the parking circle a moored hull runs on; the steps of
+#: the tick's integrator and of the planner's; the window a hull is put on
+#: the circle in; the edge of the system, the horizon of the forecast and
+#: how often a coasting hull's stamp is moved along.
+ORBIT_PLANET_MU = Num("orbit.planet_mu")
+ORBIT_PARK_RADIUS = Num("orbit.park_radius")
+ORBIT_STEP_MINUTES = Num("orbit.step_minutes")
+ORBIT_PLAN_STEP_MINUTES = Num("orbit.plan_step_minutes")
+ORBIT_CAPTURE_RADIUS = Num("orbit.capture_radius")
+ORBIT_CAPTURE_SPEED = Num("orbit.capture_speed")
+ORBIT_SYSTEM_RADIUS = Num("orbit.system_radius")
+ORBIT_FORECAST_DAYS = Num("orbit.forecast_days")
+ORBIT_RESTAMP_HOURS = Num("orbit.restamp_hours")
+#: Where the helm stops chasing the arc and matches the circle whatever
+#: its speed, in parking radii; and the shortest leg it lays when the
+#: planned hour has passed without a capture, days.
+ORBIT_APPROACH_RADII = Num("orbit.approach_radii")
+ORBIT_LATE_LEG_DAYS = Num("orbit.late_leg_days")
+#: How close a foreign hull is seen from the chart, map units; how close and
+#: how slow two hulls must be for the hold, and so for a docking (D-289).
+ORBIT_SIGHT_RADIUS = Num("orbit.sight_radius")
+ORBIT_DOCK_RADIUS = Num("orbit.dock_radius")
+ORBIT_DOCK_SPEED = Num("orbit.dock_speed")
 #: The slider's grid: the shortest arc offered, hours, and the step between
 #: samples as a share; the map's calendar is coarser and looks this many
 #: days ahead.

@@ -10,6 +10,8 @@
  * `people.ts`, so the header stays ignorant of who answers.
  */
 
+import { FLAG, keep, kept } from "./kept";
+
 const SIDEBAR_TAB = "everselife:sidebar-tab";
 
 //: On a narrow screen the sidebar is mounted only in the "я" zone, and the
@@ -46,19 +48,9 @@ const foldKey = (pane: Pane) => `everselife.${pane}.folded`;
 
 /** Whether the pane was left folded last time. */
 export function folded(pane: Pane): boolean {
-  try {
-    return localStorage.getItem(foldKey(pane)) === "1";
-  } catch {
-    /* a browser without storage forgets, and that is fine */
-  }
-  return false;
+  return kept(foldKey(pane), false, FLAG);
 }
 
 export function rememberFolded(pane: Pane, isFolded: boolean): void {
-  try {
-    if (isFolded) localStorage.setItem(foldKey(pane), "1");
-    else localStorage.removeItem(foldKey(pane));
-  } catch {
-    /* see above */
-  }
+  keep(foldKey(pane), isFolded, FLAG);
 }

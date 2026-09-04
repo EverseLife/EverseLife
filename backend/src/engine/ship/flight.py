@@ -19,16 +19,14 @@ from src.constants import Catalog, Constants, current
 from src.constants import registry as R
 from src.engine import events, travel
 from src.engine.jobs import enqueue, handler
-from src.engine.ship import course
+from src.engine.ship import course, sim
 from src.engine.ship._base import (
     _EPS,
     CLIMB,
     DESCENT,
     FUEL,
-    PASSAGE,
     Docked,
     InFlight,
-    NoArc,
     NoFuel,
     NoLifeSupport,
     NoPort,
@@ -40,9 +38,8 @@ from src.engine.ship._base import (
     is_orbit,
     orbit_node_of,
 )
-from src.engine.ship.belonging import crew_of, nodes_of
-from src.engine.ship.building import _planet_root
-from src.engine.ship.command import _commanded_by, _landable, _will_take
+from src.engine.ship.building import moor_to
+from src.engine.ship.command import _commanded_by, _will_take
 from src.engine.ship.physics import (
     burn_checked,
     climb_hours,
@@ -52,8 +49,6 @@ from src.engine.ship.physics import (
     fuel_for,
     life_support,
     mass,
-    passage_arc,
-    passage_curve,
     ratio,
 )
 from src.engine.ship.view import lands_anywhere, open_landings
@@ -63,12 +58,9 @@ from src.models.job import Job, JobKind, JobState
 from src.models.ship import Ship
 from src.models.world import Node, Surface
 from src.units import (
-    HOURS_PER_DAY,
-    ROUND_DV,
     ROUND_HOURS,
     ROUND_MASS,
     ROUND_RATIO,
-    ROUND_TRACE,
     SECONDS_PER_HOUR,
 )
 
@@ -131,15 +123,27 @@ async def _leaving(
     if here is None or connector is None:  # pragma: no cover
         raise ShipError(key="ship-no-connector-or-port")
 
+    return here, connector, await _fit(session, constants, catalog, ship)
+
+
+async def _fit(session: AsyncSession, constants: Constants, catalog: Catalog, ship: Ship) -> float:
+    """Whether the hull can move at all, wherever it is: thrust enough to tear
+    off, and a system that breathes. Returns the thrust-to-mass.
+
+    Asked of a moored hull by `_leaving` and of a drifting one by `fly`
+    (D-289): a dry hull that was refuelled lays a course from the void by
+    the same two rules it left the pier by.
+    """
     thrust_ratio = await ratio(session, constants, catalog, ship)
     floor = constants[R.SHIP_MIN_THRUST_RATIO]
     if thrust_ratio < floor:
         raise NotEnoughThrust(key="ship-not-enough-thrust", have=thrust_ratio, need=floor)
-    crew = len(await crew_of(session, ship))
-    holds = await life_support(session, constants, ship)
-    if crew > holds:
-        raise NoLifeSupport(key="ship-no-life-support", crew=crew, holds=holds)
-    return here, connector, thrust_ratio
+    #: A system, not a number of people (D-288): the crew has no ceiling, the
+    #: air on the system's line is the ceiling, and the console shows the
+    #: hours. What is refused is a hull that breathes for nobody at all.
+    if not await life_support(session, ship):
+        raise NoLifeSupport(key="ship-no-life-support")
+    return thrust_ratio
 
 
 async def _burn(
@@ -149,22 +153,17 @@ async def _burn(
     ship: Ship,
     *,
     hours: float,
-    reserve: float,
     refusal: str,
     dv: float | None = None,
 ) -> tuple[float, float]:
-    """Charge the tanks for a leg, having first checked the way out of its end.
+    """Charge the tanks for a leg.
 
-    `hours` is what this leg costs; `reserve` is what the hull must still be
-    able to fly afterwards and is **not** burnt. That second number is the
-    whole of pillar P6 in arithmetic: an orbit has no bunker and a hull that
-    reached one with dry tanks would hang there for ever, so a climb is refused
-    without the descent behind it and a crossing without a descent at the far
-    end. Nobody is sold a place they cannot leave -- with one exception the
-    world means to keep: a planet whose beacons all go out **while the hull is
-    crossing to it** takes the reserve away, and the hull hangs there. That is
-    not this rule failing but D-232 working: Aurora's blackout is irreversible,
-    and the planet is lost together with what is over it.
+    `hours` is what this leg costs, and that is all that is checked: nothing
+    is kept back for the way out of its end any more (D-289). The reserve
+    that used to be refused here -- the descent behind a climb, the descent
+    at the far end of a crossing (pillar P6, D-245) -- is the console's
+    warning now: a hull that climbs dry sits on its circle, moored and
+    stable, and fuel is what fetches it (wave 3's rendezvous).
 
     `refusal` names which leg is asking (`climb`, `cross`, `land`, `turn-back`)
     -- a message variant rather than a sentence: the words are the locale's
@@ -189,14 +188,15 @@ async def _burn(
         need = fuel_for(constants, weight, hours, klass=klass)
     else:
         need = course.fuel_for_speed(constants, weight, dv, efficiency=efficiency(constants, klass))
-    whole = need + fuel_for(constants, weight, reserve, klass=klass)
+    whole = need
     #: In reference units on both sides (D-252): the need is quoted in
     #: rocket-fuel units, and the tanks answer with what their kinds are
     #: worth -- kerosene closes more of it per unit than it shows. Checked
     #: and burnt under one lock (`burn_checked`): a tank drained between the
-    #: two would otherwise let the leg fly on fuel it never paid. Burnt out
-    #: of the tanks (D-230): the engines reach nothing else.
-    burnt, have = await burn_checked(session, constants, ship, need=need, whole=whole)
+    #: two would otherwise let the leg fly on fuel it never paid. Burnt off
+    #: the engines' lines (D-288): the vessels named when the line was
+    #: drawn, and nothing without one (as amended 2026-09-04).
+    burnt, have = await burn_checked(session, constants, catalog, ship, need=need, whole=whole)
     if burnt <= 0 and have + _EPS < whole:
         raise NoFuel(key="ship-no-fuel", why=refusal, need=whole, goods=FUEL, have=have)
     return burnt, weight
@@ -234,26 +234,16 @@ async def _launch(
     weight: float,
     thrust_ratio: float,
     at: datetime,
-    arc: course.Arc | None = None,
 ) -> Job:
     """Write the leg into the journal and queue its arrival.
 
     One shape for all three legs, and `leg` is the only thing that tells them
     apart in the record: a climb, a crossing and a descent differ in what they
-    cost, not in what happens at the end of them. A crossing carries its arc
-    (D-271): the delta-v it paid, the planet it bends round, and the line the
-    map draws it on -- none of which the map could work out from the two ends.
+    cost, not in what happens at the end of them. A crossing is no leg any
+    more (D-289): it is an order on the hull's row, and no job is queued.
     """
     arrives = at + timedelta(hours=hours)
-    told: dict[str, object] = {}
     payload: dict[str, object] = {"ship": str(ship.id), "to": str(to.id), "leg": leg}
-    if arc is not None:
-        told = {"dv": round(arc.dv, ROUND_DV), "via": arc.via}
-        payload.update(
-            dv=round(arc.dv, ROUND_DV),
-            via=arc.via,
-            arc=[[round(x, ROUND_TRACE), round(y, ROUND_TRACE)] for x, y in arc.trace],
-        )
     event = await events.record(
         session,
         EventKind.SHIP_LAUNCHED,
@@ -268,7 +258,6 @@ async def _launch(
         mass=round(weight, ROUND_MASS),
         ratio=round(thrust_ratio, ROUND_RATIO),
         arrives_at=arrives.isoformat(),
-        **told,
     )
     job = await enqueue(
         session,
@@ -329,8 +318,10 @@ async def ascend(
         catalog,
         ship,
         hours=climb,
-        #: The way back down onto this same planet. Not burnt -- kept.
-        reserve=fall_hours(constants, here.planet, thrust_ratio),
+        #: Nothing kept back for the way down (D-289): the descent is the
+        #: console's warning, not the engine's refusal. A hull that climbs
+        #: dry sits on its circle -- stable, moored, and fetched by fuel --
+        #: which is the trap D-245 refused and D-289 opened.
         refusal="climb",
     )
     await _cast_off(session, ship, here, connector)
@@ -346,120 +337,6 @@ async def ascend(
         weight=weight,
         thrust_ratio=thrust_ratio,
         at=moment,
-    )
-
-
-async def fly(
-    session: AsyncSession,
-    constants: Constants,
-    catalog: Catalog,
-    body: Body,
-    ship: Ship,
-    target: Node,
-    *,
-    hours: float | None = None,
-    via: str | None = None,
-    now: datetime | None = None,
-) -> Job:
-    """Cross to another planet's orbit. Orbit to orbit, never ground to ground.
-
-    The passage the sky prices (D-201, D-271): a Lambert arc from where this
-    planet stands now to where the other will stand in `hours`, settled
-    **here**, at the casting off, never recomputed -- a sky turning under a
-    ship already under way would make the passage longer than the one paid
-    for. `hours` is the owner's choice off the console's slider, from the
-    fastest the engines deliver to the cheapest the horizon offers; unnamed,
-    the cheapest arc flies. `via` bends the arc round a third planet.
-
-    What D-245 changed is only its ends. A crossing starts and finishes in
-    orbit, so the ground is one more leg away at each end, and the way from
-    Terra to Aurora is three moves: up, across, down -- with the spaceport
-    chosen only once the hull is hanging over the planet it picked.
-
-    The route's class is decided by the **weakest** engine aboard (D-037): one
-    poor engine in the cluster holds the cluster back.
-    """
-    moment = now or datetime.now(UTC)
-    await _commanded_by(session, body, ship)
-    await session.refresh(ship, with_for_update=True)
-    here, connector, thrust_ratio = await _leaving(session, constants, catalog, ship)
-    if not is_orbit(here):
-        raise Docked(key="ship-cross-from-orbit", ship=ship.name)
-    if not is_orbit(target):
-        raise NoPort(key="ship-cross-to-orbit", node=target.name)
-    if target.planet is here.planet:
-        raise TooFar(key="ship-already-over-planet", ship=ship.name)
-    #: Every question a mooring is asked, and one more the others are not: a
-    #: planet whose beacons have all gone out is a planet one may reach and
-    #: never leave the orbit of (D-232). The hull would hang there with fuel for
-    #: a descent and nowhere to spend it, which is the trap the fuel rule exists
-    #: against (pillar P6) -- so the crossing is refused at this end, while
-    #: there is still a choice to make.
-    await _will_take(session, constants, target, why="dock")
-    if not await _landable(session, constants, target.planet):
-        raise NoPort(key="ship-nowhere-to-land", node=target.name)
-
-    #: The sky, asked once and written into the passage.
-    curve = await passage_curve(session, constants, here.planet, target.planet, at=moment)
-    pick = course.cheapest(curve)
-    if pick is None:
-        raise TooFar(
-            key="ship-no-such-route",
-            planet_from=here.planet.value,
-            planet_to=target.planet.value,
-        )
-    if hours is None:
-        hours = pick.hours
-        if via is None:
-            via = pick.via
-    limit = float(constants[R.ORBIT_LONGEST_DAYS]) * HOURS_PER_DAY
-    if not hours > 0 or hours > limit:
-        raise NoArc(key="ship-hours-out-of-range", hours=round(hours, ROUND_HOURS), limit=limit)
-    arc = await passage_arc(
-        session, constants, here.planet, target.planet, at=moment, hours=hours, via=via
-    )
-    if arc is None:
-        if via is not None:
-            raise NoArc(key="ship-no-planet-to-pass", planet=via)
-        raise NoArc(key="ship-no-arc", hours=round(hours, ROUND_HOURS))
-    #: No route is closed by class (D-235): class is power and efficiency, and
-    #: both are already priced -- a weak engine on a heavy hull cannot fly the
-    #: fast arcs (`deliverable`) and burns more for every arc it can. What is
-    #: still refused is having no engine at all, and asking for a speed the
-    #: engines cannot give in the time; neither is a licence, both are physics.
-    can = course.deliverable(constants, thrust_ratio, hours)
-    if arc.dv > can:
-        raise NotEnoughThrust(
-            key="ship-too-fast-for-thrust",
-            hours=round(hours, ROUND_HOURS),
-            need=round(arc.dv, ROUND_DV),
-            have=round(can, ROUND_DV),
-        )
-    burnt, weight = await _burn(
-        session,
-        constants,
-        catalog,
-        ship,
-        hours=hours,
-        dv=arc.dv,
-        #: The descent at the far end, kept back the way the climb keeps its own.
-        reserve=fall_hours(constants, target.planet, thrust_ratio),
-        refusal="cross",
-    )
-    await _cast_off(session, ship, here, connector)
-    return await _launch(
-        session,
-        body,
-        ship,
-        leg=PASSAGE,
-        frm=here,
-        to=target,
-        hours=hours,
-        fuel=burnt,
-        weight=weight,
-        thrust_ratio=thrust_ratio,
-        at=moment,
-        arc=arc,
     )
 
 
@@ -508,12 +385,15 @@ async def land(
         catalog,
         ship,
         hours=fall,
-        #: Nothing kept back: the ground is the one place a hull may stand with
-        #: dry tanks. Fuel is walked to a pier; it is not walked to an orbit.
-        reserve=0.0,
         refusal="land",
     )
     await _cast_off(session, ship, here, connector)
+    #: Off the parking circle and into the air (D-289): a descent is a leg by
+    #: the hour, and the sky has no state for a hull under one.
+    ship.sky_at = None
+    ship.park_phase = None
+    ship.sky_x = ship.sky_y = ship.sky_vx = ship.sky_vy = None
+    await session.flush()
     return await _launch(
         session,
         body,
@@ -563,6 +443,11 @@ async def recall(
     #: (`jobs._claim`), and two orders that disagree about it deadlock.
     running = await _passage_of(session, ship, lock=True)
     await session.refresh(ship, with_for_update=True)
+    #: A crossing under the sky is not turned back (D-289, 2026-09-04): it is
+    #: cancelled into a coast (`crossing.cancel`) or replaced by another
+    #: order; only the tabled legs -- the climb and the descent -- come back.
+    if running is None and ship.course and ship.docked_node_id is None:
+        raise InFlight(key="ship-course-not-turned", ship=ship.name)
     if running is None:
         raise Docked(key="ship-not-in-passage")
     #: A turn-back is not turned back. It is already going home, and the hours
@@ -609,14 +494,9 @@ async def recall(
         ship,
         hours=gone,
         dv=None if paid is None else float(paid),
-        #: A turn-back is a leg like the others, and it keeps what the others
-        #: keep: an orbit has no bunker, so coming home to one is refused
-        #: without the descent still in the tanks. Turned back into an orbit
-        #: without it, a hull would be exactly where `_burn` exists to stop it
-        #: from being -- and the way there is short: cross out, turn round in
-        #: the first minute, and the reserve the crossing kept is spent on a
-        #: planet whose descent costs more than the one it was measured for.
-        reserve=down if is_orbit(home) else 0.0,
+        #: A turn-back is a leg like the others, and like the others it keeps
+        #: nothing back (D-289): turned back into an orbit short of the
+        #: descent, a hull sits on its circle and waits for fuel.
         refusal="turn-back",
     )
 
@@ -664,7 +544,7 @@ async def recall(
     )
     if job is None:  # pragma: no cover -- the key is unique per event
         raise ShipError(key="ship-turn-back-already-queued")
-    return job
+    return job.run_at
 
 
 async def _somewhere_on(session: AsyncSession, aim: Node, *, dice: random.Random) -> Node:
@@ -726,7 +606,18 @@ async def arrived(session: AsyncSession, job: Job) -> None:
         surface=Surface.PAVED,
     )
     ship.docked_node_id = port.id
-    await _moor_to(session, ship, port)
+    await moor_to(session, ship, port)
+    #: Over the planet the hull runs on the parking circle from this moment
+    #: (D-289): where on it is spun off the hull, and the circle is arithmetic
+    #: from the stamp. Down on a pad there is no circle and no state.
+    if is_orbit(port):
+        ship.sky_at = job.run_at
+        ship.park_phase = sim.bearing_of(ship)
+    else:
+        ship.sky_at = None
+        ship.park_phase = None
+    ship.sky_x = ship.sky_y = ship.sky_vx = ship.sky_vy = None
+    ship.course = None
     await session.flush()
 
     await events.record(
@@ -738,26 +629,3 @@ async def arrived(session: AsyncSession, job: Job) -> None:
         name=ship.name,
         port=port.key,
     )
-
-
-async def _moor_to(session: AsyncSession, ship: Ship, port: Node) -> None:
-    """The ship's nodes take the planet of the port it now stands at.
-
-    Nodes aboard need a planet -- day length and environment wear are counted
-    from it (D-201) -- and it must be the planet the ship is **actually** at
-    rather than the one it was laid down at. Otherwise a ship that flew to
-    Aurora would price its way home as a local hop between two Terran ports:
-    the route is chosen by the pair of planets, and one of the pair would be a
-    memory of the shipyard.
-
-    The group moves with it: the delegate node hangs under the planet it is at,
-    so the map shows the ship where it is.
-    """
-    delegate = await session.get(Node, ship.node_id)
-    root = await _planet_root(session, port)
-    aboard = await nodes_of(session, ship)
-    for node in [*aboard, *([delegate] if delegate is not None else [])]:
-        node.planet = port.planet
-    if delegate is not None and root is not None:
-        delegate.parent_id = root.id
-    await session.flush()

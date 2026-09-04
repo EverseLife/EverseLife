@@ -18,6 +18,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChatLine, Circle } from "../api";
 import { Refusal, useActions, useSession } from "../actions";
+import { Glyph } from "../Glyph";
 import { folded as foldedPane, rememberFolded } from "../hud";
 import { Here } from "./Here";
 import { t } from "../locale";
@@ -44,8 +45,10 @@ const KINDS = [
   { value: "ooc", label: "ui-chat-kind-ooc" },
 ] as const;
 
+type Kind = (typeof KINDS)[number]["value"];
+
 /** The placeholder over the input, by the kind of line being written. */
-const SAY_HINTS: Record<(typeof KINDS)[number]["value"], string> = {
+const SAY_HINTS: Record<Kind, string> = {
   speech: "ui-chat-say-speech",
   action: "ui-chat-say-action",
   ooc: "ui-chat-say-ooc",
@@ -66,7 +69,16 @@ export function Chat({ place }: Omit<Props, "busy" | "act">) {
   const [lines, setLines] = useState<ChatLine[]>([]);
   const [circles, setCircles] = useState<Circle[]>([]);
   const [text, setText] = useState("");
-  const [kind, setKind] = useState<(typeof KINDS)[number]["value"]>("speech");
+  //: Sticky between two lines said in a row, and no further: both go out with
+  //: `chat.say` and both have consequences in the world. Out of character is
+  //: the mark D-050 pays a whole message type for, so that a week later nobody
+  //: has to guess what the character said and what the person did; speaking
+  //: under one's breath changes who hears at all -- it makes the leak to the
+  //: next circle *less* likely (D-043, `chat.leak_quiet_multiplier` x0.3), at
+  //: the price of one's own circle hearing worse. Either way a choice made in
+  //: the last session must not speak for a sentence typed in this one, so
+  //: neither is written down (D-298, and `kept.ts` lists what is never kept).
+  const [kind, setKind] = useState<Kind>("speech");
   const [quiet, setQuiet] = useState(false);
   //: The strip folds to one line (D-238): the talk gives the scene its
   //: height back when it is not being read. The fold is remembered, like
@@ -199,14 +211,20 @@ export function Chat({ place }: Omit<Props, "busy" | "act">) {
             {t(option.label)}
           </button>
         ))}
-        <label className="note">
-          <input
-            type="checkbox"
-            checked={quiet}
-            onChange={(e) => setQuiet(e.target.checked)}
-          />{" "}
+        {/* Half a voice is a choice like the three kinds beside it, and wears
+            the same grammar (D-238): a slab that stays down while it is on,
+            `aria-pressed` for whoever is not looking at the slab. A tick in a
+            box was the one control in the strip shaped unlike its neighbours,
+            and the smallest thing to hit in it. The glyph changes with the
+            state the way the map's tether does -- two rings of voice or one. */}
+        <button
+          className={`chat-voice${quiet ? "" : " quiet"}`}
+          aria-pressed={quiet}
+          onClick={() => setQuiet(!quiet)}
+        >
+          <Glyph name={quiet ? "whisper" : "voice"} />
           {t("ui-chat-quiet-toggle")}
-        </label>
+        </button>
         <input
           className="chat-text"
           value={text}

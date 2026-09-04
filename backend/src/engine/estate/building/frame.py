@@ -356,8 +356,12 @@ async def slots(session: AsyncSession, constants: Constants, node: Node) -> tupl
         except Exception:  # noqa: BLE001 -- raw material at the machine has no recipe
             continue
         #: Only what was put up takes a place (D-278): a machine lying on the
-        #: floor is cargo and pays by weight.
-        if recipe.kind in (ItemKind.STATION, ItemKind.FURNITURE) and thing.installed:
+        #: floor is cargo and pays by weight. A vessel put up takes one too
+        #: (D-288): it stands on the hull's lines the way furniture stands.
+        stands = recipe.kind in (ItemKind.STATION, ItemKind.FURNITURE) or (
+            recipe.holds == storage.LIQUID and bool(recipe.store)
+        )
+        if stands and thing.installed:
             occupied += 1
     return in_total, occupied
 

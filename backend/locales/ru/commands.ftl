@@ -67,6 +67,7 @@ cmd-since-not-a-number = since должен быть числом
 cmd-composition-shape = состав задаётся парами «вещь: сколько»
 cmd-area-and-storeys-from-one = площадь и этажность считаются от единицы
 cmd-need-layout = нужна раскладка: ключ узла — клетка
+cmd-need-vessels = нужен список тары, не длиннее { $most }
 cmd-not-aboard = вы не на борту: назовите корабль или поднимитесь на него
 cmd-step-not-on-ladder = шаг цены не из списка: { $step }
 cmd-nothing-to-resume = продолжать нечего: либо ничего не ждёт здесь, либо станция занята, либо работа уже идёт

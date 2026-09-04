@@ -53,6 +53,7 @@ import * as api from "../api";
 import { type Look, type MapNode, type WorldMap } from "../api";
 import { useActions, useSession } from "../actions";
 import { createCamera, viewBoxOf, type Camera } from "./map/camera";
+import { UNFLAG, useKept } from "../kept";
 import { t } from "../locale";
 import { PHONE } from "../narrow";
 import { cityWord } from "../planets";
@@ -79,15 +80,28 @@ import {
 import { STAR, horizon } from "./map/orbits";
 
 /**
- * Whether the camera was left tied to the body, remembered past the panel.
+ * Whether the camera was left tied to the body (D-238; that it survives a
+ * reload is D-298).
  *
- * The map is unmounted every time one looks at the location tab, and a player
- * who set the camera loose to watch a road would find it tied again on coming
- * back -- a setting that has to be made anew after every glance elsewhere is a
- * setting nobody uses. It lives for the session and no longer: this is a way
- * of looking, not a preference worth writing down.
+ * It outlives the panel, which is unmounted every time one looks at the
+ * location tab -- a player who set the camera loose to watch a road would find
+ * it tied again on coming back, and a setting that has to be made anew after
+ * every glance elsewhere is a setting nobody uses -- and it outlives the
+ * reload as well (`kept.ts`): it is a way of looking that the player chose,
+ * the same kind of choice as the sidebar's fold.
+ *
+ * **The layer beside it is not**, and the difference is the whole of what
+ * `kept.ts` will and will not remember. `layer === null` is not "no choice
+ * made": it is the working state "show the height I am standing at", and
+ * nothing ever writes it back -- the switcher hands a layer, `expand` hands
+ * "planet" or "city". While the panel is unmounted on every look at the
+ * location tab, the null returns by itself; in storage it never would, so one
+ * glance at the sky would open the map on the sky in every node afterwards,
+ * with nothing in the interface able to undo it. The city it was focused on
+ * would not come back with it either: `cityFocus` is cleared on every move.
+ * A pointer relative to the body is not a setting.
  */
-let cameraTied = true;
+const CAMERA = "everselife.map.tethered";
 
 /**
  * How close the frame starts on a phone (brief section 9). Twice: the field
@@ -163,7 +177,9 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
     [byKey],
   );
 
-  //: The default layer is the one you stand on; explicit expansion lives until the transit.
+  //: The default layer is the one you stand on; explicit expansion lives until
+  //: the transit. Deliberately **not** remembered past the panel -- see the
+  //: note on `CAMERA` above for what storing it did to the map.
   const [layer, setLayer] = useState<LayerId | null>(initialLayer ?? null);
   //: The node the inspector talks about. Where you stand, until you pick another.
   const [picked, setPicked] = useState<string | null>(null);
@@ -180,11 +196,9 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
    * it stays where it was put, and a walk does not drag it along -- which is
    * how one watches a caravan arrive at a node one is not standing in.
    */
-  const [tethered, setTethered] = useState(cameraTied);
-  const tether = (on: boolean) => {
-    cameraTied = on;
-    setTethered(on);
-  };
+  //: Tied is the default, hence the wire whose default is yes: with `FLAG` a
+  //: deliberate "loose" would leave no key and read back as tied.
+  const [tethered, tether] = useKept(CAMERA, true, UNFLAG);
   const [cityFocus, setCityFocus] = useState<string | null>(null);
   //: Whose surface the planet layer shows. There are four planets in the sky
   //: now, and "everything of layer `planet`" would mix their nodes into one

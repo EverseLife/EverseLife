@@ -118,12 +118,13 @@ ship-in-passage = the ship is already on a passage{ $known ->
     }: until the leg ends it takes no orders
 ship-no-connector-or-port = the ship has no connector or port
 ship-not-enough-thrust = thrust is { NUMBER($have, minimumFractionDigits: 2, maximumFractionDigits: 2) } per kilogram against the { NUMBER($need, minimumFractionDigits: 2, maximumFractionDigits: 2) } needed: with that mass the ship goes nowhere. Add engines or take cargo off
-ship-no-life-support = there are { $crew } people aboard and life support holds { $holds }: put in another system
+ship-no-life-support = there is no life support system aboard: without one the ship goes nowhere
 ship-no-engines = the ship has not a single engine
 ship-no-fuel = { $why ->
-        [climb] there is not enough fuel for the climb and the descent back, and nobody refuels in orbit
-        [cross] there is not enough fuel for the crossing and the landing at the end of it
-        [turn-back] there is not enough fuel to turn back: on empty tanks nobody turns around in the void, the passage goes through to the end
+        [climb] there is not enough fuel for the climb
+        [cross] there is not enough fuel to leave the parking circle
+        [turn-back] there is not enough fuel to turn back
+        [orbit] there is not enough fuel to enter orbit round the star
        *[land] there is not enough fuel to land
     }: you need { NUMBER($need, minimumFractionDigits: 1, maximumFractionDigits: 1) } “{ NAME($goods) }” counted in rocket-fuel units, and the tanks answer for { NUMBER($have, minimumFractionDigits: 1, maximumFractionDigits: 1) }
 ship-passage-already-queued = the passage is already queued
@@ -134,6 +135,25 @@ ship-cross-to-orbit = “{ $node }” is not an orbit: a crossing runs from plan
 ship-already-over-planet = “{ $ship }” is already above this planet: from here one lands, one does not cross
 ship-nowhere-to-land = there is nowhere to land at { $node }: not one beacon is lit. The ship would go there and stay in orbit
 ship-no-such-route = the world has no route { PLANET($planet_from) } — { PLANET($planet_to) }
+ship-lost = “{ $ship }” is lost: no order and no turn-back reaches it any more
+ship-no-route-adrift = from where it drifts the sky offers no arc · { PLANET($planet_to) }
+# Two hulls meeting (D-289, wave 3).
+ship-target-self = a ship does not fly to itself
+ship-dock-self = a ship does not dock with itself
+ship-target-unseen = the target is not in sight: another's hull is seen within { NUMBER($radius) } map units or moored at the same planet
+ship-target-not-adrift = only a drifter is met: a hull under an order, moored, or alongside another is no rendezvous
+ship-target-unknown = the target's inertia is not reckoned yet: it has only just gone adrift, the sky will show it in a minute
+ship-not-held = docking takes station alongside: come within { NUMBER($radius) } map units at a relative speed under { NUMBER($speed) } units of speed
+ship-dock-at-port = hull to hull only in space: at a pier it would be a bridge past the inspection
+ship-already-docked-ship = the ship is already docked · { $other }
+ship-not-docked-ship = the ship is not docked to another hull
+ship-no-route-to-ship = the sky offers no arc to the target · { $other }
+ship-no-course-to-cancel = no course to cancel · { $ship }
+ship-already-circling = the hull is already entering orbit round the star · { $ship }
+ship-orbit-only-in-space = the star's orbit is entered from space, and the hull is at a planet, on the parking circle or at a pier · { $ship }
+ship-course-not-turned = a course under the sky is not turned back: it is cancelled, or the hull put into orbit round the star · { $ship }
+ship-orbit-crosses-planet = the circle round the star from here passes through a planet · { PLANET($body) }
+ship-target-gone-by-then = the target will not be there by the hour of arrival: it comes down or leaves the system before then · { $other }
 ship-already-landed = “{ $ship }” already stands on a planet: there is nowhere to land from
 ship-land-not-into-orbit = “{ $node }” is an orbit, not a spaceport: from orbit one lands on the planet below it
 ship-land-other-planet = “{ $node }” is on another planet: from orbit one lands on what is below, and another planet is reached by a crossing from orbit to orbit
@@ -169,6 +189,5 @@ occupation-busy = the body is busy: { $what }{ $term ->
 # The arc between worlds (D-271).
 ship-hours-out-of-range = { NUMBER($hours) } h is off the slider: an arc flies from an hour to { NUMBER($limit) } h
 ship-no-arc = the sky offers no arc for { NUMBER($hours) } h: every one cuts through the star's corona. Pick another time on the slider
-ship-no-planet-to-pass = { PLANET($planet) } does not go round this star: there is nothing to bend round
 ship-too-fast-for-thrust = in { NUMBER($hours) } h the engines deliver { NUMBER($have) } units of speed and the arc needs { NUMBER($need) }: move the slider towards the cheap end, shed mass or add engines
 ship-hours-is-a-number = the flight time is a number of hours
