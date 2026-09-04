@@ -93,3 +93,8 @@ ui-emblem-warehouse = warehouse
 ui-emblem-food = food
 ui-emblem-water = water
 ui-emblem-markup = markings
+
+## The loupes: the map holds them and so does the bridge, in one word.
+
+ui-zoom-in = zoom in
+ui-zoom-out = zoom out

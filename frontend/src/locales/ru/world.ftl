@@ -142,8 +142,6 @@ ui-map-sky-rule = Планеты идут вокруг звезды каждая
 
 ui-map-cam-tied = камера за вами
 ui-map-cam-free = камера свободна
-ui-map-zoom-in = приблизить
-ui-map-zoom-out = отдалить
 ui-map-switcher-rule = Видно два шага графа вокруг — куда можно дойти и что видно оттуда; остальное открывается ходьбой. Узлы стоят там, где стоят: место узла одно и то же у всех игроков и завтра, поэтому мышью их не двигают. Камера за вами: вы в середине карты, она едет следом; колесо, кнопки лупы и щипок двумя пальцами только приближают и отдаляют. Камера свободна: карта листается мышью или пальцем и стоит где оставили — при ходьбе она за вами не поедет. Слои: космос, планета, город — один и тот же граф с разной высоты.
 
 ## Само поле карты.
@@ -469,6 +467,12 @@ ui-ship-end-cheap = дёшево: { $term }
 ui-ship-arc-cost = { $term } · { $fuel } топлива · Δv { $dv }
 ui-ship-chart-cheap = дёшево { $term } · { $fuel }
 ui-ship-chart-fast = быстро { $term } · { $fuel }
+# The bridge display's own words (D-240): the scale in the corner and the names
+# of the three lines ahead. Short on purpose -- they stand inside the drawing.
+ui-ship-chart-scale = ×{ NUMBER($zoom, minimumFractionDigits: 1, maximumFractionDigits: 1) }
+ui-ship-chart-inertia = инерция
+ui-ship-chart-course = курс
+ui-ship-chart-choice = выбор
 # The sky flown, not tabled (D-289): the drift, its verdict, and the Δv the
 # console reads the plan against.
 ui-ship-fate-stable = Инерция: устойчивый круг. Так можно висеть вечно; заправят — можно прокладывать курс.

@@ -92,3 +92,8 @@ ui-emblem-warehouse = склад
 ui-emblem-food = еда
 ui-emblem-water = вода
 ui-emblem-markup = разметка
+
+## Лупы: их держат и карта, и рубка, и слово у них одно.
+
+ui-zoom-in = приблизить
+ui-zoom-out = отдалить

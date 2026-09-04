@@ -90,16 +90,16 @@ export function Switcher({
           `title` where the others have none, for the same reason. */}
       <button
         className="quiet"
-        aria-label={t("ui-map-zoom-in")}
-        title={t("ui-map-zoom-in")}
+        aria-label={t("ui-zoom-in")}
+        title={t("ui-zoom-in")}
         onClick={() => onZoom(1)}
       >
         <Glyph name="nearer" />
       </button>
       <button
         className="quiet"
-        aria-label={t("ui-map-zoom-out")}
-        title={t("ui-map-zoom-out")}
+        aria-label={t("ui-zoom-out")}
+        title={t("ui-zoom-out")}
         onClick={() => onZoom(-1)}
       >
         <Glyph name="farther" />

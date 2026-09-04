@@ -142,8 +142,6 @@ ui-map-sky-rule = The planets go round the star each on its own term, and the di
 
 ui-map-cam-tied = camera follows you
 ui-map-cam-free = camera is free
-ui-map-zoom-in = zoom in
-ui-map-zoom-out = zoom out
 ui-map-switcher-rule = Two steps of the graph are visible around you — where you can walk and what is seen from there; the rest opens by walking. Nodes stand where they stand: a node's place is the same for every player and the same tomorrow, so they are not dragged with the mouse. Camera follows you: you are in the middle of the map, it rides after you; the wheel, the loupe buttons and a two-finger pinch only zoom in and out. Camera is free: the map is panned with the mouse or a finger and stays where it was left — it will not ride after you as you walk. Layers: space, planet, city — the same graph from different heights.
 
 ## The map field itself.
@@ -469,6 +467,12 @@ ui-ship-end-cheap = cheap: { $term }
 ui-ship-arc-cost = { $term } · { $fuel } fuel · Δv { $dv }
 ui-ship-chart-cheap = cheap { $term } · { $fuel }
 ui-ship-chart-fast = fast { $term } · { $fuel }
+# The bridge display's own words (D-240): the scale in the corner and the names
+# of the three lines ahead. Short on purpose -- they stand inside the drawing.
+ui-ship-chart-scale = ×{ NUMBER($zoom, minimumFractionDigits: 1, maximumFractionDigits: 1) }
+ui-ship-chart-inertia = inertia
+ui-ship-chart-course = course
+ui-ship-chart-choice = choice
 # The sky flown, not tabled (D-289): the drift, its verdict, and the Δv the
 # console reads the plan against.
 ui-ship-fate-stable = Inertia: a stable circle. It can hang like this for ever; refuelled, it can be given a course.
