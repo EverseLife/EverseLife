@@ -18,11 +18,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants, current_catalog
 from src.constants import registry as R
-from src.engine import events, stock, world
+from src.engine import events, gear, stock, world
 from src.engine.frost._base import WARMER, FrostError, NotWarmer, climate_of
 from src.engine.frost.warmth import is_warm
 from src.models.event import EventKind
-from src.models.gear import Equipped
 from src.models.identity import Body, BodyState
 from src.models.inventory import Item
 from src.models.travel import Travel, TravelState
@@ -49,17 +48,8 @@ async def _suit_k(
     table: dict[str, float] = constants[R.FROST_SUIT_K]
     if not table:
         return 1.0
-    worn = (
-        (
-            await session.execute(
-                select(Item)
-                .join(Equipped, Equipped.item_id == Item.id)
-                .where(Equipped.body_id == body.id)
-            )
-        )
-        .scalars()
-        .all()
-    )
+    #: Worn means in the hands (D-305): a coat in a chest warms nobody.
+    worn = (await gear.equipped(session, body)).values()
     multiplier = 1.0
     for thing in worn:
         multiplier *= table.get(catalog.recipes.resolve(thing.type_key), 1.0)

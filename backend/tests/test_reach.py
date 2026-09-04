@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Nurlan Urazkulov
 
-"""How far the hands reach when a work gathers its materials (D-305).
+"""How far the hands reach when a work gathers its materials (D-315).
 
 The reach used to be one place -- the pocket -- and everything else in the
 node did not exist for a batch: the chest two steps away, the wagon in the
@@ -102,7 +102,7 @@ async def test_a_batch_eats_out_of_a_chest_standing_here(
 ) -> None:
     """The chest by the bench is a store, and now a store the work reaches into.
 
-    Before D-305 this was a refusal with the iron two steps away: the master
+    Before D-315 this was a refusal with the iron two steps away: the master
     had to carry it into the hands first, by the load limit -- and the limit
     guarded nothing, since carrying it all across the yard is always possible,
     merely slow.
@@ -254,7 +254,7 @@ async def test_two_batches_over_one_heap_leave_one_refused(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The pocket belonged to one body; a yard and a chest belong to everybody
-    entitled (D-305).
+    entitled (D-315).
 
     Nobody's land, where everybody may build (D-198), is the shortest way to
     two masters over one heap. Without the row lock both read the same ingots,

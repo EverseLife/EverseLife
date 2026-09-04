@@ -289,6 +289,8 @@ async def move_stack(
     does not exist and everything reads as outdoors anyway.
     """
 
+    from src.engine import gear  # noqa: PLC0415 -- lazy: gear -> world, and the move asks back
+
     #: A counted thing moves in whole pieces (D-212). A fraction is floored,
     #: and a request smaller than one piece is refused rather than silently
     #: doing nothing.
@@ -313,6 +315,16 @@ async def move_stack(
         await session.refresh(item, with_for_update=True)
     except InvalidRequestError as gone:
         raise ItemGone(key="thing-gone", goods=named) from gone
+    #: A worn thing does not move (D-305): it comes off first, and the player
+    #: is told so. Every move in the world comes through here, so the rule is
+    #: said once instead of on each of the doors -- the floor, a chest, a hold,
+    #: another pair of hands. What the world itself takes -- a death, a
+    #: collapse, a burnt yard -- does not come this way and is not refused:
+    #: there the slot simply stops meaning anything.
+    #: Asked **after** the lock, on the row as it now stands: before it, the
+    #: place read is the one this session remembers, and an `equip` in another
+    #: would slip between the question and the move.
+    await gear.require_off(session, item)
     qty = min(to_units(goods.at_least_one(item.type_key, quantity)), item.amount)
     if qty >= item.amount:
         item.container_id = target.id

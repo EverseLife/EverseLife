@@ -228,6 +228,13 @@ async def test_a_ship_is_not_land_and_pays_no_land_tax(
     #: some sixteen; the bound leaves room for that and none for ten hulls.
     from sqlalchemy import event as sql_event
 
+    #: Measured first, as the tick does (`estate.measure_cities`): the levy is
+    #: counted here against a world in its ordinary state, not against one
+    #: whose distances nobody has taken yet. Reads no longer measure, so
+    #: without this line the count would include the city's one walk and say
+    #: nothing about hulls, which is what the bound below is for.
+    await estate.measure_cities(session)
+
     seen = {"n": 0}
     engine_ = session.get_bind()
 

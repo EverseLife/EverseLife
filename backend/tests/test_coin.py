@@ -12,6 +12,8 @@ Checked is what the coin was introduced separately from the account for at all:
 * the batch reaches the purse through the job journal -- coins do not vanish;
 * melting returns the refined metal minus loss, the alloy is lost;
 * minting happens only at the mint press and only with one's own metal;
+* a counted input is spent whole (D-212): the iron ingot goes into the batch
+  entire, and no part-used one is left in the pocket;
 * the coin does not go through craft's common door: it has its own.
 """
 
@@ -190,6 +192,34 @@ async def test_no_fractional_coin(
     _, _, body = await _yard(session)
     with pytest.raises(coin.CoinError):
         await coin.mint(session, constants, catalog, body, GOLD, 2.5)
+
+
+async def test_the_ingot_goes_into_the_batch_whole(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A counted input is spent whole (D-212), a weighed one by its fraction.
+
+    Seven coins ask for 0.7 of an ingot, and seven tenths of an ingot is not a
+    thing: the ingot goes entire, exactly as it would for ten coins -- the
+    small batch is dearer, and that is the declared price of countedness.
+    Refined gold is weighed, so its 6.3 stays 6.3.
+    """
+    _, _, body = await _yard(session, metal_=100, iron=10)
+    batch = await coin.mint(session, constants, catalog, body, GOLD, 7)
+
+    assert batch.spent[IRON] == 1, "слиток уходит целиком, а не 0.7"
+    assert batch.spent[GOLD_METAL] == pytest.approx(6.3)
+    assert await _in_pocket(session, body, IRON) == 9, "початых слитков не остаётся"
+    assert await _in_pocket(session, body, GOLD_METAL) == pytest.approx(93.7)
+
+
+async def test_a_batch_of_one_eats_the_ingot_entire(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """D-212 names this very case: a batch of one coin eats the ingot whole."""
+    _, _, body = await _yard(session)
+    batch = await coin.mint(session, constants, catalog, body, GOLD, 1)
+    assert batch.spent[IRON] == 1
 
 
 # --- melting -----------------------------------------------------------------

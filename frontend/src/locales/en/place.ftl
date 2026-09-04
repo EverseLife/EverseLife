@@ -157,8 +157,8 @@ ui-place-equipment-charge = charge { $charge } · charged in “holdings”
 ui-place-equipment-busy-mine = in use by you
 ui-place-equipment-busy = in use
 ui-place-equipment-free = free
-ui-place-equipment-take = Take
-ui-place-equipment-take-hint = take into your hands
+ui-place-equipment-take = Take down
+ui-place-equipment-take-hint = take it down — it lies where it stood; into your hands from there, as much as you can carry
 ui-place-equipment-drop-station = drag a station here to put it in the building
 ui-place-equipment-drop-furniture = drag furniture here to furnish the building
 ui-place-equipment-place = Put down:
@@ -188,7 +188,7 @@ ui-place-floor-guest = Another's place, but what lies about is taken by anyone w
 
 ## Storages: chest and tank. Liquid lives only in a vessel.
 
-ui-place-chest-rule = A house keeps what your hands cannot carry away; a full chest is not carried off.
+ui-place-chest-rule = A house keeps what your hands cannot carry away; a full chest is not taken down.
 ui-place-chest-taken = { $mass } of { $capacity } kg taken
 ui-place-chest-foreign = Another's storage: what is inside is none of your business.
 ui-place-chest-drop = drag an item here to put it into the storage

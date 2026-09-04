@@ -120,7 +120,7 @@ export function House({
   const picked = kind || shelf[0]?.kind || "";
 
   //: What is at hand of a material, for the site's rows (D-266): the reach a
-  //: contribution is gathered from, not the pocket alone (D-305).
+  //: contribution is gathered from, not the pocket alone (D-315).
   const athand = reachOf(look, book);
   const inHands = (goods: string) => stockOf(athand, goods);
   type Work = (typeof going)[number];

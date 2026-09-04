@@ -138,7 +138,9 @@ async def test_no_reaching_into_foreign_chest(
 async def test_full_chest_not_carried_away(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Otherwise "take the furniture" would become a way to carry a ton in the pocket."""
+    """A full chest is not taken down: lying it is cargo and not a storage
+    (D-278), and the pick-up weighs the chest alone -- a full one would leave
+    with a ton nobody weighed."""
     node, _, body = await _yard(session)
     chest = await _chest(session, node)
     thing = await _goods(session, body, 5)
@@ -147,10 +149,14 @@ async def test_full_chest_not_carried_away(
     with pytest.raises(station.NotEmpty):
         await station.take(session, catalog, body, chest)
 
-    #: Unpacked -- carried away in the usual way.
+    #: Unpacked -- taken down and carried away in the usual way, through the
+    #: two doors: off its place onto the floor, off the floor into the hands.
     lies = (await storage.content(session, chest))[0]
     await storage.take(session, constants, catalog, body, chest, lies)
     await station.take(session, catalog, body, chest)
+    yard = await world.node_container(session, node)
+    assert chest.container_id == yard.id and not chest.installed
+    await storage.pick(session, constants, catalog, body, chest)
     pocket = await world.body_container(session, body)
     assert chest.container_id == pocket.id
 

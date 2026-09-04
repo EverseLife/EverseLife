@@ -21,9 +21,9 @@
 
 import { useEffect, useState } from "react";
 import type { RecipeBook } from "../api";
-import { stationsOf, varietyText, type Look, type Thing } from "../api";
+import { stationsOf, type Look, type Thing } from "../api";
 import { Refusal, useActions, useBook, useNames, useSession } from "../actions";
-import { flavorText, goodsName, slotName, tierName, type Names } from "../names";
+import { goodsName, slotName, type Names } from "../names";
 import { KEYS, useKept } from "../kept";
 import { t } from "../locale";
 import { mayInstall } from "../building";
@@ -33,6 +33,7 @@ import { DropZone } from "../DragMove";
 import { GoodsMark } from "../Glyph";
 import { CHEST_ANY, chestOf, grip, noDrag } from "../drag";
 import { chosen, tally, trim } from "../amounts";
+import { labelOf, tells, weightCell } from "./inventory/rows";
 import { TERMINAL, classOf, firstOfClass, isGear, lifts } from "../classes";
 import { fill, isVessel } from "../liquids";
 import { whoIsHere, type Person } from "../people";
@@ -49,7 +50,6 @@ import {
   type Grouping,
   type Sorting,
   type Summary,
-  weightOf,
 } from "../arrange";
 
 type Props = { look: Look };
@@ -149,14 +149,7 @@ export function Inventory({ look }: Props) {
   const part = (thing: Thing) => chosen(parts[thing.id] ?? null, thing.amount);
   const close = () => setAsking(null);
 
-  //: One spelling of a row's name (D-251): the flavor by tokens, a written
-  //: carrier as "носитель: рецепт", everything else by its display word.
-  const label = (thing: Thing): string =>
-    thing.flavor
-      ? flavorText(names, thing.flavor)
-      : thing.recipe
-        ? `${goodsName(names, thing.goods)}: ${goodsName(names, thing.recipe)}`
-        : goodsName(names, thing.goods);
+  const label = (thing: Thing): string => labelOf(names, thing);
 
   const send = (cmd: string, args: Record<string, unknown>) =>
     act(async () => {
@@ -176,37 +169,60 @@ export function Inventory({ look }: Props) {
         </p>
       )}
 
+      {/* Worn gear stands apart from the list of things (D-305): what is on
+          the back is not what can be dropped, sold or taken apart, and while
+          it lay among the sacks all four verbs were one slip away. The block
+          carries the mass, because the load above counts it and the sum has to
+          add up on sight; repair is not here but at the machine, where every
+          repair is. */}
       {carried && carried.slots.length > 0 && (
-        <div className="row">
-          {carried.slots.map((slot) => {
-            const worn = carried.equipped[slot];
-            return (
-              <span key={slot} className="note">
-                {slotName(names, slot)}:{" "}
-                {worn ? (
-                  <>
-                    {goodsName(names, worn.goods)}{" "}
-                    <button
-                      className="link"
-                      onClick={() => act(() => session.send("gear.unequip", { slot }))}
-                      disabled={busy}
-                      /* A frame that lifts is taken off under the load it was
-                         put on for (D-306): said before the click, because
-                         after it the ore is already on the floor. */
-                      title={
-                        lifts(book, worn.goods) ? t("ui-inventory-unequip-drops") : undefined
-                      }
-                    >
-                      {t("ui-inventory-unequip")}
-                    </button>
-                  </>
-                ) : (
-                  t("ui-inventory-slot-empty")
-                )}
-              </span>
-            );
-          })}
-        </div>
+        <>
+        <h3>
+          {t("ui-inventory-gear")}
+          <Rule>{t("ui-inventory-gear-rule")}</Rule>
+        </h3>
+        <table className="goods gear">
+          <tbody>
+            {carried.slots.map((slot) => {
+              const worn = carried.equipped[slot];
+              return (
+                <tr key={slot}>
+                  <td className="note slot">{slotName(names, slot)}</td>
+                  {worn ? (
+                    <>
+                      <td>
+                        <GoodsMark book={book} goods={worn.goods} />
+                        {label(worn)}
+                      </td>
+                      {weightCell(worn)}
+                      <td className="note">{tells(worn, names)}</td>
+                      <td className="act">
+                        <button
+                          className="link"
+                          onClick={() => act(() => session.send("gear.unequip", { slot }))}
+                          disabled={busy}
+                          /* A frame that lifts is taken off under the load it
+                             was put on for (D-306): said before the click,
+                             because after it the ore is already on the floor. */
+                          title={
+                            lifts(book, worn.goods) ? t("ui-inventory-unequip-drops") : undefined
+                          }
+                        >
+                          {t("ui-inventory-unequip")}
+                        </button>
+                      </td>
+                    </>
+                  ) : (
+                    <td className="note" colSpan={4}>
+                      {t("ui-inventory-slot-empty")}
+                    </td>
+                  )}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        </>
       )}
 
       <Refusal of={acting} />
@@ -753,70 +769,4 @@ function sums(summary: Summary, stacks: number): string {
  */
 function positions(count: number): string {
   return t("ui-inventory-positions", { count, shown: String(count) });
-}
-
-/**
- * What the stack weighs, and what one of it weighs.
- *
- * Two figures, because two questions are asked of the column: "how much of
- * the load is this" reads the whole, "what will one cost me to carry" reads
- * the unit -- and dividing in one's head across a list of thirty rows is not
- * reading. The unit goes under the whole as a note, written as the product
- * the whole is -- "0.2 x 47.5" -- and only where it adds anything: for a
- * stack of one the two figures are the same figure. The product, not words:
- * "0.2 kg each" pushed every name in the table onto a second line, and the
- * count beside the unit is what tells the reader which of the two figures
- * is the unit.
- *
- * `trim`, not a fixed decimal: a seed weighs a gram, and "0.0 kg" over a bag
- * of seeds is a lie the group header can afford (it sums hundreds) but a row
- * cannot.
- */
-function weightCell(thing: Thing) {
-  return (
-    <td className="num mass">
-      {t("ui-inventory-mass", { mass: trim(weightOf(thing)) })}
-      {thing.amount !== 1 && (
-        <div className="note">
-          {t("ui-inventory-mass-each", {
-            //: The unit is the whole divided, not the catalog's `mass`: a
-            //: vessel's whole counts its fill, and the two figures must agree.
-            each: trim(weightOf(thing) / thing.amount),
-            amount: trim(thing.amount),
-          })}
-        </div>
-      )}
-    </td>
-  );
-}
-
-/** The one line that says what kind of thing this is. */
-function tells(thing: Thing, names: Names | null): string {
-  const parts: string[] = [];
-  if (thing.fineness != null) {
-    parts.push(t("ui-inventory-fineness", { fineness: String(thing.fineness) }));
-    if (thing.maker) parts.push(t("ui-inventory-maker", { maker: thing.maker }));
-  } else if (thing.vigor != null) {
-    parts.push(
-      t("ui-inventory-vigor", {
-        variety: varietyText(names, thing.variety) ?? t("ui-inventory-variety"),
-        vigor: thing.vigor.toFixed(0),
-      }),
-    );
-  } else if (thing.charge != null) {
-    parts.push(t("ui-inventory-charge", { charge: thing.charge.toFixed(0) }));
-  } else if (thing.quality != null) {
-    parts.push(`${thing.quality.toFixed(0)} · ${tierName(names, thing.tier)}`);
-  }
-  if (thing.condition < 100)
-    parts.push(t("ui-inventory-condition", { condition: thing.condition.toFixed(0) }));
-  if (thing.spoils_at) parts.push(spoilAt(thing.spoils_at));
-  return parts.join(" · ");
-}
-
-function spoilAt(when: string): string {
-  const hours = (new Date(when).getTime() - Date.now()) / 3_600_000;
-  if (hours <= 0) return t("ui-inventory-spoiled");
-  if (hours < 24) return t("ui-inventory-spoils", { hours: String(Math.round(hours)) });
-  return t("ui-inventory-keeps", { days: String(Math.round(hours / 24)) });
 }

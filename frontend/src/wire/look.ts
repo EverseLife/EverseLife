@@ -460,7 +460,7 @@ function barredHere(look: Pick<Look, "bench">, book: RecipeBook | null): Set<str
 }
 
 /**
- * Everything a work started here draws its materials from (D-305).
+ * Everything a work started here draws its materials from (D-315).
  *
  * The server sends no such list, and it should not: it sends the pocket, the
  * floor, the open ground, the chests one may open and one's own hold, and the

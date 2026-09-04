@@ -9,7 +9,8 @@ what mass was introduced for:
 
 * an item has weight, and it comes from vault data, not code;
 * no more than the limit is taken in hand -- neither from the market nor from the hopper;
-* a backpack and an exoskeleton raise the limit, clothes and armour do not;
+* an exoskeleton raises the limit and a pack lightens the load (D-268), clothes and armour
+  do neither;
 * one slot per thing: you cannot wear three backpacks, otherwise the limit does not exist.
 """
 
@@ -130,6 +131,88 @@ async def test_only_the_worn_pack_lightens(
     assert await gear.capacity(session, constants, catalog, body) == pytest.approx(
         constants[R.INVENTORY_CARRY_MASS]
     )
+
+
+async def test_the_pack_lightens_what_is_being_taken(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The door weighs the load as it will be, not as it was plus raw kilograms.
+
+    A pack holds the first kilograms of the load (D-268) -- and the arriving
+    ones are load too. Charging them full weight against a limit the pack had
+    already lightened refused a pickup the body could make: with a sack on the
+    back the last four ingots of thirty-two were told to go by wagon.
+    """
+    _, _, body = await _body(session)
+    sack = await _give(session, body, SACK)
+    await gear.equip(session, constants, catalog, body, sack)
+    limit = constants[R.INVENTORY_CARRY_MASS]
+
+    #: 32 ingots and the sack are 32.12 kg of matter; the sack holds fifteen of
+    #: them at 0.85, so the body would feel 29.87 -- and 30.87 with one more
+    #: ingot. The limit sits between the two, or this test asks nothing.
+    worn = await gear.equipped(session, body)
+    assert await gear.carried_mass(session, catalog, body) == pytest.approx(0.12)
+    assert gear.packed(constants, catalog, worn, 32.12) == pytest.approx(29.87)
+    assert 29.87 < limit < 30.87
+
+    await gear.check_carry(session, constants, catalog, body, INGOT, 32)
+
+    #: And the thirty-third is honestly too much: 30.87 felt against thirty.
+    with pytest.raises(gear.Overloaded) as refused:
+        await gear.check_carry(session, constants, catalog, body, INGOT, 33)
+    told = refused.value.params
+    assert told["limit"] == pytest.approx(limit)
+    #: The three figures of the message add up: what is felt now, what the
+    #: limit is, and what this would add to the load -- not what it weighs on
+    #: the ground, which under a pack is a different number.
+    assert told["carries"] + told["extra"] == pytest.approx(30.87)
+    assert told["extra"] < 33, "рюкзак легчит и то, что берут"
+
+
+def test_matter_over_undoes_the_pack(constants: Constants, catalog: Catalog) -> None:
+    """What must leave the hands is matter, not the excess the body feels.
+
+    Inside a pack's capacity a kilogram out of the hands lightens the body by
+    `factor` of itself, so putting down the felt excess leaves it over the
+    limit still. No pack in the vault reaches that case, so the numbers below
+    are made up on purpose: the arithmetic must hold for a pack that has not
+    been written yet.
+    """
+    #: The tripwire the docstring of `matter_over` leans on. Every pack today
+    #: runs out of room below the limit, and while that holds the two readings
+    #: agree wherever the engine actually goes. A roomier pack is not a defect
+    #: -- it is the day somebody must read that arithmetic again.
+    carry = constants[R.INVENTORY_CARRY_MASS]
+    assert all(
+        pack["capacity"] * pack["factor"] < carry for pack in constants[R.INVENTORY_PACK].values()
+    ), "рюкзак просторнее предела: ветка расчёта меняется, и это надо заметить"
+
+    packs = Constants({"inventory.pack": {SACK: {"capacity": 100, "factor": 0.5}}}, source="тест")
+    worn = {"back": Item(type_key=SACK)}
+    limit = 30.0
+
+    #: Seventy kilograms all fit inside the hundred at half weight: the body
+    #: feels thirty-five, five over the limit. Dropping five would leave 32.5.
+    assert gear.packed(packs, catalog, worn, 70) == pytest.approx(35)
+    gone = gear.matter_over(packs, catalog, worn, 70, limit)
+    assert gone == pytest.approx(10)
+    assert gear.packed(packs, catalog, worn, 70 - gone) == pytest.approx(limit)
+
+    #: Even a load of two hundred comes down to those sixty: this pack is
+    #: roomier than the whole limit, so the hands never leave its half-price.
+    assert gear.matter_over(packs, catalog, worn, 200, limit) == pytest.approx(140)
+
+    #: A smaller pack -- the shape every pack in the vault has -- runs out of
+    #: room below the limit, and past it the felt excess is the matter again.
+    small = Constants({"inventory.pack": {SACK: {"capacity": 20, "factor": 0.5}}}, source="тест")
+    assert gear.matter_over(small, catalog, worn, 100, limit) == pytest.approx(
+        gear.packed(small, catalog, worn, 100) - limit
+    )
+
+    #: A load that fits puts nothing down, with a pack or without one.
+    assert gear.matter_over(packs, catalog, worn, 60, limit) == 0.0
+    assert gear.matter_over(packs, catalog, {}, 40, limit) == pytest.approx(10)
 
 
 async def _charged(session: AsyncSession, body, charge: float):
@@ -323,6 +406,282 @@ async def test_removed_stops_raising_limit(
     assert await gear.capacity(session, constants, catalog, body) == pytest.approx(
         constants[R.INVENTORY_CARRY_MASS]
     )
+
+
+# --- worn means in the hands (D-305) -----------------------------------------
+
+
+async def _taken_by_the_world(session: AsyncSession, node, item: Item) -> None:
+    """What a death, a collapse or a burnt yard does: the thing changes place
+    and nobody asks the slot. `move_stack` is not that -- it refuses."""
+    from src.engine import world as w
+
+    item.container_id = (await w.node_container(session, node)).id
+    await session.flush()
+
+
+async def test_a_pack_out_of_the_hands_lightens_nothing(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The exploit itself: a pack on the floor went on lightening the load,
+    because the slot named the thing and never asked where the thing was."""
+    node, _, body = await _body(session)
+    pack = await _give(session, body, BACKPACK)
+    await gear.equip(session, constants, catalog, body, pack)
+    await _give(session, body, INGOT, 10)
+    factor = constants[R.INVENTORY_PACK][BACKPACK]["factor"]
+    on_the_back = await gear.load_of(session, constants, catalog, body)
+    assert on_the_back == pytest.approx((10 + catalog.recipes.mass_of(BACKPACK)) * factor)
+
+    await _taken_by_the_world(session, node, pack)
+
+    assert await gear.equipped(session, body) == {}, "слот называет вещь, которой в руках нет"
+    assert await gear.load_of(session, constants, catalog, body) == pytest.approx(10.0), (
+        "рюкзак на полу больше не легчит ношу"
+    )
+
+
+async def test_an_exoskeleton_out_of_the_hands_lifts_nothing(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Same rule at the other handle (D-268): the frame lifts while it is worn."""
+    node, _, body = await _body(session)
+    exo = await _give(session, body, EXO)
+    await _charged(session, body, 50)
+    await gear.equip(session, constants, catalog, body, exo)
+    lifted = await gear.capacity(session, constants, catalog, body)
+    assert lifted > constants[R.INVENTORY_CARRY_MASS]
+
+    await _taken_by_the_world(session, node, exo)
+
+    assert await gear.capacity(session, constants, catalog, body) == pytest.approx(
+        constants[R.INVENTORY_CARRY_MASS]
+    ), "экзоскелет на полу больше не поднимает предел"
+
+
+async def test_an_exoskeleton_out_of_the_hands_drinks_nothing(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """It lifts nothing, so it drinks nothing: the tick reads the same rule."""
+    node, _, body = await _body(session)
+    exo = await _give(session, body, EXO)
+    cell = await _charged(session, body, 50)
+    await gear.equip(session, constants, catalog, body, exo)
+    await _taken_by_the_world(session, node, exo)
+
+    drunk = await gear.wear_exoskeletons(
+        session, constants, catalog, hours=1.0, now=datetime.now(UTC)
+    )
+    assert drunk == 0.0
+    assert float(cell.charge) == pytest.approx(50)
+
+
+async def test_a_suit_out_of_the_hands_breathes_for_nobody(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The worst of the four readers: a suit sold at the counter went on
+    connecting its former owner to the air (D-289)."""
+    from src.engine import oxygen
+
+    node, _, body = await _body(session)
+    suit = await _give(session, body, "heatproof_suit")
+    await gear.equip(session, constants, catalog, body, suit)
+    assert await oxygen.suited(session, catalog, body)
+
+    await _taken_by_the_world(session, node, suit)
+    assert not await oxygen.suited(session, catalog, body)
+
+
+async def test_a_worn_thing_does_not_leave_the_hands(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """And the player is told so in words rather than quietly undressed."""
+    from src.engine import storage
+
+    _, _, body = await _body(session)
+    pack = await _give(session, body, BACKPACK)
+    await gear.equip(session, constants, catalog, body, pack)
+
+    with pytest.raises(gear.Worn):
+        await storage.drop(session, constants, catalog, body, pack)
+
+    await gear.unequip(session, constants, catalog, body, "back")
+    assert await storage.drop(session, constants, catalog, body, pack) == pytest.approx(1.0), (
+        "снятое кладётся, как всякая вещь"
+    )
+
+
+async def test_the_counter_never_lays_out_what_is_on_the_back(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The counter picks stacks by name and quality, not by id: with two packs
+    the older one -- the one on the back -- used to go first."""
+    from src.engine import market
+    from src.engine import world as w
+
+    node, _, body = await _body(session)
+    yard = await w.node_container(session, node)
+    await w.grant_item(session, yard, TERMINAL, quality=70, origin="тест")
+    worn_pack = await _give(session, body, BACKPACK)
+    spare = await _give(session, body, BACKPACK)
+    await gear.equip(session, constants, catalog, body, worn_pack)
+
+    assert await market.load(session, constants, body, BACKPACK, 1) == pytest.approx(1.0)
+
+    pocket = await w.body_container(session, body)
+    assert spare.container_id != pocket.id, "на прилавок ушёл запасной"
+    assert worn_pack.container_id == pocket.id, "надетый остался на спине"
+    assert (await gear.equipped(session, body))["back"].id == worn_pack.id
+
+
+async def test_the_bench_never_lays_a_worn_thing_into_a_guess(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The third stack-picker in the world (`craft._stock`) reads the same rule:
+    a guess that misses burns what was laid out, and what is worn is not it."""
+    from src.engine import craft
+    from src.engine.craft._base import NotEnough
+
+    node, _, body = await _body(session)
+    await _at_the_bench(session, catalog, node, body, BACKPACK)
+    pack = await _give(session, body, BACKPACK)
+    await gear.equip(session, constants, catalog, body, pack)
+
+    with pytest.raises(NotEnough):
+        await craft.invent(session, constants, catalog, body, {BACKPACK: 1}, 1, station="workbench")
+    assert (await gear.equipped(session, body))["back"].id == pack.id, "рюкзак остался на спине"
+
+
+async def test_the_counter_says_why_it_takes_nothing(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """One pack, and it is worn: the seller hears the reason instead of
+    counting a nought they cannot explain."""
+    from src.engine import market
+    from src.engine import world as w
+
+    node, _, body = await _body(session)
+    yard = await w.node_container(session, node)
+    await w.grant_item(session, yard, TERMINAL, quality=70, origin="тест")
+    pack = await _give(session, body, BACKPACK)
+    await gear.equip(session, constants, catalog, body, pack)
+
+    with pytest.raises(gear.Worn):
+        await market.load(session, constants, body, BACKPACK, 1)
+
+
+async def test_a_pack_its_old_owner_wore_is_worn_by_whoever_gets_it(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """One slot row per thing, and it outlives the thing changing hands: the
+    buyer used to get a unique-key error instead of a backpack."""
+    from src.engine import world as w
+
+    node, _, body = await _body(session)
+    pack = await _give(session, body, BACKPACK)
+    await gear.equip(session, constants, catalog, body, pack)
+
+    _, _, buyer = await _body(session)
+    buyer.node_id = node.id
+    pack.container_id = (await w.body_container(session, buyer)).id
+    await session.flush()
+
+    assert await gear.equip(session, constants, catalog, buyer, pack) == "back"
+    assert (await gear.equipped(session, buyer))["back"].id == pack.id
+    assert await gear.equipped(session, body) == {}
+
+
+async def _at_the_bench(session: AsyncSession, catalog: Catalog, node, body, what: str):
+    """A bench in the yard and the makings of the thing in the hands."""
+    from src.engine import world as w
+
+    yard = await w.node_container(session, node)
+    await w.grant_item(session, yard, "workbench", quality=60, origin="тест")
+    for name, qty in catalog.recipes.recipe(what).amounts.items():
+        await _give(session, body, catalog.recipes.resolve(name), qty + 2)
+
+
+async def test_the_window_is_told_where_the_worn_thing_went(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The wire contract the gear block stands on (D-305, D-225): worn things
+    leave the list of things and come whole in `carry.equipped` -- the window
+    reads their mass and their wear off nothing else now."""
+    from src.api.commands.look import _look
+
+    _, identity, body = await _body(session)
+    pack = await _give(session, body, BACKPACK)
+    ore = await _give(session, body, "iron_ore", 3)
+
+    seen = (await _look({"identity_id": identity.id}, session, {}))["look"]
+    assert {thing["id"] for thing in seen["inventory"]} == {str(pack.id), str(ore.id)}
+    assert seen["carry"]["equipped"] == {}
+
+    await gear.equip(session, constants, catalog, body, pack)
+    seen = (await _look({"identity_id": identity.id}, session, {}))["look"]
+
+    assert {thing["id"] for thing in seen["inventory"]} == {str(ore.id)}, "надетое ушло из вещей"
+    worn = seen["carry"]["equipped"]["back"]
+    assert worn["id"] == str(pack.id)
+    assert worn["mass"] == catalog.recipes.mass_of(BACKPACK), "вещь целиком, а не пара «id, имя»"
+    assert worn["condition"] == 100 and worn["quality"] == 60
+
+    await gear.unequip(session, constants, catalog, body, "back")
+    seen = (await _look({"identity_id": identity.id}, session, {}))["look"]
+    assert {thing["id"] for thing in seen["inventory"]} == {str(pack.id), str(ore.id)}, (
+        "снятое вернулось"
+    )
+
+
+async def test_a_pack_being_taken_apart_is_not_put_on(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The batch ends the thing, and a slot naming it would empty itself when
+    the work finished (D-305)."""
+    from src.engine import craft
+
+    node, _, body = await _body(session)
+    await _at_the_bench(session, catalog, node, body, BACKPACK)
+    pack = await _give(session, body, BACKPACK)
+    await craft.recycle(session, constants, catalog, body, pack)
+
+    with pytest.raises(gear.Unmade):
+        await gear.equip(session, constants, catalog, body, pack)
+
+
+async def test_a_worn_pack_is_repaired_without_taking_it_off(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A repair works on the row in the hands and moves nothing (D-305), so
+    there is nothing to take off: the slot goes on naming the same thing."""
+    from src.engine import craft
+
+    node, _, body = await _body(session)
+    await _at_the_bench(session, catalog, node, body, BACKPACK)
+    pack = await _give(session, body, BACKPACK)
+    pack.condition = Decimal("40")
+    await session.flush()
+    await gear.equip(session, constants, catalog, body, pack)
+
+    batch = await craft.repair(session, constants, catalog, body, pack)
+
+    assert batch.target_item_id == pack.id
+    assert (await gear.equipped(session, body))["back"].id == pack.id, "чинится, не снимая"
+
+
+async def test_a_worn_pack_is_not_taken_apart(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Recycling ends the thing, and that comes off first."""
+    from src.engine import craft
+
+    node, _, body = await _body(session)
+    await _at_the_bench(session, catalog, node, body, BACKPACK)
+    pack = await _give(session, body, BACKPACK)
+    await gear.equip(session, constants, catalog, body, pack)
+
+    with pytest.raises(gear.Worn):
+        await craft.recycle(session, constants, catalog, body, pack)
 
 
 async def test_charging_and_the_tick_do_not_lose_each_other(

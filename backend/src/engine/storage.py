@@ -24,8 +24,11 @@ Whether it is furniture or a machine the engine does not care: it looks at the f
   open location;
 * **the limit is mass**, in the same kilograms as hands and hold: there is no
   third unit of capacity in the world;
-* **a full storage is not carried away** (`station.take`): otherwise "take
-  the furniture" would become a way to carry a ton of cargo in the pocket.
+* **a full storage is not taken down** (`station.take`): the pick-up weighs
+  the chest and not what is in it, so a full one would leave in the hands
+  with a ton nobody weighed. That D-278 also calls a lying chest cargo rather
+  than a storage this module does not yet enforce -- `_allowed` never asks
+  `installed`, and the same ton goes round through drop-fill-pick (OQ-129).
 """
 
 from __future__ import annotations
@@ -119,7 +122,7 @@ async def insides(session: AsyncSession, chests: Sequence[Item]) -> dict[uuid.UU
 
     An empty chest has no inside and is simply absent from the answer. Whoever
     walks a yard full of chests asks this: the reach of a work does it at every
-    forecast (D-305), and once per role of a pot on top of that.
+    forecast (D-315), and once per role of a pot on top of that.
     """
     if not chests:
         return {}
@@ -312,6 +315,56 @@ async def surface_of(session: AsyncSession, node: Node, indoors: bool | None) ->
     return inside
 
 
+async def require_room(
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    node: Node,
+    type_key: str,
+    quantity: float,
+    *,
+    indoors: bool | None = None,
+    spare_indoors: float = 0.0,
+) -> bool:
+    """Room on the node's surface for this much of this thing (D-192). True -- indoors.
+
+    One door for the two ways a thing comes to lie here: out of the hands
+    (`drop`) and off its stand (`station.take`). What stands pays for its
+    place by slots and is outside this budget (D-278), so a machine taken
+    down arrives on the surface as new weight and is weighed like any cargo.
+
+    `spare_indoors` is the metres the same move gives back **on the floor**
+    before the thing lies down: the place a machine being taken down still
+    holds while it is asked about. Without it a house of exactly one place
+    could never take its only machine down -- the thing would be measured
+    against a floor its own slot fills. Out on the ground there is nothing
+    to give back: the yard counts only what lies (D-244), and a machine
+    standing on a vein was never charged to it.
+    """
+
+    inside = await surface_of(session, node, indoors)
+    area = (
+        await estate.space(session, constants, node)
+        if inside
+        else await estate.yard(session, constants, node)
+    )
+    #: The surface's own reading clamps at nought, and an overfull floor is a
+    #: state the world reaches without this door (D-265: what falls, falls
+    #: anyway). Clamping **before** the place is given back would draw a whole
+    #: free slot on a floor that is metres short; the honest remainder is
+    #: counted first and squared with nought after.
+    free = max(0.0, area["area"] - area["used"] + (spare_indoors if inside else 0.0))
+    needed = gear.mass_of(catalog, type_key, quantity) / constants[R.BUILD_FLOOR_PER_M2]
+    if needed > free:
+        raise NoRoom(
+            key="storage-no-room",
+            inside="true" if inside else "false",
+            free=free,
+            needed=needed,
+        )
+    return inside
+
+
 async def drop(
     session: AsyncSession,
     constants: Constants,
@@ -348,20 +401,9 @@ async def drop(
     if qty <= 0:
         raise StorageError(key="storage-nothing-to-put")
 
-    inside = await surface_of(session, node, indoors)
-    area = (
-        await estate.space(session, constants, node)
-        if inside
-        else await estate.yard(session, constants, node)
+    inside = await require_room(
+        session, constants, catalog, node, item.type_key, qty, indoors=indoors
     )
-    needed = gear.mass_of(catalog, item.type_key, qty) / constants[R.BUILD_FLOOR_PER_M2]
-    if needed > area["free"]:
-        raise NoRoom(
-            key="storage-no-room",
-            inside="true" if inside else "false",
-            free=area["free"],
-            needed=needed,
-        )
 
     yard = await world.node_container(session, node)
     put_down = await world.move_stack(session, item, yard, qty, outdoors=not inside)

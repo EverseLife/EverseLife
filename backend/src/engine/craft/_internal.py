@@ -44,7 +44,7 @@ from src.engine.craft.quality import (
     spread_of,
     waste_share,
 )
-from src.engine.world import body_container, has_place, node_yard
+from src.engine.world import BIOPRINTER, body_container, has_place, node_yard, station_names
 from src.models.craft import CraftBatch
 from src.models.identity import Body, BodyState, Knowledge, KnowledgeKind
 from src.models.inventory import Item
@@ -97,6 +97,25 @@ async def _prepare(
     if proc.needs_recipe and not await _knows(session, body, proc.output):
         raise NotLearned(key="craft-not-learned", recipe=proc.output)
 
+    #: A station built in place stands where it is made (D-268), so making a
+    #: bioprinter in a city **is** putting one up there, and the door it must
+    #: pass is the same one (D-312). Asked before the work rather than after:
+    #: twenty hours and two steel frames are not a thing to spend on a refusal.
+    if proc.output in station_names(BIOPRINTER):
+        from src.engine import station as gate  # noqa: PLC0415 -- lazy: cycle with station
+
+        where = await session.get(Node, body.node_id)
+        if where is None:  # pragma: no cover -- a body without a node is a bug
+            raise CraftError(key="craft-body-off-node")
+        await gate.require_printer_room(session, body, where)
+        #: And one at a time: the door is asked once for the batch, so a batch
+        #: of two would pass it once and stand two (D-312). Outside a city
+        #: nothing is refused -- there a printer is just a machine.
+        from src.engine import city as town  # noqa: PLC0415 -- lazy: cycle with city
+
+        if units > 1 and await town.of_node(session, where) is not None:
+            raise CraftError(key="craft-one-printer-at-a-time")
+
     #: A knowledge carrier is written by whoever knows the recipe (D-209): the
     #: name of what goes onto it is part of the request, and it must be in the
     #: master's own head -- a carrier is a copy, not a source.
@@ -134,7 +153,7 @@ async def _prepare(
 
     #: Which stacks feed the batch is the master's choice (D-058): by tier per
     #: input, or worst first when nothing is said. Where they lie is `reach`
-    #: (D-305): the pocket, one's own convoy, and the place where it is ours.
+    #: (D-315): the pocket, one's own convoy, and the place where it is ours.
     stock = await _stock(session, body, proc.inputs, tiers=_tiers_by(catalog, tiers), lock=lock)
     if proc.output in carrier_names(catalog):
         return await _prepare_write(
@@ -455,7 +474,7 @@ async def _tool_items(
 ) -> list[Item]:
     """The tool is carried along and takes part in the quality ceiling.
 
-    In the **hands**, and the wider reach of D-305 does not touch this: a tool
+    In the **hands**, and the wider reach of D-315 does not touch this: a tool
     is held while the work goes and wears by it, so it is a thing the body
     carries, not a material the place gives up. A chest full of hammers is a
     chest, not a hand.
@@ -506,7 +525,7 @@ async def _stock(
     is touched, and too little of the chosen tier is a refusal, not a silent
     fallback to worse -- the choice was made for a reason (D-058).
 
-    **Where it looks** is `engine.reach` and nowhere else (D-305): the pocket
+    **Where it looks** is `engine.reach` and nowhere else (D-315): the pocket
     and the vessels in it, one's own convoy, and -- where this body may dispose
     of the place -- the floor, the yard and the chests standing here. One door
     for every work that gathers materials, so a new one gets the rule rather
@@ -533,6 +552,7 @@ async def _stock(
     locking the picks second would lock rows chosen off numbers already stale.
     """
     from src.engine import (  # noqa: PLC0415 -- lazy: breaks craft -> reach -> station -> craft and craft -> market -> craft
+        gear,
         market,
         reach,
     )
@@ -584,7 +604,12 @@ async def _stock(
                 if market.tier_of(constants, None if item.quality is None else float(item.quality))
                 == tier
             ]
-        out[name] = kept
+        #: What is worn is not material (D-305). This picks stacks by name and
+        #: worst-first, exactly as the counter does, so without the rule an
+        #: invention of "one backpack" would take the one on the master's back
+        #: and a failed one would burn it. The third and last stack-picker in
+        #: the world; the other two are `world.move_stack` and `market._stacks`.
+        out[name] = [item for item in kept if not await gear.is_worn(session, item)]
     return out
 
 

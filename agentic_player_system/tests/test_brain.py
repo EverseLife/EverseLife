@@ -315,6 +315,9 @@ def test_observation_is_a_digest_with_changes_and_the_whole_look_every_few_turns
     text, mode = observe.observation(first, second, full=False, packed="x" * 5000)
     assert mode == "delta"
     assert "деньги 95" in text and "Сумка (2)" in text
+    #: Worn gear left `inventory` for `carry.equipped` (D-305): without a line
+    #: of its own the agent would carry an exoskeleton it never knew it had.
+    assert "Надето:" not in text, "нечего надевать — нечего и говорить"
     #: The shape of `look` after D-226: stations are the things standing here,
     #: citizenship lives in `city`, and the ways out are named in the digest.
     assert "Станции здесь: Биопринтер [bioprinter]" in text
@@ -327,6 +330,34 @@ def test_observation_is_a_digest_with_changes_and_the_whole_look_every_few_turns
     #: A diff no shorter than the whole thing is pointless: show the whole thing.
     text, mode = observe.observation(first, second, full=False, packed="{}")
     assert mode == "full"
+
+
+def test_digest_names_what_is_worn() -> None:
+    """Gear stands apart from the sack on the wire since D-305, and the digest
+    keeps it: an agent that cannot see its pack cannot take it off or mend it."""
+    from aps import observe
+
+    names.install({"goods": {"exoskeleton": "Экзоскелет", "bread": "Хлеб"}})
+    look = {
+        "look": {
+            "identity": "Марта",
+            "money": "120",
+            "body": {"stamina": 90.0, "sleeping_since": None},
+            "node": {"name": "Ядро", "key": "terra.capital.core"},
+            "carry": {
+                "load": 13.0,
+                "capacity": 130.0,
+                "equipped": {"frame": {"id": "1", "goods": "exoskeleton", "amount": 1}},
+            },
+            "inventory": [{"goods": "bread", "amount": 2}],
+            "doings": [],
+            "travel": None,
+            "clock": {"now": "1"},
+        }
+    }
+    text, _ = observe.observation(None, look, full=True, packed="{}")
+    assert "Надето: Экзоскелет [exoskeleton]" in text
+    assert "Сумка (1)" in text, "надетое не считается за содержимое сумки"
 
 
 def test_digest_says_whose_the_ground_is() -> None:
@@ -427,6 +458,47 @@ async def _plan(state, db, message) -> dict:
 '''
     )
     assert by_helper["craft.plan"]["keys"] == ["output", "units"]
+    #: A parser that hands the request on in its turn: the batch's shape was
+    #: split out of `_craft_request` into `_craft_shape`, and every key but
+    #: `units` fell out of the reference the same day (CI, 2026-09-04).
+    chained = extract(
+        '''
+def _craft_shape(message):
+    return goods_key(message["output"]), _optional_uuid(message.get("tool"))
+
+
+def _craft_request(message):
+    return _craft_shape(message), float(message.get("units", 1))
+
+
+@command("craft.start")
+async def _start(state, db, message) -> dict:
+    """Start a batch."""
+    shape, units = _craft_request(message)
+    return {"batch": [shape, units]}
+'''
+    )
+    assert chained["craft.start"]["keys"] == ["units", "output", "tool"]
+    assert chained["craft.start"]["ids"] == ["tool"]
+    #: A parser that calls itself, a pair that call each other, and a name the
+    #: map has never heard of: a chain is followed, not fallen into.
+    circular = extract(
+        '''
+def _one(message):
+    return _two(message), message["first"]
+
+
+def _two(message):
+    return _one(message), message["second"]
+
+
+@command("thing.take")
+async def _take(state, db, message) -> dict:
+    """Take a thing."""
+    return {"took": [_one(message), _gone(message)]}
+'''
+    )
+    assert circular["thing.take"]["keys"] == ["first", "second"]
     #: The parser may live in a neighbouring module, or in the engine.
     borrowed = extract(
         '''
@@ -969,6 +1041,18 @@ def test_headline_keeps_the_half_that_tells_commands_apart() -> None:
     )
     long = commands.headline("Do " + "very " * 40 + "much")
     assert len(long) <= commands.HEADLINE_LIMIT + 1 and long.endswith("…")
+    #: A docstring is prose wrapped to the width of the source: `ship.dock`
+    #: broke `(D-289, wave 3)` over two lines, and the half of the pointer
+    #: left on the first one rode into every prompt of every turn.
+    wrapped = commands.headline(
+        "Give this hull's consent to dock with the hull it holds on to (D-289,\n"
+        "    wave 3). With the other commander's consent already given the two\n"
+        "    are joined connector to connector."
+    )
+    assert wrapped == "Give this hull's consent to dock with the hull it holds on to"
+    #: The wrap is read back, the blank line is not: a second paragraph is a
+    #: second thought and stays out of the reference.
+    assert commands.headline("Name a ship\n\n    Costs nothing.") == "Name a ship"
 
 
 async def test_arguments_cannot_replace_the_command_in_the_envelope() -> None:

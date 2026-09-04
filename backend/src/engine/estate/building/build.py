@@ -409,7 +409,7 @@ async def construct(
 
     needed = bill(constants, footprint=area, floors=floors, kind=kind)
     #: Which stacks go into the wall is the builder's choice by tier (D-058);
-    #: where they lie is the reach of the hands on their own plot (D-305).
+    #: where they lie is the reach of the hands on their own plot (D-315).
     stock = await craft._stock(  # noqa: SLF001
         session, body, tuple(needed), tiers=tiers, lock=True
     )

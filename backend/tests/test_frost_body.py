@@ -226,6 +226,28 @@ async def test_the_suit_multiplies_the_reserve(
     )
 
 
+async def test_a_suit_in_a_chest_warms_nobody(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Worn is the hands, not the slot alone (D-305): a coat the world took --
+    a death, a collapse, a sale -- stops multiplying the reserve at once."""
+    node, yard = await _town(session)
+    body = await _dweller(session, yard)
+    bare = await frost.limit_of(session, constants, catalog, body)
+
+    pocket = await world.body_container(session, body)
+    suit = await world.grant_item(session, pocket, SUIT, quality=60, origin="тест")
+    await gear.equip(session, constants, catalog, body, suit)
+    assert await frost.limit_of(session, constants, catalog, body) > bare
+
+    #: What a collapse or a demolition does: the thing changes place, and
+    #: nobody asks the slot.
+    suit.container_id = (await world.node_container(session, yard)).id
+    await session.flush()
+
+    assert await frost.limit_of(session, constants, catalog, body) == pytest.approx(bare)
+
+
 async def test_a_warmer_adds_hours_and_is_gone(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:

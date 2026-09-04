@@ -579,7 +579,7 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
         #: Whether this one may reach the floor at all: everybody inside may.
         "open": await access.may_enter(db, node, identity.id),
         #: Whose the place is -- the window says it in words, the words differ
-        #: for the holder and for a guest, and since D-305 the bench counts its
+        #: for the holder and for a guest, and since D-315 the bench counts its
         #: materials by this flag. So it is `may_build` and nothing beside it:
         #: the second half used to add "nobody's land", which `may_build`
         #: already answers True for -- except on a storey of somebody else's
@@ -599,26 +599,38 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
             "space": open_air,
             "things": [thing for thing in shown if thing["id"] in outside],
         }
-    seen["inventory"] = await _things(db, constants, await world.body_container(db, body))
+    #: The hands are what may be disposed of, and what is worn may not (D-305):
+    #: it leaves this list for the gear block below, and comes back to it when
+    #: it is taken off. Serialised once for both -- the same walk over makers
+    #: and cultivars.
+    worn = await gear.equipped(db, body)
+    at_hand = await _things(db, constants, await world.body_container(db, body))
+    on_body = {str(thing.id): slot for slot, thing in worn.items()}
+    seen["inventory"] = [thing for thing in at_hand if thing["id"] not in on_body]
     cell = await market.stall(db, node, identity.id, create=False)
     seen["stall"] = [] if cell is None else await _things(db, constants, cell)
     #: Carried load: how much is carried, how much can be, and what is worn
     #: (D-146). The limit is why wagons exist, and the player must see it as a number.
-    worn = await gear.equipped(db, body)
+    #: One reading of the slots for all three answers: `load_of` and `capacity`
+    #: would each go back for them, and this is the hottest read in the game.
+    #: `worn` is read further up, where the list of things is split by it --
+    #: so the slots are read once for the split and the load together.
+    carried = await gear.carried_mass(db, current_catalog(), body)
+    #: Worn things come whole rather than as "id and name" (D-225): out of the
+    #: list of things, this is the only place they are said at all, and the
+    #: block shows their mass and their wear like any other row.
     seen["carry"] = {
-        "load": round(await gear.load_of(db, constants, current_catalog(), body), 2),
-        "capacity": round(await gear.capacity(db, constants, current_catalog(), body), 2),
+        "load": round(gear.packed(constants, current_catalog(), worn, carried), 2),
+        "capacity": round(await gear.capacity(db, constants, current_catalog(), body, worn), 2),
         "slots": list(current_catalog().recipes.gear_slots),
-        "equipped": {
-            slot: {"id": str(thing.id), "goods": thing.type_key} for slot, thing in worn.items()
-        },
+        "equipped": {on_body[thing["id"]]: thing for thing in at_hand if thing["id"] in on_body},
     }
     #: Convoy: what we are harnessed to, what it carries and how much still fits
     #: (D-157). Without this the hands limit is a dead end: the player must see
     #: what gets around it.
     seen["convoy"] = await transport.view(db, constants, current_catalog(), body)
     if seen["convoy"] is not None:
-        #: The hold in the same rows as the pocket and the floor (D-305): the
+        #: The hold in the same rows as the pocket and the floor (D-315): the
         #: window counts what feeds a batch off what it was shown (D-225), and
         #: a batch reaches into one's own hold -- so the hold needs the tier,
         #: the mark and a vessel's fill, not four bare numbers.

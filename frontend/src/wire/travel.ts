@@ -42,7 +42,7 @@ export type Convoy = {
   speed_k: number;
   heavy: boolean;
   /** The hold, in the rows every list of things has: a batch reaches into
-   *  one's own hold (D-305), so the window counts it like the pocket -- with
+   *  one's own hold (D-315), so the window counts it like the pocket -- with
    *  the tier, the mark and, for a vessel, what is poured into it (D-230). */
   cargo: Thing[];
 };

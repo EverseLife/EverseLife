@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Nurlan Urazkulov
 
-"""How far the hands reach when a work gathers its materials (D-305).
+"""How far the hands reach when a work gathers its materials (D-315).
 
 Until now they reached into one place: the body's own pocket, and since D-230
 the vessels lying in it. Everything else in the node did not exist for the
@@ -105,7 +105,7 @@ class Reach:
 async def at_work(
     session: AsyncSession, constants: Constants, catalog: Catalog, body: Body
 ) -> Reach:
-    """What this body's hands reach while it works where it stands (D-305).
+    """What this body's hands reach while it works where it stands (D-315).
 
     Asked once per command and remembered (`db.base.remember`): a pot fills
     five roles and asks five times, and the answer walks the yard, the chests

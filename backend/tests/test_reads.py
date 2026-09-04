@@ -136,6 +136,73 @@ async def test_look_counts_the_polls_without_opening_an_account(
     assert await session.scalar(select(func.count()).select_from(LedgerAccount)) == before
 
 
+async def test_look_at_a_city_plot_measures_nothing(
+    session: AsyncSession, factory: async_sessionmaker[AsyncSession], catalog
+) -> None:
+    """The plot screen shows the day's land tax, and the tax wants the distance
+    to the city's printer (D-220). That distance is a cache, and filling it
+    meant writing a row for every plot of the city -- from inside a command
+    declared readonly. On a world nobody had measured yet, which is every world
+    the moment it is seeded, `look` therefore wrote on its first call and the
+    guard killed it; in production the guard only warns, so the write went
+    through in silence.
+
+    The cache is the tick's business now (`estate.measure_cities`), and the
+    answer is the same either way: the number is worked out afresh while it is
+    cold. Both halves are checked here -- the read leaves the columns empty,
+    and says the same tax the measured city says.
+    """
+    from src.api.commands import look as api
+    from src.engine import city as town
+    from src.engine import estate, travel
+    from src.models.world import Node, Surface
+
+    stamp = uuid.uuid4().hex[:8]
+    planet = await world.create_node(
+        session, f"terra.{stamp}", "Терра", area_m2=1, layer=Layer.SPACE
+    )
+    delegate = await world.create_node(
+        session, f"terra.tax.{stamp}", "Мера", area_m2=1, layer=Layer.PLANET, parent=planet
+    )
+    core = await world.create_node(
+        session, f"terra.tax.{stamp}.core", "Ядро", area_m2=100, parent=delegate
+    )
+    #: The printer is what distance is counted from: without one the city has
+    #: no centre and never walks the graph at all.
+    yard = await world.node_container(session, core)
+    await world.grant_item(session, yard, world.BIOPRINTER, quality=60, origin="тест")
+    plot = await world.create_node(
+        session, f"terra.tax.{stamp}.lot", "Участок", area_m2=100, parent=delegate
+    )
+    await travel.connect(session, core, plot, base_seconds=30, surface=Surface.PAVED)
+    city = await town.found(session, catalog, delegate, f"Мера-{stamp}")
+    for node in (core, plot):
+        node.owner_city_id = city.id
+    await session.flush()
+
+    identity = await world.create_identity(session, f"Житель-{stamp}")
+    await world.print_body(session, identity, plot)
+    await session.commit()
+
+    assert plot.center_steps is None, "город ещё никто не мерил"
+
+    async with factory() as db, db.begin(), _writes_forbidden(db):
+        seen = (await api._look({"identity_id": identity.id}, db, {"cmd": "look"}))["look"]
+    cold = seen["node"]["tax"]
+
+    await session.refresh(plot)
+    assert plot.center_steps is None, "чтение не пишет: мера осталась неснятой"
+
+    #: And the tick takes the measuring on itself -- one walk for the city.
+    assert await estate.measure_cities(session) == 1
+    await session.commit()
+    assert (await session.get(Node, plot.id)).center_steps == 1
+
+    async with factory() as db, db.begin(), _writes_forbidden(db):
+        seen = (await api._look({"identity_id": identity.id}, db, {"cmd": "look"}))["look"]
+    assert seen["node"]["tax"] == cold, "измеренный город берёт тот же налог"
+
+
 async def test_look_gives_the_city_no_channel(
     session: AsyncSession, factory: async_sessionmaker[AsyncSession], constants, catalog
 ) -> None:
@@ -303,7 +370,7 @@ async def _forecaster(session: AsyncSession, name: str) -> uuid.UUID:
     **Harnessed to an empty wagon**, and that is not decoration. A hold is made
     on first need, and `harness` does not make one -- so a body pulling nothing
     is exactly the world in which a read can furnish a hold from a glance. The
-    reach of a work walks the hold at every forecast (D-305) and the window
+    reach of a work walks the hold at every forecast (D-315) and the window
     lists its cargo at every `look`: with no such body in this file the whole
     family went unswept, and the leak was found by a reviewer rather than here.
     """

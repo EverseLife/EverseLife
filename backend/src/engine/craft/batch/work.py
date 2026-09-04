@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import occupation, travel, wear
+from src.engine import gear, occupation, travel, wear
 from src.engine.craft import power
 from src.engine.craft._base import (
     BENCHLESS,
@@ -215,7 +215,7 @@ async def start(
         tiers=tiers,
         #: The stacks are taken for the transaction here and not in the
         #: forecast: what feeds a batch may lie in a chest or a hold two
-        #: people reach into (D-305), and the write-off below is a write.
+        #: people reach into (D-315), and the write-off below is a write.
         lock=True,
     )
     forecast = ready.plan
@@ -350,7 +350,7 @@ async def cook(
     #: spent and in one id order (`stock.py`). The roles are filled one at a
     #: time below, and five locks taken one at a time are five chances for two
     #: pots over one chest to wait on each other: the meat first for one cook,
-    #: the fat first for the other (D-305).
+    #: the fat first for the other (D-315).
     await _stock(session, body, sorted(set(laid.values())), lock=True)
 
     scale = constants[R.QUALITY_SCALE]
@@ -512,6 +512,10 @@ async def _work_on(
     await occupation.require_free(session, body, besides=frozenset({occupation.CRAFT}))
     if item.container_id != inventory.id:
         raise CraftError(key="craft-item-not-in-hands")
+    #: A repair leaves the thing where it is and is done without taking it off
+    #: (D-305); taking it apart ends it, and that comes off first.
+    if kind is BatchKind.RECYCLE:
+        await gear.require_off(session, item)
 
     proc = procedure(catalog, item.type_key)
     station = await _station_item(session, body, proc)

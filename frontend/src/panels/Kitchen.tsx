@@ -54,7 +54,7 @@ export function Kitchen({ look }: Omit<Props, "busy" | "act">) {
   //: into the stew, the rest into the salting.
   const [tiers, setTiers] = useState<Record<string, string | null>>({});
 
-  //: Everything the pot reaches (D-305): the pocket, one's own hold and -- on
+  //: Everything the pot reaches (D-315): the pocket, one's own hold and -- on
   //: one's own place -- the floor, the yard and the chests standing here.
   const athand = reachOf(look, book);
   //: Products go into a role: what is edible is decided by data, not the client.
@@ -84,7 +84,7 @@ export function Kitchen({ look }: Omit<Props, "busy" | "act">) {
             <span className="note">{t("ui-kitchen-whole")}</span>
           </div>
 
-          {/* Where the pot's products come from (D-305): the words are the
+          {/* Where the pot's products come from (D-315): the words are the
               same in every window a thing is chosen for work. */}
           {ROLES.map((role) => (
             <div className="row" key={role} title={t("ui-work-reach")}>

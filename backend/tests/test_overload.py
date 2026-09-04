@@ -27,7 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from conftest import _slow
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import alpha, craft, gear, jobs, storage, world
+from src.engine import alpha, craft, gear, jobs, overload, storage, world
 from src.models.estate import Building
 from src.models.event import Event, EventKind
 from src.models.identity import Body
@@ -35,6 +35,7 @@ from src.models.inventory import Item
 from src.models.world import Node
 from src.units import amount_float
 
+SACK = "sack"
 STEEL = "steel"
 ORE = "iron_ore"
 INGOT = "iron_ingot"
@@ -450,8 +451,12 @@ async def test_a_print_past_the_limit_falls_in_whole_pieces(
     assert kept == int(kept) and fell == int(fell), "штучное падает целыми штуками"
     assert fell > 0
     #: One more ingot would not have fit: the hands are as full as they may be.
+    #: Weighed as the load would be, not as it is plus a kilogram -- readings of
+    #: a load do not add up once a pack bends them (`gear.carried_mass`).
     unit = gear.mass_of(catalog, STEEL, 1)
-    assert await gear.load_of(session, constants, catalog, body) + unit > limit
+    worn = await gear.equipped(session, body)
+    mass = await gear.carried_mass(session, catalog, body) + unit
+    assert gear.packed(constants, catalog, worn, mass) > limit
 
     said = await _told(session, identity.id, EventKind.ITEM_FELL)
     assert len(said) == 1 and said[0].payload["roofed"] is False
@@ -467,6 +472,43 @@ async def test_a_measured_thing_falls_by_the_excess(
     assert await gear.load_of(session, constants, catalog, body) == pytest.approx(limit, abs=1e-3)
     total = await _held(session, body, ORE) + await _lying(session, node, ORE)
     assert total == pytest.approx(300)
+
+
+async def test_what_falls_is_matter_under_a_roomy_pack(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """What falls is measured in matter, not in what the body feels.
+
+    A pack roomier than the whole limit bends the two apart: inside its
+    capacity a kilogram put down lightens the body by `factor` of itself, so
+    dropping the felt excess would leave the hands over the limit still. No
+    pack in the vault reaches there -- every `capacity * factor` is under
+    `inventory.carry_mass`, and `test_gear` keeps a tripwire on it -- so the
+    pack here is doctored on purpose: the door has to be right for the pack
+    that gets written, not only for the five that are.
+    """
+    node, _, body = await _ground(session)
+    roomy = Constants(
+        {**constants.raw(), "inventory.pack": {SACK: {"capacity": 100, "factor": 0.5}}},
+        source="тест",
+    )
+    pocket = await world.body_container(session, body)
+    sack = await world.grant_item(session, pocket, SACK, amount=1, quality=60, origin="тест")
+    await gear.equip(session, roomy, catalog, body, sack)
+    #: Seventy kilograms of steel: the body feels thirty-five of them, five over
+    #: the limit -- and five kilograms put down would leave it feeling 32.5.
+    steel = await world.grant_item(session, pocket, STEEL, amount=70, quality=60, origin="тест")
+
+    fell = await overload.settle_load(session, roomy, catalog, body, [steel])
+
+    limit = await gear.capacity(session, roomy, catalog, body)
+    assert fell > 0
+    assert await gear.load_of(session, roomy, catalog, body) <= limit + 1e-6, (
+        "упал прочувствованный излишек вместо материи"
+    )
+    assert await _held(session, body, STEEL) + await _lying(session, node, STEEL) == pytest.approx(
+        70
+    ), "материя не пропала"
 
 
 async def test_the_yield_of_a_batch_falls_at_the_bench(
@@ -531,7 +573,10 @@ async def test_two_prints_at_once_share_one_pair_of_hands(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Without the row lock both arrivals read empty hands and both keep a load."""
-    _slow(monkeypatch, gear, "load_of")
+    #: On the path the arrival takes: `settle_load` reads the matter in the
+    #: hands, not the load through the pack, and a delay hung on a function
+    #: nobody calls widens no window at all.
+    _slow(monkeypatch, gear, "carried_mass")
     node, _, body = await _ground(session)
     body_id, node_id = body.id, node.id
     await session.commit()

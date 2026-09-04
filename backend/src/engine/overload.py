@@ -125,8 +125,8 @@ async def shed(
     from src.engine import oxygen  # noqa: PLC0415 -- lazy: breaks oxygen -> gear -> overload
 
     pocket = await world.body_container(session, body)
-    worn = {thing.id for thing in (await gear.equipped(session, body)).values()}
-    keep = worn | set(spare)
+    on_body = await gear.equipped(session, body)
+    keep = {thing.id for thing in on_body.values()} | set(spare)
     node = await session.get(Node, body.node_id) if body.node_id is not None else None
     contents = list(await world.contents(session, pocket))
     fills = await storage.contents_of(
@@ -154,15 +154,17 @@ async def shed(
     #: and leave the body over the limit anyway, every tick and for ever. So
     #: nothing is taken and the state is shouted: gear a bare pair of hands
     #: cannot hold is a question for the vault's numbers (D-065, OQ-128).
-    carries = await gear.load_of(session, constants, catalog, body)
-    limit = await gear.capacity(session, constants, catalog, body)
-    stuck = carries - sum(weights.values())
-    if stuck > limit + floor + DUST:
+    load = await gear.carried_mass(session, catalog, body)
+    limit = await gear.capacity(session, constants, catalog, body, on_body)
+    #: Measured the way the fall measures: matter, not the felt load, so that a
+    #: pack does not make the two answers different kilograms (`gear.matter_over`).
+    stuck = gear.matter_over(constants, catalog, on_body, load - sum(weights.values()), limit)
+    if stuck > floor + DUST:
         log.error(
-            "nothing to shed for body %s: %.1f kg cannot fall of %.1f kg allowed",
+            "nothing to shed for body %s: %.1f kg would still be over %.1f kg allowed",
             body.id,
             stuck,
-            limit + floor,
+            limit,
         )
         return 0.0
     return await _fall(session, constants, catalog, body, carried, weights, floor=floor)
@@ -218,9 +220,14 @@ async def _fall(
     door let in stays where it is (D-306).
     """
     await session.execute(select(Body.id).where(Body.id == body.id).with_for_update())
-    carries = await gear.load_of(session, constants, catalog, body)
-    limit = await gear.capacity(session, constants, catalog, body)
-    excess = carries - limit - floor
+    worn = await gear.equipped(session, body)
+    load = await gear.carried_mass(session, catalog, body)
+    carries = gear.packed(constants, catalog, worn, load)
+    limit = await gear.capacity(session, constants, catalog, body, worn)
+    #: Matter, not the felt excess: things fall by what they weigh on the
+    #: ground, and under a pack the two are different kilograms. `floor` is
+    #: measured the same way (`gear._over`), so the two subtract honestly.
+    excess = gear.matter_over(constants, catalog, worn, load, limit) - floor
     if excess <= DUST:
         return 0.0
 

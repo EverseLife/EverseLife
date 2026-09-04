@@ -182,7 +182,7 @@ estate-demolish-blocked = { $why }
 
 # Что мешает сносу (D-197). Ключи, а не фразы: этот список читают и отказ,
 # и окно, гасящее кнопку, — оба на языке того, кто смотрит.
-estate-blocker-equipment = в здании стоит оборудование ({ $count }): рабочие станции и мебель забирают до сноса — после него им негде стоять
+estate-blocker-equipment = в здании стоит оборудование ({ $count }): рабочие станции и мебель снимают до сноса — после него им негде стоять
 estate-blocker-overloaded = на полу { NUMBER($floor, minimumFractionDigits: 1, maximumFractionDigits: 1) } кг и во дворе { NUMBER($yard, minimumFractionDigits: 1, maximumFractionDigits: 1) } кг, а участок держит { NUMBER($holds, minimumFractionDigits: 1, maximumFractionDigits: 1) } кг: лишнее увезите или уложите в сундук
 estate-blocker-building = здесь идёт стройка: сначала дождитесь её конца
 estate-blocker-demolishing = снос уже идёт: второй раз его не заказывают

@@ -76,7 +76,7 @@ ui-tier-title = which quality of “{ $goods }” to put to use
 # The row of one tier in the list: how much of it is at hand, and across what quality span.
 ui-tier-stock = { $tier } · { $amount } · qual. { $span }
 
-## The reach of a work: where it takes its materials from (D-305).
+## The reach of a work: where it takes its materials from (D-315).
 
 ui-work-reach = A work takes its materials from the hands, from your own convoy and — where the place is yours — off the floor, the yard and the chests standing here
 
