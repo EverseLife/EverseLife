@@ -301,5 +301,14 @@ class Vein(Base):
     #: -- the first session starts it from richness. Never leaves the API.
     roof: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
 
+    #: HIDDEN. The working's own measure (D-302): its starting roof, its
+    #: timber ceiling and the lie its sign tells are all drawn from this and
+    #: differ from the computed ones by up to `mine.roof_spread`. Without it
+    #: the roof was arithmetic -- richness goes out with `look`, the starting
+    #: formula and its constants are public, and a support landed on the
+    #: public ceiling exactly. **Never leaves the server**, in any form: a salt
+    #: on the wire is no salt.
+    roof_salt: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False, default=uuid.uuid4)
+
     created_at: Mapped[datetime] = created_column()
     depleted_at: Mapped[datetime | None] = mapped_column(nullable=True)

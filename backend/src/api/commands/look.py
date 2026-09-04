@@ -631,7 +631,7 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
         .first()
     )
     seen["mining"] = (
-        None if open_ is None else _sight(open_, await mining.sight(db, constants, open_))
+        None if open_ is None else _sight(open_, await mining.sight(db, constants, open_), said)
     )
     #: The penal face is seen only by whoever the prison holds (D-174, D-176):
     #: prison veins are not shown to outsiders, nor is the prison printer.

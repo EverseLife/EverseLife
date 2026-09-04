@@ -87,6 +87,18 @@ class NoTimber(MiningError):
     """No support. It costs timber and rope -- that is the whole point of the choice."""
 
 
+class RoofBuried(MiningError):
+    """The working is under its own rubble: there is no roof to prop yet (D-301).
+
+    A cave-in leaves the stability below nought, and a support set there would
+    lift the **rubble** -- a timber buying `mine.roof_per_timber` of it, some
+    four swings' worth, and two of them opening the face again without the
+    working ever starting over. D-301 gives the clearing to swings and prices
+    it in them; the support is for the roof, and there is no roof until the
+    rubble is out.
+    """
+
+
 class RoofHolds(MiningError):
     """The roof is already at or above what a support can hold it at (D-300).
 
@@ -98,12 +110,12 @@ class RoofHolds(MiningError):
     was the session's own copy; shared, it is the artel's working they spoil,
     and D-188 promises the opposite -- a support set by one holds for all.
 
-    The refusal is free and tells the asker the roof is at or above the cap,
-    which is a public number -- but a support already says more than that and
-    always did: raise a roof anywhere in `[cap - mine.roof_per_timber, cap)`
-    and it lands on the cap **exactly**, so whoever owns one timber knows the
-    one hidden number of the mechanic (D-143) and knows it thereafter by
-    counting swings. That is the vault's question, not this file's (OQ-123).
+    The refusal says the roof is at or above the ceiling -- and since D-302
+    that is no longer a number the player has. The ceiling is the working's
+    own, drawn from a salt that never leaves the server, so "not higher than
+    this working goes" is all a support and its refusal can tell. Before that
+    it told the roof outright: the ceiling was public, and a support raised
+    from anywhere within one timber of it landed on the ceiling **exactly**.
     """
 
 
@@ -146,11 +158,108 @@ def swing_hours(constants: Constants) -> float:
     return constants[R.MINE_ROOF_PER_SWING] / constants[R.MINE_ROOF_START]
 
 
-def starting_roof(constants: Constants, richness: float) -> float:
-    """Richness is paid for with risk: the fatter the vein, the shorter the session."""
+def _own_measure(constants: Constants, vein: Vein, what: str) -> float:
+    """How far this working stands from the computed number, and which way (D-302).
+
+    Drawn from the vein's salt, which never leaves the server, so it is the
+    same for one vein for ever and unguessable from outside. Every quantity
+    that would otherwise name the hidden roof out loud goes through here --
+    the starting stability and the ceiling a support raises to -- each with
+    its own draw off the same salt, so knowing one tells nothing of the other.
+
+    Without it the roof was arithmetic and the sign's lie decoration: `look`
+    gives the vein's richness as a number, `starting_roof` is a public formula
+    over two public constants, `mine.roof_per_swing` is public and a miner
+    counts their own swings. The lie hid nothing from anybody who multiplied.
+    """
+    spread = constants[R.MINE_ROOF_SPREAD]
+    return random.Random(f"{vein.roof_salt}:{what}").uniform(-spread, spread)
+
+
+def _folded(value: float, low: float, high: float) -> float:
+    """A number brought inside `[low, high]` by reflection, not by a clamp.
+
+    A clamp is the obvious way and the wrong one here: it takes every draw
+    that fell outside and stacks it on the bound, so the bound -- a number the
+    player can compute -- becomes the single likeliest value of a quantity
+    that is supposed not to have one. Reflection sends the overshoot back the
+    way it came and leaves the draw continuous.
+
+    Looped, because a value far outside a narrow interval comes back out the
+    other side; with the vault's numbers one turn is always enough, and the
+    loop is there so that a retuning cannot make it not enough.
+    """
+    if high <= low:  # pragma: no cover -- the ceiling is above the cap by construction
+        return low
+    while value < low or value > high:
+        value = low + (low - value) if value < low else high - (value - high)
+    return value
+
+
+def timber_cap(constants: Constants, vein: Vein) -> float:
+    """The stability a support raises this working to, and no higher (D-143, D-302).
+
+    `mine.roof_timber_cap` with the working's own measure on it. Public, the
+    ceiling said the roof out loud: a support raised from anywhere within one
+    timber of it lands **exactly** there, and the number is in
+    `/public/constants`. Shifted per vein, the same support says only "not
+    higher than this working goes".
+
+    On the grid the roof is kept at, because the roof lands on it: written
+    off-grid, a capped roof rounds to the nearest hundredth and can come to
+    rest a hundredth **below** its own ceiling -- and then the next support
+    finds room to raise, spends a timber and buys that hundredth. A ceiling
+    has to be a number the thing it caps can actually reach.
+    """
+    own = constants[R.MINE_ROOF_TIMBER_CAP] + _own_measure(constants, vein, "cap")
+    return float(on_grid(own, ROUND_ROOF))
+
+
+def starting_roof(constants: Constants, vein: Vein) -> float:
+    """Richness is paid for with risk: the fatter the vein, the shorter the session.
+
+    Plus the working's own measure (D-302), so that richness -- which stays a
+    number in `look`, because trade and prospecting need it -- no longer names
+    the roof. Never below what a support could hold this working at: above the
+    ceiling is where an untouched working belongs (D-300), and the clamp keeps
+    the measure from turning a fresh face into one a support may prop.
+    """
     floor = constants[R.MINE_ROOF_TIMBER_CAP]
     ceiling = constants[R.MINE_ROOF_START]
-    return ceiling - (ceiling - floor) * richness / SCALE_MAX
+    computed = ceiling - (ceiling - floor) * float(vein.richness) / SCALE_MAX
+    own = computed + _own_measure(constants, vein, "start")
+    #: Folded back inside the bounds rather than clamped to them. A clamp puts
+    #: every draw that overshot **on** the bound, and a bound is a number the
+    #: player has: at `mine.roof_spread` = 8 that is one working in twenty
+    #: starting at exactly `mine.roof_start`, and one in ten at exactly its
+    #: own ceiling -- known values, in a measure whose whole purpose is that
+    #: there are none (D-302). Folding keeps the draw continuous and keeps the
+    #: two ends of the working's measure independent, which the decision also
+    #: promises. Repeated because a fold can overshoot the other way when the
+    #: bounds sit closer together than the spread.
+    #:
+    #: On the roof's own grid, like the ceiling below it: an untouched working
+    #: is read straight out of here and a shaken one out of the column, and
+    #: the sign's lie is seeded by that number either way (`_noise_of`).
+    return float(on_grid(_folded(own, timber_cap(constants, vein), ceiling), ROUND_ROOF))
+
+
+def rubble_depth(constants: Constants, vein: Vein) -> float:
+    """How deep a cave-in buries this working, in stability (D-301).
+
+    `mine.rubble_swings` swings on a vein of ordinary richness
+    (`mining.rich_threshold`) and proportionally more on a fatter one -- the
+    same line the yield is drawn on, and the same bargain the starting roof
+    makes: richness is paid for with risk, and now with the hours after.
+
+    Said in stability rather than in a count of swings, because clearing is
+    swinging: a swing lifts the rubble by exactly what it would have sagged
+    the roof by, so the working needs no second number and no second column.
+    """
+    swings = (
+        constants[R.MINE_RUBBLE_SWINGS] * float(vein.richness) / constants[R.MINING_RICH_THRESHOLD]
+    )
+    return swings * constants[R.MINE_ROOF_PER_SWING]
 
 
 def roof_of(constants: Constants, vein: Vein) -> float:
@@ -158,7 +267,15 @@ def roof_of(constants: Constants, vein: Vein) -> float:
 
     Stored on the vein and shared by everyone who digs it (D-099): one miner
     shakes the roof -- it is dangerous for the next. An untouched vein has none
-    yet, and its first session starts from richness.
+    yet, and its first session starts from richness and the working's own
+    measure (D-302). Richness is why a rig, which never asks this question,
+    still moves the answer: it eats the vein twice as fast (D-115), and a
+    poorer vein starts a kinder roof. What a rig does not do is have one --
+    the roof is the swing's mechanic, and a machine has no swing (D-304).
+
+    **Below nought the working is not standing but buried** (D-301): the
+    number is what is left of the rubble, and a swing clears it rather than
+    mining.
 
     Read under the lock the caller already holds on the vein, and never
     remembered past the command: the session used to carry a copy taken at
@@ -170,7 +287,7 @@ def roof_of(constants: Constants, vein: Vein) -> float:
     and told them both a sign sixty points off the rock.
     """
     if vein.roof is None:
-        return starting_roof(constants, float(vein.richness))
+        return starting_roof(constants, vein)
     return float(vein.roof)
 
 
@@ -395,7 +512,7 @@ def deplete(constants: Constants, vein: Vein, moment: datetime, extracted_before
         vein.depleted_at = moment
 
 
-def _noise_of(vein_id: uuid.UUID, roof: float) -> random.Random:
+def _noise_of(salt: uuid.UUID, roof: float) -> random.Random:
     """Sign noise bound to the working and its roof, not to who is reading.
 
     Otherwise the sign can be read any number of times in a row, and the
@@ -425,29 +542,28 @@ def _noise_of(vein_id: uuid.UUID, roof: float) -> random.Random:
     (D-099). Seeded by the vein, both give the answer already given: one face,
     one roof, one sign, whoever is standing in it and however many times they
     ask. That is why what comes in here is the working's id and not the
-    session standing at it: the session is the thing that must not reach the
-    seed, so it does not reach this function either.
+    session standing at it -- and since D-302 the working's salt rather than
+    its id: the session is the thing that must not reach the seed, and the id
+    is the thing the client already has.
 
     The roof is formatted to the scale of the column it lives in, so that the
     same roof seeds the same lie before and after a trip through the database
     (`remember_roof` puts it on that grid for the same reason).
 
-    **What this does not close**, and never did: the seed is built from things
-    the client already has -- the vein's id goes out with the node, and
-    `mine.sign_noise` and `mine.sign_bands` are in `/public/constants` -- so a
-    program can try every roof the grid allows, draw the lie each one would
-    tell, and keep the candidates whose sign matches what it was shown. That
-    is not a hole this seed opened; a seed of public parts is a seed anybody
-    can recompute, and the counters it replaced were public too, more so --
-    with those the noise did not depend on the candidate at all, so the band
-    inverted straight into an interval. The vault answers this where it makes
-    the promise: the hidden state "is not protection against scripts (D-109)
-    -- and must not pretend to be". It makes a decision a decision for the
-    person reading the sign; against a program it buys the cost of writing
-    one. Making it more would take a secret the client cannot have -- a salt
-    per working, kept server-side -- and that is a decision, not a formula.
+    **The salt is what makes the lie a lie** (D-302). Seeded by the vein's id,
+    as it was for a day, every part of the seed was already the client's --
+    the id goes out with the node, `mine.sign_noise` and `mine.sign_bands` are
+    in `/public/constants` -- so a program could try every roof the grid
+    allows, draw the lie each one would tell and keep the candidates whose
+    sign matched. Off a salt the client never sees, a candidate roof gives no
+    candidate lie, and there is nothing to sieve.
+
+    What it still does not close is patience: the measure is the working's for
+    life, so a face dug long enough converges on it. Renewing it would take
+    something that moves -- the count of cave-ins the working has lived
+    through, say -- and that is a decision, not a formula.
     """
-    return random.Random(f"{vein_id}:{roof:.{ROUND_ROOF}f}")
+    return random.Random(f"{salt}:{roof:.{ROUND_ROOF}f}")
 
 
 async def _sight(
@@ -456,6 +572,7 @@ async def _sight(
     mining: MiningSession,
     body: Body,
     roof: float,
+    salt: uuid.UUID,
 ) -> Sight:
     """What the player sees, about the roof the caller names.
 
@@ -468,9 +585,12 @@ async def _sight(
 
     The haul is counted through `_session_haul`, which opens no container: a
     look does not write, and this function is on the read path.
+
+    The salt comes in beside the roof, because the lie is the working's and
+    the session is the thing that must not reach the seed (D-302, D-188).
     """
     return Sight(
-        sign=sign_of(constants, roof, _noise_of(mining.vein_id, roof)),
+        sign=sign_of(constants, roof, _noise_of(salt, roof)),
         mined=amount_float(await _session_haul(session, mining)),
         swings=mining.swings,
         timbers=mining.timbers,

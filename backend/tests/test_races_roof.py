@@ -31,7 +31,7 @@ from src.constants import current
 from src.constants import registry as R
 from src.engine import world
 from src.models.identity import Body
-from src.units import amount_float
+from src.units import ROUND_ROOF, amount_float, step
 
 ORE = "iron_ore"
 
@@ -156,6 +156,71 @@ async def test_two_last_swings_at_once_cost_one_cave_in(
         assert again.state is BodyState.ALIVE, "первый обвал щадит, и он здесь один"
 
 
+async def test_two_bodies_digging_one_rubble_out_lift_it_twice(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    constants,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The rubble is the working's too, and two shovels lift it together (D-301).
+
+    A cave-in leaves the stability below nought, and a swing there clears
+    instead of mining -- writing the vein's roof, which is on the same list as
+    money and remainders (CLAUDE.md). Two **different** bodies at one buried
+    working share no row but the vein's, so that is the one they must share:
+    each swing has to lift the rubble the other left, or one of the two turns
+    of shovelling is free and the working opens sooner than it was buried for.
+    The pause is before the vein's lock, so the two provably arrive at it
+    together and the loser reads after the winner's commit.
+    """
+    from src.engine import frost, mining
+    from src.models.mining import MiningSession, Pace
+    from src.models.world import Vein
+
+    #: Asked after the body is locked and before the vein is.
+    _slow(monkeypatch, frost, "drain_multiplier")
+    stamp = uuid.uuid4().hex[:8]
+    node = await world.create_node(session, f"terra.rubble.{stamp}", "Забой", area_m2=500)
+    vein = await world.create_vein(session, node, ORE, richness=60, remaining=100_000)
+    #: Deep enough that neither swing finishes the clearing: what is raced is
+    #: the lifting, not the reopening.
+    buried = -mining.rubble_depth(current(), vein)
+    vein.roof = Decimal(str(buried))
+    faces = []
+    for who in ("Старший", "Подручный"):
+        person = await world.create_identity(session, f"{who}-{stamp}")
+        body = await world.print_body(session, person, node)
+        await world.grant_item(
+            session, await world.body_container(session, body), "stone_pickaxe", origin="тест"
+        )
+        face = MiningSession(body_id=body.id, vein_id=vein.id, pace=Pace.STEADY)
+        session.add(face)
+        faces.append(face)
+    await session.flush()
+    vein_id = vein.id
+    face_ids = [face.id for face in faces]
+    await session.commit()
+
+    async def dig(face_id) -> None:
+        async with factory() as db, db.begin():
+            own = await db.get(MiningSession, face_id)
+            assert own is not None
+            sight = await mining.swing(db, current(), own)
+            assert sight.mined == 0, "завал отдал руду"
+
+    outcome = await asyncio.gather(*(dig(one) for one in face_ids), return_exceptions=True)
+    assert not [one for one in outcome if isinstance(one, BaseException)], outcome
+
+    async with factory() as db:
+        dug = await db.get(Vein, vein_id)
+        assert dug is not None and dug.roof is not None, "две лопаты разобрали весь завал"
+        lifted = float(dug.roof) - buried
+        two = 2 * constants[R.MINE_ROOF_PER_SWING]
+        assert lifted == pytest.approx(two, abs=float(step(ROUND_ROOF))), (
+            f"два удара подняли завал на {lifted} вместо {two}"
+        )
+
+
 async def test_the_support_that_arrived_at_the_ceiling_keeps_its_timber(
     session: AsyncSession,
     factory: async_sessionmaker[AsyncSession],
@@ -190,9 +255,11 @@ async def test_the_support_that_arrived_at_the_ceiling_keeps_its_timber(
     body = await world.print_body(session, who, node)
     pocket = await world.body_container(session, body)
     await world.grant_item(session, pocket, "shaft_support", amount=2, origin="тест")
-    #: Exactly one support below the ceiling, out of the constants: a playtest
-    #: moving `mine.roof_per_timber` must not redden a test about locks.
-    cap = constants[R.MINE_ROOF_TIMBER_CAP]
+    #: Exactly one support below the ceiling, out of the constants and out of
+    #: this working's own measure (D-302): a playtest moving
+    #: `mine.roof_per_timber` or `mine.roof_spread` must not redden a test
+    #: about locks.
+    cap = mining.timber_cap(current(), vein)
     vein.roof = Decimal(str(max(1.0, cap - constants[R.MINE_ROOF_PER_TIMBER])))
     face = MiningSession(body_id=body.id, vein_id=vein.id, pace=Pace.STEADY)
     session.add(face)
@@ -214,7 +281,7 @@ async def test_the_support_that_arrived_at_the_ceiling_keeps_its_timber(
     async with factory() as db:
         propped = await db.get(Vein, vein_id)
         assert propped is not None
-        assert float(propped.roof) == pytest.approx(cap)
+        assert float(propped.roof) == pytest.approx(cap, abs=float(step(ROUND_ROOF)))
         again = await db.get(MiningSession, face_id)
         assert again is not None and again.timbers == 1, f"стоек {again.timbers}, а поднимала одна"
         left = await db.scalar(
@@ -273,7 +340,7 @@ async def test_two_supports_set_at_once_are_two_supports(
     #: ceiling. Written out of the constants rather than as a number, or a
     #: playtest moving `mine.roof_per_timber` reddens a test about locks.
     per_timber = constants[R.MINE_ROOF_PER_TIMBER]
-    start = max(1.0, constants[R.MINE_ROOF_TIMBER_CAP] - 2 * per_timber)
+    start = max(1.0, mining.timber_cap(current(), vein) - 2 * per_timber)
     vein.roof = Decimal(str(start))
     face = MiningSession(body_id=body.id, vein_id=vein.id, pace=Pace.STEADY)
     session.add(face)
@@ -296,8 +363,8 @@ async def test_two_supports_set_at_once_are_two_supports(
         assert again.timbers == 2, f"две стойки — две, а не {again.timbers}"
         propped = await db.get(Vein, vein_id)
         assert propped is not None
-        raised = min(constants[R.MINE_ROOF_TIMBER_CAP], start + 2 * per_timber)
-        assert float(propped.roof) == pytest.approx(raised), (
+        raised = min(mining.timber_cap(current(), propped), start + 2 * per_timber)
+        assert float(propped.roof) == pytest.approx(raised, abs=float(step(ROUND_ROOF))), (
             f"свод поднят на одну стойку из двух: {float(propped.roof)} вместо {raised}"
         )
         left = await db.scalar(

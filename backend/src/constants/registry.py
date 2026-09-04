@@ -97,6 +97,12 @@ MINE_ROOF_START = Num("mine.roof_start")
 MINE_ROOF_PER_SWING = Num("mine.roof_per_swing")
 MINE_ROOF_PER_TIMBER = Num("mine.roof_per_timber")
 MINE_ROOF_TIMBER_CAP = Num("mine.roof_timber_cap")
+#: The working's own measure, hidden (D-302): how far its starting roof and
+#: its timber ceiling stand from the computed ones, either way.
+MINE_ROOF_SPREAD = Num("mine.roof_spread")
+#: What a cave-in leaves behind (D-301): swings without yield, on a vein of
+#: ordinary richness.
+MINE_RUBBLE_SWINGS = Num("mine.rubble_swings")
 MINE_PACE_K = Num("mine.pace_k")
 MINE_SIGN_BANDS = Table("mine.sign_bands")
 MINE_SIGN_NOISE = Num("mine.sign_noise")

@@ -16,7 +16,7 @@ import { groundName } from "../grounds";
 import { forget, learn, Words } from "../locale";
 import { catalogue, coins, exactly } from "../market";
 import { coinsOf } from "../coins";
-import { caveIn } from "../mining";
+import { caveIn, rubbleOut } from "../mining";
 import { lawOption } from "../names";
 import { pollTally, pollThreshold } from "../polls";
 import {
@@ -618,6 +618,30 @@ describe("mining", () => {
 
   it("hears nothing in another kind of news", () => {
     expect(caveIn(collapse({ event: "mining.swing", mined: 0.2 }))).toBeNull();
+  });
+
+  //: A cave-in leaves rubble, and it is dug out for no ore (D-301). The
+  //: window has no other way to know: the sign speaks of the roof, and under
+  //: a rubble it reads as a warning rather than as a shovel.
+  const shovel = (over: Record<string, unknown> = {}) =>
+    ({ event: "mining.rubble", touches: ["mining"], cleared: false, ...over }) as never;
+
+  it("reads a swing that went to the spoil heap", () => {
+    expect(rubbleOut(shovel())).toEqual({ cleared: false });
+  });
+
+  it("reads the swing that finished the clearing", () => {
+    expect(rubbleOut(shovel({ cleared: true }))).toEqual({ cleared: true });
+  });
+
+  //: An older server says nothing about `cleared`, and a missing flag must
+  //: read as "still digging" rather than as "the working is open".
+  it("takes a silent flag for more digging", () => {
+    expect(rubbleOut(shovel({ cleared: undefined }))).toEqual({ cleared: false });
+  });
+
+  it("hears no shovelling in a cave-in", () => {
+    expect(rubbleOut(collapse())).toBeNull();
   });
 });
 
