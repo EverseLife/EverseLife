@@ -36,6 +36,7 @@ mechanic (D-129).
 
 from __future__ import annotations
 
+import uuid
 from decimal import ROUND_FLOOR, Decimal
 
 from sqlalchemy import select
@@ -243,33 +244,40 @@ async def daily_gear_wear(session: AsyncSession, constants: Constants, catalog: 
 
     per_day = constants[R.WEAR_GEAR_PER_DAY]
     modifiers = constants[R.WEAR_ENVIRONMENT_K]
-    gone = 0
-    held = None
+    #: Gathered by body before anything is written. The rows arrive in body
+    #: order above, so this keeps that order, and it buys the look-ahead the
+    #: locking below needs: whether this body loses anything at all today.
+    worn: dict[uuid.UUID, list[tuple[Item, float, uuid.UUID]]] = {}
     for item, planet, identity_id, body_id in rows:
         if not _is_gear(catalog, item.type_key):
             continue
-        if body_id != held:
-            #: **The body first, then what lies in its hands.** Writing wear
-            #: takes the thing's row, and a thing worn through then takes its
-            #: wearer's to settle the load -- so without this the order here
-            #: would be the thing and then the body, against every other
-            #: holder in the world (`overload._fall` takes the body and then
-            #: the stacks it moves). One body's things are adjacent above, so
-            #: this locks each wearer once, in the id order of the query.
-            await session.execute(select(Body.id).where(Body.id == body_id).with_for_update())
-            held = body_id
         #: `wear.environment_k` keys are planet ids since D-251 normalization.
-        environment = modifiers.get(planet.value, 1.0)
-        if await spend(
-            session,
-            constants,
-            item,
-            per_day,
-            environment=environment,
-            cause="wearing",
-            actor_identity_id=identity_id,
-        ):
-            gone += 1
+        worn.setdefault(body_id, []).append((item, modifiers.get(planet.value, 1.0), identity_id))
+
+    gone = 0
+    for body_id, theirs in worn.items():
+        #: **The body first, then what lies in its hands** -- but only for a
+        #: body something ends on today. Writing wear takes the thing's row,
+        #: and a thing worn through then takes its wearer's to settle the load,
+        #: so the order here would otherwise be the thing and then the body,
+        #: against every other holder in the world (`overload._fall` takes the
+        #: body and then the stacks it moves). Asked before the first write of
+        #: this body's, so the order holds; asked with `wears_out` rather than
+        #: taken blindly, so a daily step does not hold the row of every living
+        #: body in the world for a wearing-through that happens to a handful.
+        if any(wears_out(constants, one, per_day, environment=where) for one, where, _ in theirs):
+            await session.execute(select(Body.id).where(Body.id == body_id).with_for_update())
+        for one, where, identity_id in theirs:
+            if await spend(
+                session,
+                constants,
+                one,
+                per_day,
+                environment=where,
+                cause="wearing",
+                actor_identity_id=identity_id,
+            ):
+                gone += 1
     return gone
 
 

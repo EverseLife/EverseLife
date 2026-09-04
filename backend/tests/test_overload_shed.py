@@ -384,8 +384,15 @@ async def test_the_tick_and_a_hand_over_one_heap_lose_nothing(
 
     The tick sheds a drained wearer while the player puts the same heap down
     themselves. Whichever wins, matter is conserved and the hands end within
-    the limit: `world.move_stack` locks and rereads each stack, so neither
-    side moves what the other already took.
+    the limit: `world.move_stack` locks and rereads each stack, so the amount
+    is never counted twice.
+
+    It does **not** hold that the loser moves nothing: the fall reads the
+    pocket before it takes the body's row, so a heap that left the hands in
+    between is still carried to the yard it already lies in, and `item.fell`
+    names a fall that did not happen. That is a defect of the shedding itself
+    (D-265, D-306) and older than this path, which is why the assertions below
+    speak of matter and of the limit, and not of the journal.
     """
     _slow(monkeypatch, gear, "carried_mass")
     node, _, body = await _ground(session)

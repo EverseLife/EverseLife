@@ -551,10 +551,11 @@ async def losing_worn(
     `models/gear`), so a stale one names a body that stopped wearing this long
     ago -- and settling on the strength of it would drop a stranger's ore.
 
-    The row is removed here, with the body locked. D-305 does not ask for it:
-    a row that can never match again means nothing to any reader, and `equip`
-    clears a stale one itself. It goes because this is the one moment the
-    world knows the thing is dead.
+    The row is removed here whoever it names. D-305 does not ask for it -- a
+    row that can never match again means nothing to any reader, and `equip`
+    clears a stale one itself -- but this is the one moment the world knows
+    the thing is dead, and a row about a thing that no longer exists cannot
+    become true by waiting.
 
     **The body's row is taken before the excess is read**, and the caller must
     already hold it if it holds anything else of this body's: `daily_gear_wear`
@@ -567,6 +568,20 @@ async def losing_worn(
         await session.execute(select(Equipped).where(Equipped.item_id == item.id))
     ).scalar_one_or_none()
     if line is None:
+        return None
+    #: **Whose pocket, asked before any row is taken.** A slot row outlives the
+    #: thing leaving the hands on purpose (D-305), so a stale one names a body
+    #: that stopped wearing this long ago -- and locking *that* body would take
+    #: a row outside the id order the sweeps agree on, which is the one thing
+    #: the order was for. Asked without a lock: a stale row is answered by
+    #: walking away from it, not by writing.
+    holder = await session.scalar(
+        select(Container.owner_id).where(
+            Container.id == item.container_id, Container.kind == ContainerKind.BODY
+        )
+    )
+    if holder != line.body_id:
+        await _forget(session, line)
         return None
     #: Locked **and reread**: the fall below asks the body where it stands
     #: (`body.node_id`) and moves matter there, so a snapshot taken before the
@@ -584,17 +599,27 @@ async def losing_worn(
         .one_or_none()
     )
     if body is None:  # pragma: no cover -- a slot without a body is a bug
+        await _forget(session, line)
         return None
-    pocket = await world.body_container(session, body)
-    if item.container_id != pocket.id:
-        #: A stale row: the thing is somewhere else and this body has not been
-        #: wearing it. Nothing of theirs falls, and the row is left to `equip`,
-        #: which clears it for whoever puts the thing on next.
-        return None
+    #: **Read while the thing is still worn** -- the row is still here and the
+    #: thing is still in the pocket, so the lift and the lightening still
+    #: count. Taken after either of them goes, this would already be the
+    #: excess of a body wearing nothing, and the difference would vanish.
     before = await _over(session, constants, catalog, body)
+    await _forget(session, line)
+    return body, before
+
+
+async def _forget(session: AsyncSession, line: Equipped) -> None:
+    """The slot row goes with the thing, whoever the row names.
+
+    D-305 does not ask for it -- a row that can never match again means
+    nothing to any reader, and `equip` clears a stale one itself -- but a row
+    about a thing that has ceased to exist cannot become true by waiting, and
+    this is the one moment the world knows the thing is dead.
+    """
     await session.delete(line)
     await session.flush()
-    return body, before
 
 
 async def settle_lost(
