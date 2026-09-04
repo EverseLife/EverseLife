@@ -44,7 +44,7 @@ from src.engine.craft.quality import (
     spread_of,
     waste_share,
 )
-from src.engine.world import body_container, has_place, node_yard
+from src.engine.world import BIOPRINTER, body_container, has_place, node_yard, station_names
 from src.models.craft import CraftBatch
 from src.models.identity import Body, BodyState, Knowledge, KnowledgeKind
 from src.models.inventory import Container, Item
@@ -95,6 +95,17 @@ async def _prepare(
         raise CraftError(key="craft-counted-whole", goods=proc.output)
     if proc.needs_recipe and not await _knows(session, body, proc.output):
         raise NotLearned(key="craft-not-learned", recipe=proc.output)
+
+    #: A station built in place stands where it is made (D-268), so making a
+    #: bioprinter in a city **is** putting one up there, and the door it must
+    #: pass is the same one (D-312). Asked before the work rather than after:
+    #: twenty hours and two steel frames are not a thing to spend on a refusal.
+    if proc.output in station_names(BIOPRINTER):
+        from src.engine import station  # noqa: PLC0415 -- lazy: station -> craft
+
+        node = await session.get(Node, body.node_id)
+        if node is not None:
+            await station.require_printer_room(session, body, node)
 
     #: A knowledge carrier is written by whoever knows the recipe (D-209): the
     #: name of what goes onto it is part of the request, and it must be in the
