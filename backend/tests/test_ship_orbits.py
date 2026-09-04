@@ -14,6 +14,7 @@ lives in `test_ship_flight.py`.
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -24,7 +25,9 @@ from ship_kit import (
     TANK,
     _body_of,
     _equip,
+    _fast_sample,
     _flightworthy,
+    _flown,
     _fuel,
     _in_orbit,
     _laid,
@@ -35,12 +38,21 @@ from ship_kit import (
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import frost, jobs, ship, storage, world
-from src.models.job import JobState
+from src.engine.ship import lines
 from src.models.ship import Ship
 from src.models.world import Layer, Node, Planet
 from src.units import amount_float
 
 # --- the orbital step (D-245) -------------------------------------------------
+
+
+async def _tank_on_the_line(session: AsyncSession, connector: Node):
+    """A tank an engine reaches: a port without a line draws from nothing
+    (D-288 as amended 2026-09-04), so the engine is put up and plumbed here."""
+    engine = await _equip(session, connector, ENGINE)
+    tank = await _equip(session, connector, TANK)
+    await lines.replace(session, engine, "fuel", [tank.id])
+    return tank
 
 
 async def test_the_way_between_worlds_goes_orbit_to_orbit(
@@ -78,13 +90,18 @@ async def test_the_way_between_worlds_goes_orbit_to_orbit(
         with pytest.raises(ship.TooFar):
             await ship.fly(session, constants, catalog, owner, vessel, await _orbit(session))
 
-        crossing = await ship.fly(session, constants, catalog, owner, vessel, aurora)
-        term, ship_id, aurora_id, pad_id = crossing.run_at, vessel.id, aurora.id, pad.id
-
-    assert await jobs.run_one(factory, now=term) is not None
+        moment = datetime.now(UTC)
+        fast = await _fast_sample(session, constants, catalog, vessel, Planet.AURORA)
+        arrives = await ship.fly(
+            session, constants, catalog, owner, vessel, aurora, hours=fast["hours"], now=moment
+        )
+        ship_id, aurora_id, pad_id = vessel.id, aurora.id, pad.id
 
     async with factory() as session, session.begin():
         vessel = await session.get(Ship, ship_id)
+        #: Flown by the tick, hour by hour, until the helm puts the hull on
+        #: Aurora's circle (D-289).
+        await _flown(session, constants, catalog, vessel, since=moment, until=arrives)
         assert vessel.docked_node_id == aurora_id, "борт на орбите Авроры"
         connector = await session.get(Node, vessel.connector_node_id)
         assert connector.planet is Planet.AURORA, "и несёт планету, над которой висит"
@@ -191,67 +208,6 @@ async def test_an_orbit_is_the_void_whatever_hangs_below_it(
     assert not await oxygen.free_air(session, connector), "и отсек тоже"
 
 
-async def test_a_turn_back_into_orbit_keeps_the_descent(
-    session: AsyncSession, constants: Constants, catalog: Catalog
-) -> None:
-    """The turn-back is a leg, and it keeps what every leg keeps (D-245).
-
-    The way in was short. A crossing keeps back the descent onto the planet it
-    is aimed at, and a turn-back counts the hours it has flown -- nought, in
-    the first minute. Without a reserve of its own the hull came home to an
-    orbit it could not afford to leave: `fall_hours` is the planet's, and the
-    reserve it carried was measured against the other one.
-    """
-    #: Off the heaviest world in the system onto the lightest: Pyroxis costs
-    #: `planet.gravity` 1.3 to come down onto and Aurora 0.8, so the reserve the
-    #: crossing keeps is worth barely half the descent waiting at the other end
-    #: of a turn-back.
-    home = await _port(session, name="Плато Наковальни", planet=Planet.PYROXIS)
-    await _port(session, name="Космодром Мерида", planet=Planet.AURORA)
-    aurora = await _orbit(session, Planet.AURORA)
-    _, owner = await _shipwright(session, home)
-    vessel = await _laid(session, constants, owner, home)
-    await _flightworthy(session, constants, catalog, vessel)
-    connector = await session.get(Node, vessel.connector_node_id)
-    #: Ballast, and it is the point of the test as much as the planets are: a
-    #: hull whose mass is mostly fuel lightens as it burns, and the reserve it
-    #: measured at the casting off buys more descent than it was sold. A loaded
-    #: freighter does not -- its mass is its cargo -- and it is the loaded
-    #: freighter the reserve has to be right for.
-    await _equip(session, connector, "iron_ingot", amount=1200)
-    await _equip(session, connector, ENGINE, amount=40)
-    await _fuel(session, connector, 200)
-    owner.node_id = connector.id
-    await session.flush()
-
-    await _in_orbit(session, constants, catalog, owner, vessel)
-    crossing = await ship.fly(session, constants, catalog, owner, vessel, aurora)
-    await session.refresh(crossing)
-
-    #: Drained to exactly the descent the crossing kept back, and not a gram
-    #: more: that is the state the hole was reachable from.
-    thrust_ratio = await ship.ratio(session, constants, catalog, vessel)
-    kept = ship.fuel_for(
-        constants,
-        await ship.mass(session, constants, catalog, vessel),
-        ship.fall_hours(constants, Planet.AURORA, thrust_ratio),
-        klass=await ship.engine_class(session, constants, vessel),
-    )
-    await ship._spend(
-        session,
-        await ship.fuel_stacks(session, vessel),
-        await ship.fuel_aboard(session, vessel) - kept,
-    )
-    await session.flush()
-
-    with pytest.raises(ship.NoFuel):
-        await ship.recall(session, constants, catalog, owner, vessel, now=crossing.created_at)
-    #: And the hull goes on to Aurora, where the fuel it holds is exactly the
-    #: descent it was promised.
-    await session.refresh(crossing)
-    assert crossing.state is JobState.PENDING, "отказ не снял рейс"
-
-
 async def test_a_descent_is_not_aimed_at_the_orbit_itself(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
@@ -273,11 +229,13 @@ async def test_a_descent_is_not_aimed_at_the_orbit_itself(
     await session.flush()
 
     await _in_orbit(session, constants, catalog, owner, vessel)
-    before = await ship.fuel_aboard(session, vessel)
+    before = await ship.fuel_aboard(session, constants, catalog, vessel)
     with pytest.raises(ship.NoPort):
         await ship.land(session, constants, catalog, owner, vessel, orbit)
     assert vessel.docked_node_id == orbit.id, "корабль остался там, где стоял"
-    assert await ship.fuel_aboard(session, vessel) == before, "отказ не сжёг топлива"
+    assert await ship.fuel_aboard(session, constants, catalog, vessel) == before, (
+        "отказ не сжёг топлива"
+    )
 
 
 async def test_an_orbit_has_no_pier_to_queue_at(
@@ -307,7 +265,7 @@ async def test_an_orbit_has_no_pier_to_queue_at(
 
 
 async def test_kerosene_closes_more_of_the_spend_per_unit(
-    session: AsyncSession, constants: Constants
+    session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
     """The spend is quoted in reference units; the tanks pay by density.
 
@@ -321,48 +279,50 @@ async def test_kerosene_closes_more_of_the_spend_per_unit(
     _, owner = await _shipwright(session, port)
     vessel = await _laid(session, constants, owner, port)
     connector = await session.get(Node, vessel.connector_node_id)
-    tank = await _equip(session, connector, TANK)
+    tank = await _tank_on_the_line(session, connector)
     inside = await storage.inside(session, tank)
     await world.grant_item(session, inside, "kerosene_fuel", amount=100, quality=60, origin="тест")
 
     #: A hundred units of kerosene answer for 125 reference units...
-    assert await ship.fuel_worth(session, constants, vessel) == pytest.approx(
+    assert await ship.fuel_worth(session, constants, catalog, vessel) == pytest.approx(
         100 * worth["kerosene_fuel"]
     )
     #: ...while the console still shows the hundred that has mass (D-230).
-    assert await ship.fuel_aboard(session, vessel) == pytest.approx(100)
+    assert await ship.fuel_aboard(session, constants, catalog, vessel) == pytest.approx(100)
 
     #: Burning 50 reference units costs 40 physical ones: 50 / 1.25.
-    burnt = await ship.spend_fuel(session, constants, vessel, 50)
+    burnt = await ship.spend_fuel(session, constants, catalog, vessel, 50)
     assert burnt == pytest.approx(50 / worth["kerosene_fuel"])
-    assert await ship.fuel_aboard(session, vessel) == pytest.approx(100 - burnt)
+    assert await ship.fuel_aboard(session, constants, catalog, vessel) == pytest.approx(100 - burnt)
 
 
-async def test_mixed_tanks_pay_stack_by_stack(session: AsyncSession, constants: Constants) -> None:
+async def test_mixed_tanks_pay_stack_by_stack(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
     """Rocket fuel beside kerosene in one tank: each stack pays at its own
     worth, and the total energy drawn is exactly what was asked."""
     port = await _port(session)
     _, owner = await _shipwright(session, port)
     vessel = await _laid(session, constants, owner, port)
     connector = await session.get(Node, vessel.connector_node_id)
-    tank = await _equip(session, connector, TANK)
+    tank = await _tank_on_the_line(session, connector)
     inside = await storage.inside(session, tank)
     await world.grant_item(session, inside, "rocket_fuel", amount=30, quality=60, origin="тест")
     await world.grant_item(session, inside, "kerosene_fuel", amount=100, quality=60, origin="тест")
 
     worth = constants[R.SHIP_FUEL_ENERGY]
-    before = await ship.fuel_worth(session, constants, vessel)
+    before = await ship.fuel_worth(session, constants, catalog, vessel)
     #: More than either stack alone holds in units: the spend crosses kinds.
     #: Stack order is by id -- a uuid, so either kind may pay first; what the
     #: mechanic promises is the energy, not the order.
-    burnt = await ship.spend_fuel(session, constants, vessel, 40)
-    left = await ship.fuel_worth(session, constants, vessel)
+    burnt = await ship.spend_fuel(session, constants, catalog, vessel, 40)
+    left = await ship.fuel_worth(session, constants, catalog, vessel)
     assert before - left == pytest.approx(40, abs=0.01), (
         "снято ровно столько энергии, сколько запрошено"
     )
     stacks = {
         stack.type_key: amount_float(stack.amount)
-        for stack in await ship.fuel_stacks(session, vessel)
+        for stack in await ship.fuel_stacks(session, constants, catalog, vessel)
     }
     spent_rocket = 30 - stacks.get("rocket_fuel", 0.0)
     spent_kerosene = 100 - stacks.get("kerosene_fuel", 0.0)
@@ -377,6 +337,7 @@ async def test_mixed_tanks_pay_stack_by_stack(session: AsyncSession, constants: 
 async def test_two_burns_do_not_spend_the_same_fuel(
     factory: async_sessionmaker[AsyncSession],
     constants: Constants,
+    catalog: Catalog,
 ) -> None:
     """The check and the burn share one lock (D-252): two legs asking the
     same tank must not both pass the check and fly on one hundred units of
@@ -386,7 +347,7 @@ async def test_two_burns_do_not_spend_the_same_fuel(
         _, owner = await _shipwright(session, port)
         vessel = await _laid(session, constants, owner, port)
         connector = await session.get(Node, vessel.connector_node_id)
-        tank = await _equip(session, connector, TANK)
+        tank = await _tank_on_the_line(session, connector)
         inside = await storage.inside(session, tank)
         await world.grant_item(session, inside, FUEL, amount=100, quality=60, origin="тест")
         ship_id = vessel.id
@@ -394,7 +355,7 @@ async def test_two_burns_do_not_spend_the_same_fuel(
     async def leg() -> tuple[float, float]:
         async with factory() as db, db.begin():
             own = await db.get(Ship, ship_id)
-            return await ship.burn_checked(db, constants, own, need=70, whole=70)
+            return await ship.burn_checked(db, constants, catalog, own, need=70, whole=70)
 
     outcomes = await asyncio.gather(leg(), leg())
     burnt = sorted(b for b, _ in outcomes)
@@ -405,6 +366,6 @@ async def test_two_burns_do_not_spend_the_same_fuel(
 
     async with factory() as db:
         vessel = await db.get(Ship, ship_id)
-        assert await ship.fuel_aboard(db, vessel) == pytest.approx(30.0), (
+        assert await ship.fuel_aboard(db, constants, catalog, vessel) == pytest.approx(30.0), (
             "сто единиц минус один рейс: топливо не сгорело дважды"
         )

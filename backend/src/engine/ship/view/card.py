@@ -12,15 +12,20 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src import sky
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import world
-from src.engine.ship import course
+from src.engine.ship import course, sighting, sim
 from src.engine.ship._base import (
+    ADRIFT,
     AT_PORT,
     BRIDGE,
     IN_ORBIT,
+    LOST,
     UNDER_WAY,
+    NoArc,
+    ShipError,
     is_orbit,
     orbit_key,
     orbit_node_of,
@@ -35,11 +40,12 @@ from src.engine.ship.physics import (
     fall_hours,
     fuel_aboard,
     fuel_for,
+    fuel_worth,
     life_support,
     mass,
     mass_parts,
-    passage_curve,
     ratio,
+    sky_days,
     thrust,
 )
 from src.engine.ship.view.sight import _oxygen
@@ -52,6 +58,7 @@ from src.units import (
     ROUND_HOURS,
     ROUND_MASS,
     ROUND_RATIO,
+    ROUND_TRACE,
 )
 
 
@@ -83,20 +90,30 @@ async def profile(
     #: would cost, and the window they may prefer to wait for is on the chart.
     moment = datetime.now(UTC)
     planet = Planet.TERRA if connector is None else connector.planet
-    #: Where the hull is in its journey (D-245). Three stages, and each offers a
-    #: different move: from the ground one only climbs, from orbit one crosses
-    #: or comes down, and under way one only turns back. Not derivable by the
-    #: client -- `docked` is a key, and whether that key names an orbit is a
-    #: fact about the world (D-225).
-    stage = UNDER_WAY if docked is None else (IN_ORBIT if is_orbit(docked) else AT_PORT)
+    #: Where the hull is in its journey (D-245, D-289). Five stages, and each
+    #: offers a different move: from the ground one only climbs, from orbit
+    #: one crosses or comes down, under way one only turns back, adrift one
+    #: lays a new course from wherever inertia has taken the hull, and lost
+    #: one does nothing -- the hull and its crew are gone. Not
+    #: derivable by the client -- `docked` is a key, and whether that key
+    #: names an orbit is a fact about the world (D-225).
+    flying = await _flight(session, ship)
+    if ship.lost_at is not None:
+        stage = LOST
+    elif docked is not None:
+        stage = IN_ORBIT if is_orbit(docked) else AT_PORT
+    elif flying is not None:
+        stage = UNDER_WAY
+    else:
+        stage = ADRIFT
 
-    def priced_arc(sample: course.Sample | None) -> dict[str, object] | None:
-        """One arc, priced: what it takes and what it burns (D-271).
+    def priced_sample(sample: sky.Sample | None) -> dict[str, object] | None:
+        """One point of the slider, priced: what it takes and what it burns (D-271, D-289).
 
-        The passage pays for delta-v. What must be in the tanks besides is
-        the descent at the far end -- one number per planet, sent beside the
-        arcs as `reserve` rather than added into each of them (D-225). `via`
-        is the planet the arc bends round, or nothing.
+        The passage pays for delta-v at both ends. What must be in the tanks
+        besides is the descent at the far end -- one number per planet, sent
+        beside the arcs as `reserve` rather than added into each of them
+        (D-225).
         """
         if sample is None or have_class is None:
             return None
@@ -106,7 +123,6 @@ async def profile(
         return {
             "hours": round(sample.hours, ROUND_HOURS),
             "dv": round(sample.dv, ROUND_DV),
-            "via": sample.via,
             "fuel": round(burn, ROUND_MASS),
         }
 
@@ -185,7 +201,7 @@ async def profile(
     routes: list[dict] = []
     landings: list[dict] = []
     down = None
-    if stage is IN_ORBIT and docked is not None:
+    if stage in (IN_ORBIT, ADRIFT):
         open_planets = await _open_planets(session)
         #: **Once.** `lit_ports` walks every landing in the world and asks the
         #: frozen ones about warmth node by node; the ground console answers for
@@ -217,17 +233,26 @@ async def profile(
             .scalars()
             .all()
         }
+        bodies = await sim.system(session, constants)
         for target in sorted(reachable, key=lambda one: one.value):
             orbit = orbits.get(target)
-            if orbit is None or target is docked.planet:
+            if orbit is None or (docked is not None and target is docked.planet):
                 continue
-            curve = await passage_curve(session, constants, planet, target, at=moment)
-            if not curve:
-                continue
-            #: The two ends of the slider (D-271): the fastest arc the engines
-            #: deliver and the cheapest the horizon offers. The whole curve is
-            #: `forecast`, read when the planet is chosen -- sixty samples per
+            #: From where the hull **is** (D-289): the parking circle it sits
+            #: on, or the point inertia has carried it to. The whole slider is
+            #: `forecast`, read when the planet is chosen -- forty samples per
             #: world in every summary would be the redundancy D-225 names.
+            samples = await sim.offers(
+                session,
+                constants,
+                catalog,
+                ship,
+                bodies.body(target.value),
+                now=moment,
+                thrust_ratio=thrust_ratio,
+            )
+            if not samples:
+                continue
             kept = (
                 fuel_for(
                     constants, weight, fall_hours(constants, target, thrust_ratio), klass=have_class
@@ -235,18 +260,26 @@ async def profile(
                 if thrust_ratio > 0 and have_class is not None
                 else 0.0
             )
+            cheap = min(samples, key=lambda one: one.dv)
+            fast = next(
+                (
+                    one
+                    for one in samples
+                    if thrust_ratio > 0
+                    and one.dv <= course.deliverable(constants, thrust_ratio, one.hours)
+                ),
+                None,
+            )
             routes.append(
                 {
                     "node": orbit.key,
                     "name": orbit.name,
                     "planet": target.value,
-                    "cheap": priced_arc(course.cheapest(curve)),
-                    "fast": priced_arc(
-                        course.fastest(constants, curve, thrust_ratio) if thrust_ratio > 0 else None
-                    ),
-                    #: The descent at the far end, kept in the tanks and not
-                    #: burnt by the passage (pillar P6): what an arc needs is
-                    #: its own fuel plus this.
+                    "cheap": priced_sample(cheap),
+                    "fast": priced_sample(fast),
+                    #: The descent at the far end: the console's warning, not
+                    #: the engine's refusal since D-289 -- what an arc needs
+                    #: is its own fuel plus this to come down at the end.
                     "reserve": round(kept, ROUND_MASS),
                     #: Reachable or not is about **thrust**, and nothing else:
                     #: a ship that cannot leave the ground cannot leave it for
@@ -257,7 +290,7 @@ async def profile(
                     ),
                 }
             )
-
+    if stage is IN_ORBIT and docked is not None:
         #: The pads under the hull. Every lit one of them, because this is the
         #: moment the choice is actually made (D-245) -- and a planet one lands
         #: **anywhere** on is one row rather than one per field (D-233): its
@@ -312,8 +345,13 @@ async def profile(
         "min_ratio": constants[R.SHIP_MIN_THRUST_RATIO],
         "class": have_class,
         "crew": crew,
-        "life_support": await life_support(session, constants, ship, things=things),
-        "fuel": round(await fuel_aboard(session, ship), ROUND_MASS),
+        #: Whether a system stands aboard at all (D-288): not how many people
+        #: it holds -- nothing holds a number of people any more, the air on
+        #: its line does, and that is `air` below.
+        "life_support": await life_support(session, ship, things=things) > 0,
+        "fuel": round(
+            await fuel_aboard(session, constants, catalog, ship, things=things), ROUND_MASS
+        ),
         #: The air (D-233, D-234). On the console rather than in `look`, because
         #: it is a fact about the **hull** and not about the room one stands in:
         #: the whole ship shares one atmosphere, and every compartment of it
@@ -361,7 +399,51 @@ async def profile(
         #: The passage under way, if there is one (D-240). The console draws the
         #: hull on its own chart and must say where it is going: a ship in
         #: flight has no edges at all, so nothing else in the answer could tell.
-        "flight": await _flight(session, ship),
+        "flight": flying,
+        #: The hull in the sky (D-289): where it is and where inertia takes it
+        #: -- the chart draws the coast and the console names its end. Nothing
+        #: at a spaceport, on a leg, or on the circle: that one the chart
+        #: draws by itself.
+        "sky": await sim.picture(session, constants, catalog, ship, now=moment),
+        #: Who else is in the sky near this hull (D-289, wave 3): one's own
+        #: hulls always, foreign ones within the sight radius or moored at
+        #: the same planet. A drifter among them may be aimed at, and the
+        #: chart offers it the way it offers a planet.
+        "sightings": await sighting.sightings(session, constants, ship, now=moment),
+        #: The hold and the docking: the hull this one flies as one with, the
+        #: hull it is joined to, and whose consent is still wanting.
+        **await sighting.ties(session, ship),
+        #: What speed the tanks buy at this mass, units a day: the console
+        #: reads the plan's delta-v against it, and warns before the button rather
+        #: than refusing after it (D-289).
+        "dv": round(
+            sim.dv_aboard(
+                constants,
+                await fuel_worth(session, constants, catalog, ship),
+                weight,
+                have_class,
+            ),
+            ROUND_DV,
+        ),
+        #: The order under way, in two numbers (D-289): the plan's delta-v, and
+        #: what is left of it to burn -- the console reads the second against
+        #: the tanks. The line itself is `flight.arc`; the rest of the order
+        #: is the helm's business and stays off the wire (D-225).
+        "course": (
+            None
+            if not ship.course
+            else {
+                "dv": ship.course.get("dv"),
+                "left": round(
+                    max(
+                        float(ship.course.get("dv") or 0.0)
+                        - float(ship.course.get("spent") or 0.0),
+                        0.0,
+                    ),
+                    ROUND_DV,
+                ),
+            }
+        ),
         #: Which berth of that port, and therefore how long the gangway is: a
         #: busy yard boards you further from the door (D-201).
         "berth": ship.berth,
@@ -372,47 +454,99 @@ async def profile(
     }
 
 
+def _nothing(target: Ship, refused: ShipError) -> dict[str, object]:
+    """An empty slider to a hull, with the refusal the order would meet: the
+    key and its arguments as the socket quotes them, for the console to say
+    in the reader's language (D-225: nothing the client could derive)."""
+    return {
+        "planet": None,
+        "ship": str(target.id),
+        "reserve": 0.0,
+        "samples": [],
+        "why": {"code": refused.key, "args": refused.params},
+    }
+
+
 async def forecast(
     session: AsyncSession,
     constants: Constants,
     catalog: Catalog,
     ship: Ship,
-    target: Planet,
+    target: Planet | Ship,
+    *,
+    now: datetime | None = None,
 ) -> dict[str, object]:
-    """The slider (D-271): every arc to `target` the sky offers right now, priced
-    for this hull.
+    """The slider (D-271, D-289): every arc to `target` the sky offers from
+    where the hull is right now, priced for this hull.
 
-    Planetary samples off the memoised curve, with the hull laid over them:
-    what each burns by its class and mass, and whether the engines can give
-    that delta-v in that time (`ok`). The client draws the range between the
-    fastest `ok` sample and the cheapest one and sends back the hours it
-    picked; the casting off asks the sky once more (D-202).
+    Samples from the hull's own state -- the parking circle or the point
+    inertia has carried it to -- with what each burns by its class and mass,
+    whether the engines can give that delta-v in that time (`ok`), and the
+    two-body arc to draw while the slider moves. The client draws the range
+    between the fastest `ok` sample and the cheapest one and sends back the
+    hours it picked; the casting off flies that one under the whole sky.
+    Empty for a hull not in the sky: from a pad one only climbs.
     """
-    moment = datetime.now(UTC)
-    connector = await session.get(Node, ship.connector_node_id)
-    planet = Planet.TERRA if connector is None else connector.planet
+    moment = now or datetime.now(UTC)
     weight = await mass(session, constants, catalog, ship)
     thrust_ratio = await ratio(session, constants, catalog, ship)
     have_class = await engine_class(session, constants, ship)
-    curve = await passage_curve(session, constants, planet, target, at=moment)
+    bodies = await sim.system(session, constants)
+    goal: sky.Target | None
+    if isinstance(target, Ship):
+        #: A hull as the target (wave 3): only one in sight and coasting, with
+        #: a forecast to be met on -- else nothing to offer, and the reason in
+        #: the engine's own words (`why`): an empty slider blamed the engines
+        #: before, and a hull that will be gone by the hour is not their fault.
+        try:
+            await sighting.aimable(session, constants, ship, target, now=moment)
+        except ShipError as refused:
+            return _nothing(target, refused)
+        goal = await sim.drifter_of(session, constants, target)
+        if goal is None:
+            return _nothing(target, NoArc(key="ship-target-unknown"))
+    else:
+        goal = bodies.body(target.value)
+    offered = await sim.offers(
+        session, constants, catalog, ship, goal, now=moment, thrust_ratio=thrust_ratio
+    )
+    t0 = await sky_days(session, moment)
+    if isinstance(goal, sky.Drifter) and any(sim.gone_by(goal, t0, one.hours) for one in offered):
+        #: The hull's line ends before the profile gets there: nothing is
+        #: offered, as nothing would be flown (`sim.depart` refuses it).
+        assert isinstance(target, Ship)
+        return _nothing(target, NoArc(key="ship-target-gone-by-then", other=target.name))
     share = 1.0 if have_class is None else efficiency(constants, have_class)
+    #: The descent at the far end -- a planet's; a hull has no ground to come
+    #: down onto, and nothing is kept for it.
     reserve = (
         fuel_for(constants, weight, fall_hours(constants, target, thrust_ratio), klass=have_class)
-        if thrust_ratio > 0
+        if thrust_ratio > 0 and isinstance(target, Planet)
         else 0.0
     )
     samples = []
-    for sample in curve:
+    for sample in offered:
         burn = course.fuel_for_speed(constants, weight, sample.dv, efficiency=share)
         samples.append(
             {
                 "hours": round(sample.hours, ROUND_HOURS),
                 "dv": round(sample.dv, ROUND_DV),
-                "via": sample.via,
                 "fuel": round(burn, ROUND_MASS),
-                "ok": sample.dv <= course.deliverable(constants, thrust_ratio, sample.hours),
+                #: An arc is the engines' to deliver or not; the approach
+                #: profile to a hull is laid within the thrust by construction.
+                "ok": not isinstance(target, Planet)
+                or sample.dv <= course.deliverable(constants, thrust_ratio, sample.hours),
+                #: The arc the chart draws for this point while the slider is
+                #: held on it: the planner's two-body line, not the flown one
+                #: (D-289) -- the flown line is settled at the order.
+                "trace": [[round(x, ROUND_TRACE), round(y, ROUND_TRACE)] for x, y in sample.trace],
             }
         )
     #: The descent kept back at the far end, once: every sample needs its own
     #: fuel plus this, and the client adds the two (D-225).
-    return {"planet": target.value, "reserve": round(reserve, ROUND_MASS), "samples": samples}
+    return {
+        "planet": target.value if isinstance(target, Planet) else None,
+        "ship": str(target.id) if isinstance(target, Ship) else None,
+        "reserve": round(reserve, ROUND_MASS),
+        "samples": samples,
+    }

@@ -24,6 +24,7 @@ reading as it always did.
 
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import ROUND_UP, Decimal
 
@@ -36,9 +37,9 @@ from src.engine import events, ledger, stock, travel, world
 from src.engine.errors import Refusal
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState
-from src.models.inventory import Item
+from src.models.inventory import Container, ContainerKind, Item
 from src.models.ledger import AccountKind, PostingReason
-from src.models.world import Node
+from src.models.world import Layer, Node, is_aboard
 from src.units import (
     ENERGY_PER_TARIFF_UNIT,
     PERCENT,
@@ -53,6 +54,13 @@ from src.units import (
 #: The class of the cell (D-215). Behaviour binds to the class, so a second
 #: kind of battery is a line in the vault.
 BATTERY = "battery"
+
+#: Generators that need neither river, wind nor fuel (D-288). They live with
+#: the cells rather than with the grid: their one job is to charge the
+#: batteries within reach where no pool exists -- aboard a hull above all,
+#: and on airless ground -- and they feed no city (`tick_offgrid`).
+SOLAR = "solar_panel"
+ISOTOPE = "isotope_generator"
 
 
 class BatteryError(Refusal):
@@ -260,20 +268,84 @@ async def charge_battery(
 
 
 async def batteries_in(session: AsyncSession, node: Node) -> list[Item]:
-    """The batteries standing in this node, locked for the transaction.
+    """The batteries standing in this node, locked for the transaction -- and
+    aboard a ship, in **every** room of the hull.
 
-    Locked because charge is a quantity of a shared thing (CLAUDE.md): the
-    ship's life support draws from the same cells a crew member is unplugging
-    to carry off. In id order, like every other write-off over a node's yard.
+    Locked because charge is a quantity of a shared thing (CLAUDE.md): a
+    machine draws from the same cells a crew member is unplugging to carry
+    off. In id order across the yards, like every other write-off.
+
+    The hull is one building (D-288): a cell in the hold feeds the machine in
+    the workshop, because a ship's rooms are one delegate node's children and
+    the wiring between them is not worth a picture. The rooms are read off
+    the node in hand -- its siblings -- so this asks nothing of the ship
+    package, which imports this module through the gear.
     """
-    yard = await world.node_container(session, node)
+    rooms = [node]
+    if is_aboard(node) and node.parent_id is not None:
+        rooms = list(
+            (await session.execute(select(Node).where(Node.parent_id == node.parent_id)))
+            .scalars()
+            .all()
+        )
+    yards = [await world.node_container(session, room) for room in rooms]
     #: The cells put up in the house (D-278): one dropped on the floor is cargo
     #: and feeds nothing until somebody stands it.
     return [
         cell
-        for cell in await stock.locked_stacks(session, yard.id, world.station_names(BATTERY))
+        for cell in await stock.locked_stacks(
+            session, [yard.id for yard in yards], world.station_names(BATTERY)
+        )
         if cell.installed
     ]
+
+
+async def fill_cells(
+    session: AsyncSession,
+    constants: Constants,
+    cells: list[Item],
+    offered: float,
+    *,
+    now: datetime | None = None,
+) -> float:
+    """Put charge into these locked cells, in order, up to their capacity.
+
+    Returns what the cells actually took. The mirror of `drain_cells`, and for
+    the same generator that never had a pool to fill (D-288): a panel or an
+    isotope generator off the grid charges what stands within reach, and what
+    nothing takes is not kept -- free energy for export does not exist.
+    """
+    moment = now or datetime.now(UTC)
+    if offered <= 0:
+        return 0.0
+    left = offered
+    banked = 0.0
+    for cell in cells:
+        if left <= 0:
+            break
+        have = await settle_charge(session, constants, cell, now=moment)
+        pile = amount_float(cell.amount)
+        room = capacity(constants) - have
+        if room <= 0 or pile <= 0:
+            continue
+        #: Evenly into the pile, as the drain takes evenly out of it: a stack
+        #: of cells stays one stack of one charge.
+        give = min(left, room * pile)
+        was = Decimal(str(have))
+        stored = min(
+            Decimal(str(capacity(constants))),
+            _on_grid(was + Decimal(str(give)) / Decimal(str(pile))),
+        )
+        if stored <= was:
+            continue
+        cell.charge = stored
+        cell.charged_at = moment
+        really = float((stored - was) * Decimal(str(pile)))
+        left -= really
+        banked += really
+    if banked > 0:
+        await session.flush()
+    return banked
 
 
 async def batteries_carried(session: AsyncSession, body: Body) -> list[Item]:
@@ -398,3 +470,83 @@ async def drain_cells(
     if taken > 0:
         await session.flush()
     return taken
+
+
+# --- generation off the grid (D-288) ---------------------------------------------
+
+
+def steady_rates(constants: Constants) -> dict[str, float]:
+    """Output an hour of the generators that ask for nothing, by item name."""
+    return {
+        **dict.fromkeys(world.station_names(SOLAR), float(constants[R.ENERGY_SOLAR_RATE])),
+        **dict.fromkeys(world.station_names(ISOTOPE), float(constants[R.ENERGY_ISOTOPE_RATE])),
+    }
+
+
+async def tick_offgrid(
+    session: AsyncSession, constants: Constants, *, now: datetime | None = None
+) -> float:
+    """Charge what stands off the grid: a panel or an isotope generator in a
+    room no pool reaches. Returns the energy the batteries took.
+
+    The city's generators fill the city's pool (`energy.produce`); these have
+    no pool to fill where it matters most -- aboard a hull under way, on the
+    black fields of Pyroxis -- and charge the batteries within reach instead:
+    the whole hull's, because the hull is one building (`batteries_in`). What
+    nothing takes is not kept: free energy for export does not exist. Off the
+    grid is read off the room itself: a city's room is the pool's business,
+    and a room that is not a city's has no pool (`energy.grid_node`).
+
+    The generator's own `charged_at` is its stamp -- when its output was last
+    settled -- the way a battery's says when its charge was; a generator holds
+    no charge of its own, so the column is free for it. **No stamp is the
+    start, not the beginning of time**: a panel put up today is first seen by
+    this tick, stamped, and credited nothing -- otherwise its age in the bag
+    would come out of the cells as free energy. Taking it down clears the
+    stamp (`station.take`) for the same reason.
+
+    The generators' rows are **locked** before the stamp is read: two ticks on
+    one hull -- the very race the air is tested against -- would otherwise
+    both read the same hour and bank it twice, the cells locked and the source
+    of the hours not.
+    """
+    moment = now or datetime.now(UTC)
+    rates = steady_rates(constants)
+    if not rates:  # pragma: no cover -- the vault names both
+        return 0.0
+    rows = (
+        await session.execute(
+            select(Item, Node)
+            .join(Container, Container.id == Item.container_id)
+            .join(Node, Node.id == Container.owner_id)
+            .where(
+                Container.kind == ContainerKind.NODE,
+                Node.layer != Layer.CITY,
+                Item.installed.is_(True),
+                Item.type_key.in_(tuple(rates)),
+            )
+            .order_by(Item.id)
+            .with_for_update(of=Item)
+            .execution_options(populate_existing=True)
+        )
+    ).all()
+    #: By room, so one hull's cells are read and settled once however many
+    #: panels stand on it -- and in room order, like every other pass.
+    by_room: dict[uuid.UUID, tuple[Node, list[Item]]] = {}
+    for generator, node in rows:
+        by_room.setdefault(node.id, (node, []))[1].append(generator)
+    banked = 0.0
+    for _, (node, generators) in sorted(by_room.items(), key=lambda pair: pair[0]):
+        made = 0.0
+        for generator in generators:
+            if generator.charged_at is not None:
+                hours = (moment - generator.charged_at).total_seconds() / SECONDS_PER_HOUR
+                made += rates[generator.type_key] * amount_float(generator.amount) * max(0.0, hours)
+            generator.charged_at = moment
+        if made <= 0:
+            continue
+        cells = await batteries_in(session, node)
+        banked += await fill_cells(session, constants, cells, made, now=moment)
+    if rows:
+        await session.flush()
+    return banked

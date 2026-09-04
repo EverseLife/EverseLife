@@ -254,6 +254,17 @@ async def _ship_arrange(state: dict, db: AsyncSession, message: dict) -> dict:
     return {"arranged": str(vessel.id), "moved": moved}
 
 
+async def _other_ship(db: AsyncSession, message: dict) -> Ship:
+    """The hull an order names as its target or partner (D-289, wave 3)."""
+    try:
+        found = await db.get(Ship, uuid.UUID(str(message.get("ship_target") or "")))
+    except ValueError as exc:
+        raise Refused(key="cmd-no-such-ship") from exc
+    if found is None:
+        raise Refused(key="cmd-no-such-ship")
+    return found
+
+
 async def _target(db: AsyncSession, message: dict) -> Node:
     """The node an order names, by key. One reading for every leg that takes one."""
     node = (
@@ -295,18 +306,23 @@ async def _ship_fly(state: dict, db: AsyncSession, message: dict) -> dict:
             hours = float(hours)
         except (TypeError, ValueError) as exc:
             raise Refused(key="ship-hours-is-a-number") from exc
-    via = message.get("via")
-    job = await ship.fly(
+    #: A planet's orbit by node key, or another hull by id (wave 3).
+    goal: Node | Ship = (
+        await _other_ship(db, message) if message.get("ship_target") else await _target(db, message)
+    )
+    arrives = await ship.fly(
         db,
         current(),
         current_catalog(),
         body,
         vessel,
-        await _target(db, message),
+        goal,
         hours=hours,
-        via=None if via is None else str(via),
     )
-    return {"flight": str(job.id), "arrives_at": job.run_at.isoformat()}
+    #: A confirmation, not the state (the quality bar): the order lives on the
+    #: hull's row and comes back with `ship.view`; the hour is what the
+    #: player asked for and what the helm aims at.
+    return {"ship": str(vessel.id), "arrives_at": arrives.isoformat()}
 
 
 @command("ship.course", readonly=True)
@@ -316,11 +332,37 @@ async def _ship_course(state: dict, db: AsyncSession, message: dict) -> dict:
     -- a forecast must never be able to delay an order (`common._alive_read`)."""
     body = await _alive_read(state, db)
     vessel = await _ship_of(db, body, message.get("ship"))
-    try:
-        target = Planet(str(message.get("planet") or ""))
-    except ValueError as exc:
-        raise Refused(key="cmd-no-such-planet") from exc
+    target: Planet | Ship
+    if message.get("ship_target"):
+        target = await _other_ship(db, message)
+    else:
+        try:
+            target = Planet(str(message.get("planet") or ""))
+        except ValueError as exc:
+            raise Refused(key="cmd-no-such-planet") from exc
     return await ship.forecast(db, current(), current_catalog(), vessel, target)
+
+
+@command("ship.dock")
+async def _ship_dock(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Give this hull's consent to dock with the hull it holds on to (D-289,
+    wave 3). With the other commander's consent already given the two are
+    joined connector to connector; without it the request is recorded and
+    the other side is told. A confirmation: whether the edge is there now."""
+    body = await _alive(state, db)
+    vessel = await _ship_of(db, body, message.get("ship"))
+    joined = await ship.dock(db, current(), body, vessel, await _other_ship(db, message))
+    return {"ship": str(vessel.id), "docked": joined}
+
+
+@command("ship.undock")
+async def _ship_undock(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Part from the hull this one is docked to (wave 3): the edge comes off,
+    the hold stays -- the two still fly as one until an order parts them."""
+    body = await _alive(state, db)
+    vessel = await _ship_of(db, body, message.get("ship"))
+    await ship.undock(db, current(), body, vessel)
+    return {"ship": str(vessel.id), "docked": False}
 
 
 @command("ship.land")
@@ -343,8 +385,28 @@ async def _ship_recall(state: dict, db: AsyncSession, message: dict) -> dict:
     """
     body = await _alive(state, db)
     vessel = await _ship_of(db, body, message.get("ship"))
-    job = await ship.recall(db, current(), current_catalog(), body, vessel)
-    return {"recalled": str(job.id), "arrives_at": job.run_at.isoformat()}
+    arrives = await ship.recall(db, current(), current_catalog(), body, vessel)
+    return {"ship": str(vessel.id), "arrives_at": arrives.isoformat()}
+
+
+@command("ship.cancel")
+async def _ship_cancel(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Drop the course under way (D-289, 2026-09-04): the autopilot off, the
+    hull coasts from where it is. A confirmation; the drift comes as events."""
+    body = await _alive(state, db)
+    vessel = await _ship_of(db, body, message.get("ship"))
+    await ship.cancel(db, current(), current_catalog(), body, vessel)
+    return {"ship": str(vessel.id)}
+
+
+@command("ship.orbit")
+async def _ship_orbit(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Put the hull onto the circle round the star through its own place
+    (D-289, 2026-09-04): an order the helm flies, the tanks paying as it burns."""
+    body = await _alive(state, db)
+    vessel = await _ship_of(db, body, message.get("ship"))
+    arrives = await ship.circle_star(db, current(), current_catalog(), body, vessel)
+    return {"ship": str(vessel.id), "arrives_at": arrives.isoformat()}
 
 
 @command("ship.ports", readonly=True)

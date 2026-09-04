@@ -18,6 +18,9 @@ dependencies = [
     # Device fee: the server verifies the same estimate the client computes (D-112).
     "argon2-cffi>=23.1",
     "fluent-runtime>=0.4",
+    # The sky is integrated, not tabled (D-289): forty variants of a passage go
+    # through the integrator as one matrix.
+    "numpy>=2.1",
 ]
 
 [project.optional-dependencies]
@@ -82,9 +85,9 @@ root_package = "src"
 # `src.engine`. The layers contract is enforced now; the cycle contract for the
 # engine is the goal of wave 3 and stays commented until the cycles are broken.
 [[tool.importlinter.contracts]]
-name = "Layers: api -> engine -> models -> constants -> i18n"
+name = "Layers: api -> engine -> sky -> models -> constants -> i18n"
 type = "layers"
-layers = ["src.api", "src.engine", "src.models", "src.constants", "src.i18n"]
+layers = ["src.api", "src.engine", "src.sky", "src.models", "src.constants", "src.i18n"]
 
 # The city, cut out of a 1084-line `polity.py` that held founding, offices,
 # code-laws and citizenship at once and let all four reach into each other.
@@ -100,6 +103,46 @@ layers = ["src.api", "src.engine", "src.models", "src.constants", "src.i18n"]
 # checked here is the thing the cut actually established: which module may name
 # which **directly**. Turn these into a layers contract on the day the engine's
 # own cycles are gone.
+# The ship's sky (D-289): `sim` owns the state and is the floor; the tick and
+# the fates (`helm`), the meeting (`meet`), what is seen (`sighting`) and the
+# order (`crossing`) stand on it and it names none of them.
+[[tool.importlinter.contracts]]
+name = "The ship's sky is a stack, and sim is its floor"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = ["src.engine.ship.sim"]
+forbidden_modules = [
+    "src.engine.ship.helm",
+    "src.engine.ship.hold",
+    "src.engine.ship.fate",
+    "src.engine.ship.meet",
+    "src.engine.ship.sighting",
+    "src.engine.ship.crossing",
+]
+
+[[tool.importlinter.contracts]]
+name = "The ship's fates sit under the hold and the helm"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = ["src.engine.ship.fate"]
+forbidden_modules = [
+    "src.engine.ship.hold",
+    "src.engine.ship.helm",
+    "src.engine.ship.meet",
+    "src.engine.ship.crossing",
+]
+
+[[tool.importlinter.contracts]]
+name = "The ship's hold sits under the helm"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = ["src.engine.ship.hold"]
+forbidden_modules = [
+    "src.engine.ship.helm",
+    "src.engine.ship.meet",
+    "src.engine.ship.crossing",
+]
+
 [[tool.importlinter.contracts]]
 name = "The city is a stack, and its floor asks nobody"
 type = "forbidden"

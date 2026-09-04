@@ -141,6 +141,13 @@ liquid-nothing-to-pour = there is nothing to pour
 liquid-no-room = “{ NAME($vessel) }” has { NUMBER($free, minimumFractionDigits: 1, maximumFractionDigits: 1) } kg free: it does not fit
 liquid-vessel-not-here = “{ NAME($vessel) }” is neither in hand nor here
 liquid-vessel-not-yours = “{ NAME($vessel) }” is not yours: vessels in a node are the owner's to dispose of
+liquid-mixed = “{ NAME($vessel) }” already holds “{ NAME($have) }”: two liquids are not mixed in one vessel
+
+# --- the hull's lines (engine/ship/lines.py, D-288) ---------------------------
+
+line-no-such-port = “{ NAME($goods) }” has no such port
+line-machine-not-aboard = “{ NAME($goods) }” is not installed on this ship: a line runs from an installed machine
+line-vessel-not-aboard = “{ NAME($goods) }” is not installed on this ship: only an installed vessel stands on a line
 
 # --- air (engine/oxygen.py) --------------------------------------------------
 

@@ -47,6 +47,7 @@ from src.engine import (
     plates,
     rig,
     road,
+    ship,
     wear,
     works,
 )
@@ -113,7 +114,12 @@ async def _energy(session: AsyncSession, now: datetime) -> dict[str, Any]:
     #: Stations work without players: the pool fills by time, and the coal
     #: station burns the delivered coal all that time (D-082). What the city's
     #: heat ate is off the same pass (D-231), so the number is the net change.
-    return {"energy_net": await energy.tick_pools(session, current(), now=now)}
+    #: And what stands off the grid charges the cells within reach (D-288): a
+    #: panel on a hull under way has no pool, only the hull's batteries.
+    return {
+        "energy_net": await energy.tick_pools(session, current(), now=now),
+        "energy_offgrid": round(await energy.tick_offgrid(session, current(), now=now), ROUND_MASS),
+    }
 
 
 async def _automats(session: AsyncSession, now: datetime) -> dict[str, Any]:
@@ -169,9 +175,17 @@ async def _oxygen(session: AsyncSession, now: datetime) -> dict[str, Any]:
     #: not. Two sweeps, and they never touch the same body: the hull settles
     #: its crew, this settles everybody standing outside one.
     constants = current()
-    made, lost = await oxygen.tick_ships(session, constants, current_catalog(), now=now)
+    breathed, lost = await oxygen.tick_ships(session, constants, current_catalog(), now=now)
     outside = await oxygen.tick_bodies(session, constants, current_catalog(), now=now)
-    return {"air_made": round(made, ROUND_MASS), "choked": lost + outside}
+    return {"air_breathed": round(breathed, ROUND_MASS), "choked": lost + outside}
+
+
+async def _sky(session: AsyncSession, now: datetime) -> dict[str, Any]:
+    #: The sky is flown, not tabled (D-289): every hull under an order is
+    #: stepped to now -- the helm, the burn, the pull of five bodies -- and a
+    #: coasting one has its stamp moved along so a reading never propagates
+    #: weeks. A moored hull runs on its circle and costs nothing here.
+    return await ship.helm.tick_sky(session, current(), current_catalog(), now=now)
 
 
 async def _orphans(session: AsyncSession, now: datetime) -> dict[str, Any]:
@@ -258,6 +272,7 @@ WORLD_STEPS: dict[str, tuple[Step, str]] = {
     "frost": (_frost, "first"),
     "exoskeletons": (_exoskeletons, "first"),
     "oxygen": (_oxygen, "first"),
+    "sky": (_sky, "first"),
 }
 DAILY_STEPS: dict[str, tuple[Step, str]] = {
     "wear": (_wear, "first"),

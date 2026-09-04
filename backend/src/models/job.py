@@ -75,6 +75,10 @@ class JobKind(StrEnum):
     SHIP_KEEL = "ship.keel"
     #: A ship's passage: undocked here, docks there when the term is up (D-201).
     SHIP_FLIGHT = "ship.flight"
+    #: The hour the forecast says a coasting hull comes down on a body or
+    #: leaves the system (D-289). Keyed to the state it was forecast from: a
+    #: hull that burned or was refuelled since makes the job a no-op.
+    SHIP_LOSS = "ship.loss"
     #: Vote tally: the term is up, the result applies itself (D-161).
     VOTE_CLOSE = "city.vote_close"
     #: Term of office is up: the office is vacated by itself (D-163).

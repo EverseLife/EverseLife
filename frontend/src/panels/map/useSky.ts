@@ -82,7 +82,8 @@ export function useSky({
   place.current = () => {
     const start = epoch ? new Date(epoch).getTime() : Date.now();
     const day = (Date.now() - start) / MS_PER_DAY + aheadRef.current;
-    const put = (key: string, x: number, y: number) => places.current.set(key, { x, y });
+    const put = (key: string, x: number, y: number) =>
+      places.current.set(key, { x, y });
     for (const node of visible) {
       if (!node.orbit) continue;
       const angle = node.orbit.phase + (TURN * day) / node.orbit.period_days;
@@ -98,30 +99,44 @@ export function useSky({
       if (!node.aboard) continue;
       const berth = node.parent ? places.current.get(node.parent) : undefined;
       if (node.flight) {
-        const goal = places.current.get(spaceRepr(node.flight.to) ?? "");
-        if (!berth || !goal) continue;
         const t0 = new Date(node.flight.started_at).getTime();
         const t1 = new Date(node.flight.arrives_at).getTime();
         //: The passage is wound by the same clock as the sky: winding a day
         //: forward and leaving the ship where it was would draw a moment that
         //: never happens.
         const at_ = Date.now() + aheadRef.current * MS_PER_DAY;
-        const share = Math.min(1, Math.max(0, (at_ - t0) / Math.max(1, t1 - t0)));
-        //: Along the arc the sky gave the passage (D-271) where there is one;
-        //: a climb or a descent has none and goes straight between its ends.
+        const share = Math.min(
+          1,
+          Math.max(0, (at_ - t0) / Math.max(1, t1 - t0)),
+        );
+        //: Along the line the sky gave (D-271, D-289) where there is one --
+        //: an order's arc, or a drifter's coast, which is bound nowhere; a
+        //: climb or a descent has none and goes straight between its ends.
         const arc = node.flight.arc;
         if (arc && arc.length >= 2) {
           const point = along(arc, share);
           put(node.key, STAR.x + point[0] * fit, STAR.y + point[1] * fit);
           continue;
         }
-        put(node.key, berth.x + (goal.x - berth.x) * share, berth.y + (goal.y - berth.y) * share);
+        //: A hull as the target (D-289, wave 3) names no node: nothing to go between.
+        const goal =
+          node.flight.to === null ? undefined : places.current.get(spaceRepr(node.flight.to) ?? "");
+        if (!berth || !goal) continue;
+        put(
+          node.key,
+          berth.x + (goal.x - berth.x) * share,
+          berth.y + (goal.y - berth.y) * share,
+        );
       } else if (berth) {
         //: Docked, a ship stands **beside** its planet rather than on it: on it
         //: the planet would swallow the hull. The bearing is spun off the key,
         //: so two ships at one port do not sit in the same spot.
         const bearing = mooring(node.key);
-        put(node.key, berth.x + BERTH * Math.cos(bearing), berth.y + BERTH * Math.sin(bearing));
+        put(
+          node.key,
+          berth.x + BERTH * Math.cos(bearing),
+          berth.y + BERTH * Math.sin(bearing),
+        );
       }
     }
   };

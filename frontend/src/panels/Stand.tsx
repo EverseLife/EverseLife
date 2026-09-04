@@ -34,6 +34,7 @@
 
 import { useState, type ReactNode } from "react";
 import { useBook, useNames } from "../actions";
+import { keep, kept, NAMED } from "../kept";
 import { t } from "../locale";
 import { className, goodsName, propertyName, type Names } from "../names";
 import * as api from "../api";
@@ -114,9 +115,22 @@ type Thing = {
  *
  * Lives at module level for the same reason the map's layout does: the
  * component's life is shorter than the player's walk, and coming back to your
- * own yard should not mean choosing the forge again.
+ * own yard should not mean choosing the forge again. And in storage
+ * (`kept.ts`) for the same reason one step further out -- a reload is a
+ * shorter absence than a walk to the next node, and must not cost more.
+ *
+ * A name per node rather than one name: the forge is what is open in the yard,
+ * the counter is what is open in the market, and a single slot for both would
+ * make every walk close the other end of it.
  */
-const OPENED = new Map<string, string>();
+const STORE = "everselife.stand.opened";
+const OPENED = new Map<string, string>(Object.entries(kept(STORE, {}, NAMED)));
+
+//: How many nodes' choices are worth carrying. The world grows by exploration
+//: (D-152) and a map keyed by every node ever stood in grows with it without
+//: end; the longest unvisited is dropped, because a node one has not come back
+//: to in fifty is not one being worked.
+const NODES_KEPT = 50;
 
 /**
  * The place itself as a choice: the tiles standing alone, with no window
@@ -153,7 +167,17 @@ export function Stand({ look, values, pow }: Props) {
 
   const show = (id: string) => {
     setChosen(id);
-    if (here) OPENED.set(here, id);
+    if (!here) return;
+    //: Deleted and put back rather than set in place: a `Map` keeps the order
+    //: keys were **first** put in it, and the drop below must take the node
+    //: longest unvisited, not the one visited first of all.
+    OPENED.delete(here);
+    OPENED.set(here, id);
+    for (const oldest of OPENED.keys()) {
+      if (OPENED.size <= NODES_KEPT) break;
+      OPENED.delete(oldest);
+    }
+    keep(STORE, Object.fromEntries(OPENED), NAMED);
   };
 
   if (things.length === 0) {

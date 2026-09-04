@@ -42,6 +42,7 @@ import { carried, isLiquid, tiersOf } from "../liquids";
 import { catalogue, coins, exactly, floorOf, freeOnCounter, openAt, tierOf } from "../market";
 import type { Position, QualityTier } from "../market";
 import { goodsKeyName, goodsName, tierName } from "../names";
+import { useKept, WHOLE } from "../kept";
 import { t } from "../locale";
 import { NumberField } from "../NumberField";
 
@@ -78,12 +79,15 @@ export function Market({ look }: Props) {
   const [query, setQuery] = useState("");
   //: The price step the book is read at, minor units; null -- let the server
   //: pick the finest that fits the depth. A choice made by hand is kept when
-  //: the position changes: whoever went looking for the fine structure of one
-  //: book is usually looking for it in the next.
-  const [step, setStep] = useState<number | null>(null);
+  //: the position changes, and across a reload (`kept.ts`): whoever went
+  //: looking for the fine structure of one book is looking for it in the next,
+  //: and in the same book after a refresh.
+  const [step, setStep] = useKept<number | null>("everselife.market.step", null, WHOLE);
   //: The rungs the server accepts. A constant, read once with the tiers, not
   //: carried back with every book (D-225).
   const [steps, setSteps] = useState<number[]>([]);
+  //: Whether that read has come back, either way -- see the effect below.
+  const [rungsKnown, setRungsKnown] = useState(false);
   const [price, setPrice] = useState(3);
   const [volume, setVolume] = useState(1);
   //: Whether the price in the field is the player's own. Until it is, the
@@ -104,11 +108,28 @@ export function Market({ look }: Props) {
   useEffect(() => session.on("market.", () => setEdition((n) => n + 1)), [session]);
 
   useEffect(() => {
-    void api.tiers().then((window) => {
-      setTiers(window.tiers);
-      setSteps(window.steps ?? []);
-    });
-  }, []);
+    //: A remembered rung the server no longer offers is dropped rather than
+    //: sent: the rungs are its list (D-225), and reading the book at a step
+    //: outside it would be asking for a refusal on the panel's own behalf.
+    //: Asked of the state rather than read off it, so this one-off effect does
+    //: not take the step as a dependency and rerun on every choice.
+    const checkStep = (rungs: number[]) =>
+      setStep((chosen) => (chosen !== null && !rungs.includes(chosen) ? null : chosen));
+    void api
+      .tiers()
+      .then((window) => {
+        setTiers(window.tiers);
+        setSteps(window.steps ?? []);
+        checkStep(window.steps ?? []);
+      })
+      //: The rungs did not arrive, so nothing can vouch for a remembered one.
+      .catch(() => checkStep([]))
+      //: Either way the question is settled and the book may go out. Until it
+      //: is, the book waits: these are two separate promises, and without the
+      //: wait the first book of a session went out carrying exactly the stale
+      //: step the check above exists to take off it.
+      .finally(() => setRungsKnown(true));
+  }, [setStep]);
 
   useEffect(() => {
     if (!node) return;
@@ -144,7 +165,7 @@ export function Market({ look }: Props) {
   //: Cleared first for the same reason: an empty book disables those buttons,
   //: a stale one does not.
   useEffect(() => {
-    if (!node || !choice) return;
+    if (!node || !choice || !rungsKnown) return;
     let current = true;
     setOrderBook(null);
     void api.book(node, choice.goods, choice.tier, step).then((answer) => {
@@ -155,7 +176,7 @@ export function Market({ look }: Props) {
     return () => {
       current = false;
     };
-  }, [node, choice, edition, step]);
+  }, [node, choice, edition, step, rungsKnown]);
 
   //: The floor follows the tier until the hand names one of its own. Written
   //: as an effect rather than inside the tier button, because the first

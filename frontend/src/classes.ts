@@ -55,11 +55,20 @@ export function recipeKind(book: RecipeBook | null, name: string): string | null
 }
 
 /** Whether a thing of this kind is put up rather than put down (D-278): a
- *  machine or a piece of furniture -- what `station.place` accepts, and so
- *  what the "install" button is offered for. */
+ *  machine, a piece of furniture -- or a vessel, which stands on the hull's
+ *  lines once put up (D-288) -- what `station.place` accepts, and so what
+ *  the "install" button is offered for. */
 export function isGear(book: RecipeBook | null, name: string): boolean {
   const kind = recipeKind(book, name);
-  return kind === "station" || kind === "furniture";
+  return kind === "station" || kind === "furniture" || isVessel(book, name);
+}
+
+/** A storage that holds liquids (D-230): the vault's `holds`, not a kind. The
+ *  same test as `liquids.isVessel`, kept here so that a question about what
+ *  a thing **is** does not pull the pouring module in behind it. */
+function isVessel(book: RecipeBook | null, name: string): boolean {
+  const recipe = book?.recipes?.find((one) => (one.id ?? one.name) === name);
+  return recipe?.holds === "liquid" && Boolean(recipe.store);
 }
 
 /** The class of a thing, or `null` when it has none. */

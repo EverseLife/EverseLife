@@ -13,15 +13,10 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.engine.ship._base import ABOARD
 from src.models.identity import Body, BodyState
 from src.models.ship import Ship
 from src.models.world import Node
-
-
-def is_aboard(node: Node) -> bool:
-    """Whether this node is part of a ship. Land is land."""
-    return bool((node.properties or {}).get(ABOARD))
+from src.models.world import is_aboard as is_aboard
 
 
 async def of_node(session: AsyncSession, node: Node) -> Ship | None:

@@ -16,7 +16,7 @@ credited days are gone with the columns -- a one-off, and the world has a
 handful of such beds.
 
 Revision ID: c9e4f2a7b1d3
-Revises: b8d3f01ca672
+Revises: 9c4e7a1f2b63
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "c9e4f2a7b1d3"
-down_revision: str | None = "b8d3f01ca672"
+down_revision: str | None = "9c4e7a1f2b63"
 branch_labels: str | None = None
 depends_on: str | None = None
 

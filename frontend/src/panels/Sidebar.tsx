@@ -38,6 +38,7 @@ import { t } from "../locale";
 import { goodsKeyName, goodsName, plantName, tierName } from "../names";
 import { inputsOf, stationOf } from "../recipes";
 import { folded as foldedPane, onSidebarTab, pendingSidebarTab, rememberFolded } from "../hud";
+import { oneOf, useKept } from "../kept";
 import { onThread } from "../people";
 
 /** What the inner panels (Doings, Trade) take from the sidebar's own actions. */
@@ -104,6 +105,11 @@ type Tab =
   | (typeof STATE_TAB)["id"]
   | (typeof ALPHA_TAB)["id"];
 
+//: Every tab the rail can ever show, the office and the alpha included: which
+//: of them a particular player may open is decided by `current` below, not by
+//: what storage happens to hold.
+const TAB_WIRE = oneOf<Tab>([...TABS.map((item) => item.id), STATE_TAB.id, ALPHA_TAB.id]);
+
 export function Sidebar({ look, onLogout }: { look: Look; onLogout: () => void }) {
   const session = useSession();
   //: This panel's own waiting and its own refusal: one action here
@@ -111,7 +117,13 @@ export function Sidebar({ look, onLogout }: { look: Look; onLogout: () => void }
   const acting = useActions();
   const { busy, act } = acting;
 
-  const [tab, setTab] = useState<Tab>("me");
+  //: Which tab was left open, kept across reloads (`kept.ts`) like the fold
+  //: below it: the rail is where a player lives, and a refresh that sends
+  //: everybody back to the account makes the rail worth less than the fold
+  //: does. A tab that has since gone -- the office lost, the alpha flag taken
+  //: away -- falls back to the account through `current`, which the rail
+  //: already computes for exactly that case.
+  const [tab, setTab] = useKept<Tab>("everselife.sidebar.tab", "me", TAB_WIRE);
   //: Folded: the rail alone, the panel hidden (brief, desktop layout). Any
   //: ask to open a tab -- a mark on the rail, the header's quick buttons,
   //: "write" from a card -- opens the panel too: nobody asks for a tab in
@@ -127,7 +139,7 @@ export function Sidebar({ look, onLogout }: { look: Look; onLogout: () => void }
       setTab(name);
       fold(false);
     },
-    [fold],
+    [fold, setTab],
   );
   //: "Write" from somebody's card lands in the Net tab, wherever it was asked from.
   const [wanted, setWanted] = useState<string | null>(null);

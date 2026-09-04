@@ -345,6 +345,45 @@ def test_city_affairs_reach_citizens_and_the_sink_follows_the_convict() -> None:
     assert sink.node_id == found
 
 
+def test_the_cave_in_tells_the_miner_its_numbers_and_the_room_only_that_it_fell() -> None:
+    """The losses to the miner alone; to the neighbours the fact (08-session-protocol).
+
+    A collapse is the one end of a session `look` cannot show afterwards: it
+    sends the open face, and a collapsed one is closed. So the window announces
+    it from this event, and reads the numbers to tell its own roof from a
+    neighbour's (frontend `src/mining.ts`) -- which holds only as long as the
+    room's copy carries none.
+
+    Nothing here is asserted about `who`: naming is the pump's rule, not this
+    teller's, and a test that puts a name into its own input and finds it again
+    proves nothing.
+    """
+    from src.api import push
+    from src.api.push.pump import _TELLERS
+
+    mine, room = uuid.uuid4(), uuid.uuid4()
+    row = _row(
+        "mining.collapsed", actor=mine, node=uuid.uuid4(), lost=3.412, wounded=True, killed=False
+    )
+    tell = _TELLERS["mining.collapsed"]
+
+    def told(to: uuid.UUID, touches: list[str]) -> dict:
+        return asyncio.run(
+            tell(
+                None,
+                row,
+                push.Sink(send_raw=None, identity_id=to),
+                {"event": row.kind, "touches": touches},
+            )
+        )
+
+    own = told(mine, ["mining", "inventory"])
+    assert (own["lost"], own["wounded"], own["killed"]) == (3.412, True, False)
+
+    heard = told(room, ["node"])
+    assert not {"lost", "wounded", "killed"} & set(heard)
+
+
 def test_an_addressed_event_reaches_the_party_not_the_actor_alone(client, miner) -> None:
     """Citizenship granted by a clerk: the new citizen is named by id in the
     payload and hears it as their own, with the city's touches."""
