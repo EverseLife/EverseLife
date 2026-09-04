@@ -236,8 +236,38 @@ async def active(session: AsyncSession, body: Body) -> MiningSession | None:
     return (await session.execute(stmt)).scalars().first()
 
 
-async def _require_active(
+async def _relock(
     session: AsyncSession, mining: MiningSession, *, working: bool = True
+) -> tuple[Body, Vein]:
+    """Take the face's row for the transaction, then check what it now says.
+
+    **After the vein, and never before it.** The eruption takes the veins of a
+    shaken node before the sessions at them, precisely because a swing goes the
+    other way round: a command holding this row while it waits for the vein
+    closes that circle into a deadlock. `vein -> session` is the eruption's own
+    direction and crosses nobody -- no closer of a face asks for a body or a
+    vein while already holding a session row (`plates._close_faces`,
+    `face.leave`, `face.abandon`, `death.die`, `engine.rig`).
+
+    Taken rather than merely read, because `leave` from a second socket of one
+    identity holds this row and nothing else -- no body, no vein -- so it
+    shares no other lock with a swing. A reread would only narrow the window
+    in which it walks off with the haul and leaves the newest ore in a
+    container its own state then refuses to open; with a heap already at the
+    face the two do not even lose quietly, they cross on `stack_up`'s twins.
+    Pinned by `test_races_face.py` and `test_races_mining.py`.
+    """
+    await session.execute(
+        select(MiningSession)
+        .where(MiningSession.id == mining.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    return await _require_active(session, mining, working=working)
+
+
+async def _require_active(
+    session: AsyncSession, mining: MiningSession, *, working: bool = True, fresh: bool = False
 ) -> tuple[Body, Vein]:
     """The open session, its body and its vein.
 
@@ -247,7 +277,19 @@ async def _require_active(
     haul in it. Refusing to leave then would shut the miner in a face they
     could neither work nor walk out of -- and the ore mined by the swing before
     would stay in a container nobody can ever open again.
+
+    `fresh=True` takes the session's row as the database has it now before
+    reading it, and locks nothing -- a plain read, which waits for nobody and
+    under READ COMMITTED sees whatever the winner of the row committed. It is
+    what a command may do **before** it holds the vein; to hold the row as
+    well, and only after the vein, there is `_relock`, which says why.
     """
+    if fresh:
+        await session.execute(
+            select(MiningSession)
+            .where(MiningSession.id == mining.id)
+            .execution_options(populate_existing=True)
+        )
     if mining.state is not SessionState.ACTIVE:
         raise SessionClosed(
             key="mining-session-closed", session=str(mining.id), state=mining.state.value

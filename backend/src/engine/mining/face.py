@@ -35,6 +35,7 @@ from src.engine.mining._base import (
     Sight,
     VeinDepleted,
     VeinLiquid,
+    _relock,
     _require_active,
     _sight,
     _tool,
@@ -177,16 +178,8 @@ async def swing(
     #: The reread needs no lock of its own: every swing of this face is a swing
     #: of this body, so the body's row is where the two queue, and the loser
     #: reads what the winner committed -- `_require_active` then tells it the
-    #: face is closed. Taking the face's own row FOR UPDATE here instead would
-    #: be a deadlock: the eruption locks veins before sessions (`plates.clock`)
-    #: precisely because a swing goes the other way round, and holding the
-    #: session while waiting for the vein closes that circle.
-    await session.execute(
-        select(MiningSession)
-        .where(MiningSession.id == mining.id)
-        .execution_options(populate_existing=True)
-    )
-    body, vein = await _require_active(session, mining)
+    #: face is closed. Why the reread takes no lock of its own is written there.
+    body, vein = await _require_active(session, mining, fresh=True)
 
     #: A swing costs stamina, and a body at zero does not swing: the vein is
     #: not mined by free willpower. The check comes before all effects so that a
@@ -196,9 +189,34 @@ async def swing(
     if float(body.stamina) < hit_price:
         raise NoStrength(key="mining-no-strength", need=hit_price, have=float(body.stamina))
 
+    #: The vein is shared by every miner and by the rigs: locked and reread
+    #: before its remainder is spent, or two swings mine the same ore twice.
+    #: Lock order everywhere: body -> rig -> vein.
+    await session.refresh(vein, with_for_update=True)
+    #: And the face itself, held for the rest of the transaction, because that
+    #: lock is a place to **wait**. The eruption takes the veins of a shaken
+    #: node before the sessions at them (`plates.clock`) and then closes those
+    #: faces through `leave`, so a swing queued at the vein can wake up behind
+    #: a job that has already carried this haul out and moved the rock to the
+    #: next node: going on from there would lay the ore into the container of a
+    #: closed session -- where nothing reaches it again, `leave` refusing by
+    #: state -- and write the roof onto a vein that is no longer at this face.
+    #: The rig queues at the same lock (`engine.rig`), so the remainder can be
+    #: gone as well, and a swing that mines nothing does not lose quietly:
+    #: `item.amount_positive` stops the insert and the socket gets an internal
+    #: error where the vault keeps a word for a worked-out vein (pillar P2).
+    #: Why the row is taken rather than read, and only here, is in `_relock`.
+    body, vein = await _relock(session, mining)
+
+    #: Everything the yield is made of is read **below** the locks, off the
+    #: rows they hold. Read above them, a swing that stood in the queue behind
+    #: a rig crossing a depletion tier would price its ore by the richness the
+    #: vein had before the wait and then stamp that ore with the richness it
+    #: has after (`quality`, below): one swing, two answers to what this rock
+    #: is. The stamina check stays above, so that a refusal still changes
+    #: nothing in the world and takes no lock to say so.
     factor = pace_factor(constants, mining.pace)
     crowd = await crowd_factor(constants, session, vein)
-
     #: An hour of mining gives `mining.iron_per_hour` on a vein of ordinary richness.
     per_swing = (
         constants[R.MINING_IRON_PER_HOUR]
@@ -208,10 +226,6 @@ async def swing(
         * factor
         * crowd
     )
-    #: The vein is shared by every miner and by the rigs: locked and reread
-    #: before its remainder is spent, or two swings mine the same ore twice.
-    #: Lock order everywhere: body -> rig -> vein.
-    await session.refresh(vein, with_for_update=True)
     mined = min(amount(per_swing), vein.remaining)
 
     extracted_before = vein.extracted
@@ -269,20 +283,54 @@ async def timber(session: AsyncSession, constants: Constants, mining: MiningSess
     Whether shoring pays depends on the price of support against the price of
     raw material, and that floats with the market. There is no memorised
     sequence because the optimum moves (D-143).
+
+    Three rows are taken, in the order this package keeps everywhere -- the
+    vein, the face, then the timber in the pocket. A support is a write to the
+    roof, and a timber is a remainder, so both are on the list that may only
+    be changed under a lock (CLAUDE.md). The vein goes **before** the face's
+    row for the reason the whole package does: a swing holds the vein and then
+    takes the session, and the reverse order here would cross it.
+
+    What the vein's lock does **not** buy is the roof of a neighbour's session:
+    the sag is read from this session's own copy, so two bodies at one vein
+    still overwrite each other's -- older than these locks and not theirs to
+    fix (D-188 says the roof is shared, D-099 says who shares it).
     """
-    body, _ = await _require_active(session, mining)
+    vein = await session.get(Vein, mining.vein_id)
+    if vein is None:  # pragma: no cover -- a session without a vein is a bug
+        raise MiningError(key="mining-session-dangling")
+    #: Flushed before the lock, or `refresh` would undo whatever this
+    #: transaction has set on the vein and not yet written (see `swing`).
+    await session.flush()
+    await session.refresh(vein, with_for_update=True)
+    body, _ = await _relock(session, mining)
 
     inventory = await body_container(session, body)
-    stock = (
-        await session.execute(
-            select(Item)
-            .where(
-                Item.container_id == inventory.id,
-                Item.type_key.in_(world_engine.station_names(TIMBER)),
+    #: Every stack of it, taken under the lock and reread there: two sockets
+    #: both reading a stack of two and both writing one back spend one timber
+    #: for two supports. **All** of them, and not the first with a LIMIT:
+    #: Postgres applies the limit before the wait, so a stack deleted by the
+    #: winner of the row leaves the loser holding an empty answer rather than
+    #: the next stack, and the pocket is called empty with timber in it. Two
+    #: stacks of one support are ordinary -- quality keeps them apart, and
+    #: `stack_up` never folds those together.
+    stacks = (
+        (
+            await session.execute(
+                select(Item)
+                .where(
+                    Item.container_id == inventory.id,
+                    Item.type_key.in_(world_engine.station_names(TIMBER)),
+                )
+                .order_by(Item.id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
             )
-            .limit(1)
         )
-    ).scalar_one_or_none()
+        .scalars()
+        .all()
+    )
+    stock = next((one for one in stacks if one.container_id == inventory.id), None)
     if stock is None:
         raise NoTimber(key="mining-no-timber")
 
