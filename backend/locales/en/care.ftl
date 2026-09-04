@@ -24,8 +24,10 @@ care-feeding-row = “{ NAME($goods) }” { $stage ->
     }
 care-feeding-none = It takes no feeding: any fertilizer burns it.
 care-hardiness = Hardiness: { $hardiness } of 5.
-care-crowd = Fear of crowding: { $risk } of 5 — thinned { $until ->
+care-crowd = Fear of crowding: { $risk } of 5. Thinning lifts the crowding but takes its own share of the harvest — and only { $until ->
         [sprout] at sprouting
-       *[leaf] at sprouting or in leaf
-    }, and what is pulled is not put back.
-care-weeds = Weeds are pulled when seen: they drink the water and drag the growth.
+        [leaf] at sprouting or in leaf
+        [bloom] at sprouting, in leaf or in bloom
+       *[fill] at sprouting, in leaf, in bloom or at filling
+    }; what is pulled is not put back.
+care-weeds = Weeds are pulled when seen: they drink its water and hold its growth back.

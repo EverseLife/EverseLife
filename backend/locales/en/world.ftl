@@ -47,10 +47,12 @@ farm-not-enough-seeds = sowing needs { $need } “{ NAME($seeds) }”, there are
 farm-nothing-grows = nothing grows on plot “{ $plot }”
 farm-already-wetter = “{ $plot }” is wetter than that already: moisture { $moisture }, target { $target }
 farm-feed-ripe = “{ $plot }” is ripe: nothing left to feed — harvest it
-farm-thinned-already = plot “{ $plot }” is thinned already: what was pulled is not put back, and there is nothing to pull twice
-farm-thin-late = plot “{ $plot }” has grown past it: thinning is done { $until ->
+farm-thinned-already = plot “{ $plot }” is thinned already: there is nothing to pull twice
+farm-thin-late = plot “{ $plot }” has grown past thinning: it is done { $until ->
         [sprout] at sprouting
-       *[leaf] at sprouting or in leaf
+        [leaf] at sprouting or in leaf
+        [bloom] at sprouting, in leaf or in bloom
+       *[fill] at sprouting, in leaf, in bloom or at filling
     }
 farm-fertilize-sown = { $state ->
         [plowing] “{ $plot }” is under the plough: one fertilizes fallow or ploughed land, and a ploughing is finished or dropped first
