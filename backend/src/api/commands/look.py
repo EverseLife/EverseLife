@@ -602,9 +602,12 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
     #: Carried load: how much is carried, how much can be, and what is worn
     #: (D-146). The limit is why wagons exist, and the player must see it as a number.
     worn = await gear.equipped(db, body)
+    #: One reading of the slots for all three answers: `load_of` and `capacity`
+    #: would each go back for them, and this is the hottest read in the game.
+    carried = await gear.carried_mass(db, current_catalog(), body)
     seen["carry"] = {
-        "load": round(await gear.load_of(db, constants, current_catalog(), body), 2),
-        "capacity": round(await gear.capacity(db, constants, current_catalog(), body), 2),
+        "load": round(gear.packed(constants, current_catalog(), worn, carried), 2),
+        "capacity": round(await gear.capacity(db, constants, current_catalog(), body, worn), 2),
         "slots": list(current_catalog().recipes.gear_slots),
         "equipped": {
             slot: {"id": str(thing.id), "goods": thing.type_key} for slot, thing in worn.items()

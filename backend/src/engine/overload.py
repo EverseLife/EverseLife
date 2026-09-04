@@ -61,9 +61,13 @@ async def settle_load(
     if not items:
         return 0.0
     await session.execute(select(Body.id).where(Body.id == body.id).with_for_update())
-    carries = await gear.load_of(session, constants, catalog, body)
-    limit = await gear.capacity(session, constants, catalog, body)
-    excess = carries - limit
+    worn = await gear.equipped(session, body)
+    load = await gear.carried_mass(session, catalog, body)
+    carries = gear.packed(constants, catalog, worn, load)
+    limit = await gear.capacity(session, constants, catalog, body, worn)
+    #: Matter, not the felt excess: things fall by what they weigh on the
+    #: ground, and under a pack the two are different kilograms.
+    excess = gear.matter_over(constants, catalog, worn, load, limit)
     if excess <= _DUST:
         return 0.0
 

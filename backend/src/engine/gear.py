@@ -78,10 +78,13 @@ def mass_of(catalog: Catalog, type_key: str, quantity: float) -> float:
     return catalog.recipes.mass_of(type_key) * quantity
 
 
-async def load_of(
-    session: AsyncSession, constants: Constants, catalog: Catalog, body: Body
-) -> float:
-    """How much the body carries now, kg. What is worn counts along with everything."""
+async def carried_mass(session: AsyncSession, catalog: Catalog, body: Body) -> float:
+    """The matter in the hands, kg -- before a pack lightens any of it.
+
+    What is worn counts along with everything else. This is the figure a pack
+    is applied to, and the one in which kilograms may be added at all: the
+    felt load is not additive, so two readings of it must never be summed.
+    """
     things = await world.contents(session, await world.body_container(session, body))
     from src.engine import storage  # noqa: PLC0415 -- lazy: storage -> gear (the carry limit)
 
@@ -96,7 +99,31 @@ async def load_of(
         for held in inside.values()
         for thing in held
     )
-    return packed(constants, catalog, await equipped(session, body), own + fill)
+    return own + fill
+
+
+async def load_of(
+    session: AsyncSession, constants: Constants, catalog: Catalog, body: Body
+) -> float:
+    """How much the body carries now, kg. What is worn counts along with everything."""
+    return packed(
+        constants,
+        catalog,
+        await equipped(session, body),
+        await carried_mass(session, catalog, body),
+    )
+
+
+def _pack_of(
+    constants: Constants, catalog: Catalog, worn: dict[str, Item]
+) -> dict[str, float] | None:
+    """The worn pack, or nothing. One back, one pack -- the first found is it."""
+    packs = constants[R.INVENTORY_PACK]
+    for thing in worn.values():
+        pack = packs.get(catalog.recipes.resolve(thing.type_key))
+        if pack:
+            return pack
+    return None
 
 
 def packed(constants: Constants, catalog: Catalog, worn: dict[str, Item], mass: float) -> float:
@@ -106,14 +133,47 @@ def packed(constants: Constants, catalog: Catalog, worn: dict[str, Item], mass: 
     them by its `factor`; packing is implied -- the first kilograms ride in
     it. The rest is carried as it is. The pack raises no limit: that is the
     exoskeleton's business, and the two never compete.
+
+    The line is bent, not scaled: below the capacity a kilogram weighs
+    `factor` of itself, above it a whole one. So the reading of a load is not
+    the sum of the readings of its parts, and a question about a load that is
+    about to change is a question about the whole of it -- `check_carry` and
+    `matter_over` ask it in the two directions.
     """
-    packs = constants[R.INVENTORY_PACK]
-    for thing in worn.values():
-        pack = packs.get(catalog.recipes.resolve(thing.type_key))
-        if pack:
-            inside = min(mass, float(pack["capacity"]))
-            return mass - inside * (1 - float(pack["factor"]))
-    return mass
+    pack = _pack_of(constants, catalog, worn)
+    if pack is None:
+        return mass
+    inside = min(mass, float(pack["capacity"]))
+    return mass - inside * (1 - float(pack["factor"]))
+
+
+def matter_over(
+    constants: Constants, catalog: Catalog, worn: dict[str, Item], mass: float, limit: float
+) -> float:
+    """How much matter must leave a raw load of `mass` for it to fit `limit`, kg.
+
+    `packed` read backwards, and it has to be read backwards rather than
+    subtracted: with a pack the felt excess and the matter that removes it are
+    different kilograms. While the load sits inside the pack's capacity, a
+    kilogram out of the hands lightens the body by `factor` of itself, so
+    putting down the felt excess would leave the body over the limit still.
+    Past the capacity the two agree -- the only case the vault's packs have
+    ever produced, and a tripwire in the tests says so the day one of them
+    grows roomier than the limit.
+
+    Matter, hence the name: `overload.shed` is the door that drops it (D-306),
+    this is only the measure it drops by.
+    """
+    if packed(constants, catalog, worn, mass) <= limit:
+        return 0.0
+    pack = _pack_of(constants, catalog, worn)
+    if pack is None:
+        return mass - limit
+    room, factor = float(pack["capacity"]), float(pack["factor"])
+    #: Inside the pack the limit buys `limit / factor` kilograms of matter;
+    #: past it the pack's whole discount is spent and the rest weighs itself.
+    fits = limit / factor if factor > 0 and limit <= room * factor else limit + room * (1 - factor)
+    return mass - fits
 
 
 async def equipped(session: AsyncSession, body: Body) -> dict[str, Item]:
@@ -130,14 +190,23 @@ async def equipped(session: AsyncSession, body: Body) -> dict[str, Item]:
 
 
 async def capacity(
-    session: AsyncSession, constants: Constants, catalog: Catalog, body: Body
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    body: Body,
+    worn: dict[str, Item] | None = None,
 ) -> float:
     """The carry limit with worn gear in mind, kg.
 
     An exoskeleton raises it (D-268) -- while a charged battery rides in the
     hands. Drained, it is a frame that weighs and lifts nothing.
+
+    `worn` is for a caller that has already read it: the load and the limit
+    are two questions about the same slots, and `look` asks both on every
+    glance. Left out, they are read here.
     """
-    worn = await equipped(session, body)
+    if worn is None:
+        worn = await equipped(session, body)
     lift = exo_bonus(constants, catalog, worn)
     if lift > 0 and not await battery.charged_carried(session, constants, body):
         lift = 0.0
@@ -209,14 +278,27 @@ async def check_carry(
     quantity: float,
 ) -> None:
     """Whether this fits in the hands. Did not fit -- not taken, and that is not an error but
-    weight."""
+    weight.
+
+    Weighed as the load **will be**, not as it was plus raw kilograms: a pack
+    that lightens the first kilograms lightens the ones about to arrive too
+    (D-268). Adding the thing's own mass to a load already read through the
+    pack charged full weight for what the pack was going to carry at
+    `factor`, and refused a pickup the body could make.
+    """
     bonus = mass_of(catalog, type_key, quantity)
     if bonus <= 0:
         return
-    carries = await load_of(session, constants, catalog, body)
-    limit = await capacity(session, constants, catalog, body)
-    if carries + bonus > limit:
-        raise Overloaded(key="gear-overloaded", carries=carries, limit=limit, extra=bonus)
+    worn = await equipped(session, body)
+    mass = await carried_mass(session, catalog, body)
+    carries = packed(constants, catalog, worn, mass)
+    after = packed(constants, catalog, worn, mass + bonus)
+    limit = await capacity(session, constants, catalog, body, worn)
+    if after > limit:
+        #: The refusal names what the body would feel, not what the thing
+        #: weighs on the ground: the three figures in the message have to add
+        #: up for whoever reads it.
+        raise Overloaded(key="gear-overloaded", carries=carries, limit=limit, extra=after - carries)
 
 
 async def equip(
