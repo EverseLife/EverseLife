@@ -216,7 +216,12 @@ async def crowd_factor(constants: Constants, session: AsyncSession, vein: Vein) 
 
 
 async def session_container(session: AsyncSession, mining: MiningSession) -> Container:
-    """What was mined during the session lies apart: leave -- take it, collapse -- lose it."""
+    """What was mined during the session lies apart: leave -- take it, collapse -- lose it.
+
+    Opens the container when the face has none, so this belongs to the write
+    paths alone -- `face.start`, `swing`, `leave`, `abandon`, `collapse`. To
+    only look at the haul there is `_session_haul`, which writes nothing.
+    """
     stmt = select(Container).where(
         Container.kind == ContainerKind.MINING_SESSION, Container.owner_id == mining.id
     )
@@ -226,6 +231,26 @@ async def session_container(session: AsyncSession, mining: MiningSession) -> Con
         session.add(container)
         await session.flush()
     return container
+
+
+async def _session_haul(session: AsyncSession, mining: MiningSession) -> int:
+    """How much lies at the face, counted without opening a container.
+
+    A read creates no row -- `look`, `*.view`, `*.status` (review 2026-08-23).
+    `session_container` opens one where it finds none, and the sight wants the
+    total rather than the row, so the sum goes through the container by its
+    owner: a face without one reads as empty instead of gaining a container.
+    """
+    total = await session.scalar(
+        select(func.coalesce(func.sum(Item.amount), 0))
+        .select_from(Item)
+        .join(Container, Container.id == Item.container_id)
+        .where(
+            Container.kind == ContainerKind.MINING_SESSION,
+            Container.owner_id == mining.id,
+        )
+    )
+    return int(total or 0)
 
 
 async def active(session: AsyncSession, body: Body) -> MiningSession | None:
@@ -336,13 +361,9 @@ async def _sight(
     mining: MiningSession,
     body: Body,
 ) -> Sight:
-    container = await session_container(session, mining)
-    mined = await session.scalar(
-        select(func.coalesce(func.sum(Item.amount), 0)).where(Item.container_id == container.id)
-    )
     return Sight(
         sign=sign_of(constants, float(mining.roof), _noise_of(mining)),
-        mined=amount_float(int(mined or 0)),
+        mined=amount_float(await _session_haul(session, mining)),
         swings=mining.swings,
         timbers=mining.timbers,
         stamina=float(body.stamina),
