@@ -609,11 +609,11 @@ async def settle_lost(
     the journal names a thing that is not lying there.
 
     `before` is what `losing_worn` found, and it is passed on rather than
-    dropped: **only the difference this death makes falls** (D-306). A suit, a
-    pair of boots, a helmet lift nothing and lighten nothing, so their ending
-    leaves the excess where it was -- less their own weight -- and nothing
-    falls at all. An overload somebody else's door let in is not this one to
-    answer for.
+    dropped: **only the difference this death makes falls** (D-306). A suit --
+    insulated, heatproof, pyroxite -- lifts nothing and lightens nothing, so
+    its ending leaves the excess where it was, less its own weight, and
+    nothing falls at all. An overload somebody else's door let in is not this
+    one to answer for.
 
     Returns the kilograms that fell.
     """
