@@ -112,23 +112,23 @@ coin-not-enough = not that many coins: { $have } in the stack
 # --- stations and furniture (D-106, D-150, D-181, D-232) ---------------------
 
 station-dead-places = a dead body puts nothing down
-station-dead-takes = a dead body carries nothing away
+station-dead-takes = a dead body takes nothing down
 station-body-off-node = the body is outside the node
 station-not-in-hands = this thing is not in hand
-station-not-installed = “{ NAME($goods) }” lies here rather than stands: what lies is picked up off the floor, what stands is taken up
+station-not-installed = “{ NAME($goods) }” lies here rather than stands: what lies is picked up off the floor, what stands is taken down
 station-not-in-node = this thing is not in this node
 station-not-placeable = “{ NAME($goods) }” is neither a station nor furniture: what goes into a building is equipment
 station-not-a-station = “{ NAME($goods) }” is neither a station nor furniture
-station-built-in-place = { NAME($goods) }: built in place, never taken up
+station-built-in-place = { NAME($goods) }: built in place, never taken down
 station-relic = “{ NAME($goods) }” is a relic of the Forerunners: it is neither taken down nor dismantled
 station-node-not-yours = the node is not yours: equipment goes up on your own land. An empty city plot is bought out, a wild one is taken
-station-take-not-yours = the node is not yours: another's equipment is not carried away
+station-take-not-yours = the node is not yours: another's equipment is not taken down
 station-busy = someone is working at the station: wait for the batch to end
-station-not-empty = there are things in “{ NAME($chest) }”: empty it first, carry it away after
+station-not-empty = there are things in “{ NAME($chest) }”: empty it first, take it down after
 station-no-building = the plot has no building: first you build, then you furnish
 station-no-room = { $slots ->
-        [one] the building has { $slots } space of { $per } m², and it is taken: build more or carry the extra out
-       *[other] the building has { $slots } spaces of { $per } m² each, and all are taken: build more or carry the extra out
+        [one] the building has { $slots } space of { $per } m², and it is taken: build more or take the extra down
+       *[other] the building has { $slots } spaces of { $per } m² each, and all are taken: build more or take the extra down
     }
 
 # --- the library as a store of recipes (D-053, D-068) ------------------------

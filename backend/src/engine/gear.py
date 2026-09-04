@@ -32,7 +32,9 @@ wagons, caravans and the carter's profession exist.
 
 What is made at a machine does not fall under the limit: it lies where it was
 made and becomes a load only when taken. Likewise with what is mined at the
-face -- it stays at the face until somebody comes for it.
+face -- it stays at the face until somebody comes for it, and with a machine
+taken down off its stand: `station.take` leaves it lying, and the limit
+answers at the pick-up (D-308).
 
 ## What is not here yet
 
