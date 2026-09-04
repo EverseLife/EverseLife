@@ -6,7 +6,7 @@
 
 import { useEffect, useState } from "react";
 import * as api from "../../api";
-import { Refusal, useActions, useNames, useSession } from "../../actions";
+import { Refusal, useActions, useBook, useNames, useSession } from "../../actions";
 import { t } from "../../locale";
 import { buildingKindName, goodsName } from "../../names";
 import { Deadline } from "../../Deadline";
@@ -45,6 +45,7 @@ export function House({
 }: Omit<Props, "busy" | "act"> & { values: Record<string, any> | null }) {
   const session = useSession();
   const names = useNames();
+  const book = useBook();
   //: Own waiting and own refusal: this window is a window of its own in the row.
   const acting = useActions();
   const { busy, act } = acting;
@@ -119,8 +120,8 @@ export function House({
   const picked = kind || shelf[0]?.kind || "";
 
   //: What is at hand of a material, for the site's rows (D-266): the reach a
-  //: contribution is gathered from, not the pocket alone (D-304).
-  const athand = reachOf(look);
+  //: contribution is gathered from, not the pocket alone (D-305).
+  const athand = reachOf(look, book);
   const inHands = (goods: string) => stockOf(athand, goods);
   type Work = (typeof going)[number];
   const mine = (w: Work) => w.owner === look.identity;

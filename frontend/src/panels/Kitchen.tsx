@@ -54,9 +54,9 @@ export function Kitchen({ look }: Omit<Props, "busy" | "act">) {
   //: into the stew, the rest into the salting.
   const [tiers, setTiers] = useState<Record<string, string | null>>({});
 
-  //: Everything the pot reaches (D-304): the pocket, one's own hold and -- on
+  //: Everything the pot reaches (D-305): the pocket, one's own hold and -- on
   //: one's own place -- the floor, the yard and the chests standing here.
-  const athand = reachOf(look);
+  const athand = reachOf(look, book);
   //: Products go into a role: what is edible is decided by data, not the client.
   const products = [...new Set(athand.filter((one) => one.ingredient).map((one) => one.goods))];
 

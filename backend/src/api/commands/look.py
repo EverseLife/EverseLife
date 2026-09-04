@@ -579,7 +579,7 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
         #: Whether this one may reach the floor at all: everybody inside may.
         "open": await access.may_enter(db, node, identity.id),
         #: Whose the place is -- the window says it in words, the words differ
-        #: for the holder and for a guest, and since D-304 the bench counts its
+        #: for the holder and for a guest, and since D-305 the bench counts its
         #: materials by this flag. So it is `may_build` and nothing beside it:
         #: the second half used to add "nobody's land", which `may_build`
         #: already answers True for -- except on a storey of somebody else's
@@ -618,7 +618,7 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
     #: what gets around it.
     seen["convoy"] = await transport.view(db, constants, current_catalog(), body)
     if seen["convoy"] is not None:
-        #: The hold in the same rows as the pocket and the floor (D-304): the
+        #: The hold in the same rows as the pocket and the floor (D-305): the
         #: window counts what feeds a batch off what it was shown (D-225), and
         #: a batch reaches into one's own hold -- so the hold needs the tier,
         #: the mark and a vessel's fill, not four bare numbers.

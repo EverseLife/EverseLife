@@ -237,7 +237,7 @@ async def contribute(
     #: the same order `start` takes.
     await session.execute(select(Body.id).where(Body.id == body.id).with_for_update())
     #: Which stacks go into the wall is the bringer's choice by tier (D-058);
-    #: where they lie is the reach of the hands here (D-304).
+    #: where they lie is the reach of the hands here (D-305).
     stock = await craft._stock(  # noqa: SLF001
         session, body, (name,), tiers={name: tier} if tier else None, lock=True
     )

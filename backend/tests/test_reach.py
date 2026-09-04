@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Nurlan Urazkulov
 
-"""How far the hands reach when a work gathers its materials (D-304).
+"""How far the hands reach when a work gathers its materials (D-305).
 
 The reach used to be one place -- the pocket -- and everything else in the
 node did not exist for a batch: the chest two steps away, the wagon in the
@@ -102,7 +102,7 @@ async def test_a_batch_eats_out_of_a_chest_standing_here(
 ) -> None:
     """The chest by the bench is a store, and now a store the work reaches into.
 
-    Before D-304 this was a refusal with the iron two steps away: the master
+    Before D-305 this was a refusal with the iron two steps away: the master
     had to carry it into the hands first, by the load limit -- and the limit
     guarded nothing, since carrying it all across the yard is always possible,
     merely slow.
@@ -202,6 +202,10 @@ async def test_fuel_at_a_fuel_plant_is_the_plants_tank(
     The hand is refused it (`storage.pick`), and the work must be refused it
     too: since D-248 the treasury pays for the haul, and a heap that could be
     poured in and crafted back out is a money pump.
+
+    **Only the heap.** A chest standing beside the plant is not its bunker --
+    `storage.take` hands its coal over without a word -- so the bar stops at
+    the lid, or the work would be narrower than the hand for no reason.
     """
     node, _, body = await _forge(session)
     yard = await world.node_container(session, node)
@@ -216,11 +220,19 @@ async def test_fuel_at_a_fuel_plant_is_the_plants_tank(
     )
     fuel = next(iter(constants[R.ENERGY_FUEL_ENERGY]))
     await world.grant_item(session, yard, fuel, amount=50, origin="сценарий теста")
+    chest = await world.grant_item(
+        session, yard, CHEST, quality=60, origin="сценарий теста", installed=True
+    )
+    inside = await storage.inside(session, chest)
+    await world.grant_item(session, inside, fuel, amount=50, origin="сценарий теста")
 
     reached = await reach.at_work(session, constants, catalog, body)
-    assert reached.here, "свой двор в досягаемости"
-    assert reached.of(catalog, fuel) == reached.carried, "топливо станции — не сырьё"
+    assert reached.pile == yard.id, "куча станции — двор узла"
     assert reached.of(catalog, INGOT) != reached.carried, "прочее со двора берётся"
+    #: The yard is out for the fuel, the chest inside it is not.
+    for_fuel = set(reached.of(catalog, fuel))
+    assert yard.id not in for_fuel, "куча у станции — её бак, не склад"
+    assert inside.id in for_fuel, "сундук рядом со станцией — не бункер"
 
 
 # --- the shared reach is a shared race ----------------------------------------
@@ -234,7 +246,7 @@ async def test_two_batches_over_one_heap_leave_one_refused(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The pocket belonged to one body; a yard and a chest belong to everybody
-    entitled (D-304).
+    entitled (D-305).
 
     Nobody's land, where everybody may build (D-198), is the shortest way to
     two masters over one heap. Without the row lock both read the same ingots,

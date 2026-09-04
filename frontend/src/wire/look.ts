@@ -22,12 +22,19 @@
  * `furniture` into the kinds standing here. They live with `Look` because
  * each of them is a sentence about `Look` and about nothing else.
  */
+import { membersOf } from "../classes";
 import { compare } from "../locale";
 import type { Names } from "../names";
 import type { Air, Doing, Foraging, Frost, Sight } from "./body";
 import type { Batch } from "./craft";
+
+/** The fuel plant as a thing class (D-215), and the vault's table of what
+ *  burns: the two halves of the D-189 bar the bench has to count. */
+const FUEL_PLANT = "fuel_plant";
+const FUEL_ENERGY = "energy.fuel_energy";
 import type { DeedView } from "./land";
 import type { Printer, Profile } from "./person";
+import type { RecipeBook } from "./craft";
 import type { Bench, Carry, Storage, Thing, VarietyRef } from "./thing";
 import type { Order, Reservation } from "./trade";
 import type { Convoy, Exit, InSight, Transit, Vehicle } from "./travel";
@@ -442,8 +449,18 @@ export function stationsOf(
   return [...kinds].sort((a, b) => compare(word(a), word(b)));
 }
 
+/** What this place will not give up off its floor: fuel where a fuel plant
+ *  stands, because that heap is the plant's tank and not a store (D-189).
+ *  Only off the floor -- a chest beside the plant is not its bunker. */
+function barredHere(look: Pick<Look, "bench">, book: RecipeBook | null): Set<string> {
+  if (!book) return new Set();
+  const plants = new Set(membersOf(book, FUEL_PLANT));
+  if (!(look.bench ?? []).some((one) => plants.has(one.goods))) return new Set();
+  return new Set(Object.keys((book.constants?.[FUEL_ENERGY] as Record<string, number>) ?? {}));
+}
+
 /**
- * Everything a work started here draws its materials from (D-304).
+ * Everything a work started here draws its materials from (D-305).
  *
  * The server sends no such list, and it should not: it sends the pocket, the
  * floor, the open ground, the chests one may open and one's own hold, and the
@@ -457,19 +474,30 @@ export function stationsOf(
  * lies loose. One's own hold is reached wherever the body works: it walks with
  * the body and is held by the body's own harness.
  *
- * Three things the engine refuses off a floor cannot be told apart here -- a
- * relic, a station built in place, and fuel where a fuel plant stands -- and
- * none of the three is a recipe's input. Where one ever is, the forecast is
- * the answer: `craft.plan` and `craft.most` count on the engine's own reach.
+ * `book` is what lets the fuel bar be counted: coal is an input of five
+ * recipes, so a node with a fuel plant on it is the one place where a count
+ * over the visible stacks would promise what the batch refuses. Without the
+ * book the sum is the wider one, and the forecast stays the answer -- the
+ * engine walks its own reach in `craft.plan` and `craft.most`. The two other
+ * things a floor will not give up, a relic and a station built in place, are
+ * nobody's recipe input and are not subtracted here.
  */
-export function reachOf(look: Pick<Look, "inventory" | "convoy" | "storages" | "floor" | "ground">): Thing[] {
+export function reachOf(
+  look: Pick<Look, "inventory" | "convoy" | "storages" | "floor" | "ground" | "bench">,
+  book: RecipeBook | null = null,
+): Thing[] {
   const ours = look.floor?.mine === true;
+  const barred = ours ? barredHere(look, book) : new Set<string>();
+  const loose = (things: Thing[] | undefined) =>
+    ours ? (things ?? []).filter((thing) => !barred.has(thing.goods)) : [];
   return [
     ...look.inventory,
     ...(look.convoy?.cargo ?? []),
-    ...(ours ? (look.storages ?? []).filter((chest) => chest.mine).flatMap((chest) => chest.content) : []),
-    ...(ours ? (look.floor?.things ?? []) : []),
-    ...(ours ? (look.ground?.things ?? []) : []),
+    ...(ours
+      ? (look.storages ?? []).filter((chest) => chest.mine).flatMap((chest) => chest.content)
+      : []),
+    ...loose(look.floor?.things),
+    ...loose(look.ground?.things),
   ];
 }
 

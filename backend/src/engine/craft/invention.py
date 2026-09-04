@@ -126,7 +126,7 @@ async def invent(
         )
 
     #: What is laid out is spent, whatever comes of it -- and it is gathered
-    #: from everything the hands reach (D-304), the chest by the bench included.
+    #: from everything the hands reach (D-305), the chest by the bench included.
     #: Which stacks: the chosen tier per kind, or worst first (D-058).
     picked_tiers = _tiers_by(catalog, tiers)
     stock = await _stock(session, body, laid, tiers=picked_tiers, lock=True)

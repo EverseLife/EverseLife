@@ -82,9 +82,9 @@ export function Mint({ look, values }: Omit<Props, "busy" | "act">) {
 
   const fineness = Number(values?.["coin.default_fineness"] ?? 900);
 
-  //: What the die reaches (D-304): the pocket, one's own hold and -- at the
+  //: What the die reaches (D-305): the pocket, one's own hold and -- at the
   //: mint on one's own place -- the floor, the yard and the chests here.
-  const athand = reachOf(look);
+  const athand = reachOf(look, book);
   const inHands = { metal: stockOf(athand, chosen.metal), iron: stockOf(athand, IRON) };
 
   //: The coin's composition comes from the vault recipe: the forecast before

@@ -134,7 +134,7 @@ async def _prepare(
 
     #: Which stacks feed the batch is the master's choice (D-058): by tier per
     #: input, or worst first when nothing is said. Where they lie is `reach`
-    #: (D-304): the pocket, one's own convoy, and the place where it is ours.
+    #: (D-305): the pocket, one's own convoy, and the place where it is ours.
     stock = await _stock(session, body, proc.inputs, tiers=_tiers_by(catalog, tiers), lock=lock)
     if proc.output in carrier_names(catalog):
         return await _prepare_write(
@@ -455,7 +455,7 @@ async def _tool_items(
 ) -> list[Item]:
     """The tool is carried along and takes part in the quality ceiling.
 
-    In the **hands**, and the wider reach of D-304 does not touch this: a tool
+    In the **hands**, and the wider reach of D-305 does not touch this: a tool
     is held while the work goes and wears by it, so it is a thing the body
     carries, not a material the place gives up. A chest full of hammers is a
     chest, not a hand.
@@ -506,7 +506,7 @@ async def _stock(
     is touched, and too little of the chosen tier is a refusal, not a silent
     fallback to worse -- the choice was made for a reason (D-058).
 
-    **Where it looks** is `engine.reach` and nowhere else (D-304): the pocket
+    **Where it looks** is `engine.reach` and nowhere else (D-305): the pocket
     and the vessels in it, one's own convoy, and -- where this body may dispose
     of the place -- the floor, the yard and the chests standing here. One door
     for every work that gathers materials, so a new one gets the rule rather

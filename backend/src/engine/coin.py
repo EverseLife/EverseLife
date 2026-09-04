@@ -173,7 +173,7 @@ async def mint(
 
     needed = {name: qty * count for name, qty in composition.items()}
     #: Which metal goes under the die is the minter's choice by tier (D-058),
-    #: and it is taken from everything the hands reach at the mint (D-304).
+    #: and it is taken from everything the hands reach at the mint (D-305).
     stock = await craft._stock(  # noqa: SLF001
         session,
         body,

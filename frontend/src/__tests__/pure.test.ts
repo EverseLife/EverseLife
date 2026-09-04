@@ -366,7 +366,7 @@ describe("tiers", () => {
 });
 
 describe("the reach of a work", () => {
-  //: What a batch may be counted from (D-304). The server sends no such list:
+  //: What a batch may be counted from (D-305). The server sends no such list:
   //: it sends the pocket, the hold, the chests one may open and the two
   //: surfaces of the place, and the sum is this side's arithmetic (D-225).
   const at = (over: Partial<Thing>) => thing(over);
@@ -405,6 +405,33 @@ describe("the reach of a work", () => {
     //: A guest is refused the host's chest and floor by the engine (D-181), and
     //: their own convoy is theirs wherever it stands: it walks with the body.
     expect(stockOf(reachOf(place(false) as never), "Руда")).toBe(1 + 2);
+  });
+
+  it("leaves the fuel plant its heap, and not the chest beside it", () => {
+    //: The pile where a fuel plant stands is the plant's tank (D-189), and
+    //: coal is an input of five recipes -- so this is the one node where a
+    //: count over the visible stacks would promise what the batch refuses.
+    //: The bar stops at the lid: a chest is not the plant's bunker.
+    const book = {
+      classes: { fuel_plant: ["coal_plant"] },
+      constants: { "energy.fuel_energy": { coal: 4 } },
+    } as never;
+    const node = {
+      inventory: [],
+      bench: [{ id: "plant", goods: "coal_plant", condition: 100, busy: false, mine: true }],
+      storages: [
+        { id: "chest", goods: "chest", capacity: 100, mass: 4, mine: true, content: [at({ id: "in-chest", goods: "coal", amount: 7 })] },
+      ],
+      floor: {
+        space: { area: 20, used: 0, cargo_mass: 0, free: 20, slots: 2, slots_used: 0 },
+        things: [at({ id: "heap", goods: "coal", amount: 30 })],
+        open: true,
+        mine: true,
+      },
+    } as never;
+    expect(stockOf(reachOf(node, book), "coal")).toBe(7);
+    //: Without the book the sum is the wider one, and the forecast is the answer.
+    expect(stockOf(reachOf(node), "coal")).toBe(37);
   });
 
   it("counts nothing that is not there: no convoy, no chest, no house", () => {

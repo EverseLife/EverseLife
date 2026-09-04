@@ -124,10 +124,10 @@ export function Workshop({ look, machine }: Omit<Props, "busy" | "act">) {
   //: What the hands reach is part of the forecast too (live check 2026-09-02):
   //: a material printed or picked up after the plan was read left "not enough"
   //: and a grey button standing until the card was reopened. The whole reach
-  //: since D-304 -- a sack taken out of the chest by somebody else moves the
+  //: since D-305 -- a sack taken out of the chest by somebody else moves the
   //: number as surely as one taken out of the pocket. A string of the stacks,
   //: not the array -- a fresh array every render would refire endlessly.
-  const athand = reachOf(look);
+  const athand = reachOf(look, book);
   const stockKey = athand.map((thing) => `${thing.id}:${thing.amount}`).join("|");
   useEffect(() => {
     if (selected === null) return;
@@ -471,10 +471,10 @@ function Invent({
 
   //: Kinds of things within reach, one line each: the same wood twice is one
   //: input with a bigger amount, not two. The reach and not the pocket alone
-  //: (D-304) -- an experiment is laid out of the same matter a batch is.
+  //: (D-305) -- an experiment is laid out of the same matter a batch is.
   //: Ordered by the display word of the player's language (D-251): the options
   //: show it, and an ASCII order of ids reads as random.
-  const athand = reachOf(look);
+  const athand = reachOf(look, book);
   const kinds = [...new Set(athand.map((one: Thing) => one.goods))].sort((a, b) =>
     order(goodsName(names, a), goodsName(names, b)),
   );

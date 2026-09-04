@@ -451,7 +451,7 @@ async def view(
     pocket and the floor -- with the tier, the mark and, for a vessel, what is
     poured into it (D-230). A second shape for the same rows is how the hold
     became the one list on the wire a batch could not be counted from -- and a
-    batch now reaches into one's own hold (D-304).
+    batch now reaches into one's own hold (D-305).
     """
     wagon = await harnessed(session, body)
     if wagon is None:
