@@ -22,12 +22,14 @@ from src.engine import (
     coin,
     mining,
     rig,
+    world,
 )
 from src.engine import pow as device
-from src.models.identity import Identity
+from src.models.identity import Body, Identity
+from src.models.inventory import Item
 from src.models.mining import MiningSession, Pace, PowChallenge, SessionState
 from src.models.rig import Rig as RigRow
-from src.models.world import Vein
+from src.models.world import Node, Vein
 from src.units import amount_float
 
 
@@ -143,11 +145,35 @@ async def _coin_melt(state: dict, db: AsyncSession, message: dict) -> dict:
     }
 
 
+async def _rig_at_hand(db: AsyncSession, body: Body, item_id: str) -> Item:
+    """The machine this body may stand: in the hands, or lying here (D-278, D-314).
+
+    `_own_item` asks for the hands and nothing else, and a rig that stopped
+    standing is on the floor, not in a pocket -- taken down (D-308), dropped by
+    a demolition, fallen with its owner. Standing it back up is the whole point
+    of the row surviving, and that door would have been shut. The same reading
+    `station.place` makes of a machine on the floor.
+    """
+    item = await db.get(Item, uuid.UUID(item_id))
+    if item is None:
+        raise Refused(key="cmd-item-not-yours")
+    pocket = await world.body_container(db, body)
+    if item.container_id == pocket.id:
+        return item
+    node = await db.get(Node, body.node_id)
+    yard = None if node is None else await world.node_yard(db, node)
+    #: Lying, not standing: what stands is another machine's business, and
+    #: taking it off its vein goes through the taking-down door.
+    if yard is not None and item.container_id == yard.id and not item.installed:
+        return item
+    raise Refused(key="cmd-item-not-yours")
+
+
 @command("rig.place")
 async def _rig_place(state: dict, db: AsyncSession, message: dict) -> dict:
     """Place a drilling rig on a vein. From then on it works without the player (D-115)."""
     body = await _alive(state, db)
-    item = await _own_item(db, body, message["item"])
+    item = await _rig_at_hand(db, body, message["item"])
     vein = await db.get(Vein, uuid.UUID(message["vein"]))
     if vein is None:
         raise Refused(key="cmd-no-such-vein")

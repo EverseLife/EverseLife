@@ -64,7 +64,8 @@ class Busy(StationError):
 
 
 class NotEmpty(StationError):
-    """Things lie in the storage: unpack first, then carry away (D-181)."""
+    """Things lie in the storage, or ore in the hopper: unpack first, then carry away
+    (D-181, D-314)."""
 
 
 def is_station(catalog: Catalog, type_key: str) -> bool:
@@ -240,6 +241,16 @@ async def take(session: AsyncSession, catalog: Catalog, body: Body, item: Item) 
 
     if storage.is_storage(catalog, item.type_key) and not await storage.is_empty(session, item):
         raise NotEmpty(key="station-not-empty", chest=item.type_key)
+    #: And a rig's hopper by the same rule (D-181, D-314), with one unit in it
+    #: enough. Nothing on the way out weighs what is inside a machine: taking
+    #: down weighs nothing at all (D-308) and picking up weighs the machine
+    #: itself -- so twelve hours of a rig's work, 300 units and 60 kg, would
+    #: ride off in the hands past the carry limit (D-146) and past the carter
+    #: the hopper is there to require.
+    from src.engine import rig  # noqa: PLC0415 -- lazy: breaks station -> rig -> liquid -> station
+
+    if await rig.hopper_left(session, item) > 0:
+        raise NotEmpty(key="station-hopper-not-empty", goods=item.type_key)
 
     pocket = await world.body_container(session, body)
     item.container_id = pocket.id

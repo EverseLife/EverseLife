@@ -219,6 +219,25 @@ async def check_carry(
         raise Overloaded(key="gear-overloaded", carries=carries, limit=limit, extra=bonus)
 
 
+async def room_for(
+    session: AsyncSession, constants: Constants, catalog: Catalog, body: Body, type_key: str
+) -> float:
+    """How much of this the hands still have room for, in units of the thing.
+
+    `check_carry` from the other end: that door answers "does this fit", this
+    one "how much of it fits". A door that hands over what it can rather than
+    refusing the lot needs the figure (`rig.empty_hopper`, D-314), and working
+    it out beside the check instead of from it would let the two drift apart.
+    A weightless thing has no bound at all.
+    """
+    per = catalog.recipes.mass_of(type_key)
+    if per <= 0:
+        return float("inf")
+    carries = await load_of(session, constants, catalog, body)
+    limit = await capacity(session, constants, catalog, body)
+    return max(0.0, (limit - carries) / per)
+
+
 async def equip(
     session: AsyncSession,
     constants: Constants,

@@ -125,6 +125,8 @@ station-node-not-yours = the node is not yours: equipment goes up on your own la
 station-take-not-yours = the node is not yours: another's equipment is not carried away
 station-busy = someone is working at the station: wait for the batch to end
 station-not-empty = there are things in “{ NAME($chest) }”: empty it first, carry it away after
+# By the full chest's rule (D-181, D-314): taking a thing down weighs nothing.
+station-hopper-not-empty = the hopper of the rig “{ NAME($goods) }” is not empty: haul the hopper out first, take the machine down after
 station-no-building = the plot has no building: first you build, then you furnish
 station-no-room = { $slots ->
         [one] the building has { $slots } space of { $per } m², and it is taken: build more or carry the extra out
