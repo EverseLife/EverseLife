@@ -158,6 +158,7 @@ from src.engine.city.lookup import (  # noqa: F401
     by_node,
     core,
     gate,
+    has_printer,
     of_node,
     territory,
 )

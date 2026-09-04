@@ -9,7 +9,9 @@ over the 800 the quality bar allows and is about the ground, not the polity
 standing on it -- the same way the bank's and citizenship's races took files
 of their own.
 
-What is contested here is a name. A city's is one city's across the world,
+What is contested here is a name, and since D-312 the city's one bioprinter
+as well: two hands putting one up in a city that has none. A city's name is
+one city's across the world,
 and it becomes the name of that city's channel in the Net, so two foundings
 that agreed on a name would hand out two channels the Net calls one. The
 channel's own door races the same way and is held by the same kind of index
@@ -28,6 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.models.city import City
 from src.models.identity import Body
+from src.models.world import Node
 
 
 async def test_two_foundings_of_one_name_leave_one_refused(
@@ -257,3 +260,78 @@ async def test_a_founding_survives_a_channel_taking_its_name_mid_flight(
         city = await town.establish(db, constants, catalog, body, other)
         assert city.name == other
         assert await net.city_channel(db, city) is not None
+
+
+async def test_two_printers_in_one_printerless_city_leave_one_standing(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    constants,
+    catalog,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A city has one bioprinter (D-312), and "one" is a claim about the world
+    rather than about a form: two authorities putting one up in the same second
+    must not both read "the city has none" and both stand one.
+
+    **A handshake, not a pause.** The window is the one between the first hand
+    reading the city and committing what it read, and a sleep before `place`
+    does not open it: the first commits and the second reads a world where the
+    printer already stands, which proves nothing. So the first waits **inside**
+    its transaction, right after the rule let it through, and the second is let
+    go only then. Without the lock the second's read passes the first in that
+    window and the city ends with two centres -- two answers to "where is the
+    door", which is the whole thing the rule exists to prevent. Checked: with
+    `lock=False` this test fails.
+    """
+    from city_kit import _built, _capital, _printer, _resident
+    from src.engine import city as town
+    from src.engine import station, world
+    from src.models.identity import Body
+    from src.models.inventory import Item
+
+    city, core = await _capital(session, catalog)
+    president, _ = await _resident(session, core, "Президент")
+    await town.install_founder(session, city, president)
+    await _built(session, core)
+    #: Two machines lying in the yard: each hand reaches for its own, so what
+    #: is contested is the city's one place and not one item's row.
+    first = await _printer(session, core, standing=False)
+    second = await _printer(session, core, standing=False)
+    core_id, who, one, two = core.id, president.id, first.id, second.id
+    await session.commit()
+
+    passed = asyncio.Event()
+    asking = station.require_printer_room
+
+    async def held(*args, **kwargs):
+        await asking(*args, **kwargs)
+        if not passed.is_set():
+            passed.set()
+            await asyncio.sleep(0.3)
+
+    monkeypatch.setattr(station, "require_printer_room", held)
+
+    async def puts(item_id, after: asyncio.Event | None):
+        if after is not None:
+            await after.wait()
+        async with factory() as db, db.begin():
+            body = (await db.execute(select(Body).where(Body.identity_id == who))).scalars().one()
+            item = await db.get(Item, item_id)
+            try:
+                await station.place(db, catalog, body, item)
+                return True
+            except station.OnePrinter:
+                return False
+
+    done = await asyncio.gather(puts(one, None), puts(two, passed))
+
+    assert sorted(done) == [False, True], f"обе руки поставили: {done}"
+    async with factory() as db:
+        node = await db.get(Node, core_id)
+        assert node is not None
+        standing = [
+            item
+            for item in await world.contents(db, await world.node_container(db, node))
+            if item.type_key in world.station_names(world.BIOPRINTER) and item.installed
+        ]
+    assert len(standing) == 1, "в городе один биопринтер"

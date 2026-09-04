@@ -101,11 +101,19 @@ async def _prepare(
     #: pass is the same one (D-312). Asked before the work rather than after:
     #: twenty hours and two steel frames are not a thing to spend on a refusal.
     if proc.output in station_names(BIOPRINTER):
-        from src.engine import station  # noqa: PLC0415 -- lazy: station -> craft
+        from src.engine import station as gate  # noqa: PLC0415 -- lazy: cycle with station
 
-        node = await session.get(Node, body.node_id)
-        if node is not None:
-            await station.require_printer_room(session, body, node)
+        where = await session.get(Node, body.node_id)
+        if where is None:  # pragma: no cover -- a body without a node is a bug
+            raise CraftError(key="craft-body-off-node")
+        await gate.require_printer_room(session, body, where)
+        #: And one at a time: the door is asked once for the batch, so a batch
+        #: of two would pass it once and stand two (D-312). Outside a city
+        #: nothing is refused -- there a printer is just a machine.
+        from src.engine import city as town  # noqa: PLC0415 -- lazy: cycle with city
+
+        if units > 1 and await town.of_node(session, where) is not None:
+            raise CraftError(key="craft-one-printer-at-a-time")
 
     #: A knowledge carrier is written by whoever knows the recipe (D-209): the
     #: name of what goes onto it is part of the request, and it must be in the

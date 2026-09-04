@@ -148,10 +148,47 @@ async def core(session: AsyncSession, city: City) -> Node | None:
     places = sorted(await territory(session, city), key=lambda one: one.created_at)
     standing = await world.nodes_with_station(session, places, world.BIOPRINTER)
     printers = [place for place in places if place.id in standing]
+    #: The prison's machine is not the city's (D-174, D-176). It prints those
+    #: the prison holds and nobody else, and `world.is_door` already refuses
+    #: it a newcomer -- so a centre it must not be either: a city that lost the
+    #: machine it grew from would otherwise measure its land from the penal
+    #: colony (D-307) and have no door at all, and could never build itself a
+    #: new centre, because it would look as though it had one (D-312).
+    from src.engine import justice  # noqa: PLC0415 -- lazy: breaks the cycle with justice
+
+    printers = [place for place in printers if not await justice.is_prison(session, place)]
     for place in printers:
         if (place.properties or {}).get(PRECURSOR):
             return place
     return printers[0] if printers else None
+
+
+async def has_printer(session: AsyncSession, city: City) -> bool:
+    """Whether a bioprinter of this city's own stands anywhere on its land (D-312).
+
+    Not `core is not None`, and the difference bites: `core` chooses among
+    `territory`, which deliberately does not list storeys (D-247), while
+    `of_node` climbs from a storey to the plot under it and answers with the
+    city. A printer on the third floor is therefore inside the city for the
+    one and invisible to the other -- and the rule "one city, one printer"
+    would have been asked of the smaller set and answered "none", letting the
+    authority put a second on the ground below.
+
+    So the question is put to the world's printers and answered by the same
+    rule that decides whose land a node is. The prison's machine is left out,
+    as everywhere: it prints those the prison holds and is neither centre nor
+    door (D-174, `core`).
+    """
+
+    from src.engine import justice  # noqa: PLC0415 -- lazy: breaks the import cycle with justice
+
+    for node in await world.printer_nodes(session):
+        if await justice.is_prison(session, node):
+            continue
+        where = await of_node(session, node)
+        if where is not None and where.id == city.id:
+            return True
+    return False
 
 
 async def gate(session: AsyncSession, city: City) -> Node | None:

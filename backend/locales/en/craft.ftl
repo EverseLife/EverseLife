@@ -124,6 +124,7 @@ station-relic = “{ NAME($goods) }” is a relic of the Forerunners: it is neit
 station-node-not-yours = the node is not yours: equipment goes up on your own land. An empty city plot is bought out, a wild one is taken
 station-city-has-printer = a city has one bioprinter, and “{ $city }” has it already
 station-printer-by-the-city = inside a city a bioprinter is put up by the authority of “{ $city }”, not by the plot holder
+craft-one-printer-at-a-time = inside a city bioprinters go up one at a time, not in a batch
 station-take-not-yours = the node is not yours: another's equipment is not carried away
 station-busy = someone is working at the station: wait for the batch to end
 station-not-empty = there are things in “{ NAME($chest) }”: empty it first, carry it away after

@@ -36,10 +36,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Catalog, current
 from src.constants import registry as R
 from src.constants.catalog import ItemKind
+from src.db.base import forget
 from src.engine import city as town
 from src.engine import craft, estate, events, storage, travel, world
 from src.engine.errors import Refusal
-from src.models.city import Power
+from src.models.city import City, Power
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState
 from src.models.inventory import Item
@@ -134,7 +135,9 @@ async def may_build(session: AsyncSession, body: Body, node: Node) -> bool:
     return city is not None and await town.may(session, body.identity_id, city, Power.LAWS)
 
 
-async def require_printer_room(session: AsyncSession, body: Body, node: Node) -> None:
+async def require_printer_room(
+    session: AsyncSession, body: Body, node: Node, *, lock: bool = False
+) -> None:
     """Whether a bioprinter may go up in this place at all (D-312).
 
     Two rules, and both are about the city rather than the machine:
@@ -163,7 +166,25 @@ async def require_printer_room(session: AsyncSession, body: Body, node: Node) ->
     city = await town.of_node(session, node)
     if city is None:
         return
-    if await town.core(session, city) is not None:
+    #: The prison is the exception, and a named one (D-174): it prints the
+    #: prisoners who die on the spot, or a death in the face becomes an escape
+    #: through the capital. Its machine is nobody's centre and nobody's door
+    #: (`city.core`, `world.is_door`), so it neither counts as the city's one
+    #: printer nor is refused for it -- and building the penal colony is the
+    #: city's business anyway, by the right to the ground it stands on.
+    from src.engine import justice  # noqa: PLC0415 -- lazy: breaks the cycle with justice
+
+    if await justice.is_prison(session, node):
+        return
+    #: The city's row is taken before the question is asked, and only in the
+    #: doors that write: two hands putting a printer up in one printerless city
+    #: must not both read "none" and both stand one. `craft.plan` asks the same
+    #: question as a read and takes nothing -- a forecast that locks a row is a
+    #: read that waits (CLAUDE.md).
+    if lock:
+        await session.execute(select(City.id).where(City.id == city.id).with_for_update())
+        forget(session)
+    if await town.has_printer(session, city):
         raise OnePrinter(key="station-city-has-printer", city=city.name)
     if not await town.may(session, body.identity_id, city, Power.LAWS):
         raise CityPlaces(key="station-printer-by-the-city", city=city.name)
@@ -214,7 +235,7 @@ async def place(session: AsyncSession, catalog: Catalog, body: Body, item: Item)
     #: printer's own door (D-312) is for those who got past that one -- and the
     #: holder of a plot inside a city is exactly who gets past it.
     if item.type_key in world.station_names(world.BIOPRINTER):
-        await require_printer_room(session, body, node)
+        await require_printer_room(session, body, node, lock=True)
 
     #: The building is capacity: `build.slots_per_area` m2 per thing. No
     #: building -- no room; the yard stays a yard. The plot row is taken for
