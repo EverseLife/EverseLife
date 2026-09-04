@@ -24,6 +24,7 @@ import type { RecipeBook } from "../api";
 import { stationsOf, varietyText, type Look, type Thing } from "../api";
 import { Refusal, useActions, useBook, useNames, useSession } from "../actions";
 import { flavorText, goodsName, slotName, tierName, type Names } from "../names";
+import { KEYS, useKept } from "../kept";
 import { t } from "../locale";
 import { mayInstall } from "../building";
 import { Rule } from "../Rule";
@@ -39,6 +40,7 @@ import {
   GROUPINGS,
   SORTINGS,
   arrange,
+  groupId,
   groupKey,
   orderGroups,
   remember,
@@ -55,6 +57,29 @@ type Props = { look: Look };
 /** Which sub-question the open menu is asking. */
 type Asking = null | { item: string; about: "menu" | "where" | "whom" };
 
+const OPENED = "everselife.inventory.opened";
+
+//: One object rather than `new Set()` per render: the default is only read.
+const NONE_OPEN: Set<string> = new Set();
+
+//: How many unfolded groups are worth carrying. There are five kinds and a
+//: handful of tiers, but "by maker" grows a name per player one has ever
+//: bought from, and a set that only ever grows is a set that outlives its use.
+//: The oldest opened is dropped -- a `Set` keeps insertion order.
+const GROUPS_KEPT = 40;
+
+/** Fold the group, or unfold it and drop the one unfolded longest ago. */
+function unfold(was: Set<string>, id: string): Set<string> {
+  const next = new Set(was);
+  if (next.delete(id)) return next;
+  next.add(id);
+  for (const oldest of next) {
+    if (next.size <= GROUPS_KEPT) break;
+    next.delete(oldest);
+  }
+  return next;
+}
+
 export function Inventory({ look }: Props) {
   const session = useSession();
   const book = useBook();
@@ -68,12 +93,16 @@ export function Inventory({ look }: Props) {
   const [sort, setSort] = useState<Sorting>(() => remembered().sort);
   const [desc, setDesc] = useState<boolean>(() => remembered().desc);
   useEffect(() => remember({ group, sort, desc }), [group, sort, desc]);
-  //: Which groups are open. Empty on purpose, and it starts empty again on a
-  //: change of axis: grouping is asked for when the list has grown too long to
-  //: read, and answering with the same long list unfolded answers nothing. The
-  //: header says how much and how good, and that is enough to choose by.
-  const [opened, setOpened] = useState<Set<string>>(() => new Set());
-  useEffect(() => setOpened(new Set()), [group]);
+  //: Which groups are open. Empty on a **change of axis**: grouping is asked
+  //: for when the list has grown too long to read, and answering with the same
+  //: long list unfolded answers nothing -- the header says how much and how
+  //: good, and that is enough to choose by. A reload is not a change of axis,
+  //: though, and what was unfolded is kept (`kept.ts`) along with the axes
+  //: themselves: a refresh must not refold the one group being worked out of.
+  //: The axis is part of the key, so each grouping keeps a set of its own: a
+  //: grouping asked for the first time still opens with everything folded,
+  //: which is the whole of what the rule above is about.
+  const [opened, setOpened] = useKept<Set<string>>(`${OPENED}.${group}`, NONE_OPEN, KEYS);
   const [parts, setParts] = useState<Record<string, number | null>>({});
   const [people, setPeople] = useState<Person[]>([]);
 
@@ -247,7 +276,7 @@ export function Inventory({ look }: Props) {
       ) : (
         <table className="goods">
           <tbody>
-            {sections(things, group, sort, desc, book, names).flatMap(({ title, rows, summary }) => [
+            {sections(things, group, sort, desc, book, names).flatMap(({ id, title, rows, summary }) => [
               ...(title === null
                 ? []
                 : [
@@ -256,17 +285,11 @@ export function Inventory({ look }: Props) {
                         <button
                           type="button"
                           className="bare fold"
-                          aria-expanded={opened.has(title)}
-                          onClick={() =>
-                            setOpened((was) => {
-                              const next = new Set(was);
-                              if (!next.delete(title)) next.add(title);
-                              return next;
-                            })
-                          }
+                          aria-expanded={opened.has(id)}
+                          onClick={() => setOpened((was) => unfold(was, id))}
                         >
                           <span className="mark" aria-hidden="true">
-                            {opened.has(title) ? "▾" : "▸"}
+                            {opened.has(id) ? "▾" : "▸"}
                           </span>
                           <b>{title}</b>
                           <span className="note">{sums(summary, rows.length)}</span>
@@ -274,7 +297,7 @@ export function Inventory({ look }: Props) {
                       </td>
                     </tr>,
                   ]),
-              ...(title !== null && !opened.has(title) ? [] : rows).map((thing) => (
+              ...(title !== null && !opened.has(id) ? [] : rows).map((thing) => (
               <tr
                 key={thing.id}
                 //: The sidebar's rows are drag sources too (D-238): the floor,
@@ -669,9 +692,9 @@ function sections(
   desc: boolean,
   book: RecipeBook | null,
   names: Names | null,
-): { title: string | null; rows: Thing[]; summary: Summary }[] {
+): { id: string; title: string | null; rows: Thing[]; summary: Summary }[] {
   const ordered = arrange(things, sort, desc, names);
-  if (group === "none") return [{ title: null, rows: ordered, summary: summarize([]) }];
+  if (group === "none") return [{ id: "", title: null, rows: ordered, summary: summarize([]) }];
   const buckets = new Map<string, Thing[]>();
   for (const thing of ordered) {
     const key = groupKey(book, names, thing, group);
@@ -679,7 +702,16 @@ function sections(
   }
   return orderGroups([...buckets.keys()], group, things, names).map((title) => {
     const rows = buckets.get(title) ?? [];
-    return { title, rows, summary: summarize(rows) };
+    //: The title is what the header reads; the id is what the fold is stored
+    //: under (D-251). Taken off the first row, because every row of a bucket
+    //: gave the same answer -- that is what put them in one bucket.
+    const first = rows[0];
+    return {
+      id: first ? groupId(book, first, group) : title,
+      title,
+      rows,
+      summary: summarize(rows),
+    };
   });
 }
 

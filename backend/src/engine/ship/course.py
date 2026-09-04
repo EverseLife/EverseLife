@@ -19,7 +19,6 @@ third law), so that the two can never disagree.
 What lives here:
 
 - `arc`        -- the cheapest arc for a flight time, with its trace;
-- `flyby`      -- the same passage bent round a third planet (patched conics);
 - `curve`      -- delta-v against flight time, the slider the console shows;
 - `calendar`   -- the cheapest passage for each of the coming days, the map's
                   window forecast;
@@ -59,7 +58,6 @@ __all__ = [
     "curve",
     "deliverable",
     "fastest",
-    "flyby",
     "fuel_for_speed",
     "grid",
     "mu_of",
@@ -71,14 +69,12 @@ __all__ = [
 class Sample(NamedTuple):
     """One point of the slider: a flight time and what the sky asks for it.
 
-    `via` names the planet the arc bends round, or nothing for a direct arc;
     `revs` is how many full turns round the star the arc makes before it
     arrives -- the slow way at a bad geometry loiters on its own orbit first.
     """
 
     hours: float
     dv: float
-    via: str | None = None
     revs: int = 0
 
 
@@ -92,7 +88,6 @@ class Arc(NamedTuple):
     dv_in: float
     perihelion: float
     revs: int
-    via: str | None
     #: Points along the way at equal time steps, map units: the map draws the
     #: hull on the arc and finds its place by the share of the time gone.
     trace: tuple[Vec, ...]
@@ -104,50 +99,6 @@ def synodic_days(one: Orbit, other: Orbit) -> float:
 
 
 # --- one passage ------------------------------------------------------------
-
-
-class _Leg(NamedTuple):
-    v1: Vec
-    v2: Vec
-    dv_out: float
-    dv_in: float
-    perihelion: float
-    revs: int
-
-
-def _legs(
-    mu: float, here: tuple[Vec, Vec], there: tuple[Vec, Vec], tof: float, *, max_revs: int
-) -> list[_Leg]:
-    """Every arc between two moving places, priced at both ends."""
-    (r1, vp1), (r2, vp2) = here, there
-    legs: list[_Leg] = []
-    #: Both ways round for a direct arc; against the planets only a fast hull
-    #: gains, and a fast hull does not make full turns.
-    ways = [(revs, False) for revs in range(max_revs + 1)] + [(0, True)]
-    for revs, retrograde in ways:
-        for v1, v2 in astro.lambert(mu, r1, r2, tof, revs, retrograde=retrograde):
-            legs.append(
-                _Leg(
-                    v1,
-                    v2,
-                    astro.norm(astro.sub(v1, vp1)),
-                    astro.norm(astro.sub(v2, vp2)),
-                    astro.closest(mu, r1, v1, r2, v2, revs),
-                    revs,
-                )
-            )
-    return legs
-
-
-def _max_revs(mu: float, here: Orbit, there: Orbit, tof: float) -> int:
-    """How many full turns a flight this long could possibly make.
-
-    A bound, not an answer: an arc cannot turn faster than a circle at the
-    inner of the two radii, so more turns than that fit in `tof` is not worth
-    asking the solver about.
-    """
-    inner = min(here[0], there[0])
-    return min(astro.MAX_REVS, int(tof / astro.lap(mu, inner)))
 
 
 def arc(
@@ -165,8 +116,9 @@ def arc(
     corona = float(constants[R.ORBIT_CORONA_RADIUS])
     start = place(here, days)
     end = place(there, days + tof)
-    best: _Leg | None = None
-    for leg in _legs(mu, start, end, tof, max_revs=_max_revs(mu, here, there, tof)):
+    best: astro.Leg | None = None
+    revs = astro.max_revs(mu, here, there, tof)
+    for leg in astro.legs(mu, start, end, tof, max_revs=revs):
         if leg.perihelion < corona:
             continue
         if best is None or leg.dv_out + leg.dv_in < best.dv_out + best.dv_in:
@@ -180,87 +132,7 @@ def arc(
         dv_in=best.dv_in,
         perihelion=best.perihelion,
         revs=best.revs,
-        via=None,
         trace=astro.trace(mu, start[0], best.v1, tof, TRACE_POINTS),
-    )
-
-
-# --- a flyby ----------------------------------------------------------------
-
-
-def _bend(
-    constants: Constants,
-    here: Orbit,
-    middle: Orbit,
-    there: Orbit,
-    days: float,
-    hours: float,
-    *,
-    gravity: float,
-) -> tuple[float, _Leg, _Leg, float] | None:
-    """The cheapest split of the flight round `middle`: total delta-v, the two
-    legs and the length of the first. The search `flyby` builds its arc on."""
-    mu = mu_of(here)
-    mu_planet = float(constants[R.ORBIT_FLYBY_MU]) * gravity
-    closest_pass = float(constants[R.ORBIT_FLYBY_RADIUS])
-    corona = float(constants[R.ORBIT_CORONA_RADIUS])
-    tof = hours / HOURS_PER_DAY
-    start = place(here, days)
-    end = place(there, days + tof)
-    best: tuple[float, _Leg, _Leg, float] | None = None
-    for share in astro.FLYBY_SPLITS:
-        first = tof * share
-        second = tof - first
-        mid = place(middle, days + first)
-        for leg1 in _legs(mu, start, mid, first, max_revs=0):
-            if leg1.perihelion < corona:
-                continue
-            for leg2 in _legs(mu, mid, end, second, max_revs=0):
-                if leg2.perihelion < corona:
-                    continue
-                v_in = astro.sub(leg1.v2, mid[1])
-                v_out = astro.sub(leg2.v1, mid[1])
-                turn = astro.turn_cost(mu_planet, closest_pass, v_in, v_out)
-                total = leg1.dv_out + turn + leg2.dv_in
-                if best is None or total < best[0]:
-                    best = (total, leg1, leg2, first)
-    return best
-
-
-def flyby(
-    constants: Constants,
-    here: Orbit,
-    middle: Orbit,
-    there: Orbit,
-    days: float,
-    hours: float,
-    via: str,
-    *,
-    gravity: float = 1.0,
-) -> Arc | None:
-    """The passage bent round `middle`: two direct arcs and a turn between them.
-
-    `gravity` is the flyby planet's share of Terra's (`planet.gravity`); the
-    caller passes it, this module knows no planets by name.
-    """
-    best = _bend(constants, here, middle, there, days, hours, gravity=gravity)
-    if best is None:
-        return None
-    total, leg1, leg2, first = best
-    mu = mu_of(here)
-    tof = hours / HOURS_PER_DAY
-    start = place(here, days)
-    mid = place(middle, days + first)
-    return Arc(
-        hours=hours,
-        dv=total,
-        dv_out=leg1.dv_out,
-        dv_in=leg2.dv_in,
-        perihelion=min(leg1.perihelion, leg2.perihelion),
-        revs=0,
-        via=via,
-        trace=astro.trace(mu, start[0], leg1.v1, first, TRACE_POINTS)
-        + astro.trace(mu, mid[0], leg2.v1, tof - first, TRACE_POINTS)[1:],
     )
 
 
@@ -292,27 +164,24 @@ def curve(
     here: Orbit,
     there: Orbit,
     days: float,
-    *,
-    others: dict[str, tuple[Orbit, float]] | None = None,
 ) -> tuple[Sample, ...]:
     """Delta-v against flight time, from the departure moment `days`.
 
-    One sample per point of the grid: the cheapest arc at that time, direct or
-    bent round one of `others` (orbit and gravity by planet key) when that
-    comes out cheaper. Missing samples are times no arc serves -- everything
-    grazes the corona, or the geometry gives nothing.
+    One sample per point of the grid: the cheapest direct arc at that time.
+    Missing samples are times no arc serves -- everything grazes the corona,
+    or the geometry gives nothing. No arc is bent round a third planet any
+    more (D-289): the planets pull the whole way, and the flyby comes out of
+    the simulation rather than out of a search.
 
     Planetary and nothing else: what the hull can do with it is `deliverable`
     and the tanks. Memoised, because every hull over a planet asks the same
     question of the same sky, and the sky moves little in ten minutes.
     """
-    key_others = () if not others else tuple(sorted((k, o, g) for k, (o, g) in others.items()))
     return _curve(
         _fingerprint(constants),
         here,
         there,
         round(days * SKY_MEMO_PER_DAY) / SKY_MEMO_PER_DAY,
-        key_others,
     )
 
 
@@ -322,8 +191,6 @@ def _fingerprint(constants: Constants) -> tuple[float, ...]:
     return (
         float(constants[R.ORBIT_CORONA_RADIUS]),
         float(constants[R.ORBIT_LONGEST_DAYS]),
-        float(constants[R.ORBIT_FLYBY_MU]),
-        float(constants[R.ORBIT_FLYBY_RADIUS]),
         float(constants[R.ORBIT_SLIDER_FROM_HOURS]),
         float(constants[R.ORBIT_SLIDER_STEP]),
         float(constants[R.ORBIT_CALENDAR_STEP]),
@@ -332,17 +199,15 @@ def _fingerprint(constants: Constants) -> tuple[float, ...]:
 
 class _Bare(dict):
     """The few constants the memoised curve needs, in the shape `constants[R.X]`
-    takes -- so the same `arc`/`_bend` serve both the live call and the memo."""
+    takes -- so the same `arc` serves both the live call and the memo."""
 
 
 def _thaw(fingerprint: tuple[float, ...]) -> _Bare:
-    corona, longest, flyby_mu, flyby_radius, slider_from, slider_step, calendar_step = fingerprint
+    corona, longest, slider_from, slider_step, calendar_step = fingerprint
     return _Bare(
         {
             R.ORBIT_CORONA_RADIUS: corona,
             R.ORBIT_LONGEST_DAYS: longest,
-            R.ORBIT_FLYBY_MU: flyby_mu,
-            R.ORBIT_FLYBY_RADIUS: flyby_radius,
             R.ORBIT_SLIDER_FROM_HOURS: slider_from,
             R.ORBIT_SLIDER_STEP: slider_step,
             R.ORBIT_CALENDAR_STEP: calendar_step,
@@ -356,7 +221,6 @@ def _curve(
     here: Orbit,
     there: Orbit,
     days: float,
-    others: tuple[tuple[str, Orbit, float], ...],
 ) -> tuple[Sample, ...]:
     constants = _thaw(fingerprint)
     corona = float(constants[R.ORBIT_CORONA_RADIUS])
@@ -367,16 +231,13 @@ def _curve(
         tof = hours / HOURS_PER_DAY
         end = place(there, days + tof)
         best: Sample | None = None
-        for leg in _legs(mu, start, end, tof, max_revs=_max_revs(mu, here, there, tof)):
+        revs = astro.max_revs(mu, here, there, tof)
+        for leg in astro.legs(mu, start, end, tof, max_revs=revs):
             if leg.perihelion < corona:
                 continue
             total = leg.dv_out + leg.dv_in
             if best is None or total < best.dv:
-                best = Sample(hours, total, None, leg.revs)
-        for name, orbit, gravity in others:
-            bent = _bend(constants, here, orbit, there, days, hours, gravity=gravity)
-            if bent is not None and (best is None or bent[0] < best.dv):
-                best = Sample(hours, bent[0], name, 0)
+                best = Sample(hours, total, leg.revs)
         if best is not None:
             samples.append(best)
     return tuple(samples)
@@ -490,7 +351,9 @@ def _calendar(
         for hours in hours_grid:
             tof = hours / HOURS_PER_DAY
             end = place(there, at + tof)
-            for leg in _legs(mu, start, end, tof, max_revs=_max_revs(mu, here, there, tof)):
+            for leg in astro.legs(
+                mu, start, end, tof, max_revs=astro.max_revs(mu, here, there, tof)
+            ):
                 if leg.perihelion < corona:
                     continue
                 total = leg.dv_out + leg.dv_in

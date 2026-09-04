@@ -117,7 +117,8 @@ export type MapNode = {
    *  the map is a share of the way between the port it left and the one it is
    *  due at -- nothing in the graph could say it. */
   flight: {
-    to: string;
+    /** Where it is bound, or nothing for a drifter (D-289): its line is the coast ahead. */
+    to: string | null;
     started_at: string;
     arrives_at: string;
     /** The arc a crossing flies, map units, at equal time steps (D-271): the
@@ -132,7 +133,12 @@ export type MapNode = {
   emblem?: string | null;
 };
 
-export type MapEdge = { a: string; b: string; surface: Exit["surface"]; seconds: number };
+export type MapEdge = {
+  a: string;
+  b: string;
+  surface: Exit["surface"];
+  seconds: number;
+};
 
 /** One day of a corridor's calendar: the cheapest passage leaving then --
  *  its delta-v and how long that arc takes (D-271). */
@@ -148,7 +154,11 @@ export type MapRoute = {
   days: ForecastDay[];
 };
 
-export type WorldMap = { nodes: MapNode[]; edges: MapEdge[]; routes: MapRoute[] };
+export type WorldMap = {
+  nodes: MapNode[];
+  edges: MapEdge[];
+  routes: MapRoute[];
+};
 
 /** What of ships is visible from where one stands, and nothing beyond it
  *  (D-201): at a pier the moored ships, aboard the rooms between which one

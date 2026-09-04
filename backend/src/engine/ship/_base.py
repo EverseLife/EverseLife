@@ -99,6 +99,7 @@ from src.constants import Constants
 from src.constants import registry as R
 from src.engine.errors import Refusal
 from src.models.ship import Ship
+from src.models.world import ABOARD as ABOARD
 from src.models.world import Node, Planet
 from src.units import (
     AMOUNT_SCALE,
@@ -204,16 +205,28 @@ FOUNDATION = "ship_foundation"
 SPACEPORT = "shipyard"
 
 
-#: The class of machines that decide how many people the ship holds.
+#: The class of the machine that breathes for the crew (D-288): out of the
+#: vessels on its line, for however many are aboard -- there is no number of
+#: people per system any more, the draw is the ceiling the way mass is the
+#: hold's. Without one the hull does not cast off.
 LIFE_SUPPORT = "life_support"
+
+
+#: What the life support breathes (D-233): a single goods key rather than a
+#: class, because it is a single substance -- there is no second air the way
+#: there is a second engine (D-215). Named here because the life support's
+#: port hangs on it (`lines`, D-288); `oxygen` reads it from here.
+AIR = "oxygen"
 
 
 #: The class of what a passage burns.
 FUEL = "ship_fuel"
 
 
-#: The class of vessels the engines draw from (D-230). Fuel in a canister
-#: aboard is cargo, not a reserve: a passage burns tanks only.
+#: The class of the tank (D-230). Since D-288 not the only vessel an engine
+#: reaches: any vessel **installed** aboard may stand on a line -- a tank, a
+#: canister, a cylinder -- and the engines drink from the ones on theirs, and
+#: from nothing without a line (as amended 2026-09-04).
 TANK = "fuel_tank"
 
 
@@ -282,6 +295,10 @@ async def orbit_node_of(session: AsyncSession, planet: Planet) -> Node | None:
 AT_PORT = "port"
 IN_ORBIT = "orbit"
 UNDER_WAY = "flight"
+#: And a fourth since D-289: moored to nothing and under no order -- a hull
+#: coasting on whatever inertia it has, for as long as it takes.
+ADRIFT = "adrift"
+LOST = "lost"
 
 
 #: The three legs a journey is made of (D-245). A ship is on the ground, in
@@ -295,10 +312,10 @@ PASSAGE = "passage"
 DESCENT = "descent"
 
 
-#: The node property marking a node as being aboard. A property rather than a
-#: fifth planet: the list of planets drags its own day length and environment
-#: wear behind it, a property drags nothing (D-201).
-ABOARD = "aboard"
+#: The node property marking a node as being aboard (D-201) lives with the
+#: schema now (`models.world.ABOARD`): the batteries ask it of a node in hand
+#: without importing this package (D-288). Re-exported above, so the ship
+#: package goes on reading it where it always did.
 
 #: A planet property (D-233): a ship lands in **any** surface node of it, and
 #: there is no spaceport anywhere on it. Written on the planet's node by the
@@ -383,7 +400,7 @@ class NotEnoughThrust(ShipError):
 
 
 class NoLifeSupport(ShipError):
-    """More people aboard than the life support holds."""
+    """No life support system stands aboard: the hull does not cast off (D-288)."""
 
 
 class NoFuel(ShipError):

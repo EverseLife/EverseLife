@@ -128,8 +128,12 @@ def _passage(under_way: dict[str, Any] | None, by_id: dict[Any, str]) -> dict[st
     """
     if under_way is None:
         return None
-    goal = by_id.get(under_way["to"])
-    if goal is None:  # pragma: no cover -- the port is a node like any other
+    #: A drifter (D-289) is bound nowhere: its line is the coast ahead, and
+    #: the two moments are now and the hour the coast ends -- or the horizon.
+    goal = None if under_way.get("to") is None else by_id.get(under_way["to"])
+    if (
+        goal is None and under_way.get("to") is not None
+    ):  # pragma: no cover -- a node like any other
         return None
     return {
         "to": goal,

@@ -148,7 +148,11 @@ REACTOR = "precursor_reactor"
 #: for guests: a world that ran for a year before Aurora existed would
 #: otherwise get the planet already dead.
 REACTOR_SINCE = "reactor"
-#: Every generator class, for "the node has an energy source" checks.
+#: Every generator class, for "the node has an energy source" checks. The
+#: panel and the isotope generator (D-288) are not here on purpose: they
+#: charge the cells within reach where no pool exists (`battery.tick_offgrid`)
+#: and feed no city -- a city is founded and powered by what the vault names
+#: for it, and D-288 gave it nothing.
 GENERATOR_CLASSES = (WHEEL, WINDMILL, FUEL_PLANT)
 
 
@@ -598,6 +602,8 @@ async def fuel(
 #: did, and so nothing outside had to move when the file was cut.
 from src.engine.battery import (  # noqa: E402, F401
     BATTERY,
+    ISOTOPE,
+    SOLAR,
     BatteryError,
     NotBattery,
     batteries_in,
@@ -605,7 +611,10 @@ from src.engine.battery import (  # noqa: E402, F401
     charge_battery,
     charge_of,
     drain_batteries,
+    fill_cells,
     settle_charge,
+    steady_rates,
+    tick_offgrid,
 )
 
 

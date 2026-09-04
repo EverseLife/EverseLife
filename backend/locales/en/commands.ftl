@@ -67,6 +67,7 @@ cmd-since-not-a-number = since must be a number
 cmd-composition-shape = the composition is given as “thing: how many” pairs
 cmd-area-and-storeys-from-one = area and storeys count from one
 cmd-need-layout = a layout is needed: node key to cell
+cmd-need-vessels = a list of vessels is needed, { $most } at most
 cmd-not-aboard = you are not aboard: name the ship or board it
 cmd-step-not-on-ladder = the price step is not on the ladder: { $step }
 cmd-nothing-to-resume = nothing to resume: either nothing waits here, or the station is busy, or the work is already running
