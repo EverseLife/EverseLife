@@ -39,7 +39,6 @@ import {
 
 const scope = (over: Partial<Scope> = {}): Scope => ({
   at: { x: 10, y: -4 },
-  off: { x: 0, y: 0 },
   unit: 2,
   zoom: 1,
   ...over,
@@ -48,16 +47,29 @@ const scope = (over: Partial<Scope> = {}): Scope => ({
 describe("project", () => {
   it("keeps the hull in the middle at every zoom", () => {
     //: The one promise of the whole module: the display is the ship, and the
-    //: ship does not move on it. Berthed, the mark hangs off its planet's dot
-    //: (D-245) -- and it is the **mark** that has to land in the middle, or a
-    //: hull in port would sit sixteen pixels off its own display.
-    const off = { x: 11, y: -11 };
+    //: ship does not move on it -- whatever the hull is doing and however near
+    //: it is being looked at.
     for (const zoom of [FURTHEST, 1, 7, NEAREST]) {
-      const one = scope({ off, zoom });
+      const one = scope({ zoom });
       const where = project(one, one.at.x, one.at.y);
-      expect(where.x + off.x).toBeCloseTo(CENTER.x);
-      expect(where.y + off.y).toBeCloseTo(CENTER.y);
+      expect(where.x).toBeCloseTo(CENTER.x);
+      expect(where.y).toBeCloseTo(CENTER.y);
     }
+  });
+
+  it("opens up the gap between a moored hull and its planet", () => {
+    //: What the fixed pixel offset could never do. A hull on the circle stands
+    //: `orbit.park_radius` off its planet, in map units like everything else,
+    //: so looking nearer walks the two apart -- and at rest they are the same
+    //: point, which is the truth about a parking orbit seen from the system.
+    const planet = { x: 10, y: -4 };
+    const moored = { x: planet.x + 1.5, y: planet.y };
+    const gap = (zoom: number) => {
+      const one = scope({ at: moored, zoom });
+      return project(one, planet.x, planet.y).x - CENTER.x;
+    };
+    expect(Math.abs(gap(1))).toBeLessThan(4);
+    expect(Math.abs(gap(100))).toBeCloseTo(Math.abs(gap(1)) * 100);
   });
 
   it("opens the distances and nothing else", () => {

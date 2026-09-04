@@ -46,7 +46,7 @@ import { useBook } from "../../actions";
 import { Glyph } from "../../Glyph";
 import { t } from "../../locale";
 import { planetName } from "../../planets";
-import { along, term } from "../map/orbits";
+import { along, mooring, term } from "../map/orbits";
 import { Bezel, Screen } from "./Glass";
 import { sameTarget, type Route, type Target, type Vessel } from "./model";
 import {
@@ -74,14 +74,18 @@ import {
 
 const TURN = Math.PI * 2;
 const MS_PER_DAY = 86_400_000;
-/** How far off its planet the hull is drawn: clear of the dot, still at it. */
-const BERTH = 16;
-/** And how far when it is actually in orbit: on the ring drawn round the
- *  planet, so a hull on the ground and a hull in orbit are told apart at a
- *  glance (D-245). */
-const ORBIT = 26;
-/** The corner the hull hangs in, as a unit vector: up and to the right. */
-const HANGS: Point = { x: Math.SQRT1_2, y: -Math.SQRT1_2 };
+/**
+ * The circle a moored hull runs on, in map units: how far it really stands off
+ * the planet it hangs over (D-289, `sky.park`).
+ *
+ * A catalog number, so it comes with the book rather than as a key of its own
+ * (D-225). It used to be twenty-six pixels of the display, which is why a hull
+ * never left its planet however near one looked: a fixed pixel gap is not a
+ * distance, and the zoom has nothing to open up.
+ */
+const PARK = "orbit.park_radius";
+/** Below this the parking circle is a smudge on the dot, and is not drawn. */
+const PARK_SEEN = 3;
 /** How far the heading vector reaches, and where it starts off the hull. */
 const NOSE = { from: 9, to: 52 };
 /** How far inside the frame the marks of what fell off it stand. */
@@ -240,6 +244,7 @@ export function Chart({
   //: far a hull sees another. Catalog, so it rides with the book (D-225).
   const book = useBook();
   const sight = Number(book?.constants?.[SIGHT] ?? 0);
+  const park = Number(book?.constants?.[PARK] ?? 0);
   //: The gradients and the pattern of the glass are named after the hull: two
   //: consoles on one screen would otherwise share one `id` and one of them
   //: would draw the other's.
@@ -272,39 +277,39 @@ export function Chart({
     const t1 = new Date(vessel.flight.arrives_at).getTime();
     return Math.min(1, Math.max(0, (Date.now() - t0) / Math.max(1, t1 - t0)));
   })();
-  const berthed = vessel.stage === "orbit" ? ORBIT : BERTH;
-  const at: { place: Point; off: Point } | null = (() => {
+  //: Which side of its planet this hull is moored on. The server knows the
+  //: true phase and does not send it -- a hull on the circle has no `sky` at
+  //: all -- so the side is the steady per-hull one the world map already
+  //: moors by. The **distance** is the sky's own, and that is the half that
+  //: has to be true: it is what the zoom opens up.
+  const berth = mooring(vessel.ship);
+  const at: Point | null = (() => {
     //: Adrift, the state the server read is the place: nothing moves it but
     //: the next read. Under way the hull is walked along its line by the
     //: clock, as the world map walks it, so it does not stand still between
     //: two rereads of the console.
-    if (vessel.stage === "adrift" && vessel.sky) {
-      return { place: { x: vessel.sky.x, y: vessel.sky.y }, off: { x: 0, y: 0 } };
-    }
+    if (vessel.stage === "adrift" && vessel.sky) return { x: vessel.sky.x, y: vessel.sky.y };
     if (!home) return null;
     if (!vessel.flight || !goal) {
-      return { place: home, off: { x: HANGS.x * berthed, y: HANGS.y * berthed } };
+      //: On the circle, out on it at its own radius; on the ground, at the
+      //: planet, because that is where it is. At rest both are the same point
+      //: on the glass -- a parking circle is a pixel across when the whole
+      //: system is in frame -- and looking nearer is what tells them apart.
+      const off = vessel.stage === "orbit" ? park : 0;
+      return { x: home.x + Math.cos(berth) * off, y: home.y + Math.sin(berth) * off };
     }
     //: Along the arc the sky gave the passage (D-271), where there is one; a
     //: climb or a descent has none and is drawn straight beside the planet.
     const arc = vessel.flight.arc;
     const point = arc && arc.length >= 2 ? along(arc, share) : null;
-    return {
-      place: point
-        ? { x: point[0], y: point[1] }
-        : { x: home.x + (goal.x - home.x) * share, y: home.y + (goal.y - home.y) * share },
-      off: { x: 0, y: 0 },
-    };
+    return point
+      ? { x: point[0], y: point[1] }
+      : { x: home.x + (goal.x - home.x) * share, y: home.y + (goal.y - home.y) * share };
   })();
 
   //: The display looks at the hull, and at the star only where there is no hull
   //: to look at -- a sky whose planets the read did not name.
-  const scope: Scope = {
-    at: at?.place ?? { x: 0, y: 0 },
-    off: at?.off ?? { x: 0, y: 0 },
-    unit: unitFor(reach),
-    zoom: near.zoom,
-  };
+  const scope: Scope = { at: at ?? { x: 0, y: 0 }, unit: unitFor(reach), zoom: near.zoom };
   const to = (p: { x: number; y: number }) => project(scope, p.x, p.y);
   const star = to({ x: 0, y: 0 });
   //: The graticule is ruled on the sky: the step is whatever the zoom asks
@@ -317,10 +322,10 @@ export function Chart({
   })();
   const hull: Point | null = at ? CENTER : null;
   const seesFar = sight > 0 ? span(scope, sight) : 0;
-  //: What the corridors start from: the planet under the hull, or, adrift, the
-  //: hull itself -- a course is laid from wherever inertia left it.
-  const origin: Point | undefined =
-    vessel.stage === "adrift" && hull ? hull : home ? to(home) : undefined;
+  //: What the corridors start from: the hull, wherever it is. A course is laid
+  //: from where the ship stands, and now that standing "at a planet" is a real
+  //: place rather than a pixel beside its dot, there is nothing else to use.
+  const origin: Point | undefined = hull ?? (home ? to(home) : undefined);
 
   /** One line per destination planet: the row carries both ends of the slider. */
   const corridors = useMemo(() => {
@@ -515,12 +520,19 @@ export function Chart({
           );
         })}
 
-        {/* The hull's own little orbit, drawn round the planet it hangs over.
-            Only for the ship being commanded: the others in the sky are drawn
-            below -- D-289 put them back on it -- and this is a hint about
-            **this** one (D-245). */}
-        {home && vessel.stage === "orbit" && (
-          <circle className="chart-parking" cx={to(home).x} cy={to(home).y} r={ORBIT} />
+        {/* The circle this hull runs on while it is moored, at the radius the
+            sky gives it. Only for the ship being commanded: the others in the
+            sky are drawn below -- D-289 put them back on it -- and this is a
+            hint about **this** one (D-245). At the system's own scale it is
+            less than a pixel and is not drawn at all: that is what a parking
+            orbit is against a system eight hundred units wide. */}
+        {home && vessel.stage === "orbit" && span(scope, park) >= PARK_SEEN && (
+          <circle
+            className="chart-parking"
+            cx={to(home).x}
+            cy={to(home).y}
+            r={span(scope, park)}
+          />
         )}
 
         {/* How far this hull sees another (D-289): the one circle on the

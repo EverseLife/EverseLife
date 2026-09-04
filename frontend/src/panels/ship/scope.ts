@@ -106,17 +106,19 @@ export function pinchZoom(zoom0: number, spread0: number, spread: number): numbe
 }
 
 /**
- * What the display is looking at.
+ * What the display is looking at: the hull's own place, in map units, and how
+ * near it is being looked at.
  *
- * `at` is the hull's own place in map units, and `off` is where its mark sits
- * off that place in pixels -- berthed and in orbit the hull is drawn clear of
- * its planet's dot rather than on top of it (D-245). The projection carries
- * that offset, so that the **mark**, not the place, lands in the middle:
- * otherwise a hull in port would sit sixteen pixels off its own display.
+ * There is no offset here, and there used to be: the hull was drawn a fixed
+ * sixteen or twenty-six **pixels** off its planet's dot so that the two could
+ * be told apart (D-245). A fixed pixel gap is a lie the zoom cannot correct --
+ * one looks nearer and nearer at a moored hull and it never leaves its planet,
+ * because the gap was never a distance. It is a distance now
+ * (`orbit.park_radius`), in the same map units as everything else, and it opens
+ * up with the zoom like everything else.
  */
 export type Scope = {
   at: Point;
-  off: Point;
   /** Map units to pixels at rest. */
   unit: number;
   zoom: number;
@@ -131,8 +133,8 @@ export function unitFor(reach: number): number {
 export function project(scope: Scope, x: number, y: number): Point {
   const k = scope.unit * scope.zoom;
   return {
-    x: CENTER.x - scope.off.x + (x - scope.at.x) * k,
-    y: CENTER.y - scope.off.y + (y - scope.at.y) * k,
+    x: CENTER.x + (x - scope.at.x) * k,
+    y: CENTER.y + (y - scope.at.y) * k,
   };
 }
 
