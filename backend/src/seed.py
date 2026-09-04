@@ -73,7 +73,7 @@ from src import seed_catchup, seed_world
 from src import seed_parts as parts
 from src.constants import bootstrap, current, current_catalog
 from src.db.base import dispose, session_factory
-from src.engine import breed, death, energy, market, ruins, tick, utility, world
+from src.engine import breed, death, energy, estate, market, ruins, tick, utility, world
 from src.engine import city as town
 from src.models.world import Node
 from src.seed_surfaces import surfaces
@@ -94,6 +94,11 @@ async def seed(session: AsyncSession) -> Node:
     if existing is not None:
         log.info("the starting world already exists: %s", existing.key)
         await seed_catchup.catch_up(session, existing)
+        #: The catch-up lays roads and surfaces of its own, and any new edge
+        #: empties every measured distance (`estate.forget_distances`). Both
+        #: branches leave here measured, so a deploy that changes the map does
+        #: not hand the first player a world the tick has yet to walk.
+        await estate.measure_cities(session)
         return existing
 
     constants = current()
@@ -191,6 +196,13 @@ async def seed(session: AsyncSession) -> Node:
     #: (D-106), and the seed must let the building stand before the machine.
     #: The city's built-up area counts as fully built.
     await parts.buildings(session)
+
+    #: And the cities are measured before anybody looks at them (D-220): the
+    #: distance to the printer is a cache the tick fills, and the tick is not
+    #: due the second the world is made. Last, because every road laid above
+    #: empties what was measured (`estate.forget_distances`); the catch-up
+    #: branch above measures for the same reason.
+    await estate.measure_cities(session)
 
     await tick.ensure_scheduled(session)
     #: The household meter ticks with the world clock: maintenance runs by

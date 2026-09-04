@@ -71,3 +71,25 @@ async def _resident(session: AsyncSession, node, name: str):
     identity = await world.create_identity(session, f"{name}-{uuid.uuid4().hex[:6]}")
     body = await world.print_body(session, identity, node)
     return identity, body
+
+
+async def _built(session: AsyncSession, node) -> None:
+    """A building on the node: a machine stands in one (D-106)."""
+    from src.models.estate import Building
+
+    session.add(Building(node_id=node.id, area_m2=float(node.area_m2)))
+    await session.flush()
+
+
+async def _printer(session: AsyncSession, node, *, standing: bool):
+    """A bioprinter in the node's yard -- put up, or lying and waiting to be.
+
+    `grant_item` stands a machine granted into a node by default (D-278), and
+    the two cases are the two sides of the rule in D-312: what the city
+    **has** is a machine standing, and what a hand may try to put up is one
+    lying.
+    """
+    yard = await world.node_container(session, node)
+    return await world.grant_item(
+        session, yard, world.BIOPRINTER, quality=60, origin="тест", installed=standing
+    )

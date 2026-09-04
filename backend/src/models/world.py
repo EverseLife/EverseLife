@@ -183,6 +183,11 @@ class Node(Base):
     #:   longer matches and the number is measured again;
     #: * `center_steps` is emptied wherever the graph itself changes, which is
     #:   where an edge appears or goes (`travel.connect`, `ship.ascend`).
+    #:
+    #: Filled by the tick (`estate.measure_cities`) and grown at the edges of
+    #: the map by `estate.note_new_place` -- never by a reader. The plot screen
+    #: asks for this number, and `look` is a read: filling the cache there
+    #: wrote a row per plot from inside a command declared readonly.
     center_node_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
     center_steps: Mapped[int | None] = mapped_column(nullable=True)
 

@@ -92,6 +92,10 @@ async def test_docking_leaves_land_measurements_alone(
     vessel = await _laid(session, constants, body, port)
     await _flightworthy(session, constants, catalog, vessel)
 
+    #: Measured by the tick, as everywhere: a read works the distance out but
+    #: writes nothing (`estate.measure_cities`, `test_reads`), and what this
+    #: test is about is the written number surviving the ship's departure.
+    await estate.measure_cities(session)
     measured = await estate.nodes_from_center(session, port, city)
     assert measured == 1, "порт в шаге от ядра"
     assert port.center_steps is not None

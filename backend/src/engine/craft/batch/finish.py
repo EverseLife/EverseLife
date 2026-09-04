@@ -30,7 +30,7 @@ from src.engine.craft.batch.work import _target
 from src.engine.craft.method_of_making import procedure
 from src.engine.craft.queue import wake, wake_node
 from src.engine.jobs import handler
-from src.engine.world import body_container, node_container
+from src.engine.world import BIOPRINTER, body_container, node_container, station_names
 from src.models.craft import BatchKind, BatchState, CraftBatch
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState
@@ -131,6 +131,26 @@ async def _finish_make(
 
     coin_ = coin.is_coin(catalog, batch.output)
 
+    #: A station built in place stands the moment it is made, and this is the
+    #: last of the three doors it can stand in a city by (D-312) -- the other
+    #: two are `station.place` and the start of the batch. The start is not
+    #: enough on its own: twenty hours pass in between, and a second batch may
+    #: be queued behind the first (D-209), a frozen one may thaw, or somebody
+    #: may put a printer up by hand meanwhile. Refusing here would burn work
+    #: already paid for, so the machine is simply **laid down** instead of
+    #: stood up: matter is not lost, the rule holds, and whoever may put it up
+    #: does so through the door that asks.
+    stands = catalog.recipes.built(batch.output)
+    if stands and batch.output in station_names(BIOPRINTER):
+        from src.engine import station  # noqa: PLC0415 -- lazy: breaks the cycle with station
+
+        node = await session.get(Node, batch.node_id)
+        if node is not None:
+            try:
+                await station.require_printer_room(session, body, node, lock=True)
+            except station.StationError:
+                stands = False
+
     #: Food gets a shelf life at making: cooked from the pot spoils
     #: `cook.spoilage_multiplier` times faster, dry at the base speed. An
     #: operation's output (ingot, gravel) has no recipe at all -- and that is
@@ -172,10 +192,16 @@ async def _finish_make(
             recipe_key=batch.recipe_key,
             #: A station built in place stands where it was made (D-268); a
             #: portable one left at the bench lies there as cargo until somebody
-            #: puts it up (D-278).
-            installed=catalog.recipes.built(batch.output),
+            #: puts it up (D-278). A printer the city may not have lies too.
+            installed=stands,
         )
         session.add(fresh)
+        #: And only the first of them stands: a batch of two printers passed
+        #: the door once and would otherwise stand both (D-312). The start
+        #: refuses such a batch inside a city outright; this is the same rule
+        #: said where the machines actually go up.
+        if stands and batch.output in station_names(BIOPRINTER):
+            stands = False
         #: Loose output joins a stack it is indistinguishable from (D-214) --
         #: which in practice means an earlier batch of the same hour that came
         #: out at exactly the same quality. The spread usually sees to it that
