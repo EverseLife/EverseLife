@@ -33,7 +33,8 @@ from src.engine.mining._base import (
     _sight,
     _tool,
     _wear_tool_for_session,
-    clear_roof,
+    remember_roof,
+    rubble_depth,
     session_container,
 )
 from src.models.event import EventKind
@@ -122,14 +123,15 @@ async def collapse(
 
     mining.state = SessionState.COLLAPSED
     mining.ended_at = moment
-    #: The rubble is cleared and the working starts over (D-188): otherwise a
-    #: collapsed vein would be locked forever, and veins are finite already (P2).
-    #: The clearing is the whole working's, so a neighbour still swinging in
-    #: this face goes on under a roof as good as new -- one bought with a body
-    #: every second cave-in (D-294). Whether that is a price worth paying to
-    #: hand an artel a fresh working is a question for a playtest and for the
-    #: vault (OQ-122), not for this file.
-    clear_roof(vein)
+    #: The working is buried, not cleared (D-301). It starts over as D-188
+    #: always promised -- otherwise a collapsed vein would be locked forever,
+    #: and veins are finite already (P2) -- but the first miner to come back
+    #: digs the rubble out first, swinging for nothing. Free, the clearing was
+    #: a gift to whoever stayed in the face: the roof is shared (D-188,
+    #: D-099), so a body dropped on purpose handed the artel a whole working
+    #: for the price of half a life (D-294), and the support the mechanic is
+    #: built around went back to being optional.
+    remember_roof(vein, -rubble_depth(constants, vein))
     await session.flush()
 
     await events.record(
@@ -146,7 +148,7 @@ async def collapse(
     if killed:
         #: The summary is assembled **before** death: the player must see how
         #: the session ended, not an empty screen. The body is dead after that.
-        sight = await _sight(session, constants, mining, body, roof)
+        sight = await _sight(session, constants, mining, body, roof, vein.roof_salt)
 
         #: Buried, not scattered: the rock comes down on the body and its
         #: pocket in one place, so everything it carried stays lying on the
@@ -155,4 +157,4 @@ async def collapse(
         #: not a sink.
         await death.die(session, constants, body, cause="cave_in", now=moment, buried=True)
         return sight
-    return await _sight(session, constants, mining, body, roof)
+    return await _sight(session, constants, mining, body, roof, vein.roof_salt)

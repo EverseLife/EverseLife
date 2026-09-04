@@ -108,6 +108,10 @@ async def _market_order_expired(
 
 #: The face: every swing is told with what it brought; a collapse with what
 #: it took. The miner's own numbers -- bystanders hear the collapse alone.
+#: Digging a caved-in working out (D-301) has no teller and needs none: it is
+#: announced rather than journalled, and an announcement carries its own
+#: payload straight to the sinks (`pump._deliver_touch`) without passing
+#: here. A teller for it would read like a filter that is not on that road.
 @teller("mining.swing")
 async def _mining_swing(
     db: AsyncSession, row: Event, sink: Sink, message: dict[str, Any]

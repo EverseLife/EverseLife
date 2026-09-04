@@ -35,7 +35,7 @@ from src.constants import registry as R
 from src.engine import stock, world
 from src.models.identity import Body
 from src.models.inventory import Item
-from src.units import amount_float
+from src.units import ROUND_ROOF, amount_float, step
 
 ORE = "iron_ore"
 
@@ -236,8 +236,10 @@ async def test_a_swing_that_waited_out_the_last_of_the_vein_pays_for_nothing(
         assert late_again.swings == 0, "удар по пустой жиле засчитан"
         sagged = await db.get(Vein, vein.id)
         assert sagged is not None
+        #: To the hundredth the column keeps: the starting roof is a working's
+        #: own since D-302 and does not land on that grid by itself.
         one_swing = whole - constants[R.MINE_ROOF_PER_SWING]
-        assert float(sagged.roof) == pytest.approx(one_swing), (
+        assert float(sagged.roof) == pytest.approx(one_swing, abs=float(step(ROUND_ROOF))), (
             "свод просел от удара, который ничего не добыл"
         )
         body = await db.get(Body, late_body_id)

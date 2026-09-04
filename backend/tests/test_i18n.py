@@ -92,7 +92,7 @@ def _keys_named(path: Path) -> set[str]:
 def _derived_keys() -> set[str]:
     """Keys nothing spells out: built from a value at the point of use.
 
-    Five families: an occupation's one-word title is `doing-<kind>`
+    Six families: an occupation's one-word title is `doing-<kind>`
     (`occupation.Doing.title`), a founding role's word is `city-role-<role>`,
     a digest line is `event-<kind>` (`i18n.event_key`), and a statement line
     names both its ground and the side it faces. Each is listed from the
@@ -101,6 +101,8 @@ def _derived_keys() -> set[str]:
     rather than showing a player `doing-whatever`.
     """
     from src.api.commands.world import TOLD, TOLD_OF_THE_PLACE
+    from src.constants import current
+    from src.constants import registry as R
     from src.engine import explore, occupation
     from src.engine.city import founding
     from src.herald import chronicle
@@ -129,6 +131,12 @@ def _derived_keys() -> set[str]:
         #: map beside the goal; now the goal names a message, and a goal added
         #: without one would leave the refusal naming a key.
         | {f"explore-goal-{goal}" for goal in explore.GOALS}
+        #: The bands of the roof's sign (D-303). Their thresholds are the
+        #: vault's and their words the engine's, and the band is said at the
+        #: wire from whatever the vault holds -- so a band added to
+        #: `mine.sign_bands` without a word in every language fails here
+        #: rather than showing a player `roof_dry`.
+        | {f"mine-sign-{band.replace('_', '-')}" for band in current()[R.MINE_SIGN_BANDS]}
     )
 
 
