@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from market_kit import ORE, _city, _trader, _with_goods
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import craft, ledger, market, world
+from src.engine import craft, gear, ledger, market, storage, world
 from src.models.inventory import Item
 from src.models.ledger import AccountKind, PostingReason
 from src.models.market import Order, OrderState
@@ -338,6 +338,39 @@ async def test_committed_to_order_cannot_be_taken_back(
 
     took = await market.take(session, constants, body, ORE, 10)
     assert took == pytest.approx(2), "свободны только те две, что не под ордером"
+
+
+async def test_a_chest_off_the_counter_weighs_its_fill(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The counter is a door into the hands, and a chest comes through it full (D-313).
+
+    Furniture goes on the counter like any goods, and what was left inside
+    travels with the row. Asked about four kilograms of lid, the hands would
+    take a load nobody weighed.
+    """
+    chest = "chest"
+    node = await _city(session)
+    _, body = await _trader(session, node, "Столяр")
+    pocket = await world.body_container(session, body)
+    box = await world.grant_item(session, pocket, chest, quality=60, origin="сценарий теста")
+    per_unit = gear.mass_of(catalog, ORE, 1)
+    await world.grant_item(
+        session,
+        await storage.inside(session, box),
+        ORE,
+        amount=20 / per_unit,
+        origin="сценарий теста",
+    )
+    assert await market.load(session, constants, body, chest, 1) == pytest.approx(1)
+
+    #: The hands already hold half of what they can, and the chest is the
+    #: other half twice over.
+    await world.grant_item(
+        session, pocket, ORE, amount=15 / per_unit, quality=65, origin="сценарий теста"
+    )
+    with pytest.raises(gear.Overloaded):
+        await market.take(session, constants, body, chest, 1)
 
 
 # --- order matching ----------------------------------------------------------

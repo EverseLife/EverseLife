@@ -129,19 +129,22 @@ async def shed(
     keep = {thing.id for thing in on_body.values()} | set(spare)
     node = await session.get(Node, body.node_id) if body.node_id is not None else None
     contents = list(await world.contents(session, pocket))
-    fills = await storage.contents_of(
+    #: Which vessel holds which drop -- rows, not kilograms: the air below is
+    #: recognised by the cylinder it sits in. What things weigh inside is a
+    #: second question with a second answer (`fills_of`).
+    poured = await storage.contents_of(
         session, [one for one in contents if storage.is_vessel(catalog, one.type_key)]
     )
     if node is not None and not await oxygen.free_air(session, node):
         breath = {one.id for one in await oxygen.cylinders(session, body)}
         keep |= {
-            vessel for vessel, drops in fills.items() if any(one.id in breath for one in drops)
+            vessel for vessel, drops in poured.items() if any(one.id in breath for one in drops)
         }
 
     carried = [thing for thing in contents if thing.id not in keep]
     if not carried:
         return 0.0
-    weights = weigh(catalog, carried, fills)
+    weights = weigh(catalog, carried, await fills_of(session, catalog, carried))
     #: Heaviest stack first: the biggest heap is the one the frame was for, and
     #: it is the one that empties the excess in the fewest pieces. By id after
     #: the mass, so two identical stacks fall in a settled order.
@@ -171,7 +174,7 @@ async def shed(
 
 
 def weigh(
-    catalog: Catalog, items: Sequence[Item], fills: dict[uuid.UUID, list[Item]]
+    catalog: Catalog, items: Sequence[Item], fills: dict[uuid.UUID, float]
 ) -> dict[uuid.UUID, float]:
     """What each stack weighs as the **load** counts it, kg.
 
@@ -179,25 +182,31 @@ def weigh(
     what the falls used to read: a plastic canister of two and a half kilograms
     holding forty sorted as the lightest thing in the hands and, when it did
     fall, was subtracted from the excess as two and a half -- so the ore kept
-    going after it and the hands were emptied of everything.
+    going after it and the hands were emptied of everything. A chest and a
+    loaded barrow are the same thing said again (D-313), and the load counts
+    all three the one way.
     """
     return {
         one.id: gear.mass_of(catalog, one.type_key, amount_float(one.amount))
-        + sum(
-            gear.mass_of(catalog, drop.type_key, amount_float(drop.amount))
-            for drop in fills.get(one.id, ())
-        )
+        + fills.get(one.id, 0.0)
         for one in items
     }
 
 
 async def fills_of(
     session: AsyncSession, catalog: Catalog, items: Sequence[Item]
-) -> dict[uuid.UUID, list[Item]]:
-    """What is poured into each vessel among these things, in one reading."""
-    return await storage.contents_of(
-        session, [one for one in items if storage.is_vessel(catalog, one.type_key)]
-    )
+) -> dict[uuid.UUID, float]:
+    """What rides inside each of these things, kg.
+
+    Only the things that can hold anything are asked -- a storage or a
+    vehicle (D-313) -- and hands usually hold neither, so this usually costs
+    nothing at all.
+    """
+    return {
+        one.id: await gear.inner_mass(session, catalog, [one])
+        for one in items
+        if gear.holds_things(catalog, one.type_key)
+    }
 
 
 async def _fall(
@@ -264,6 +273,10 @@ async def _fall(
             quantity = min(have, excess / unit)
         if quantity <= 0:
             continue
+        #: A container falls with what is in it, and `weights` already counted
+        #: that (D-313): the excess comes down by the whole of what left the
+        #: hands, or one chest short of the limit would go on dropping the
+        #: things behind it. Only a stack splits, and a stack holds nothing.
         fell = await world.move_stack(session, item, yard, quantity, outdoors=not inside)
         mass = unit * fell
         excess -= mass

@@ -214,14 +214,22 @@ async def take(
         moved = await _pour_out(session, constants, stock, inventory, type_key, want, tier)
     else:
         #: No more than the limit is taken in hand: for the rest come with a wagon (D-146).
-
+        #: A chest bought here comes off the counter with what was left in it
+        #: (D-313), so the question is asked of the very rows `_move` will
+        #: take rather than of the name they share.
+        catalog = current_catalog()
+        chosen = _portion(await _stacks(session, stock, type_key, tier, constants), want)
+        inside = await gear.inner_mass(
+            session, catalog, [item for item, take in chosen if take >= item.amount]
+        )
         await gear.check_carry(
             session,
             constants,
-            current_catalog(),
+            catalog,
             body,
             split_key(type_key)[0],
             amount_float(want),
+            inside=inside,
         )
 
         moved = await _move(
@@ -304,8 +312,15 @@ async def _stacks(
     rows = (
         (
             await session.execute(
+                #: `Item.id` last makes the order **total**. Quality and
+                #: stamp tie for things made in one batch -- `created_at` is
+                #: `now()`, one value for the whole transaction -- and the
+                #: carry limit reads these stacks once to weigh them and
+                #: `_move` reads them again to hand them over (D-313). On a
+                #: tie the two readings could take different rows, and the
+                #: weighed chest need not be the one that travelled.
                 stmt.order_by(
-                    Item.quality.asc().nulls_first(), Item.created_at.asc()
+                    Item.quality.asc().nulls_first(), Item.created_at.asc(), Item.id.asc()
                 ).with_for_update()
             )
         )
@@ -339,6 +354,25 @@ def _quality(item: Item) -> float | None:
     return None if item.quality is None else float(item.quality)
 
 
+def _portion(items: list[Item], quantity: int) -> list[tuple[Item, int]]:
+    """Which stacks a move of this size takes, and how much of each.
+
+    `_move` walks the list worst-first; the carry limit must ask about the
+    very rows it will hand over, because a chest weighs its contents and the
+    answer belongs to the row rather than to the name (D-313). One reading of
+    the order, so the check and the move can never disagree.
+    """
+    chosen: list[tuple[Item, int]] = []
+    left = quantity
+    for item in items:
+        if left <= 0:
+            break
+        take = min(left, item.amount)
+        chosen.append((item, take))
+        left -= take
+    return chosen
+
+
 async def _move(
     session: AsyncSession,
     source: Container,
@@ -356,10 +390,9 @@ async def _move(
     and above it the worst still goes first -- the seller keeps the better.
     """
     left = quantity
-    for item in await _stacks(session, source, type_key, tier, constants, floor=floor):
-        if left <= 0:
-            break
-        take = min(left, item.amount)
+    for item, take in _portion(
+        await _stacks(session, source, type_key, tier, constants, floor=floor), quantity
+    ):
         if take == item.amount:
             item.container_id = target.id
             #: Handed over, a machine lies (D-278): whoever bought it puts it up.

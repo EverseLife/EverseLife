@@ -23,7 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import death, gear, jobs, transport, travel, world
+from src.engine import death, gear, jobs, storage, transport, travel, world
 from src.models.identity import Body
 from src.models.inventory import Item
 from src.models.travel import Harness
@@ -34,6 +34,7 @@ from src.models.world import Node, Surface
 CARGO = "iron_ore"
 CART = "cart"
 BARROW = "wheelbarrow"
+CHEST = "chest"
 
 
 async def _convoy(
@@ -170,6 +171,85 @@ async def test_unloading_hits_hands_limit(
     qty = await transport.unload(session, constants, catalog, body, in_hold, handful)
     assert qty == pytest.approx(handful)
     assert await gear.load_of(session, constants, catalog, body) == pytest.approx(10)
+
+
+async def test_a_chest_rides_by_what_is_in_it(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The hold is bounded by mass, and a lid is not a way round it (D-313).
+
+    Both doors of the hold weigh the same thing: what goes in takes room for
+    its contents, and what comes out is picked up with them.
+    """
+    _, _, body, cart = await _convoy(session)
+    await transport.harness(session, constants, catalog, body, cart)
+
+    pocket = await world.body_container(session, body)
+    chest = await world.grant_item(session, pocket, CHEST, quality=60, origin="сценарий теста")
+    fill = _units(catalog, 20)
+    await world.grant_item(
+        session, await storage.inside(session, chest), CARGO, amount=fill, origin="сценарий теста"
+    )
+    await transport.load(session, constants, catalog, body, chest)
+
+    #: The hold counts the chest and the ore in it, not the chest alone.
+    lid = gear.mass_of(catalog, CHEST, 1)
+    assert await transport.cargo_mass(session, catalog, cart) == pytest.approx(lid + 20)
+
+    #: And it does not come back into hands that are already half full: before
+    #: this the hands were asked about four kilograms of furniture (D-313).
+    await _to_hands(session, body, _units(catalog, 15))
+    in_hold = next(
+        one for one in await transport.cargo_items(session, cart) if one.type_key == CHEST
+    )
+    with pytest.raises(gear.Overloaded):
+        await transport.unload(session, constants, catalog, body, in_hold)
+
+
+async def test_a_full_chest_does_not_stretch_the_hold(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A barrow rated for eighty kilograms carries eighty, chests included (D-313)."""
+    _, _, body, barrow = await _convoy(session, vehicle=BARROW)
+    await transport.harness(session, constants, catalog, body, barrow)
+    room = transport.capacity(constants, BARROW)
+
+    pocket = await world.body_container(session, body)
+    chest = await world.grant_item(session, pocket, CHEST, quality=60, origin="сценарий теста")
+    lid = gear.mass_of(catalog, CHEST, 1)
+    #: Within the chest's own capacity, and past the barrow's.
+    fill = room - lid + 10
+    assert fill < storage.capacity(catalog, CHEST), "сундук столько вмещает, тачка — нет"
+    await world.grant_item(
+        session,
+        await storage.inside(session, chest),
+        CARGO,
+        amount=_units(catalog, fill),
+        origin="сценарий теста",
+    )
+    with pytest.raises(transport.Overloaded):
+        await transport.load(session, constants, catalog, body, chest)
+
+
+async def test_a_loaded_barrow_is_not_pocketed(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A hold is a container like a chest, and it travels with the thing (D-313).
+
+    A barrow weighs under nine kilograms and carries eighty. Unharnessed it
+    lies in the node like any cargo, and off the ground it went into the hands
+    for its own weight -- a chest on wheels, and a wider hole than the chest.
+    """
+    _, _, body, barrow = await _convoy(session, vehicle=BARROW)
+    await transport.harness(session, constants, catalog, body, barrow)
+    hands = await gear.capacity(session, constants, catalog, body)
+    cargo = await _to_hands(session, body, _units(catalog, hands))
+    await transport.load(session, constants, catalog, body, cargo)
+    await transport.unharness(session, body)
+
+    assert await gear.load_of(session, constants, catalog, body) == pytest.approx(0)
+    with pytest.raises(gear.Overloaded):
+        await storage.pick(session, constants, catalog, body, barrow)
 
 
 # --- road (D-107) ------------------------------------------------------------
