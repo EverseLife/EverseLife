@@ -47,7 +47,7 @@ ui-market-buy-best-hint = buy at the sellers' best price
 ui-market-sell-best = Sell at market
 ui-market-sell-best-at = Sell at market · { $price } ₭
 ui-market-sell-best-hint = sell at the buyers' best price; the goods have to lie in the terminal
-ui-market-rest = What is left of the bid stands as an order and waits. Buying is done standing here; your own orders are in “trade”.
+ui-market-rest = What is left of the bid stands as an order and waits. Buying is done standing here; your own orders are beside you in the terminal, and all of them at once in the “finance” tab.
 ui-market-reserve-title = Reserve
 ui-market-reserve-rule = A reservation is made from afar and redeemed on foot; miss the term and the deposit stays with the seller.
 ui-market-reserve = Reserve
@@ -58,6 +58,9 @@ ui-market-terminal = Terminal
 ui-market-terminal-rule = What lies in the terminal is what sells; what you buy is taken from here too. A click on a row picks the position. Drag a row here from the inventory to put it out, and back into the inventory to take it.
 ui-market-terminal-drop = drag a thing here from the inventory to put it out
 ui-market-terminal-empty = nothing of yours in the terminal
+ui-market-orders = Orders in this node
+ui-market-orders-rule = The orders standing in this node: the goods under them lie in the terminal. The whole list is in the “finance” tab.
+ui-market-orders-none = no orders of your own in this node
 ui-market-row = position { $goods }, { $tier }
 ui-market-take = Take
 # A liquid trades out of the terminal's tank (D-255). It cannot be dragged
@@ -161,6 +164,11 @@ ui-inventory-nobody = There is nobody else here: handing over is hand to hand.
 ui-inventory-on-terminal = In the terminal
 ui-inventory-average = { $quality } on average
 ui-inventory-mass = { $mass } kg
+# Under the stack's weight, what it is made of: the unit's weight by the
+# count, "0.2 × 47.5". In words ("0.2 kg each") the note was three times as
+# long and pushed the goods' name onto a second line even in the widened
+# sidebar. The unit is the line above's and is not repeated.
+ui-inventory-mass-each = { $each } × { $amount }
 # Two arguments for one number: `$count` picks the form of the word (only a
 # number can do that), `$shown` is the very digits the panel has already
 # chosen. `{ $count }` itself in the text would be formatted by Fluent to the
@@ -227,6 +235,32 @@ ui-finance-memo-hint = seen by the payee and by the court
 ui-finance-transfer = Transfer
 ui-finance-statement = Statement
 ui-finance-none = no postings yet
+# The pages turn by the last row read, newest first.
+ui-finance-newer = newer
+ui-finance-older = older
+# The eye on a row: what it opens into is asked over, so the row waits a
+# moment, and a row the server no longer shows comes back with nothing.
+ui-finance-peek = Details: { $ground }
+ui-finance-peek-wait = reading…
+ui-finance-peek-none = no details
+# The reader's own leg of the operation, where a name would stand.
+ui-finance-side-me = you
+ui-finance-ground = Ground: { $ground }
+# A sale, as the seller's row opens: the tier and the quantity are details
+# after the separator, the names stay after a label (D-258).
+ui-finance-deal-goods = Goods: { $goods }, { $tier } · { $amount }
+ui-finance-deal-price = Price: { $price } ₭ · total { $cost } ₭
+ui-finance-deal-buyer = Buyer: { $name }
+# The node the terminal stands in: a place's name, not a market's.
+ui-finance-node = Node: { $node }
+ui-finance-deal-charges = Tax: { $tax } ₭ · market fee: { $fee } ₭
+ui-finance-deal-reserved = redeemed reservation
+# A deposit, as the buyer's row opens: the order the money was frozen under,
+# and the deals settled against it -- the buyer's statement has no other
+# row that says what was bought.
+ui-finance-order = Buy order: { $goods }, { $tier } · { $amount } at { $price } ₭
+ui-finance-order-filled = Filled: { $filled } of { $amount }
+ui-finance-fill = { $name } · { $amount } at { $price } ₭ · { $when }
 
 ## The coin station
 

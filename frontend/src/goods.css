@@ -22,6 +22,16 @@
 .goods tbody tr:not(.group):hover {
   background: var(--wash);
 }
+/* A figure never breaks: "12" on one line and the piece word on the next
+   reads as two things, and "3.06" over "kg" as two numbers. When the room
+   runs out it is the name and the note that wrap, in that order of harm. */
+.goods td.num,
+.goods td.mass {
+  white-space: nowrap;
+}
+.goods td.mass .note {
+  margin: 0;
+}
 .goods tr .dots {
   opacity: 0;
   transition: opacity 0.1s;

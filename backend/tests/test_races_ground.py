@@ -887,7 +887,7 @@ async def test_two_fertilizings_of_one_strip_both_land(
 
         strip = await db.get(Plot, plot_id)
         assert float(strip.fertility) == pytest.approx(
-            40 + 2 * current()[R.FARM_COMPOST_RECOVERY]
+            40 + 2 * current()[R.FARM_FERTILIZER_RECOVERY]["compost"]
         ), "оба внесения легли в землю"
         left = sum(
             int(thing.amount)

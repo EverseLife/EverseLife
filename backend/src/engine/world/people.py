@@ -34,7 +34,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
-from decimal import Decimal
+from decimal import ROUND_FLOOR, Decimal
 from typing import Any
 
 from sqlalchemy import func, select
@@ -59,6 +59,7 @@ from src.models.identity import (
 )
 from src.models.inventory import Container, ContainerKind, Item
 from src.models.world import Layer, Node
+from src.units import ROUND_STAMINA, on_grid
 from src.units import money as to_money
 
 
@@ -96,9 +97,24 @@ async def create_identity(
     return identity
 
 
+def stamina_roof(constants: Constants) -> float:
+    """`body.stamina_max` as the column can hold it: one ceiling for every door.
+
+    Stamina keeps hundredths, and whoever fills a body -- the printer, sleep,
+    a meal -- can only fill it to the grid. A fractional maximum in the vault
+    therefore means a full body a hundredth short of the raw number, and
+    anyone measuring fullness against the raw number would never see one:
+    sleep refused nobody and credited nothing, night after night. Floored,
+    because the row holds what the writers wrote, and they wrote the floor;
+    rounded the column's way instead, a meal would lift the body a hundredth
+    *above* what sleep can reach.
+    """
+    return float(on_grid(constants[R.BODY_STAMINA_MAX], ROUND_STAMINA, ROUND_FLOOR))
+
+
 async def print_body(session: AsyncSession, identity: Identity, node: Node) -> Body:
     """Print a body. The identity does not change -- it is eternal (D-012)."""
-    stamina = current()[R.BODY_STAMINA_MAX]
+    stamina = stamina_roof(current())
     body = Body(
         identity_id=identity.id,
         node_id=node.id,

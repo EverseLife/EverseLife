@@ -16,6 +16,7 @@ import { ownOrWild, type Props } from "./shared";
 import { Demolition } from "./Demolition";
 import { Equipment } from "./Equipment";
 import { Repair } from "./Repair";
+import { NumberField } from "../../NumberField";
 
 
 /** The building: raise it, take it apart -- and furnish it.
@@ -234,13 +235,12 @@ export function House({
                                     setTiers((was) => ({ ...was, [key]: tier }))
                                   }
                                 />
-                                <input
-                                  type="number"
+                                <NumberField
                                   min={0}
                                   max={Math.min(gap, have)}
                                   value={asked}
-                                  onChange={(e) =>
-                                    setBring((was) => ({ ...was, [key]: Number(e.target.value) }))
+                                  onChange={(typed) =>
+                                    setBring((was) => ({ ...was, [key]: typed ?? 0 }))
                                   }
                                 />
                                 <button
@@ -360,19 +360,17 @@ export function House({
                 </option>
               ))}
             </select>
-            <input
-              type="number"
+            <NumberField
               min={least}
               max={Math.floor(free)}
               value={area}
-              onChange={(e) => setArea(Number(e.target.value))}
+              onChange={(typed) => setArea(typed ?? 0)}
               title={t("ui-place-house-footprint")}
             />
-            <input
-              type="number"
+            <NumberField
               min={1}
               value={floors}
-              onChange={(e) => setFloors(Number(e.target.value))}
+              onChange={(typed) => setFloors(typed ?? 0)}
               title={t("ui-place-house-floors")}
             />
             <span className="note">

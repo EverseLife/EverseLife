@@ -36,6 +36,7 @@ import { Logo } from "../Logo";
 import { usePopover } from "../popover";
 import { VIEWS, type View } from "../views";
 import { leftNow, reserveNow } from "../warmth";
+import { NumberField } from "../NumberField";
 
 //: Where the source of this build lives -- AGPL §13 asks for the source of
 //: *this* version, and the repository's head is not it. `VITE_RELEASE` is
@@ -318,12 +319,11 @@ function MoneyQuick({ money }: { money: Look["money"] }) {
             </label>
             <label>
               <span>{t("ui-top-transfer-amount")}</span>
-              <input
-                type="number"
+              <NumberField
                 min={0}
                 step="0.01"
                 value={amount}
-                onChange={(e) => setAmount(Number(e.target.value))}
+                onChange={(typed) => setAmount(typed ?? 0)}
               />
             </label>
             <label>

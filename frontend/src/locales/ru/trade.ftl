@@ -46,7 +46,7 @@ ui-market-buy-best-hint = купить по лучшей цене продавц
 ui-market-sell-best = По рынку продать
 ui-market-sell-best-at = По рынку продать · { $price } ₭
 ui-market-sell-best-hint = продать по лучшей цене покупателей; товар должен лежать в терминале
-ui-market-rest = Остаток заявки встаёт ордером и ждёт. Покупают стоя здесь; свои ордера — в «торговле».
+ui-market-rest = Остаток заявки встаёт ордером и ждёт. Покупают стоя здесь; свои ордера — рядом, в терминале, и все разом — во вкладке «финансы».
 ui-market-reserve-title = Забронировать
 ui-market-reserve-rule = Бронируют издалека, забирают ногами; не забрал в срок — задаток у продавца.
 ui-market-reserve = Бронь
@@ -57,6 +57,9 @@ ui-market-terminal = Терминал
 ui-market-terminal-rule = Продаётся то, что в терминале; купленное забирается отсюда же. Клик по строке выбирает позицию. Перетащите сюда строку из инвентаря, чтобы выложить, и обратно в инвентарь — чтобы забрать.
 ui-market-terminal-drop = перетащите сюда предмет из инвентаря, чтобы выложить
 ui-market-terminal-empty = в терминале ничего вашего
+ui-market-orders = Ордера в этом узле
+ui-market-orders-rule = Ордера, стоящие в этом узле: товар под ними лежит в терминале. Весь список — во вкладке «финансы».
+ui-market-orders-none = в этом узле своих ордеров нет
 ui-market-row = позиция { $goods }, { $tier }
 ui-market-take = Забрать
 # Жидкость торгуется из бака терминала (D-255). Её нельзя перетащить на
@@ -164,6 +167,12 @@ ui-inventory-nobody = Здесь никого больше нет: переда�
 ui-inventory-on-terminal = В терминале
 ui-inventory-average = в среднем { $quality }
 ui-inventory-mass = { $mass } кг
+# Под весом пачки — из чего он сложен: вес единицы на количество, «0.2 × 47.5».
+# Словами («0.2 кг за единицу») подпись была втрое длиннее и вытесняла имя
+# товара на вторую строку даже в широком сайдбаре; «по 0.2 кг» ловит
+# эвристика D-258 (предлог перед подстановкой). Единица та же, что строкой
+# выше, и не повторяется.
+ui-inventory-mass-each = { $each } × { $amount }
 # Два аргумента на одно число: `$count` выбирает форму слова (это умеет только
 # число), `$shown` — те самые цифры, что уже выбрала панель. Само `{ $count }`
 # в тексте Fluent отформатировал бы по правилам языка, и «1000 позиций» стало
@@ -230,6 +239,32 @@ ui-finance-memo-hint = видно получателю и суду
 ui-finance-transfer = Перевести
 ui-finance-statement = Выписка
 ui-finance-none = операций пока нет
+# The pages turn by the last row read, newest first.
+ui-finance-newer = новее
+ui-finance-older = старее
+# The eye on a row: what it opens into is asked over, so the row waits a
+# moment, and a row the server no longer shows comes back with nothing.
+ui-finance-peek = Подробности: { $ground }
+ui-finance-peek-wait = читаю…
+ui-finance-peek-none = подробностей нет
+# The reader's own leg of the operation, where a name would stand.
+ui-finance-side-me = вы
+ui-finance-ground = Основание: { $ground }
+# A sale, as the seller's row opens: the tier and the quantity are details
+# after the separator, the names stay after a label (D-258).
+ui-finance-deal-goods = Товар: { $goods }, { $tier } · { $amount }
+ui-finance-deal-price = Цена: { $price } ₭ · итого { $cost } ₭
+ui-finance-deal-buyer = Покупатель: { $name }
+# The node the terminal stands in: a place's name, not a market's.
+ui-finance-node = Узел: { $node }
+ui-finance-deal-charges = Налог: { $tax } ₭ · сбор рынка: { $fee } ₭
+ui-finance-deal-reserved = выкуп по брони
+# A deposit, as the buyer's row opens: the order the money was frozen under,
+# and the deals settled against it -- the buyer's statement has no other
+# row that says what was bought.
+ui-finance-order = Ордер на покупку: { $goods }, { $tier } · { $amount } по { $price } ₭
+ui-finance-order-filled = Исполнено: { $filled } из { $amount }
+ui-finance-fill = { $name } · { $amount } по { $price } ₭ · { $when }
 
 ## Монетная станция
 

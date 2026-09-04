@@ -16,6 +16,7 @@ import { useState } from "react";
 import { t } from "../../locale";
 import { goodsName } from "../../names";
 import { useBook, useNames } from "../../actions";
+import { NumberField } from "../../NumberField";
 
 /** Duty: goods, rate and duty-free norm (D-123).
  *
@@ -94,16 +95,14 @@ export function Customs({
             <option key={name} value={goodsName(names, name)} />
           ))}
         </datalist>
-        <input
-          type="number"
+        <NumberField
           value={rate}
-          onChange={(e) => setRate(Number(e.target.value))}
+          onChange={(typed) => setRate(typed ?? 0)}
           title={t("ui-admin-customs-rate-title")}
         />
-        <input
-          type="number"
+        <NumberField
           value={norm}
-          onChange={(e) => setNorm(Number(e.target.value))}
+          onChange={(typed) => setNorm(typed ?? 0)}
           title={t("ui-admin-customs-free-title")}
         />
         <button onClick={add} disabled={busy || !item.trim() || rate <= 0}>

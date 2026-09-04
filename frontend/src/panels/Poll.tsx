@@ -87,6 +87,9 @@ export function PollAnswer({
           <button
             key={candidate.id}
             className={poll.choice === candidate.id ? "" : "quiet"}
+            //: A cast ballot is a choice, not an action to take (D-238): said
+            //: so, it is drawn as one -- and a reader hears it as one too.
+            aria-pressed={poll.choice === candidate.id}
             onClick={() => go(() => session.send("city.choose", { vote: poll.id, candidate: candidate.id }))}
             disabled={busy || !poll.may_vote}
           >
@@ -101,6 +104,7 @@ export function PollAnswer({
     <>
       <button
         className={poll.mine === true ? "" : "quiet"}
+        aria-pressed={poll.mine === true}
         onClick={() => go(() => session.send("city.vote", { vote: poll.id, yes: true }))}
         disabled={busy}
       >
@@ -108,6 +112,7 @@ export function PollAnswer({
       </button>
       <button
         className={poll.mine === false ? "" : "quiet"}
+        aria-pressed={poll.mine === false}
         onClick={() => go(() => session.send("city.vote", { vote: poll.id, yes: false }))}
         disabled={busy}
       >

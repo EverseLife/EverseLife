@@ -343,6 +343,18 @@ jobs:
           fi
           chmod 600 ~/.ssh/known_hosts
 
+      # The collector's config is checked here, before it leaves the runner: a
+      # broken file must not reach the server at all. Checked on the server it
+      # would fail the deploy after the game is already up on the new image --
+      # and a watching service must never be the reason a deploy fails
+      # (`deploy/compose.yaml`, the Grafana webhook says the same). Same image
+      # as in `compose.yaml`, so the check and the collector agree on the
+      # syntax.
+      - name: Check the Prometheus config
+        run: |
+          docker run --rm -v "$PWD/deploy/prometheus.yml:/prometheus.yml:ro" \
+            --entrypoint promtool prom/prometheus:v2.54.1 check config /prometheus.yml
+
       # The compose file and edge settings are edited in the repository, not on
       # the server. `.env` with passwords stays untouched: nobody puts it there.
       - name: Ship the compose file
@@ -367,6 +379,20 @@ jobs:
           # The schema is applied by the migrate service before the server
           # starts; nothing needs bringing up by hand.
           docker compose up -d --remove-orphans
+          # `up -d` recreates a service only when its definition changes. A new
+          # `prometheus.yml` on the bind mount is not a change, and Prometheus
+          # reads the file once, at start -- so a scrape job added in the
+          # repository never reached the running collector (2026-09-02: the
+          # landing's job shipped, the container kept the old config, and the
+          # dashboard showed "No data" over a working exporter). SIGHUP is the
+          # collector's reload; the file was checked before it was shipped.
+          # A collector that is not running is not this deploy's problem:
+          # compose says "no container to kill" and exits 0 by itself, and a
+          # failed signal on a live one is said and stepped over. No
+          # `docker compose exec` in this script: it reads stdin, and stdin
+          # here is the rest of the script -- the lines after it would be
+          # swallowed, not run.
+          docker compose kill -s HUP prometheus || echo "prometheus reload failed; the collector keeps the old config"
           docker logout ghcr.io
           docker image prune -f
           docker compose ps

@@ -25,7 +25,8 @@ from src.constants import Constants
 from src.constants import registry as R
 from src.engine import rig, world
 from src.models.inventory import Item
-from src.units import amount_float
+from src.models.rig import Rig
+from src.units import ROUND_REMAINDER, amount_float
 
 
 async def _face(session: AsyncSession, *, coal: float = 100, richness: float = 60):
@@ -113,6 +114,132 @@ async def test_full_bunker_stops_machine(session: AsyncSession, constants: Const
     assert more == 0
 
 
+async def test_ore_kept_over_short_passes_is_paid_for_in_coal(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """Coal is spent by the same measure as the ore, not by the clock.
+
+    Fuel is written off in thousandths as well, so a pass too short to burn
+    one burns nothing. That was harmless only while the ore was lost to the
+    same rounding -- self-punishing. Keeping the ore and still charging coal
+    by elapsed time would make `rig.empty`, which settles the rig and is
+    not throttled, a way of raising ore for nothing.
+    """
+    node, _, _, installation, _ = await _face(session, coal=100)
+    yard = await world.node_container(session, node)
+    started = installation.counted_at
+    coal_before = await rig._coal_available(session, yard.id)  # noqa: SLF001
+
+    #: Half a second at a time: under what a thousandth of coal takes.
+    for tick in range(1, 61):
+        when = started + timedelta(seconds=tick / 2)
+        await rig.advance(session, constants, installation, now=when)
+        await session.flush()
+        await session.refresh(installation, ["hopper", "hopper_remainder", "fuel_remainder"])
+
+    burnt = coal_before - await rig._coal_available(session, yard.id)  # noqa: SLF001
+    #: Ore did come out, and it was paid for: the coal spent is the fuel rate
+    #: over the output rate, times the ore banked -- with the coal not yet
+    #: thick enough to burn counted in, which is the difference between this
+    #: test and a tolerance wide enough to hide the whole sliver.
+    #:
+    #: The tolerance left is for the sliver's own floor: each pass drops what
+    #: falls past the ninth decimal, so the gap grows with the number of passes
+    #: and not with the sum. Sixty passes lose about a ten-millionth of a unit;
+    #: `abs` rather than `rel`, because that is how the error actually behaves.
+    assert float(installation.hopper) > 0
+    per_ore = constants[R.RIG_FUEL_PER_HOUR] / constants[R.RIG_OUTPUT_PER_HOUR]
+    owed = burnt + float(installation.fuel_remainder)
+    assert owed == pytest.approx(float(installation.hopper) * per_ore, abs=1e-6)
+
+
+async def test_the_last_of_a_vein_is_banked_at_what_the_ground_gave(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """A vein ending on a half-thousandth neither invents ore nor loses it.
+
+    `rig.depletion_multiplier` is two and a pickaxe leaves an odd remainder,
+    so what the ground can still give the rig is half a thousandth -- off the
+    grid the hopper is written on. Passed to the column as it came it rounded
+    to the nearest, which is up as often as down: up, and the hopper held ore
+    the ground never gave; down, and the last of the vein went nowhere while
+    the pass still reported it mined.
+
+    Both remainders here separate the two roundings, in opposite directions:
+    half to even carries `0.0035` up to `0.004` and `0.0015` up to `0.002`,
+    while the floor keeps `0.003` and `0.001`. A remainder of five would not --
+    on `0.0025` the two agree -- and would leave the case looking covered.
+    """
+    _, vein, _, installation, _ = await _face(session)
+    #: A vein all but worked out, and a sliver already waiting from the pass
+    #: before -- together they ask for more than is left in the ground.
+    for remaining in (7, 3):
+        vein.remaining = remaining
+        installation.hopper = Decimal(0)
+        installation.hopper_remainder = Decimal("0.000900000")
+        installation.counted_at = installation.counted_at - timedelta(hours=1)
+        await session.flush()
+        in_the_ground = vein.remaining
+
+        mined = await rig.advance(session, constants, installation)
+        await session.flush()
+        await session.refresh(installation, ["hopper", "hopper_remainder"])
+        await session.refresh(vein, ["remaining"])
+
+        #: The one invariant: what left the ground is what the hopper holds,
+        #: times the vault's depletion. Not a thousandth more, not one less.
+        taken = amount_float(in_the_ground - vein.remaining)
+        assert taken == pytest.approx(
+            float(installation.hopper) * constants[R.RIG_DEPLETION_MULTIPLIER]
+        )
+        #: And the pass reports the number the row took, not the one it asked for.
+        assert mined == pytest.approx(float(installation.hopper))
+        assert 0 <= float(installation.hopper_remainder) < 0.001
+
+
+def test_the_rig_slivers_are_kept_at_the_scale_they_are_written_with() -> None:
+    """`ROUND_REMAINDER` and the two rig columns are one number in three places."""
+    assert Rig.__table__.c.hopper_remainder.type.scale == ROUND_REMAINDER
+    assert Rig.__table__.c.fuel_remainder.type.scale == ROUND_REMAINDER
+
+
+async def test_a_short_pass_does_not_empty_the_vein_for_ore_nobody_gets(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """The vein gives up exactly what the hopper is credited with.
+
+    The hopper keeps thousandths and the rig is settled by elapsed time, so a
+    short pass raises less than one. The sum used to go straight to the column,
+    which rounded it away -- while the vein had already been emptied for that
+    same ore, and by `rig.depletion_multiplier` as much again. The ore left the
+    world and reached nobody.
+    """
+    _, vein, _, installation, _ = await _face(session)
+    started = installation.counted_at
+    await session.refresh(vein)
+    in_the_ground = vein.remaining
+
+    #: Half a second at a time, well under what a thousandth of ore takes.
+    for tick in range(1, 41):
+        when = started + timedelta(seconds=tick / 2)
+        await rig.advance(session, constants, installation, now=when)
+        await session.flush()
+        await session.refresh(installation, ["hopper", "hopper_remainder"])
+        await session.refresh(vein, ["remaining"])
+
+    taken = amount_float(in_the_ground - vein.remaining)
+    #: Exactly: what left the ground is the depletion the vault sets times what
+    #: the hopper actually holds. Not what was asked for -- the sliver still
+    #: waiting on the rig has not been dug for, and that is the whole point.
+    assert taken == pytest.approx(
+        float(installation.hopper) * constants[R.RIG_DEPLETION_MULTIPLIER]
+    )
+    #: And the machine really did work, or the test proves nothing.
+    assert float(installation.hopper) > 0
+    #: And the sliver stays under the thousandth the hopper cannot show.
+    assert 0 <= float(installation.hopper_remainder) < 0.001
+
+
 async def test_a_rig_settled_often_wears_as_much_as_one_settled_once(
     session: AsyncSession, constants: Constants
 ) -> None:
@@ -148,9 +275,14 @@ async def test_a_rig_settled_often_wears_as_much_as_one_settled_once(
     #: The ore is the trap this fix fell into once: carrying the sliver on
     #: `counted_at` made the next pass re-mine the same stretch. The busy rig
     #: must have dug exactly what the quiet one dug.
-    #: Sixty sums against one, so to a millionth rather than to the digit:
-    #: the double count this guards against was a whole percent and more.
-    assert float(often.hopper) == pytest.approx(float(once.hopper))
+    #: Hopper and sliver together, because the sliver is where the ore that
+    #: does not fit the thousandth waits -- the busy rig banks a little less
+    #: and owes the difference. Sixty sums against one, so to a millionth
+    #: rather than to the digit: the double count this guards against was a
+    #: whole percent and more.
+    raised_often = float(often.hopper) + float(often.hopper_remainder)
+    raised_once = float(once.hopper) + float(once.hopper_remainder)
+    assert raised_often == pytest.approx(raised_once)
 
     term = wear.life_factor(constants, float(machine_a.quality))
     worn = constants[R.RIG_WEAR_PER_DAY] / term * (steps * every) / _terra_day(constants)

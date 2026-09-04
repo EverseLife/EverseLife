@@ -87,6 +87,33 @@ async def _cooked(session, constants, catalog, body, filling) -> Item:
 # --- pot ---------------------------------------------------------------------
 
 
+async def test_the_meal_reported_is_the_meal_the_row_took(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """What the command answers is what `look` will show a moment later.
+
+    Stamina keeps hundredths. The credit used to be written straight to the
+    column, which rounded it, while the answer and the journal carried the
+    unrounded figure -- so the reply and the world disagreed by up to half a
+    hundredth, and the next read contradicted what the player had just been
+    told.
+    """
+    _, _, body = await _kitchen(session)
+    await _product(session, body, "beans", 60)
+    meal = await _cooked(session, constants, catalog, body, {"основа": "beans"})
+    body.stamina = Decimal("12.34")
+    await session.flush()
+    before = float(body.stamina)
+
+    restored = await food.eat(session, constants, catalog, body, meal)
+    await session.flush()
+    await session.refresh(body, ["stamina"])
+
+    assert restored == pytest.approx(float(body.stamina) - before)
+    #: And the row itself sits on the grid it is stored on.
+    assert Decimal(body.stamina) == Decimal(body.stamina).quantize(Decimal("0.01"))
+
+
 async def test_pot_quality_by_formula_D128(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
@@ -211,6 +238,24 @@ async def test_dry_food_feeds_by_quality(
     excellent_ = await _product(session, body, "bread", 100, qty=1)
     returned = await food.eat(session, constants, catalog, body, excellent_)
     assert returned == pytest.approx(constants[R.BODY_FOOD_RESTORE] * span.max)
+
+
+async def test_a_meal_fills_to_the_ceiling_sleep_can_reach(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A `body.stamina_max` finer than the column does not lift a fed body above sleep's roof.
+
+    Capped at the raw 100.005 the column rounds the row to 100.01, and that
+    body is above anything sleep can reach or measure against.
+    """
+    fine = constants.with_overrides({"body.stamina_max": 100.005})
+    _, _, body = await _kitchen(session)
+    body.stamina = Decimal("99.99")
+    bread = await _product(session, body, "bread", 100, qty=1)
+    await food.eat(session, fine, catalog, body, bread)
+    await session.flush()
+    await session.refresh(body, ["stamina"])
+    assert float(body.stamina) == 100.0
 
 
 async def test_inedible_not_eaten(

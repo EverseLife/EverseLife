@@ -28,6 +28,7 @@ import { Alpha } from "./Alpha";
 import { Inventory } from "./Inventory";
 import { Finance } from "./Finance";
 import { Holdings } from "./Holdings";
+import { Orders } from "./market/Orders";
 import { State } from "./State";
 import { Net } from "./Net";
 import { Workshop } from "./Workshop";
@@ -526,7 +527,6 @@ function Doings({ look, busy, act }: Props) {
 }
 
 function Trade({ look, busy, act }: Props) {
-  const session = useSession();
   const names = useNames();
   return (
     <div>
@@ -564,41 +564,14 @@ function Trade({ look, busy, act }: Props) {
         {t("ui-side-orders")}
         <Rule>{t("ui-side-orders-rule")}</Rule>
       </h3>
-      {look.orders.length === 0 ? (
-        <p className="note">{t("ui-side-orders-none")}</p>
-      ) : (
-        look.orders.map((order) => (
-          <div className="row" key={order.id}>
-            {/* `side` is the wire's own word, and the variant is keyed by it:
-                a variant key is an identifier, never a sentence chosen here. */}
-            <span>
-              {t("ui-side-order", {
-                side: order.side,
-                goods: goodsKeyName(names, order.goods),
-                //: A buy's floor named by hand stands beside the tier: the
-                //: wire carries it only when the tier alone cannot say it
-                //: (D-239, D-225), so a bare tier needs no suffix.
-                tier:
-                  order.min_quality != null
-                    ? t("ui-market-order-floor", {
-                        tier: tierName(names, order.tier),
-                        floor: String(order.min_quality),
-                      })
-                    : tierName(names, order.tier),
-                left: String(order.left),
-                price: api.tk(order.price),
-              })}
-            </span>
-            <button
-              className="quiet"
-              onClick={() => act(() => session.send("market.cancel", { order: order.id }))}
-              disabled={busy}
-            >
-              {t("ui-side-order-cancel")}
-            </button>
-          </div>
-        ))
-      )}
+      {/* The same rows the market's terminal draws (`market/Orders`): here the
+          whole list, there the ones standing in the node one is trading in. */}
+      <Orders
+        orders={look.orders}
+        none={t("ui-side-orders-none")}
+        busy={busy}
+        act={act}
+      />
     </div>
   );
 }

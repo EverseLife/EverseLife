@@ -103,11 +103,12 @@ LUCK_STEPS = 200
 #: of a percent, fits many times over.
 LUCK_CACHE = 1024
 
-#: Transfer ground length and statement depth (D-190). Display hygiene: a
-#: payment line is read at a glance, and a statement is the latest operations
-#: rather than the whole journal since day one.
+#: Transfer ground length and the statement's page (D-190). Display hygiene:
+#: a payment line is read at a glance, and a statement is read a page at a
+#: time, newest first -- the whole journal since day one is turned to, never
+#: handed over at once.
 TRANSFER_MEMO_LIMIT = 140
-STATEMENT_DEPTH = 50
+STATEMENT_PAGE = 20
 
 #: The herald (`herald/`): how often the worker carries the chronicle out and
 #: how many events it processes per pass. A process property, not a game one

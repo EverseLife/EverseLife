@@ -397,6 +397,40 @@ async def test_breathing_often_costs_the_same_air_as_breathing_once(
     assert left_often == pytest.approx(left_once, abs=0.001)
 
 
+async def test_a_body_out_of_air_cannot_step_onto_airless_ground(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """What keeps a walker from outrunning suffocation is the door, not the debt.
+
+    Every step settles the breathing, and the tick settles it again -- and the
+    tick clears the mark of choking whenever its own stretch came up covered.
+    A step's stretch is far too short to come up short, so a walker could in
+    principle keep the reaper at bay by walking. It cannot, but not for the
+    reason the debt suggests: `require_air` refuses the step outright when the
+    bottle is empty, so a body with nothing to breathe cannot take one. This
+    pins that door, since removing it would make the hole real.
+    """
+    pyroxis = await _sphere(session, Planet.PYROXIS, airless=True)
+    rock = await _ground(session, Planet.PYROXIS, pyroxis)
+    beyond = await _ground(session, Planet.PYROXIS, pyroxis, name="Дальше")
+    await travel.connect(session, rock, beyond, base_seconds=1, surface=Surface.PAVED)
+    body = await _person(session, rock)
+    await _suited(session, constants, catalog, body)
+    await _cylinder(session, body, 0.001)
+    body.air_at = datetime.now(UTC)
+    await session.flush()
+
+    #: Breathe the drop away, then try to walk.
+    await oxygen.settle(session, constants, catalog, body, now=body.air_at + timedelta(minutes=1))
+    #: By the key, not merely by the class: `require_air` has three refusals,
+    #: and the one this pins is the empty bottle. The other two would satisfy
+    #: the same assertion while leaving the hole open -- and which of them
+    #: answers depends on the length of the road, which is this test's choice.
+    with pytest.raises(oxygen.NoAir) as refused:
+        await travel.depart(session, constants, body, beyond)
+    assert refused.value.key == "oxygen-tanks-empty"
+
+
 async def test_stepping_aboard_does_not_forgive_the_air_owed_outside(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:

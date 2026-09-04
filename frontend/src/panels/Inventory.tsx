@@ -31,9 +31,10 @@ import { Amount } from "../Amount";
 import { DropZone } from "../DragMove";
 import { GoodsMark } from "../Glyph";
 import { CHEST_ANY, chestOf, grip, noDrag } from "../drag";
-import { chosen, tally } from "../amounts";
+import { chosen, tally, trim } from "../amounts";
 import { TERMINAL, classOf, firstOfClass, isGear } from "../classes";
 import { fill, isVessel } from "../liquids";
+import { whoIsHere, type Person } from "../people";
 import {
   GROUPINGS,
   SORTINGS,
@@ -46,12 +47,10 @@ import {
   type Grouping,
   type Sorting,
   type Summary,
+  weightOf,
 } from "../arrange";
 
 type Props = { look: Look };
-
-/** Somebody standing in the same node: the only possible receiver. */
-type Person = { body: string; name: string };
 
 /** Which sub-question the open menu is asking. */
 type Asking = null | { item: string; about: "menu" | "where" | "whom" };
@@ -78,13 +77,17 @@ export function Inventory({ look }: Props) {
   const [parts, setParts] = useState<Record<string, number | null>>({});
   const [people, setPeople] = useState<Person[]>([]);
 
-  //: Who is here is asked for only when somebody is about to hand something
-  //: over: a list of names polled on every look would be a presence tracker.
+  //: Asked only when somebody is about to hand a thing over: what this list is
+  //: for here is the set of possible receivers, and it must not be fetched for
+  //: every open menu. Who stands in the room is a separate question with an
+  //: answer of its own (D-290): `panels/Here` names them in the talk's head, on
+  //: the room's own events rather than on a poll. The rule the old note here
+  //: stated -- never a list of names polled on every look -- still holds, and
+  //: is what both places are written to.
   useEffect(() => {
     if (asking?.about !== "whom") return;
-    void session
-      .send("people.here")
-      .then((answer) => setPeople((answer.people as Person[]) ?? []))
+    void whoIsHere(session)
+      .then(setPeople)
       .catch(() => setPeople([]));
   }, [session, asking?.about, look.node?.key]);
 
@@ -249,7 +252,7 @@ export function Inventory({ look }: Props) {
                 ? []
                 : [
                     <tr key={`group:${title}`} className="group">
-                      <td colSpan={4}>
+                      <td colSpan={5}>
                         <button
                           type="button"
                           className="bare fold"
@@ -303,6 +306,7 @@ export function Inventory({ look }: Props) {
                   )}
                 </td>
                 <td className="num">{tally(thing.goods, thing.amount)}</td>
+                {weightCell(thing)}
                 <td className="note">{tells(thing, names)}</td>
                 <td className="handle">
                   <button
@@ -642,6 +646,7 @@ export function Inventory({ look }: Props) {
                     {label(thing)}
                   </td>
                   <td className="num">{tally(thing.goods, thing.amount)}</td>
+                  {weightCell(thing)}
                   <td className="note">{tells(thing, names)}</td>
                 </tr>
               ))}
@@ -692,7 +697,8 @@ function sums(summary: Summary, stacks: number): string {
   if (summary.quality != null)
     said.push(t("ui-inventory-average", { quality: summary.quality.toFixed(0) }));
   said.push(positions(stacks));
-  said.push(t("ui-inventory-mass", { mass: summary.mass.toFixed(1) }));
+  //: `trim`, the same spelling the rows use: one column, one rounding.
+  said.push(t("ui-inventory-mass", { mass: trim(summary.mass) }));
   return ` · ${said.join(" · ")}`;
 }
 
@@ -709,6 +715,41 @@ function sums(summary: Summary, stacks: number): string {
  */
 function positions(count: number): string {
   return t("ui-inventory-positions", { count, shown: String(count) });
+}
+
+/**
+ * What the stack weighs, and what one of it weighs.
+ *
+ * Two figures, because two questions are asked of the column: "how much of
+ * the load is this" reads the whole, "what will one cost me to carry" reads
+ * the unit -- and dividing in one's head across a list of thirty rows is not
+ * reading. The unit goes under the whole as a note, written as the product
+ * the whole is -- "0.2 x 47.5" -- and only where it adds anything: for a
+ * stack of one the two figures are the same figure. The product, not words:
+ * "0.2 kg each" pushed every name in the table onto a second line, and the
+ * count beside the unit is what tells the reader which of the two figures
+ * is the unit.
+ *
+ * `trim`, not a fixed decimal: a seed weighs a gram, and "0.0 kg" over a bag
+ * of seeds is a lie the group header can afford (it sums hundreds) but a row
+ * cannot.
+ */
+function weightCell(thing: Thing) {
+  return (
+    <td className="num mass">
+      {t("ui-inventory-mass", { mass: trim(weightOf(thing)) })}
+      {thing.amount !== 1 && (
+        <div className="note">
+          {t("ui-inventory-mass-each", {
+            //: The unit is the whole divided, not the catalog's `mass`: a
+            //: vessel's whole counts its fill, and the two figures must agree.
+            each: trim(weightOf(thing) / thing.amount),
+            amount: trim(thing.amount),
+          })}
+        </div>
+      )}
+    </td>
+  );
 }
 
 /** The one line that says what kind of thing this is. */

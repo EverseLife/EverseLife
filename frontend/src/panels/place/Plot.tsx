@@ -15,6 +15,7 @@ import type { Props } from "./shared";
 import { Door } from "./Door";
 import { Foundation } from "./Foundation";
 import { ownOrWild } from "./shared";
+import { NumberField } from "../../NumberField";
 
 
 /** The plot: whose it is, what it is called, who gets in -- and how it changes hands.
@@ -84,10 +85,9 @@ function Marking({ look, busy, act }: Props) {
               placeholder={t("ui-place-marking-name")}
               onChange={(e) => setName(e.target.value)}
             />
-            <input
-              type="number"
+            <NumberField
               value={metres}
-              onChange={(e) => setMetres(Number(e.target.value))}
+              onChange={(typed) => setMetres(typed ?? 0)}
               title={t("ui-place-marking-area")}
             />
             <button

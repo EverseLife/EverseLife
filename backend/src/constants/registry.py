@@ -126,11 +126,11 @@ FARM_MONOCULTURE_PENALTY = Num("farm.monoculture_penalty")
 #: Ceiling of the fertility/required ratio: rich land is an edge, not a multiplier (D-256).
 FARM_SOIL_SHARE_CAP = Num("farm.soil_share_cap")
 FARM_FALLOW_RECOVERY = Num("farm.fallow_recovery")
-#: Fertilizers (D-264): one dose, two strengths -- the vault's promise
-#: "mineral gives most of all" is these two numbers side by side.
+#: Fertilizers (D-264, D-291): one dose for the class, a strength per thing.
+#: The vault's promise "mineral gives most of all" is two rows side by side,
+#: and a third fertilizer is a third row rather than a third constant.
 FARM_FERTILIZER_PER_M2 = Num("farm.fertilizer_per_m2")
-FARM_COMPOST_RECOVERY = Num("farm.compost_recovery")
-FARM_MINERAL_RECOVERY = Num("farm.mineral_recovery")
+FARM_FERTILIZER_RECOVERY = Table("farm.fertilizer_recovery")
 
 # --- Wear (D-129) -----------------------------------------------------------
 WEAR_TOOL_PER_SESSION = Num("wear.tool_per_session")

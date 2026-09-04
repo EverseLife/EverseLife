@@ -19,11 +19,17 @@
  * What did not move whole is said here rather than left to a refusal: a pour
  * stops at the room in the vessels, and a player reading a full row, a pressed
  * button and no refusal has no way to know why the canister is not full.
+ *
+ * Under the shelf stand one's own orders **in this node** -- the same rows the
+ * sidebar's finance tab draws, and the same withdrawal. What lies on the
+ * counter and what is promised off it is one question, and it used to be
+ * answered in the other zone: a seller wondering why the take offers less than
+ * the row shows had to leave the market to find their own order.
  */
 
 import { useState } from "react";
 
-import type { Loaded, RecipeBook, Taken, Thing } from "../../api";
+import type { Loaded, Order, RecipeBook, Taken, Thing } from "../../api";
 import { Amount } from "../../Amount";
 import { chosen } from "../../amounts";
 import type { Actions } from "../../actions";
@@ -34,6 +40,7 @@ import { exactly, type Position } from "../../market";
 import type { Names } from "../../names";
 import { Rule } from "../../Rule";
 import type { Session } from "../../session";
+import { Orders } from "./Orders";
 import { Shelf } from "./Shelf";
 
 //: Below this a difference between what was asked and what moved is the two
@@ -48,6 +55,7 @@ export function Counter({
   choice,
   mark,
   free,
+  orders,
   node,
   session,
   acting,
@@ -60,6 +68,8 @@ export function Counter({
   choice: Position | null;
   mark: (p: Position) => void;
   free: (goods: string, tier: string) => number;
+  /** One's own standing orders in this node -- what the shelf is pledged to. */
+  orders: readonly Order[];
   /** The node this counter stands in: a walk to another city is another counter. */
   node: string | undefined;
   session: Session;
@@ -179,6 +189,17 @@ export function Counter({
           }
         />
       </DropZone>
+
+      <h3>
+        {t("ui-market-orders")}
+        <Rule>{t("ui-market-orders-rule")}</Rule>
+      </h3>
+      <Orders
+        orders={orders}
+        none={t("ui-market-orders-none")}
+        busy={busy}
+        act={act}
+      />
     </div>
   );
 }

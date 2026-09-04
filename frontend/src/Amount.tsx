@@ -14,9 +14,13 @@
  *
  * `goods` says what is being moved, and the field obeys the thing: a counted
  * one steps and clamps to whole pieces, a measured one takes any part (D-212).
+ *
+ * The box itself is `NumberField`, which is what lets it be emptied: a plain
+ * controlled number box reads an empty string as zero and draws the zero back.
  */
 import { counted } from "./amounts";
 import { t } from "./locale";
+import { NumberField } from "./NumberField";
 
 export function Amount({
   value,
@@ -35,19 +39,21 @@ export function Amount({
 }) {
   const whole = goods !== undefined && counted(goods);
   return (
-    <input
-      type="number"
+    <NumberField
       min={0}
       max={max}
       step={whole ? 1 : "any"}
       value={value ?? max}
-      onChange={(e) => {
-        const typed = Number(e.target.value);
-        //: An empty field or a number beyond the stack is not an error worth a
-        //: refusal: we clamp it and move on. A piece is clamped to whole ones
-        //: as well -- the engine would refuse the fraction, and the field must
-        //: not offer what cannot be done (D-212).
-        if (!Number.isFinite(typed)) return onChange(null);
+      onChange={(typed) => {
+        //: An emptied box is this field's own default back again -- the whole
+        //: stack -- and not a zero: `chosen` reads the `null`, the button stays
+        //: live, and the press moves what the box says it will. Reported as
+        //: zero it would have moved nothing, with no refusal to explain it.
+        if (typed === null) return onChange(null);
+        //: A number beyond the stack is not an error worth a refusal: we clamp
+        //: it and move on. A piece is clamped to whole ones as well -- the
+        //: engine would refuse the fraction, and the field must not offer what
+        //: cannot be done (D-212).
         const held = Math.min(Math.max(0, typed), max);
         onChange(whole ? Math.floor(held) : held);
       }}
@@ -57,4 +63,3 @@ export function Amount({
     />
   );
 }
-
