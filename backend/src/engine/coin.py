@@ -28,6 +28,16 @@ what it promises.
 craftsman makes (D-058): the coin remembers its minter the same way a pickaxe
 remembers its smith.
 
+## The alloy is spent by whole ingots
+
+A tenth of an iron ingot goes into a coin, and a tenth of an ingot does not
+exist: a counted thing gives itself to a work whole (D-212). So the batch total
+rounds up -- seven coins eat the ingot as entirely as ten do -- and the small
+batch is dearer than the big one, which is the declared price of countedness
+and is shown in the forecast before the work starts (D-092). The refined metal
+is weighed, not counted, and its fraction is honest. The arithmetic is
+`goods`', the same one every other batch is spent by.
+
 **Melting returns the refined metal** -- by the `craft.recycle_return` share,
 like every recycling. The alloy is lost: picking a tenth of iron out of the
 alloy costs more than the iron itself.
@@ -49,7 +59,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Catalog, ConstantError, Constants
 from src.constants import registry as R
 from src.constants.catalog import ItemKind
-from src.engine import craft, events, travel, wear, world
+from src.engine import craft, events, goods, travel, wear, world
 from src.engine.errors import Refusal
 from src.engine.world import body_container
 from src.models.craft import BatchKind, CraftBatch
@@ -171,7 +181,15 @@ async def mint(
     )
     station = await craft._station_item(session, body, proc)  # noqa: SLF001
 
-    needed = {name: qty * count for name, qty in composition.items()}
+    #: What a counted thing gives to the work, it gives whole (D-212): the alloy
+    #: is a tenth of an iron ingot, and the ingot goes into the batch entire --
+    #: half of one exists nowhere, neither in the hands nor in the recipe. The
+    #: refined metal is weighed, and its fraction is honest, so it is left as it
+    #: is. The arithmetic is `goods`', not a second one of this module's own.
+    needed = {
+        name: goods.whole(name, qty * count, up=True, catalog=catalog)
+        for name, qty in composition.items()
+    }
     pocket = await body_container(session, body)
     #: Which metal goes under the die is the minter's choice by tier (D-058).
     stock = await craft._stock(  # noqa: SLF001
