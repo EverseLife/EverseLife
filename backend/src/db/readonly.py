@@ -23,8 +23,11 @@ through a flush. And what the read leaves *pending* and never flushes at all
 -- a bare `session.add`, or a plain `body.seen_at = now` on a loaded row:
 those go out with the flush `db.begin()` does on its way to the commit, long
 after the listeners are gone, so they are counted when the block ends instead.
-A raw `text("insert ...")` is not seen, and nothing in the engine writes that
-way.
+Two things stay outside it, both outside this session: a raw
+`text("insert ...")`, and a write made on **another** session opened inside
+the read -- the listeners are on the one the command was handed. The engine
+writes neither way; no command opens a session of its own (`session_factory`
+belongs to the socket loop and the worker).
 
 **Where it fires** is `EVERSELIFE_READONLY_GUARD`. `raise` by default, which
 means every developer's copy and the whole suite: the write stops the read and
