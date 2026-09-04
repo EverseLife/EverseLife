@@ -17,6 +17,7 @@ Checked is what the system was written for:
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import func, select
@@ -29,7 +30,7 @@ from src.engine import craft, jobs, mining, wear, world
 from src.models.craft import BatchKind
 from src.models.identity import Body
 from src.models.inventory import Item
-from src.units import amount_float
+from src.units import MINUTES_PER_HOUR, SECONDS_PER_HOUR, amount_float
 
 PICK = "iron_pickaxe"
 #: Steel goes into a hammer three pieces at a time: the one tool whose recycling
@@ -40,6 +41,8 @@ BENCH = "workbench"
 INGOT = "iron_ingot"
 HANDLE = "handle"
 BASKET = "basket"
+AXE = "axe"
+WOOD = "wood"
 
 
 async def _master(session: AsyncSession, *, machine: str | None = BENCH):
@@ -381,3 +384,157 @@ async def test_repeated_repair_hits_ceiling(
             first_ceiling + constants[R.QUALITY_REPAIR_CEILING_LOSS]
         )
         assert float(pickaxe.condition_cap) < first_ceiling
+
+
+# --- the tool in a batch (D-309) ---------------------------------------------
+
+
+async def _woodcutter(session: AsyncSession, *, quality: float = 50):
+    """A forest, a body in it and an axe in the hands."""
+    stamp = uuid.uuid4().hex[:8]
+    forest = await world.create_node(
+        session,
+        f"terra.woods.{stamp}",
+        "Бор",
+        area_m2=10_000,
+        properties={"woods": True},
+    )
+    identity = await world.create_identity(session, f"Дровосек-{stamp}")
+    body = await world.print_body(session, identity, forest)
+    axe = await _thing(session, body, AXE, quality=quality)
+    return forest, body, axe
+
+
+def _expected(constants: Constants, *, hours: float, quality: float) -> float:
+    """What such an hour count takes off a tool of this quality."""
+    return constants[R.WEAR_TOOL_PER_HOUR] * hours / wear.life_factor(constants, quality)
+
+
+async def test_felling_wears_the_axe_by_the_hours_it_swings(
+    factory: async_sessionmaker[AsyncSession], constants: Constants, catalog: Catalog
+) -> None:
+    """Sink S1 reaches the axe at last (D-309).
+
+    Felling is a batch without a machine (D-177), and a batch used to wear its
+    machine and nothing else -- so the axe was eternal while the pickaxe was
+    not. The player saw it before anybody else: the condition line is drawn
+    only on a worn thing, and the axe never became one.
+    """
+    async with factory() as session, session.begin():
+        _, body, axe = await _woodcutter(session)
+        batch = await craft.start(session, constants, catalog, body, WOOD, 40, way="logging")
+        assert batch.tool_item_ids == [str(axe.id)], "партия помнит, чем работает"
+        term, axe_id = batch.ready_at, axe.id
+        hours = (batch.ready_at - batch.run_started_at).total_seconds() / SECONDS_PER_HOUR
+
+    await jobs.run_one(factory, now=term)
+
+    async with factory() as session:
+        axe = await session.get(Item, axe_id)
+        assert axe is not None
+        assert float(axe.condition) == pytest.approx(
+            100 - _expected(constants, hours=hours, quality=50), abs=0.01
+        )
+
+
+async def test_a_good_axe_lasts_longer_at_the_same_work(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """One formula for every stream: quality buys service life, here as everywhere."""
+    poor = _expected(constants, hours=1, quality=20)
+    fine = _expected(constants, hours=1, quality=90)
+    assert poor > fine > 0
+
+
+async def test_a_frozen_batch_pays_only_for_the_hours_worked(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Leaving the felling stops the bill where it stopped the work (D-209, D-309).
+
+    Charged at the close of a run rather than up front, so that a batch frozen
+    with hours left in it has not spent them -- and resumed, it starts paying
+    again from where it left off.
+    """
+    moment = datetime.now(UTC)
+    _, body, axe = await _woodcutter(session)
+    batch = await craft.start(
+        session, constants, catalog, body, WOOD, 40, way="logging", now=moment
+    )
+    assert batch.ready_at > moment + timedelta(minutes=10), "иначе замирать нечему"
+
+    quit_at = moment + timedelta(minutes=10)
+    await craft.freeze(session, body, now=quit_at)
+    await session.commit()
+
+    worked = _expected(constants, hours=10 / MINUTES_PER_HOUR, quality=50)
+    assert float(axe.condition) == pytest.approx(100 - worked, abs=0.01)
+    assert float(axe.condition) > 100 - _expected(constants, hours=1, quality=50), (
+        "за неотработанные часы не берут"
+    )
+
+
+async def test_a_batch_without_a_tool_writes_nothing_down(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A recipe at a bench asks for no tool, and the column stays empty rather
+    than holding a list of none (D-225)."""
+    _, identity, body = await _master(session)
+    await world.learn(session, identity, HANDLE)
+    pocket = await world.body_container(session, body)
+    await world.grant_item(session, pocket, "wood", amount=10, quality=60, origin="тест")
+
+    batch = await craft.start(session, constants, catalog, body, HANDLE, 1)
+    assert batch.tool_item_ids is None
+
+
+async def test_a_tool_handed_away_mid_batch_is_not_worn(
+    factory: async_sessionmaker[AsyncSession], constants: Constants, catalog: Catalog
+) -> None:
+    """Wear follows the thing, and the thing may leave the hands (D-309).
+
+    Nothing freezes a batch when its tool is handed over, sold across a counter
+    or dropped in a chest. Charged by id alone, this stream reached into the new
+    owner's pocket -- and on the last of a tool's condition deleted it there:
+    one body's work destroying another body's property.
+    """
+    async with factory() as session, session.begin():
+        forest, body, axe = await _woodcutter(session)
+        friend = await world.create_identity(session, f"Сосед-{uuid.uuid4().hex[:8]}")
+        neighbour = await world.print_body(session, friend, forest)
+        batch = await craft.start(session, constants, catalog, body, WOOD, 40, way="logging")
+        term, axe_id = batch.ready_at, axe.id
+        #: Handed over while the work runs -- an ordinary move, refused by nothing.
+        axe.container_id = (await world.body_container(session, neighbour)).id
+        await session.flush()
+
+    await jobs.run_one(factory, now=term)
+
+    async with factory() as session:
+        axe = await session.get(Item, axe_id)
+        assert axe is not None, "чужой топор цел"
+        assert float(axe.condition) == 100, "износ снят с того, у кого вещи уже нет"
+
+
+async def test_a_named_thing_the_recipe_never_asked_for_is_not_worn(
+    factory: async_sessionmaker[AsyncSession], constants: Constants, catalog: Catalog
+) -> None:
+    """A recipe asks for no tool, so a `tool` sent with one is a mistake (D-224
+    sent twenty-four of them in seven minutes). It may hold the ceiling down --
+    the master named it -- but the work is not done with it, and it does not wear.
+    """
+    async with factory() as session, session.begin():
+        _, identity, body = await _master(session)
+        await world.learn(session, identity, HANDLE)
+        pocket = await world.body_container(session, body)
+        await world.grant_item(session, pocket, "wood", amount=10, quality=60, origin="тест")
+        axe = await _thing(session, body, AXE, quality=50)
+
+        batch = await craft.start(session, constants, catalog, body, HANDLE, 1, tool_item_id=axe.id)
+        assert batch.tool_item_ids is None, "у рецепта инструмента нет вовсе"
+        term, axe_id = batch.ready_at, axe.id
+
+    await jobs.run_one(factory, now=term)
+
+    async with factory() as session:
+        axe = await session.get(Item, axe_id)
+        assert axe is not None and float(axe.condition) == 100

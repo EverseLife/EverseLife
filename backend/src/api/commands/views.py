@@ -246,8 +246,16 @@ async def _storages(db: AsyncSession, constants, node: Node, body: Body) -> list
     out: list[dict[str, Any]] = []
     for thing in things:
         limit = storage.capacity(catalog, thing.type_key)
-        #: A chest lying on the floor is cargo, not a store (D-278).
-        if not limit or not thing.installed:
+        #: A chest lying on the floor is a store like any other (D-313): there
+        #: is nothing to stand one on in an open field, and the engine has let
+        #: it be filled all along. What it costs is weight, not a shut lid --
+        #: it is picked up with everything in it.
+        #:
+        #: A **vessel** still has to stand. Lying, it already travels in the
+        #: floor's own list with its fill and its mass, and a second window
+        #: over the same canister would be the same numbers twice (D-225) --
+        #: and one more pair of readings per canister on the ground.
+        if not limit or (not thing.installed and storage.is_vessel(catalog, thing.type_key)):
             continue
         out.append(
             {

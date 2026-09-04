@@ -48,6 +48,9 @@ const NAMES = {
   node_properties: { woods: "лес" },
   planets: { terra: "Терра", pyroxis: "Пироксис" },
   plants: { beans: "Бобы", spelt: "Полба" },
+  //: Написанный абзац культуры (D-311): проза вольта, а не имя, и у
+  //: культуры её может не быть вовсе — свой домен именно поэтому.
+  plant_care: { spelt: "Хлеб этого мира." },
   virtual_stations: { hands: "Руки" },
   //: Code-laws are a domain of their own for the same reason: their ids are
   //: short and general -- `access`, `salary`, `toll` -- and one table shared

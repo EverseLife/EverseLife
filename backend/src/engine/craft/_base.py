@@ -327,6 +327,10 @@ class _Ready:
     #: (`craft.most`) without reading the hands a second time.
     proc: Procedure
     stock: dict[str, list[Item]]
+    #: The tools the requirements resolved to, in the master's hands. They set
+    #: the ceiling together with the machine and wear by the hours worked
+    #: (D-309), so the batch is started with them written down.
+    tools: tuple[Item, ...] = ()
     auto: bool = False
     #: For a knowledge carrier: the canonical name of the recipe going onto it.
     recipe_key: str | None = None

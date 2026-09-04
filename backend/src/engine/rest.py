@@ -71,8 +71,23 @@ async def sleep(
     #: Sleep is an occupation like any other (D-211): one does not lie down in
     #: the middle of a search or with a plot under the plough. The refusal
     #: names what is going on, so that the player ends it and comes back.
+    #:
+    #: The works on land are the second exception after the bench (D-310). They
+    #: hold the hands against a **new** work, but they do not spend the body's
+    #: hours: a house rises by its own clock whether its builder is on the plot,
+    #: on the road or asleep (D-131), and the same is true of a road being laid
+    #: and a house coming down. Lying down neither stops them nor earns anything
+    #: the waking hours would not have earned -- while refusing it would kill the
+    #: builder outright: `build_minutes` of the vault's own example house is
+    #: twenty-three days, and even a hut of twenty metres is a night and a day.
 
-    await occupation.require_free(session, body, besides=frozenset({occupation.CRAFT}))
+    await occupation.require_free(
+        session,
+        body,
+        besides=frozenset(
+            {occupation.CRAFT, occupation.BUILD, occupation.DEMOLISH, occupation.PAVING}
+        ),
+    )
     #: Against the ceiling `wake` can reach, not the raw maximum: `world.stamina_roof`.
     if float(body.stamina) >= world.stamina_roof(constants):
         raise NotTired(key="rest-not-tired")

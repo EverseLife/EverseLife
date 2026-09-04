@@ -36,12 +36,9 @@ from src.units import (
 )
 
 
-async def _things(session: AsyncSession, ship: Ship) -> list[Item]:
-    """Everything lying and standing aboard, storages included.
-
-    A chest aboard is cargo together with its contents: mass that hides inside
-    furniture is mass all the same, and forgetting it would make a chest a way
-    to fly with a free hold.
+async def _outer(session: AsyncSession, ship: Ship) -> list[Item]:
+    """What lies and stands in the ship's own nodes: the top layer, before any
+    lid is opened. This is "what is aboard" in the sense the machines mean it.
     """
     nodes = await nodes_of(session, ship)
     if not nodes:  # pragma: no cover
@@ -61,7 +58,7 @@ async def _things(session: AsyncSession, ship: Ship) -> list[Item]:
     if not yards:
         return []
 
-    outer = list(
+    return list(
         (
             await session.execute(
                 select(Item).where(Item.container_id.in_([yard.id for yard in yards]))
@@ -70,6 +67,22 @@ async def _things(session: AsyncSession, ship: Ship) -> list[Item]:
         .scalars()
         .all()
     )
+
+
+async def _things(
+    session: AsyncSession, ship: Ship, *, outer: list[Item] | None = None
+) -> list[Item]:
+    """Everything aboard by name, with the storages opened one layer.
+
+    What the machines are asked about: an engine, a console, a life support,
+    a tank on a line -- and the fuel inside that tank, which is why the one
+    layer is opened at all. **Not** a mass reading: for that see `mass`, which
+    goes all the way down (D-313). A thing lying inside a chest is cargo, and
+    cargo is not asked whether it is an engine.
+    """
+    outer = await _outer(session, ship) if outer is None else outer
+    if not outer:
+        return []
     inner_ = (
         (
             await session.execute(
@@ -102,23 +115,31 @@ async def mass(
     catalog: Catalog,
     ship: Ship,
     *,
-    things: list[Item] | None = None,
+    outer: list[Item] | None = None,
 ) -> float:
     """The ship's mass, kg: the nodes plus everything aboard.
 
     Both terms are the player's decisions, and that is the point: a node added
     is both a place and extra mass, an engine added is both thrust and mass again.
 
-    `things` is what lies aboard, when the caller has read it already: the
-    summary asks seven questions of one hold and reads it once (D-230).
+    Read from the **top** layer downwards (D-313): a chest inside a chest and
+    a loaded barrow standing in a compartment weigh what they hold, however
+    deep it lies. Weighing lids would make furniture a free hold, and it is
+    thrust over mass that every passage time is computed from -- the lie would
+    not stop at the hold, it would reach the clock.
+
+    `outer` is that top reading, when the caller has one already -- and it is
+    the top one on purpose: handing it the list `_things` returns would count
+    every opened chest's contents twice. The summary asks seven questions of
+    one hull and reads it once (D-230).
     """
     nodes = await nodes_of(session, ship)
     hull = len(nodes) * constants[R.SHIP_NODE_MASS]
+    outer = await _outer(session, ship) if outer is None else outer
     cargo = sum(
-        gear.mass_of(catalog, thing.type_key, amount_float(thing.amount))
-        for thing in await _aboard(session, ship, things)
+        gear.mass_of(catalog, thing.type_key, amount_float(thing.amount)) for thing in outer
     )
-    return hull + cargo
+    return hull + cargo + await gear.inner_mass(session, catalog, outer)
 
 
 async def _aboard(session: AsyncSession, ship: Ship, things: list[Item] | None) -> list[Item]:
@@ -351,18 +372,21 @@ async def mass_parts(
     catalog: Catalog,
     ship: Ship,
     *,
-    things: list[Item] | None = None,
+    outer: list[Item] | None = None,
 ) -> dict[str, float]:
     """The mass by where it comes from: the hull, the machines, the cargo.
 
     Three numbers the owner can act on separately (D-230): a node is cut by
     not laying it, a machine by taking it down, cargo by unloading -- and a
-    single total says nothing about which of the three is the heavy one.
+    single total says nothing about which of the three is the heavy one. The
+    three add up to `mass`, so what is inside a chest or a hold is counted
+    here too (D-313), and it is cargo: nobody works at what is in a box.
     """
     nodes = await nodes_of(session, ship)
+    aboard = await _outer(session, ship) if outer is None else outer
     machines = 0.0
-    cargo = 0.0
-    for thing in await _aboard(session, ship, things):
+    cargo = await gear.inner_mass(session, catalog, aboard)
+    for thing in aboard:
         weight = gear.mass_of(catalog, thing.type_key, amount_float(thing.amount))
         if _placeable(catalog, thing.type_key):
             machines += weight

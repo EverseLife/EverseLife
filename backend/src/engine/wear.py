@@ -3,9 +3,15 @@
 
 """Wear: why things run out (D-129, D-058, 15-quality).
 
-Pillar P2 requires an item to be finite. Hence four wear streams, each
-parameterised by the vault separately: a tool per mining session, a machine
-per batch, gear per day of wearing, a vehicle per transit.
+Pillar P2 requires an item to be finite. Hence five wear streams, each
+parameterised by the vault separately: a tool per mining session, a tool per
+hour of a batch (D-309), a machine per batch, gear per day of wearing, a
+vehicle per transit.
+
+The tool has two of them because it is worked in two shapes. A mining session
+is a stretch of swings with no length of its own, so it is charged whole; a
+batch has an hour count, and charging it per batch instead would make one
+felling of fifty logs cost an axe what fifty fellings of one log cost it.
 
 ## Two numbers on an item, and they are confused most often
 
@@ -27,7 +33,9 @@ just break suddenly.
 
 **Reached zero -- the thing is finished.** Not "works with zero output" but
 disappears: the acceptance benchmark is direct -- a tool runs out in
-`100 / wear.tool_per_session` sessions (07-implementation-map).
+`100 / wear.tool_per_session` mining sessions, and in `100 / wear.tool_per_hour`
+hours of batch work (07-implementation-map, D-309). Of ordinary quality, both:
+a good tool lasts longer exactly as many times as it is better.
 
 The environment speeds up gear wear by the `wear.environment_k` multiplier.
 That is what makes Pyroxis expensive by itself, without a single special

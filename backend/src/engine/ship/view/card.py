@@ -32,6 +32,7 @@ from src.engine.ship._base import (
 )
 from src.engine.ship.belonging import crew_of, nodes_of
 from src.engine.ship.physics import (
+    _outer,
     _things,
     climb_hours,
     efficiency,
@@ -74,9 +75,13 @@ async def profile(
     nodes = await nodes_of(session, ship)
     #: The hold is read once and asked every question: seven readings of the
     #: same rooms were the price of the summary before (review 2026-08-23).
-    things = await _things(session, ship)
+    #: Two shapes of the one reading: `outer` is what stands and lies in the
+    #: rooms, `things` opens the tanks a layer down for the machines. Mass
+    #: takes the outer one and goes down itself, all the way (D-313).
+    outer = await _outer(session, ship)
+    things = await _things(session, ship, outer=outer)
     consoles = frozenset(world.station_names(BRIDGE))
-    weight = await mass(session, constants, catalog, ship, things=things)
+    weight = await mass(session, constants, catalog, ship, outer=outer)
     pull = await thrust(session, constants, ship, things=things)
     thrust_ratio = pull / weight if weight > 0 else 0.0
     have_class = await engine_class(session, constants, ship, things=things)
@@ -336,7 +341,7 @@ async def profile(
         "mass_parts": {
             part: round(value, ROUND_MASS)
             for part, value in (
-                await mass_parts(session, constants, catalog, ship, things=things)
+                await mass_parts(session, constants, catalog, ship, outer=outer)
             ).items()
         },
         "engines": await engines(session, constants, ship, things=things),
