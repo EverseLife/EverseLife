@@ -213,11 +213,16 @@ async def swing(
     #: ever reach it again, because `leave` refuses by state -- and write the
     #: roof onto a vein that is no longer at this face. A death is not the other
     #: end of it: every death takes the body FOR UPDATE before it reaches the
-    #: face (`abandon`), and this swing is holding that row. `leave` from a
-    #: second socket of the same identity is -- and this reread only narrows its
-    #: window, because `leave` takes neither the body nor the vein and so shares
-    #: no lock with a swing at all. Closing that one needs a lock rather than a
-    #: read, and which lock is a question for the gate discipline in `abandon`.
+    #: face (`abandon`), and this swing is holding that row.
+    #:
+    #: **Held, not merely read**, and only here -- the row goes after the vein,
+    #: never before it. `leave` from a second socket of one identity takes this
+    #: row and nothing else, so it shares no lock with a swing anywhere else: a
+    #: `leave` that reads the face's things before this insert and writes LEFT
+    #: after it walks off with the old haul and leaves the new ore in a
+    #: container its own state will refuse to open. `veins -> sessions` is the
+    #: eruption's own direction (`plates.clock`), so taking it here closes no
+    #: circle; taking it before the vein would (`_require_active`).
     #:
     #: The whole check again, not the state alone: the rig shares this vein and
     #: queues at this same lock (`engine.rig`), so the remainder can have gone
@@ -225,7 +230,7 @@ async def swing(
     #: heap of nothing is not a quiet loss but a crash -- `item.amount_positive`
     #: stops the insert, and the socket gets an internal error where the vault
     #: keeps a word of its own for a worked-out vein (pillar P2).
-    body, vein = await _require_active(session, mining, fresh=True)
+    body, vein = await _require_active(session, mining, hold=True)
     mined = min(amount(per_swing), vein.remaining)
 
     extracted_before = vein.extracted
@@ -283,10 +288,25 @@ async def timber(session: AsyncSession, constants: Constants, mining: MiningSess
     Whether shoring pays depends on the price of support against the price of
     raw material, and that floats with the market. There is no memorised
     sequence because the optimum moves (D-143).
+
+    Three rows are taken, in the order this package keeps everywhere -- the
+    vein, the face, then the timber in the pocket. A support is a write to the
+    same roof a swing writes (`remember_roof` puts it on the vein), and a
+    timber is a remainder like any other, so both are on the list that may
+    only be changed under a lock (CLAUDE.md). The vein goes **before** the
+    face's row for the reason the whole package does it: a swing holds the
+    vein and then takes the session, and the reverse order here would cross it.
     """
-    body, _ = await _require_active(session, mining)
+    body, vein = await _require_active(session, mining)
+    #: Flushed before the lock, or `refresh` would undo whatever this
+    #: transaction has set on the vein and not yet written (see `swing`).
+    await session.flush()
+    await session.refresh(vein, with_for_update=True)
+    body, _ = await _require_active(session, mining, hold=True)
 
     inventory = await body_container(session, body)
+    #: Under the lock and reread there: two sockets both reading a stack of two
+    #: and both writing one back spend one timber for two supports.
     stock = (
         await session.execute(
             select(Item)
@@ -294,7 +314,10 @@ async def timber(session: AsyncSession, constants: Constants, mining: MiningSess
                 Item.container_id == inventory.id,
                 Item.type_key.in_(world_engine.station_names(TIMBER)),
             )
+            .order_by(Item.id)
             .limit(1)
+            .with_for_update()
+            .execution_options(populate_existing=True)
         )
     ).scalar_one_or_none()
     if stock is None:
