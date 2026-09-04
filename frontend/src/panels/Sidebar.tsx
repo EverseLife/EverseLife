@@ -20,7 +20,7 @@ import * as api from "../api";
 import type { Batch, Look } from "../api";
 import { anyOfClass } from "../classes";
 import { tally } from "../amounts";
-import { busyWith, CRAFT, SLEEP } from "../busy";
+import { busyWith, CRAFT, LAND_WORKS, SLEEP } from "../busy";
 import { Doing } from "../Deadline";
 import { Glyph, GoodsMark } from "../Glyph";
 import { Account } from "./Account";
@@ -385,9 +385,11 @@ function Doings({ look, busy, act }: Props) {
   const asleep = doings.some((d) => d.kind === "sleep");
   //: A bed is a thing class (D-215): the engine sleeps in any member of it.
   const bed_ = anyOfClass(book, api.stationsOf(look), "bed");
-  //: What stands in the way of lying down: any occupation but sleep itself and
-  //: a batch -- a batch freezes with the master and frees its machine (D-211).
-  const cannotSleep = busyWith(look, [SLEEP, CRAFT]);
+  //: What stands in the way of lying down: any occupation but sleep itself, a
+  //: batch -- which freezes with the master and frees its machine (D-211) --
+  //: and the works on land, which run by their own clock and are none of the
+  //: sleeper's business (D-310). The same list the engine keeps in `rest.sleep`.
+  const cannotSleep = busyWith(look, [SLEEP, CRAFT, ...LAND_WORKS]);
   //: Стопка кнопок «закончить»: у каждого занятия своя команда, и нет её
   //: только там, где прерывать нечего.
   const ends: Record<string, { cmd: string; label: string; why: string }> = {
@@ -702,7 +704,7 @@ function Knowledge({ look }: { look: Look }) {
               {plantName(names, note.culture)}
               {note.variety ? ` (${api.varietyText(names, note.variety)})` : ""}
             </p>
-            <p className="note recipe-peek">{note.text}</p>
+            <p className="note recipe-peek care-text">{note.text}</p>
           </div>
         ))
       )}

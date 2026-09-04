@@ -21,10 +21,12 @@ from src.engine.craft._base import (
     CraftError,
 )
 from src.engine.craft._internal import (
+    _hours_run,
     _num,
     _pieces,
     _release,
     _wear_station,
+    _wear_tools,
 )
 from src.engine.craft.batch.work import _target
 from src.engine.craft.method_of_making import procedure
@@ -50,6 +52,18 @@ async def finish(session: AsyncSession, job: Job) -> None:
     batch = await session.get(CraftBatch, uuid.UUID(job.payload["batch"]))
     if batch is None:  # pragma: no cover -- a job without a batch is a bug
         raise CraftError(key="craft-job-without-batch", job=str(job.id))
+
+    #: The body's row is taken **before** the batch's state is judged, and the
+    #: state is read again under it. A freeze stops the work while holding that
+    #: row (D-209, `_alive`), so a state read ahead of the lock is a state from
+    #: before the freeze: the batch would be landed after the master walked
+    #: away, and the hour its tools swung would be billed a second time (D-309).
+    body = await session.get(Body, batch.body_id, with_for_update=True)
+    node = await session.get(Node, batch.node_id)
+    if body is None or node is None:  # pragma: no cover
+        raise CraftError(key="craft-batch-dangling", batch=str(batch.id))
+    await session.refresh(batch)
+
     if batch.state is not BatchState.RUNNING:
         #: The job may have repeated after a failure -- no second batch comes of
         #: it. Or the batch froze while the master was away (D-209): the job of
@@ -61,10 +75,6 @@ async def finish(session: AsyncSession, job: Job) -> None:
         return
 
     constants, catalog = current(), current_catalog()
-    body = await session.get(Body, batch.body_id, with_for_update=True)
-    node = await session.get(Node, batch.node_id)
-    if body is None or node is None:  # pragma: no cover
-        raise CraftError(key="craft-batch-dangling", batch=str(batch.id))
 
     #: The master stands at the machine -- takes it themselves; left or died --
     #: the output stays at the machine. Matter does not vanish with whoever ordered it.
@@ -83,6 +93,9 @@ async def finish(session: AsyncSession, job: Job) -> None:
         made = await _finish_make(session, constants, catalog, batch, body, where, job.run_at)
 
     await _wear_station(session, constants, batch)
+    #: And the tools in the hands, by the hours this run took (D-309): the
+    #: machine pays per batch, what is carried pays per hour.
+    await _wear_tools(session, constants, batch, hours=_hours_run(batch, job.run_at))
     #: The work is over -- the machine is free and waits for the next (D-150).
     await _release(session, batch.station_item_id)
 

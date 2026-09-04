@@ -6,12 +6,15 @@
 
 import { useEffect, useState } from "react";
 import * as api from "../../api";
-import { Refusal, useActions, useNames, useSession } from "../../actions";
+import { Refusal, useActions, useBook, useNames, useSession } from "../../actions";
+import { busyWith } from "../../busy";
 import { t } from "../../locale";
 import { buildingKindName, goodsName } from "../../names";
 import { Deadline } from "../../Deadline";
 import { Gauge } from "../../Gauge";
 import { TierPick } from "../../Tier";
+import { stockOf } from "../../tiers";
+import { reachOf } from "../../wire/look";
 import { ownOrWild, type Props } from "./shared";
 import { Demolition } from "./Demolition";
 import { Equipment } from "./Equipment";
@@ -43,6 +46,7 @@ export function House({
 }: Omit<Props, "busy" | "act"> & { values: Record<string, any> | null }) {
   const session = useSession();
   const names = useNames();
+  const book = useBook();
   //: Own waiting and own refusal: this window is a window of its own in the row.
   const acting = useActions();
   const { busy, act } = acting;
@@ -116,11 +120,10 @@ export function House({
 
   const picked = kind || shelf[0]?.kind || "";
 
-  //: What the hands hold of a material, for the site's rows (D-266).
-  const inHands = (goods: string) =>
-    look.inventory
-      .filter((thing) => thing.goods === goods)
-      .reduce((sum, thing) => sum + thing.amount, 0);
+  //: What is at hand of a material, for the site's rows (D-266): the reach a
+  //: contribution is gathered from, not the pocket alone (D-315).
+  const athand = reachOf(look, book);
+  const inHands = (goods: string) => stockOf(athand, goods);
   type Work = (typeof going)[number];
   const mine = (w: Work) => w.owner === look.identity;
   const complete = (w: Work) =>
@@ -130,6 +133,10 @@ export function House({
   //: The start's price from the public constants (D-225), never from the wire.
   const startStamina = (w: Work) =>
     (values?.["build.start_stamina_per_m2"] ?? 0) * w.area * w.floors;
+  //: A build is an occupation (D-310), and a busy body has none to spare --
+  //: including for its own second site. Grey with the reason on the button,
+  //: rather than a refusal collected after the click.
+  const occupied = busyWith(look);
 
   return (
     <>
@@ -219,8 +226,8 @@ export function House({
                               needed: need.toFixed(1),
                             })}
                           </td>
-                          <td className="note">
-                            {t("ui-place-site-in-hands", { have: have.toFixed(1) })}
+                          <td className="note" title={t("ui-work-reach")}>
+                            {t("ui-place-site-at-hand", { have: have.toFixed(1) })}
                           </td>
                           <td>
                             {gap > 0 && have > 0 && (
@@ -228,7 +235,7 @@ export function House({
                                 {/* Which quality goes into the wall: the bringer's
                                     choice, made at the bringing (D-058). */}
                                 <TierPick
-                                  things={look.inventory}
+                                  things={athand}
                                   goods={goods}
                                   value={tiers[key]}
                                   onChange={(tier) =>
@@ -275,15 +282,19 @@ export function House({
                 {mine(w) ? (
                   <div className="row">
                     <button
-                      disabled={busy || !complete(w)}
-                      title={t("ui-place-site-start-hint")}
+                      disabled={busy || !complete(w) || occupied !== null}
+                      title={occupied ?? t("ui-place-site-start-hint")}
                       onClick={() =>
                         act(() => session.send("build.site_start", { site: w.site }))
                       }
                     >
                       {t("ui-place-site-start", { stamina: startStamina(w).toFixed(1) })}
                     </button>
-                    {!complete(w) && <span className="note">{t("ui-place-site-waiting")}</span>}
+                    {occupied !== null ? (
+                      <span className="note">{occupied}</span>
+                    ) : (
+                      !complete(w) && <span className="note">{t("ui-place-site-waiting")}</span>
+                    )}
                   </div>
                 ) : (
                   <p className="note">{t("ui-place-site-owner-only")}</p>

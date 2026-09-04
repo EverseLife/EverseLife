@@ -190,13 +190,14 @@ async def mint(
         name: goods.whole(name, qty * count, up=True, catalog=catalog)
         for name, qty in composition.items()
     }
-    pocket = await body_container(session, body)
-    #: Which metal goes under the die is the minter's choice by tier (D-058).
+    #: Which metal goes under the die is the minter's choice by tier (D-058),
+    #: and it is taken from everything the hands reach at the mint (D-315).
     stock = await craft._stock(  # noqa: SLF001
         session,
-        pocket,
+        body,
         tuple(needed),
         tiers=craft._tiers_by(catalog, tiers),  # noqa: SLF001
+        lock=True,
     )
     picks = craft._pick(stock, needed)  # noqa: SLF001
 

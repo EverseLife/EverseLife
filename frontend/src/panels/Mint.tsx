@@ -25,6 +25,8 @@ import { Refusal, useActions, useBook, useNames, useSession } from "../actions";
 import { goodsName, type Names } from "../names";
 import { t } from "../locale";
 import { TierPick } from "../Tier";
+import { stockOf } from "../tiers";
+import { reachOf } from "../wire/look";
 import { NumberField } from "../NumberField";
 
 type Props = {
@@ -60,13 +62,10 @@ export function Mint({ look, values }: Omit<Props, "busy" | "act">) {
 
   const fineness = Number(values?.["coin.default_fineness"] ?? 900);
 
-  const inHands = useMemo(() => {
-    const amount = (name: string) =>
-      look.inventory
-        .filter((one) => one.goods === name)
-        .reduce((result, one) => result + one.amount, 0);
-    return { metal: amount(chosen.metal), iron: amount(IRON) };
-  }, [look.inventory, chosen.metal, IRON]);
+  //: What the die reaches (D-315): the pocket, one's own hold and -- at the
+  //: mint on one's own place -- the floor, the yard and the chests here.
+  const athand = reachOf(look, book);
+  const inHands = { metal: stockOf(athand, chosen.metal), iron: stockOf(athand, IRON) };
 
   //: The coin's composition comes from the vault recipe: the forecast before
   //: the click is computed from the same amounts the server spends by, and
@@ -115,7 +114,7 @@ export function Mint({ look, values }: Omit<Props, "busy" | "act">) {
       {[chosen.metal, IRON].map((goods) => (
         <div className="row" key={goods}>
           <TierPick
-            things={look.inventory}
+            things={athand}
             goods={goods}
             value={tiers[goods]}
             onChange={(tier) => setTiers((was) => ({ ...was, [goods]: tier }))}
@@ -123,7 +122,7 @@ export function Mint({ look, values }: Omit<Props, "busy" | "act">) {
         </div>
       ))}
 
-      <p className="note">
+      <p className="note" title={t("ui-work-reach")}>
         {/* The slots take a bare number -- the sentence names the thing right
             after it -- so the unit word stays out of them: `tally` here would
             read "1 pcs of “Iron ingot”". What changed is the number itself:

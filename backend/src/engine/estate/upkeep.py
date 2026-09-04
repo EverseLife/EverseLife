@@ -182,8 +182,9 @@ async def repair(
     frozen = await _frozen(session, node, body)
     needed = {} if frozen is not None else repair_bill(constants, houses)
     if needed:
-        pocket = await world.body_container(session, body)
-        stock = await craft._stock(session, pocket, tuple(needed), tiers=tiers)  # noqa: SLF001
+        stock = await craft._stock(  # noqa: SLF001
+            session, body, tuple(needed), tiers=tiers, lock=True
+        )
         for pick in craft._pick(stock, needed):  # noqa: SLF001
             if pick.item.amount > pick.take:
                 pick.item.amount -= pick.take

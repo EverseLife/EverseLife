@@ -34,7 +34,7 @@ import { GoodsMark } from "../Glyph";
 import { CHEST_ANY, chestOf, grip, noDrag } from "../drag";
 import { chosen, tally, trim } from "../amounts";
 import { labelOf, tells, weightCell } from "./inventory/rows";
-import { TERMINAL, classOf, firstOfClass, isGear } from "../classes";
+import { TERMINAL, classOf, firstOfClass, isGear, lifts } from "../classes";
 import { fill, isVessel } from "../liquids";
 import { whoIsHere, type Person } from "../people";
 import {
@@ -201,6 +201,12 @@ export function Inventory({ look }: Props) {
                           className="link"
                           onClick={() => act(() => session.send("gear.unequip", { slot }))}
                           disabled={busy}
+                          /* A frame that lifts is taken off under the load it
+                             was put on for (D-306): said before the click,
+                             because after it the ore is already on the floor. */
+                          title={
+                            lifts(book, worn.goods) ? t("ui-inventory-unequip-drops") : undefined
+                          }
                         >
                           {t("ui-inventory-unequip")}
                         </button>

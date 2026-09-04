@@ -22,6 +22,18 @@ export const CRAFT = "craft";
 export const SLEEP = "sleep";
 export const FORAGE = "forage";
 
+/** The works on land (D-310): a house going up, a house coming down, a surface
+ * being laid. They hold the hands against a new work, but they do not spend the
+ * body's hours -- each runs by its own clock whether the worker is on the plot,
+ * on the road or asleep -- so they never stand in the way of a bed. Kept as a
+ * group because that is how the engine names them in `rest.sleep`, and the two
+ * lists must not drift apart: a bed greyed out here while the engine would
+ * grant it is a night the player cannot spend for no reason they can see. */
+export const BUILD = "build";
+export const DEMOLISH = "demolish";
+export const PAVING = "paving";
+export const LAND_WORKS = [BUILD, DEMOLISH, PAVING];
+
 /**
  * The occupation that forbids starting `what`, or nothing when the hands are free.
  *

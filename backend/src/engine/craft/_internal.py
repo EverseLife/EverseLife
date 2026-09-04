@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants, current, current_catalog
 from src.constants import registry as R
-from src.engine import goods, travel, wear
+from src.engine import goods, stock, travel, wear
 from src.engine.craft import power
 from src.engine.craft._base import (
     Busy,
@@ -47,11 +47,12 @@ from src.engine.craft.quality import (
 from src.engine.world import BIOPRINTER, body_container, has_place, node_yard, station_names
 from src.models.craft import CraftBatch
 from src.models.identity import Body, BodyState, Knowledge, KnowledgeKind
-from src.models.inventory import Container, Item
+from src.models.inventory import Item
 from src.models.world import Node
 from src.units import (
     MINUTES_PER_HOUR,
     PERCENT,
+    SECONDS_PER_HOUR,
     SECONDS_PER_MINUTE,
     amount,
     amount_float,
@@ -71,6 +72,7 @@ async def _prepare(
     way: str | None = None,
     recipe_key: str | None = None,
     tiers: dict[str, str] | None = None,
+    lock: bool = False,
 ) -> _Ready:
     """The common flow of forecast and start.
 
@@ -142,18 +144,21 @@ async def _prepare(
             raise CraftError(key="craft-place-not-yours", place=proc.place)
 
     station = await _station_item(session, body, proc)
-    tools = await _tool_items(session, catalog, body, proc, tool_item_id)
+    tools, named = await _tool_items(session, catalog, body, proc, tool_item_id)
 
     scale = constants[R.QUALITY_SCALE]
     #: Limits **effective** quality: a broken anvil gives a worse result, not
-    #: just breaks suddenly (`engine.wear`).
-    limiters = [wear.effective(constants, item) for item in [station, *tools] if item is not None]
+    #: just breaks suddenly (`engine.wear`). The named tool sets the ceiling
+    #: with the rest and wears with none of them: see `_tool_items`.
+    limiters = [
+        wear.effective(constants, item) for item in [station, *tools, named] if item is not None
+    ]
     ceiling = min(limiters) if limiters else scale.max
 
-    inventory = await body_container(session, body)
     #: Which stacks feed the batch is the master's choice (D-058): by tier per
-    #: input, or worst first when nothing is said.
-    stock = await _stock(session, inventory, proc.inputs, tiers=_tiers_by(catalog, tiers))
+    #: input, or worst first when nothing is said. Where they lie is `reach`
+    #: (D-315): the pocket, one's own convoy, and the place where it is ours.
+    stock = await _stock(session, body, proc.inputs, tiers=_tiers_by(catalog, tiers), lock=lock)
     if proc.output in carrier_names(catalog):
         return await _prepare_write(
             session, constants, catalog, body, proc, units, stock, recipe_key
@@ -200,6 +205,7 @@ async def _prepare(
         station=station,
         proc=proc,
         stock=stock,
+        tools=tuple(tools),
         recipe_key=recipe_key,
     )
 
@@ -470,8 +476,25 @@ async def _tool_items(
     body: Body,
     proc: Procedure,
     tool_item_id: uuid.UUID | None,
-) -> list[Item]:
-    """The tool is carried along and takes part in the quality ceiling."""
+) -> tuple[list[Item], Item | None]:
+    """The tools of the work: what the requirements resolved to, and the one the
+    master named apart from them.
+
+    In the **hands**, and the wider reach of D-315 does not touch this: a tool
+    is held while the work goes and wears by it, so it is a thing the body
+    carries, not a material the place gives up. A chest full of hammers is a
+    chest, not a hand. Since D-309 that decides not only where a tool is found
+    but who pays for it: `_wear_tools` charges the pocket it left them in.
+
+    Two answers rather than one because they are not the same thing. Both take
+    part in the quality ceiling -- a master who names a worn tool is held to it
+    -- but only the requirements' own tools are the ones the work is done with,
+    and only those wear by its hours (D-309). A recipe asks for no tool at all,
+    so a name sent with one is a mistake, and until D-309 it cost only a wrong
+    ceiling; now it would take the condition off the named thing and, at the end
+    of its life, destroy it. What is worked with is decided by the procedure, not
+    by the request.
+    """
     inventory = await body_container(session, body)
     found: list[Item] = []
 
@@ -489,63 +512,111 @@ async def _tool_items(
             raise NoTool(key="craft-no-tool", tool=requirement)
         found.append(item)
 
+    named: Item | None = None
     if tool_item_id is not None and all(item.id != tool_item_id for item in found):
-        chosen = await session.get(Item, tool_item_id)
-        if chosen is None or chosen.container_id != inventory.id:
+        named = await session.get(Item, tool_item_id)
+        if named is None or named.container_id != inventory.id:
             #: What `tool` is, not just that this one is wrong: it names a
             #: thing in the worker's own hands, while the machine standing in
             #: the node is taken by the engine itself. An AI citizen (D-224)
             #: read the id of the smelter off the place and sent it here
             #: twenty-four times in seven minutes.
             raise NoTool(key="craft-tool-not-in-hands")
-        found.append(chosen)
-    return found
+    return found, named
 
 
 async def _stock(
     session: AsyncSession,
-    container: Container,
+    body: Body,
     names: Iterable[str],
     *,
     tiers: dict[str, str] | None = None,
+    lock: bool = False,
 ) -> dict[str, list[Item]]:
-    """What lies for each input, worst first -- or only the chosen quality tier.
+    """What lies for each input within reach, worst first -- or only the chosen tier.
 
     The order is not accidental: the worse goes into the work, and the pure raw
     material stays for the batch it was mined for. `tiers` is the master's
     word on that: "this input -- from the good stacks only". Then nothing else
     is touched, and too little of the chosen tier is a refusal, not a silent
     fallback to worse -- the choice was made for a reason (D-058).
+
+    **Where it looks** is `engine.reach` and nowhere else (D-315): the pocket
+    and the vessels in it, one's own convoy, and -- where this body may dispose
+    of the place -- the floor, the yard and the chests standing here. One door
+    for every work that gathers materials, so a new one gets the rule rather
+    than a copy of it.
+
+    Only what **lies** is gathered: a machine, a chest or a piece of furniture
+    put up in the node works and is not spent (D-278). What the place will not
+    give up at all -- a relic, a thing built in place, fuel at a fuel plant --
+    is decided by `Reach.of`, per material.
+
+    `lock` takes the rows for the transaction, and every path that then writes
+    them off must ask for it: the pocket belonged to one body, the yard and the
+    chest belong to everybody entitled, so two works over one chest would
+    otherwise both find the stack full (CLAUDE.md). The forecast locks nothing:
+    it reads, and it must not hold a stack while the player is still typing.
+
+    Every input in **one** query and one lock order, split by name afterwards
+    (`stock.py`: "one query and one lock order, never two"). Two queries would
+    hold this recipe's iron while waiting for its coal against a batch taking
+    them the other way round -- and the two would wait on each other for ever.
+    For the same reason the **tier** is applied after the lock and not before:
+    a batch asking for good iron holds every stack of iron within reach for its
+    transaction. Wider than it takes, and deliberately -- picking first and
+    locking the picks second would lock rows chosen off numbers already stale.
     """
-    from src.engine import (  # noqa: PLC0415 -- lazy: breaks the import cycle craft -> liquid -> station -> craft
+    from src.engine import (  # noqa: PLC0415 -- lazy: breaks craft -> reach -> station -> craft and craft -> market -> craft
         gear,
-        liquid,
         market,
+        reach,
     )
 
     constants = current()
+    catalog = current_catalog()
     wanted = {name: tier for name, tier in (tiers or {}).items() if tier}
-    #: The container and the vessels in it (D-230): water for the dough is in
-    #: the canister, and the recipe need not know that.
-    within = await liquid.reach(session, current_catalog(), container)
-    out: dict[str, list[Item]] = {}
-    for name in names:
-        rows = (
+    asked = list(dict.fromkeys(names))
+    within = await reach.at_work(session, constants, catalog, body)
+    #: Where each material may come from: the place bars some of them and not
+    #: others, so the sets differ per name and the split below honours that.
+    allowed = {name: frozenset(within.of(catalog, name)) for name in asked}
+    everywhere = sorted({one for ones in allowed.values() for one in ones})
+
+    rows: list[Item] = []
+    if asked and everywhere:
+        rows = list(
             (
                 await session.execute(
                     select(Item)
-                    .where(Item.container_id.in_(within), Item.type_key == name)
+                    .where(
+                        Item.container_id.in_(everywhere),
+                        Item.type_key.in_(asked),
+                        #: What stands is not spent (D-278).
+                        Item.installed.is_(False),
+                    )
                     .order_by(Item.quality.asc().nulls_first(), Item.created_at.asc())
                 )
             )
             .scalars()
             .all()
         )
+        #: A material the place bars is dropped before the lock, not after:
+        #: holding the fuel plant's coal for a batch that may not have it would
+        #: make the batch wait on the tick over a stack it never wanted.
+        rows = [item for item in rows if item.container_id in allowed[item.type_key]]
+        if lock:
+            rows = _reread(await stock.lock_items(session, rows))
+
+    out: dict[str, list[Item]] = {}
+    for name in asked:
+        here = allowed[name]
+        kept = [item for item in rows if item.type_key == name and item.container_id in here]
         tier = wanted.get(name)
         if tier is not None:
-            rows = [
+            kept = [
                 item
-                for item in rows
+                for item in kept
                 if market.tier_of(constants, None if item.quality is None else float(item.quality))
                 == tier
             ]
@@ -554,8 +625,25 @@ async def _stock(
         #: invention of "one backpack" would take the one on the master's back
         #: and a failed one would burn it. The third and last stack-picker in
         #: the world; the other two are `world.move_stack` and `market._stacks`.
-        out[name] = [item for item in rows if not await gear.is_worn(session, item)]
+        out[name] = [item for item in kept if not await gear.is_worn(session, item)]
     return out
+
+
+def _reread(rows: Sequence[Item]) -> list[Item]:
+    """Locked stacks back in the gathering order, minus what slipped away.
+
+    `stock.lock_items` takes the rows in **id** order -- one order for
+    everybody, so two consumers of one chest never wait on each other -- and
+    hands them back in it. The work wants them worst first again, and it wants
+    only what is still material: between the reading and the lock a stack may
+    have been carried off, put up as furniture, or emptied to nothing.
+    """
+    #: `None` first, as `nulls_first()` had it: unqualified matter is not
+    #: quality nought, and it goes into the work before anything graded.
+    return sorted(
+        (item for item in rows if not item.installed),
+        key=lambda item: (item.quality is not None, float(item.quality or 0), item.created_at),
+    )
 
 
 def _tiers_by(catalog: Catalog, tiers: dict[str, str] | None) -> dict[str, str]:
@@ -603,6 +691,68 @@ def _material_quality(picks: Sequence[_Pick], default: float) -> float:
     if not total:
         return default
     return sum(float(pick.item.quality) * pick.take for pick in graded) / total
+
+
+def _hours_run(batch: CraftBatch, until: datetime) -> float:
+    """How long the batch's current run has been going, in hours.
+
+    A run is the stretch the master actually stood at the work: it opens in
+    `_run` and closes at the end or at a freeze (D-209). What is charged for
+    the tools is measured here and nowhere else, so the two closings cannot
+    drift apart.
+    """
+    if batch.run_started_at is None:  # pragma: no cover -- a run always has its start
+        return 0.0
+    #: Never longer than the run itself. A job may fire late -- the worker was
+    #: behind, the process restarted -- and a master who walks away after the
+    #: hour was up would otherwise be billed for the waiting as if it were
+    #: swinging. `queue.freeze` clamps the work left for the same reason.
+    ends = min(until, batch.ready_at) if batch.ready_at is not None else until
+    return max(0.0, (ends - batch.run_started_at).total_seconds()) / SECONDS_PER_HOUR
+
+
+async def _wear_tools(
+    session: AsyncSession, constants: Constants, batch: CraftBatch, *, hours: float
+) -> None:
+    """The tools wear by the hours actually swung (D-309).
+
+    Not per batch, as the machine does: a batch of one log and a batch of fifty
+    are five minutes and four hours of the same axe, and charging both the same
+    would pay the worker for lumping orders together. Charged when a run of the
+    batch closes -- at the end and at a freeze -- so that work never done is
+    never billed for: a batch frozen with hours left in it has not spent them.
+
+    A tool can leave the hands while the work runs -- handed over, sold across a
+    counter, dropped in a chest -- and none of that freezes the batch. So the row
+    is taken `FOR UPDATE` and the pocket is checked under that lock before a
+    hundredth is written: without it this stream reached into a stranger's
+    pocket, wore what it found there and, on the last of a tool's condition,
+    deleted it. `wear.spend` has no lock of its own and says so; this is the one
+    stream whose thing can walk away mid-work, so the lock is taken here.
+    """
+    if hours <= 0:
+        return
+    body = await session.get(Body, batch.body_id)
+    pocket = None if body is None else await body_container(session, body)
+    for held in batch.tool_item_ids or ():
+        tool = await session.get(Item, uuid.UUID(held), with_for_update=True)
+        if tool is None:
+            #: Worn out by an earlier run of this same batch, or gone from the
+            #: hands some other way. Nothing to charge.
+            continue
+        if pocket is None or tool.container_id != pocket.id:
+            #: Gone from the hands while the work ran. The batch keeps the
+            #: ceiling that tool set for it, but wear follows the thing, and the
+            #: thing is somebody else's now: charging it would take the
+            #: condition off whoever holds it -- and finish it off for them.
+            continue
+        await wear.spend(
+            session,
+            constants,
+            tool,
+            constants[R.WEAR_TOOL_PER_HOUR] * hours,
+            cause="craft_batch",
+        )
 
 
 async def _wear_station(session: AsyncSession, constants: Constants, batch: CraftBatch) -> None:

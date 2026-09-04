@@ -42,6 +42,7 @@ from farm_kit import (
     _stock,
     _weather,
 )
+from src import i18n
 from src.api.commands.farm import _plot
 from src.constants import Catalog, Constants, current, current_catalog
 from src.constants import registry as R
@@ -400,6 +401,57 @@ async def test_care_is_a_text_read_in_the_library_and_remembered(
     notes = await farm.remembered(session, constants, catalog, identity.id, locale="en")
     assert [note["culture"] for note in notes] == [SPELT]
     assert notes[0]["text"] == english
+
+
+async def test_a_culture_may_open_with_a_written_paragraph(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The paragraph of D-311: the vault's own words about the crop open the
+    text, the derived figures follow, and it is said in the reader's language.
+
+    A culture without one reads exactly as before -- the paragraph is written
+    where there is something to say, not everywhere."""
+    _, _, body = await _farmstead(session)
+    node = await session.get(Node, body.node_id)
+    node.properties = {**node.properties, "library": True}
+    await session.flush()
+
+    plant = catalog.plants.by_id(SPELT)
+    assert plant.care_note, "тесту нужна культура с написанным абзацем"
+    said = await farm.read_care(session, constants, catalog, body, SPELT, locale="ru")
+    assert said.startswith(plant.care_note)
+    #: And the numbers still follow it: the paragraph adds, it does not replace.
+    norm = _norms(constants, catalog)
+    assert str(round(norm.band_min)) in said
+
+    english = await farm.read_care(session, constants, catalog, body, SPELT, locale="en")
+    assert not english.startswith(plant.care_note), "абзац говорится на языке читателя"
+    #: The vault refuses a paragraph with a number in it (D-311), so the words
+    #: cannot go stale after a retune. Pinned here as well: the promise is the
+    #: reason the text may be written by hand at all.
+    assert not any(char.isdigit() for char in plant.care_note)
+
+    #: A bred line reads its own numbers and not the crop's words (D-311): the
+    #: paragraph would stand above traits that have drifted away from it.
+    line = dict(breed.traits_of_plant(plant), hardiness=5)
+    from src.engine.farm.text import care_text
+
+    assert not care_text(constants, plant, line, locale="ru").startswith(plant.care_note)
+
+    bare = next(one for one in catalog.plants.plants if not one.care_note)
+    without = await farm.read_care(session, constants, catalog, body, bare.id, locale="ru")
+    assert without.startswith(
+        i18n.render(
+            "care-band",
+            {
+                "culture": bare.id,
+                "min": round(life.norms(constants, bare, breed.traits_of_plant(bare)).band_min),
+                "max": round(life.norms(constants, bare, breed.traits_of_plant(bare)).band_max),
+                "need": int(bare.requires.water),
+            },
+            locale="ru",
+        )
+    )
 
 
 async def test_an_action_holds_the_hands_for_its_minutes(
