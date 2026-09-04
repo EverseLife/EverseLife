@@ -86,6 +86,19 @@ GROUND_FLOOR = 1
 #: spelling of it somewhere else is the drift such keys always end in.
 PLOT = "plot"
 
+#: The mark of a node aboard a ship (D-201): a property rather than a fifth
+#: planet, because the list of planets drags its own day length and wear
+#: behind it and a property drags nothing. Here beside `PLOT` for the same
+#: reason: the hull is one building (D-288), and whoever asks "which rooms
+#: share this one's batteries" must be able to answer from the row in hand
+#: without importing the ship package that would import them back.
+ABOARD = "aboard"
+
+
+def is_aboard(node: Node) -> bool:
+    """Whether this node is part of a ship. Land is land."""
+    return bool((node.properties or {}).get(ABOARD))
+
 
 def storey_of(node: Node) -> int | None:
     """Which floor of a house this node is, or `None` if it is ground (D-247).

@@ -38,12 +38,22 @@ header {
 }
 
 /* The frame: sidebar on the left (the Net), main window on the right (in-person).
-   Both columns each scroll on their own -- header and bottom always in place. */
+   Both columns each scroll on their own -- header and bottom always in place.
+   The sidebar's column is 20rem at the least (300px at the root's 15px; the
+   brief's layout table follows this rule, not the other way round) and
+   grows to 33rem where the screen has it: the inventory is a table of five
+   columns beside a 52px rail, and at the old 21rem ceiling the weight and
+   the qualities wrapped under the names. Measured 2026-09-03 at the root's
+   15px: the five columns unwrapped (a two-word name such as iron ore, the
+   amount, the weight over its unit-by-count note, the quality with its tier
+   word, the menu mark) ask 413px of panel, and 33rem less the rail and the
+   panel's padding gives 417. The scene keeps its 640px minimum at the
+   brief's 1280px floor either way. */
 .frame {
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(17rem, 21rem) 1fr;
+  grid-template-columns: minmax(20rem, 33rem) 1fr;
   gap: 0;
   align-items: stretch;
 }

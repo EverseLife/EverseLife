@@ -396,6 +396,14 @@ tr.picked td:first-child {
   grid-column: 1 / -1;
   margin: 0;
 }
+/* A row opened by its eye: the sides of the operation and what stood behind
+   it, indented under the row the way a recipe's details sit in the sidebar. */
+.fact > .fact-peek {
+  grid-column: 1 / -1;
+  margin: 0.1rem 0 0.25rem 1.5rem;
+  padding-left: 0.6rem;
+  border-left: 1px solid var(--line);
+}
 /* What is done about the fact -- repay this loan -- goes under it, at the end
    of the line: the sum is what the row is read for, the verb is what happens
    after it has been read. */

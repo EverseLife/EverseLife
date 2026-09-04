@@ -173,21 +173,33 @@ ui-ship-ratio = { $ratio } thrust per kg of mass
 ui-ship-class = class { $class }
 ui-ship-below-threshold = below the lift-off threshold
 ui-ship-air = oxygen
-ui-ship-air-tanks = { $units } in the tanks · water { $water }
+ui-ship-air-line = { $units } on the life support's line
 ui-ship-air-burn = { $spend } an hour · lasts { $term }
-ui-ship-air-covered = life support covers the crew
-ui-ship-air-outside = there is air outside, generation sleeps
+ui-ship-air-covered = no crew aboard, nothing is spent
+ui-ship-air-outside = there is air outside, the system sleeps
+
+## The feed (D-288): lines from a machine to a vessel.
+
+ui-ship-feed = Feed lines
+ui-ship-feed-hint = A port with nothing ticked draws from nothing. Tick the vessels the port draws from; the order of ticking is the order of use.
+ui-ship-feed-none = No machine with lines aboard: the engine and the life support system appear here once they stand in a compartment.
+ui-ship-feed-nothing = no line, and the port draws nothing
+ui-ship-feed-reset = clear the line
+ui-ship-feed-no-vessels = No suitable installed vessel aboard: put up a fuel tank, a canister or an oxygen tank in a compartment.
+ui-ship-feed-empty = empty
+ui-ship-feed-up = up
 
 ## A line about the hull, one for each: where it is and what it breathes.
 
 ui-ship-sign = { $name } · { $nodes } nodes · thrust { $thrust } on { $mass } kg of mass
 ui-ship-ratio-line = thrust to weight { $ratio } against the { $min } needed
 ui-ship-stuck = does not lift off
-ui-ship-crew = crew { $crew } of { $support } · fuel in the tanks { $fuel }
-ui-ship-in-orbit = in planetary orbit around { $planet }
+ui-ship-crew = crew { $crew } · fuel { $fuel }
+ui-ship-no-life-support = no life support system
+ui-ship-in-orbit = in planetary orbit · { $planet }
 ui-ship-berthed = at the “{ $port }” shipyard, berth { $berth }
 ui-ship-on-voyage = on a passage to “{ $name }”
-ui-ship-adrift = off the mooring
+ui-ship-adrift = adrift
 ui-ship-deaf = It cannot be commanded. There is no “Ship control console” aboard.
 ui-ship-no-bridge = Casting off and a passage are ordered from the control console: stand in the compartment it is in. Without a console aboard the ship flies nowhere.
 
@@ -200,8 +212,9 @@ ui-ship-ascend = Climb to planetary orbit
 ui-ship-ascend-hint = the climb takes time by the planet's gravity and the hull's thrust; it can be turned around
 ui-ship-thrust-short = not enough thrust to lift off: shed mass or add an engine
 ui-ship-ratio-short = Not enough thrust to weight: the ship does not lift off.
-ui-ship-dry-ascent = The tanks hold { $fuel }, and { $needs } is needed: the climb and the descent back. Nobody refuels in orbit — no edges reach the ship, and there is no stepping off it.
-ui-ship-reserve = Over the burn of the climb, { $kept } is kept for the descent back: there is nowhere to climb to without the fuel to come down.
+ui-ship-dry-climb = The tanks hold { $fuel }, and the climb needs { $need }: the ship does not leave the pad.
+ui-ship-dry-ascent = The tanks hold { $fuel }, and the climb with the descent back needs { $need }: the ship climbs, but stays in orbit until fuel reaches it.
+ui-ship-reserve = On top of the climb, the descent back takes another { $kept }.
 ui-ship-course-later = A course to another planet is set from orbit already: first the climb, then the crossing, then the choice of spaceport above the planet.
 
 ## The descent: the mooring is chosen above the planet.
@@ -222,8 +235,12 @@ ui-ship-flight = { $back ->
        *[false] passage
     } to “{ $name }”
 ui-ship-flight-label = passage
-ui-ship-flight-fixed = The time was counted at the casting off and is not recounted: a sky that turned under a flying ship would make the passage longer than the one paid for. The course cannot be changed.
-ui-ship-may-turn = But it can turn back.
+ui-ship-flight-autopilot = The autopilot flies the hull on its own: at every step it lays the passage afresh from where the hull is, and the tanks pay as it goes. The course cannot be changed.
+ui-ship-may-cancel = The course may be cancelled, or the hull put into orbit round the star.
+ui-ship-cancel-course = Cancel course
+ui-ship-star-orbit = Enter astrocentric orbit
+ui-ship-star-orbit-hint = The engines burn off the difference between the hull's speed and the speed of the circle round the star at the hull's own radius; the tanks pay as they burn. From then on the hull hangs on the circle like a planet.
+ui-ship-flight-star = entering orbit round the star
 ui-ship-recall = Turn back{ $known ->
         [true] { " " }to “{ $port }”
        *[false] {""}
@@ -237,7 +254,6 @@ ui-ship-no-route = There is no way from here to there: either no route is laid i
 ui-ship-thrust-cut = not enough thrust: shed mass
 ui-ship-fly = Fly
 ui-ship-fly-hint = the crossing runs from orbit to orbit; the spaceport is chosen above the planet
-ui-ship-dry-fly = the tanks hold { $fuel }, and { $needs } is needed: the crossing and the landing at the end
 
 ## The hull's name: the owner's word, the engine derives nothing from it.
 
@@ -427,7 +443,31 @@ ui-ship-slider = flight time
 ui-ship-end-fast = fast: { $term }
 ui-ship-end-cheap = cheap: { $term }
 ui-ship-arc-cost = { $term } · { $fuel } fuel · Δv { $dv }
-ui-ship-arc-via = flyby: { $planet }
 ui-ship-chart-cheap = cheap { $term } · { $fuel }
 ui-ship-chart-fast = fast { $term } · { $fuel }
+# The sky flown, not tabled (D-289): the drift, its verdict, and the Δv the
+# console reads the plan against.
+ui-ship-fate-stable = Inertia: a stable circle. It can hang like this for ever; refuelled, it can be given a course.
+ui-ship-fate-crash = Inertia: a collision · { $body }. Unless refuelled in time, the ship is lost.
+ui-ship-fate-escape = Inertia: out of the system. Unless refuelled in time, the ship is lost.
+ui-ship-fate-label = drift
+ui-ship-lost-status = lost
+ui-ship-lost-note = The ship is lost with its crew: it takes no orders any more.
+# Two hulls meeting (D-289, wave 3): the rendezvous, the hold, the consent to dock.
+ui-ship-course-to-ship = rendezvous · { $name }
+ui-ship-target-gone = The target is out of sight.
+ui-ship-held = alongside · { $name }
+ui-ship-docked-ship = docked · { $name }
+ui-ship-dock = Dock
+ui-ship-dock-agree = Agree to dock
+ui-ship-dock-asked = consent given · the other commander has not answered yet
+ui-ship-dock-wanted = the other commander asks to dock
+ui-ship-dock-hint = Docking hull to hull takes both commanders' consent; the gangway opens the way for the crew and their canisters.
+ui-ship-undock = Undock
+ui-ship-star = the star
+ui-ship-dv-line = Δv aboard { $have }
+ui-ship-short-cross = The tanks hold { $fuel }, and the crossing needs { $need }: the fuel runs out under way, and the ship goes adrift.
+ui-ship-short-land = The tanks hold { $fuel }, and the crossing with its landing needs { $need }: the ship reaches orbit and stays there.
+ui-ship-course-dv = Δv to go { $need } · aboard { $have }
+ui-ship-course-short = Less Δv aboard than the crossing needs: the tanks run dry under way, and the ship goes adrift.
 ui-ship-course-failed = The sky did not answer: { $why }

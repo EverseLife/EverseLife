@@ -374,14 +374,18 @@ def where_from(referrer: str, query: str, own_host: str = "") -> dict[str, str]:
         name: _clean(tags.get(f"utm_{name}", [""])[0])
         for name in ("source", "medium", "campaign", "content", "term")
     }
+    #: Cleaned once, for both fields that carry it: the host becomes a label
+    #: on `/metrics`, and a `Referer` header is a stranger's string like the
+    #: rest of the URL.
     host = _host(referrer)
     if host and own_host and host == own_host.lower():
         host = ""
+    host = _clean(host)
 
     if utm["source"]:
         source, medium = utm["source"], utm["medium"] or "unknown"
     elif host:
-        source = _clean(host)
+        source = host
         if any(one in host for one in SEARCH_HOSTS):
             medium = "organic"
         elif any(one in host for one in SOCIAL_HOSTS):
@@ -691,6 +695,14 @@ def exposition() -> str:
         out.append("# TYPE landing_content_visits gauge")
         out.extend(_top(conn, "content", "landing_content_visits"))
 
+        #: The source graph draws buckets -- `dtf`, `other` -- so that a
+        #: stranger cannot invent a line. The hosts themselves are here, by
+        #: the same top-and-fold rule: `other` on the graph is answered by
+        #: name in this table.
+        out.append("# HELP landing_referrer_visits Visits over 30 days by the referring host.")
+        out.append("# TYPE landing_referrer_visits gauge")
+        out.extend(_top(conn, "referrer", "landing_referrer_visits", blank=DIRECT))
+
         out.append("# HELP landing_events_total Things that are not a page view.")
         out.append("# TYPE landing_events_total counter")
         for kind, count in conn.execute(
@@ -741,13 +753,16 @@ def exposition() -> str:
         conn.close()
 
 
-def _top(conn: sqlite3.Connection, column: str, name: str) -> list[str]:
+def _top(conn: sqlite3.Connection, column: str, name: str, blank: str = NONE) -> list[str]:
     """The busiest values of one tag over 30 days, with the tail folded away.
 
-    Untagged traffic is reported under its own name and outside the cap: it is
-    always the largest row, and letting it take a place would cost a real
-    campaign its line. The order breaks ties by name so a scrape does not
-    reshuffle equal rows.
+    Untagged traffic -- `(none)` for a tag, an empty host for a referrer -- is
+    reported as `blank`, outside the cap: it is always the largest row, and
+    letting it take a place would cost a real campaign its line. A value that
+    is literally `other` goes into the fold whatever its rank: named, it
+    would be a second row under the fold's own label, and Prometheus keeps
+    one of two equal series and drops the other. The order breaks ties by
+    name so a scrape does not reshuffle equal rows.
     """
     rows = conn.execute(
         f"SELECT {column}, count(*) FROM visits WHERE bot = 0 AND day >= ?"  # noqa: S608
@@ -756,9 +771,9 @@ def _top(conn: sqlite3.Connection, column: str, name: str) -> list[str]:
     ).fetchall()
     lines, rest, shown = [], 0, 0
     for value, count in rows:
-        if value == NONE:
-            lines.append(_line(name, {column: NONE}, count))
-        elif shown < CAMPAIGN_TOP:
+        if value in (NONE, ""):
+            lines.append(_line(name, {column: blank}, count))
+        elif shown < CAMPAIGN_TOP and value != "other":
             lines.append(_line(name, {column: value}, count))
             shown += 1
         else:

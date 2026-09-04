@@ -12,6 +12,7 @@
  */
 
 import type { RecipeBook, Thing } from "./api";
+import { weightOf } from "./arrange";
 import { t } from "./locale";
 import { goodsName, type Names } from "./names";
 
@@ -83,7 +84,7 @@ function poured(things: readonly Thing[], goods: string): Thing[] {
 export function fill(book: RecipeBook | null, names: Names | null, thing: Thing): string {
   const inside = thing.content ?? [];
   //: `poured`, not `t`: the name `t` is the message lookup.
-  const mass = inside.reduce((sum, poured) => sum + poured.mass * poured.amount, 0);
+  const mass = inside.reduce((sum, poured) => sum + weightOf(poured), 0);
   //: A word and a number with a space between them is not a sentence, so it
   //: stays here; every word the line has is in the messages below.
   const what =

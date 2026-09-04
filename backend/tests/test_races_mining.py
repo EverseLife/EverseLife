@@ -256,3 +256,76 @@ async def test_two_empties_of_one_liquid_hopper_pour_each_unit_once(
         "каждая единица нефти налита ровно один раз: бункер плюс тара сходятся с добытым"
     )
     assert poured == to_units(sum(taken)), "слито ровно столько, сколько отдано вызовами"
+
+
+async def test_two_rigs_on_one_vein_bank_only_what_the_ground_gave(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A rig plans against a free read of the vein; it may bank only what is there.
+
+    Each rig caps its hours by what the vein holds, and the ore that cap
+    allows but the hopper cannot show waits in `hopper_remainder` -- a column
+    that cannot hold a whole unit. The plan is made before the vein is locked,
+    so the second rig here plans against a vein the first has since emptied:
+    its hours promise ten, the clamp under the lock gives it nothing to bank,
+    and the difference is the sliver's to keep. It does not fit. The throw
+    comes out of `tick_rigs`, where every rig in the world shares one
+    transaction, so a single exhausted vein would stop the tick for everybody
+    -- which is why the sliver is bounded by what the ground can still give
+    and not merely by what was asked for.
+    """
+    from src.constants import registry as R
+    from src.engine import rig
+    from src.models.rig import Rig
+    from src.models.world import Vein
+    from src.units import amount as to_units
+
+    stamp = uuid.uuid4().hex[:8]
+    node = await world.create_node(session, f"terra.pit.{stamp}", "Забой", area_m2=200)
+    #: Less in the ground than the two machines together would raise in their
+    #: hour: whoever locks the vein second finds it empty, or nearly.
+    vein = await world.create_vein(session, node, ORE, richness=60, remaining=20)
+    yard = await world.node_container(session, node)
+    await world.grant_item(session, yard, "coal", amount=100, quality=55, origin="тест")
+    identity = await world.create_identity(session, f"Промышленник-{stamp}")
+    body = await world.print_body(session, identity, node)
+    pocket = await world.body_container(session, body)
+    rigs = []
+    for _ in range(2):
+        machine = await world.grant_item(session, pocket, "drilling_rig", quality=70, origin="тест")
+        installation = await rig.place(session, body, machine, vein)
+        installation.counted_at = installation.counted_at - timedelta(hours=1)
+        rigs.append(installation.id)
+    await session.commit()
+    start = await session.scalar(select(Vein.remaining).where(Vein.id == vein.id))
+
+    #: Between the vein's free read and its lock, in the order the defect had.
+    _slow(monkeypatch, rig, "_coal_available")
+
+    async def settle(rig_id: uuid.UUID) -> None:
+        async with factory() as db, db.begin():
+            #: The prologue of `rig.empty`: the rig's own row, then the vein.
+            own = await db.get(Rig, rig_id)
+            await db.refresh(own, with_for_update=True)
+            await rig.advance(db, current(), own, now=datetime.now(UTC))
+
+    await asyncio.gather(*(settle(r) for r in rigs))
+
+    left = await session.scalar(select(Vein.remaining).where(Vein.id == vein.id))
+    #: Columns, not entities: the session's own copies of these rows predate
+    #: the two commits above and would answer with what it remembers.
+    held = (
+        await session.execute(
+            select(Rig.hopper, Rig.hopper_remainder, Rig.fuel_remainder).where(Rig.id.in_(rigs))
+        )
+    ).all()
+    banked = sum(float(hopper) for hopper, _, _ in held)
+    assert start - left == to_units(banked * current()[R.RIG_DEPLETION_MULTIPLIER]), (
+        "жила отдала ровно столько, сколько лежит в бункерах"
+    )
+    assert banked > 0, "машины действительно работали"
+    for _, ore, coal in held:
+        assert 0 <= float(ore) < 0.001, "осколок руды меньше тысячной"
+        assert 0 <= float(coal) < 0.001, "осколок угля меньше тысячной"

@@ -82,8 +82,18 @@ def is_furniture(catalog: Catalog, type_key: str) -> bool:
 
 
 def placeable(catalog: Catalog, type_key: str) -> bool:
-    """What is placeable in a building at all: a machine or furniture."""
-    return is_station(catalog, type_key) or is_furniture(catalog, type_key)
+    """What is placeable in a building at all: a machine, furniture -- or a vessel.
+
+    A vessel put up in a compartment stands on the hull's lines (D-288): the
+    engines and the life support drink from what is installed and nothing
+    else, so a canister or a cylinder is placed the way a chest is, whatever
+    its kind says. Taken down, it is luggage again.
+    """
+    return (
+        is_station(catalog, type_key)
+        or is_furniture(catalog, type_key)
+        or storage.is_vessel(catalog, type_key)
+    )
 
 
 async def may_build(session: AsyncSession, body: Body, node: Node) -> bool:
@@ -237,6 +247,13 @@ async def take(session: AsyncSession, catalog: Catalog, body: Body, item: Item) 
     #: and a stale one would travel back out with the thing (D-244).
     item.outdoors = False
     item.installed = False
+    #: A generator's stamp is the hour its output was last settled (D-288,
+    #: `battery.tick_offgrid`). Carried off it settles nothing, and put up
+    #: again it must start from that moment rather than be credited the
+    #: months in the bag. A cell keeps its stamp: its charge leaks in the
+    #: hands as it does anywhere, and the stamp is what the leak is counted by.
+    if item.charge is None:
+        item.charged_at = None
     await session.flush()
 
     await events.record(

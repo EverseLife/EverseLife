@@ -356,6 +356,31 @@ async def _node_aboard(
     return node
 
 
+async def moor_to(session: AsyncSession, ship: Ship, port: Node) -> None:
+    """The ship's nodes take the planet of the port it now stands at.
+
+    Nodes aboard need a planet -- day length and environment wear are counted
+    from it (D-201) -- and it must be the planet the ship is **actually** at
+    rather than the one it was laid down at. Otherwise a ship that flew to
+    Aurora would price its way home as a local hop between two Terran ports:
+    the route is chosen by the pair of planets, and one of the pair would be a
+    memory of the shipyard.
+
+    The group moves with it: the delegate node hangs under the planet it is at,
+    so the map shows the ship where it is. Here rather than with the legs,
+    because a mooring is reached two ways since D-289 -- at the end of a leg
+    and at the end of a flown passage -- and both are the same mooring.
+    """
+    delegate = await session.get(Node, ship.node_id)
+    root = await _planet_root(session, port)
+    aboard = await nodes_of(session, ship)
+    for node in [*aboard, *([delegate] if delegate is not None else [])]:
+        node.planet = port.planet
+    if delegate is not None and root is not None:
+        delegate.parent_id = root.id
+    await session.flush()
+
+
 async def _planet_root(session: AsyncSession, node: Node) -> Node | None:
     """The planet the node stands on -- the ship hangs on it as a group."""
     current_node = node

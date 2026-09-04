@@ -120,9 +120,7 @@ async def road_seconds(
         #: least delta-v the sky offers today, and however long that arc takes.
         #: No orbits to ask -- the slow end of the slider. Not knowing the sky
         #: must never come out cheaper than knowing it.
-        curve = await ship.passage_curve(
-            session, constants, planet_a, planet_b, at=now, flybys=False
-        )
+        curve = await ship.passage_curve(session, constants, planet_a, planet_b, at=now)
         cheapest = ship.course.cheapest(curve)
         hours = (
             float(constants[R.ORBIT_LONGEST_DAYS]) * HOURS_PER_DAY

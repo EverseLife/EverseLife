@@ -127,6 +127,7 @@ finance-memo-too-long = the ground is longer than { $limit } characters
 finance-no-such-payee = no such identity: “{ $payee }”
 finance-self-transfer = a transfer to yourself changes nothing
 finance-not-enough-money = the account does not hold that much
+finance-no-such-posting = no such posting in the statement
 
 ## City work orders
 

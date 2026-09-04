@@ -10,17 +10,16 @@
  * have nothing in common but the word "payment".
  *
  * The statement is here for the same reason a bank shows one: a balance
- * without a history is a number nobody can argue with.
+ * without a history is a number nobody can argue with. It is a panel of its
+ * own (`Statement`): pages and rows that open are a screen's worth by
+ * themselves, and the transfer form has nothing to do with them.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { useSession } from "../actions";
 import type { Look } from "../api";
-import { when } from "../clock";
-import { Glyph } from "../Glyph";
-import { groundName } from "../grounds";
-import { groundGlyph } from "../marks";
 import { Bank } from "./Bank";
+import { Statement } from "./Statement";
 import { Rule } from "../Rule";
 import { t } from "../locale";
 import { NumberField } from "../NumberField";
@@ -31,69 +30,11 @@ type Props = {
   act: (what: () => Promise<unknown>) => Promise<void>;
 };
 
-/** One line of the statement, as the server sends it. */
-type Entry = {
-  at: string;
-  reason: string;
-  amount: number;
-  money: string;
-  incoming: boolean;
-  memo: Record<string, string>;
-  /** The other side's own name, when it has one: a person, or a city. */
-  with: string | null;
-  /**
-   * What kind of side it is, when it is not a person -- `genesis`,
-   * `bank_reserve`, `works_fund`. The server sends the enum and the word for
-   * it comes out of the locale (D-251): it used to send «резерв банка» ready
-   * made, and the two members nobody had written a word for arrived as their
-   * own code in the middle of the statement.
-   */
-  side: string | null;
-};
-
-/**
- * Who stood on the other side of the posting, as a person reads it.
- *
- * A person is named and there is nothing to translate. An institution is not:
- * the server sends what kind of side it was and the word comes from the
- * locale, so the same row reads «резерв банка» to one player and "the reserve"
- * to another. A city treasury is both at once -- a kind, with a name in it.
- */
-function counterparty(entry: Entry): string {
-  if (!entry.side) return entry.with ?? "—";
-  return t(`ledger-side-${entry.side}`, {
-    //: A variant key is an identifier, never a boolean: the flag says whether
-    //: there is a name to put in, and the name travels beside it.
-    named: entry.with ? "true" : "false",
-    name: entry.with ?? "",
-  });
-}
-
 export function Finance({ look, busy, act }: Props) {
   const session = useSession();
-  const [entries, setEntries] = useState<Entry[]>([]);
   const [to, setTo] = useState("");
   const [amount, setAmount] = useState(10);
   const [memo, setMemo] = useState("");
-
-  const reload = useCallback(async () => {
-    try {
-      const answer = await session.send("finance.statement");
-      setEntries((answer.entries as Entry[]) ?? []);
-    } catch {
-      setEntries([]);
-    }
-  }, [session]);
-
-  useEffect(() => {
-    void reload();
-  }, [reload, look.money]);
-
-  const go = (what: () => Promise<unknown>) =>
-    act(async () => {
-      await what();
-      await reload();
-    });
 
   return (
     <div>
@@ -139,7 +80,7 @@ export function Finance({ look, busy, act }: Props) {
         </label>
         <button
           onClick={() =>
-            go(async () => {
+            act(async () => {
               await session.send("finance.transfer", { to, amount, memo });
               setMemo("");
             })
@@ -150,32 +91,9 @@ export function Finance({ look, busy, act }: Props) {
         </button>
       </div>
 
-      <h3>{t("ui-finance-statement")}</h3>
-      {entries.length === 0 ? (
-        <p className="note">{t("ui-finance-none")}</p>
-      ) : (
-        <div className="facts">
-          {entries.map((entry, index) => (
-            <div className="fact" key={`${entry.at}-${index}`}>
-              <span className="fact-name">
-                <span className="goods-mark">
-                  <Glyph name={groundGlyph(entry.reason)} />
-                </span>
-                {groundName(entry.reason)}
-              </span>
-              <span className="fact-val">
-                {entry.incoming ? "+" : "−"}
-                {entry.money} ₭
-              </span>
-              <p className="note">
-                {counterparty(entry)}
-                {entry.memo?.ground ? ` · ${entry.memo.ground}` : ""}
-                {` · ${when(entry.at)}`}
-              </p>
-            </div>
-          ))}
-        </div>
-      )}
+      {/* The statement rereads itself when the balance moves: a transfer
+          changes `look.money`, and `act` refreshes the look after it. */}
+      <Statement look={look} />
 
       {/* Кредит — тоже Сеть: берут и гасят откуда угодно (D-167). */}
       <Bank busy={busy} act={act} />

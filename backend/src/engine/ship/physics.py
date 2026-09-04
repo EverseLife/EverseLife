@@ -18,9 +18,9 @@ from src.constants import Catalog, ConstantError, Constants
 from src.constants import registry as R
 from src.constants.catalog import ItemKind
 from src.db.base import remember
-from src.engine import gear, stock, world
-from src.engine.ship import course
-from src.engine.ship._base import FUEL, LIFE_SUPPORT, TANK, NotEnoughThrust
+from src.engine import gear, stock, storage, world
+from src.engine.ship import course, lines
+from src.engine.ship._base import LIFE_SUPPORT, NotEnoughThrust
 from src.engine.ship.belonging import nodes_of
 from src.models.inventory import Container, ContainerKind, Item
 from src.models.ship import Ship
@@ -161,68 +161,70 @@ async def engine_class(
 
 
 async def life_support(
-    session: AsyncSession, constants: Constants, ship: Ship, *, things: list[Item] | None = None
+    session: AsyncSession, ship: Ship, *, things: list[Item] | None = None
 ) -> int:
-    """How many people the ship holds: `ship.life_support_crew` per system."""
-    systems = sum(
+    """How many life support systems stand aboard. None -- the hull does not cast off.
+
+    Not a number of people any more (D-288): the crew has no ceiling, the
+    draw is the ceiling the way mass is the hold's, and the system's one job
+    is to breathe for whoever is aboard out of the vessels on its line
+    (`oxygen`). What is counted is what **stands** (D-278).
+    """
+    return int(
+        sum(
+            amount_float(thing.amount)
+            for thing in await _aboard(session, ship, things)
+            if thing.type_key in world.station_names(LIFE_SUPPORT) and thing.installed
+        )
+    )
+
+
+async def engines_aboard(
+    session: AsyncSession, constants: Constants, ship: Ship, *, things: list[Item] | None = None
+) -> list[Item]:
+    """The engines standing aboard, in id order: what the fuel lines hang on (D-288)."""
+    table = constants[R.SHIP_THRUST]
+    return sorted(
+        (
+            thing
+            for thing in await _aboard(session, ship, things)
+            if thing.type_key in table and thing.installed
+        ),
+        key=lambda thing: thing.id,
+    )
+
+
+async def fuel_stacks(
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    ship: Ship,
+    *,
+    things: list[Item] | None = None,
+) -> list[Item]:
+    """The fuel the engines can reach: what lies in the vessels on their lines (D-288).
+
+    The vessels the owner named when a line was drawn, and no other (as
+    amended 2026-09-04: a port without a line draws from nothing) -- a tank, a
+    canister, a cylinder alike. What lies in the hold uninstalled is cargo: it
+    weighs and does not burn (D-230). No engine, no line, no fuel to reach.
+    """
+    engines = await engines_aboard(session, constants, ship, things=things)
+    return await lines.stacks_for(session, catalog, ship, engines, lines.fuel_port(), things=things)
+
+
+async def fuel_aboard(
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    ship: Ship,
+    *,
+    things: list[Item] | None = None,
+) -> float:
+    return sum(
         amount_float(thing.amount)
-        for thing in await _aboard(session, ship, things)
-        if thing.type_key in world.station_names(LIFE_SUPPORT) and thing.installed
+        for thing in await fuel_stacks(session, constants, catalog, ship, things=things)
     )
-    return int(systems * constants[R.SHIP_LIFE_SUPPORT_CREW])
-
-
-async def tanks_of(session: AsyncSession, ship: Ship) -> list[Container]:
-    """The insides of the tanks standing aboard: where a ship's liquids live.
-
-    A tank is a machine in a room and its storage is the reserve (D-230). What
-    lies in a canister in the hold is cargo -- it weighs and it is carried, but
-    no engine and no life support reaches it.
-    """
-    nodes = await nodes_of(session, ship)
-    if not nodes:  # pragma: no cover
-        return []
-    yards = select(Container.id).where(
-        Container.kind == ContainerKind.NODE, Container.owner_id.in_([node.id for node in nodes])
-    )
-    tanks = select(Item.id).where(
-        Item.container_id.in_(yards),
-        Item.type_key.in_(world.station_names(TANK)),
-        Item.installed.is_(True),
-    )
-    rows = await session.execute(
-        select(Container)
-        .where(Container.kind == ContainerKind.STORAGE, Container.owner_id.in_(tanks))
-        .order_by(Container.id)
-    )
-    return list(rows.scalars().all())
-
-
-async def tank_stacks(session: AsyncSession, ship: Ship, *what: str) -> list[Item]:
-    """Stacks of the named liquids lying in the ship's tanks, in id order.
-
-    One reading for every liquid the hull runs on: fuel for the engines, water
-    and oxygen for the life support (D-233). They live in the same tanks and
-    are found by the same walk -- what differs is only the name asked for.
-    """
-    insides = await tanks_of(session, ship)
-    if not insides:
-        return []
-    rows = await session.execute(
-        select(Item)
-        .where(Item.container_id.in_([box.id for box in insides]), Item.type_key.in_(what))
-        .order_by(Item.id)
-    )
-    return list(rows.scalars().all())
-
-
-async def fuel_stacks(session: AsyncSession, ship: Ship) -> list[Item]:
-    """The fuel the engines can reach: what lies in the **tanks** aboard (D-230)."""
-    return await tank_stacks(session, ship, *world.station_names(FUEL))
-
-
-async def fuel_aboard(session: AsyncSession, ship: Ship) -> float:
-    return sum(amount_float(thing.amount) for thing in await fuel_stacks(session, ship))
 
 
 def fuel_energy(constants: Constants, type_key: str) -> float:
@@ -236,36 +238,42 @@ def fuel_energy(constants: Constants, type_key: str) -> float:
     return float(constants[R.SHIP_FUEL_ENERGY].get(type_key, 1.0))
 
 
-async def fuel_worth(session: AsyncSession, constants: Constants, ship: Ship) -> float:
-    """What the tanks hold, in reference units (D-252).
+async def fuel_worth(
+    session: AsyncSession, constants: Constants, catalog: Catalog, ship: Ship
+) -> float:
+    """What the lines hold, in reference units (D-252).
 
     `fuel_aboard` keeps counting physical units -- that is what the console
     shows and what has mass; this is what a passage can pay with.
     """
     return sum(
         amount_float(thing.amount) * fuel_energy(constants, thing.type_key)
-        for thing in await fuel_stacks(session, ship)
+        for thing in await fuel_stacks(session, constants, catalog, ship)
     )
 
 
 async def spend_fuel(
     session: AsyncSession,
     constants: Constants,
+    catalog: Catalog,
     ship: Ship,
     need: float,
     *,
     stacks: list[Item] | None = None,
 ) -> float:
-    """Burn `need` reference units out of the tanks. Returns the units burnt.
+    """Burn `need` reference units out of the lines. Returns the units burnt.
 
-    Stack by stack in id order, each paying at its own worth (D-252): a tank
-    holding kerosene beside rocket fuel spends fewer physical units for the
-    same passage. `stacks` are already-locked rows from `burn_checked`, so
-    the check and the burn share one lock; without them the tanks are locked
-    here, and running dry is the caller's arithmetic being wrong.
+    Stack by stack in **line** order (D-288), each paying at its own worth
+    (D-252): a tank holding kerosene beside rocket fuel spends fewer physical
+    units for the same passage. `stacks` are already-locked rows from
+    `burn_checked`, so the check and the burn share one lock; without them
+    the vessels are locked here, and running dry is the caller's arithmetic
+    being wrong.
     """
     if stacks is None:
-        stacks = await stock.lock_items(session, await fuel_stacks(session, ship))
+        stacks = await stock.lock_items(
+            session, await fuel_stacks(session, constants, catalog, ship), ordered=True
+        )
     burnt = 0.0
     left = need
     for stack in stacks:
@@ -285,9 +293,15 @@ _FUEL_EPS = 1 / AMOUNT_SCALE
 
 
 async def burn_checked(
-    session: AsyncSession, constants: Constants, ship: Ship, *, need: float, whole: float
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    ship: Ship,
+    *,
+    need: float,
+    whole: float,
 ) -> tuple[float, float]:
-    """Lock the tanks, weigh them, and burn only if `whole` is covered.
+    """Lock the lines' vessels, weigh them, and burn only if `whole` is covered.
 
     Returns (burnt, worth aboard). Burnt is zero when the worth falls short
     -- the caller words the refusal; the arithmetic stays under one lock, so
@@ -295,13 +309,15 @@ async def burn_checked(
     cannot let a leg fly on fuel it never paid (the quality bar: amounts
     change only under the row lock).
     """
-    stacks = await stock.lock_items(session, await fuel_stacks(session, ship))
+    stacks = await stock.lock_items(
+        session, await fuel_stacks(session, constants, catalog, ship), ordered=True
+    )
     worth = sum(
         amount_float(stack.amount) * fuel_energy(constants, stack.type_key) for stack in stacks
     )
     if worth + _FUEL_EPS < whole:
         return 0.0, worth
-    return await spend_fuel(session, constants, ship, need, stacks=stacks), worth
+    return await spend_fuel(session, constants, catalog, ship, need, stacks=stacks), worth
 
 
 async def engines(
@@ -360,14 +376,15 @@ async def mass_parts(
 
 
 def _placeable(catalog: Catalog, type_key: str) -> bool:
-    """A machine or furniture: what stands in a room rather than lies in it.
-    The same test as `station.placeable`, asked of the catalog directly so
-    that physics does not pull the craft package in behind the station module."""
+    """A machine, furniture or a vessel: what stands in a room rather than lies
+    in it (D-278, D-288). The same test as `station.placeable`, asked of the
+    catalog directly so that physics does not pull the craft package in
+    behind the station module."""
     try:
         kind = catalog.recipes.recipe(type_key).kind
     except ConstantError:  # raw material has no recipe, and that is cargo
         return False
-    return kind in (ItemKind.STATION, ItemKind.FURNITURE)
+    return kind in (ItemKind.STATION, ItemKind.FURNITURE) or storage.is_vessel(catalog, type_key)
 
 
 async def ratio(session: AsyncSession, constants: Constants, catalog: Catalog, ship: Ship) -> float:
@@ -462,17 +479,6 @@ async def sky_days(session: AsyncSession, at: datetime) -> float:
     return gone / SECONDS_PER_HOUR / HOURS_PER_DAY
 
 
-def _others(
-    constants: Constants, orbits: dict[Planet, course.Orbit], here: Planet, there: Planet
-) -> dict[str, tuple[course.Orbit, float]]:
-    """The planets a passage may be bent round: everything but its two ends."""
-    return {
-        planet.value: (orbit, gravity(constants, planet))
-        for planet, orbit in orbits.items()
-        if planet is not here and planet is not there
-    }
-
-
 async def passage_curve(
     session: AsyncSession,
     constants: Constants,
@@ -480,7 +486,6 @@ async def passage_curve(
     there: Planet,
     *,
     at: datetime,
-    flybys: bool = True,
 ) -> tuple[course.Sample, ...]:
     """Delta-v against flight time for a passage cast off at `at` (D-271).
 
@@ -493,8 +498,7 @@ async def passage_curve(
 
     Empty means the sky has no such passage at all -- a planet without an
     orbit, or the same planet twice: there is no corridor from a planet to
-    itself (D-245). `flybys` off asks for direct arcs only -- a letter's
-    delay needs no third planet.
+    itself (D-245).
 
     Off the event loop: a cold curve is a few hundred Lambert solutions, and
     every socket would wait for them.
@@ -505,42 +509,7 @@ async def passage_curve(
     if here not in orbits or there not in orbits:
         return ()
     days = await sky_days(session, at)
-    others = _others(constants, orbits, here, there) if flybys else None
-    return await asyncio.to_thread(
-        course.curve, constants, orbits[here], orbits[there], days, others=others
-    )
-
-
-async def passage_arc(
-    session: AsyncSession,
-    constants: Constants,
-    here: Planet,
-    there: Planet,
-    *,
-    at: datetime,
-    hours: float,
-    via: str | None,
-) -> course.Arc | None:
-    """The arc a passage of `hours` would fly, cast off at `at` -- or nothing.
-
-    Settled at the casting off (D-202): the console quoted a forecast, this is
-    the sky asked once more at the very moment, and it is what the tanks pay.
-    """
-    if here is there:
-        return None
-    orbits = await orbits_of(session)
-    if here not in orbits or there not in orbits:
-        return None
-    days = await sky_days(session, at)
-    others = _others(constants, orbits, here, there)
-    if via is not None:
-        if via not in others:
-            return None
-        orbit, pull = others[via]
-        return course.flyby(
-            constants, orbits[here], orbit, orbits[there], days, hours, via, gravity=pull
-        )
-    return course.arc(constants, orbits[here], orbits[there], days, hours)
+    return await asyncio.to_thread(course.curve, constants, orbits[here], orbits[there], days)
 
 
 async def corridors(

@@ -439,15 +439,19 @@ async def test_fertilizer_feeds_the_land_not_the_bed(
     with pytest.raises(farm.FarmError):
         await farm.fertilize(session, constants, body, plot, "grain", now=moment)
 
+    recovery = constants[R.FARM_FERTILIZER_RECOVERY]
     await farm.fertilize(session, constants, body, plot, "compost", now=moment)
-    assert float(plot.fertility) == pytest.approx(40 + constants[R.FARM_COMPOST_RECOVERY])
+    assert float(plot.fertility) == pytest.approx(40 + recovery["compost"])
     await farm.fertilize(session, constants, body, plot, "mineral_fertilizer", now=moment)
     assert float(plot.fertility) == pytest.approx(
-        40 + constants[R.FARM_COMPOST_RECOVERY] + constants[R.FARM_MINERAL_RECOVERY]
+        40 + recovery["compost"] + recovery["mineral_fertilizer"]
     )
-    assert constants[R.FARM_MINERAL_RECOVERY] > constants[R.FARM_COMPOST_RECOVERY], (
+    assert recovery["mineral_fertilizer"] > recovery["compost"], (
         "минеральное обязано давать больше всех"
     )
+    #: The engine knows a fertilizer by its class, not by its name (D-291):
+    #: every row of the table is a member, and every member has a row.
+    assert set(recovery) == set(catalog.recipes.of_class(farm.FERTILIZER))
 
     #: The dose went by area, once per kind.
     left = await session.scalar(

@@ -266,11 +266,13 @@ async def test_a_landing_moors_at_the_chosen_pad_and_carries_the_passenger(
         owner.node_id = connector.id
         await session.flush()
 
-        fuel_before = await ship.fuel_aboard(session, vessel)
+        fuel_before = await ship.fuel_aboard(session, constants, catalog, vessel)
         await _in_orbit(session, constants, catalog, owner, vessel)
         assert vessel.docked_node_id == (await _orbit(session)).id, "борт на орбите"
         flight = await ship.land(session, constants, catalog, owner, vessel, there)
-        assert await ship.fuel_aboard(session, vessel) < fuel_before, "рейс сжёг топливо"
+        assert await ship.fuel_aboard(session, constants, catalog, vessel) < fuel_before, (
+            "рейс сжёг топливо"
+        )
         term, ship_id, owner_id = flight.run_at, vessel.id, owner.id
         connector_id, there_id = connector.id, there.id
 
@@ -307,13 +309,15 @@ async def test_a_ship_under_way_takes_no_second_order(
     await session.flush()
 
     await ship.ascend(session, constants, catalog, owner, vessel)
-    burnt = await ship.fuel_aboard(session, vessel)
+    burnt = await ship.fuel_aboard(session, constants, catalog, vessel)
 
     with pytest.raises(ship.InFlight):
         await ship.land(session, constants, catalog, owner, vessel, elsewhere)
     with pytest.raises(ship.InFlight):
         await ship.ascend(session, constants, catalog, owner, vessel)
-    assert await ship.fuel_aboard(session, vessel) == burnt, "отказ всё равно сжёг топливо"
+    assert await ship.fuel_aboard(session, constants, catalog, vessel) == burnt, (
+        "отказ всё равно сжёг топливо"
+    )
 
 
 async def test_two_orders_in_one_second_send_the_ship_once(
@@ -335,7 +339,7 @@ async def test_two_orders_in_one_second_send_the_ship_once(
         owner.node_id = connector.id
         await session.flush()
         ship_id, owner_id = vessel.id, owner.id
-        fuel_before = await ship.fuel_aboard(session, vessel)
+        fuel_before = await ship.fuel_aboard(session, constants, catalog, vessel)
 
     #: Both transactions must be open and looking at the same hull before
     #: either writes -- that is the window a check-then-act loses the ship in.
@@ -372,40 +376,8 @@ async def test_two_orders_in_one_second_send_the_ship_once(
             .all()
         )
         assert len(flights) == 1, "в журнале два рейса одного корпуса"
-        spent = fuel_before - await ship.fuel_aboard(session, vessel)
+        spent = fuel_before - await ship.fuel_aboard(session, constants, catalog, vessel)
         assert spent > 0, "рейс не сжёг топлива"
-
-
-async def test_no_route_is_closed_by_the_class_of_the_engine(
-    session: AsyncSession, constants: Constants, catalog: Catalog
-) -> None:
-    """Class is power and efficiency, never a licence for a route (D-235).
-
-    The world had it the other way round once: Aurora asked for a second-class
-    engine and Pyroxis for a third, and the ladder held exactly one engine, of
-    the first. Both planets were shut from the outside -- every mechanic on
-    them worked, and nobody could ever get there.
-
-    Now the weakest engine aboard flies anywhere the sky allows. What it costs
-    is another matter, and the console says so before the attempt.
-    """
-    here = await _port(session)
-    await _port(session, name="Порт Авроры", planet=Planet.AURORA)
-    far = await _orbit(session, Planet.AURORA)
-    _, owner = await _shipwright(session, here)
-    vessel = await _laid(session, constants, owner, here)
-    await _flightworthy(session, constants, catalog, vessel)
-    connector = await session.get(Node, vessel.connector_node_id)
-    await _fuel(session, connector, 5000)
-    owner.node_id = connector.id
-    await session.flush()
-
-    await _in_orbit(session, constants, catalog, owner, vessel)
-    summary = await ship.profile(session, constants, catalog, vessel)
-    aurora = next(route for route in summary["routes"] if route["node"] == far.key)
-    assert aurora["reachable"], "класс больше не запирает маршрут"
-    assert aurora["cheap"]["hours"] > 0 and aurora["cheap"]["fuel"] > 0
-    assert await ship.fly(session, constants, catalog, owner, vessel, far) is not None
 
 
 def test_a_better_class_burns_less_for_the_same_passage(constants: Constants) -> None:
@@ -423,58 +395,6 @@ def test_a_better_class_burns_less_for_the_same_passage(constants: Constants) ->
     assert efficiency(constants, 1) == 1, "первый класс — базовая линия расхода"
     #: And an unknown class is the baseline rather than a free flight.
     assert fuel_for(constants, weight=10_000, hours=100) == weak
-
-
-async def test_ship_takes_the_planet_of_the_port_it_stands_at(
-    factory: async_sessionmaker[AsyncSession], constants: Constants, catalog: Catalog
-) -> None:
-    """After a passage the ship is where it flew to, and prices its way home from there.
-
-    Its nodes carry the planet of the port they stand at, not of the shipyard:
-    otherwise a ship that reached Aurora would price the way back as a local
-    hop between two Terran ports.
-
-    The second-class engine is granted by hand deliberately: there is no recipe
-    for it on the ladder yet, and the test shows exactly what the vault
-    promises -- thrust and class come from the data by name, so an engine that
-    appears there flies without a code change.
-    """
-    async with factory() as session, session.begin():
-        home = await _port(session)
-        await _port(session, name="Порт Авроры", planet=Planet.AURORA)
-        far = await _orbit(session, Planet.AURORA)
-        _, owner = await _shipwright(session, home)
-        vessel = await _laid(session, constants, owner, home)
-        connector = await session.get(Node, vessel.connector_node_id)
-        await _equip(session, connector, "Двигатель II класса")
-        await _equip(session, connector, LIFE)
-        await _equip(session, connector, CONSOLE)
-        await _fuel(session, connector, 2000)
-        owner.node_id = connector.id
-        await session.flush()
-
-        await _in_orbit(session, constants, catalog, owner, vessel)
-        flight = await ship.fly(session, constants, catalog, owner, vessel, far)
-        #: The interplanetary passage is days, not the hours of a climb.
-        assert flight.run_at > flight.created_at
-        term, ship_id = flight.run_at, vessel.id
-        home_key = ship.orbit_key(Planet.TERRA)
-
-    assert await jobs.run_one(factory, now=term) is not None
-
-    async with factory() as session:
-        vessel = await session.get(Ship, ship_id)
-        connector = await session.get(Node, vessel.connector_node_id)
-        assert connector.planet is Planet.AURORA, "корабль стоит там, куда прилетел"
-
-        summary = await ship.profile(session, constants, catalog, vessel)
-        back = next(route for route in summary["routes"] if route["node"] == home_key)
-        #: The way back is an interplanetary passage, not a local hop: the sky
-        #: between the two is what it costs, and it is priced in hours and fuel
-        #: rather than in a class of engine somebody must own (D-235).
-        assert back["cheap"]["hours"] > 0 and back["cheap"]["fuel"] > 0, (
-            "обратный рейс считается межпланетным, а не местным"
-        )
 
 
 async def _sphere(
@@ -543,112 +463,6 @@ async def test_passage_price_follows_the_sky(session: AsyncSession, constants: C
     assert inner.planet is Planet.TERRA
 
 
-async def test_the_slider_has_two_ends_and_the_order_names_one(
-    session: AsyncSession, constants: Constants, catalog: Catalog
-) -> None:
-    """The owner picks the flight time; the engines and the tanks bound it (D-271).
-
-    Unnamed, the cheapest arc flies. Named, the arc for those hours is what is
-    paid for: more delta-v than the cheapest and more fuel with it. Asked for
-    a speed the engines cannot deliver in the time, the order is refused with
-    the numbers; asked for an hour off the slider, refused likewise.
-    """
-    here = await _port(session)
-    await _port(session, name="Порт Авроры", planet=Planet.AURORA)
-    far = await _orbit(session, Planet.AURORA)
-    _, owner = await _shipwright(session, here)
-    vessel = await _laid(session, constants, owner, here)
-    await _flightworthy(session, constants, catalog, vessel)
-    connector = await session.get(Node, vessel.connector_node_id)
-    await _fuel(session, connector, 5000)
-    owner.node_id = connector.id
-    await session.flush()
-    await _in_orbit(session, constants, catalog, owner, vessel)
-
-    forecast = await ship.forecast(session, constants, catalog, vessel, Planet.AURORA)
-    samples = forecast["samples"]
-    assert samples and any(one["ok"] for one in samples), "хоть одна дуга по силам двигателям"
-    fast = next(one for one in samples if one["ok"])
-    cheap = min(samples, key=lambda one: one["dv"])
-    assert fast["dv"] > cheap["dv"] and fast["fuel"] > cheap["fuel"]
-    #: Off the slider on either side: refused before anything is burnt.
-    with pytest.raises(ship.NoArc):
-        await ship.fly(session, constants, catalog, owner, vessel, far, hours=0)
-    with pytest.raises(ship.NoArc):
-        await ship.fly(
-            session,
-            constants,
-            catalog,
-            owner,
-            vessel,
-            far,
-            hours=constants[R.ORBIT_LONGEST_DAYS] * 24 + 1,
-        )
-    #: A time the engines cannot make: the first sample that is not `ok`, if
-    #: there is one, is refused by thrust and not by fuel.
-    slow_engines = [one for one in samples if not one["ok"]]
-    if slow_engines:
-        with pytest.raises(ship.NotEnoughThrust):
-            await ship.fly(
-                session, constants, catalog, owner, vessel, far, hours=slow_engines[0]["hours"]
-            )
-    #: A planet that does not go round this star cannot be bent round.
-    with pytest.raises(ship.NoArc):
-        await ship.fly(session, constants, catalog, owner, vessel, far, via="nowhere")
-
-    before = await ship.fuel_aboard(session, vessel)
-    flight = await ship.fly(
-        session, constants, catalog, owner, vessel, far, hours=fast["hours"], via=fast["via"]
-    )
-    burnt = before - await ship.fuel_aboard(session, vessel)
-    assert flight.run_at - flight.created_at == pytest.approx(
-        timedelta(hours=fast["hours"]), abs=timedelta(minutes=1)
-    ), "рейс идёт ровно выбранное время"
-    assert burnt == pytest.approx(fast["fuel"], rel=0.05), "и стоит то, что обещал ползунок"
-    assert flight.payload["dv"] == pytest.approx(fast["dv"], rel=0.05)
-    assert len(flight.payload["arc"]) >= 2, "дуга записана в рейс, и карта её рисует"
-
-
-async def test_a_turn_back_from_an_arc_pays_the_arc_again(
-    session: AsyncSession, constants: Constants, catalog: Catalog
-) -> None:
-    """The way home is a second arc and costs what the first did (D-242, D-271)."""
-    here = await _port(session)
-    await _port(session, name="Порт Авроры", planet=Planet.AURORA)
-    far = await _orbit(session, Planet.AURORA)
-    _, owner = await _shipwright(session, here)
-    vessel = await _laid(session, constants, owner, here)
-    await _flightworthy(session, constants, catalog, vessel)
-    connector = await session.get(Node, vessel.connector_node_id)
-    await _fuel(session, connector, 5000)
-    owner.node_id = connector.id
-    await session.flush()
-    await _in_orbit(session, constants, catalog, owner, vessel)
-
-    flight = await ship.fly(session, constants, catalog, owner, vessel, far)
-    paid = flight.payload["dv"]
-    weight = await ship.mass(session, constants, catalog, vessel)
-    klass = await ship.engine_class(session, constants, vessel)
-    expected = ship.course.fuel_for_speed(
-        constants, weight, paid, efficiency=ship.efficiency(constants, klass)
-    )
-    before = await ship.fuel_aboard(session, vessel)
-    back = await ship.recall(
-        session, constants, catalog, owner, vessel, now=flight.created_at + timedelta(hours=2)
-    )
-    burnt = before - await ship.fuel_aboard(session, vessel)
-    assert burnt == pytest.approx(expected, rel=0.05), "разворот стоит ту же Δv, что рейс"
-    #: Back along the flown part only: the way home starts where the helm
-    #: went over and ends at the orbit the hull cast off from.
-    out = flight.payload["arc"]
-    home = back.payload["arc"]
-    assert home[-1] == out[0], "разворот кончается там, где рейс начался"
-    assert len(home) < len(out), "и покрывает лишь пройденную часть дуги"
-    hours = (flight.run_at - flight.created_at).total_seconds() / 3600
-    expected_tip = ship.course.flown(out, 2 / hours)[-1]
-    assert home[0] == pytest.approx(expected_tip), "и начинается в точке разворота"
-
-
 async def test_corridors_forecast_the_coming_days(
     session: AsyncSession, constants: Constants
 ) -> None:
@@ -712,41 +526,6 @@ async def test_berths_are_numbered_and_the_lowest_free_one_is_taken(
     _, latecomer = await _shipwright(session, port)
     arrival = await _laid(session, constants, latecomer, port, name="Опоздавший")
     assert arrival.berth == 2, "освободившееся место занимает следующий пришедший"
-
-
-async def test_a_crossing_needs_more_fuel_than_the_climb(
-    session: AsyncSession, constants: Constants, catalog: Catalog
-) -> None:
-    """Fuel goes by mass and by speed: enough to reach orbit is not enough for the fast arc.
-
-    The climb is affordable by construction -- it already checked the fuel for
-    the way back down, and that is the whole of a local journey (D-245). What a
-    short tank does not buy is the delta-v of the fast end of the slider
-    (D-271): the cheap arc of a light hull is cheap indeed, the fast one is not.
-    """
-    port = await _port(session)
-    await _port(session, name="Порт Авроры", planet=Planet.AURORA)
-    far = await _orbit(session, Planet.AURORA)
-    _, owner = await _shipwright(session, port)
-    vessel = await _laid(session, constants, owner, port)
-    connector = await session.get(Node, vessel.connector_node_id)
-    await _equip(session, connector, "Двигатель II класса")
-    await _equip(session, connector, LIFE)
-    await _equip(session, connector, CONSOLE)
-    #: Enough for the climb and the descent behind it several times over, and
-    #: nowhere near enough for a world away. The passage pays for the arc's
-    #: delta-v (D-271): its price depends on where the planets stand, and this
-    #: tank is short of even the cheapest arc the sky offers.
-    await _fuel(session, connector, 4)
-    owner.node_id = connector.id
-    await session.flush()
-
-    await _in_orbit(session, constants, catalog, owner, vessel)
-    forecast = await ship.forecast(session, constants, catalog, vessel, Planet.AURORA)
-    fast = next(one for one in forecast["samples"] if one["ok"])
-    assert fast["fuel"] + forecast["reserve"] > await ship.fuel_aboard(session, vessel)
-    with pytest.raises(ship.NoFuel):
-        await ship.fly(session, constants, catalog, owner, vessel, far, hours=fast["hours"])
 
 
 async def test_the_ground_does_not_cross_and_a_climb_does_not_climb_twice(

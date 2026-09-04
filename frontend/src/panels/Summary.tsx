@@ -135,9 +135,10 @@ function detail(row: Happened, names: Names | null): string | null {
   //: A law is an id too, and its own table names it: the line used to read
   //: «город изменил закон · tax_trade» to the very person who changed it.
   if (typeof p.law === "string" && p.law) return lawName(names, p.law);
-  //: A node and a person are already words: both are named by whoever made
-  //: them, and there is no table to look either up in.
-  for (const key of ["node", "to"]) {
+  //: A node, a person and a hull are already words: all are named by
+  //: whoever made them, and there is no table to look any of them up in.
+  //: `other` is the other hull of a meeting (D-289), `name` the hull itself.
+  for (const key of ["node", "to", "other", "name"]) {
     const value = p[key];
     if (typeof value === "string" && value) return value;
   }

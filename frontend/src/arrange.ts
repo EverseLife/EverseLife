@@ -142,6 +142,20 @@ export function groupId(
   }
 }
 
+/**
+ * What a stack weighs, kg: its own mass by its amount, and whatever is poured
+ * into it. A full canister weighs its fill (D-230) -- the carried load counts
+ * it, so the row, the sort and the folded group must count it the same way,
+ * or the rows would not add up to their group's line. What the body carries
+ * is a different figure on purpose: a pack lightens the first kilograms
+ * (D-268), and the load over the list is that reading, not this sum.
+ */
+export function weightOf(thing: Thing): number {
+  const own = thing.mass * thing.amount;
+  const fill = (thing.content ?? []).reduce((sum, held) => sum + weightOf(held), 0);
+  return own + fill;
+}
+
 /** Two numbers, "nothing" last. Named apart from `compare`, which orders words. */
 const order = (a: number | undefined, b: number | undefined) =>
   a == null && b == null ? 0 : a == null ? 1 : b == null ? -1 : a - b;
@@ -165,7 +179,7 @@ export function arrange(
       case "amount":
         return thing.amount;
       case "mass":
-        return thing.mass * thing.amount;
+        return weightOf(thing);
       case "condition":
         return thing.condition;
       case "spoils":
@@ -222,7 +236,7 @@ export function summarize(rows: Thing[]): Summary {
     goods: kinds.size === 1 && rows.length > 0 ? rows[0].goods : null,
     amount: rows.reduce((sum, row) => sum + row.amount, 0),
     quality: weight > 0 ? weighed / weight : null,
-    mass: rows.reduce((sum, row) => sum + row.mass * row.amount, 0),
+    mass: rows.reduce((sum, row) => sum + weightOf(row), 0),
   };
 }
 

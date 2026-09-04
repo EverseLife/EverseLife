@@ -176,6 +176,11 @@ class Trade(Base):
             text("at DESC"),
             text("id DESC"),
         ),
+        #: The deals settled against one buy order: the statement opens a
+        #: deposit row into them (D-190). Deals are never deleted, and a
+        #: foreign key makes no index of its own -- without this every such
+        #: opening reads the whole history of trade.
+        Index("ix_market_trade_buy_order", "buy_order_id"),
     )
 
     id: Mapped[uuid.UUID] = uuid_pk()

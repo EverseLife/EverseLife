@@ -207,13 +207,46 @@ async def test_undertone_leaks_less(session: AsyncSession, constants: Constants)
 
 
 async def test_library_serves(session: AsyncSession, constants: Constants) -> None:
-    """A quiet library gives away, a noisy forge muffles -- a place property."""
+    """A quiet library gives away -- the legacy node property of old worlds (D-176)."""
     node, _ = await _room(session)
     ordinary_ = await chat.leak_chance(constants, session, node, group_size=1)
     node.properties = {"library": True}
     await session.flush()
     in_library = await chat.leak_chance(constants, session, node, group_size=1)
     assert in_library > ordinary_
+
+
+async def test_place_sound_is_the_class_of_what_stands(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """A standing forge muffles, a standing library gives away, and together
+    the noise wins (D-291). The place is known by the class of what stands in
+    it (D-215), not by its name: the table has no row named after the thing."""
+    node, _ = await _room(session)
+    ordinary_ = await chat.leak_chance(constants, session, node, group_size=1)
+    yard = await world.node_container(session, node)
+    await world.grant_item(session, yard, "library", quality=50, origin="тест")
+    in_library = await chat.leak_chance(constants, session, node, group_size=1)
+    assert in_library > ordinary_
+    await world.grant_item(session, yard, "forge", quality=50, origin="тест")
+    with_forge = await chat.leak_chance(constants, session, node, group_size=1)
+    assert with_forge < ordinary_, "шум сильнее тишины"
+
+
+async def test_place_sound_binds_to_the_class_not_the_name(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """The table row is the class, and a member whose key differs from the
+    class key is still found by it (D-215, D-291). A Forerunner heat plant
+    is `precursor_heat_plant` of class `heat_plant`: a lookup by the thing's
+    own key would find nothing and leave the room at its usual leak."""
+    loud = constants.with_overrides({"chat.leak_location_modifier": {"heat_plant": 0.5}})
+    node, _ = await _room(session)
+    ordinary_ = await chat.leak_chance(loud, session, node, group_size=1)
+    yard = await world.node_container(session, node)
+    await world.grant_item(session, yard, "precursor_heat_plant", origin="тест")
+    by_class = await chat.leak_chance(loud, session, node, group_size=1)
+    assert by_class < ordinary_, "класс найден, хотя ключа вещи в таблице нет"
 
 
 async def test_leaving_disbands_circle(session: AsyncSession, constants: Constants) -> None:

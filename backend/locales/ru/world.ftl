@@ -125,6 +125,13 @@ liquid-nothing-to-pour = переливать нечего
 liquid-no-room = в «{ NAME($vessel) }» свободно { NUMBER($free, minimumFractionDigits: 1, maximumFractionDigits: 1) } кг: не входит
 liquid-vessel-not-here = «{ NAME($vessel) }» не в руках и не здесь
 liquid-vessel-not-yours = «{ NAME($vessel) }» не ваша: тарой в узле распоряжается его хозяин
+liquid-mixed = в «{ NAME($vessel) }» уже налито «{ NAME($have) }»: две жидкости в одну тару не смешивают
+
+# --- линии борта (engine/ship/lines.py, D-288) --------------------------------
+
+line-no-such-port = у «{ NAME($goods) }» такого порта нет
+line-machine-not-aboard = «{ NAME($goods) }» на этом корабле не стоит: линию тянут от установленной машины
+line-vessel-not-aboard = «{ NAME($goods) }» на этом корабле не стоит: на линии стоит только установленная тара
 
 # --- воздух (engine/oxygen.py) -----------------------------------------------
 

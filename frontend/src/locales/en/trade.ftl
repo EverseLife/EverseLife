@@ -164,6 +164,11 @@ ui-inventory-nobody = There is nobody else here: handing over is hand to hand.
 ui-inventory-on-terminal = In the terminal
 ui-inventory-average = { $quality } on average
 ui-inventory-mass = { $mass } kg
+# Under the stack's weight, what it is made of: the unit's weight by the
+# count, "0.2 × 47.5". In words ("0.2 kg each") the note was three times as
+# long and pushed the goods' name onto a second line even in the widened
+# sidebar. The unit is the line above's and is not repeated.
+ui-inventory-mass-each = { $each } × { $amount }
 # Two arguments for one number: `$count` picks the form of the word (only a
 # number can do that), `$shown` is the very digits the panel has already
 # chosen. `{ $count }` itself in the text would be formatted by Fluent to the
@@ -230,6 +235,32 @@ ui-finance-memo-hint = seen by the payee and by the court
 ui-finance-transfer = Transfer
 ui-finance-statement = Statement
 ui-finance-none = no postings yet
+# The pages turn by the last row read, newest first.
+ui-finance-newer = newer
+ui-finance-older = older
+# The eye on a row: what it opens into is asked over, so the row waits a
+# moment, and a row the server no longer shows comes back with nothing.
+ui-finance-peek = Details: { $ground }
+ui-finance-peek-wait = reading…
+ui-finance-peek-none = no details
+# The reader's own leg of the operation, where a name would stand.
+ui-finance-side-me = you
+ui-finance-ground = Ground: { $ground }
+# A sale, as the seller's row opens: the tier and the quantity are details
+# after the separator, the names stay after a label (D-258).
+ui-finance-deal-goods = Goods: { $goods }, { $tier } · { $amount }
+ui-finance-deal-price = Price: { $price } ₭ · total { $cost } ₭
+ui-finance-deal-buyer = Buyer: { $name }
+# The node the terminal stands in: a place's name, not a market's.
+ui-finance-node = Node: { $node }
+ui-finance-deal-charges = Tax: { $tax } ₭ · market fee: { $fee } ₭
+ui-finance-deal-reserved = redeemed reservation
+# A deposit, as the buyer's row opens: the order the money was frozen under,
+# and the deals settled against it -- the buyer's statement has no other
+# row that says what was bought.
+ui-finance-order = Buy order: { $goods }, { $tier } · { $amount } at { $price } ₭
+ui-finance-order-filled = Filled: { $filled } of { $amount }
+ui-finance-fill = { $name } · { $amount } at { $price } ₭ · { $when }
 
 ## The coin station
 

@@ -631,3 +631,55 @@ def test_a_broken_database_never_reaches_the_reader(monkeypatch: pytest.MonkeyPa
     assert client.get("/go/discord", follow_redirects=False).status_code == 302
     said = client.post("/api/signup", json={"email": "kept@example.test", "lang": "ru"})
     assert said.status_code == 200 and said.json() == {"ok": True}
+
+
+def test_referrers_are_named_up_to_the_cap_and_direct_is_its_own_row() -> None:
+    """The graph shows buckets; the hosts behind `other` are named here.
+
+    A referrer is a stranger's header, so it is folded like a campaign: the
+    busiest by name, the tail as `other`, and a visit with no referrer as
+    `(direct)` outside the cap -- it is the biggest row and would otherwise
+    cost a real host its line.
+    """
+    client.get("/")
+    for number in range(stats.CAMPAIGN_TOP + 5):
+        client.get("/world", headers={"referer": f"https://blog-{number}.example/post?x=1"})
+    stats.flush()
+    named = re.findall(r'landing_referrer_visits\{referrer="([^"]+)"\}', stats.exposition())
+    assert len(named) <= stats.CAMPAIGN_TOP + 2, named
+    assert len(named) == len(set(named)), named
+    assert stats.DIRECT in named and "other" in named
+    #: Twenty-five hosts fill the cap whatever the neighbouring tests left
+    #: behind, so the count is what is pinned, not one host's place in it.
+    real = [one for one in named if one not in (stats.DIRECT, "other")]
+    assert len(real) == stats.CAMPAIGN_TOP, real
+
+
+def test_a_hostile_referrer_is_cleaned_before_it_is_stored() -> None:
+    """The host out of `Referer` becomes a label, so it is cleaned like a tag.
+
+    The row keeps the cleaned form too: the label set is bounded by the cap,
+    but a quote or a newline inside a value would break the line it sits on.
+    Whether this host is named or folded depends on how full the cap is by
+    now; what is pinned is that nothing unclean reaches a label either way.
+    """
+    client.get("/gameplay", headers={"referer": 'https://Ev il"Host.example:8443/x?y=1'})
+    row = visits_of("/gameplay")[0]
+    assert row["referrer"] == "ev-il-host.example"
+    named = re.findall(r'landing_referrer_visits\{referrer="([^"]*)"\}', stats.exposition())
+    assert "ev-il-host.example" in named or "other" in named, named
+    assert all(one == stats.DIRECT or not stats.SAFE.search(one) for one in named), named
+
+
+def test_a_value_named_other_never_stands_beside_the_fold() -> None:
+    """`Referer: http://other/` must not become a second `other` row.
+
+    Two series with the same labels are one series to Prometheus, and it
+    keeps whichever it saw first -- so a stranger's host named `other` would
+    silently replace the folded tail, or be replaced by it.
+    """
+    for _ in range(3):
+        client.get("/alpha", headers={"referer": "http://other/"})
+    stats.flush()
+    named = re.findall(r'landing_referrer_visits\{referrer="other"\}', stats.exposition())
+    assert len(named) == 1, named

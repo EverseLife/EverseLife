@@ -86,14 +86,14 @@ def normalize_constants(raw: Mapping[str, Any], renames: RenameTable) -> dict[st
     into the tier id here.
     """
     table = rename_key_table(renames)
-    #: Three tables key by LOWERCASED vault words rather than the names
-    #: themselves: where a chat leaks ("кузница", "библиотека") and what a
-    #: vehicle class carries and how fast ("тачка", "повозка"). The lowercase
-    #: forms are admitted for them alone; a word with no class yet ("судно")
-    #: stays as written and becomes reachable when its class arrives.
+    #: Two tables key by LOWERCASED vault words rather than the names
+    #: themselves: what a vehicle class carries and how fast ("тачка",
+    #: "повозка"). The lowercase forms are admitted for them alone; a word with
+    #: no class yet ("судно") stays as written and becomes reachable when its
+    #: class arrives. The chat leak table left this list with D-291: its keys
+    #: are class names now and go through the merged table like any other.
     lowered = {name.lower(): entry_id for name, entry_id in table.items()}
     lowercase_keyed = (
-        "chat.leak_location_modifier",
         "transport.speed_k",
         "transport.capacity",
     )

@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import * as amounts from "../amounts";
 import type { CityVote, RecipeBook, Thing } from "../api";
-import { arrange, groupId, groupKey } from "../arrange";
+import { arrange, groupId, groupKey, summarize, weightOf } from "../arrange";
 import { answered, askless, CHEST_ANY, chestOf, chestZone, fits, halved } from "../drag";
 import { goodsGlyph, nodeGlyph } from "../marks";
 import { duration, hands, stamp, when, worldTime } from "../clock";
@@ -243,6 +243,18 @@ describe("arrange", () => {
   it("sorts by name in Russian order and by amount", () => {
     expect(arrange(things, "name", false).map((t) => t.goods)).toEqual(["Верёвка", "Руда", "Руда"]);
     expect(arrange(things, "amount", true).map((t) => t.id)).toEqual(["a", "b", "c"]);
+  });
+
+  it("weighs a vessel with its fill, in the row, the sort and the group alike", () => {
+    //: A canister of 2 kg holding 10 units of water at 1 kg each weighs 12,
+    //: the way the carried load counts it (D-230).
+    const water = thing({ id: "w", goods: "Вода", amount: 10, mass: 1 });
+    const canister = thing({ id: "c", goods: "Канистра", amount: 1, mass: 2, content: [water] });
+    const rope = thing({ id: "r", goods: "Верёвка", amount: 20, mass: 0.5 });
+    expect(weightOf(canister)).toBe(12);
+    expect(weightOf(rope)).toBe(10);
+    expect(arrange([rope, canister], "mass", true).map((t) => t.id)).toEqual(["c", "r"]);
+    expect(summarize([rope, canister]).mass).toBe(22);
   });
 
   it("sorts ids by their Russian display words, not by the id", () => {
