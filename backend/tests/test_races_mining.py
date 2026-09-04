@@ -125,6 +125,109 @@ async def test_two_swings_on_one_vein_do_not_mine_the_same_ore_twice(
     )
 
 
+async def test_a_swing_that_waited_out_the_last_of_the_vein_pays_for_nothing(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    constants,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The vein is worked out while a swing is on its way to the lock.
+
+    Two picks share the remainder, and the rig shares it with both
+    (`engine.rig`). A swing reads "there is rock left" before it queues at the
+    vein's lock, and the last of that rock can be gone by the time it gets
+    there -- so the check has to be taken again, on the locked row.
+
+    Taken only once, the swing goes on with `min(per_swing, 0)` and tries to
+    lay down a heap of nothing. `item.amount_positive` stops it, so the socket
+    is answered with an IntegrityError -- an internal error where the vault
+    keeps a word for a worked-out vein (`mining-vein-depleted`, pillar P2).
+    Nothing is charged for the turn, because the transaction rolls back; that
+    is also why the assertions on stamina, roof and swings below hold either
+    way. What tells the two apart is the refusal: the world must answer with
+    its own word and not with a crash.
+    """
+    from src.engine import frost, mining
+    from src.models.mining import MiningSession
+    from src.models.world import Vein
+
+    stamp = uuid.uuid4().hex[:8]
+    node = await world.create_node(session, f"terra.last.{stamp}", "Забой", area_m2=100)
+    #: One unit left in the ground and some three and a half to a swing: the
+    #: first pick to reach the lock takes the lot, whatever the vault's numbers
+    #: are, and the second finds bare rock.
+    vein = await world.create_vein(session, node, ORE, richness=60, remaining=1)
+    faces = []
+    for i in range(2):
+        identity = await world.create_identity(session, f"Шахтёр-{i}-{stamp}")
+        body = await world.print_body(session, identity, node)
+        pocket = await world.body_container(session, body)
+        await world.grant_item(session, pocket, "stone_pickaxe", quality=50, origin="тест")
+        faces.append(await mining.start(session, current(), body, vein))
+    late, first = faces
+    late_id, first_id, late_body_id = late.id, first.id, late.body_id
+    sag, stamina = float(late.roof), float((await session.get(Body, late_body_id)).stamina)
+    await session.commit()
+
+    #: **A handshake, not a pause**, and patched only after the two sessions
+    #: are open: the multiplier is asked by `start` as well, and it is the
+    #: swing's asking that this waits on. The first caller is the late swing by
+    #: construction -- the other arm does not begin until it has signalled.
+    between_the_locks = asyncio.Event()
+    took_the_last = asyncio.Event()
+    asking = frost.drain_multiplier
+    waiting = True
+
+    async def held(*args, **kwargs):
+        nonlocal waiting
+        chill = await asking(*args, **kwargs)
+        if waiting:
+            waiting = False
+            between_the_locks.set()
+            #: Timed out rather than waited on for ever: the two sides wait for
+            #: each other, and a failure before a `set()` would hang the run
+            #: instead of failing it.
+            await asyncio.wait_for(took_the_last.wait(), timeout=5)
+        return chill
+
+    monkeypatch.setattr(frost, "drain_multiplier", held)
+    refused: list[BaseException] = []
+
+    async def swings_late() -> None:
+        try:
+            async with factory() as db, db.begin():
+                own = await db.get(MiningSession, late_id)
+                assert own is not None
+                await mining.swing(db, current(), own)
+        except mining.VeinDepleted as refusal:
+            refused.append(refusal)
+
+    async def takes_the_last() -> None:
+        #: The late swing is past the body and not yet at the vein -- by
+        #: construction.
+        await asyncio.wait_for(between_the_locks.wait(), timeout=5)
+        async with factory() as db, db.begin():
+            own = await db.get(MiningSession, first_id)
+            assert own is not None
+            await mining.swing(db, current(), own)
+        took_the_last.set()
+
+    outcome = await asyncio.gather(swings_late(), takes_the_last(), return_exceptions=True)
+    assert not [one for one in outcome if isinstance(one, BaseException)], outcome
+
+    async with factory() as db:
+        assert await db.scalar(select(Vein.remaining).where(Vein.id == vein.id)) == 0
+        late_again = await db.get(MiningSession, late_id)
+        assert late_again is not None
+        assert late_again.swings == 0, "удар по пустой жиле засчитан"
+        assert float(late_again.roof) == sag, "свод просел от удара, который ничего не добыл"
+        body = await db.get(Body, late_body_id)
+        assert body is not None
+        assert float(body.stamina) == stamina, "выносливость списана за пустой удар"
+        assert not await world.contents(db, await mining.session_container(db, late_again))
+        assert refused, "удар по выработанной жиле прошёл молча"
+
+
 async def test_two_last_swings_at_once_cost_one_cave_in(
     session: AsyncSession,
     factory: async_sessionmaker[AsyncSession],

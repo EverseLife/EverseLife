@@ -177,16 +177,8 @@ async def swing(
     #: The reread needs no lock of its own: every swing of this face is a swing
     #: of this body, so the body's row is where the two queue, and the loser
     #: reads what the winner committed -- `_require_active` then tells it the
-    #: face is closed. Taking the face's own row FOR UPDATE here instead would
-    #: be a deadlock: the eruption locks veins before sessions (`plates.clock`)
-    #: precisely because a swing goes the other way round, and holding the
-    #: session while waiting for the vein closes that circle.
-    await session.execute(
-        select(MiningSession)
-        .where(MiningSession.id == mining.id)
-        .execution_options(populate_existing=True)
-    )
-    body, vein = await _require_active(session, mining)
+    #: face is closed. Why the reread takes no lock of its own is written there.
+    body, vein = await _require_active(session, mining, fresh=True)
 
     #: A swing costs stamina, and a body at zero does not swing: the vein is
     #: not mined by free willpower. The check comes before all effects so that a
@@ -212,6 +204,28 @@ async def swing(
     #: before its remainder is spent, or two swings mine the same ore twice.
     #: Lock order everywhere: body -> rig -> vein.
     await session.refresh(vein, with_for_update=True)
+    #: And the face once more, because that lock is a place to **wait**. The
+    #: eruption takes the veins of a shaken node before the sessions at them
+    #: (`plates.clock`) and then closes those faces through `leave`, so a swing
+    #: queued at the vein wakes up behind a job that has already carried this
+    #: haul out and moved the rock to the next node. Going on from there would
+    #: lay the ore into the container of a closed session -- where nothing can
+    #: ever reach it again, because `leave` refuses by state -- and write the
+    #: roof onto a vein that is no longer at this face. A death is not the other
+    #: end of it: every death takes the body FOR UPDATE before it reaches the
+    #: face (`abandon`), and this swing is holding that row. `leave` from a
+    #: second socket of the same identity is -- and this reread only narrows its
+    #: window, because `leave` takes neither the body nor the vein and so shares
+    #: no lock with a swing at all. Closing that one needs a lock rather than a
+    #: read, and which lock is a question for the gate discipline in `abandon`.
+    #:
+    #: The whole check again, not the state alone: the rig shares this vein and
+    #: queues at this same lock (`engine.rig`), so the remainder can have gone
+    #: to nought while the swing waited. Going on then mines nothing, and a
+    #: heap of nothing is not a quiet loss but a crash -- `item.amount_positive`
+    #: stops the insert, and the socket gets an internal error where the vault
+    #: keeps a word of its own for a worked-out vein (pillar P2).
+    body, vein = await _require_active(session, mining, fresh=True)
     mined = min(amount(per_swing), vein.remaining)
 
     extracted_before = vein.extracted

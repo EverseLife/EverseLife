@@ -8,8 +8,8 @@ contested thing is the place itself -- a field the eruption burns while
 somebody carries a sack out of it, a face closed by a death and by the moving
 ground in the same second, a ruin room two scouts open at once, a node's
 properties two writers stamp together, a sown strip two harvests reap at
-once. The invariant must hold whichever side wins, and neither side may die
-of a deadlock.
+once, a swing queued at a vein the ground is carrying away. The invariant
+must hold whichever side wins, and neither side may die of a deadlock.
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ import contextlib
 import random
 import uuid
 from datetime import UTC, datetime
+from decimal import Decimal
 
 import pytest
 from sqlalchemy import select
@@ -32,7 +33,7 @@ from src.models.event import Event, EventKind
 from src.models.identity import Body, Identity
 from src.models.inventory import Item
 from src.models.world import Node, Surface, Vein
-from src.units import money
+from src.units import amount_float, money
 
 ORE = "iron_ore"
 
@@ -587,6 +588,277 @@ async def test_a_swing_and_the_eruption_pass_each_other_without_a_deadlock(
 
     outcome = await asyncio.gather(swings(), ground_shakes(), return_exceptions=True)
     assert not [one for one in outcome if isinstance(one, BaseException)], outcome
+
+
+async def test_a_swing_queued_at_the_vein_does_not_work_a_face_the_ground_took(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    constants,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The other half of that pass: not a deadlock, but the loser's own state.
+
+    A swing checks the face is open and then queues at the vein's lock -- and
+    that queue is exactly where an eruption fits, because it takes the veins of
+    a shaken node before the sessions at them. The job that goes ahead closes
+    this face through `leave` and lights the vein up in a neighbouring node, so
+    the swing wakes holding a lock on rock that is no longer here, under a
+    session that is no longer open.
+
+    Without the reread after that wait the swing goes on from what it checked
+    **before** it: the ore it mines is laid into the container of a closed
+    session, where nothing can ever reach it again -- `leave` refuses by state
+    -- and `remember_roof` stamps the sag onto a vein that has moved away, so
+    the next miner in the neighbouring node meets a roof shaken by a swing
+    struck in a field they have never been to.
+
+    Both halves are asserted on the world rather than on the refusal: what the
+    eruption carried out is nine units and not one more, and the vein carries
+    the roof it had before the swing rather than the one that swing would have
+    given it. The vein is set up **already shaken**, so the second assertion is
+    about this swing and not about a NULL that happens to still be there --
+    whether a vein ought to carry its sag into the node it moves to is a
+    question for the vault, and this test must not answer it by accident.
+    """
+    from src.engine import frost, mining, plates
+    from src.models.mining import MiningSession, Pace, SessionState
+    from src.models.world import Layer, Planet
+
+    #: **A handshake, not a pause.** The swing is let go only when the face is
+    #: provably closed and the eruption a breath from its commit: then the vein
+    #: it reaches for is held by that job, and the wait at the lock -- the
+    #: window this test is about -- happens by construction rather than after a
+    #: guessed number of milliseconds. The multiplier is asked after the body
+    #: is locked and before the vein is, which is the one place to stand.
+    between_the_locks = asyncio.Event()
+    closed_the_face = asyncio.Event()
+    asking = frost.drain_multiplier
+
+    async def held(*args, **kwargs):
+        chill = await asking(*args, **kwargs)
+        between_the_locks.set()
+        #: Each side of this handshake waits for the other, so a failure before
+        #: a `set()` would hang the run rather than fail it -- the suite has no
+        #: timeout of its own (`test_reads.py` guards a wait the same way).
+        await asyncio.wait_for(closed_the_face.wait(), timeout=5)
+        return chill
+
+    monkeypatch.setattr(frost, "drain_multiplier", held)
+    stamp = uuid.uuid4().hex[:8]
+    sphere = await world.create_node(
+        session, f"pyroxis.{stamp}", "Пироксис", planet=Planet.PYROXIS, area_m2=1, layer=Layer.SPACE
+    )
+    field = await world.create_node(
+        session,
+        f"pyroxis.{stamp}.field",
+        "Чёрное поле",
+        planet=Planet.PYROXIS,
+        area_m2=5000,
+        layer=Layer.PLANET,
+        parent=sphere,
+    )
+    near = await world.create_node(
+        session,
+        f"pyroxis.{stamp}.near",
+        "Соседнее поле",
+        planet=Planet.PYROXIS,
+        area_m2=5000,
+        layer=Layer.PLANET,
+        parent=sphere,
+    )
+    vein = await world.create_vein(session, field, ORE, richness=70, remaining=100_000)
+    #: A working somebody has already dug in: the sag is on the vein, where
+    #: D-188 keeps it, so the swing that must not happen has a value to spoil.
+    vein.roof = Decimal("80")
+    who = await world.create_identity(session, f"Вахтовик-{stamp}")
+    body = await world.print_body(session, who, field)
+    face = MiningSession(body_id=body.id, vein_id=vein.id, pace=Pace.STEADY, roof=80)
+    session.add(face)
+    await session.flush()
+    #: A haul already lying in the face, so the count afterwards tells the two
+    #: apart: nine is what the eruption carried out, more than nine is a swing
+    #: that went on into a closed session.
+    await world.grant_item(
+        session,
+        await mining.session_container(session, face),
+        ORE,
+        amount=9,
+        quality=60,
+        origin="тест",
+    )
+    field_id, near_id, body_id, vein_id, face_id = field.id, near.id, body.id, vein.id, face.id
+    stamina, rock_left, sag = float(body.stamina), vein.remaining, vein.roof
+    await session.commit()
+
+    #: The refusal is caught rather than awaited on, so that the assertions
+    #: below run and the failure names the damage -- ore in a container nobody
+    #: can open, a roof on rock in another node -- instead of the refusal that
+    #: was meant to prevent it. Anything but `SessionClosed` goes out to the
+    #: gather, where the first assertion catches it.
+    refused: list[BaseException] = []
+
+    async def swings() -> None:
+        try:
+            async with factory() as db, db.begin():
+                own = await db.get(MiningSession, face_id)
+                assert own is not None
+                await mining.swing(db, current(), own)
+        except mining.SessionClosed as refusal:
+            refused.append(refusal)
+
+    async def ground_moves() -> None:
+        #: The swing is past the body and not yet at the vein -- by construction.
+        await asyncio.wait_for(between_the_locks.wait(), timeout=5)
+        async with factory() as db, db.begin():
+            rock = await db.get(Vein, vein_id)
+            assert rock is not None
+            #: The eruption's own order, mirrored from `plates.erupted`: the
+            #: veins of the shaken node, then the sessions at their faces.
+            await db.execute(
+                select(Vein).where(Vein.node_id == field_id).order_by(Vein.id).with_for_update()
+            )
+            await db.execute(
+                select(MiningSession)
+                .join(Vein, Vein.id == MiningSession.vein_id)
+                .where(Vein.node_id == field_id, MiningSession.state == SessionState.ACTIVE)
+                .order_by(MiningSession.id)
+                .with_for_update(of=MiningSession)
+            )
+            await plates._close_faces(db, current(), rock, now=datetime.now(UTC))
+            #: And the move itself, mirrored from `plates._move_veins`: the
+            #: vein goes out here and lights up next door (D-197).
+            rock.node_id = near_id
+            closed_the_face.set()
+            #: Long enough for the swing to reach the vein's lock and queue at
+            #: it while this transaction still holds it.
+            await asyncio.sleep(0.1)
+
+    outcome = await asyncio.gather(swings(), ground_moves(), return_exceptions=True)
+    assert not [one for one in outcome if isinstance(one, BaseException)], outcome
+
+    async with factory() as db:
+        closed = await db.get(MiningSession, face_id)
+        assert closed is not None and closed.state is SessionState.LEFT
+        rock = await db.get(Vein, vein_id)
+        assert rock is not None
+        assert rock.node_id == near_id, "жила должна была уйти в соседний узел"
+        assert rock.roof == sag, "отказанный удар записал свой свод жиле, которая уехала"
+        assert rock.remaining == rock_left, "закрытый забой всё-таки выбрал породу"
+        mine = await db.get(Body, body_id)
+        assert mine is not None
+        assert float(mine.stamina) == stamina, "отказ списал выносливость"
+        pocket = sum(
+            amount_float(thing.amount)
+            for thing in await world.contents(db, await world.body_container(db, mine))
+            if thing.type_key == ORE
+        )
+        assert pocket == 9, f"вынесено не то, что было добыто: {pocket}"
+        stuck = await world.contents(db, await mining.session_container(db, closed))
+        assert not stuck, "руда легла в контейнер закрытой сессии — оттуда её не достать"
+        assert refused, "удар по закрытому забою прошёл молча"
+
+
+async def test_the_ground_waiting_at_the_vein_carries_out_the_swing_it_waited_for(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    constants,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The same pair the other way round, and nothing is refused.
+
+    Here the swing takes the vein first and the eruption queues behind it. The
+    swing is then working a face nobody has closed, so it must finish -- ore,
+    roof and all -- and the job that follows must carry that ore out with the
+    rest instead of leaving it in the face it is about to empty.
+
+    This is the direction the reread must not touch: a check after the vein's
+    lock that refused here would turn every eruption in a worked node into a
+    lost swing, which is the opposite defect and a worse one -- it would fire
+    on every pass of the tick rather than in the second of a collision.
+
+    The handshake rides on `remember_roof`: the last thing a swing does with
+    the vein in hand, and a call neither `leave` nor `abandon` ever makes, so
+    the eruption arrives with the swing provably holding the lock.
+    """
+    from src.engine import mining, plates
+    from src.engine.mining import face as mining_face
+    from src.models.mining import MiningSession, Pace, SessionState
+    from src.models.world import Layer, Planet
+
+    holds_the_vein = asyncio.Event()
+    stamping = mining_face.remember_roof
+
+    async def held(*args, **kwargs):
+        await stamping(*args, **kwargs)
+        holds_the_vein.set()
+        await asyncio.sleep(0.2)
+
+    monkeypatch.setattr(mining_face, "remember_roof", held)
+    stamp = uuid.uuid4().hex[:8]
+    sphere = await world.create_node(
+        session, f"pyroxis.{stamp}", "Пироксис", planet=Planet.PYROXIS, area_m2=1, layer=Layer.SPACE
+    )
+    field = await world.create_node(
+        session,
+        f"pyroxis.{stamp}.field",
+        "Чёрное поле",
+        planet=Planet.PYROXIS,
+        area_m2=5000,
+        layer=Layer.PLANET,
+        parent=sphere,
+    )
+    vein = await world.create_vein(session, field, ORE, richness=70, remaining=100_000)
+    who = await world.create_identity(session, f"Вахтовик-{stamp}")
+    body = await world.print_body(session, who, field)
+    face = MiningSession(body_id=body.id, vein_id=vein.id, pace=Pace.STEADY, roof=100)
+    session.add(face)
+    await session.flush()
+    field_id, body_id, vein_id, face_id = field.id, body.id, vein.id, face.id
+    await session.commit()
+
+    async def swings() -> None:
+        async with factory() as db, db.begin():
+            own = await db.get(MiningSession, face_id)
+            assert own is not None
+            await mining.swing(db, current(), own)
+
+    async def ground_moves() -> None:
+        #: The swing is past the vein's lock and holding it -- by construction.
+        await asyncio.wait_for(holds_the_vein.wait(), timeout=5)
+        async with factory() as db, db.begin():
+            #: The eruption's own order, mirrored from `plates.erupted`.
+            await db.execute(
+                select(Vein).where(Vein.node_id == field_id).order_by(Vein.id).with_for_update()
+            )
+            await db.execute(
+                select(MiningSession)
+                .join(Vein, Vein.id == MiningSession.vein_id)
+                .where(Vein.node_id == field_id, MiningSession.state == SessionState.ACTIVE)
+                .order_by(MiningSession.id)
+                .with_for_update(of=MiningSession)
+            )
+            rock = await db.get(Vein, vein_id)
+            assert rock is not None
+            await plates._close_faces(db, current(), rock, now=datetime.now(UTC))
+
+    outcome = await asyncio.gather(swings(), ground_moves(), return_exceptions=True)
+    assert not [one for one in outcome if isinstance(one, BaseException)], outcome
+
+    async with factory() as db:
+        closed = await db.get(MiningSession, face_id)
+        assert closed is not None and closed.state is SessionState.LEFT
+        assert closed.swings == 1, "удар по открытому забою не засчитан"
+        rock = await db.get(Vein, vein_id)
+        assert rock is not None and rock.roof is not None
+        assert float(rock.roof) < 100, "свод не просел от удара, который прошёл"
+        mine = await db.get(Body, body_id)
+        assert mine is not None
+        pocket = sum(
+            amount_float(thing.amount)
+            for thing in await world.contents(db, await world.body_container(db, mine))
+            if thing.type_key == ORE
+        )
+        assert pocket > 0, "добытое последним ударом осталось в закрытом забое"
 
 
 async def test_two_scouts_do_not_open_one_room_twice(

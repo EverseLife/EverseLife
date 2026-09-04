@@ -237,7 +237,7 @@ async def active(session: AsyncSession, body: Body) -> MiningSession | None:
 
 
 async def _require_active(
-    session: AsyncSession, mining: MiningSession, *, working: bool = True
+    session: AsyncSession, mining: MiningSession, *, working: bool = True, fresh: bool = False
 ) -> tuple[Body, Vein]:
     """The open session, its body and its vein.
 
@@ -247,7 +247,27 @@ async def _require_active(
     haul in it. Refusing to leave then would shut the miner in a face they
     could neither work nor walk out of -- and the ore mined by the swing before
     would stay in a container nobody can ever open again.
+
+    `fresh=True` takes the session's row as the database has it now before
+    reading it, and is what makes this worth calling **again** after a wait on
+    a lock (`face.swing`): what was checked before the wait says nothing about
+    the world after it -- the ground may have closed the face
+    (`plates._close_faces`), and a rig sharing the vein may have taken the
+    remainder to nought.
+
+    The reread locks nothing on purpose. A swing must not be holding this row
+    while it waits for the vein: the eruption takes the veins of a shaken node
+    **before** the sessions at them, precisely because a swing goes the other
+    way round, and that circle is a deadlock (pinned by
+    `test_races_ground.py`). A plain read waits for nobody, and under READ
+    COMMITTED it sees whatever the winner of the row committed.
     """
+    if fresh:
+        await session.execute(
+            select(MiningSession)
+            .where(MiningSession.id == mining.id)
+            .execution_options(populate_existing=True)
+        )
     if mining.state is not SessionState.ACTIVE:
         raise SessionClosed(
             key="mining-session-closed", session=str(mining.id), state=mining.state.value
