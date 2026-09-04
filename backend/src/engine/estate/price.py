@@ -64,9 +64,11 @@ async def forget_distances(session: AsyncSession) -> None:
 
     Not free, and known not to be: **any** new edge drops the measurements of
     the whole world, and Pyroxis lays one on every eruption (`plates._bridge`,
-    through `connect` like everything else). The cities then remeasure
-    themselves the next time somebody asks a price -- the same cost a scout's
-    trail already has, paid a few times a week rather than a few times a day.
+    through `connect` like everything else). The next world tick measures the
+    cities again (`measure_cities`) -- the same cost a scout's trail already
+    has, paid a few times a week rather than a few times a day. Until it does,
+    whoever asks a price works the distance out and writes nothing: a read does
+    not write, and the answer is the same answer.
 
     The tearing side of an eruption deletes its edges itself and does not come
     here, and that is not an omission: what is measured is the way to a city's
@@ -115,8 +117,34 @@ async def note_new_place(session: AsyncSession, one: Node, other: Node) -> None:
         return
 
 
-async def _measure_city(session: AsyncSession, center: Node, city: City) -> dict[uuid.UUID, int]:
-    """Walk from the centre once and write the result down for the whole city."""
+async def steps_from(session: AsyncSession, center: Node) -> dict[uuid.UUID, int]:
+    """How many nodes each place is from this centre. **Reads only.**
+
+    The walk itself, told apart from writing it down (`measure_city`), because
+    the two have different callers: the tick writes, and a read -- the plot
+    screen, the price under the buy button -- only asks. Filling the cache from
+    inside a read is what this split is for: `look` is declared readonly, and
+    for a while it wrote a row for every plot of a city nobody had measured yet
+    (`db/readonly`, CLAUDE.md "чтение не пишет").
+
+    Remembered for the command (`db.base.remember`): the plot screen asks the
+    price and the day's tax of one place, and both want the same walk. The
+    memory dies on any write, so an edge laid in the same command is not
+    answered from before it -- and by the same token it is **no help to a
+    writer**: the day's levy transfers money for every plot in turn, and each
+    transfer throws the memory away. That is why the levy measures first
+    rather than leaning on this.
+    """
+
+    return await remember(session, ("steps_from", center.id), lambda: _walk_from(session, center))
+
+
+#: The map as a walk sees it: who is next to whom, and what is afloat.
+Graph = tuple[dict[uuid.UUID, list[uuid.UUID]], set[uuid.UUID]]
+
+
+async def _graph(session: AsyncSession) -> Graph:
+    """Read the map once. Two queries, and both are the whole of the cost here."""
 
     edges = (await session.execute(select(Edge))).scalars().all()
     neighbours: dict[uuid.UUID, list[uuid.UUID]] = {}
@@ -129,20 +157,46 @@ async def _measure_city(session: AsyncSession, center: Node, city: City) -> dict
     #: ship's node is ever joined, so no road leads back out through a hull and
     #: no distance is ever wanted for one. Without this the walk wandered the
     #: cabins of every ship in port, and the "farther than any road" number
-    #: below moved with the shipping.
+    #: moved with the shipping.
     afloat = set(
         (await session.execute(select(Node.id).where(Node.properties.has_key(ABOARD)))).scalars()
     )
+    return neighbours, afloat
 
-    steps = {center.id: 0}
-    queue: deque[uuid.UUID] = deque([center.id])
+
+def _walk(graph: Graph, center: uuid.UUID) -> dict[uuid.UUID, int]:
+    """The walk itself: no database, so a tick measuring ten cities reads the
+    map once and walks it ten times."""
+
+    neighbours, afloat = graph
+    steps = {center: 0}
+    queue: deque[uuid.UUID] = deque([center])
     while queue:
         here = queue.popleft()
         for neighbour in neighbours.get(here, ()):
             if neighbour not in steps and neighbour not in afloat:
                 steps[neighbour] = steps[here] + 1
                 queue.append(neighbour)
+    return steps
 
+
+async def _walk_from(session: AsyncSession, center: Node) -> dict[uuid.UUID, int]:
+    return _walk(await _graph(session), center.id)
+
+
+async def measure_city(
+    session: AsyncSession, center: Node, city: City, graph: Graph | None = None
+) -> dict[uuid.UUID, int]:
+    """Write down what the walk found, for the whole city at once.
+
+    A write, and called from write contexts only -- `measure_cities` below, and
+    through it the world tick and the day's levy. Whoever reads a distance gets
+    it from `steps_from` and leaves nothing behind. `graph` is the map already
+    in hand, when there is one: a tick measuring several cities reads it once
+    for all of them.
+    """
+
+    steps = _walk(graph, center.id) if graph else await steps_from(session, center)
     #: No road to the node -- the land lies beyond the farthest ring the city
     #: reaches, and it is counted as further than any of them.
     beyond = len(steps)
@@ -182,6 +236,14 @@ async def nodes_from_center(session: AsyncSession, node: Node, city: City) -> in
 
     Read from the node, walked for only when what is written there was measured
     to another centre or dropped by a change in the graph (`models/world.Node`).
+
+    **And the walk writes nothing.** This is the plot screen's road as much as
+    the levy's, and `look` is a read (CLAUDE.md): filling the cache here wrote
+    a row per plot from inside a command declared readonly, which raised on a
+    developer copy and passed silently in production. The cache is filled by
+    the tick (`measure_cities`) and grown at the edges by `note_new_place`;
+    until it has been, the number is worked out afresh -- the same number, at
+    the price of one walk per command.
     """
     center = await center_of(session, city)
     if center is None:
@@ -194,13 +256,77 @@ async def nodes_from_center(session: AsyncSession, node: Node, city: City) -> in
         #:
         #: A plot nobody had measured by then has nothing to keep, and the
         #: engine does not invent it a distance: it stands at nought until a
-        #: printer is put back and the city is measured again.
+        #: printer is put back and the city is measured again. Nought is the
+        #: **centre's** own rate, the dearest in town, so this is a window and
+        #: not a rule: it opens where a city has never been measured and a
+        #: printer goes in the same breath, and the world tick shuts it. What
+        #: a city with no centre ought to charge at all is OQ-126.
         return node.center_steps if node.center_steps is not None else 0
     if node.center_node_id == center.id and node.center_steps is not None:
         return node.center_steps
 
-    steps = await _measure_city(session, center, city)
+    steps = await steps_from(session, center)
     return steps.get(node.id, len(steps))
+
+
+async def measure_cities(session: AsyncSession) -> int:
+    """Measure every city that has none, and write it down. World tick.
+
+    What must tick, ticks in a worker job (CLAUDE.md): the distance to a
+    centre is a cache, and the two things that empty it -- a new world, and a
+    road laid anywhere (`forget_distances`) -- are both write moments nobody
+    is standing at. So the tick picks the work up rather than the next player
+    to open a plot screen.
+
+    One query when there is nothing to do, and one reading of the map when
+    there is -- however many cities are behind. And it matters that the tick
+    writes rather than a reader: what was measured while the printer stood is
+    what a city keeps when the printer is carried away (`nodes_from_center`),
+    and leaving that to whoever happened to look first made a city's rates
+    depend on whether anybody had (OQ-126).
+    """
+
+    #: Asked of the database rather than city by city: a world where nothing
+    #: is missing costs this one query and stops. And it asks the right
+    #: question -- **is any node of this city unmeasured** -- rather than "is
+    #: the centre unmeasured": a plot the growing rule refuses to measure (a
+    #: node that is not city land, an anchor with no distance of its own) would
+    #: otherwise stay NULL for ever behind a measured centre, and every read of
+    #: it would walk the graph again, for ever.
+    behind = (
+        (
+            await session.execute(
+                select(City).where(
+                    select(Node.id)
+                    .where(
+                        or_(
+                            Node.owner_city_id == City.id,
+                            Node.id == City.node_id,
+                            and_(Node.parent_id == City.node_id, Node.owner_city_id.is_(None)),
+                        ),
+                        Node.center_steps.is_(None),
+                    )
+                    .exists()
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not behind:
+        return 0
+
+    graph = await _graph(session)
+    measured = 0
+    for city in behind:
+        center = await center_of(session, city)
+        #: No printer, no centre to count from, and nothing to write: what was
+        #: measured while it stood is what the city keeps (`nodes_from_center`).
+        if center is None:
+            continue
+        await measure_city(session, center, city, graph)
+        measured += 1
+    return measured
 
 
 async def price_of(
@@ -281,6 +407,13 @@ async def levy_land_tax(
 ) -> dict[str, int]:
     """Charge every built and held plot its day of land tax. Daily tick (D-127).
 
+    Measures the cities first. Not for tidiness: the levy asks how far every
+    plot in the world is from its printer, and on a cold cache -- any new edge
+    drops the lot, and Pyroxis lays one per eruption -- each plot would walk
+    the whole edge table for itself. The per-command memory is no use here,
+    because the levy writes between the questions (a transfer, a journal line)
+    and a write throws that memory away. One walk per city, paid once.
+
     Who pays is who holds the deed, wherever the plot stands: a bought civic
     plot is still the city's land and still the holder's bill (D-149). A city's
     own node pays nothing -- a city taxing itself moves money from one pocket
@@ -293,6 +426,8 @@ async def levy_land_tax(
     (D-166). The shortfall goes into the journal, where arrears can be seen --
     and counted, once there is something to count them with.
     """
+
+    await measure_cities(session)
 
     held = (
         (

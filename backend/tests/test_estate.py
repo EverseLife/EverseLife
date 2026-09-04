@@ -72,16 +72,27 @@ async def test_each_city_counts_from_its_own_printer(
 async def test_measured_distance_is_written_down(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """One walk measures the whole city, not the plot that was asked about."""
+    """One walk measures the whole city, not the plot that was asked about --
+    and the walk is the tick's, not a reader's.
+
+    Asking is free of consequence: the plot screen shows the day's tax, and it
+    used to be the screen that filled the cache, writing a row per plot from
+    inside a command declared readonly (`db/readonly`, `test_reads`).
+    """
     city, core, near, far = await _city(session, catalog)
     assert near.center_steps is None
 
     assert await estate.nodes_from_center(session, near, city) == 1
+    assert near.center_steps is None, "спросить -- не измерить"
 
-    assert near.center_node_id == core.id
+    assert await estate.measure_cities(session) == 1
+
+    assert near.center_node_id == core.id and near.center_steps == 1
     #: The far plot was never asked for, and is measured all the same: the walk
     #: passed it, and the day's tax will want it within the minute.
     assert far.center_steps == 2
+    #: And a measured city is not walked again: the next tick finds its work done.
+    assert await estate.measure_cities(session) == 0
 
 
 async def test_a_new_road_is_measured_again(
@@ -91,6 +102,10 @@ async def test_a_new_road_is_measured_again(
     from src.engine import travel
 
     city, core, _, far = await _city(session, catalog)
+    #: Measured first, or there is nothing for the new edge to drop and the
+    #: assertion below holds whether the dropping works or not.
+    await estate.measure_cities(session)
+    assert far.center_steps == 2
     assert await estate.nodes_from_center(session, far, city) == 2
 
     await travel.connect(session, core, far, base_seconds=30, surface=Surface.PAVED)
@@ -111,6 +126,7 @@ async def test_a_trail_to_a_new_place_keeps_the_measurements(
     from src.engine import travel
 
     city, core, near, far = await _city(session, catalog)
+    await estate.measure_cities(session)
     assert await estate.nodes_from_center(session, far, city) == 2
 
     #: A plot found inside the walls belongs to the city it was found in
@@ -147,6 +163,11 @@ async def test_a_city_that_lost_its_printer_keeps_its_rates(
     from src.engine import city as town_
 
     city, core, near, far = await _city(session, catalog)
+    #: Measured while the printer still stands -- by the tick, which is the
+    #: whole point: the city keeps what was measured then, and leaving that to
+    #: whoever happened to open a plot screen first made its rates depend on
+    #: whether anybody had.
+    await estate.measure_cities(session)
     steps = await estate.nodes_from_center(session, far, city)
     assert steps == 2
     priced = await estate.price_of(session, constants, catalog, city, far)
@@ -190,6 +211,7 @@ async def test_a_find_is_measured_without_a_printer_too(
     from src.engine import travel
 
     city, core, _, far = await _city(session, catalog)
+    await estate.measure_cities(session)
     assert await estate.nodes_from_center(session, far, city) == 2
 
     yard = await world.node_container(session, core)
