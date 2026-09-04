@@ -268,9 +268,14 @@ def roof_of(constants: Constants, vein: Vein) -> float:
     Stored on the vein and shared by everyone who digs it (D-099): one miner
     shakes the roof -- it is dangerous for the next. An untouched vein has none
     yet, and its first session starts from richness and the working's own
-    measure (D-302). **Below nought the working is not standing but buried**
-    (D-301): the number is what is left of the rubble, and a swing clears it
-    rather than mining.
+    measure (D-302). Richness is why a rig, which never asks this question,
+    still moves the answer: it eats the vein twice as fast (D-115), and a
+    poorer vein starts a kinder roof. What a rig does not do is have one --
+    the roof is the swing's mechanic, and a machine has no swing (D-304).
+
+    **Below nought the working is not standing but buried** (D-301): the
+    number is what is left of the rubble, and a swing clears it rather than
+    mining.
 
     Read under the lock the caller already holds on the vein, and never
     remembered past the command: the session used to carry a copy taken at
