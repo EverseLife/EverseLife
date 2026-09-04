@@ -284,8 +284,8 @@ ui-mine-pace = темп: { $fast ->
         [true] быстрый
        *[false] ровный
     }
-ui-mine-collapsed = Обрушение. Всё добытое за сессию потеряно.
-ui-mine-closed = Сессия закрыта.
+ui-mine-collapsed = Обвал. Всё добытое за сессию потеряно.
+ui-mine-collapsed-lost = добыто: { $lost }
 
 ## Буровая: капитал вместо труда.
 
