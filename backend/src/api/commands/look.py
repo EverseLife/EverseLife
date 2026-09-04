@@ -575,6 +575,9 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
         #: Only what lies loose: what stands -- machines, furniture, chests put
         #: up -- has its own windows and pays for its place differently
         #: (D-106, D-181); a machine dropped here is cargo among the rest (D-278).
+        #: A chest dropped here is in both lists on purpose (D-313): here it is
+        #: the cargo one picks up, weight and all, and in `storages` it is the
+        #: box one opens. Two affordances of one thing, not two things.
         "things": [thing for thing in shown if thing["id"] in loose],
         #: Whether this one may reach the floor at all: everybody inside may.
         "open": await access.may_enter(db, node, identity.id),

@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from ship_kit import ENGINE, _equip, _laid, _port, _shipwright
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import jobs, occupation, rest, ship, travel, world
+from src.engine import gear, jobs, occupation, rest, ship, storage, travel, world
 from src.models.estate import Building
 from src.models.identity import Body
 from src.models.job import JobState
@@ -263,9 +263,92 @@ async def test_every_node_is_both_a_place_and_mass(
         2 * constants[R.SHIP_NODE_MASS]
     ), "второй узел добавил ровно свою массу"
 
-    #: Cargo weighs as well, and a chest does not hide it.
+    #: Cargo weighs as well.
     await _equip(session, connector, "iron_ingot", amount=100)
     assert await ship.mass(session, constants, catalog, vessel) > 2 * constants[R.SHIP_NODE_MASS]
+
+
+async def test_a_chest_aboard_does_not_hide_its_cargo(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Mass hiding inside furniture is mass all the same (D-313).
+
+    A hull flies by thrust over mass, so a chest that weighed only its lid
+    would be a free hold: pack the ore into furniture and the passage times
+    would believe it.
+    """
+    port = await _port(session)
+    _, body = await _shipwright(session, port)
+    vessel = await _laid(session, constants, body, port)
+    connector = await session.get(Node, vessel.connector_node_id)
+
+    bare = await ship.mass(session, constants, catalog, vessel)
+    chest = await _equip(session, connector, "chest")
+    await world.grant_item(
+        session,
+        await storage.inside(session, chest),
+        "iron_ingot",
+        amount=100,
+        quality=60,
+        origin="тест",
+    )
+    assert await ship.mass(session, constants, catalog, vessel) == pytest.approx(
+        bare + gear.mass_of(catalog, "chest", 1) + gear.mass_of(catalog, "iron_ingot", 100)
+    )
+
+
+async def test_a_hull_weighs_all_the_way_down(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """One lid deep is not deep enough (D-313).
+
+    A chest inside a chest and a loaded barrow standing in a compartment were
+    the two ways left to fly with a free hold: the hull opened exactly one
+    layer of storage and never looked into a vehicle at all. Thrust over mass
+    is what every passage time comes from, so a lie here reaches the clock.
+    """
+    from src.engine import storage, transport
+
+    port = await _port(session)
+    _, body = await _shipwright(session, port)
+    vessel = await _laid(session, constants, body, port)
+    connector = await session.get(Node, vessel.connector_node_id)
+    bare = await ship.mass(session, constants, catalog, vessel)
+
+    #: A chest in a chest: the hull used to see two lids and no ore.
+    outer = await _equip(session, connector, "chest")
+    inner = await world.grant_item(
+        session, await storage.inside(session, outer), "chest", quality=60, origin="тест"
+    )
+    await world.grant_item(
+        session,
+        await storage.inside(session, inner),
+        "iron_ingot",
+        amount=40,
+        quality=60,
+        origin="тест",
+    )
+    #: A loaded barrow: a vehicle is not placeable, so it lies aboard as cargo
+    #: -- and its hold was never opened by anybody.
+    barrow = await _equip(session, connector, "wheelbarrow")
+    await world.grant_item(
+        session,
+        await transport.cargo(session, barrow),
+        "iron_ingot",
+        amount=60,
+        quality=60,
+        origin="тест",
+    )
+
+    lids = (
+        gear.mass_of(catalog, "chest", 2)
+        + gear.mass_of(catalog, "wheelbarrow", 1)
+        + gear.mass_of(catalog, "iron_ingot", 100)
+    )
+    assert await ship.mass(session, constants, catalog, vessel) == pytest.approx(bare + lids)
+    #: And the split says the same: what hides in a box is cargo, not machinery.
+    parts = await ship.mass_parts(session, constants, catalog, vessel)
+    assert parts["hull"] + parts["machines"] + parts["cargo"] == pytest.approx(bare + lids)
 
 
 async def test_thrust_and_class_come_from_the_vault_by_name(

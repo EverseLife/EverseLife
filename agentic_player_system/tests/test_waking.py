@@ -121,12 +121,15 @@ def test_a_long_work_on_the_spot_is_looked_at_again_within_the_hour() -> None:
     through all of it would be the idling this whole rule exists to stop, so
     the wait stops at the horizon and the agent decides for itself."""
     days = datetime.now(UTC) + timedelta(days=8)
-    ceiling = datetime.now(UTC) + waking.MAX_STANDING_WAIT
     for kind in ("forage", "craft", "mend"):
         seen = {"look": {"doings": [{"kind": kind, "until": days.isoformat()}]}}
         moment = waking.busy_until(seen)
+        #: Read after the call, so the horizon it is compared against is never
+        #: earlier than the one `busy_until` computed from its own clock: two
+        #: reads of a moving clock never tie, and the later one has to be ours.
+        ceiling = datetime.now(UTC) + waking.MAX_STANDING_WAIT
         assert moment is not None and moment <= ceiling, kind
-        assert moment > datetime.now(UTC) + waking.MAX_STANDING_WAIT - timedelta(minutes=1), kind
+        assert moment > ceiling - timedelta(minutes=1), kind
     #: The horizon is for the works of the hands alone: on the road the body
     #: cannot act at all, and no amount of looking would change that.
     road = {"look": {"travel": {"arrives_at": days.isoformat()}}}
