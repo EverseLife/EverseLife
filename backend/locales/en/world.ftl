@@ -60,8 +60,8 @@ farm-fertilize-sown = { $state ->
     }
 farm-not-a-fertilizer = { NAME($goods) } is not a fertilizer: the land is fed compost or the mineral one
 farm-no-fertilizer = { $need } of { NAME($goods) } needed: the dose goes by area
-farm-not-a-protectant = { NAME($goods) } is not a protectant: a bed is treated with a fungicide, an acaricide, an insecticide or a bactericide
-farm-no-protectant = { $need } of { NAME($goods) } needed: the dose goes by area
+farm-not-a-protectant = { NAME($goods) } is not a treatment: a plot is treated with a fungicide, an acaricide, an insecticide or a bactericide
+farm-no-protectant = { $need } of { NAME($goods) } needed: the treating dose goes by area
 farm-land-sated = { $plot } has had its fill: fertility is at the ceiling, and the fertilizer would go to waste
 farm-no-water = { $need } water needed: there is no river here, water is carried by hand
 farm-too-cold = { $culture } would freeze here: the night drops to { $night } degrees

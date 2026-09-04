@@ -31,5 +31,5 @@ care-crowd = Fear of crowding: { $risk } of 5. Thinning lifts the crowding but t
        *[fill] at sprouting, in leaf, in bloom or at filling
     }; what is pulled is not put back.
 care-weeds = Weeds are pulled when seen: they drink its water and hold its growth back.
-care-pest-risk = Fear of pests: { $risk } of 5.
-care-pests = A pest comes for a mistake: overwatered — spots on the leaf, put out with a fungicide; left dry — webbing, put out with an acaricide; left weedy — bitten leaves, put out with an insecticide; fed wrong — rot in the axil, put out with a bactericide. A treatment holds while the preparation holds, and one already struck it only stops: what it took does not come back.
+care-pest-risk = Fear of trouble: { $risk } of 5.
+care-pests = Trouble comes of a mistake: overwatering — spots on the leaf, treated with a fungicide; drought — webbing, with an acaricide; weeds — bitten leaves, with an insecticide; a wrong feeding — rot in the axil, with a bactericide. A treatment holds while the preparation lasts, and a trouble already under way it only halts: what it took does not come back.

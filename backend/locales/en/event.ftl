@@ -19,7 +19,7 @@ event-farm-died = plot died
 event-farm-ripened = plot ripe
 # A pest (D-299): the summary names the sign, not the trouble -- which
 # bottle answers it is known to whoever read the agronomy.
-event-farm-struck = a pest is on the bed
+event-farm-struck = trouble on the plot
 event-explore-found = scouting: a find
 event-explore-empty = scouting: nothing
 event-body-died = body died
