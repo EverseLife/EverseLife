@@ -338,11 +338,19 @@ async def _paving(session: AsyncSession, body: Body, jobs: Journal) -> Doing | N
 
     The surface is written off at the order and the road rises on schedule --
     the same shape as a build, on a road instead of a plot.
+
+    One job kind covers two works: laying a tier and topping up a road that
+    sagged (`road.lay(mend=)`). The line says which, because the window offered
+    them under two different words -- a worker who pressed "top up" and reads
+    "a surface is being laid" is being told about somebody else's work.
     """
     job = await jobs.of(JobKind.ROAD_WORK)
     if job is None:
         return None
-    return Doing(PAVING, Says("doing-paving-what"), job.run_at)
+    #: A variant key in Fluent is an identifier, never a value -- so the choice
+    #: travels as a flag, the way a plot's name does.
+    mend = "true" if job.payload.get("mend") else "false"
+    return Doing(PAVING, Says("doing-paving-what", {"mend": mend}), job.run_at)
 
 
 async def _crafting(session: AsyncSession, body: Body, jobs: Journal) -> Doing | None:

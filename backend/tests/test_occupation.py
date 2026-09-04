@@ -33,6 +33,7 @@ from src.engine import craft, estate, farm, forage, occupation, rest, road, trav
 from src.models.craft import BatchState
 from src.models.farm import PlotState
 from src.models.job import JobState
+from src.models.world import Surface
 
 INGOT = "iron_ingot"
 NAILS = "nails"
@@ -412,9 +413,40 @@ async def test_laying_a_surface_holds_the_hands(
         "укладка — своё дело, а не «путь»: по этому id клиент их и различает"
     )
     assert doing.title == "doing-paving" and doing.until is not None
+    #: Laying, not topping up: one job kind carries both, and the window
+    #: offered them under two different words.
+    assert doing.says.params["mend"] == "false"
+    said = i18n.render(doing.says.key, doing.says.params, locale=i18n.DEFAULT_LOCALE)
+    assert "укладка" in said, said
 
     with pytest.raises(occupation.Busy):
         await forage.start(session, constants, body)
+
+
+async def test_topping_up_a_road_is_not_called_laying(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The same job kind, two works, two words (D-158).
+
+    A worker who pressed "подсыпать" and read "идёт укладка покрытия" was being
+    told about somebody else's work.
+    """
+    stamp = uuid.uuid4().hex[:8]
+    here = await world.create_node(session, f"terra.mnd.{stamp}", "Здесь", area_m2=100)
+    there = await world.create_node(session, f"terra.mne.{stamp}", "Там", area_m2=100)
+    edge = await travel.connect(session, here, there, base_seconds=600, surface=Surface.ROAD)
+    edge.condition = edge.condition.__class__("40")
+    identity = await world.create_identity(session, f"Дорожник-{stamp}")
+    body = await world.print_body(session, identity, here)
+    await _give(session, body, "road_paving", constants[R.ROAD_SURFACE_PER_EDGE])
+
+    await road.lay(session, constants, catalog, body, edge, mend=True)
+
+    doing = await occupation.current(session, body)
+    assert doing is not None and doing.kind == occupation.PAVING
+    assert doing.says.params["mend"] == "true"
+    said = i18n.render(doing.says.key, doing.says.params, locale=i18n.DEFAULT_LOCALE)
+    assert "подсыпка" in said, said
 
 
 def test_every_kind_owes_a_word_in_every_language() -> None:
