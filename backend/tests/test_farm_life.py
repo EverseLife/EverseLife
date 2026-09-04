@@ -431,6 +431,13 @@ async def test_a_culture_may_open_with_a_written_paragraph(
     #: reason the text may be written by hand at all.
     assert not any(char.isdigit() for char in plant.care_note)
 
+    #: A bred line reads its own numbers and not the crop's words (D-311): the
+    #: paragraph would stand above traits that have drifted away from it.
+    line = dict(breed.traits_of_plant(plant), hardiness=5)
+    from src.engine.farm.text import care_text
+
+    assert not care_text(constants, plant, line, locale="ru").startswith(plant.care_note)
+
     bare = next(one for one in catalog.plants.plants if not one.care_note)
     without = await farm.read_care(session, constants, catalog, body, bare.id, locale="ru")
     assert without.startswith(

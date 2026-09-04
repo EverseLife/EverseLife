@@ -699,7 +699,7 @@ function Knowledge({ look }: { look: Look }) {
               {plantName(names, note.culture)}
               {note.variety ? ` (${api.varietyText(names, note.variety)})` : ""}
             </p>
-            <p className="note recipe-peek">{note.text}</p>
+            <p className="note recipe-peek care-text">{note.text}</p>
           </div>
         ))
       )}

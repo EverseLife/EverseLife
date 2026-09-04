@@ -40,6 +40,9 @@ export type Names = {
   law_units: Record<string, string>;
   /** The law's note -- the hint under the cursor in the city's window. */
   law_notes: Record<string, string>;
+  //: Написанный абзац культуры (D-311): не имя, а проза вольта, и потому
+  //: свой домен — у культуры без абзаца его просто нет.
+  plant_care: Record<string, string>;
   /** The choices of a law that is a choice, keyed `<law>.<option>`: the same
    *  option id means different words under different laws -- `citizens` is
    *  «гражданам» for the printer and «граждане» for the land. */
