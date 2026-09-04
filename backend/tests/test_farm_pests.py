@@ -61,17 +61,21 @@ def test_a_bed_kept_by_the_book_never_falls_ill(constants: Constants, catalog: C
     weather = _weather(river=True, temperature=constants[R.FARM_DRY_TEMP_REF])
     walked = life.Life((low + high) / 2, SCALE_MAX, 0.0, thinned=True)
 
-    #: A month of care as the text asks for it: the bed is watered back into
-    #: its band every day, weeded, thinned, and never fed at random.
+    #: A month of care as the text asks for it, on land rich enough to grow
+    #: weeds (D-297): the bed is watered back into its band every day, weeded
+    #: once the sign shows -- "полют, когда виден" -- thinned, and never fed at
+    #: random. Rich land is the honest case: on bare rock nothing would drive.
+    seen = constants[R.FARM_WEED_SEEN]
     for _ in range(30):
         walked = life.advance(
-            constants, norm, weather, walked, hours=day, day_hours=day, fertility=0
+            constants, norm, weather, walked, hours=day, day_hours=day, fertility=100
         )
         walked = life.Life(
             (low + high) / 2,
             walked.health,
             walked.growth,
             thinned=True,
+            weeds=0.0 if walked.weeds >= seen else walked.weeds,
             pest=walked.pest,
             illness=walked.illness,
             illness_kind=walked.illness_kind,
@@ -89,6 +93,7 @@ def test_each_mistake_breeds_its_own_trouble(constants: Constants, catalog: Cata
 
     soaked = life.Life(SCALE_MAX, SCALE_MAX, 0.0, thinned=True)
     dry = life.Life(0.0, SCALE_MAX, 0.0, thinned=True)
+    #: A full cover: past the sign, where the mistake is a mistake (D-299).
     weedy = life.Life((low + high) / 2, SCALE_MAX, 0.0, weeds=SCALE_MAX, thinned=True)
     burnt = life.Life(
         (low + high) / 2,
@@ -98,10 +103,10 @@ def test_each_mistake_breeds_its_own_trouble(constants: Constants, catalog: Cata
         fed={life.SPROUT: [{"goods": "compost", "effect": life.BURN}]},
     )
     drives = {
-        life.FUNGUS: life.pest_drives(norm, soaked, life.SPROUT),
-        life.MITE: life.pest_drives(norm, dry, life.SPROUT),
-        life.INSECT: life.pest_drives(norm, weedy, life.SPROUT),
-        life.BACTERIA: life.pest_drives(norm, burnt, life.SPROUT),
+        life.FUNGUS: life.pest_drives(constants, norm, soaked, life.SPROUT),
+        life.MITE: life.pest_drives(constants, norm, dry, life.SPROUT),
+        life.INSECT: life.pest_drives(constants, norm, weedy, life.SPROUT),
+        life.BACTERIA: life.pest_drives(constants, norm, burnt, life.SPROUT),
     }
     for pest, seen in drives.items():
         assert seen[pest] == pytest.approx(1.0), pest
@@ -122,6 +127,20 @@ def test_each_mistake_breeds_its_own_trouble(constants: Constants, catalog: Cata
     for pest, bed in struck.items():
         signs = life.symptoms(constants, norm, bed, fertility=PERCENT, fertility_needed=0.0, fed=())
         assert life.PEST_SIGNS[pest] in signs
+        #: And not before: a trouble under the threshold is not yet seen, so
+        #: the journal has nothing to say either (D-299).
+        early = life.Life(
+            bed.moisture,
+            bed.health,
+            bed.growth,
+            thinned=True,
+            illness=constants[R.FARM_PEST_SEEN] - 1,
+            illness_kind=pest,
+        )
+        quiet = life.symptoms(
+            constants, norm, early, fertility=PERCENT, fertility_needed=0.0, fed=()
+        )
+        assert life.PEST_SIGNS[pest] not in quiet
 
 
 def test_the_pressure_builds_by_the_mistake_and_falls_when_it_is_mended(
@@ -397,11 +416,15 @@ async def test_the_strike_is_told_the_hour_it_happens(
     plot.moisture = Decimal(SCALE_MAX)
     plot.thinned = True
     plot.pest = {life.FUNGUS: SCALE_MAX - 1}
+    #: Ripe within the same walk: two crossings in one settling, and the
+    #: journal owes a line to each -- the ripening must not be swallowed.
+    plot.growth = Decimal(99)
     plot.settled_at = datetime.now(UTC) - timedelta(hours=constants[R.TIME_DAY_TERRA])
     await session.flush()
 
     tally = await farm.tick_plots(session, constants, catalog)
     assert tally["plots_struck"] == 1
+    assert tally["plots_ripened"] == 1
     assert plot.illness_kind == life.FUNGUS
     told = [
         event
@@ -412,6 +435,8 @@ async def test_the_strike_is_told_the_hour_it_happens(
     #: The sign, not the name of the trouble: the journal says what the eye saw.
     assert told[0].payload["sign"] == life.SPOTS
     assert "pest" not in told[0].payload
+    kinds = {event.kind for event in (await session.execute(select(Event))).scalars()}
+    assert EventKind.PLOT_RIPENED.value in kinds, "the ripening is told too"
 
 
 async def test_two_treatments_of_one_bed_spend_the_dose_once(
@@ -448,3 +473,26 @@ async def test_two_treatments_of_one_bed_spend_the_dose_once(
         assert await _stock(db, pocket_id, FUNGICIDE) == pytest.approx(0)
         strip = await db.get(Plot, plot_id)
         assert strip is not None and strip.guard, "the one that went through left its guard"
+
+
+def test_neglect_meets_a_pest_inside_the_cycle(constants: Constants, catalog: Catalog) -> None:
+    """The other half of the promise (D-299): the numbers must let a careless
+    farmer actually meet the trouble, or four classes of preparation are dead
+    weight. A bed sown and left -- unwatered, unweeded, unthinned -- is struck
+    before the crop it carries would have ripened."""
+    norm = _norms(constants, catalog)
+    day = constants[R.TIME_DAY_TERRA]
+    weather = _weather(temperature=constants[R.FARM_DRY_TEMP_REF])
+    bed = life.Life(constants[R.FARM_SOWN_MOISTURE], SCALE_MAX, 0.0)
+
+    struck = ripe = None
+    for elapsed in range(1, 61):
+        bed = life.advance(constants, norm, weather, bed, hours=day, day_hours=day, fertility=100)
+        if bed.illness_kind and struck is None:
+            struck = elapsed
+        if bed.ripe and ripe is None:
+            ripe = elapsed
+        if bed.dead:
+            break
+    assert struck is not None, "a bed nobody touches must fall ill"
+    assert ripe is None or struck <= ripe, "and fall ill before it would have ripened"

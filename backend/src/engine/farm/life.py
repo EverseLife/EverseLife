@@ -244,7 +244,7 @@ def health_word(constants: Constants, health: float) -> str:
     return HEALTH_WORDS[-1]
 
 
-def pest_drives(norms: Norms, life: Life, stage: str) -> dict[str, float]:
+def pest_drives(constants: Constants, norms: Norms, life: Life, stage: str) -> dict[str, float]:
     """How wrong the bed is, per pest, as a share from nought to one (D-299).
 
     One mistake of care to each trouble, and nothing else feeds them: the
@@ -254,6 +254,7 @@ def pest_drives(norms: Norms, life: Life, stage: str) -> dict[str, float]:
     bacteria. A bed inside its band, weeded and fed by the table drives
     nothing at all -- which is the whole promise of the decision.
     """
+    seen = constants[R.FARM_WEED_SEEN]
     given = list(life.fed.get(stage, ()) or ())
     spoiled = {str(row.get("effect")) for row in given} & {BURN, OVERFED}
     return {
@@ -261,7 +262,10 @@ def pest_drives(norms: Norms, life: Life, stage: str) -> dict[str, float]:
             1.0, max(0.0, life.moisture - norms.band_max) / max(1.0, SCALE_MAX - norms.band_max)
         ),
         MITE: min(1.0, max(0.0, norms.band_min - life.moisture) / max(1.0, norms.band_min)),
-        INSECT: min(1.0, max(0.0, life.weeds) / SCALE_MAX),
+        #: Past the sign and no sooner (`farm.weed_seen`): the text says
+        #: weeds are pulled when they show, and a farmer who does that must
+        #: drive nothing at all -- a cover below the sign is not a mistake.
+        INSECT: min(1.0, max(0.0, life.weeds - seen) / max(1.0, SCALE_MAX - seen)),
         BACTERIA: 1.0 if spoiled else 0.0,
     }
 
@@ -324,14 +328,17 @@ def advance(
         gap = max(0.0, norms.band_min - moisture, moisture - norms.band_max)
         if gap > 0:
             health -= stress * gap * softer * days
-        else:
+        elif struck is None:
+            #: A bed in its band mends -- unless a trouble is eating it (D-299):
+            #: a plant does not put on health while a pest takes it, and healing
+            #: that ran beside the pest's own stress would simply cancel it.
             health = min(SCALE_MAX, health + heal * days)
 
         #: The pests (D-299). One trouble at a time: while a bed is struck the
         #: other three pressures stand still -- the farmer is fighting what came.
         here = Life(moisture, health, growth, weeds=weeds, thinned=life.thinned, fed=life.fed)
         if struck is None:
-            drives = pest_drives(norms, here, stage_of(constants, growth))
+            drives = pest_drives(constants, norms, here, stage_of(constants, growth))
             for name in PESTS:
                 if passed < guard.get(name, 0.0):
                     continue

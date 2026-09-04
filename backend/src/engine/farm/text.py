@@ -29,7 +29,7 @@ from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.constants.catalog import Plant
 from src.engine import breed, travel, world
-from src.engine.farm.life import norms
+from src.engine.farm.life import PESTS, norms
 from src.models.identity import Body, Identity, Knowledge, KnowledgeKind
 from src.models.plant import Variety
 from src.models.world import Node
@@ -89,7 +89,20 @@ def care_text(constants: Constants, plant: Plant, signs: Mapping[str, Any], *, l
             locale=locale,
         )
     )
+    #: Assembled from the vault's own couple (`farm.pest_cure`, D-299): the
+    #: class that answers a sign is data, and a sentence that repeated it by
+    #: hand would go on teaching the old answer after a retune.
+    cure = constants[R.FARM_PEST_CURE]
     said.append(i18n.render("care-pests", locale=locale))
+    #: A sentence to a coupling rather than one list of four: the rows carry
+    #: dashes and quotes of their own, and a list separator inside them would
+    #: read as one long run-on in either language.
+    said.extend(
+        i18n.render("care-pests-row", {"pest": pest, "cure": cure[pest]}, locale=locale)
+        for pest in PESTS
+        if pest in cure
+    )
+    said.append(i18n.render("care-pests-after", locale=locale))
     return " ".join(said)
 
 

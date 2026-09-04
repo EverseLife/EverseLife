@@ -151,7 +151,7 @@ async def _farm_thin(state: dict, db: AsyncSession, message: dict) -> dict:
 async def _farm_treat(state: dict, db: AsyncSession, message: dict) -> dict:
     """Treat the bed against a pest (D-299): the class answers, or the dose is spent."""
     body = await _alive(state, db)
-    plot, pest, stopped = await farm.treat(
+    plot, _pest, _stopped = await farm.treat(
         db,
         current(),
         current_catalog(),
@@ -159,7 +159,9 @@ async def _farm_treat(state: dict, db: AsyncSession, message: dict) -> dict:
         await _plot(db, message),
         str(message.get("goods") or ""),
     )
-    return {"treated": str(plot.id), "pest": pest, "stopped": stopped}
+    #: A confirmation, not a state: what the bottle caught the bed shows
+    #: itself the next day, and saying it here would sell D-057 for a dose.
+    return {"treated": str(plot.id)}
 
 
 @command("farm.harvest")

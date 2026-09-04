@@ -91,6 +91,15 @@ def guarded_hours(constants: Constants, plot: Plot, since: datetime) -> dict[str
     return held
 
 
+def showing(constants: Constants, state: life.Life) -> bool:
+    """Whether the bed's trouble is far enough along to be seen (D-299).
+
+    The threshold is the sign's own (`farm.pest_seen`): the journal must not
+    say what the summary does not yet show.
+    """
+    return state.illness_kind is not None and state.illness >= constants[R.FARM_PEST_SEEN]
+
+
 def peek(
     constants: Constants,
     plant: Plant,
@@ -225,27 +234,32 @@ async def settle(
     _store(plot, state, now)
     if state.dead:
         await _die(session, constants, plot, plant, now)
-    elif state.illness_kind is not None and was.illness_kind is None:
-        #: The sign, not the name of the trouble (D-299): the journal says
-        #: what the eye saw, and which bottle answers it is the text's to say.
-        await events.record(
-            session,
-            EventKind.PLOT_STRUCK,
-            actor_identity_id=plot.owner_identity_id,
-            node_id=plot.node_id,
-            plot_id=str(plot.id),
-            culture=plant.id,
-            sign=life.PEST_SIGNS[state.illness_kind],
-        )
-    elif state.ripe and not was.ripe:
-        await events.record(
-            session,
-            EventKind.PLOT_RIPENED,
-            actor_identity_id=plot.owner_identity_id,
-            node_id=plot.node_id,
-            plot_id=str(plot.id),
-            culture=plant.id,
-        )
+    else:
+        #: Two crossings, not one choice: a bed can be struck and reach its
+        #: ripeness inside the same walk -- the stamp lives up to a Terran day
+        #: -- and an `elif` here would swallow the ripening for good.
+        if showing(constants, state) and not showing(constants, was):
+            #: Told when it shows, not when it starts (D-299): the journal
+            #: names the sign the eye can see, and the sign begins at
+            #: `farm.pest_seen`. Which bottle answers it is the text's to say.
+            await events.record(
+                session,
+                EventKind.PLOT_STRUCK,
+                actor_identity_id=plot.owner_identity_id,
+                node_id=plot.node_id,
+                plot_id=str(plot.id),
+                culture=plant.id,
+                sign=life.PEST_SIGNS[str(state.illness_kind)],
+            )
+        if state.ripe and not was.ripe:
+            await events.record(
+                session,
+                EventKind.PLOT_RIPENED,
+                actor_identity_id=plot.owner_identity_id,
+                node_id=plot.node_id,
+                plot_id=str(plot.id),
+                culture=plant.id,
+            )
     await session.flush()
     return state
 
@@ -289,7 +303,7 @@ async def tick_plots(
         plant, variety = await _sown(session, catalog, plot)
         seen = peek(constants, plant, _signs(plant, variety), node, epoch, plot, moment)
         was_ripe = float(plot.growth) >= SCALE_MAX
-        struck = seen.illness_kind is not None and plot.illness_kind is None
+        struck = showing(constants, seen) and not showing(constants, _life_of(plot))
         crossing = seen.dead or struck or (seen.ripe and not was_ripe)
         if not crossing and moment - plot.settled_at < stale:
             continue
@@ -297,14 +311,14 @@ async def tick_plots(
         if locked is None or locked.state is not PlotState.SOWN:
             continue
         before = float(locked.growth) >= SCALE_MAX
-        was_struck = locked.illness_kind is not None
+        was_struck = showing(constants, _life_of(locked))
         state = await settle(
             session, constants, catalog, locked, now=moment, node=node, epoch=epoch
         )
         if locked.state is not PlotState.SOWN:
             died += 1
         else:
-            if state.illness_kind is not None and not was_struck:
+            if showing(constants, state) and not was_struck:
                 stricken += 1
             if state.ripe and not before:
                 ripened += 1

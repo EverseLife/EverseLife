@@ -397,6 +397,10 @@ async def treat(
     await session.flush()
 
     minutes = care_minutes(constants, area)
+    #: Neither the pest nor whether it was caught goes on the wire (D-299,
+    #: D-057): a player who did not read the text spends the dose and watches
+    #: -- an answer saying "that was the right bottle" would sell the coupling
+    #: the agrotech text lives on. The caller is told for the tests' sake.
     event = await events.record(
         session,
         EventKind.PLOT_TREATED,
@@ -404,7 +408,6 @@ async def treat(
         node_id=plot.node_id,
         plot_id=str(plot.id),
         goods=goods,
-        stopped=stopped,
         spent=amount_float(dose),
         until=held.isoformat(),
         minutes=minutes,

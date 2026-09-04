@@ -20,12 +20,12 @@ import { useCallback, useEffect, useState } from "react";
 import * as api from "../api";
 import { tally } from "../amounts";
 import { busyWith } from "../busy";
-import type { Look } from "../api";
+import type { Look, RecipeBook } from "../api";
 import { varietyText, type VarietyRef } from "../api";
 import { Refusal, useActions, useBook, useEdition, useNames, useSession } from "../actions";
 import { membersOf } from "../classes";
 import { t } from "../locale";
-import { goodsName, plantName, type Names } from "../names";
+import { className, goodsName, plantName, type Names } from "../names";
 import { Doing } from "../Deadline";
 import { Gauge } from "../Gauge";
 import { Glyph } from "../Glyph";
@@ -100,10 +100,14 @@ const SYMPTOM: Record<string, string> = {
   rot: "ui-farm-symptom-rot",
 };
 
-/** The classes a bed is treated with (D-299), in the order they are offered.
- *  A fifth preparation is a recipe with one of these classes -- and the
- *  button finds it, because it asks the catalog by class, not by name. */
-const PROTECTANTS = ["fungicide", "acaricide", "insecticide", "bactericide"];
+/** The classes a bed is treated with (D-299): the vault couples every pest
+ *  to the class that puts it out, and this reads that table rather than
+ *  keeping a second copy of it. A fifth class is a row there and a recipe. */
+function protectants(book: RecipeBook | null): string[] {
+  const cure = book?.constants?.["farm.pest_cure"];
+  if (!cure || typeof cure !== "object") return [];
+  return [...new Set(Object.values(cure as Record<string, unknown>).map(String))];
+}
 
 const STATE: Record<Row["state"], string> = {
   idle: "ui-farm-state-idle",
@@ -218,10 +222,12 @@ function PlotChips({ row }: { row: Row }) {
   }
   if (row.fed) chips.push(<span className="chip dim" key="fed">{t("ui-farm-fed-stage")}</span>);
   if (row.thinned) chips.push(<span className="chip dim" key="thinned">{t("ui-farm-thinned")}</span>);
-  if (row.guard && Object.keys(row.guard).length > 0) {
+  for (const klass of Object.keys(row.guard ?? {})) {
+    //: One chip per class that still holds (D-299), named: two guards are two
+    //: chips, and the farmer sees which trouble is already answered for.
     chips.push(
-      <span className="chip" key="guard">
-        {t("ui-farm-guarded")}
+      <span className="chip" key={`guard-${klass}`}>
+        {t("ui-farm-guarded", { guard: className(names, klass) })}
       </span>,
     );
   }
@@ -300,7 +306,7 @@ export function Farm({ look }: Omit<Props, "busy" | "act">) {
   //: The preparations are four classes (D-299), asked of the catalog the
   //: same way: what is in hand of any of them can be put on a bed, and the
   //: window never says which sign it answers -- the text does.
-  const bottlesOf = new Set(PROTECTANTS.flatMap((klass) => membersOf(book, klass)));
+  const bottlesOf = new Set(protectants(book).flatMap((klass) => membersOf(book, klass)));
   const bottles = [
     ...new Map(
       look.inventory
