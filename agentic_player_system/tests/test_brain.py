@@ -1,128 +1,25 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Nurlan Urazkulov
 
-"""The brain with a scripted model and a scripted game: no network, no provider."""
+"""The brain with a scripted model and a scripted game: no network, no provider.
+
+One turn from end to end -- what it records, what it refuses to send twice, and
+how the tools it is given are dispatched. The waking rule, the observation, the
+command reference and the advice on a refusal have test files of their own."""
 
 from __future__ import annotations
 
-import ast
 import json
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from typing import Any
 
 import pytest
+from brain_kit import SESSION_SOURCE, FakeGame, _call
 
-from aps import brain, commands, llm, names, observe
+from aps import brain, commands, llm, observe, prompt
 from aps.game import Game, GameError, Refused
 from aps.runner import Runner
 from aps.store import Store
-
-SESSION_SOURCE = Path(__file__).resolve().parents[2] / "backend" / "src" / "api" / "commands"
-OCCUPATION_SOURCE = (
-    Path(__file__).resolve().parents[2] / "backend" / "src" / "engine" / "occupation.py"
-)
-
-
-def _engine_kinds() -> set[str]:
-    """Every occupation id the engine declares, read out of `occupation.KINDS`.
-
-    Parsed rather than imported: the agent system is a separate service with
-    its own dependencies and does not have the backend on its path -- it is a
-    player, and sees the game only through the socket.
-    """
-    tree = ast.parse(OCCUPATION_SOURCE.read_text(encoding="utf-8"))
-    named = {
-        target.id: node.value.value
-        for node in tree.body
-        if isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant)
-        for target in node.targets
-        if isinstance(target, ast.Name) and isinstance(node.value.value, str)
-    }
-    listed = [
-        node.value
-        for node in tree.body
-        if isinstance(node, ast.AnnAssign)
-        and isinstance(node.target, ast.Name)
-        and node.target.id == "KINDS"
-    ]
-    assert len(listed) == 1, "occupation.KINDS is not a single annotated assignment any more"
-    tuple_node = listed[0]
-    assert isinstance(tuple_node, ast.Tuple), "occupation.KINDS is not a tuple any more"
-    return {named[item.id] for item in tuple_node.elts if isinstance(item, ast.Name)}
-
-
-class FakeGame:
-    def __init__(self, script: dict[str, Any]) -> None:
-        self.script = script
-        self.sent: list[tuple[str, dict[str, Any]]] = []
-        self.reconnects = 0
-
-    async def reconnect(self) -> None:
-        self.reconnects += 1
-
-    #: The two-way socket (D-226): the fake has heard nothing unless told.
-    events: list[dict[str, Any]] = []  # noqa: RUF012 -- a test double, reset per test
-
-    async def drain(self) -> None:
-        pass
-
-    def take_events(self) -> list[dict[str, Any]]:
-        taken, self.events = self.events, []
-        return taken
-
-    async def act(self, cmd: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
-        self.sent.append((cmd, dict(args or {})))
-        answer = self.script.get(cmd, {"ok": True})
-        if isinstance(answer, Exception):
-            raise answer
-        return answer
-
-    async def public(self, path: str) -> Any:
-        #: `public:renames` in the script feeds the names table (D-251).
-        return self.script.get(f"public:{path}", {"path": path})
-
-
-def _arguments(hint: str, cmd: str) -> set[str]:
-    """Which arguments a refusal's hint names for this command.
-
-    Read out of the line rather than compared to it whole: the list comes from
-    the server's own command registry, so a new argument on any command would
-    otherwise fail a test about the hint's shape rather than about its content.
-    """
-    for line in hint.splitlines():
-        if line.startswith(f"Аргументы {cmd}: "):
-            said = line.removeprefix(f"Аргументы {cmd}: ").split(" — ")[0]
-            return {one.strip() for one in said.split(",") if one.strip()}
-    return set()
-
-
-def _call(name: str, **arguments: Any) -> dict[str, Any]:
-    return {
-        "id": f"call-{name}",
-        "type": "function",
-        "function": {"name": name, "arguments": json.dumps(arguments)},
-    }
-
-
-@pytest.fixture(autouse=True)
-def raw_ids():
-    """The names table is process-global: every test starts without one."""
-    names.reset()
-    yield
-    names.reset()
-
-
-@pytest.fixture
-def store(tmp_path: Path) -> Store:
-    return Store(tmp_path / "aps.sqlite3")
-
-
-@pytest.fixture
-def agent(store: Store) -> dict[str, Any]:
-    return store.create_agent(
-        {"name": "Тестер", "email": "t@example.com", "password": "secret", "goal": "основать город"}
-    )
 
 
 async def test_turn_records_actions_refusals_notes_and_thought(
@@ -254,146 +151,6 @@ async def test_notes_are_edited_entry_by_entry_and_never_truncated(
     assert "переполнится" in answer and store.agent(agent["id"])["notes"] == "два\nтри"
 
 
-def test_busy_until_is_the_latest_occupation_that_holds_the_turn() -> None:
-    soon = datetime.now(UTC) + timedelta(minutes=5)
-    later = datetime.now(UTC) + timedelta(minutes=9)
-    past = datetime.now(UTC) - timedelta(minutes=1)
-    seen = {
-        "look": {
-            "travel": {"arrives_at": soon.isoformat()},
-            "doings": [
-                {"kind": "field", "until": later.isoformat()},
-                #: Sleep holds the turn by the rule and never by the clock: a
-                #: sleeper is woken by a decision, so the wire carries no term.
-                {"kind": "sleep", "until": None},
-            ],
-        }
-    }
-    assert brain.busy_until(seen) == later
-    assert brain.busy_until({"look": {"travel": None, "doings": []}}) is None
-    assert (
-        brain.busy_until({"look": {"doings": [{"kind": "road", "until": past.isoformat()}]}})
-        is None
-    )
-
-
-def test_a_work_that_runs_on_its_own_does_not_hold_the_turn() -> None:
-    """D-310: a build, a demolition and a paving take the hands, not the legs.
-
-    Their terms are the longest in the game -- twenty-three days for the house
-    D-310 takes as its own example -- and waiting one out would stop the agent
-    from walking, trading and talking for all of it.
-    """
-    weeks = datetime.now(UTC) + timedelta(days=23)
-    minutes = datetime.now(UTC) + timedelta(minutes=5)
-    #: The engine's own ids, beside the older works that already ran wherever
-    #: the body was. `paving` is not `road` on purpose: that word is the body
-    #: walking one, and the engine says so where it names the id. The three of
-    #: D-310 arrive with the engine half of it; until then they are exactly the
-    #: unknown kinds this must answer for.
-    for kind in ("build", "demolish", "paving", "plot", "care", "keel"):
-        seen = {"look": {"doings": [{"kind": kind, "until": weeks.isoformat()}]}}
-        assert brain.busy_until(seen) is None, kind
-    #: And such a work does not stretch a wait that is real: the road ends in
-    #: five minutes, so the agent thinks again in five, not in three weeks.
-    both = {
-        "look": {
-            "travel": {"arrives_at": minutes.isoformat()},
-            "doings": [
-                {"kind": "road", "until": minutes.isoformat()},
-                {"kind": "build", "until": weeks.isoformat()},
-            ],
-        }
-    }
-    assert brain.busy_until(both) == minutes
-
-
-def test_a_work_done_on_the_spot_holds_the_turn_within_the_horizon() -> None:
-    """Leaving costs it: a batch and a repair freeze, a search is lost outright.
-
-    The agent is not helpless during one -- trading and talking ask only
-    `require_here` -- but walking is the ordinary next thought and walking is
-    what costs the work. `forage` is the sharp case: the row is deleted the
-    first time the body is seen elsewhere, with the find and the spent stamina.
-    """
-    soon = datetime.now(UTC) + timedelta(minutes=20)
-    for kind in ("forage", "craft", "mend"):
-        seen = {"look": {"doings": [{"kind": kind, "until": soon.isoformat()}]}}
-        assert brain.busy_until(seen) == soon, kind
-
-
-def test_a_long_work_on_the_spot_is_looked_at_again_within_the_hour() -> None:
-    """A repair of a large house is days and a slow batch as much. Sleeping
-    through all of it would be the idling this whole rule exists to stop, so
-    the wait stops at the horizon and the agent decides for itself."""
-    days = datetime.now(UTC) + timedelta(days=8)
-    ceiling = datetime.now(UTC) + brain.MAX_STANDING_WAIT
-    for kind in ("forage", "craft", "mend"):
-        seen = {"look": {"doings": [{"kind": kind, "until": days.isoformat()}]}}
-        moment = brain.busy_until(seen)
-        assert moment is not None and moment <= ceiling, kind
-        assert moment > datetime.now(UTC) + brain.MAX_STANDING_WAIT - timedelta(minutes=1), kind
-    #: The horizon is for the works of the hands alone: on the road the body
-    #: cannot act at all, and no amount of looking would change that.
-    road = {"look": {"travel": {"arrives_at": days.isoformat()}}}
-    assert brain.busy_until(road) == days
-
-
-#: The occupations the agent deliberately does NOT wait out, kept here rather
-#: than in `brain` because nothing reads them at run time: `busy_until` treats
-#: an unclassified kind as one of these already. They are written down so that
-#: the roster below can be a partition -- a kind the engine grows later has to
-#: be put on one side or the other by a person, instead of falling to the
-#: default in silence. The three of D-310 are listed ahead of the engine half
-#: that defines them; the check only runs the other way.
-RUNS_ON_ITS_OWN = frozenset({"plot", "care", "keel", "mine", "build", "demolish", "paving"})
-
-
-def test_every_occupation_the_engine_defines_is_answered_for() -> None:
-    """The set names engine ids by hand, and the engine is free to change them.
-
-    Two ways that hurts, both silent: a kind renamed under `HOLDS_THE_TURN`
-    stops being waited out -- the agent walks off a search it still loses --
-    and a kind the engine adds falls to the default, which is how a build came
-    to freeze an agent for twenty-three days in the first place. So the ids are
-    read back from the engine's own source and the two sets must cover it.
-    """
-    kinds = _engine_kinds()
-    #: Sanity on the reader itself before it is trusted as a guard.
-    assert {"road", "field", "sleep", "craft"} <= kinds
-    unknown = brain.HOLDS_THE_TURN - kinds
-    assert not unknown, f"kinds the engine no longer defines: {sorted(unknown)}"
-    unclassified = kinds - brain.HOLDS_THE_TURN - RUNS_ON_ITS_OWN
-    assert not unclassified, (
-        f"occupations the agent has no rule for: {sorted(unclassified)} -- decide whether "
-        "leaving costs them anything, then add each to HOLDS_THE_TURN or RUNS_ON_ITS_OWN"
-    )
-    assert not (brain.HOLDS_THE_TURN & RUNS_ON_ITS_OWN)
-    #: The two halves of the waiting set do not overlap either: a kind is
-    #: either one the body cannot act during or one it must not walk away from.
-    assert not (brain.AWAY & brain.ON_THE_SPOT)
-    assert brain.HOLDS_THE_TURN == brain.AWAY | brain.ON_THE_SPOT
-
-
-def test_busy_until_waits_out_the_printing_of_a_new_body() -> None:
-    """No body at all (D-012): nothing in person is possible, so the turn waits.
-
-    The shape is the one the server sends a bodiless identity -- no `doings`
-    and no `travel` key at all, since there is nothing to have them.
-    """
-    ready = datetime.now(UTC) + timedelta(hours=2)
-    seen = {
-        "look": {
-            "body": None,
-            "node": None,
-            "inventory": [],
-            "printers": [],
-            "printing": {"ready_at": ready.isoformat()},
-        }
-    }
-    assert brain.busy_until(seen) == ready
-
-
 async def test_finish_can_ask_to_wait(store: Store, agent: dict[str, Any]) -> None:
     turn = brain.Turn()
     common = {"agent": agent, "game": FakeGame({}), "store": store, "reference": {}, "turn": turn}
@@ -430,140 +187,6 @@ async def test_a_dropped_socket_is_reconnected_and_the_turn_goes_on(
     assert store.events(agent["id"])[-1]["kind"] == "error"
 
 
-def test_observation_is_a_digest_with_changes_and_the_whole_look_every_few_turns() -> None:
-    from aps import observe
-
-    #: The wire speaks ids (D-251); the digest gives them back their Russian
-    #: names as «Имя [id]», the id staying quotable in commands.
-    names.install({"goods": {"bioprinter": "Биопринтер", "bread": "Хлеб", "pickaxe": "Кирка"}})
-    first = {
-        "look": {
-            "identity": "Марта",
-            "money": "120",
-            "body": {"stamina": 90.0, "sleeping_since": None},
-            "node": {"name": "Ядро", "key": "terra.capital.core", "owner_city": "Столица"},
-            "carry": {"load": 3.0, "capacity": 30.0},
-            "bench": [{"goods": "bioprinter", "busy": False}],
-            "exits": [{"key": "terra.capital.market", "name": "Рынок", "seconds": 5}],
-            "city": {
-                "name": "Столица",
-                "node": "terra.capital",
-                "citizen": False,
-                "admission": "open",
-            },
-            "inventory": [{"goods": "bread", "amount": 2}],
-            "doings": [],
-            "travel": None,
-            "clock": {"now": "1"},
-        }
-    }
-    second = json.loads(json.dumps(first))
-    second["look"]["money"] = "95"
-    second["look"]["inventory"].append({"goods": "pickaxe", "amount": 1})
-    second["look"]["clock"]["now"] = "2"
-
-    text, mode = observe.observation(None, first, full=False, packed="{}")
-    assert mode == "full" and "Полный look" in text
-    text, mode = observe.observation(first, second, full=False, packed="x" * 5000)
-    assert mode == "delta"
-    assert "деньги 95" in text and "Сумка (2)" in text
-    #: Worn gear left `inventory` for `carry.equipped` (D-305): without a line
-    #: of its own the agent would carry an exoskeleton it never knew it had.
-    assert "Надето:" not in text, "нечего надевать — нечего и говорить"
-    #: The shape of `look` after D-226: stations are the things standing here,
-    #: citizenship lives in `city`, and the ways out are named in the digest.
-    assert "Станции здесь: Биопринтер [bioprinter]" in text
-    assert "Выходы: Рынок [terra.capital.market] 5с" in text
-    assert "ты не гражданин" in text and "несёшь 3/30 кг" in text
-    assert "money: 120 → 95" in text and "появилось Кирка [pickaxe]×1" in text
-    assert "clock" not in text
-    text, mode = observe.observation(first, second, full=True, packed="{}")
-    assert mode == "full"
-    #: A diff no shorter than the whole thing is pointless: show the whole thing.
-    text, mode = observe.observation(first, second, full=False, packed="{}")
-    assert mode == "full"
-
-
-def test_digest_names_what_is_worn() -> None:
-    """Gear stands apart from the sack on the wire since D-305, and the digest
-    keeps it: an agent that cannot see its pack cannot take it off or mend it."""
-    from aps import observe
-
-    names.install({"goods": {"exoskeleton": "Экзоскелет", "bread": "Хлеб"}})
-    look = {
-        "look": {
-            "identity": "Марта",
-            "money": "120",
-            "body": {"stamina": 90.0, "sleeping_since": None},
-            "node": {"name": "Ядро", "key": "terra.capital.core"},
-            "carry": {
-                "load": 13.0,
-                "capacity": 130.0,
-                "equipped": {"frame": {"id": "1", "goods": "exoskeleton", "amount": 1}},
-            },
-            "inventory": [{"goods": "bread", "amount": 2}],
-            "doings": [],
-            "travel": None,
-            "clock": {"now": "1"},
-        }
-    }
-    text, _ = observe.observation(None, look, full=True, packed="{}")
-    assert "Надето: Экзоскелет [exoskeleton]" in text
-    assert "Сумка (1)" in text, "надетое не считается за содержимое сумки"
-
-
-def test_digest_says_whose_the_ground_is() -> None:
-    """Wild land is nobody's and needs no title (D-198): an agent that did not
-    know it hunted for a way to own a node instead of building on one."""
-    from aps import observe
-
-    wild = {
-        "look": {
-            "identity": "Марта",
-            "money": "10",
-            "body": {"stamina": 90.0},
-            "node": {"name": "Поляна", "key": "terra.wild.1"},
-            "floor": {"mine": True},
-        }
-    }
-    assert "Участок ничей: строить и ставить оборудование здесь можно." in observe.digest(wild)
-
-    someones = json.loads(json.dumps(wild))
-    someones["look"]["node"]["owner"] = "Пётр"
-    someones["look"]["floor"]["mine"] = False
-    text = observe.digest(someones)
-    assert "владелец Пётр" in text and "Участок ничей" not in text
-
-    own = json.loads(json.dumps(wild))
-    own["look"]["node"]["owner"] = "Марта"
-    text = observe.digest(own)
-    assert "Участок твой" in text
-
-
-def test_digest_says_the_ground_is_about_to_move() -> None:
-    """The window before an eruption is the whole licence for the burning
-    (D-197, P6), and an agent that has to dig the hour out of the raw `look`
-    never digs -- it would stand in a field and lose everything it carried."""
-    from aps import observe
-
-    quiet = {
-        "look": {
-            "identity": "Марта",
-            "money": "10",
-            "body": {"stamina": 90.0},
-            "node": {"name": "Чёрное поле", "key": "pyroxis.anvil.field.01"},
-        }
-    }
-    assert "ЗЕМЛЯ ТРОНЕТСЯ" not in observe.digest(quiet)
-
-    warned = json.loads(json.dumps(quiet))
-    warned["look"]["node"]["shaking_at"] = "2026-09-01T12:00:00+00:00"
-    text = observe.digest(warned)
-    assert "ЗЕМЛЯ ТРОНЕТСЯ здесь в 2026-09-01T12:00:00+00:00" in text
-    #: And what to do about it, or the warning is a decoration.
-    assert "сгорит" in text and "улететь" in text
-
-
 def test_stuck_detection_needs_the_same_refused_action_in_a_row() -> None:
     turn = brain.Turn(actions=[("travel.go", "{}", False)] * 4)
     assert Runner._stuck(turn)
@@ -573,167 +196,10 @@ def test_stuck_detection_needs_the_same_refused_action_in_a_row() -> None:
     assert not Runner._stuck(turn)
 
 
-def test_reference_is_extracted_from_the_session_source() -> None:
-    reference = commands.load(SESSION_SOURCE)
-    assert "city.found" in reference and "ship.found" in reference
-    assert reference["ship.found"]["keys"] == ["name"]
-    #: A handler taking a context reads its arguments differently; the
-    #: reference must not go quietly empty as the game migrates to `Ctx`.
-    from aps.commands import extract
-
-    ctx_style = extract(
-        '''
-@command("thing.take")
-async def _take(ctx: Ctx) -> dict:
-    """Take a thing."""
-    what = ctx.arg("thing")
-    much = ctx.message["amount"]
-    where = ctx.message.get("into")
-    return {"took": [what, much, where]}
-'''
-    )
-    assert ctx_style["thing.take"]["keys"] == ["thing", "amount", "into"]
-    #: A handler that hands the whole request to a parser names no key in its
-    #: own body. Believing that, an agent called `craft.plan` bare and got
-    #: `KeyError('output')` all day (agents' finding, 2026-08-23).
-    by_helper = extract(
-        '''
-def _craft_request(message):
-    return message["output"], float(message.get("units", 1))
-
-
-@command("craft.plan")
-async def _plan(state, db, message) -> dict:
-    """Forecast."""
-    output, units = _craft_request(message)
-    return {"plan": [output, units]}
-'''
-    )
-    assert by_helper["craft.plan"]["keys"] == ["output", "units"]
-    #: A parser that hands the request on in its turn: the batch's shape was
-    #: split out of `_craft_request` into `_craft_shape`, and every key but
-    #: `units` fell out of the reference the same day (CI, 2026-09-04).
-    chained = extract(
-        '''
-def _craft_shape(message):
-    return goods_key(message["output"]), _optional_uuid(message.get("tool"))
-
-
-def _craft_request(message):
-    return _craft_shape(message), float(message.get("units", 1))
-
-
-@command("craft.start")
-async def _start(state, db, message) -> dict:
-    """Start a batch."""
-    shape, units = _craft_request(message)
-    return {"batch": [shape, units]}
-'''
-    )
-    assert chained["craft.start"]["keys"] == ["units", "output", "tool"]
-    assert chained["craft.start"]["ids"] == ["tool"]
-    #: A parser that calls itself, a pair that call each other, and a name the
-    #: map has never heard of: a chain is followed, not fallen into.
-    circular = extract(
-        '''
-def _one(message):
-    return _two(message), message["first"]
-
-
-def _two(message):
-    return _one(message), message["second"]
-
-
-@command("thing.take")
-async def _take(state, db, message) -> dict:
-    """Take a thing."""
-    return {"took": [_one(message), _gone(message)]}
-'''
-    )
-    assert circular["thing.take"]["keys"] == ["first", "second"]
-    #: The parser may live in a neighbouring module, or in the engine.
-    borrowed = extract(
-        '''
-@command("account.update")
-async def _update(state, db, message) -> dict:
-    """Change the profile."""
-    return accounts.check_profile(message)
-''',
-        {"check_profile": {"keys": ["surname", "age", "about"], "ids": []}},
-    )
-    assert borrowed["account.update"]["keys"] == ["surname", "age", "about"]
-
-    #: And the real thing: what the agents tripped over must be named now.
-    assert "output" in reference["craft.plan"]["keys"]
-    assert "city" in reference["city.found"]["keys"] or reference["city.found"]["keys"] == ["name"]
-    assert "plot" in reference["farm.sow"]["keys"]
-    assert "spaceport" in reference["ship.found"]["doc"]
-    assert "- city.found(name):" in commands.brief(reference)
-    #: Every command an agent may run is in the reference, and none without a
-    #: doc: the model reads the reference, not the code. The `hidden` ones are
-    #: the other half of the same invariant -- a command declared out of the
-    #: reference (the alpha's widget, D-229) must actually be out of it, or
-    #: hiding it was decoration.
-    import subprocess
-
-    backend = SESSION_SOURCE.parents[2]
-    interpreter = backend / ".venv" / "Scripts" / "python.exe"
-    if not interpreter.exists():
-        interpreter = backend / ".venv" / "bin" / "python"
-    if not interpreter.exists():
-        pytest.skip("нет venv бэкенда: реестр команд не с чем сверить")
-    listed = subprocess.run(
-        [
-            str(interpreter),
-            "-c",
-            (
-                "import src.api.session; from src.api.registry import COMMANDS; "
-                "print(sum(not c.hidden for c in COMMANDS.values())); "
-                "print(' '.join(n for n, c in COMMANDS.items() if c.hidden))"
-            ),
-        ],
-        cwd=backend,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert listed.returncode == 0, listed.stderr[-500:]
-    open_count, hidden_names = (listed.stdout.splitlines() + [""])[:2]
-    assert len(reference) - 2 == int(open_count), "справочник не совпадает с реестром"
-    assert [name for name in hidden_names.split() if name in reference] == [], (
-        "скрытая команда всё-таки уехала агентам в промпт"
-    )
-
-
 def test_shrink_caps_lists_and_strings() -> None:
     packed = brain.shrink({"items": list(range(100)), "text": "x" * 1000})
     assert len(packed["items"]) == brain.MAX_LIST + 1
     assert packed["text"].endswith("…")
-
-
-def test_events_heard_between_turns_open_the_observation() -> None:
-    from aps import observe
-
-    #: Things named by wire id in an event get the same «Имя [id]» as the
-    #: digest; a key the table does not know (a node key) stays raw.
-    names.install({"goods": {"pickaxe": "Кирка"}})
-    told = observe.happened(
-        [
-            {"event": "knowledge.learned", "seq": 5, "touches": ["knowledge"], "key": "pickaxe"},
-            {
-                "event": "travel.arrived",
-                "seq": 6,
-                "touches": ["body", "node"],
-                "who": "Тэрн",
-                "node": {"key": "terra.mine", "name": "Забой"},
-            },
-        ]
-    )
-    assert told.splitlines() == [
-        "- knowledge.learned · key: Кирка [pickaxe]",
-        '- travel.arrived · кто: Тэрн · node: {"key": "terra.mine", "name": "Забой"}',
-    ]
-    assert observe.happened([]) == ""
 
 
 def test_other_players_words_are_fenced_as_data() -> None:
@@ -744,7 +210,6 @@ def test_other_players_words_are_fenced_as_data() -> None:
     assert fenced["lines"][0]["text"].startswith("⟦чужой текст: ")
     #: `who` is a player's name -- fenced as well now (wave 4 review).
     assert fenced["lines"][0]["who"].startswith("⟦чужой текст: ")
-    from aps import observe
 
     told = observe.happened(
         [
@@ -795,23 +260,6 @@ async def test_money_commands_are_capped_per_turn(
     assert any("лимит денежных" in (e.get("text") or "") for e in refused)
 
 
-def test_secrets_are_sealed_at_rest(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    Fernet = pytest.importorskip("cryptography.fernet").Fernet
-
-    from aps import secrets
-
-    monkeypatch.setenv("APS_SECRET_KEY", Fernet.generate_key().decode())
-    assert secrets.sealing()
-    store = Store(tmp_path / "sealed.sqlite3")
-    made = store.create_agent({"name": "А", "email": "a@x", "password": "hunter2"})
-    raw = store.db.execute("SELECT password FROM agents WHERE id = ?", (made["id"],)).fetchone()[0]
-    assert raw.startswith("enc:") and "hunter2" not in raw
-    assert store.agent(made["id"])["password"] == "hunter2"
-    store.set_setting("llm.api_key", "sk-secret")
-    stored = store.db.execute("SELECT value FROM settings WHERE key = 'llm.api_key'").fetchone()[0]
-    assert stored.startswith("enc:") and store.setting("llm.api_key") == "sk-secret"
-
-
 def test_money_commands_all_exist_in_the_registry() -> None:
     """Every capped command must be a real one, or the cap guards nothing."""
     reference = commands.load(SESSION_SOURCE)
@@ -826,18 +274,26 @@ def test_a_player_cannot_close_the_fence_from_inside_their_text() -> None:
     assert inner.count("⟧") == 1 and inner.count("⟦") == 1
 
 
-def test_a_rotated_key_still_opens_what_the_old_one_sealed(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+async def test_every_tool_the_model_is_offered_has_a_branch_in_the_dispatcher(
+    store: Store, agent: dict[str, Any]
 ) -> None:
-    fernet = pytest.importorskip("cryptography.fernet")
-    from aps import secrets
-
-    old, new = fernet.Fernet.generate_key().decode(), fernet.Fernet.generate_key().decode()
-    monkeypatch.setenv("APS_SECRET_KEY", old)
-    sealed = secrets.seal("hunter2")
-    #: New key first, old kept: the store keeps reading, seals with the new.
-    monkeypatch.setenv("APS_SECRET_KEY", f"{new},{old}")
-    assert secrets.reveal(sealed) == "hunter2"
+    """The schema and the dispatcher no longer live in the same file: the tools
+    are declared in `aps/prompt.py` and answered in `brain._tool`. A tool added
+    to the one and forgotten in the other would reach the model, be called, and
+    come back as «Нет такого инструмента» -- a step of the turn spent on a
+    tool the agent was told it had.
+    """
+    for name in sorted(prompt.TOOL_NAMES):
+        answer = await brain._tool(
+            name,
+            {},
+            agent=agent,
+            game=FakeGame({}),
+            store=store,
+            reference={},
+            turn=brain.Turn(),
+        )
+        assert "Нет такого инструмента" not in answer, name
 
 
 async def test_a_tool_name_inside_act_is_corrected_and_not_sent_to_the_game(
@@ -914,68 +370,6 @@ async def test_the_same_read_twice_in_a_row_costs_one_call_not_two(
     )
     acted = [e for e in store.events(agent["id"]) if e["kind"] == "action"]
     assert [e["cmd"] for e in acted] == ["look"]
-
-
-def test_the_reference_is_one_short_clause_per_command() -> None:
-    """The reference rides in every prompt: no vault numbers, no second sentence."""
-    reference = commands.load(SESSION_SOURCE)
-    lines = commands.brief(reference).splitlines()
-    assert len(lines) == len(reference) - len(commands.BUILTIN)
-    assert all(len(line) < 130 for line in lines), max(lines, key=len)
-    assert not [line for line in lines if "D-" in line or line.rstrip().endswith(":")]
-    assert any(l.startswith("- city.found(name): Found a city where you stand") for l in lines)
-
-
-async def test_a_refusal_of_an_argumentless_call_carries_the_argument_list(
-    monkeypatch: pytest.MonkeyPatch, store: Store, agent: dict[str, Any]
-) -> None:
-    """`act(cmd="market.buy")` with no args: the model gets the keys, not another turn."""
-    seen: list[str] = []
-
-    replies = iter(
-        [
-            llm.Reply(
-                content="",
-                tool_calls=[_call("act", cmd="market.buy")],
-                prompt_tokens=1,
-                completion_tokens=1,
-            ),
-            llm.Reply(
-                content="",
-                tool_calls=[_call("finish", thought="поняла")],
-                prompt_tokens=1,
-                completion_tokens=1,
-            ),
-        ]
-    )
-
-    async def fake_chat(_p: Any, messages: list[dict[str, Any]], *_a: Any, **_k: Any) -> llm.Reply:
-        seen.extend(str(m.get("content")) for m in messages if m.get("role") == "tool")
-        return next(replies)
-
-    monkeypatch.setattr(llm, "chat", fake_chat)
-    game = FakeGame(
-        {
-            "look": {"money": 0},
-            "market.buy": Refused(
-                "команде не хватает поля «goods»", "session-field-missing", {"field": "goods"}
-            ),
-        }
-    )
-    await brain.run_turn(
-        agent=agent,
-        game=game,  # type: ignore[arg-type]
-        store=store,
-        provider=llm.Provider("u", "k", "m"),
-        reference=commands.load(SESSION_SOURCE),
-    )
-    hint = "".join(seen)
-    assert "ОТКАЗ: команде не хватает поля «goods»" in hint
-    #: Проверяется, что подсказка **называет аргументы**, а не что список
-    #: начинается с определённого. Порядок и состав приходят из реестра команд
-    #: сервера: D-241 добавил `min_quality`, и равенство сломалось на фиче,
-    #: которая ничего в поведении подсказки не изменила.
-    assert "goods" in _arguments(hint, "market.buy")
 
 
 async def test_a_call_packed_one_level_deeper_is_unwrapped(
@@ -1182,31 +576,6 @@ def test_the_read_guard_follows_the_games_own_declaration() -> None:
     assert not declared & set(brain.MONEY_COMMANDS)
 
 
-def test_headline_keeps_the_half_that_tells_commands_apart() -> None:
-    """The colon introduces the substance in these docstrings; the vault number does not."""
-    assert commands.headline("Buy: a limit order from a present body (D-101).") == (
-        "Buy: a limit order from a present body"
-    )
-    assert commands.headline("Take a loan. Money comes from the reserve.") == "Take a loan"
-    assert commands.headline("The most important screen (04-notifications)") == (
-        "The most important screen"
-    )
-    long = commands.headline("Do " + "very " * 40 + "much")
-    assert len(long) <= commands.HEADLINE_LIMIT + 1 and long.endswith("…")
-    #: A docstring is prose wrapped to the width of the source: `ship.dock`
-    #: broke `(D-289, wave 3)` over two lines, and the half of the pointer
-    #: left on the first one rode into every prompt of every turn.
-    wrapped = commands.headline(
-        "Give this hull's consent to dock with the hull it holds on to (D-289,\n"
-        "    wave 3). With the other commander's consent already given the two\n"
-        "    are joined connector to connector."
-    )
-    assert wrapped == "Give this hull's consent to dock with the hull it holds on to"
-    #: The wrap is read back, the blank line is not: a second paragraph is a
-    #: second thought and stays out of the reference.
-    assert commands.headline("Name a ship\n\n    Costs nothing.") == "Name a ship"
-
-
 async def test_arguments_cannot_replace_the_command_in_the_envelope() -> None:
     """`args={"cmd": ...}` must not send a command of its own (nor break `id`)."""
     sent: list[dict[str, Any]] = []
@@ -1223,53 +592,6 @@ async def test_arguments_cannot_replace_the_command_in_the_envelope() -> None:
     await game.send("look", {"cmd": "finance.transfer", "id": 999, "amount": 1})
     assert sent[-1]["cmd"] == "look"
     assert sent[-1]["id"] != 999
-
-
-def test_the_purse_is_shown_in_both_units() -> None:
-    """`look` gives coins, every price is in ten-thousandths: 56 of 194 refusals."""
-    assert observe.money("25") == "деньги 25 монет (в ценах команд это 250000)"
-    assert observe.money("0") == "деньги 0 монет (в ценах команд это 0)"
-    assert observe.money("0.5") == "деньги 0.5 монет (в ценах команд это 5000)"
-    #: Nonsense from the server must not take the digest down with it.
-    assert observe.money(None) == "деньги None"
-
-
-def test_standing_affairs_are_named_or_declared_empty() -> None:
-    """An agent that does not see its own orders posts them again and waits for
-    a delivery it never ordered -- both in the journal."""
-    names.install(
-        {
-            "goods": {
-                "iron_ore": "Железная руда",
-                "mine_support": "Шахтная крепь",
-                "iron_part": "Железная деталь",
-            }
-        }
-    )
-    own = {
-        "orders": {
-            "orders": [
-                {"id": "o-1", "side": "buy", "goods": "iron_ore", "price": 30000, "left": 5.0}
-            ],
-            "reservations": [
-                {
-                    "id": "r-1",
-                    "goods": "mine_support",
-                    "amount": 5.0,
-                    "node": "Рынок",
-                    "expires_at": "2026-09-02T03:52:32+00:00",
-                }
-            ],
-            "batches": [{"output": "iron_part", "units": 1, "ready_at": "2026-08-28T12:00:00"}],
-        }
-    }
-    said = observe.standing(own)
-    assert "покупка «Железная руда [iron_ore]» ×5 по 30000 [o-1]" in said
-    assert "Шахтная крепь [mine_support]" in said and "[r-1]" in said
-    assert "Железная деталь [iron_part]" in said
-    assert observe.standing({"orders": {"orders": [], "reservations": [], "batches": []}}) == (
-        "Ни заявок, ни броней, ни партий, ни товара в терминале — ждать нечего."
-    )
 
 
 async def test_the_turn_reads_its_own_orders_into_the_observation(
@@ -1337,173 +659,6 @@ async def test_the_turn_survives_a_server_that_refuses_orders(
     assert turn.thought == "ладно"
 
 
-def test_identifier_arguments_are_marked_in_the_reference() -> None:
-    """«Плавильная печь» where an id is wanted answers `badly formed hexadecimal
-    UUID string`, which names no argument (11 refusals in the journal)."""
-    reference = commands.load(SESSION_SOURCE)
-    assert commands.argument_list(reference["market.reserve"]) == "order:id,amount"
-    #: Through a helper: `craft.start` parses `tool` in `_craft_request`.
-    assert "tool:id" in commands.argument_list(reference["craft.start"])
-    #: A name is a name: goods are named, not identified.
-    assert "goods:id" not in commands.argument_list(reference["market.buy"])
-    assert "«:id»" in commands.help_text(reference, "market.reserve")
-
-
-async def test_a_missing_field_refusal_carries_the_arguments_even_with_args(
-    monkeypatch: pytest.MonkeyPatch, store: Store, agent: dict[str, Any]
-) -> None:
-    """Half the arguments given is the commonest miss, not none of them."""
-    seen: list[str] = []
-
-    replies = iter(
-        [
-            llm.Reply(
-                content="",
-                tool_calls=[_call("act", cmd="market.buy", args={"goods": "Соль"})],
-                prompt_tokens=1,
-                completion_tokens=1,
-            ),
-            llm.Reply(
-                content="",
-                tool_calls=[_call("finish", thought="поняла")],
-                prompt_tokens=1,
-                completion_tokens=1,
-            ),
-        ]
-    )
-
-    async def fake_chat(_p: Any, messages: list[dict[str, Any]], *_a: Any, **_k: Any) -> llm.Reply:
-        seen.extend(str(m.get("content")) for m in messages if m.get("role") == "tool")
-        return next(replies)
-
-    monkeypatch.setattr(llm, "chat", fake_chat)
-    game = FakeGame(
-        {
-            "look": {"money": 0},
-            "market.buy": Refused(
-                "команде не хватает поля «amount»", "session-field-missing", {"field": "amount"}
-            ),
-        }
-    )
-    await brain.run_turn(
-        agent=agent,
-        game=game,  # type: ignore[arg-type]
-        store=store,
-        provider=llm.Provider("u", "k", "m"),
-        reference=commands.load(SESSION_SOURCE),
-    )
-    named = _arguments("".join(seen), "market.buy")
-    assert {"goods", "tier", "price", "amount"} <= named, named
-
-
-def test_the_terminal_shelf_says_what_is_free_to_sell() -> None:
-    """`market.sell` refuses on the free amount; the shelf minus own sell orders
-    in this node is the only way to know it before being refused."""
-    names.install(
-        {
-            "goods": {"iron_ore": "Железная руда", "salt": "Соль"},
-            "tiers": {"good": "хорошее", "common": "обычное"},
-        }
-    )
-    look = {
-        "look": {
-            "node": {"key": "terra.capital.market", "name": "Рынок"},
-            "stall": [
-                {"goods": "iron_ore", "tier": "good", "amount": 5.0},
-                {"goods": "salt", "tier": "common", "amount": 2.0},
-            ],
-        }
-    }
-    own = {
-        "orders": {
-            "orders": [
-                {
-                    "id": "o1",
-                    "side": "sell",
-                    "goods": "iron_ore",
-                    "tier": "good",
-                    "price": 30000,
-                    "left": 3.0,
-                    "node_key": "terra.capital.market",
-                },
-                #: The same goods committed in another node must not be
-                #: subtracted from the shelf standing here.
-                {
-                    "id": "o2",
-                    "side": "sell",
-                    "goods": "salt",
-                    "tier": "common",
-                    "price": 100,
-                    "left": 2.0,
-                    "node_key": "terra.other",
-                },
-            ],
-            "reservations": [],
-            "batches": [],
-        }
-    }
-    said = observe.standing(own, look)
-    assert "«Железная руда [iron_ore]» (хорошее [good]) ×5, свободно 2" in said
-    assert "(обычное [common]) ×2;" in said or "(обычное [common]) ×2." in said
-    assert "свободно 2; «Соль" not in said.replace("×5, свободно 2", "")
-
-
-def test_a_batch_says_why_it_is_not_moving() -> None:
-    """«away» means walk back to the machine, not wait -- the difference is the turn."""
-    names.install({"goods": {"nails": "Гвозди"}})
-    frozen = {
-        "orders": {
-            "orders": [],
-            "reservations": [],
-            "batches": [{"output": "nails", "units": 200, "waiting": "away", "node": "Кузница"}],
-        }
-    }
-    said = observe.standing(frozen)
-    assert "Гвозди [nails] ×200" in said and "тебя нет у станка в Кузница" in said
-
-
-def test_long_lists_say_how_many_were_left_out() -> None:
-    """Silently cut orders are orders the agent posts a second time."""
-    many = [
-        {"id": f"o{i}", "side": "sell", "goods": "salt", "price": 10, "left": 1}
-        for i in range(observe.STANDING_ROWS + 3)
-    ]
-    said = observe.standing({"orders": {"orders": many, "reservations": [], "batches": []}})
-    assert "…и ещё 3" in said
-
-
-def test_sums_in_coins_are_marked_apart_from_prices() -> None:
-    """A price is in ten-thousandths, a bank sum is in coins: mixing them up is
-    the class of refusal the money line was added to kill, in reverse."""
-    reference = commands.load(SESSION_SOURCE)
-    assert "amount:coins" in commands.argument_list(reference["finance.transfer"])
-    assert "amount:coins" in commands.argument_list(reference["bank.borrow"])
-    #: A market price is not in coins and must not be marked.
-    assert "price:coins" not in commands.argument_list(reference["market.buy"])
-    assert "«:coins»" in commands.help_text(reference, "bank.borrow")
-
-
-def test_the_coin_arguments_named_by_hand_still_exist() -> None:
-    """The list is here because the conversion happens in `engine/bank.py`,
-    across a call the parser does not follow -- so the game must be able to
-    break it loudly."""
-    reference = commands.load(SESSION_SOURCE)
-    for command, keys in commands.COIN_ARGUMENTS.items():
-        assert command in reference, command
-        for key in keys:
-            assert key in reference[command]["keys"], (command, key)
-
-
-def test_an_identifier_passed_by_value_is_marked_too() -> None:
-    """`_own_item(db, body, message["item"])`: the helper names the position,
-    the call site names the key. Without it `storage.put` and `storage.take`
-    disagreed about the same argument."""
-    reference = commands.load(SESSION_SOURCE)
-    assert "item:id" in commands.argument_list(reference["storage.put"])
-    assert "item:id" in commands.argument_list(reference["storage.take"])
-    assert "item:id" in commands.argument_list(reference["ground.drop"])
-
-
 async def test_standing_is_reread_on_the_events_that_move_it(
     monkeypatch: pytest.MonkeyPatch, store: Store, agent: dict[str, Any]
 ) -> None:
@@ -1544,202 +699,3 @@ async def test_standing_is_reread_on_the_events_that_move_it(
     game.events = [{"event": "market.filled", "seq": 1}]
     await turn()
     assert [cmd for cmd, _ in game.sent].count("orders") == 2
-
-
-def test_a_server_that_does_not_place_orders_makes_the_shelf_cautious() -> None:
-    """Against a server without the node on an order, every sell order counts
-    against the shelf: a shelf that looks all free sent the agent into
-    `market.take` eighteen times in ten minutes."""
-    look = {
-        "look": {
-            "node": {"key": "terra.capital.market"},
-            "stall": [{"goods": "iron_ore", "tier": "good", "amount": 5.0}],
-        }
-    }
-    old = {
-        "orders": {
-            "orders": [
-                {
-                    "id": "o1",
-                    "side": "sell",
-                    "goods": "iron_ore",
-                    "tier": "good",
-                    "price": 30000,
-                    "left": 5.0,
-                }
-            ],
-            "reservations": [],
-            "batches": [],
-        }
-    }
-    said = observe.standing(old, look)
-    assert "свободно не больше 0" in said
-
-
-async def test_a_name_where_an_id_was_wanted_gets_the_arguments_back(
-    monkeypatch: pytest.MonkeyPatch, store: Store, agent: dict[str, Any]
-) -> None:
-    """`badly formed hexadecimal UUID string` names no argument, and the model
-    tries the next name it can read -- three station names in a row."""
-    seen: list[str] = []
-    replies = iter(
-        [
-            llm.Reply(
-                content="",
-                tool_calls=[
-                    _call("act", cmd="craft.start", args={"output": "Слиток", "tool": "Кузница"})
-                ],
-                prompt_tokens=1,
-                completion_tokens=1,
-            ),
-            llm.Reply(
-                content="",
-                tool_calls=[_call("finish", thought="поняла")],
-                prompt_tokens=1,
-                completion_tokens=1,
-            ),
-        ]
-    )
-
-    async def fake_chat(_p: Any, messages: list[dict[str, Any]], *_a: Any, **_k: Any) -> llm.Reply:
-        seen.extend(str(m.get("content")) for m in messages if m.get("role") == "tool")
-        return next(replies)
-
-    monkeypatch.setattr(llm, "chat", fake_chat)
-    game = FakeGame(
-        {
-            "look": {"money": 0},
-            "craft.start": Refused(
-                "команда не понята: badly formed hexadecimal UUID string",
-                "session-not-understood",
-                {"why": "badly formed hexadecimal UUID string"},
-            ),
-        }
-    )
-    await brain.run_turn(
-        agent=agent,
-        game=game,  # type: ignore[arg-type]
-        store=store,
-        provider=llm.Provider("u", "k", "m"),
-        reference=commands.load(SESSION_SOURCE),
-    )
-    assert "tool:id" in "".join(seen)
-
-
-def test_a_refusal_about_the_way_says_the_way_is_optional() -> None:
-    """Only while the server has no ways to name (`craft-unknown-way` with an
-    empty `ways`): otherwise the model guesses the next English word for it."""
-    reference = commands.load(SESSION_SOURCE)
-    bare = brain._advice(
-        reference,
-        "craft.start",
-        {"output": "iron_ingot", "way": "forge"},
-        Refused(
-            "«Слиток» не делается способом «forge»",
-            "craft-unknown-way",
-            {"goods": "iron_ingot", "way": "forge", "known": "false", "ways": ""},
-        ),
-    )
-    assert "без way игра берёт основной" in bare
-    #: The server that names the ways needs no help, and the advice retires.
-    named = brain._advice(
-        reference,
-        "craft.start",
-        {"output": "iron_ingot", "way": "forge"},
-        Refused(
-            "«Слиток» не делается способом «forge»; способы: iron_smelting",
-            "craft-unknown-way",
-            {"goods": "iron_ingot", "way": "forge", "known": "true", "ways": "iron_smelting"},
-        ),
-    )
-    assert named == ""
-
-
-def test_advice_reads_the_code_and_never_the_words() -> None:
-    """The sentence changes with the locale and with every edit of a message
-    file (D-251): a refusal whose *words* carry the old marks but whose code
-    is something else -- or nothing, an unconverted site -- gets no hint."""
-    reference = commands.load(SESSION_SOURCE)
-    for said in (
-        Refused("команде не хватает поля «amount»"),
-        Refused("не делается способом «forge»", "storage-no-room", {}),
-    ):
-        assert brain._advice(reference, "market.buy", {"goods": "salt"}, said) == "", said.code
-
-
-def test_a_refusal_keeps_its_words_beside_the_code() -> None:
-    """`Refused` stores the wire's arguments under `params`, never under the
-    exception's own `args`: assigning a dict there coerces it to a tuple of
-    its keys, and `str()` of the refusal becomes the first key -- the model
-    would read «ОТКАЗ: field». Caught live while this was being written."""
-    said = Refused("команде не хватает поля «goods»", "session-field-missing", {"field": "goods"})
-    assert str(said) == "команде не хватает поля «goods»"
-    assert said.code == "session-field-missing"
-    assert said.params == {"field": "goods"}
-    #: The wire may drop `args` entirely (`_without_nulls`) and an unconverted
-    #: site sends no code at all: both read as "nothing", not as a crash.
-    bare = Refused("нет столько")
-    assert (bare.code, bare.params) == (None, {})
-
-
-def test_an_id_gets_its_russian_name_and_an_unknown_one_stays_raw() -> None:
-    """D-251, wave II: the wire speaks ids, the model reads «Имя [id]» and
-    quotes the id -- the same convention the digest uses for node keys."""
-    assert names.label("goods", "iron_ore") == "iron_ore"
-    names.install(
-        {
-            "goods": {"iron_ore": "Железная руда"},
-            "virtual_stations": {"coin_station": "Монетная станция"},
-        }
-    )
-    assert names.label("goods", "iron_ore") == "Железная руда [iron_ore]"
-    #: A station standing in a place is a thing: the goods domain covers both.
-    assert names.label("goods", "coin_station") == "Монетная станция [coin_station]"
-    assert names.label("goods", "mystery_thing") == "mystery_thing"
-    assert names.label("tiers", "good") == "good"
-    #: And the system prompt teaches the convention.
-    assert "из квадратных скобок" in brain.SYSTEM
-
-
-async def test_renames_are_fetched_once_and_a_failure_is_retried() -> None:
-    class Flaky:
-        calls = 0
-        broken = True
-
-        async def public(self, path: str) -> Any:
-            assert path == "renames"
-            self.calls += 1
-            if self.broken:
-                raise RuntimeError("404")
-            return {"names_ru": {"goods": {"salt": "Соль"}}}
-
-    game = Flaky()
-    #: A server without the endpoint leaves ids raw and does not cache the
-    #: failure: the next turn asks again.
-    await names.ensure(game)
-    assert names.label("goods", "salt") == "salt"
-    game.broken = False
-    await names.ensure(game)
-    assert game.calls == 2
-    assert names.label("goods", "salt") == "Соль [salt]"
-    #: Loaded is loaded: the table is per process, not per turn.
-    await names.ensure(game)
-    assert game.calls == 2
-
-
-def test_the_digest_translates_node_features_and_the_climate() -> None:
-    """Node features and `frost.climate` come as ids since D-251; the digest
-    keeps talking to the model in Russian."""
-    names.install({"node_properties": {"stones": "камни", "meadow": "луг"}})
-    seen = {
-        "look": {
-            "identity": "Марта",
-            "money": "10",
-            "body": {"stamina": 90.0},
-            "node": {"name": "Поляна", "key": "terra.wild.1", "features": ["stones", "meadow"]},
-            "frost": {"climate": "frost", "hours": 0, "max": 12, "per_hour": 0, "at": "x"},
-        }
-    }
-    text = observe.digest(seen)
-    assert "есть: камни [stones], луг [meadow]" in text
-    assert "ЗАМЁРЗ (здесь мороз)" in text
