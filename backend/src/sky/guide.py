@@ -49,13 +49,6 @@ class Helm:
     phase: str
     #: Whether the hull is on the circle after this step: moor it.
     captured: bool
-    #: The velocity the arc asks for, and the sky day it was solved at: the
-    #: order carries them, and the steps between corrections burn toward that
-    #: one velocity, so the passage is flown rather than derived afresh every
-    #: minute (D-316). Nothing outside the chase -- an approach profile is
-    #: feedback and has no route to hold.
-    aim: tuple[float, float] | None = None
-    aimed_at: float | None = None
 
 
 def brake_days(dv: float, a_max: float) -> float:
@@ -77,18 +70,9 @@ def steer(
     arrive: float,
     a_max: float,
     dt: float,
-    aim: tuple[float, float] | None = None,
-    aimed_at: float | None = None,
-    every: float | None = None,
 ) -> Helm:
     """The burn for one step of `dt` days, given where the hull is and when
     it means to arrive. `a_max` is the hull's acceleration, units a day squared.
-
-    `aim` is the velocity the arc asked for when it was last solved and
-    `aimed_at` the sky day of that solution; with `every` (days) the arc is
-    re-solved only once it is that old, and the steps between burn toward the
-    velocity already found (D-316). Without `every` it is solved every step,
-    as the wave before this one did.
 
     A crossing to a planet leaves the world it is on before it chases the arc
     (D-316): the burn is kept from carrying the hull inward while it is still
@@ -131,27 +115,17 @@ def steer(
             else float(np.hypot(*vp[0]))
         )
         tof = max(system.late_leg, gap / max(speed, own, STILL))
-    if aim is None or aimed_at is None or every is None or t - aimed_at >= every:
-        goal = place_any(target, t + tof)[0][0]
-        wanted = _lambert_velocity(system.mu, r, (float(goal[0]), float(goal[1])), tof, v)
-        if wanted is None:
-            return Helm(thrust=(0.0, 0.0), phase=COAST, captured=False)
-        aim, aimed_at = wanted, t
-    need = np.array(aim) - np.array(v)
+    goal = place_any(target, t + tof)[0][0]
+    wanted = _lambert_velocity(system.mu, r, (float(goal[0]), float(goal[1])), tof, v)
+    if wanted is None:
+        return Helm(thrust=(0.0, 0.0), phase=COAST, captured=False)
+    need = np.array(wanted) - np.array(v)
     size = float(np.hypot(*need))
     if size < STILL:
-        #: Already on the velocity the arc wants: nothing to burn, and the aim
-        #: is kept, so the coast is the plan's coast and not a fresh question.
-        return Helm(thrust=(0.0, 0.0), phase=COAST, captured=False, aim=aim, aimed_at=aimed_at)
+        return Helm(thrust=(0.0, 0.0), phase=COAST, captured=False)
     accel = min(a_max, size / dt)
     thrust = need / size * accel
-    return Helm(
-        thrust=_outward(system, target, t, r, v, thrust, dt),
-        phase=BURN,
-        captured=False,
-        aim=aim,
-        aimed_at=aimed_at,
-    )
+    return Helm(thrust=_outward(system, target, t, r, v, thrust, dt), phase=BURN, captured=False)
 
 
 def _holding(system: System, target: Target, t: float, r: tuple[float, float]) -> Body | None:

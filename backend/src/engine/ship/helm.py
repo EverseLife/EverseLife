@@ -215,32 +215,13 @@ async def _fly(
 
     r, v = _state_of(ship)
     step = float(constants[R.ORBIT_STEP_MINUTES]) / MINUTES_PER_HOUR / HOURS_PER_DAY
-    #: The arc the order is flying, and when it was last solved: carried on the
-    #: row between ticks, so a passage is executed and corrected rather than
-    #: re-derived every minute (D-316).
-    aim = _aim_of(order)
-    aimed_at = order.get("aimed_at")
-    every = float(constants[R.ORBIT_CORRECT_MINUTES]) / MINUTES_PER_HOUR / HOURS_PER_DAY
     t = t0
     spent = 0.0
     phase = str(order.get("phase", sky.BURN))
     outcome = "flying"
     while t < t1 - sky.TIME_EPS:
         dt = min(step, t1 - t)
-        helm = sky.steer(
-            world,
-            target,
-            t,
-            r,
-            v,
-            arrive=arrive,
-            a_max=a_max,
-            dt=dt,
-            aim=aim,
-            aimed_at=None if aimed_at is None else float(aimed_at),
-            every=every,
-        )
-        aim, aimed_at = helm.aim, helm.aimed_at
+        helm = sky.steer(world, target, t, r, v, arrive=arrive, a_max=a_max, dt=dt)
         if helm.captured:
             outcome = "moored"
             break
@@ -336,8 +317,6 @@ async def _fly(
         return outcome, burnt
     order["phase"] = phase
     order["spent"] = round(float(order.get("spent", 0.0)) + spent, ROUND_DV)
-    order["aim"] = None if aim is None else [round(aim[0], ROUND_DV), round(aim[1], ROUND_DV)]
-    order["aimed_at"] = aimed_at
     ship.course = order
     #: "If the engines fell silent now": the coast ahead of a hull under an
     #: order, refreshed at the coaster's cadence rather than every minute --
@@ -351,14 +330,6 @@ async def _fly(
 
 def target_planet(body: sky.Body) -> Planet:
     return Planet(body.key)
-
-
-def _aim_of(order: dict) -> tuple[float, float] | None:
-    """The velocity the order is flying toward, as the row keeps it (D-316)."""
-    kept = order.get("aim")
-    if not kept:
-        return None
-    return (float(kept[0]), float(kept[1]))
 
 
 async def _dense_drifter(
