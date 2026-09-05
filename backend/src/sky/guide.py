@@ -17,12 +17,23 @@ and whether the tanks can pay is the tick's business (`ship.sim`).
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 import numpy as np
 
 from src import astro
-from src.sky._base import Body, Drifter, Star, System, Target, circle_speed, place_any, star_circle
+from src.sky._base import (
+    Body,
+    Drifter,
+    Star,
+    System,
+    Target,
+    circle_rate,
+    circle_speed,
+    place_any,
+    star_circle,
+)
 
 #: The helm starts braking as soon as the way left is what braking at this
 #: thrust needs, with this margin. How many parking radii it matches the
@@ -36,6 +47,9 @@ STILL = 1e-3
 #: How far above the ground a fall must still pass for the helm to let it
 #: run: nearer than this many planet radii it is a crash, not an approach.
 CLEARS = 1.6
+#: The ejection window: the burn is held until the circle has brought the
+#: hull's own heading within this of the excess the arc wants, radians.
+WINDOW = 0.15
 
 #: The three things the helm can be doing.
 BURN = "burn"
@@ -130,6 +144,15 @@ def steer(
     wanted = _lambert_velocity(system.mu, r, (float(goal[0]), float(goal[1])), tof, v)
     if wanted is None:
         return Helm(thrust=(0.0, 0.0), phase=COAST, captured=False)
+    leaving = _holding(system, target, t, r)
+    if leaving is not None and wait_days(system, leaving, t, r, v, wanted) > 0.0:
+        #: Turned the wrong way: the circle brings the hull round for nothing,
+        #: while leaving from here would cost the walk round it under thrust
+        #: (D-316). The order already counted this wait into the hour it
+        #: promised (`sim.depart`), so the arc after it is the arc that was
+        #: priced -- waiting against an hour fixed for an immediate departure
+        #: is what makes an arc steeper than the engines can fly.
+        return Helm(thrust=(0.0, 0.0), phase=COAST, captured=False)
     need = np.array(wanted) - np.array(v)
     size = float(np.hypot(*need))
     if size < STILL:
@@ -137,6 +160,49 @@ def steer(
     accel = min(a_max, size / dt)
     thrust = need / size * accel
     return Helm(thrust=_outward(system, target, t, r, v, thrust, dt), phase=BURN, captured=False)
+
+
+def wait_days(
+    system: System,
+    leaving: Body,
+    t: float,
+    r: tuple[float, float],
+    v: tuple[float, float],
+    wanted: tuple[float, float],
+) -> float:
+    """How long the circle still has to turn before the hull faces the way it
+    means to leave, days; nought if the window is already open (D-316).
+
+    With an excess ten times the planet's escape speed the departure hyperbola
+    is all but straight, so the way out is the way the hull is already going
+    round the planet -- and the window is simply the side of the circle that
+    faces the arc. Waiting for it is free: the circle is a coast. Burning off
+    the wrong side is not, and it cost thirty units of the fifty a departure
+    took.
+    """
+    p, vp = place_any(leaving, t)
+    v_rel = np.array(v) - vp[0]
+    excess = np.array(wanted) - vp[0]
+    going = float(np.hypot(*v_rel))
+    out = float(np.hypot(*excess))
+    if going < STILL or out < STILL:
+        return 0.0
+    v_rel = v_rel / going
+    excess = excess / out
+    turn = math.atan2(
+        float(v_rel[0] * excess[1] - v_rel[1] * excess[0]), float(np.dot(v_rel, excess))
+    )
+    if abs(turn) <= WINDOW:
+        return 0.0
+    rel = np.array(r) - p[0]
+    #: Which way round the planet the hull goes decides which way the heading
+    #: turns, and therefore how much of the circle is still to come.
+    onward = float(rel[0] * v_rel[1] - rel[1] * v_rel[0]) >= 0.0
+    ahead = turn if onward else -turn
+    if ahead < 0.0:
+        ahead += 2.0 * math.pi
+    rate = abs(circle_rate(leaving, system.park))
+    return ahead / rate if rate > 0.0 else 0.0
 
 
 def _holding(system: System, target: Target, t: float, r: tuple[float, float]) -> Body | None:

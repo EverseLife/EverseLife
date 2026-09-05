@@ -58,6 +58,10 @@ class Sample:
     trace: tuple[tuple[float, float], ...]
     #: Full turns round the star before arrival (D-271).
     revs: int
+    #: The velocity the arc leaves with, heliocentric: what the ejection
+    #: window is measured against, so the order can price the wait for it
+    #: (D-316). Nought where there is no arc -- a hull met on its coast.
+    v1: tuple[float, float] = (0.0, 0.0)
 
 
 #: The least an order may promise: a minute. A hull already alongside is
@@ -187,6 +191,7 @@ def preview(
                 dv=total,
                 trace=astro.trace(system.mu, r0, leg.v1, tof, TRACE_POINTS),
                 revs=leg.revs,
+                v1=(float(leg.v1[0]), float(leg.v1[1])),
             )
         )
     return found
