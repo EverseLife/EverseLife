@@ -50,7 +50,7 @@ from src.sky.guide import (  # noqa: F401
     COAST,
     Helm,
     brake_days,
+    eject_wait,
     steer,
-    wait_days,
 )
 from src.sky.plan import Sample, approach_quote, circle_quote, escape_dv, preview  # noqa: F401

@@ -47,9 +47,6 @@ STILL = 1e-3
 #: How far above the ground a fall must still pass for the helm to let it
 #: run: nearer than this many planet radii it is a crash, not an approach.
 CLEARS = 1.6
-#: The ejection window: the burn is held until the circle has brought the
-#: hull's own heading within this of the excess the arc wants, radians.
-WINDOW = 0.15
 
 #: The three things the helm can be doing.
 BURN = "burn"
@@ -144,8 +141,7 @@ def steer(
     wanted = _lambert_velocity(system.mu, r, (float(goal[0]), float(goal[1])), tof, v)
     if wanted is None:
         return Helm(thrust=(0.0, 0.0), phase=COAST, captured=False)
-    leaving = _holding(system, target, t, r)
-    if leaving is not None and wait_days(system, leaving, t, r, v, wanted) > 0.0:
+    if eject_wait(system, target, t, r, v, wanted) > 0.0:
         #: Turned the wrong way: the circle brings the hull round for nothing,
         #: while leaving from here would cost the walk round it under thrust
         #: (D-316). The order already counted this wait into the hour it
@@ -162,7 +158,25 @@ def steer(
     return Helm(thrust=_outward(system, target, t, r, v, thrust, dt), phase=BURN, captured=False)
 
 
-def wait_days(
+def eject_wait(
+    system: System,
+    target: Target,
+    t: float,
+    r: tuple[float, float],
+    v: tuple[float, float],
+    wanted: tuple[float, float],
+) -> float:
+    """The wait for the ejection window from wherever the hull is, days.
+
+    One reading for the helm and for the order alike: which world holds the
+    hull is asked here and nowhere else, so the hour an order promises and the
+    hour the helm flies to cannot part company. Nought where no world holds it.
+    """
+    leaving = _holding(system, target, t, r)
+    return 0.0 if leaving is None else _wait_days(system, leaving, t, r, v, wanted)
+
+
+def _wait_days(
     system: System,
     leaving: Body,
     t: float,
@@ -192,7 +206,7 @@ def wait_days(
     turn = math.atan2(
         float(v_rel[0] * excess[1] - v_rel[1] * excess[0]), float(np.dot(v_rel, excess))
     )
-    if abs(turn) <= WINDOW:
+    if abs(turn) <= system.eject_window:
         return 0.0
     rel = np.array(r) - p[0]
     #: Which way round the planet the hull goes decides which way the heading

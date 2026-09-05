@@ -59,6 +59,8 @@ class System:
     #: nearly at the circle's speed.
     capture_radius: float
     capture_speed: float
+    #: The ejection window, radians (D-316).
+    eject_window: float
     #: Inside this many parking radii the helm matches the circle whatever
     #: its speed; and the shortest leg it lays once the planned hour has
     #: passed without a capture, days.
@@ -107,6 +109,7 @@ def system_of(constants: Constants, orbits: dict[Planet, astro.Orbit]) -> System
             park=float(constants[R.ORBIT_PARK_RADIUS]),
             capture_radius=float(constants[R.ORBIT_CAPTURE_RADIUS]),
             capture_speed=float(constants[R.ORBIT_CAPTURE_SPEED]),
+            eject_window=float(constants[R.ORBIT_EJECT_WINDOW]),
             approach=float(constants[R.ORBIT_APPROACH_RADII]),
             late_leg=float(constants[R.ORBIT_LATE_LEG_DAYS]),
             dock_radius=float(constants[R.ORBIT_DOCK_RADIUS]),
@@ -134,6 +137,7 @@ def system_of(constants: Constants, orbits: dict[Planet, astro.Orbit]) -> System
         park=float(constants[R.ORBIT_PARK_RADIUS]),
         capture_radius=float(constants[R.ORBIT_CAPTURE_RADIUS]),
         capture_speed=float(constants[R.ORBIT_CAPTURE_SPEED]),
+        eject_window=float(constants[R.ORBIT_EJECT_WINDOW]),
         approach=float(constants[R.ORBIT_APPROACH_RADII]),
         late_leg=float(constants[R.ORBIT_LATE_LEG_DAYS]),
         dock_radius=float(constants[R.ORBIT_DOCK_RADIUS]),

@@ -493,13 +493,6 @@ async def depart(
         raise NoArc(key="ship-no-arc", hours=round(hours, ROUND_HOURS))
     r, v, t = found
     plan = sample
-    #: The planet the hull is leaving, if it is still on a parking circle:
-    #: what the ejection window is measured round (D-316).
-    leaving = None
-    if ship.docked_node_id is not None:
-        moored = await session.get(Node, ship.docked_node_id)
-        if moored is not None and is_orbit(moored):
-            leaving = world.body(moored.planet.value)
 
     weight, klass = await _afford(session, constants, catalog, ship, plan.dv_out, why="cross")
 
@@ -515,11 +508,10 @@ async def depart(
     #: hull the way the arc leaves; counting that here is what keeps the arc
     #: deliverable -- waiting against an hour fixed for an immediate
     #: departure only makes the arc steeper than the engines can fly.
-    wait = (
-        sky.wait_days(world, leaving, t, r, v, plan.v1)
-        if leaving is not None and plan.v1 != (0.0, 0.0)
-        else 0.0
-    )
+    #: The wait for the ejection window, as the slider counted it (D-316):
+    #: the console showed this hour before the button, and the order promises
+    #: the same one.
+    wait = plan.wait / HOURS_PER_DAY
     ship.course = {
         "target": None if isinstance(target, Ship) else target.key,
         "planet": None if isinstance(target, Ship) else target.planet.value,

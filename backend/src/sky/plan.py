@@ -41,7 +41,7 @@ from src.sky._base import (
     place_any,
     star_circle,
 )
-from src.sky.guide import BRAKE_SHARE
+from src.sky.guide import BRAKE_SHARE, eject_wait
 from src.units import HOURS_PER_DAY, MINUTES_PER_HOUR, TRACE_POINTS
 
 
@@ -59,9 +59,14 @@ class Sample:
     #: Full turns round the star before arrival (D-271).
     revs: int
     #: The velocity the arc leaves with, heliocentric: what the ejection
-    #: window is measured against, so the order can price the wait for it
-    #: (D-316). Nought where there is no arc -- a hull met on its coast.
+    #: window is measured against (D-316). Nought where there is no arc --
+    #: a hull met on its coast.
     v1: tuple[float, float] = (0.0, 0.0)
+    #: The wait for that window before the arc begins, hours. Counted here so
+    #: the console shows the whole time before the button is pressed, and kept
+    #: apart from `hours` because the engines' reach over the arc is the arc's
+    #: own hours -- a wait lengthens the passage, not the burn.
+    wait: float = 0.0
 
 
 #: The least an order may promise: a minute. A hull already alongside is
@@ -192,6 +197,7 @@ def preview(
                 trace=astro.trace(system.mu, r0, leg.v1, tof, TRACE_POINTS),
                 revs=leg.revs,
                 v1=(float(leg.v1[0]), float(leg.v1[1])),
+                wait=eject_wait(system, target, t0, r0, v0, leg.v1) * HOURS_PER_DAY,
             )
         )
     return found

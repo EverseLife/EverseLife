@@ -654,6 +654,10 @@ ORBIT_PLANET_MU = Num("orbit.planet_mu")
 ORBIT_PARK_RADIUS = Num("orbit.park_radius")
 ORBIT_STEP_MINUTES = Num("orbit.step_minutes")
 ORBIT_PLAN_STEP_MINUTES = Num("orbit.plan_step_minutes")
+#: The ejection window: the helm holds the departure burn until the parking
+#: circle has turned the hull within this of the excess its arc leaves with
+#: (D-316).
+ORBIT_EJECT_WINDOW = Num("orbit.eject_window")
 ORBIT_CAPTURE_RADIUS = Num("orbit.capture_radius")
 ORBIT_CAPTURE_SPEED = Num("orbit.capture_speed")
 ORBIT_SYSTEM_RADIUS = Num("orbit.system_radius")

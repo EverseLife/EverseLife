@@ -48,6 +48,7 @@ def _system(*, bodies: bool = True) -> sky.System:
         park=1.5,
         capture_radius=3.0,
         capture_speed=2.0,
+        eject_window=0.15,
         approach=4.0,
         late_leg=0.25,
         dock_radius=0.2,
