@@ -34,7 +34,8 @@ travel-route-node-gone = the route leads to a node that is gone
 travel-impassable = “{ NAME($vehicle) }” will not get through here: { $surface ->
         [road] a road
         [paved] a paved way
-       *[trail] trackless ground
+        [trail] a trail
+       *[wild] trackless ground
     } lets no transport through. Unharness or look for a road
 travel-no-strength = the road needs { NUMBER($need, minimumFractionDigits: 1, maximumFractionDigits: 1) } stamina and you have { NUMBER($have, minimumFractionDigits: 1, maximumFractionDigits: 1) }: eat or sleep first
 travel-not-going = the body is not on the road: there is nowhere to come back from
@@ -69,7 +70,7 @@ road-top-surface = a paved way is the top of the ladder: there is nothing higher
 road-dead = a dead body lays no roads
 road-stand-at-an-end = a road is laid standing at one end of the edge
 road-intact = the road is whole: there is nothing to patch
-road-trail-not-mended = trackless ground has nothing to patch: lay a road first
+road-trail-not-mended = trackless ground and a trail have nothing to patch: lay a road first
 road-edge-busy = work is already under way on this edge: wait for the end of it
 road-no-goods = you need { NUMBER($need, maximumFractionDigits: 0) } “{ NAME($goods) }” and your hands hold { NUMBER($have, maximumFractionDigits: 0) }: a road is materials, not intent
 road-already-queued = the work is already queued
@@ -93,15 +94,16 @@ ship-no-group = the ship has no group
 
 # --- the console and the order (D-230, D-242) ---------------------------------
 
+-ship-nowhere-back = there is nowhere to come back to, the ship will reach the goal of its passage
 ship-no-spaceport = “{ $port }” has no spaceport: { $why ->
         [land] there is nowhere to land
-        [turn-back] there is nowhere to come back to, the ship will reach the goal of its passage
+        [turn-back] { -ship-nowhere-back }
        *[dock] there is nothing to moor to
     }
 ship-no-mooring-to-hull = one does not moor to a hull: the goal of a passage is a spaceport
-ship-no-room = “{ $port }” has no room for the hull: { $need } m² needed, { $room } m² free. { $why ->
-        [turn-back] There is nowhere to come back to, the ship will reach the goal of its passage
-       *[land] A spaceport takes as many hulls as fit on its ground
+ship-no-room = “{ $port }” has no room for the hull: { $need } m² needed, { $room } m² free — { $why ->
+        [turn-back] { -ship-nowhere-back }
+       *[land] a spaceport takes as many hulls as fit on its ground
     }
 ship-beacon-dark = the beacon of “{ $port }” is dark: the node is frozen through or the shipyard is without power. A spaceport works while its node is warm and there is something to feed the shipyard — generation is brought there on foot and no other way
 ship-command-dead = a dead body commands no ship

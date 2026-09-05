@@ -90,7 +90,7 @@ ui-map-road-pave = Pave for { $needs }
 ui-map-road-mend-need = patching: { $needs } roadbed
 ui-map-road-mend = Patch for { $needs }
 ui-map-road-at-hand = roadbed in hand { $hand }
-ui-map-road-rule = The surface rises a step for roadbed and time: trackless ground → road → paved way. Without upkeep a road grows over again, and no convoy goes over trackless ground at all.
+ui-map-road-rule = The surface rises a step for roadbed and time: trackless ground → trail → road → paved way. A trail is worn in by feet and grows over without walking; without upkeep a road grows over too. No convoy goes over trackless ground or a trail.
 
 ## The sky: winding time on and the layer of space.
 

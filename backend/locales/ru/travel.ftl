@@ -34,7 +34,8 @@ travel-route-node-gone = маршрут ведёт в исчезнувший у�
 travel-impassable = «{ NAME($vehicle) }» здесь не пройдёт: { $surface ->
         [road] дорога
         [paved] мощёный тракт
-       *[trail] бездорожье
+        [trail] тропинка
+       *[wild] бездорожье
     } транспорт не пускает. Распрягитесь либо ищите дорогу
 travel-no-strength = на дорогу нужно { NUMBER($need, minimumFractionDigits: 1, maximumFractionDigits: 1) } выносливости, а есть { NUMBER($have, minimumFractionDigits: 1, maximumFractionDigits: 1) }: сначала поесть или поспать
 travel-not-going = тело не в пути: возвращаться неоткуда
@@ -69,7 +70,7 @@ road-top-surface = мощёный тракт — верх лестницы: вы
 road-dead = мёртвое тело дорог не кладёт
 road-stand-at-an-end = дорогу кладут стоя в одном из концов ребра
 road-intact = дорога цела: подсыпать нечего
-road-trail-not-mended = бездорожью подсыпать нечего: сначала уложить дорогу
+road-trail-not-mended = по бездорожью и тропинке подсыпать нечего: сначала уложить дорогу
 road-edge-busy = на этом ребре уже идёт работа: дождитесь конца
 road-no-goods = нужно { NUMBER($need, maximumFractionDigits: 0) } «{ NAME($goods) }», а в руках { NUMBER($have, maximumFractionDigits: 0) }: дорога — это материалы, а не намерение
 road-already-queued = работа уже поставлена
@@ -93,15 +94,16 @@ ship-no-group = у корабля нет группы
 
 # --- консоль и приказ (D-230, D-242) ------------------------------------------
 
+-ship-nowhere-back = возвращаться некуда, корабль дойдёт до цели рейса
 ship-no-spaceport = в «{ $port }» нет космодрома: { $why ->
         [land] садиться некуда
-        [turn-back] возвращаться некуда, корабль дойдёт до цели рейса
+        [turn-back] { -ship-nowhere-back }
        *[dock] причаливать не к чему
     }
 ship-no-mooring-to-hull = к борту не причаливают: цель рейса — космодром
-ship-no-room = в «{ $port }» нет места под корпус: нужно { $need } м², свободно { $room } м². { $why ->
-        [turn-back] Возвращаться некуда, корабль дойдёт до цели рейса
-       *[land] Космодром вмещает столько корпусов, сколько влезает в его площадь
+ship-no-room = в «{ $port }» нет места под корпус: нужно { $need } м², свободно { $room } м² — { $why ->
+        [turn-back] { -ship-nowhere-back }
+       *[land] космодром вмещает столько корпусов, сколько влезает в его площадь
     }
 ship-beacon-dark = маяк «{ $port }» не светит: узел промёрз или верфь без энергии. Космодром работает, пока в его узле тепло и есть чем питать верфь — принести туда генерацию можно только пешком
 ship-command-dead = мёртвое тело кораблём не управляет

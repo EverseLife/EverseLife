@@ -420,7 +420,7 @@ function isQuoted(value: unknown): value is Quoted[] {
  * Some refusals quote another one -- «тело занято: идёт разведка (ещё 12 мин)»,
  * «для города не хватает: биопринтер, рынок». The engine sends those halves as
  * **keys**, so that each end says them in its own language, and they arrive as
- * `{"what": [{"code": "doing-field-what"}]}`.
+ * `{"what": [{"code": "doing-sleep-what"}]}`.
  *
  * Fluent takes strings, numbers and dates and nothing else. Handed that array
  * it prints the literal `{$what}` into the sentence and complains into an

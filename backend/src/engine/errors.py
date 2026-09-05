@@ -40,7 +40,7 @@ translated, so the wave that moved the words out of the code left them in.
 and under it the messages to put there. The edge renders the inner ones first,
 in the reader's language, and hands the result to the outer message.
 
-    raise Busy(key="occupation-busy", inner={"what": [Says("doing-field-what")]})
+    raise Busy(key="occupation-busy", inner={"what": [Says("doing-sleep-what")]})
 
 A list, because the quoted half is often several: what a city still lacks is
 as many messages as there are missing buildings, and how they are strung
