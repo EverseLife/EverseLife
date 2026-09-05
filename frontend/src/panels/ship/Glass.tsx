@@ -9,7 +9,7 @@
  * screen would lie about all three (D-055, D-238). The bridge is the one place
  * where the player is not looking at *our* interface but at the ship's own
  * instrument, and an instrument that looks like a table of numbers is the
- * thing out of place there -- so D-317 stops the ban at the window's edge and
+ * thing out of place there -- so D-318 stops the ban at the window's edge and
  * names this one panel. What may be drawn here, and how slowly each of it may
  * move, is a closed list, and the list lives in the vault (`50-interface/09`
  * P3) so that it is widened by editing a document rather than a stylesheet.
