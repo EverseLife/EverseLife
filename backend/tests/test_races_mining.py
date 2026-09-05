@@ -30,7 +30,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from conftest import _slow
-from src.constants import current
+from src.constants import current, current_catalog
 from src.constants import registry as R
 from src.engine import stock, world
 from src.models.identity import Body
@@ -380,6 +380,126 @@ async def test_two_empties_of_one_liquid_hopper_pour_each_unit_once(
         "каждая единица нефти налита ровно один раз: бункер плюс тара сходятся с добытым"
     )
     assert poured == to_units(sum(taken)), "слито ровно столько, сколько отдано вызовами"
+
+
+async def test_two_empties_of_one_ore_hopper_hand_over_each_unit_once(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The ore hopper became money-shaped when it started giving out **part** of
+    itself (D-314): all or nothing could only ever leave it at nought, and now
+    two hands reaching in at once must not each be handed the same units. The
+    rig row is taken `with_for_update`, so the second empties what the first left.
+    """
+    from src.engine import gear, rig
+
+    stamp = uuid.uuid4().hex[:6]
+    node = await world.create_node(session, f"terra.pit.{stamp}", "Забой", area_m2=200)
+    vein = await world.create_vein(session, node, "iron_ore", richness=60, remaining=100_000)
+    yard = await world.node_container(session, node)
+    await world.grant_item(session, yard, "coal", amount=10_000, quality=55, origin="тест")
+    identity = await world.create_identity(session, f"Промышленник-{stamp}")
+    body = await world.print_body(session, identity, node)
+    pocket = await world.body_container(session, body)
+    machine = await world.grant_item(session, pocket, "drilling_rig", quality=70, origin="тест")
+    installation = await rig.place(session, body, machine, vein)
+    #: A hopper heavier than the hands, pinned to one moment: both empties
+    #: advance to the same "now", so time adds nothing between them, and
+    #: neither call can take the lot.
+    moment = installation.counted_at + timedelta(hours=100)
+    mined = await rig.advance(session, current(), installation, now=moment)
+    room = await gear.room_for(session, current(), current_catalog(), body, "iron_ore")
+    assert room < mined, "тест требует бункер тяжелее рук"
+    await session.commit()
+    _slow(monkeypatch, rig, "advance")
+
+    async def take() -> float:
+        async with factory() as db, db.begin():
+            own_body = await db.get(Body, body.id)
+            own_rig = await db.get(type(installation), installation.id)
+            with contextlib.suppress(gear.Overloaded):
+                return await rig.empty_hopper(db, current(), own_body, own_rig, now=moment)
+            return 0.0
+
+    taken = await asyncio.gather(take(), take())
+
+    from src.units import amount as to_units
+
+    carried = sum(
+        int(row.amount)
+        for row in (
+            await session.execute(
+                select(Item).where(Item.container_id == pocket.id, Item.type_key == "iron_ore")
+            )
+        )
+        .scalars()
+        .all()
+    )
+    left = await session.scalar(
+        select(type(installation).hopper).where(type(installation).id == installation.id)
+    )
+    assert carried == to_units(sum(taken)), "в руках ровно столько, сколько отдано вызовами"
+    assert carried + to_units(float(left)) == to_units(mined), (
+        "каждая единица руды выдана ровно один раз: бункер плюс руки сходятся с добытым"
+    )
+    assert 0 < carried < to_units(mined), "руки взяли часть, остальное ждёт в бункере"
+
+
+async def test_a_rig_is_not_taken_down_out_from_under_the_tick(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The taking-down door reads the hopper to refuse a loaded machine (D-181,
+    D-314), and the tick holds every rig row of the world in one uncommitted
+    transaction. Read without the lock, the door would see the last committed
+    nought while a whole pass already stands in the row -- and hand the loaded
+    machine over through the very rule it was asked for."""
+    from src.constants import current_catalog
+    from src.engine import rig, station
+
+    stamp = uuid.uuid4().hex[:6]
+    node = await world.create_node(session, f"terra.pit.{stamp}", "Забой", area_m2=200)
+    vein = await world.create_vein(session, node, "iron_ore", richness=60, remaining=100_000)
+    yard = await world.node_container(session, node)
+    await world.grant_item(session, yard, "coal", amount=1000, quality=55, origin="тест")
+    identity = await world.create_identity(session, f"Промышленник-{stamp}")
+    body = await world.print_body(session, identity, node)
+    pocket = await world.body_container(session, body)
+    machine = await world.grant_item(session, pocket, "drilling_rig", quality=70, origin="тест")
+    installation = await rig.place(session, body, machine, vein)
+    #: Nothing mined yet: the committed hopper is nought, and the pass that
+    #: fills it is the one the taking-down races.
+    assert float(installation.hopper) == 0
+    await session.commit()
+    _slow(monkeypatch, rig, "advance")
+
+    moment = installation.counted_at + timedelta(hours=4)
+
+    async def tick() -> float:
+        async with factory() as db, db.begin():
+            return await rig.tick_rigs(db, current(), now=moment)
+
+    async def take() -> str:
+        #: A shade behind the tick, so the row is already taken and the hopper
+        #: not yet committed -- the window the lock is for.
+        await asyncio.sleep(0.05)
+        async with factory() as db, db.begin():
+            own_body = await db.get(Body, body.id)
+            own_machine = await db.get(Item, machine.id)
+            try:
+                await station.take(db, current_catalog(), own_body, own_machine)
+            except station.NotEmpty:
+                return "refused"
+            return "taken"
+
+    mined, verdict = await asyncio.gather(tick(), take())
+
+    assert mined > 0, "тик намыл руду в том же окне"
+    assert verdict == "refused", "снятие увидело намытое, а не последний закоммиченный ноль"
+    await session.refresh(machine)
+    assert machine.installed is True, "машина осталась стоять"
 
 
 async def test_two_rigs_on_one_vein_bank_only_what_the_ground_gave(

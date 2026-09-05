@@ -18,9 +18,17 @@ legitimately does not balance.
 The definitions attach to `metadata`, so they land both in the test database
 and in migrations -- no second copy of the SQL exists. Each statement on a
 separate line: asyncpg does not accept several commands in one query.
+
+The journal's partitions are here for a neighbouring reason. Autogeneration
+sees them perfectly well -- that is the trouble; what it cannot do is match
+them to anything in the metadata, since the models declare only the parent.
+`include_name`, the filter that stops a comparison proposing to drop them,
+therefore lives beside the DDL that makes them and not at either of its uses.
 """
 
 from __future__ import annotations
+
+import re
 
 from sqlalchemy import DDL, MetaData, event
 
@@ -128,6 +136,40 @@ CREATE TABLE IF NOT EXISTS event_default PARTITION OF event DEFAULT
 JOURNAL_SEQUENCE_OWNED = """
 ALTER SEQUENCE event_id_seq OWNED BY event.id
 """
+
+
+#: Which names are the journal's partitions rather than anybody's declaration:
+#: `event_default` (above) and the months `engine.journal.partition_name`
+#: builds. Nothing here can call that -- `db` lies below `engine` -- so the two
+#: are held together by a test rather than by an import.
+PARTITION = re.compile(r"^event_(\d{6}|default)$")
+
+
+def include_name(name: str | None, type_: str, parent_names: dict[str, str | None]) -> bool:
+    """Whether autogeneration may compare this name against the models.
+
+    The models declare only the parent `event`, so without this every
+    partition reads as a table nobody asked for and autogeneration writes
+    `op.drop_table` for it. Applied, that migration empties the journal of a
+    world that has no wipes (D-007).
+
+    Tables only, though those drops arrive with a `drop_index` apiece: alembic
+    settles the table list first and never reflects the indexes of a table it
+    has already dropped from that list, so hiding a partition hides its
+    indexes with it (measured -- filtering tables alone leaves nothing behind).
+    A rule for index names as well would be a branch that cannot run, and the
+    day alembic did start offering those drops it would swallow them silently
+    instead of letting `tests/test_migrations.py` go red about it.
+
+    Shared rather than copied: `migrations/env.py` autogenerates under this
+    filter and `tests/test_migrations.py` demands the result be empty. Two
+    copies would rot apart, and the one in `env.py` would rot **silently** --
+    the test still passing on its own filter while the command it names in its
+    failure message drops the journal.
+    """
+    if name is None:  #: the default schema itself, not a table in it
+        return True
+    return not (type_ == "table" and PARTITION.match(name))
 
 
 RULES: tuple[tuple[str, tuple[str, ...]], ...] = (

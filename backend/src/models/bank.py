@@ -61,13 +61,19 @@ class Loan(Base):
     #: The city's margin in the rate, % above the key rate. Stored separately:
     #: on an interest payment its share goes to the city treasury, the rest to the capital's
     #: reserve.
-    margin: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False, default=0)
+    margin: Mapped[float] = mapped_column(
+        Numeric(6, 2), nullable=False, default=0, server_default="0"
+    )
     #: How much of the issued had to be printed: the emission-share sensor (D-087).
     printed: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     #: Interest: accrued and paid, cumulative (D-171). A payment covers it
     #: first, then the principal -- otherwise "system income" is unmeasurable.
-    interest_accrued: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
-    interest_paid: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    interest_accrued: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0, server_default="0"
+    )
+    interest_paid: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0, server_default="0"
+    )
 
     state: Mapped[LoanState] = enum_column(
         LoanState, "loan_state", nullable=False, default=LoanState.OPEN
