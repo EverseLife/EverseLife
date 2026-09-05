@@ -198,12 +198,11 @@ export function Nodes({
                 {t("ui-map-node-alpha")}
               </text>
             )}
-            {/* The city's two doors (D-206): every road beyond the walls starts
-                at the gate, every ship couples to the spaceport. Unmarked, the
-                graph reads as an arbitrary tangle -- and it is not one. */}
-            {(node.exit || node.port) && (
+            {/* The spaceport is the one door left (D-206, D-319): every ship
+                couples to it, and a port unmarked reads as any other yard. */}
+            {node.port && (
               <text x={p.x} y={p.y + 30} className="node-door">
-                {node.exit ? t("ui-map-node-gate") : t("ui-map-node-spaceport")}
+                {t("ui-map-node-spaceport")}
               </text>
             )}
           </g>

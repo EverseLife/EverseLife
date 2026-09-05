@@ -233,7 +233,7 @@ async def open_room(
         room_type.capitalize(),
         planet=city.planet,
         area_m2=dice.uniform(area.min, area.max),
-        layer=Layer.CITY,
+        layer=Layer.PLANET,
         parent=city,
         #: Next to the corridor it opened off, as it is joined to it: one goes
         #: deeper through what is already open, and the map says so (D-237).
@@ -364,7 +364,7 @@ async def lost_city(
         "Космодром",
         planet=origin.planet,
         area_m2=seed.uniform(area.min, area.max),
-        layer=Layer.CITY,
+        layer=Layer.PLANET,
         parent=city,
         properties={PRECURSOR: True, DEPTH: 0, travel.REACH: travel.reach_of(city)},
     )
@@ -374,7 +374,7 @@ async def lost_city(
         "Зал",
         planet=origin.planet,
         area_m2=seed.uniform(area.min, area.max),
-        layer=Layer.CITY,
+        layer=Layer.PLANET,
         parent=city,
         anchor=port,
         properties={
@@ -410,14 +410,16 @@ def _long_dead(constants: Constants) -> datetime:
 async def _lost_so_far(session: AsyncSession, planet: Planet) -> int:
     """How many cities have been found on this planet already."""
     #: The cities themselves, not their piers and halls: those carry the same
-    #: key prefix, and counting them would skip three numbers per find.
+    #: key prefix, and counting them would skip three numbers per city.
     found = await session.scalar(
         select(func.count())
         .select_from(Node)
         .where(
             Node.planet == planet.value,
-            Node.layer == Layer.PLANET,
             Node.key.like(f"{planet.value}.lost.%"),
+            #: One surface level since D-319: the pier and the hall are keyed
+            #: under the city, so they are told apart by the second dot.
+            ~Node.key.like(f"{planet.value}.lost.%.%"),
         )
     )
     return int(found or 0)

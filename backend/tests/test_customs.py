@@ -71,7 +71,6 @@ async def _world(session: AsyncSession, catalog: Catalog):
         "Ворота",
         area_m2=80,
         parent=delegate,
-        properties={travel.EXIT: True},
     )
     field = await world.create_node(
         session,

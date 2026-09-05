@@ -244,7 +244,6 @@ async def world_map(
                     #: graph, and the parent hierarchy groups nodes by layer (D-045, D-097).
                     "layer": node.layer.value,
                     "parent": by_id.get(node.parent_id),
-                    "exit": bool(node.properties.get(roads.EXIT)),
                     "port": node.id in ports,
                     #: The space layer paints by planet and lays nodes out by
                     #: orbit: there a place is a function of time, not of the

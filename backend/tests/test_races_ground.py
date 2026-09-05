@@ -30,7 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from conftest import _slow
 from farm_kit import _stand
 from src.constants import current, current_catalog
-from src.engine import ledger, travel, world
+from src.engine import ledger, world
 from src.models.city import City
 from src.models.event import Event, EventKind
 from src.models.identity import Body, Identity
@@ -41,7 +41,8 @@ from src.units import money
 ORE = "iron_ore"
 
 
-#: Any counter in a node's properties: the race is about the map, not the key.
+#: Any mark and any counter in a node's properties: the race is about the map, not the key.
+MARK = "flagged"
 COUNTER = "counted"
 
 
@@ -260,7 +261,7 @@ async def test_two_scouts_do_not_open_one_room_twice(
         "Зал",
         planet=Planet.AURORA,
         area_m2=600,
-        layer=Layer.CITY,
+        layer=Layer.PLANET,
         parent=city,
         properties={ruins.PRECURSOR: True, ruins.DEPTH: 1},
     )
@@ -287,7 +288,7 @@ async def test_two_marks_on_one_node_do_not_erase_each_other(
 ) -> None:
     """`Node.properties` is one JSONB dict rewritten whole (review of D-238).
 
-    A founder stamps the gate while somebody else bumps a counter. Each
+    One writer stamps a mark while somebody else bumps a counter. Each
     builds its new dict from what it read at the start; without the reread
     under the row lock (`props._held`) the slower writer's snapshot is stale
     and its rewrite silently erases the faster one's key.
@@ -307,7 +308,7 @@ async def test_two_marks_on_one_node_do_not_erase_each_other(
             #: The stale snapshot is loaded by the `get` above; the pause lets
             #: the counter commit inside the window a plain rewrite loses.
             await asyncio.sleep(0.2)
-            await props.stamp(db, own, {travel.EXIT: True})
+            await props.stamp(db, own, {MARK: True})
 
     async def count() -> None:
         async with factory() as db, db.begin():
@@ -321,7 +322,7 @@ async def test_two_marks_on_one_node_do_not_erase_each_other(
         again = await db.get(Node, node_id)
         assert again is not None
         held = again.properties or {}
-        assert held.get(travel.EXIT) is True, "печать ворот стёрта счётчиком"
+        assert held.get(MARK) is True, "печать стёрта счётчиком"
         assert int(held.get(COUNTER, 0)) == 1, "счётчик стёрт печатью ворот"
 
 

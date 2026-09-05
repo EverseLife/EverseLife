@@ -23,7 +23,7 @@ from src.constants import Catalog, Constants
 from src.engine import city as town
 from src.engine import net, world
 from src.models.city import City, Power
-from src.models.world import Layer, Node
+from src.models.world import Layer
 from src.units import money
 
 
@@ -119,38 +119,6 @@ async def test_city_founded_by_player(
     #: The founder governs from the first second: a city without authority is not a city.
     assert await town.may(session, identity.id, city, Power.LAWS)
     assert await town.may(session, identity.id, city, Power.TREASURY)
-
-
-async def test_a_founded_city_gets_a_gate(
-    session: AsyncSession, constants: Constants, catalog: Catalog
-) -> None:
-    """A city has a door from the first second (D-206).
-
-    Without it there would be nowhere to tie a road from beyond the walls, and
-    exploration from inside would refuse instead of laying a trail. A city
-    founded on a single node is its own gate -- that node is the whole city.
-    """
-    from src.engine import travel
-
-    place, _, body = await _wasteland(session)
-    await _build_up(session, place)
-
-    city = await town.establish(session, constants, catalog, body, "Новоград")
-
-    door = await town.gate(session, city)
-    assert door is not None and door.id == place.id
-    assert await travel.is_exit(session, place)
-
-    #: And the door works: a road from the wild reaches the city through it.
-    steppe = await world.create_node(
-        session,
-        f"terra.steppe.{uuid.uuid4().hex[:8]}",
-        "Степь",
-        area_m2=300,
-        layer=Layer.PLANET,
-        parent=await session.get(Node, place.parent_id),
-    )
-    await travel.connect(session, place, steppe, base_seconds=1800)
 
 
 async def test_no_city_without_buildings(

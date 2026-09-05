@@ -195,9 +195,6 @@ MAP_LOCK_BYTES = 8
 #: one shows the ways out and nothing to choose between them, and three already
 #: draws the next city over.
 MAP_SIGHT = 2
-#: How far the planet's surface reaches. One step: past it lies what one has
-#: still to walk to, and a planet drawn whole is a planet nobody explores.
-MAP_SIGHT_PLANET = 1
 
 #: The grid a ship's rooms snap to when the owner arranges them (D-240). One
 #: cell is exactly the gap two nodes may never be nearer than, so a tidy hull

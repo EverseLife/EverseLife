@@ -13,13 +13,12 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants
-from src.engine import city as town
 from src.engine import (
     estate,
     net,
 )
 from src.engine import ship as vessels
-from src.engine.travel._base import EdgeInUse, Exit, NotAnExit, _edge_between, edge_seconds, is_exit
+from src.engine.travel._base import EdgeInUse, Exit, _edge_between, edge_seconds
 from src.models.travel import Travel, TravelState
 from src.models.world import Edge, Node, Surface
 
@@ -82,14 +81,13 @@ async def connect(
     changes. Idempotent -- an existing edge is returned rather than doubled, so
     a repeated docking does not give a second way in.
 
-    An edge is created nowhere else in the engine, so this is also the one place
-    the city's boundary can be held: across it only the gate and the spaceport
-    are connected (D-206).
+    An edge is created nowhere else in the engine. Since D-319 a city has no
+    door to hold: an edge leaves it from any of its nodes, and what a border
+    means -- customs, a siege -- is read off the crossing, not off a gate.
     """
     existing = await _edge_between(session, a.id, b.id)
     if existing is not None:
         return existing
-    await require_exit(session, a, b)
     #: Asked before the edge exists: whether either end is a place nothing led
     #: to yet. See below -- that decides whether measured distances survive.
 
@@ -145,25 +143,6 @@ async def _unconnected(session: AsyncSession, node: Node) -> bool:
         select(Edge.id).where(or_(Edge.node_a_id == node.id, Edge.node_b_id == node.id)).limit(1)
     )
     return found is None
-
-
-async def require_exit(session: AsyncSession, a: Node, b: Node) -> None:
-    """An edge across a city's boundary is allowed only at its doors (D-206).
-
-    Two ends, and each is checked on its own: a road between two cities leaves
-    one gate and arrives at another. What is not checked is an edge inside a
-    single city -- a street is not a border -- and an edge between nodes outside
-    every city: wild land has no walls, so it has no doors either.
-    """
-
-    here = await town.of_node(session, a)
-    there = await town.of_node(session, b)
-    if here is not None and there is not None and here.id == there.id:
-        return
-    for node, city in ((a, here), (b, there)):
-        if city is None or await is_exit(session, node):
-            continue
-        raise NotAnExit(key="travel-not-an-exit", node=node.name)
 
 
 async def disconnect(session: AsyncSession, a: Node, b: Node) -> bool:

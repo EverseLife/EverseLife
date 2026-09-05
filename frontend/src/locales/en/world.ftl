@@ -75,7 +75,6 @@ ui-map-menu-walking = While you walk, there is no going anywhere.
 ## Captions on the nodes themselves.
 
 ui-map-node-alpha = outside the alpha
-ui-map-node-gate = gate
 ui-map-node-spaceport = spaceport
 
 ## Roads from the node: what is laid, what has sagged and what it costs.

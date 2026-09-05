@@ -52,7 +52,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.engine import props
 from src.engine.errors import Refusal
-from src.models.world import Edge, Layer, Node
+from src.models.world import Layer, Node
 from src.runtime import (
     MAP_HASH_SPAN,
     MAP_HASH_STEP,
@@ -80,7 +80,7 @@ class PlaceIsFixed(Refusal):
 
 #: The layers a place is stored for. Space is not among them: there a node's
 #: point is computed from the clock, and a stored one would contradict it.
-PLACED = (Layer.PLANET, Layer.CITY, Layer.LOCATION)
+PLACED = (Layer.PLANET, Layer.LOCATION)
 
 
 def _point(properties: dict | None) -> tuple[float, float] | None:
@@ -281,7 +281,7 @@ async def move(session: AsyncSession, node: Node, spot: tuple[float, float]) -> 
 
 
 def _group(node: Node) -> tuple[object, ...]:
-    """Which map this node is drawn on: one planet's surface, one city, one house."""
+    """Which map this node is drawn on: one planet's surface, or one house's floors."""
     if node.layer is Layer.PLANET:
         return (node.layer, node.planet)
     return (node.layer, node.parent_id)
@@ -295,90 +295,3 @@ def _delegate(node: Node, layer: Layer, by_id: dict[object, Node]) -> Node | Non
             return cursor
         cursor = by_id.get(cursor.parent_id) if cursor.parent_id is not None else None
     return None
-
-
-async def backfill(session: AsyncSession) -> int:
-    """Give a place to every node laid before D-237. Returns how many were placed.
-
-    The world is eternal and has no wipes (D-007), so "recreate the database"
-    is not an answer here either: the capital, its plots and everything already
-    explored have to get their places without moving anybody who has one. Runs
-    with the catching-up seed at every deploy, and does nothing at all the
-    second time -- a node with a place keeps it.
-
-    The order is what makes the result readable: the group's own first node
-    takes the origin, and from there the walk goes outwards along the edges, so
-    every node is placed next to a neighbour that already has a place --
-    exactly as `assign` would have done at creation. What no edge reaches goes
-    round that first node.
-    """
-    #: Asked before the world is read, because the answer is almost always "no
-    #: one": this runs at every deploy, and from the second deploy on it walks
-    #: every node and every edge of a growing world to place nobody.
-    if not await session.scalar(
-        select(Node.id).where(Node.layer.in_(PLACED), ~Node.properties.has_key(PLACE)).limit(1)
-    ):
-        return 0
-
-    nodes = list((await session.execute(select(Node))).scalars().all())
-    by_id: dict[object, Node] = {node.id: node for node in nodes}
-    edges = list((await session.execute(select(Edge))).scalars().all())
-
-    groups: dict[tuple[object, ...], list[Node]] = {}
-    for node in nodes:
-        if node.layer in PLACED:
-            groups.setdefault(_group(node), []).append(node)
-
-    #: Edges projected onto the layer they are looked at from: a road from a
-    #: city gate to a wild field joins, on the planet's map, the city and the
-    #: field (D-045).
-    links: dict[tuple[object, ...], dict[object, set[object]]] = {}
-    for edge in edges:
-        one, other = by_id.get(edge.node_a_id), by_id.get(edge.node_b_id)
-        if one is None or other is None:  # pragma: no cover -- edges follow their nodes
-            continue
-        for layer in PLACED:
-            here, there = _delegate(one, layer, by_id), _delegate(other, layer, by_id)
-            if here is None or there is None or here.id == there.id:
-                continue
-            if _group(here) != _group(there):  # pragma: no cover -- two planets share no edge
-                continue
-            near = links.setdefault(_group(here), {})
-            near.setdefault(here.id, set()).add(there.id)
-            near.setdefault(there.id, set()).add(here.id)
-
-    placed = 0
-    for group, members in sorted(groups.items(), key=lambda pair: str(pair[0])):
-        #: The group's own first node is its centre, and it is the same one on
-        #: every server: age first, key to break a tie.
-        order = sorted(members, key=lambda node: (node.created_at, node.key))
-        root = order[0]
-        #: The whole group's occupied places, carried through the walk: `assign`
-        #: appends to this list, so nothing is read back per node.
-        taken = [point for point in map(place_of, members) if point is not None]
-        #: **The root goes first**, and it goes to the origin. Walking out from a
-        #: node that has no place yet would seat the entire first ring around
-        #: nought instead of around the root.
-        if place_of(root) is None:
-            await assign(session, root, anchor=None, taken=taken)
-            placed += 1
-        seen = {root.id}
-        queue = [root]
-        while queue:
-            here = queue.pop(0)
-            for other_id in sorted(links.get(group, {}).get(here.id, ()), key=str):
-                if other_id in seen:
-                    continue
-                seen.add(other_id)
-                other = by_id[other_id]
-                if place_of(other) is None:
-                    await assign(session, other, anchor=here, taken=taken)
-                    placed += 1
-                queue.append(other)
-        #: What no edge reaches: round the group's first node, in one order on
-        #: every server.
-        for node in order:
-            if place_of(node) is None:
-                await assign(session, node, anchor=root, taken=taken)
-                placed += 1
-    return placed

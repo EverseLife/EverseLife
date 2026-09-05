@@ -120,6 +120,24 @@ type Props = {
   initialLayer?: LayerId;
 };
 
+/**
+ * The city as a scene of its own, read off the parents (D-319).
+ *
+ * The server has one surface level: a plot and a vein are both `planet`, and
+ * what says "inside a city" is that the node's parent is itself a surface
+ * node -- the city's own. The map still draws a city as its own scene, so
+ * those nodes are given the `city` scene here, on the client's copy, and the
+ * rest of the panel never learns that the layer stopped being the server's.
+ */
+function withCityScene(nodes: MapNode[]): MapNode[] {
+  const surface = new Set(nodes.filter((node) => node.layer === "planet").map((node) => node.key));
+  return nodes.map((node) =>
+    node.layer === "planet" && node.parent && surface.has(node.parent)
+      ? { ...node, layer: "city" }
+      : node,
+  );
+}
+
 export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "act">) {
   //: The map itself performs nothing: it draws, pans and picks. Every action --
   //: setting off, laying a road -- belongs to the
@@ -152,11 +170,12 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
   const sighted = (look.ships?.nodes ?? []).map((node) => node.key).join("|");
   const map = useMemo<WorldMap | null>(() => {
     const seen = look.ships;
-    if (!world || !seen) return world;
+    if (!world) return world;
+    const nodes = [...world.nodes, ...(seen?.nodes ?? [])];
     return {
       ...world,
-      nodes: [...world.nodes, ...seen.nodes],
-      edges: [...world.edges, ...seen.edges],
+      nodes: withCityScene(nodes),
+      edges: [...world.edges, ...(seen?.edges ?? [])],
     };
     //: `look.ships` is read inside and keyed by `sighted` outside: the same
     //: keys mean the same ships, and the linter cannot be shown that.

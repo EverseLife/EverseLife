@@ -56,7 +56,7 @@ async def _town(
         "Двор",
         planet=planet,
         area_m2=200,
-        layer=Layer.CITY,
+        layer=Layer.PLANET,
         parent=city,
     )
     return city, yard

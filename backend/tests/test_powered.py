@@ -63,7 +63,7 @@ async def _shop(session: AsyncSession, *, city: bool, machine: str = FURNACE, kn
             f"terra.power.{stamp}.yard",
             "Двор",
             area_m2=200,
-            layer=Layer.CITY,
+            layer=Layer.PLANET,
             parent=capital,
         )
     else:

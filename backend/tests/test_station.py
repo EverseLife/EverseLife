@@ -186,7 +186,7 @@ async def test_authority_does_not_run_foreign_house(
         f"terra.state.{stamp}.lot",
         "Участок",
         area_m2=200,
-        layer=Layer.CITY,
+        layer=Layer.PLANET,
         parent=planet,
     )
     city = await town.found(session, catalog, planet, "Столица")

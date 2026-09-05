@@ -16,9 +16,8 @@ So the map is a **neighbourhood**, not a world:
 * **two steps of the graph** from the node the body stands in. Not a distance
   and not a radius: steps, the same units everything else about movement is in
   (D-045). Two, because one shows the ways out with nothing to choose between,
-  and three already draws the next city;
-* **one step on the planet's surface**, where a step is a whole group -- a city,
-  a camp, a field. Past that lies what one still has to walk to;
+  and three already draws the next city. Since D-319 the surface is one level
+  of the graph, so the two steps are walked, never projected;
 * **the sky, always and to everybody**. A planet's place is a function of the
   epoch and its own orbit (D-237): it is arithmetic, not intelligence, and
   hiding it would hide the one thing that makes a passage plannable. What the
@@ -48,7 +47,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.world import Edge, Layer, Node
-from src.runtime import MAP_SIGHT, MAP_SIGHT_PLANET
+from src.runtime import MAP_SIGHT
 
 
 def _step_out(
@@ -78,16 +77,6 @@ def _neighbourhood(edges: Sequence[Edge]) -> dict[uuid.UUID, set[uuid.UUID]]:
         near.setdefault(edge.node_a_id, set()).add(edge.node_b_id)
         near.setdefault(edge.node_b_id, set()).add(edge.node_a_id)
     return near
-
-
-def _delegate(node_id: uuid.UUID, layer: Layer, by_id: dict[uuid.UUID, Node]) -> uuid.UUID | None:
-    """The node standing for this one on that layer -- itself or an ancestor."""
-    cursor = by_id.get(node_id)
-    while cursor is not None:
-        if cursor.layer is layer:
-            return cursor.id
-        cursor = None if cursor.parent_id is None else by_id.get(cursor.parent_id)
-    return None
 
 
 def _with_parents(ids: set[uuid.UUID], by_id: dict[uuid.UUID, Node]) -> set[uuid.UUID]:
@@ -128,26 +117,10 @@ def around(
         return seen
 
     #: The walk one actually walks: two steps over the graph as it is, so a
-    #: gangway, a corridor aboard and a road out of the gate all count as the
+    #: gangway, a corridor aboard and a road out of the city all count as the
     #: one step each of them is.
     near = _neighbourhood(edges)
     seen |= _step_out([standing.id], near, MAP_SIGHT)
-
-    #: And one step of the planet's own map, where a step is a whole group.
-    #: Projected rather than walked: on that layer a road from a gate to a field
-    #: joins the **city** and the field (D-045, D-206), and it is that joining
-    #: the surface is drawn by.
-    surface = _delegate(standing.id, Layer.PLANET, by_id)
-    if surface is not None:
-        projected: dict[uuid.UUID, set[uuid.UUID]] = {}
-        for edge in edges:
-            one = _delegate(edge.node_a_id, Layer.PLANET, by_id)
-            other = _delegate(edge.node_b_id, Layer.PLANET, by_id)
-            if one is None or other is None or one == other:
-                continue
-            projected.setdefault(one, set()).add(other)
-            projected.setdefault(other, set()).add(one)
-        seen |= _step_out([surface], projected, MAP_SIGHT_PLANET)
 
     return _with_parents(seen, by_id)
 

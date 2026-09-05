@@ -53,7 +53,7 @@ async def _world(session: AsyncSession, catalog: Catalog, *, treasury: float = 0
         "Ядро",
         area_m2=120,
         parent=delegate,
-        properties={"ring": 0, death.PRECURSOR: True, travel.EXIT: True},
+        properties={"ring": 0, death.PRECURSOR: True},
     )
     forge = await world.create_node(
         session,

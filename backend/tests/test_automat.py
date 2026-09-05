@@ -56,7 +56,7 @@ async def _factory_floor(
         f"terra.fab.{stamp}.floor",
         "Цех",
         area_m2=200,
-        layer=Layer.CITY,
+        layer=Layer.PLANET,
         parent=capital,
     )
     identity = await world.create_identity(session, f"Фабрикант-{stamp}")

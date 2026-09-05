@@ -78,7 +78,7 @@ async def _city(session: AsyncSession, *, age_days: float = 0.0) -> tuple[Node, 
         "Зал",
         planet=Planet.AURORA,
         area_m2=600,
-        layer=Layer.CITY,
+        layer=Layer.PLANET,
         parent=place,
         properties={
             ruins.PRECURSOR: True,
@@ -92,7 +92,7 @@ async def _city(session: AsyncSession, *, age_days: float = 0.0) -> tuple[Node, 
         "Космодром",
         planet=Planet.AURORA,
         area_m2=240,
-        layer=Layer.CITY,
+        layer=Layer.PLANET,
         parent=place,
         properties={ruins.PRECURSOR: True, ruins.DEPTH: 0},
     )
@@ -231,7 +231,7 @@ async def test_the_reactor_does_not_heat_what_people_carried_in(
         "Двор",
         planet=Planet.AURORA,
         area_m2=200,
-        layer=Layer.CITY,
+        layer=Layer.PLANET,
         parent=city,
     )
     await world.grant_item(
@@ -262,7 +262,7 @@ async def test_the_city_pays_for_its_own_stoves_even_under_a_reactor(
         "Двор",
         planet=Planet.AURORA,
         area_m2=200,
-        layer=Layer.CITY,
+        layer=Layer.PLANET,
         parent=city,
     )
     await world.grant_item(

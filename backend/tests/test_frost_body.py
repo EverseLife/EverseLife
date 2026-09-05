@@ -196,7 +196,7 @@ async def test_the_road_is_the_cold_itself(
         "Соседний двор",
         planet=Planet.AURORA,
         area_m2=100,
-        layer=Layer.CITY,
+        layer=Layer.PLANET,
         parent=city,
     )
     await travel.connect(session, yard, door, base_seconds=60)
@@ -492,7 +492,7 @@ async def test_the_tick_and_the_player_do_not_spend_one_stamina_twice(
         "Соседний двор",
         planet=Planet.AURORA,
         area_m2=100,
-        layer=Layer.CITY,
+        layer=Layer.PLANET,
         parent=city,
     )
     #: A long road on purpose: the two write-offs must be of one order, or a

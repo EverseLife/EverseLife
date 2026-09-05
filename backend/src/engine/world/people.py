@@ -218,12 +218,12 @@ async def spawn_point(session: AsyncSession) -> Node | None:
         return open_[0]
 
     #: Nothing prints anywhere: the world is either brand new or in a state
-    #: nobody designed. The oldest built-up node is the least arbitrary answer
+    #: nobody designed. The oldest surface node is the least arbitrary answer
     #: -- the world grew from it -- and it is only ever a last resort.
     nodes = (
         (
             await session.execute(
-                select(Node).where(Node.layer == Layer.CITY).order_by(Node.created_at)
+                select(Node).where(Node.layer == Layer.PLANET).order_by(Node.created_at)
             )
         )
         .scalars()

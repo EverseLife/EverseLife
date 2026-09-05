@@ -52,7 +52,7 @@ async def _city(session: AsyncSession, *, river: bool = False):
         f"terra.city.{stamp}.yard",
         "Двор",
         area_m2=200,
-        layer=Layer.CITY,
+        layer=Layer.PLANET,
         parent=capital,
         properties={"water": "river" if river else "нет"},
     )
@@ -94,7 +94,7 @@ async def test_one_pool_per_city(session: AsyncSession, constants: Constants) ->
         f"{yard.key}.2",
         "Второй двор",
         area_m2=100,
-        layer=Layer.CITY,
+        layer=Layer.PLANET,
         parent=capital,
     )
     one = await energy.pool_of(session, constants, yard)

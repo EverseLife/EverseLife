@@ -25,6 +25,7 @@ from sqlalchemy import (
     Numeric,
     UniqueConstraint,
     Uuid,
+    select,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -39,21 +40,22 @@ class Planet(StrEnum):
 
 
 class Layer(StrEnum):
-    """The map layer the node is shown on (D-045, D-097).
+    """The level of the graph the node lives on (D-045, D-319).
 
-    The world is one graph of locations; layers are a display abstraction, not
-    the world's structure. Upper-layer nodes (a planet in space, a city on a
-    planet) are group delegates: they have children, but one does not walk on
-    them -- one walks on the leaves.
+    The world is one graph of locations; levels are a display abstraction, not
+    the world's structure. Since D-319 a planet's whole surface is **one**
+    level: a house on the edge of a city and a vein in the taiga stand in the
+    same graph and are joined directly. A city is a mark of a group -- the nodes
+    whose parent is the city's own node -- and the mark is what ownership, law,
+    tax and the rings (D-089) read; on the map it says where the city ends.
     """
 
-    #: Planets and ships: what is seen from space.
+    #: Planets as bodies, and the delegates of hulls: what is seen from space.
     SPACE = "space"
-    #: Cities and large solitary locations of the planet.
+    #: Every node of a planet's surface, a city's built-up area included.
     PLANET = "planet"
-    #: City built-up area: rings around the bioprinter (D-089).
-    CITY = "city"
-    #: Sub-nodes of a location: floors of a house, rooms of a complex.
+    #: Sub-nodes: floors of a house (D-247), rooms aboard a hull (D-201). Never
+    #: on the globe -- they have no north -- but in the window of the inside.
     LOCATION = "location"
 
 
@@ -113,6 +115,17 @@ def storey_of(node: Node) -> int | None:
     return floor if floor > GROUND_FLOOR else None
 
 
+def built_up():
+    """The SQL clause for "stands in a city's built-up area" (D-319).
+
+    One surface level, so the mark is the parent: a surface node whose parent
+    is itself a surface node -- the city's own node, or a Forerunner city's --
+    is inside the walls; a node hanging straight on its planet is not.
+    """
+    delegates = select(Node.id).where(Node.layer == Layer.PLANET)
+    return (Node.layer == Layer.PLANET) & Node.parent_id.in_(delegates)
+
+
 def is_plot(node: Node) -> bool:
     """Whether this node is a plot the authority hands out in its rings (D-089).
 
@@ -138,11 +151,12 @@ class Node(Base):
     name: Mapped[str] = mapped_column(nullable=False)
     planet: Mapped[Planet] = enum_column(Planet, "planet", nullable=False)
 
-    #: Which layer the node is shown on. One walks on leaves; a node with
-    #: children is the group's delegate on its layer.
-    layer: Mapped[Layer] = enum_column(Layer, "node_layer", nullable=False, default=Layer.CITY)
-    #: The group the node belongs to: location -> city -> planet. A display
-    #: hierarchy over the graph, not a second graph.
+    #: Which level of the graph the node lives on. A node with children is the
+    #: group's delegate: the city's own node stands for its built-up area.
+    layer: Mapped[Layer] = enum_column(Layer, "node_layer", nullable=False, default=Layer.PLANET)
+    #: The group the node belongs to: a floor -> its plot, a plot -> its city's
+    #: node, a wild node -> its planet. A hierarchy over the graph, not a
+    #: second graph -- and on the surface the one mark of "inside a city".
     parent_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("node.id"), nullable=True)
 
     #: Plot area, m2. Rolled when the node appears (D-125).

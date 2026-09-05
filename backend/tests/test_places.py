@@ -23,8 +23,8 @@ import uuid
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.engine import places, travel, world
-from src.models.world import Layer, Node, Planet, Surface
+from src.engine import places, world
+from src.models.world import Layer, Node, Planet
 from src.runtime import MAP_MIN_GAP, MAP_STEP
 
 
@@ -32,7 +32,7 @@ async def _node(
     session: AsyncSession,
     name: str,
     *,
-    layer: Layer = Layer.CITY,
+    layer: Layer = Layer.PLANET,
     parent: Node | None = None,
     anchor: Node | None = None,
     planet: Planet = Planet.TERRA,
@@ -61,7 +61,8 @@ async def test_a_node_stands_next_to_what_it_was_laid_from(session: AsyncSession
     core = await _node(session, "Ядро", parent=city)
     library = await _node(session, "library", parent=city, anchor=core)
 
-    assert places.place_of(core) == places.ORIGIN, "первый узел группы — её начало"
+    assert places.place_of(city) == places.ORIGIN, "первый узел поверхности — её начало"
+    assert _gap(city, core) == pytest.approx(MAP_STEP), "ядро стоит в шаге от точки города"
     assert _gap(core, library) == pytest.approx(MAP_STEP), "второй стоит в шаге от первого"
 
 
@@ -118,19 +119,15 @@ async def test_a_crowd_past_the_old_ceiling_still_spreads(session: AsyncSession)
             )
 
 
-async def test_the_anchor_climbs_to_the_layer_being_drawn(session: AsyncSession) -> None:
-    """A find beyond the walls stands beside the city, not beside a gate (D-206, D-237).
-
-    On a planet's map the whole city is one point, so a node sought from inside
-    it can only be laid next to that point -- and the gate the road actually
-    starts at has no place of its own on that map at all.
-    """
+async def test_a_find_stands_next_to_where_it_was_made_from(session: AsyncSession) -> None:
+    """One surface level (D-319): a node laid from inside a city stands beside
+    the very node it was laid from, not beside the city's point -- the city is a
+    mark of the group, not a level of the map."""
     terra = await _node(session, "Терра", layer=Layer.SPACE)
     city = await _node(session, "Столица", layer=Layer.PLANET, parent=terra)
-    gate = await _node(session, "Выход из города", parent=city)
-    field = await _node(session, "Поле", layer=Layer.PLANET, parent=terra, anchor=gate)
-
-    assert _gap(city, field) == pytest.approx(MAP_STEP), "находка легла в шаге от города"
+    edge = await _node(session, "Край города", parent=city)
+    field = await _node(session, "Поле", layer=Layer.PLANET, parent=terra, anchor=edge)
+    assert _gap(edge, field) == pytest.approx(MAP_STEP), "находка легла в шаге от края"
 
 
 async def test_the_sky_keeps_no_places(session: AsyncSession) -> None:
@@ -138,50 +135,3 @@ async def test_the_sky_keeps_no_places(session: AsyncSession) -> None:
     terra = await _node(session, "Терра", layer=Layer.SPACE)
     assert places.place_of(terra) is None
     assert places.wire(terra) is None
-
-
-async def test_the_backfill_places_an_old_world_and_moves_nobody(session: AsyncSession) -> None:
-    """A world laid before the rule gets its map, and gets it only once.
-
-    The nodes are built by hand here, without `create_node`, precisely because
-    that is what a node from before D-237 looks like: no place at all.
-    """
-    terra = await _node(session, "Терра", layer=Layer.SPACE)
-    city = await _node(session, "Столица", layer=Layer.PLANET, parent=terra)
-    old = []
-    for number in range(4):
-        node = Node(
-            key=f"old.{uuid.uuid4().hex}",
-            name=f"Старый узел {number}",
-            planet=Planet.TERRA,
-            layer=Layer.CITY,
-            parent_id=city.id,
-            area_m2=100,
-        )
-        session.add(node)
-        old.append(node)
-    await session.flush()
-    for one, other in zip(old, old[1:], strict=False):
-        await travel.connect(session, one, other, base_seconds=10, surface=Surface.PAVED)
-
-    assert all(places.place_of(node) is None for node in old), "у старых узлов места нет"
-    laid = await places.backfill(session)
-    assert laid >= len(old)
-    assert all(places.place_of(node) is not None for node in old)
-
-    #: The group is walked outwards from its own first node -- age first, key to
-    #: break a tie, the same one on every server -- and that node takes the
-    #: origin. Reading the order back here rather than assuming it: the four
-    #: were created in one transaction and share a stamp to the microsecond.
-    order = sorted(old, key=lambda node: (node.created_at, node.key))
-    assert places.place_of(order[0]) == places.ORIGIN, "корень группы — её начало"
-    #: Walked along the edges, so a neighbour of the root came out a neighbour
-    #: on the map too.
-    at = old.index(order[0])
-    beside = old[at + 1] if at + 1 < len(old) else old[at - 1]
-    assert _gap(order[0], beside) == pytest.approx(MAP_STEP), "сосед по ребру — в шаге"
-
-    #: The second run is a no-op: nobody is placed again and nobody moves.
-    before = [places.place_of(node) for node in old]
-    assert await places.backfill(session) == 0
-    assert [places.place_of(node) for node in old] == before

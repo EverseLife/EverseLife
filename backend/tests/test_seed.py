@@ -56,13 +56,15 @@ def aurora_cities() -> list[str]:
 
     Asked of the scenario rather than of a list frozen in the test: the three
     cities are a layout now, and a fourth one added in the editor's «Мир» tab
-    must not break the test that says a ship can reach every one of them.
+    must not break the test that says a ship can reach every one of them. A
+    city is a node hanging straight on the planet (D-319): its pier and its
+    hall hang on it.
     """
     scenario = seed_world.load_scenario()
     return [
         spec.key
         for spec in scenario.nodes
-        if spec.planet is Planet.AURORA and spec.layer is Layer.PLANET
+        if spec.planet is Planet.AURORA and spec.parent == Planet.AURORA.value
     ]
 
 

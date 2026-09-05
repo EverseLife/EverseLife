@@ -97,8 +97,6 @@ export type MapNode = {
   layer: "space" | "planet" | "city" | "location";
   /** The group the node belongs to: location -> city -> planet. */
   parent: string | null;
-  /** The city gate: every road beyond the walls starts here (D-206). */
-  exit: boolean;
   /** The spaceport: the city's second door, the one ships couple to (D-206). */
   port: boolean;
   /** Which planet the node belongs to. The space layer paints by it. */

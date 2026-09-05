@@ -119,7 +119,6 @@ from src.engine.city.citizen import (  # noqa: F401
     requests_of,
 )
 from src.engine.city.founding import (  # noqa: F401
-    _mark_gate,
     _retire_deed,
     establish,
     found,
@@ -157,7 +156,6 @@ from src.engine.city.lookup import (  # noqa: F401
     by_name,
     by_node,
     core,
-    gate,
     has_printer,
     of_node,
     territory,

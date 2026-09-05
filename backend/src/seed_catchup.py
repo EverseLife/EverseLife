@@ -31,7 +31,7 @@ from src.constants import registry as R
 from src.constants.catalog import ItemKind
 from src.engine import account as accounts
 from src.engine import city as town
-from src.engine import death, energy, estate, ground, places, props, ship, tick, travel, utility
+from src.engine import death, energy, estate, ground, props, ship, tick, travel, utility
 from src.engine.ship import lines
 from src.engine.world.things import stands
 from src.models.city import City
@@ -40,7 +40,7 @@ from src.models.event import Event, EventKind
 from src.models.identity import Account, Identity
 from src.models.inventory import Container, ContainerKind, Item
 from src.models.ship import Ship
-from src.models.world import PLOT, Edge, Layer, Node, Surface
+from src.models.world import PLOT, Edge, Layer, Node, Surface, built_up
 from src.seed_surfaces import surfaces
 
 log = logging.getLogger("everselife.seed")
@@ -75,13 +75,6 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
     #: planets arrive with their orbits, and Terra learns its own.
     await parts.system(session)
 
-    #: Places on the map (D-237). A world laid out before the rule has none,
-    #: and the client would go on settling it with springs -- turned differently
-    #: for every player and after every find. Nobody who has a place moves.
-    laid = await places.backfill(session)
-    if laid:
-        log.info("map places given to %s nodes", laid)
-
     #: Berths (D-201): a ship moored before the piers were numbered has a
     #: gangway of whatever length the old rule gave it. The number itself comes
     #: from the migration, in docking order; the walk is relaid here, because
@@ -112,12 +105,6 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
     #: the mint the decision gave the office.
     city.capital = True
     await _founder_powers_catch_up(session, city)
-
-    #: The city's doors (D-206). A world laid out before that decision has
-    #: cities without a gate, and until every one of them has it a road from
-    #: beyond the walls has nowhere to be tied. Done first, because the layout
-    #: below draws edges itself.
-    await _gates_catch_up(session)
 
     #: The layout (D-243): whatever node, edge, machine or kept stock the
     #: scenario has gained since this world was laid arrives here, by the same
@@ -156,13 +143,6 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
                 node.owner_city_id = founded.id
         log.info("city founded by catch-up: %s", founded.name)
     await session.flush()
-
-    #: And its gate, if the scenario did not give it one (D-206). Asked a
-    #: second time on purpose: `_gates_catch_up` above ran before the layout,
-    #: so a city founded a dozen lines ago would otherwise stand without a door
-    #: until the next deploy -- and until it has one, a road from beyond its
-    #: walls has nowhere to be tied.
-    await _gates_catch_up(session)
 
     #: Civic land: the capital's built-up area belongs to the city, and from it
     #: the city collects taxes and on it spends energy (D-149). After the
@@ -253,11 +233,6 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
         else:
             edge.base_seconds = int(seconds)
             edge.surface = Surface.ROAD
-
-    #: Roads out of the middle of a city, laid before the doors were a rule
-    #: (D-206). They are not removed: somebody walked them and somebody paved
-    #: them -- their city end simply moves to the gate.
-    await _reroute_through_gates(session)
 
     #: The mint has been renamed twice: yard -> press (D-016, together with
     #: abolishing fineness), press -> station (D-200, "станок" became "рабочая
@@ -450,7 +425,7 @@ async def _soil(session: AsyncSession, constants, scenario: seed_world.Scenario)
         (
             await session.execute(
                 select(Node).where(
-                    Node.layer == Layer.CITY,
+                    built_up(),
                     Node.properties[PLOT].astext == "true",
                 )
             )
@@ -590,87 +565,6 @@ async def _storeys(session: AsyncSession, constants) -> None:
         opened += len(await estate.open_storeys(session, constants, node)) - standing
     if opened:
         log.info("storeys opened over already standing houses: %s", opened)
-
-
-async def _gates_catch_up(session: AsyncSession) -> None:
-    """Give every city a gate (D-206).
-
-    The capital has had one from the first seed; a city founded by a player
-    before this decision has none, and its own node becomes the gate -- that
-    node **is** the whole city, so it is its own door.
-    """
-
-    cities = (await session.execute(select(City))).scalars().all()
-    for city in cities:
-        if await town.gate(session, city) is not None:
-            continue
-        delegate = await session.get(Node, city.node_id)
-        if delegate is None:  # pragma: no cover -- a city without a node is a bug
-            continue
-        await props.stamp(session, delegate, {travel.EXIT: True})
-        log.info("city %s got a gate by catch-up: %s", city.name, delegate.key)
-    await session.flush()
-
-
-async def _reroute_through_gates(session: AsyncSession) -> None:
-    """Move stray edges out of a city onto its gate (D-206).
-
-    Such an edge is a road laid before the doors became a rule: exploration used
-    to tie a find to the node the scout set out from, so a trail from the
-    trading yard into the wild made a second gate out of the market. The road
-    itself stays -- length, surface and condition are somebody's work -- only
-    its city end moves.
-
-    An edge that would collide with an existing one is removed instead: the gate
-    is already connected there, and a second road between the same two nodes
-    cannot exist.
-    """
-    edges = (await session.execute(select(Edge))).scalars().all()
-    for edge in edges:
-        ends = [
-            await session.get(Node, edge.node_a_id),
-            await session.get(Node, edge.node_b_id),
-        ]
-        if any(end is None for end in ends):  # pragma: no cover -- an edge to nowhere
-            continue
-        a, b = ends
-        cities = [await town.of_node(session, a), await town.of_node(session, b)]
-        if cities[0] is not None and cities[1] is not None and cities[0].id == cities[1].id:
-            continue
-        for index, (end, city) in enumerate(zip(ends, cities, strict=True)):
-            if city is None or await travel.is_exit(session, end):
-                continue
-            door = await town.gate(session, city)
-            other = ends[1 - index]
-            if door is None or door.id == other.id:  # pragma: no cover
-                continue
-            twin = (
-                (
-                    await session.execute(
-                        select(Edge).where(
-                            ((Edge.node_a_id == door.id) & (Edge.node_b_id == other.id))
-                            | ((Edge.node_a_id == other.id) & (Edge.node_b_id == door.id))
-                        )
-                    )
-                )
-                .scalars()
-                .first()
-            )
-            if twin is not None:
-                await session.delete(edge)
-                log.info(
-                    "stray road from %s dropped: the gate already reaches %s",
-                    end.name,
-                    other.name,
-                )
-                break
-            if index == 0:
-                edge.node_a_id = door.id
-            else:
-                edge.node_b_id = door.id
-            ends[index] = door
-            log.info("road %s -- %s moved onto the gate %s", end.name, other.name, door.name)
-    await session.flush()
 
 
 async def _berths(session: AsyncSession, constants) -> None:

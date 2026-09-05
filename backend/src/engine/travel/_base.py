@@ -16,11 +16,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants
 from src.constants import registry as R
-from src.engine import city as town
 from src.engine import (
-    ship,
     transport,
-    world,
 )
 from src.engine.errors import Refusal, left_to_say
 from src.models.identity import Body
@@ -50,15 +47,6 @@ class EdgeInUse(TravelError):
 
     The gangway is not pulled from under a walker. Undocking waits, and that is
     the only precondition the removal of an edge has.
-    """
-
-
-class NotAnExit(TravelError):
-    """An edge across a city's boundary at a node that is not a door (D-206).
-
-    A city meets everything beyond it at the gate and at the spaceport, and
-    nowhere else. A road laid into the middle of the built-up area would be a
-    second gate made out of whatever node it happened to touch.
     """
 
 
@@ -112,37 +100,6 @@ REACH = "distance"
 def reach_of(node: Node) -> int:
     """The node's distance. Civic land and everything created before D-180 -- zero."""
     return int((node.properties or {}).get(REACH, 0) or 0)
-
-
-#: The node property marking the city's gate (D-097, D-206): the one node of
-#: the built-up area a road from beyond the walls may be tied to.
-EXIT = "exit"
-
-
-async def is_exit(session: AsyncSession, node: Node) -> bool:
-    """Whether the node is one of the city's two doors (D-206).
-
-    The gate is a property of the node, the spaceport is a machine standing in
-    it: what a place is, is set by what stands in it (D-176), so a city gets a
-    port by building one and loses it with the machine.
-    """
-    if (node.properties or {}).get(EXIT):
-        return True
-
-    return await world.has_station(session, node, ship.SPACEPORT)
-
-
-async def gate_of(session: AsyncSession, node: Node) -> Node | None:
-    """The gate of the city this node stands in. Outside a city -- nothing.
-
-    This is where a road from beyond the walls is tied: exploration lays its
-    trail from here rather than from the node the scout set out from (D-206).
-    """
-
-    city = await town.of_node(session, node)
-    if city is None:
-        return None
-    return await town.gate(session, city)
 
 
 def frontier_seconds(constants: Constants, reach: int) -> float:

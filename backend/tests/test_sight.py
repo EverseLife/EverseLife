@@ -95,7 +95,7 @@ async def test_what_is_seen_brings_its_parents(session: AsyncSession) -> None:
     """A node is drawn on the layer of its group: without the group, nowhere."""
     terra = await _sphere(session, Planet.TERRA)
     city = await _node(session, "terra.capital", terra)
-    inside = await _node(session, "terra.capital.lot", city, layer=Layer.CITY)
+    inside = await _node(session, "terra.capital.lot", city, layer=Layer.PLANET)
     await _chain(session, [city, inside])
 
     nodes, edges = await _graph(session)

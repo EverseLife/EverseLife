@@ -42,7 +42,6 @@ travel-passage-not-turned = “{ $node }” is somebody else's closed location a
 travel-job-no-leg = job { $job }: there is no leg
 travel-leg-nowhere = leg { $leg } points nowhere
 travel-plan-node-gone = leg { $leg }: the plan leads to a node that is gone
-travel-not-an-exit = “{ $node }” is not a way out of the city: only the gates and the spaceport lead beyond the wall, a road is laid from them
 travel-edge-in-use = somebody is walking this edge right now: the gangway is not pulled from under a walker. Wait until the road is free
 
 # --- the convoy (D-107, D-157) ------------------------------------------------

@@ -14,7 +14,7 @@ from collections.abc import Sequence
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.engine import travel, world
+from src.engine import world
 from src.engine.death import PRECURSOR
 from src.models.city import (
     City,
@@ -189,17 +189,3 @@ async def has_printer(session: AsyncSession, city: City) -> bool:
         if where is not None and where.id == city.id:
             return True
     return False
-
-
-async def gate(session: AsyncSession, city: City) -> Node | None:
-    """The city's gate: where the built-up area meets the road beyond it (D-206).
-
-    Founding marks one, so a live city always has it. Nothing comes back only
-    for a city from before that decision which the catch-up seed has not reached
-    yet -- and then a road into it is refused rather than tied to a random node.
-    """
-
-    for node in await territory(session, city):
-        if (node.properties or {}).get(travel.EXIT):
-            return node
-    return None

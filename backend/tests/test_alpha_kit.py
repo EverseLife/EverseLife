@@ -86,7 +86,7 @@ async def _grid(session: AsyncSession):
         session, f"terra.grid.{stamp}", "Столица", area_m2=1, layer=Layer.PLANET
     )
     yard = await world.create_node(
-        session, f"terra.grid.{stamp}.yard", "Двор", area_m2=200, layer=Layer.CITY, parent=capital
+        session, f"terra.grid.{stamp}.yard", "Двор", area_m2=200, layer=Layer.PLANET, parent=capital
     )
     identity = await world.create_identity(session, f"Горожанин-{stamp}")
     return yard, await world.print_body(session, identity, yard)

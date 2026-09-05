@@ -50,6 +50,7 @@ from src.engine.world.land import (  # noqa: F401
     grant_node,
     hand_over,
     has_place,
+    is_built_up,
     orbit_of,
     public_signs,
 )

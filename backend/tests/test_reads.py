@@ -425,7 +425,7 @@ async def test_a_powered_machine_forecast_makes_no_pool(
         session, f"terra.volt.{stamp}", "Столица", area_m2=1, layer=Layer.PLANET
     )
     yard = await world.create_node(
-        session, f"terra.volt.{stamp}.yard", "Двор", area_m2=200, layer=Layer.CITY, parent=capital
+        session, f"terra.volt.{stamp}.yard", "Двор", area_m2=200, layer=Layer.PLANET, parent=capital
     )
     identity = await world.create_identity(session, f"Литейщик-{stamp}")
     body = await world.print_body(session, identity, yard)
@@ -469,7 +469,7 @@ async def test_the_largest_batch_is_counted_without_writing(
         session, f"terra.most.{stamp}", "Столица", area_m2=1, layer=Layer.PLANET
     )
     yard = await world.create_node(
-        session, f"terra.most.{stamp}.yard", "Двор", area_m2=200, layer=Layer.CITY, parent=capital
+        session, f"terra.most.{stamp}.yard", "Двор", area_m2=200, layer=Layer.PLANET, parent=capital
     )
     identity = await world.create_identity(session, f"Литейщик-{stamp}")
     body = await world.print_body(session, identity, yard)

@@ -123,6 +123,18 @@ def orbit_of(node: Node) -> dict[str, float] | None:
     }
 
 
+async def is_built_up(session: AsyncSession, node: Node) -> bool:
+    """Whether the node stands in a city's built-up area (D-319): its parent is a surface node.
+
+    The Python twin of `models.world.built_up`: a wild node hangs on its planet
+    and is nobody's; a plot, a hall or a Forerunner room hangs on a city's node.
+    """
+    if node.layer is not Layer.PLANET or node.parent_id is None:
+        return False
+    parent = await session.get(Node, node.parent_id)
+    return parent is not None and parent.layer is Layer.PLANET
+
+
 async def create_node(
     session: AsyncSession,
     key: str,
@@ -131,7 +143,7 @@ async def create_node(
     planet: Planet = Planet.TERRA,
     area_m2: float,
     properties: dict[str, Any] | None = None,
-    layer: Layer = Layer.CITY,
+    layer: Layer = Layer.PLANET,
     parent: Node | None = None,
     anchor: Node | None = None,
 ) -> Node:

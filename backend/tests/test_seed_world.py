@@ -308,7 +308,7 @@ async def test_an_edge_by_reach_is_priced_by_the_far_end(
     geography, and a number typed into the file would quietly undo it."""
     made = seed_world.Scenario(
         nodes=(
-            _spec("test.gate", properties={travel.EXIT: True}),
+            _spec("test.gate"),
             _spec("test.near", anchor="test.gate", properties={travel.REACH: 1}),
             _spec("test.far", anchor="test.gate", properties={travel.REACH: 3}),
         ),
