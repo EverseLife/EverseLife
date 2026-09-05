@@ -56,8 +56,6 @@ PERSISTENCE = 0.5
 LATTICE = 3.0
 #: The mix of large and small: a planet is a few continents and many bays.
 ROUGHNESS = 2.0
-#: How much of the rain is the noise's own; the rest is the nearness of water.
-RAIN_NOISE_SHARE = 0.6
 
 
 def _hash3(seed: int, x: np.ndarray, y: np.ndarray, z: np.ndarray) -> np.ndarray:

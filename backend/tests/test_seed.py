@@ -37,6 +37,7 @@ from src.engine import (
     justice,
     market,
     oxygen,
+    ruins,
     ship,
     travel,
     world,
@@ -46,7 +47,7 @@ from src.models.city import City
 from src.models.estate import Building, Deed
 from src.models.event import Event, EventKind
 from src.models.inventory import Container, ContainerKind, Item
-from src.models.world import PLOT, Layer, Node, NodePass, Planet, Vein
+from src.models.world import PLOT, Edge, Layer, Node, NodePass, Planet, Surface, Vein
 from src.seed import CORE, seed
 from src.seed_surfaces import PYROXIS_FIELDS, PYROXIS_PLATEAU, pyroxis_field_key
 
@@ -697,6 +698,50 @@ async def test_the_seed_leaves_a_yard_around_a_rural_hearth(
     assert laid["terra.field.lay"] == 10, "очаг у реки — это очаг, а не стена поперёк луга"
     assert laid["terra.city.lay"] == 260, "в городе застройка и есть участок"
     assert await estate.free_ground(session, field) > 350
+
+
+async def test_every_wild_way_of_the_seed_is_within_a_bodys_strength(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """The first step out of the capital is a walk, not an expedition (D-319).
+
+    The surface is laid as settled edges round the seeded cities, and every
+    wild way inside one is hours -- less than the stamina a body carries.
+    """
+    await seed(session)
+    wild = (await session.execute(select(Edge).where(Edge.surface == Surface.WILD))).scalars().all()
+    assert wild, "дикие рёбра заложены"
+    hours_a_body_has = float(constants[R.BODY_STAMINA_MAX]) / float(
+        constants[R.TRAVEL_STAMINA_PER_HOUR]
+    )
+    seconds_per_hour = 3600
+    for edge in wild:
+        hours = (
+            float(edge.base_seconds) * float(constants[R.ROAD_WILD_MULTIPLIER]) / seconds_per_hour
+        )
+        assert hours <= hours_a_body_has, f"ребро {edge.id}: {hours:.0f} ч по бездорожью"
+    #: And the capital's own nodes are where the wild is sewn on -- never the
+    #: city's delegate, which is a mark and not ground.
+    capital = await session.scalar(select(Node).where(Node.key == "terra.capital"))
+    assert capital is not None
+    sewn = await session.scalar(
+        select(func.count())
+        .select_from(Edge)
+        .where((Edge.node_a_id == capital.id) | (Edge.node_b_id == capital.id))
+    )
+    assert sewn == 0, "ребро пришито к метке города"
+
+
+async def test_the_seeded_cities_of_the_forerunners_are_laid_open(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """Merid, Caldar and Veyr come from the layout, and their rooms are open
+    from the first day like every other city of the Forerunners (D-319)."""
+    await seed(session)
+    for key in ("aurora.merid", "aurora.caldar", "aurora.veyr"):
+        city = await session.scalar(select(Node).where(Node.key == key))
+        assert city is not None, key
+        assert ruins.exhausted(constants, city), f"{key}: помещения не открыты"
 
 
 async def test_the_seed_leaves_an_apron_on_the_capital_port(

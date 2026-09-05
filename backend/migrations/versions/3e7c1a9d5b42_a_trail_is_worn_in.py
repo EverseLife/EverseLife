@@ -9,9 +9,10 @@ one per arrival over it, less `path.fade_per_day` every day, never below
 nought. The surface column is a varchar, not a native enum (`enum_column`), so
 the new value needs no type change -- only the counter is new.
 
-Every standing edge starts untrodden at nought. The seed of the old world laid
-its wild ways as `trail`; they keep the word until the first daily tick, which
-reads the counter and finds them unwalked.
+Every standing edge starts untrodden at nought. This revision is run on a
+clean database only: D-319 lays the world anew (the places' scheme has no
+migration by the owner's decision), and a row of the old world -- a node of
+the `city` layer, an edge priced by reach -- is not carried over.
 
 Revision ID: 3e7c1a9d5b42
 Revises: c7d41f8a3b62

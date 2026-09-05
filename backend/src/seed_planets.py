@@ -56,16 +56,13 @@ from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import ground, places, ruins, terrain, travel, world
 from src.models.world import Layer, Node, Planet, Surface
-from src.units import PERCENT
+from src.units import METRES_PER_KM, PERCENT
 
 log = logging.getLogger(__name__)
 
-#: How many candidates the spiral offers for every node wanted: enough that
-#: a planet three-fifths sea still fills its count on the land.
+#: How many candidates the disc offers for every node wanted: enough that
+#: a region three-fifths sea still fills its count on the land.
 OVERSAMPLE = 12
-#: The share of the even spacing two sites keep between them. Under one, so
-#: the count can be met on land the sea and the mountains have eaten into.
-SPACING_SHARE = 0.6
 #: How many points along a way are read for water and mountains.
 WAY_SAMPLES = 8
 #: The names a wild node is born with, by what the relief made it. Russian
@@ -87,6 +84,8 @@ class Site:
     number: int
     point: globe.Geo
     marks: dict
+    #: Which settled edge the site belongs to: the index of its centre.
+    region: int = 0
 
 
 def _spiral(count: int) -> list[globe.Geo]:
@@ -101,32 +100,84 @@ def _spiral(count: int) -> list[globe.Geo]:
     return points
 
 
-def _land_area(constants: Constants, planet: Planet) -> float:
-    radius = globe.radius_m(constants, planet)
-    field = terrain.field_of(constants, planet)
-    return 4 * math.pi * radius * radius * max(field.land_share(), 1e-6)
+def _disc(radius: float, centre: globe.Geo, reach_m: float, count: int) -> list[globe.Geo]:
+    """Sunflower points over the disc of `reach_m` round `centre`: even, and
+    the same every time."""
+    golden = math.pi * (3 - math.sqrt(5))
+    points = []
+    for i in range(count):
+        r = reach_m * math.sqrt((i + 0.5) / count)
+        angle = i * golden
+        points.append(globe.offset(radius, centre, r * math.cos(angle), r * math.sin(angle)))
+    return points
+
+
+def _first_land(constants: Constants, planet: Planet) -> globe.Geo | None:
+    """The centre of a planet nobody seeded a city on: its first dry point."""
+    lat_max = float(constants[R.MAP_CITY_LAT_MAX])
+    for point in _spiral(OVERSAMPLE * OVERSAMPLE):
+        if abs(point[0]) <= lat_max and terrain.is_land(constants, planet, *point):
+            return point
+    return None
 
 
 def sites(
-    constants: Constants, planet: Planet, count: int, *, taken: list[globe.Geo]
+    constants: Constants,
+    planet: Planet,
+    count: int,
+    *,
+    taken: list[globe.Geo],
+    centres: list[globe.Geo] | None = None,
 ) -> list[Site]:
-    """Where the planet's wild nodes stand: on land, apart, and clear of what is pinned."""
+    """Where the planet's wild nodes stand: round the seeded cities, on land,
+    apart, and clear of what is pinned.
+
+    **Round the cities**, not over the whole sphere (D-319, plan §6). A planet
+    is drawn at its true size, and a hundred nodes spread over Terra stood
+    eight hundred kilometres apart -- a month of walking per edge, and more
+    stamina than a body has. The settled edge of a city is `map.region_km`
+    round it, the nodes are laid inside that circle at an even spacing (a
+    `map.spacing_share` of it kept between neighbours), and the rest of the
+    sphere is ground with no node on it: sea, ice, the continents nobody has
+    reached. A planet with no seeded city -- Pyroxis -- gets one region round
+    its first dry point. Between regions there is no way on foot; that is
+    the map's own "hours between regions" (50-interface/05), left to ships
+    and to later decisions.
+    """
     if count <= 0:
         return []
     radius = globe.radius_m(constants, planet)
-    spacing = math.sqrt(_land_area(constants, planet) / count) * SPACING_SHARE
+    lat_max = float(constants[R.MAP_CITY_LAT_MAX])
+    reach = float(constants[R.MAP_REGION_KM]) * METRES_PER_KM
+    homes = list(centres or [])
+    if not homes:
+        first = _first_land(constants, planet)
+        if first is None:
+            log.warning("%s has no dry ground to lay a region on", planet.value)
+            return []
+        homes = [first]
+    settled = math.pi * reach * reach * len(homes)
+    spacing = math.sqrt(settled / count) * float(constants[R.MAP_SPACING_SHARE])
+    per = -(-count * OVERSAMPLE // len(homes))
+    discs = [_disc(radius, home, reach, per) for home in homes]
     chosen: list[Site] = []
     kept: list[globe.Geo] = list(taken)
-    for point in _spiral(count * OVERSAMPLE):
+    #: Region by region in turn, so the count is shared between the cities
+    #: and the last sites -- the frozen cities' -- are spread over them too.
+    for i in range(per):
+        for region, disc in enumerate(discs):
+            if len(chosen) >= count:
+                break
+            point = disc[i]
+            if abs(point[0]) > lat_max or not terrain.is_land(constants, planet, *point):
+                continue
+            if any(globe.distance_m(radius, point, other) < spacing for other in kept):
+                continue
+            marks = terrain.marks_at(constants, planet, *point)
+            chosen.append(Site(number=len(chosen) + 1, point=point, marks=marks, region=region))
+            kept.append(point)
         if len(chosen) >= count:
             break
-        if not terrain.is_land(constants, planet, *point):
-            continue
-        if any(globe.distance_m(radius, point, other) < spacing for other in kept):
-            continue
-        marks = terrain.marks_at(constants, planet, *point)
-        chosen.append(Site(number=len(chosen) + 1, point=point, marks=marks))
-        kept.append(point)
     if len(chosen) < count:
         log.warning("%s has land for %s of the %s nodes asked", planet.value, len(chosen), count)
     return chosen
@@ -156,11 +207,20 @@ def _crosses(constants: Constants, planet: Planet, a: globe.Geo, b: globe.Geo) -
     return None
 
 
-def ways(constants: Constants, planet: Planet, points: list[globe.Geo]) -> list[tuple[int, int]]:
-    """Which pairs are joined: the relative neighbourhood graph, cut by the relief, kept whole."""
+def ways(
+    constants: Constants,
+    planet: Planet,
+    points: list[globe.Geo],
+    *,
+    regions: list[int] | None = None,
+) -> list[tuple[int, int]]:
+    """Which pairs are joined: the relative neighbourhood graph, cut by the
+    relief, kept whole -- within a region. Two regions are two islands: no
+    way is laid between settled edges, however the tree would like one."""
     n = len(points)
     if n < 2:
         return []
+    of = regions or [0] * n
     radius = globe.radius_m(constants, planet)
     dist = [[0.0] * n for _ in range(n)]
     for i in range(n):
@@ -169,6 +229,8 @@ def ways(constants: Constants, planet: Planet, points: list[globe.Geo]) -> list[
     neighbours: list[tuple[int, int]] = []
     for i in range(n):
         for j in range(i + 1, n):
+            if of[i] != of[j]:
+                continue
             d = dist[i][j]
             if all(not (dist[i][k] < d and dist[j][k] < d) for k in range(n) if k not in (i, j)):
                 neighbours.append((i, j))
@@ -212,25 +274,38 @@ async def lay(
     """Lay the planet's wild nodes and the ways between them, once.
 
     Idempotent by key: a world that has its nodes gets nothing laid again.
-    The nodes the layout pinned on this planet are kept clear of and joined
-    into the ways, so the capital's surroundings are one graph with the rest.
+    The cities the layout pinned are the centres of the regions; every pinned
+    place is kept clear of, and the wild ways are sewn to the cities' own
+    nodes -- never to a city's delegate, which is a mark on the map and not
+    ground to stand on (D-319 §1). Every city of the Forerunners on the
+    planet, seeded or laid here, has all its rooms open from the first day.
     """
     if count <= 0 and lost_cities <= 0:
         return []
-    if await session.scalar(select(Node.id).where(Node.key == _key(planet, 1)).limit(1)):
+    laid_before = select(Node.id).where(
+        (Node.key == _key(planet, 1)) | Node.key.like(f"{planet.value}.lost.%")
+    )
+    if await session.scalar(laid_before.limit(1)):
         return []
-    pinned = [
-        node
-        for node in (
-            await session.execute(
-                select(Node).where(
-                    Node.layer == Layer.PLANET, Node.planet == planet, Node.parent_id == sphere.id
-                )
-            )
+    surface = (
+        await session.execute(select(Node).where(Node.layer == Layer.PLANET, Node.planet == planet))
+    ).scalars()
+    pinned = [node for node in surface if places.geo_of(node) is not None]
+    parents = set(
+        (
+            await session.execute(select(Node.parent_id).where(Node.planet == planet).distinct())
         ).scalars()
-        if places.geo_of(node) is not None
-    ]
-    chosen = sites(constants, planet, count + lost_cities, taken=[places.geo_of(n) for n in pinned])
+    )
+    delegates = [node for node in pinned if node.id in parents]
+    leaves = [node for node in pinned if node.id not in parents]
+    centres = [places.geo_of(node) for node in delegates]
+    chosen = sites(
+        constants,
+        planet,
+        count + lost_cities,
+        taken=[places.geo_of(n) for n in pinned],
+        centres=centres,
+    )
     dice = random.Random(f"{planet.value}:surface")
     laid: list[Node] = []
     wild = chosen[: max(0, len(chosen) - lost_cities)]
@@ -240,17 +315,35 @@ async def lay(
         port = await ruins.lost_city(session, constants, laid[0] if laid else sphere, at=site.point)
         await _open_every_room(session, constants, port, dice)
         laid.append(port)
-    graph = pinned + laid
-    for i, j in ways(constants, planet, [places.geo_of(n) for n in graph]):
+    for pier in leaves:
+        if pier.key.endswith(".port") and await ruins.city_of(session, pier) is not None:
+            await _open_every_room(session, constants, pier, dice)
+    graph = leaves + laid
+    radius = globe.radius_m(constants, planet)
+    regions = [_region_of(radius, places.geo_of(node), centres) for node in leaves] + [
+        site.region for site in chosen
+    ]
+    settled = {node.id for node in leaves}
+    for i, j in ways(constants, planet, [places.geo_of(n) for n in graph], regions=regions):
+        if graph[i].id in settled and graph[j].id in settled:
+            continue
         await travel.connect(session, graph[i], graph[j], surface=Surface.WILD)
     await session.flush()
     log.info(
-        "%s laid: %s wild nodes, %s cities of the Forerunners",
+        "%s laid: %s wild nodes, %s cities of the Forerunners, %s regions",
         planet.value,
         len(wild),
         len(chosen) - len(wild),
+        max(1, len(centres)),
     )
     return laid
+
+
+def _region_of(radius: float, point: globe.Geo, centres: list[globe.Geo]) -> int:
+    """Which settled edge a pinned place belongs to: its nearest city's."""
+    if not centres:
+        return 0
+    return min(range(len(centres)), key=lambda k: globe.distance_m(radius, point, centres[k]))
 
 
 def _key(planet: Planet, number: int) -> str:

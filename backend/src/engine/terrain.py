@@ -124,7 +124,8 @@ def climate_at(constants: Constants, planet: Planet, lat: float, lon: float) -> 
     rain = constants[R.SITE_RAIN_RANGE]
     wet = relief.noise_at(field.seed + RAIN, lat, lon)
     near_water = field.river_distance_deg(lat, lon) <= river_reach_deg(constants, planet, lat)
-    share = wet * relief.RAIN_NOISE_SHARE + ((1 - relief.RAIN_NOISE_SHARE) if near_water else 0)
+    own = float(constants[R.TERRAIN_RAIN_NOISE_SHARE])
+    share = wet * own + ((1 - own) if near_water else 0)
     precipitation = rain.min + (rain.max - rain.min) * share
     return round(temperature), round(precipitation)
 
@@ -135,8 +136,22 @@ def sketch(constants: Constants, planet: Planet) -> dict:
     Everybody's from the world's first day (D-319): the shape of a planet is
     arithmetic over the vault, not intelligence, and hiding it would hide the
     one thing that makes a farmer walk along a river.
+
+    Drawn once per field: the answer is a constant of the vault, and a
+    public route must not rebuild sixteen thousand numbers per request.
     """
     field = field_of(constants, planet)
+    if id(field) not in _SKETCHES:
+        _SKETCHES[id(field)] = _sketched(constants, planet, field)
+    return _SKETCHES[id(field)]
+
+
+#: Sketches by the field they draw; the fields themselves live for the
+#: process (`_built`), so their ids are stable keys.
+_SKETCHES: dict[int, dict] = {}
+
+
+def _sketched(constants: Constants, planet: Planet, field: relief.Field) -> dict:
     return {
         "rows": relief.GRID_ROWS,
         "cols": relief.GRID_COLS,

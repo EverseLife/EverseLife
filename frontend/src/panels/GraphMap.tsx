@@ -61,7 +61,7 @@ import { Inspector } from "./map/Inspector";
 import { NodeMenu } from "./map/NodeMenu";
 import { Edges, Nodes } from "./map/Nodes";
 import { useHand } from "./map/hand";
-import { flatten } from "./map/geo";
+import { flatten, withCityScene } from "./map/geo";
 import { settle } from "./map/layout";
 import { SkyBackdrop, SkyClock } from "./map/Sky";
 import { Switcher } from "./map/Switcher";
@@ -120,24 +120,6 @@ type Props = {
   /** Which layer to open on: the ship's console opens on space (D-230). */
   initialLayer?: LayerId;
 };
-
-/**
- * The city as a scene of its own, read off the parents (D-319).
- *
- * The server has one surface level: a plot and a vein are both `planet`, and
- * what says "inside a city" is that the node's parent is itself a surface
- * node -- the city's own. The map still draws a city as its own scene, so
- * those nodes are given the `city` scene here, on the client's copy, and the
- * rest of the panel never learns that the layer stopped being the server's.
- */
-function withCityScene(nodes: MapNode[]): MapNode[] {
-  const surface = new Set(nodes.filter((node) => node.layer === "planet").map((node) => node.key));
-  return nodes.map((node) =>
-    node.layer === "planet" && node.parent && surface.has(node.parent)
-      ? { ...node, layer: "city" }
-      : node,
-  );
-}
 
 export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "act">) {
   //: The map itself performs nothing: it draws, pans and picks. Every action --

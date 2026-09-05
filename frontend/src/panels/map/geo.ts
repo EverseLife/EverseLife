@@ -57,3 +57,21 @@ export function flatten(nodes: readonly MapNode[]): Map<string, Point> {
   }
   return out;
 }
+
+/**
+ * The city as a scene of its own, read off the parents (D-319).
+ *
+ * The server has one surface level: a plot and a vein are both `planet`, and
+ * what says "inside a city" is that the node's parent is itself a surface
+ * node -- the city's own. The map still draws a city as its own scene, so
+ * those nodes are given the `city` scene here, on the client's copy, and the
+ * rest of the panel never learns that the layer stopped being the server's.
+ */
+export function withCityScene(nodes: MapNode[]): MapNode[] {
+  const surface = new Set(nodes.filter((node) => node.layer === "planet").map((node) => node.key));
+  return nodes.map((node) =>
+    node.layer === "planet" && node.parent && surface.has(node.parent)
+      ? { ...node, layer: "city" }
+      : node,
+  );
+}

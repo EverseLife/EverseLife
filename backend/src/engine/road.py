@@ -312,7 +312,13 @@ async def decay(session: AsyncSession, constants: Constants) -> int:
     return overgrown
 
 
-async def tread(session: AsyncSession, constants: Constants, edge_id: uuid.UUID) -> bool:
+async def tread(
+    session: AsyncSession,
+    constants: Constants,
+    edge_id: uuid.UUID,
+    *,
+    node_id: uuid.UUID | None = None,
+) -> bool:
     """One more pair of feet over the edge (D-319). Returns whether it became a trail.
 
     Written by the arrival job and by nothing else -- a read does not write.
@@ -339,7 +345,7 @@ async def tread(session: AsyncSession, constants: Constants, edge_id: uuid.UUID)
     surface, wear = row
     became_trail = Surface(surface) is Surface.TRAIL and wear == threshold
     if became_trail:
-        await events.record(session, EventKind.ROAD_TRODDEN, edge_id=str(edge_id))
+        await events.record(session, EventKind.ROAD_TRODDEN, node_id=node_id, edge_id=str(edge_id))
     return became_trail
 
 

@@ -452,7 +452,7 @@ async def arrive(session: AsyncSession, job: Job) -> None:
     if travel.edge_id is not None:
         from src.engine import road  # noqa: PLC0415 -- lazy: road imports travel
 
-        await road.tread(session, constants_now(), travel.edge_id)
+        await road.tread(session, constants_now(), travel.edge_id, node_id=target.id)
 
     await events.record(
         session,

@@ -87,12 +87,18 @@ async def properties(
         planet, point = at
         marks = terrain.marks_at(constants, planet, *point)
         temperature, precipitation = terrain.climate_at(constants, planet, *point)
-        river = marks[world.WATER] == world.RIVER
-        #: The budget is spent the same way: water costs fertility, only the
-        #: water is now a fact of the map rather than a roll.
+        #: The map's river is a fact and never lies (`terrain.river_reach_km`);
+        #: the streams beside it the relief is too coarse to draw -- its cells
+        #: are degrees wide, a settled edge is kilometres -- and they fall out
+        #: by `site.river_share` as they always did (D-126). Without the second
+        #: half no laid node ever had water at all.
+        river = marks[world.WATER] == world.RIVER or await luck.hit(
+            session, who, luck.SITE_RIVER, constants[R.SITE_RIVER_SHARE], dice=dice
+        )
+        #: The budget is spent the same way: water costs fertility.
         for_water = dice.uniform(0, budget) if river else 0.0
         return {
-            world.WATER: marks[world.WATER],
+            world.WATER: world.RIVER if river else marks[world.WATER],
             terrain.MOUNTAIN: marks[terrain.MOUNTAIN],
             "fertility": 0 if vein else round(PERCENT * max(0.0, budget - for_water) / budget),
             "temperature": temperature,
