@@ -25,7 +25,7 @@ What is still in the list, by kind, so the number can be read:
 * **boot-time errors** for whoever runs the server (`db/ddl`, `jobs`).
   Developer-facing, and CLAUDE.md wants them in English. The `constants/*`
   half of this kind was swept on 2026-09-02; these two are what is left;
-* **names the world generates for itself** (`seed_*`, `explore/site`, `ruins`,
+* **names the world generates for itself** (`seed_*`, `city/land`, `ruins`,
   `ship/building`, `farm`): data rather than copy, and a design decision is
   written down for them in the vault plan;
 * **keys of the ledger's `memo`**: an audit record nothing renders, and the
@@ -61,7 +61,10 @@ CYRILLIC = re.compile(r"[\u0400-\u04FF]")
 #: was written, and the kinds above still cover every one of them. On
 #: 2026-09-02 the five `constants/*` entries left the list translated rather
 #: than moved: `catalog`, `formula`, `loader`, `spec` and `renames` raise
-#: their boot-time errors in English now.
+#: their boot-time errors in English now. On 2026-09-06 exploration left
+#: with D-319 (`explore/site` 4, `explore/run` 1): the plot's name moved to
+#: `city/land`, the names of the wild ground to `seed_planets`, which names
+#: a node by what the relief made it and so writes six where a find wrote three.
 KNOWN: dict[str, int] = {
     "src/api/app.py": 1,
     "src/api/commands/city.py": 1,
@@ -73,6 +76,7 @@ KNOWN: dict[str, int] = {
     "src/engine/chat.py": 2,
     "src/engine/city/_base.py": 1,
     "src/engine/city/grant.py": 2,
+    "src/engine/city/land.py": 1,
     "src/engine/craft/queue.py": 2,
     "src/engine/customs.py": 5,
     "src/engine/death.py": 2,
@@ -104,6 +108,7 @@ KNOWN: dict[str, int] = {
     "src/seed.py": 8,
     "src/seed_catchup.py": 7,
     "src/seed_parts.py": 18,
+    "src/seed_planets.py": 6,
     "src/seed_surfaces.py": 2,
     "src/seed_world.py": 10,
     "src/telemetry/metrics.py": 23,

@@ -668,3 +668,28 @@ async def test_a_player_is_refused_a_name_a_channel_already_holds(
         )
     ).scalar()
     assert standing == 0
+
+
+async def test_a_founded_city_has_its_first_ring_of_plots(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Nothing is found any more (D-319): a city is founded with land to hand out
+    -- `city.ring_slots_base` free plots round its node, civic, joined to it."""
+    from src.constants import registry as R
+    from src.engine import travel
+    from src.models.world import is_plot
+
+    place, _, body = await _wasteland(session)
+    await _build_up(session, place)
+    city = await town.establish(session, constants, catalog, body, "Новоград")
+    plots = [
+        node
+        for node in await town.territory(session, city)
+        if node.id != place.id and is_plot(node)
+    ]
+    assert len(plots) == int(constants[R.CITY_RING_SLOTS_BASE])
+    for plot in plots:
+        assert plot.parent_id == place.id and plot.owner_city_id == city.id
+        assert plot.owner_identity_id is None, "участок свободен: его раздаёт власть"
+        assert "fertility" in plot.properties, "у участка есть почва (D-246)"
+        assert await travel._edge_between(session, place.id, plot.id) is not None

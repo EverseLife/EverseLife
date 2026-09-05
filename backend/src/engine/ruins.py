@@ -49,13 +49,14 @@ from __future__ import annotations
 import random
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants, current, current_catalog
 from src.constants import registry as R
-from src.engine import energy, luck, props, travel, world
+from src.engine import energy, luck, places, props, travel, world
 from src.engine.errors import Refusal
 from src.models.world import Layer, Node, Planet, Surface
 from src.units import HOURS_PER_DAY
@@ -313,6 +314,7 @@ async def lost_city(
     origin: Node,
     *,
     who: uuid.UUID | None = None,
+    at: tuple[float, float] | None = None,
 ) -> Node:
     """Find another city of the Forerunners. Returns its **pier**: that is where
     a walker arrives, and the hall is one step further in.
@@ -337,6 +339,11 @@ async def lost_city(
     kinds = sorted(constants[R.RUINS_ROOM_TYPES])
     kind = seed.choice(kinds) if kinds else ""
 
+    marks: dict[str, Any] = {PRECURSOR: True, KIND: kind}
+    if at is not None:
+        #: Laid at the world's birth where the relief put it (D-319): the pin
+        #: is written before creation, so the seat is never searched.
+        marks[places.PLACE] = {places.PLACE_LAT: at[0], places.PLACE_LON: at[1]}
     city = await world.create_node(
         session,
         f"{origin.planet.value}.lost.{number:03d}",
@@ -345,15 +352,9 @@ async def lost_city(
         area_m2=1,
         layer=Layer.PLANET,
         parent=root,
-        #: A find stands next to what it was found from, on the planet's map
-        #: (D-206, D-237): the scout walked there from somewhere.
+        #: Beside what it was laid from, unless the relief named the point.
         anchor=origin,
-        properties={
-            PRECURSOR: True,
-            KIND: kind,
-            #: The frontier recedes by a step, as with any find (D-180): the
-            #: further from what is settled, the longer the walk.
-        },
+        properties=marks,
     )
     area = constants[R.EXPLORE_NODE_AREA]
     port = await world.create_node(

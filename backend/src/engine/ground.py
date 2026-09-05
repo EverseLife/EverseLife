@@ -64,6 +64,7 @@ async def properties(
     vein: bool,
     woods: bool = False,
     who: uuid.UUID | None = None,
+    at: tuple[Planet, tuple[float, float]] | None = None,
 ) -> dict:
     """Place properties under a common merit budget (D-126).
 
@@ -72,10 +73,35 @@ async def properties(
     of places (D-191), and always where asked for; stones and meadow fall out
     on their own the same way (D-196).
 
-    Each of the signs is a chance with a memory (D-213) when a `who` is given;
-    the world's own generation has nobody to remember for and rolls plain.
+    Given a point on a planet (`at`), the signs and the climate are the
+    relief's there (D-319, `terrain`): the river is where the map draws one,
+    the woods where the field puts them, the temperature the latitude's and
+    the height's. Without a point -- a test's node, a room of the inside --
+    the dice roll as they always did; each sign is a chance with a memory
+    (D-213) when a `who` is given, and the world's own generation rolls plain.
     """
+    from src.engine import terrain  # noqa: PLC0415 -- lazy: terrain reads this module's marks
+
     budget = constants[R.SITE_QUALITY_BUDGET]
+    if at is not None:
+        planet, point = at
+        marks = terrain.marks_at(constants, planet, *point)
+        temperature, precipitation = terrain.climate_at(constants, planet, *point)
+        river = marks[world.WATER] == world.RIVER
+        #: The budget is spent the same way: water costs fertility, only the
+        #: water is now a fact of the map rather than a roll.
+        for_water = dice.uniform(0, budget) if river else 0.0
+        return {
+            world.WATER: marks[world.WATER],
+            terrain.MOUNTAIN: marks[terrain.MOUNTAIN],
+            "fertility": 0 if vein else round(PERCENT * max(0.0, budget - for_water) / budget),
+            "temperature": temperature,
+            "precipitation": precipitation,
+            WOODS: woods or marks[WOODS],
+            STONES: marks[STONES],
+            MEADOW: marks[MEADOW],
+            WILD: True,
+        }
 
     async def mark_of(key: str, share: float) -> bool:
         return await luck.hit(session, who, key, share, dice=dice)
@@ -104,15 +130,17 @@ async def civic_properties(
     dice: random.Random,
     *,
     who: uuid.UUID | None = None,
+    at: tuple[Planet, tuple[float, float]] | None = None,
 ) -> dict:
     """Place properties of a city plot (D-246).
 
     A plot inside the rings is **land**, and land has soil: the city stands on
-    the same ground as the field beyond its wall, so the roll is the same roll.
-    Only `wild` is dropped -- this ground is the city's, and the authority
-    hands it out (D-089).
+    the same ground as the field beyond its wall, so the roll is the same roll
+    -- and the same reading of the relief, where the city stands on it. Only
+    `wild` is dropped -- this ground is the city's, and the authority hands it
+    out (D-089).
     """
-    rolled = await properties(session, constants, dice, vein=False, who=who)
+    rolled = await properties(session, constants, dice, vein=False, who=who, at=at)
     return {name: value for name, value in rolled.items() if name != WILD} | {PLOT: True}
 
 

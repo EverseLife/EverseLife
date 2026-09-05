@@ -8,12 +8,14 @@ Split out of `engine/city.py` along its sections (review 2026-08-23, wave 3).
 
 from __future__ import annotations
 
+import random
+
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import energy, estate, events, travel, utility, world
+from src.engine import energy, estate, events, ground, places, travel, utility, world
 from src.engine.city._base import CityError, NoCity, NotYours
 from src.engine.city.hall import require_at_hall
 from src.engine.city.law import shown
@@ -27,8 +29,49 @@ from src.models.city import (
 from src.models.estate import Deed
 from src.models.event import EventKind
 from src.models.identity import BodyState, Identity
-from src.models.world import Node, NodePass, is_plot, storey_of
+from src.models.world import Layer, Node, NodePass, Surface, is_plot, storey_of
 from src.units import ENERGY_PER_TARIFF_UNIT, money, money_str
+
+#: The plot's ring, a record of its birth (D-089): the first ring is the
+#: founding's, the next ones the city's own to lay.
+RING = "ring"
+
+
+async def lay_ring(
+    session: AsyncSession, constants: Constants, city: City, node: Node, *, ring: int = 1
+) -> list[Node]:
+    """Lay a ring of free plots round a founded city (D-089, D-319).
+
+    Nothing is found any more: a plot in the rings used to be a scout's find,
+    and now the authority has `city.ring_slots_base` of them from the first
+    minute, hanging on the city's own node, joined to it, with the soil the
+    relief gives the place (D-246). The ring is written on the plot as a
+    record of its birth; what land is worth goes by edges (D-220).
+    """
+    count = int(constants[R.CITY_RING_SLOTS_BASE])
+    area = constants[R.LAND_AREA_RING1]
+    dice = random.Random(f"{node.key}:ring:{ring}")
+    point = places.geo_of(node)
+    at = None if point is None else (node.planet, point)
+    plots: list[Node] = []
+    for number in range(1, count + 1):
+        plot = await world.create_node(
+            session,
+            f"{node.key}.lot{number}",
+            "Свободный участок",
+            planet=node.planet,
+            area_m2=dice.uniform(area.min, area.max),
+            layer=Layer.PLANET,
+            parent=node,
+            anchor=node,
+            properties=await ground.civic_properties(session, constants, dice, at=at)
+            | {RING: ring},
+        )
+        plot.owner_city_id = city.id
+        await travel.connect(session, node, plot, surface=Surface.PAVED)
+        plots.append(plot)
+    await session.flush()
+    return plots
 
 
 async def allot(

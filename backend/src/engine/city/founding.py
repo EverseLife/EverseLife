@@ -40,7 +40,7 @@ from src.engine.city._base import (
     NotYours,
 )
 from src.engine.city.citizen import AlreadyCitizen, _enrol_founder, citizenship
-from src.engine.city.land import _retire_deed
+from src.engine.city.land import _retire_deed, lay_ring
 from src.engine.city.lookup import by_name, by_node
 from src.engine.city.office import _office
 from src.engine.errors import Says
@@ -391,6 +391,9 @@ async def establish(
     await world.hand_over(session, node, None)
     await _retire_deed(session, node, city)
     await session.flush()
+    #: The first ring of plots, from the first minute (D-089, D-319): a city
+    #: is founded with land to hand out, since nobody finds any.
+    await lay_ring(session, constants, city, node)
 
     await events.record(
         session,

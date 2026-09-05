@@ -173,8 +173,13 @@ async def test_the_capital_is_assembled_from_recipes(
         for key, thing, _ in await _things(session)
         #: A relic is in the registry of things that simply exist (D-215), like
         #: ore -- but it is the Forerunners' machinery standing where they left
-        #: it (D-232), not raw material somebody failed to spend.
-        if book.is_raw(thing) and not book.is_relic(thing) and thing not in deliberate
+        #: it (D-232), not raw material somebody failed to spend. Nor is what
+        #: lies in a room of theirs under the ice: the haul of a dig, laid with
+        #: the world since every room is open from the first day (D-319).
+        if book.is_raw(thing)
+        and not book.is_relic(thing)
+        and thing not in deliberate
+        and ".room." not in key
     ]
     assert not left, f"после сборки в узлах осталось сырьё: {left}"
 
@@ -306,7 +311,10 @@ async def test_other_planets_have_somewhere_to_land(
     by_planet: dict[str, int] = {}
     for port in await ship.landings(session):
         by_planet[port.planet.value] = by_planet.get(port.planet.value, 0) + 1
-    assert by_planet["aurora"] == len(aurora_cities())
+    #: The three cities of the layout and the frozen ones laid under the ice at
+    #: birth (D-319): each has a pier, dark or lit, and a dark pier is a place.
+    lost = int(constants[R.RUINS_LOST_CITIES].get("aurora", 0))
+    assert by_planet["aurora"] == len(aurora_cities()) + lost
     #: The plateau and its black fields, and not a spaceport among them: on
     #: Pyroxis a ship sets down on the ground itself (D-233).
     assert by_planet["pyroxis"] == 1 + PYROXIS_FIELDS
@@ -346,7 +354,7 @@ async def test_other_planets_have_somewhere_to_land(
     #: Running the seed again lays nothing twice.
     await seed(session)
     again = sum(1 for port in await ship.ports(session) if port.planet.value == "aurora")
-    assert again == len(aurora_cities())
+    assert again == len(aurora_cities()) + lost
     twice = sum(1 for place in await ship.landings(session) if place.planet.value == "pyroxis")
     assert twice == 1 + PYROXIS_FIELDS
 

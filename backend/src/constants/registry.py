@@ -74,6 +74,42 @@ TERRAIN_RIVERS = Table("terrain.rivers")
 TERRAIN_LAPSE_C = Num("terrain.lapse_c")
 TERRAIN_RIVER_REACH_KM = Num("terrain.river_reach_km")
 TERRAIN_MOUNTAIN_VEIN_K = Num("terrain.mountain_vein_k")
+#: How many wild nodes each planet is laid with at the world's birth (D-319):
+#: the whole surface exists from the first day and is walked, not found.
+MAP_NODES_TERRA = Num("map.nodes_terra")
+MAP_NODES_AURORA = Num("map.nodes_aurora")
+MAP_NODES_PYROXIS = Num("map.nodes_pyroxis")
+MAP_NODES_AQUATICA = Num("map.nodes_aquatica")
+#: How many cities of the Forerunners a planet is laid with, frozen and dark,
+#: every room already open (D-232, D-319).
+RUINS_LOST_CITIES = Table("ruins.lost_cities")
+#: A founded city's first ring of plots (D-089): the count the authority
+#: hands out, laid at the founding since nothing is found any more (D-319).
+CITY_RING_SLOTS_BASE = Num("city.ring_slots_base")
+#: How many wild nodes each planet is laid with at the world's birth (D-319):
+#: the whole surface exists from the first day and is walked, not found.
+MAP_NODES_TERRA = Num("map.nodes_terra")
+MAP_NODES_AURORA = Num("map.nodes_aurora")
+MAP_NODES_PYROXIS = Num("map.nodes_pyroxis")
+MAP_NODES_AQUATICA = Num("map.nodes_aquatica")
+#: How many cities of the Forerunners a planet is laid with, frozen and dark,
+#: every room already open (D-232, D-319).
+RUINS_LOST_CITIES = Table("ruins.lost_cities")
+#: A founded city's first ring of plots (D-089): the count the authority
+#: hands out, laid at the founding since nothing is found any more (D-319).
+CITY_RING_SLOTS_BASE = Num("city.ring_slots_base")
+#: How many wild nodes each planet is laid with at the world's birth (D-319):
+#: the whole surface exists from the first day and is walked, not found.
+MAP_NODES_TERRA = Num("map.nodes_terra")
+MAP_NODES_AURORA = Num("map.nodes_aurora")
+MAP_NODES_PYROXIS = Num("map.nodes_pyroxis")
+MAP_NODES_AQUATICA = Num("map.nodes_aquatica")
+#: How many cities of the Forerunners a planet is laid with, frozen and dark,
+#: every room already open (D-232, D-319).
+RUINS_LOST_CITIES = Table("ruins.lost_cities")
+#: A founded city's first ring of plots (D-089): the count the authority
+#: hands out, laid at the founding since nothing is found any more (D-319).
+CITY_RING_SLOTS_BASE = Num("city.ring_slots_base")
 TRANSPORT_STAMINA_K = Num("transport.stamina_k")
 # --- Transport (D-107, D-129, D-157) ----------------------------------------
 #: Hold capacity and speed -- one layout by one key: two would diverge. The

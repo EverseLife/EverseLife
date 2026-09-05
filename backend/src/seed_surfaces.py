@@ -55,8 +55,9 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src import seed_planets
 from src.constants import current, current_catalog, display_name
-from src.engine import energy, ground, oxygen, plates, props, ruins, ship, travel, world
+from src.engine import energy, ground, oxygen, places, plates, props, ruins, ship, travel, world
 from src.models.world import Layer, Node, Planet, Surface
 
 #: The Anvil Plateau: the one stable ground of Pyroxis (10-world/04, D-197).
@@ -126,6 +127,10 @@ async def _pyroxis(session: AsyncSession) -> None:
     marks = {ship.OPEN_LANDING: True, oxygen.AIRLESS: True}
     if any(not (sphere.properties or {}).get(key) for key in marks):
         await props.stamp(session, sphere, marks)
+    #: The plateau and the fields stand where the relief puts them (D-319):
+    #: the first sites of the planet's own spiral, as far apart as its size
+    #: allows, so a walk between two fields is a walk and not a step.
+    spots = seed_planets.sites(current(), Planet.PYROXIS, PYROXIS_FIELDS + 1, taken=[])
     plateau = (
         await _ensure(
             session,
@@ -135,7 +140,7 @@ async def _pyroxis(session: AsyncSession) -> None:
             layer=Layer.PLANET,
             parent=sphere,
             area=1,
-            properties={ANVIL: True},
+            properties={ANVIL: True} | _pin(spots, 0),
         )
     ).node
     #: And the mark is set **every** time, not only when the node is made.
@@ -168,6 +173,7 @@ async def _pyroxis(session: AsyncSession) -> None:
             parent=sphere,
             area=FIELD_AREA_M2,
             anchor=plateau,
+            properties=_pin(spots, number),
         )
         species = await ground.species_of(
             session, current(), current_catalog(), dice, planet=Planet.PYROXIS
@@ -212,6 +218,14 @@ async def _pyroxis(session: AsyncSession) -> None:
 
 def pyroxis_field_key(number: int) -> str:
     return f"{PYROXIS_PLATEAU}.field.{number:02d}"
+
+
+def _pin(spots: list[seed_planets.Site], index: int) -> dict[str, object]:
+    """The pin for the index-th site, or none when the relief had no room for it."""
+    if index >= len(spots):
+        return {}
+    lat, lon = spots[index].point
+    return {places.PLACE: {places.PLACE_LAT: lat, places.PLACE_LON: lon}}
 
 
 async def _aurora(session: AsyncSession) -> None:

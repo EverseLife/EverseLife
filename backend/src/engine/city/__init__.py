@@ -133,6 +133,7 @@ from src.engine.city.hall import require_at_hall  # noqa: F401
 from src.engine.city.land import (  # noqa: F401
     allot,
     cede,
+    lay_ring,
     reclaim,
     survey,
     upkeep_of,
