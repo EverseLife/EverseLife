@@ -218,7 +218,7 @@ def _notify(total: int) -> None:
         return
     body = json.dumps(
         {
-            "content": f"📨 Заявка на бету. Всего: {total}.",
+            "content": f"📨 Заявка на бету. Всего: {total}.",
             "allowed_mentions": {"parse": []},
         },
         ensure_ascii=False,
@@ -255,7 +255,7 @@ REFUSALS = {
         "en": "Too often. Give it a minute.",
     },
     "not_an_email": {
-        "ru": "Это не похоже на почту.",
+        "ru": "Это не похоже на почту.",
         "en": "That does not look like an email address.",
     },
 }
