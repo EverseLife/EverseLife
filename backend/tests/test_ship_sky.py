@@ -381,3 +381,68 @@ async def test_a_hull_under_way_carries_the_coast_ahead_at_the_coaster_cadence(
     assert vessel.forecast["since"] != counted, "за каденцией прогноз пересчитан"
     seen = (await ship.profile(session, constants, catalog, vessel))["sky"]
     assert seen is not None and seen["inertia"]["kind"] == vessel.forecast["kind"]
+
+
+async def test_a_hull_under_an_order_is_taken_by_the_ground(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The ground is the ground whether a hull coasts onto it or flies into it.
+
+    D-289 wrote the deaths of a drift alone, and the autopilot passed through a
+    planet without noticing: the tick moved the hull, nobody asked where it
+    had got to, and a point mass flung out whatever came near its centre
+    (OQ-120). Now the same reading the coast is flown against answers under an
+    order too: the crew die of the same cause, the row carries the same
+    verdict, and the tick counts it.
+    """
+    vessel, owner, aurora, moment, _ = await _under_way(session, constants, catalog)
+    world = await sim.system(session, constants)
+    terra = world.body(Planet.TERRA.value)
+    at = moment + timedelta(minutes=1)
+    t = await ship.sky_days(session, at)
+    p, vp = sky.place(terra, t)
+    #: Put the hull just above Terra by hand and aim it at the middle: under
+    #: an order, so the helm is steering, not coasting.
+    here = (float(p[0, 0]) + terra.radius * 1.2, float(p[0, 1]))
+    falling = (float(vp[0, 0]) - float(np.sqrt(terra.mu / terra.radius)), float(vp[0, 1]))
+    sim._write_state(vessel, here, falling, at=at)
+    await session.flush()
+    assert vessel.course is not None, "приказ на строке, борт под автопилотом"
+
+    #: Long enough for the fall to reach the surface: a fifth of a radius at
+    #: the speed of a circle grazing it is a quarter of an hour.
+    report = await helm.tick_sky(session, constants, catalog, now=at + timedelta(minutes=20))
+    await session.refresh(vessel)
+    assert report["struck"] == 1, "тик посчитал корпус, который забрала земля"
+    assert vessel.lost_at is not None, "борт потерян"
+    assert vessel.course is None, "приказа больше нет"
+    assert vessel.forecast["kind"] == sky.CRASH and vessel.forecast["body"] == "terra"
+    assert (await session.get(Body, owner.id)).died_at is not None, "экипаж погиб"
+
+
+async def test_a_hull_under_an_order_is_lost_past_the_edge_of_the_system(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The other end the ground has: `orbit.system_radius`.
+
+    The same reading answers both, and the two ends are not the same death --
+    one is a crash on a named body, the other an escape with nothing to name.
+    Both take the crew, because the owner asked for both (D-289): carried out
+    of the system, or down on a planet or the star, and the notice is a death.
+    """
+    vessel, owner, aurora, moment, _ = await _under_way(session, constants, catalog)
+    world = await sim.system(session, constants)
+    at = moment + timedelta(minutes=1)
+    #: Just outside the edge already, and running: nothing to fall back to.
+    beyond = world.edge * 1.01
+    sim._write_state(vessel, (beyond, 0.0), (world.edge, 0.0), at=at)
+    await session.flush()
+    assert vessel.course is not None, "приказ на строке, борт под автопилотом"
+
+    report = await helm.tick_sky(session, constants, catalog, now=at + timedelta(minutes=2))
+    await session.refresh(vessel)
+    assert report["struck"] == 1, "тик посчитал корпус, который унесло из системы"
+    assert vessel.lost_at is not None and vessel.course is None, "борт потерян, приказа нет"
+    assert vessel.forecast["kind"] == sky.ESCAPE, "не падение, а уход"
+    assert vessel.forecast["body"] is None, "и называть нечего"
+    assert (await session.get(Body, owner.id)).died_at is not None, "экипаж погиб"

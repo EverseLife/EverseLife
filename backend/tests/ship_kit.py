@@ -10,16 +10,19 @@ from __future__ import annotations
 
 import math
 import uuid
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
+import numpy as np
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src import seed_parts, sky
 from src.constants import Catalog, Constants, current
-from src.engine import ship, storage, world
-from src.engine.ship import lines
+from src.constants import registry as R
+from src.engine import ship, storage, travel, world
+from src.engine.ship import fate, hold, lines, sim
 from src.models.estate import Building
+from src.models.event import Event, EventKind
 from src.models.identity import Body
 from src.models.job import JobState
 from src.models.ship import Ship
@@ -94,13 +97,17 @@ async def select_node(session: AsyncSession, key: str) -> Node | None:
 #: `course.deliverable`, so another hull's is another number).
 #:
 #: What that angle decides, swept against the engine over the whole circle of
-#: it: twenty-three headings in twenty-four moor an hour or two past the hour
-#: the console promised, and one -- near 1.05 rad -- never moors at all, still
-#: under its order ten days on. That is the rate at which the crossing test
-#: used to go red, and the reason widening its slack would have been the wrong
-#: repair: on that one heading there is nothing to wait for. The angle picks
-#: the passage; why that passage does not close is not run down here, and it
-#: deserves a line in the vault rather than this comment.
+#: it, twenty-four headings, re-measured after D-316 finished the capture: all
+#: twenty-four moor, every one of them four hours *before* the hour the console
+#: promised (-4.0 to -4.2, the cheap end's known slack -- OQ-136). The angle no
+#: longer decides *whether* the crossing closes; it decides *when*, and that by
+#: a working day -- the same order from the same minute moors at 27 hours from
+#: one heading and at 48 from another, because the circle turns the hull into a
+#: different departure window. So the pin stays: a fresh `uuid4` every run would
+#: hand the test a different hour each time, and the slack it needs on one
+#: heading is twice what it needs on another. An earlier reading of this sweep
+#: found one heading near 1.05 rad that never moored at all; that was the helm
+#: settling onto a circle of the wrong radius, and it is gone.
 #:
 #: Off the planet's heading and not an absolute angle, as `test_ship_meet`
 #: reads it: which way a hull leaves the circle decides whether a dry coast
@@ -122,7 +129,7 @@ PARK_HEADING = 0.0
 #: shapes (OQ-136) rather than one factor. The middle of the slider is then
 #: exact to a tenth of an hour; the two ends are still about five out, and in
 #: opposite directions -- the fast end late, the cheap end early -- which is
-#: the crudeness of «the fall takes the way left over the speed» and not a
+#: the crudeness of "the fall takes the way left over the speed" and not a
 #: systematic lie any more. Drawn above the measured worst of 5.2 so the check
 #: keeps catching what it was written for: a passage that does not close at
 #: all, which was thirty to ninety hours out.
@@ -317,3 +324,172 @@ async def _flown(
         if vessel.docked_node_id is not None or vessel.course is None:
             return now
     return now
+
+
+# --- two hulls in the sky (D-289, wave 3) -----------------------------------
+#
+# The rescue these tests arrange over and over: a hull that ran dry on the way
+# to Aurora, and another that goes out to it. Shared by `test_ship_meet` (the
+# meeting, the docking, the sighting) and `test_ship_hold` (what the held pair
+# does under a lock, a loss and a new order).
+
+#: What is left in the tank of a hull sent out to run dry: units of fuel.
+DROP = 2.0
+
+
+async def _events(session: AsyncSession, kind: EventKind) -> list[Event]:
+    return list((await session.execute(select(Event).where(Event.kind == kind))).scalars().all())
+
+
+async def _joined(session: AsyncSession, constants: Constants, a: Node, b: Node) -> bool:
+    """Whether an edge stands between the two nodes."""
+    return any(one.node_id == b.id for one in await travel.exits(session, constants, a))
+
+
+#: Where on Terra's circle the hulls of a rescue are put: radians off Terra's
+#: own heading at the moment, not an absolute angle -- which way a hull leaves
+#: the circle decides how long its dry coast lasts, and Terra's heading turns
+#: with the year. A drifter sent off from `DRIFTER_HEADING` coasts for weeks;
+#: the rescuer sits a little behind it.
+#:
+#: Measured against the order these tests actually give, not derived: `_hull`
+#: pins the angle at the hull's stamp, `_drifting` casts off at the wall clock
+#: an ascent earlier, and the circle turns between the two. Move either hour
+#: and both numbers want measuring again. A heading that plunges is no longer
+#: among them: since D-316 the helm may not steer a hull toward the world it
+#: is leaving, so a doomed coast is arranged by hand (`_plunging`).
+DRIFTER_HEADING = 2.5
+RESCUER_HEADING = DRIFTER_HEADING + 0.8
+
+#: A pair that is only ever two hulls: far enough apart on the circle to be
+#: two places, near enough to be in each other's sight (the whole circle is).
+FIRST_HEADING = PARK_HEADING
+SECOND_HEADING = PARK_HEADING + 0.8
+
+
+async def _hull(
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    port: Node,
+    *,
+    fuel: float,
+    heading: float = PARK_HEADING,
+) -> tuple[Ship, Body]:
+    """A flight-worthy hull of a fresh owner, in Terra's orbit -- `heading`
+    radians off Terra's own heading on the circle (`PARK_HEADING`)."""
+    _, owner = await _shipwright(session, port)
+    vessel = await _laid(session, constants, owner, port)
+    await _flightworthy(session, constants, catalog, vessel)
+    connector = await session.get(Node, vessel.connector_node_id)
+    await _fuel(session, connector, fuel)
+    owner.node_id = connector.id
+    await session.flush()
+    await _in_orbit(session, constants, catalog, owner, vessel, heading=heading)
+    return vessel, owner
+
+
+async def _plunging(
+    session: AsyncSession, constants: Constants, vessel: Ship, *, now: datetime
+) -> sky.Fate:
+    """Put a coasting hull on a line into Terra by hand: the verdict on its row
+    and the loss booked, as the tick would have written them.
+
+    Arranged rather than flown into (D-316): the helm may not steer a hull
+    toward the world it is leaving, and a departure is where these tests used
+    to get a plunge from.
+    """
+    world = await sim.system(session, constants)
+    terra = world.body(Planet.TERRA.value)
+    t = await ship.sky_days(session, now)
+    p, vp = sky.place(terra, t)
+    gap = float(constants[R.ORBIT_PARK_RADIUS])
+    here = (float(p[0, 0]) + gap, float(p[0, 1]))
+    #: Straight at the centre at the circle's own speed: the ground in hours.
+    falling = (float(vp[0, 0]) - float(np.sqrt(terra.mu / gap)), float(vp[0, 1]))
+    sim._write_state(vessel, here, falling, at=now)
+    verdict = await fate.book_loss(
+        session, constants, vessel, world, now=now, t=t, r=here, v=falling
+    )
+    sim._keep_forecast(vessel, verdict, now=now, t=t)
+    await session.flush()
+    return verdict
+
+
+async def _drifting(
+    session: AsyncSession, constants: Constants, catalog: Catalog, vessel: Ship, owner: Body
+) -> datetime:
+    """Send the hull to Aurora and let it run dry on the way: adrift near
+    Terra, with a forecast on its row. Returns the hour of the last tick."""
+    aurora = await _orbit(session, Planet.AURORA)
+    moment = datetime.now(UTC)
+    forecast = await ship.forecast(session, constants, catalog, vessel, Planet.AURORA, now=moment)
+    fast = next(one for one in forecast["samples"] if one["ok"])
+    await ship.fly(
+        session, constants, catalog, owner, vessel, aurora, hours=fast["hours"], now=moment
+    )
+    aboard = await ship.fuel_aboard(session, constants, catalog, vessel)
+    await ship._spend(
+        session, await ship.fuel_stacks(session, constants, catalog, vessel), aboard - DROP
+    )
+    await session.flush()
+    last = await _flown(
+        session, constants, catalog, vessel, since=moment, until=moment + timedelta(hours=12)
+    )
+    assert vessel.course is None and vessel.forecast is not None, "в дрейфе, с прогнозом"
+    return last
+
+
+async def _met(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> tuple[Ship, Body, Ship, Body, datetime]:
+    """A drifter and a rescuer of another owner that came to rest beside it."""
+    home = await _port(session, name="Космодром столицы")
+    await _port(session, name="Космодром Мерида", planet=Planet.AURORA)
+    drifter, lost_owner = await _hull(
+        session, constants, catalog, home, fuel=5000, heading=DRIFTER_HEADING
+    )
+    last = await _drifting(session, constants, catalog, drifter, lost_owner)
+    rescuer, rescuer_owner = await _hull(
+        session, constants, catalog, home, fuel=5000, heading=RESCUER_HEADING
+    )
+    #: A foreign hull is aimed at only in sight: the drifter went adrift a
+    #: few units off Terra's circle, and the rescuer sits on it.
+    #: One price to a hull, and no slider: the approach profile's own.
+    since = last + timedelta(minutes=1)
+    forecast = await ship.forecast(session, constants, catalog, rescuer, drifter, now=since)
+    (quote,) = forecast["samples"]
+    assert quote["ok"] and quote["hours"] > 0 and quote["dv"] > 0
+    #: Read at one moment and ordered five minutes later: the quote moves
+    #: with the geometry, and the order takes the one of its own moment
+    #: rather than looking the console's up and missing it.
+    ordered = since + timedelta(minutes=5)
+    await ship.fly(
+        session,
+        constants,
+        catalog,
+        rescuer_owner,
+        rescuer,
+        drifter,
+        hours=quote["hours"],
+        now=ordered,
+    )
+    assert rescuer.course is not None and rescuer.course["ship"] == str(drifter.id)
+    #: The quote of the order's own moment: a hull plunging toward a planet
+    #: is a different geometry five minutes on, and the console's number is
+    #: not looked up and missed.
+    assert rescuer.course["hours"] > 0 and rescuer.course["dv"] > 0
+    until = ordered + timedelta(hours=rescuer.course["hours"])
+    at = await _flown(
+        session, constants, catalog, rescuer, since=ordered, until=until, slack=timedelta(hours=48)
+    )
+    assert rescuer.held_ship_id == drifter.id, "рулевой встал рядом и держится"
+    #: And in SQL, too, nobody of the two is under an order and the pair is
+    #: no orphan: a Python None once went into the JSON column as the JSON
+    #: value `null`, and every `course IS NOT NULL` took every drifter for
+    #: an ordered hull -- the tick locked them all, the sweep filtered none.
+    under_orders = (await session.execute(select(Ship.id).where(Ship.course.isnot(None)))).all()
+    assert under_orders == [], "JSON null не SQL NULL"
+    assert (await session.execute(hold.orphaned_holds())).all() == []
+    assert (await session.execute(hold.half_docks())).all() == []
+    return drifter, lost_owner, rescuer, rescuer_owner, at

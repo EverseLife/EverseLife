@@ -99,10 +99,11 @@ async def tick_sky(
             "adrift": released,
             "held": 0,
             "circled": 0,
+            "struck": 0,
             "fuel": 0.0,
         }
     world = await system(session, constants)
-    flown = moored = adrift = held = circled = 0
+    flown = moored = adrift = held = circled = struck = 0
     fuel = 0.0
     moved: list[Ship] = []
     for ship_id in wanted:
@@ -111,19 +112,24 @@ async def tick_sky(
         )
         if ship is None or ship.docked_node_id is not None or ship.lost_at is not None:
             continue
+        done = ""
         if ship.course:
             done, burnt = await _fly(session, constants, catalog, world, ship, now=moment)
             flown += 1
             fuel += burnt
             moored += done == "moored"
             adrift += done == "adrift"
+            struck += done == "struck"
             held += done == "held"
             circled += done == "circled"
         elif moment - ship.sky_at >= stale:
             await _restamp(session, constants, world, ship, now=moment)
         else:
             continue
-        moved.append(ship)
+        if done != "struck":
+            #: A struck hull is off the water: its row is already lost and
+            #: flushed, so it is not among `afloat` and has nothing to sight.
+            moved.append(ship)
     #: And who came into sight while they moved (wave 3): every hull in the
     #: sky placed once, the pairs read off that one table.
     if moved:
@@ -146,6 +152,8 @@ async def tick_sky(
         "adrift": adrift + released,
         "held": held,
         "circled": circled,
+        #: Hulls the ground took while they were under an order (OQ-120).
+        "struck": struck,
         "fuel": round(fuel, ROUND_MASS),
     }
 
@@ -214,6 +222,29 @@ async def _fly(
     budget = dv_aboard(constants, worth, weight, klass)
 
     r, v = _state_of(ship)
+    hit: str | None = None
+    left = False
+    #: And whatever the helm means, the ground is where it is (OQ-120): a
+    #: hull under an order used to pass through a planet, the corona or the
+    #: edge of the system without noticing, because D-289 wrote the deaths
+    #: of a drift alone. Asked of every step the integrator takes rather
+    #: than of the step's two ends -- a planet is small and a tick catching
+    #: up after an idle worker flies through one between samples.
+    ground: dict[str, object] = {}
+
+    def watch(tt: np.ndarray, rr: sky.Rows, vv: sky.Rows) -> None:
+        if ground:
+            return
+        body, gone = sky.ground_of(world, tt, rr)
+        if body is not None or gone:
+            ground.update(
+                at=float(tt[0]),
+                body=body,
+                gone=gone,
+                r=(float(rr[0, 0]), float(rr[0, 1])),
+                v=(float(vv[0, 0]), float(vv[0, 1])),
+            )
+
     step = float(constants[R.ORBIT_STEP_MINUTES]) / MINUTES_PER_HOUR / HOURS_PER_DAY
     t = t0
     spent = 0.0
@@ -241,24 +272,33 @@ async def _fly(
             np.array([v]),
             dt_max=dt,
             thrust=thrust[None, :],
+            watch=watch,
         )
-        r, v = _row(rr), _row(vv)
         spent += wanted
+        if ground:
+            r, v = ground["r"], ground["v"]  # type: ignore[assignment]
+            t, hit, left = float(ground["at"]), ground["body"], bool(ground["gone"])  # type: ignore[arg-type,assignment]
+            outcome = "struck"
+            break
+        r, v = _row(rr), _row(vv)
         phase = helm.phase
         t += dt
         if outcome == "adrift":
             break
     if outcome == "adrift" and t < t1 - sky.TIME_EPS:
-        rr, vv = sky.advance(
+        #: The rest of the stretch with the tanks dry is still flown through
+        #: the same sky, and at the coaster's pace rather than the helm's:
+        #: hours in one call, so the ground is watched step by step here too.
+        r, v, t, hit, left = sky.coast_to(
             world,
-            np.array([t]),
-            np.array([t1]),
-            np.array([r]),
-            np.array([v]),
+            t,
+            t1,
+            r,
+            v,
             dt_max=float(constants[R.ORBIT_PLAN_STEP_MINUTES]) / MINUTES_PER_HOUR / HOURS_PER_DAY,
         )
-        r, v = _row(rr), _row(vv)
-        t = t1
+        if hit is not None or left:
+            outcome = "struck"
 
     burnt = 0.0
     if spent > _DV_EPS:
@@ -270,7 +310,7 @@ async def _fly(
             fuel_for_dv(constants, weight, spent, klass),
             stacks=stacks,
         )
-    stamp = now if outcome != "moored" else _moment_of(now, t1, t)
+    stamp = now if outcome not in ("moored", "struck") else _moment_of(now, t1, t)
     _write_state(ship, r, v, at=stamp)
 
     if outcome == "moored" and other is not None:
@@ -311,6 +351,9 @@ async def _fly(
                 port=orbit.key,
             )
             return outcome, burnt
+    if outcome == "struck":
+        await fate.strike(session, constants, ship, now=stamp, t=t, r=r, body=hit, gone=left)
+        return outcome, burnt
     if outcome == "adrift":
         ship.course = None
         await fate._adrift(session, constants, ship, world, now=now, t=t1, r=r, v=v)
@@ -389,10 +432,14 @@ async def _void(
     """The order's target is gone: the hull coasts on from where it is."""
     r0, v0 = _state_of(ship)
     step = float(constants[R.ORBIT_PLAN_STEP_MINUTES]) / MINUTES_PER_HOUR / HOURS_PER_DAY
-    rr, vv = sky.advance(
-        world, np.array([t0]), np.array([t1]), np.array([r0]), np.array([v0]), dt_max=step
-    )
-    r, v = _row(rr), _row(vv)
+    #: Watched like any other stretch (OQ-120): the target being gone is no
+    #: reason for the hull to fall through a planet on the way to finding out.
+    r, v, t, hit, left = sky.coast_to(world, t0, t1, r0, v0, dt_max=step)
+    if hit is not None or left:
+        stamp = _moment_of(now, t1, t)
+        _write_state(ship, r, v, at=stamp)
+        await fate.strike(session, constants, ship, now=stamp, t=t, r=r, body=hit, gone=left)
+        return "struck", 0.0
     _write_state(ship, r, v, at=now)
     ship.course = None
     await fate._adrift(session, constants, ship, world, now=now, t=t1, r=r, v=v, why="target")

@@ -43,8 +43,13 @@ class Fate:
     loops: bool
 
 
-def _ground(system: System, t: np.ndarray, r: Rows) -> tuple[str | None, bool]:
-    """Whether the (one) row is on a body or out of the system right now."""
+def ground_of(system: System, t: np.ndarray, r: Rows) -> tuple[str | None, bool]:
+    """Whether the (one) row is on a body or out of the system right now.
+
+    Asked of a coast as it is flown ahead (`inertia`) and of a hull under an
+    order as the tick moves it (`ship.helm`): the ground is the same ground
+    either way, and the two must not learn to disagree about it (OQ-120).
+    """
     distance = float(norms(r)[0])
     if distance < system.corona:
         return "star", False
@@ -55,6 +60,72 @@ def _ground(system: System, t: np.ndarray, r: Rows) -> tuple[str | None, bool]:
         if float(norms(r - p)[0]) < body.radius:
             return body.key, False
     return None, False
+
+
+def coast_to(
+    system: System,
+    t0: float,
+    t1: float,
+    r0: tuple[float, float],
+    v0: tuple[float, float],
+    *,
+    dt_max: float,
+) -> tuple[tuple[float, float], tuple[float, float], float, str | None, bool]:
+    """Coast one hull from `t0` to `t1`, stopping where the ground takes it.
+
+    Gives back where the hull ends up, when, and what took it there: the key
+    of the body it struck, and whether it left the system. A stretch flown
+    with no thrust is still a stretch through the same sky as a coast that
+    is forecast, and the two must not learn to disagree about it (OQ-120) --
+    so the ground is asked of every integrator step here as well, not only
+    of the two ends. A tick catching up after an idle worker flies hours in
+    one go, and a planet is small enough to pass clean through in one.
+
+    `advance`'s watcher cannot break its own loop, so the span goes in
+    slices and a slice that comes back with a verdict is the last one flown
+    -- the same shape `inertia` uses.
+    """
+    t = np.array([t0], dtype=float)
+    r = np.array([r0], dtype=float)
+    v = np.array([v0], dtype=float)
+    found: dict[str, object] = {}
+
+    def watch(tt: np.ndarray, rr: Rows, vv: Rows) -> None:
+        if found:
+            return
+        body, gone = ground_of(system, tt, rr)
+        if body is not None or gone:
+            found.update(
+                at=float(tt[0]),
+                body=body,
+                gone=gone,
+                r=(float(rr[0, 0]), float(rr[0, 1])),
+                v=(float(vv[0, 0]), float(vv[0, 1])),
+            )
+
+    span = max(t1 - t0, 0.0)
+    slices = max(1, int(np.ceil(span / max(dt_max, 1e-6) / 8)))
+    for i in range(1, slices + 1):
+        until = np.array([t0 + span * i / slices])
+        r, v = advance(system, t, until, r, v, dt_max=dt_max, watch=watch)
+        t = np.maximum(t, until)
+        if found:
+            break
+    if found:
+        return (
+            found["r"],  # type: ignore[return-value]
+            found["v"],  # type: ignore[return-value]
+            float(found["at"]),  # type: ignore[arg-type]
+            found["body"],  # type: ignore[return-value]
+            bool(found["gone"]),
+        )
+    return (
+        (float(r[0, 0]), float(r[0, 1])),
+        (float(v[0, 0]), float(v[0, 1])),
+        t1,
+        None,
+        False,
+    )
 
 
 def inertia(
@@ -98,7 +169,7 @@ def inertia(
             return
         times.append(float(tt[0]))
         path.append((float(rr[0, 0]), float(rr[0, 1])))
-        body, gone = _ground(system, tt, rr)
+        body, gone = ground_of(system, tt, rr)
         if body is not None:
             found.update(kind=CRASH, at=float(tt[0]), body=body)
         elif gone:

@@ -164,6 +164,44 @@ async def lost(session: AsyncSession, job: Job) -> None:
     _keep_forecast(ship, fate, now=job.run_at, t=t)
 
 
+async def strike(
+    session: AsyncSession,
+    constants: Constants,
+    ship: Ship,
+    *,
+    now: datetime,
+    t: float,
+    r: tuple[float, float],
+    body: str | None,
+    gone: bool,
+) -> None:
+    """A hull under an order that has reached the ground, the corona, or the
+    edge of the system: the order ends the way a coast's end ends (OQ-120).
+
+    D-289 wrote the deaths of a drift only, and the autopilot flew through
+    whatever stood in its way. It is the same death: the same crew, the same
+    cause on the row, the same verdict for whoever flies as one with it -- so
+    the same words say it, and only the hour is this minute rather than a
+    booked one.
+    """
+    await _lose(
+        session,
+        constants,
+        ship,
+        sky.Fate(
+            kind=sky.ESCAPE if gone else sky.CRASH,
+            at=t,
+            body=body,
+            #: No line to draw: the hull stops here, and a chart wants two
+            #: points or none (`fate_of_row` writes none for the same reason).
+            trace=(),
+            span=0.0,
+            loops=False,
+        ),
+        now=now,
+    )
+
+
 async def _lose(
     session: AsyncSession, constants: Constants, ship: Ship, fate: sky.Fate, *, now: datetime
 ) -> None:

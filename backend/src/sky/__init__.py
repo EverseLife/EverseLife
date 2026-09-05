@@ -30,6 +30,7 @@ from src.sky._base import (  # noqa: F401
     TIME_EPS,
     Body,
     Drifter,
+    Rows,
     Star,
     System,
     Target,
@@ -43,7 +44,15 @@ from src.sky._base import (  # noqa: F401
     system_of,
 )
 from src.sky.field import advance, pull, sample  # noqa: F401
-from src.sky.forecast import CRASH, ESCAPE, STABLE, Fate, inertia  # noqa: F401
+from src.sky.forecast import (  # noqa: F401
+    CRASH,
+    ESCAPE,
+    STABLE,
+    Fate,
+    coast_to,
+    ground_of,
+    inertia,
+)
 from src.sky.guide import (  # noqa: F401
     BURN,
     CAPTURE,
