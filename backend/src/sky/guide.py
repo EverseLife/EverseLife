@@ -331,12 +331,15 @@ def _capture(
     ):
         return Helm(thrust=(0.0, 0.0), phase=CAPTURE, captured=True)
     coming = -float(np.dot(v_rel, rel)) / max(gap, 1e-9)
-    #: The fall is let run only while it would still pass **above the circle**.
-    #: Clearing the ground is not enough: a fall whose lowest point is under
-    #: the circle takes the hull through it, and down there the burn finds a
-    #: circle of its own -- a stable orbit at the wrong radius, which the
-    #: mooring (measured against the circle's own speed) never recognises.
-    if coming > 0.0 and gap > park and _low_point(target.mu, rel, v_rel) > park:
+    low = _low_point(target.mu, rel, v_rel)
+    #: The fall is let run only while it would bring the hull **into the
+    #: window the mooring watches**: above the circle, and no higher than the
+    #: capture radius. Under the circle it goes through, and down there the
+    #: burn finds a circle of its own -- a stable orbit at the wrong radius.
+    #: Above the radius it never arrives: the hull matches the circle's speed
+    #: where it is and turns there for ever. Both ends of that band have been
+    #: measured as orders that never close.
+    if coming > 0.0 and gap > park and park < low <= system.capture_radius:
         #: Coast while the speed is still one the way left can shed: `v² = 2ad`
         #: over what remains to the circle, at the profile's share of the
         #: thrust, plus the circle's own speed, which is not shed at all. The
@@ -351,13 +354,20 @@ def _capture(
         )
         if float(np.hypot(*v_rel)) <= allowed:
             return Helm(thrust=(0.0, 0.0), phase=CAPTURE, captured=False)
-    #: At the circle, or on a fall that would go through it: match the circle
-    #: the mooring is measured against -- the one at `orbit.park_radius`, and
-    #: not the one through where the hull happens to be. Matching the local
-    #: circle leaves the hull turning at whatever radius it stopped at, which
-    #: is a stable orbit and an order that never closes: the mooring wants the
-    #: parking circle's own speed, so that is what the burn asks for.
-    need = around * circle_speed(target, park) - v_rel
+    if gap > system.capture_radius:
+        #: Too high to be moored from, and not falling into the window on its
+        #: own: come down, at the speed the way left can still shed. Matching
+        #: the circle's speed up here would leave the hull turning at this
+        #: radius for ever -- the right speed at the wrong place.
+        wanted = (
+            -rel / max(gap, 1e-9) * float(np.sqrt(2.0 * BRAKE_SHARE * a_max * max(gap - park, 0.0)))
+        )
+    else:
+        #: In the window: match the circle the mooring is measured against --
+        #: the one at `orbit.park_radius`, not the one through where the hull
+        #: happens to be, which is a stable orbit at the wrong radius.
+        wanted = around * circle_speed(target, park)
+    need = wanted - v_rel
     size = float(np.hypot(*need))
     if size < STILL:
         return Helm(thrust=(0.0, 0.0), phase=CAPTURE, captured=False)
