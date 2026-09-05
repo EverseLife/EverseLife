@@ -27,6 +27,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app as landing
+import nbsp
 import stats
 from app import (
     ALTERNATES,
@@ -34,6 +35,7 @@ from app import (
     DEFAULT_LANG,
     FONT_CACHE,
     PAGE_CACHE,
+    PAGE_LANG,
     PAGES,
     SITE,
     SITE_PAGES,
@@ -90,6 +92,27 @@ def test_a_page_fits_its_title_and_description_into_a_search_result() -> None:
         said = unescape(description.group(1))
         assert len(written) <= TITLE_LIMIT, f"{path}: title is {len(written)} characters"
         assert low <= len(said) <= high, f"{path}: description is {len(said)} characters"
+
+
+def test_no_line_ends_on_a_short_word() -> None:
+    """A rule the markup carries drifts back the moment a page is edited.
+
+    Copy written by hand comes back with an ordinary space after "в" and "у",
+    and nothing about the page looks wrong until somebody reads it on a narrow
+    screen and finds a line ending on a preposition. `nbsp.py` ties them; this
+    says the run has happened.
+    """
+    for path, file in PAGES.items():
+        if PAGE_LANG[path] != DEFAULT_LANG:
+            continue
+        html = file.read_text(encoding="utf-8")
+        assert nbsp.tie(html) == html, f"{path}: run `python landing/nbsp.py`"
+    #: The copy no page contains: the lines the script writes in and the
+    #: refusals the service sends back. They wrap in a narrow box like any
+    #: other text, and nothing else in this file looks at them.
+    for name in nbsp.COPY:
+        source = (Path(__file__).parent / name).read_text(encoding="utf-8")
+        assert nbsp.tie_copy(source) == source, f"{name}: run `python landing/nbsp.py`"
 
 
 def test_shared_assets_serve_get_and_head() -> None:
