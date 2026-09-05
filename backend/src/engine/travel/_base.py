@@ -92,6 +92,8 @@ class Exit:
 
 def surface_multiplier(constants: Constants, surface: Surface) -> float:
     """Time multiplier by surface. The road is the reference (D-107)."""
+    if surface is Surface.WILD:
+        return constants[R.ROAD_WILD_MULTIPLIER]
     if surface is Surface.TRAIL:
         return constants[R.ROAD_TRAIL_MULTIPLIER]
     if surface is Surface.PAVED:

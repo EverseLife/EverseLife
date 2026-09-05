@@ -144,8 +144,12 @@ def heavy(constants: Constants, type_key: str) -> bool:
 
 
 def passable(constants: Constants, surface: Surface, type_key: str) -> bool:
-    """Whether such a vehicle passes over such a surface (D-107)."""
-    if surface is Surface.TRAIL:
+    """Whether such a vehicle passes over such a surface (D-107).
+
+    Neither the wild nor a trail: a trail is feet's work (D-319), and a road
+    as work would mean nothing if a cart could follow the feet.
+    """
+    if surface in (Surface.WILD, Surface.TRAIL):
         return False
     if surface is Surface.PAVED:
         return True

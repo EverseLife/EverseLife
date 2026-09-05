@@ -214,8 +214,12 @@ async def _spoil(session: AsyncSession, now: datetime) -> dict[str, Any]:
 
 
 async def _roads(session: AsyncSession, now: datetime) -> dict[str, Any]:
-    #: A road without maintenance overgrows and returns to offroad (D-107).
-    return {"roads_decayed": await road.decay(session, current())}
+    #: A road without maintenance overgrows and returns to offroad (D-107),
+    #: and a trail nobody walks grows over into the wild (D-319).
+    return {
+        "roads_decayed": await road.decay(session, current()),
+        "paths_faded": await road.fade(session, current()),
+    }
 
 
 async def _houses(session: AsyncSession, now: datetime) -> dict[str, Any]:

@@ -357,7 +357,7 @@ async def returned(session: AsyncSession, job: Job) -> None:
         #: that: two to three times longer than a road, and no vehicle passes.
         #: It is the slowest surface the world has, and the walk to a city
         #: found beyond the ice is the brake on colonising the planet.
-        coverage = Surface.TRAIL
+        coverage = Surface.WILD
     #: A plot is found inside the built-up area and hangs on the node it was
     #: sought from; a find beyond the walls hangs on the city's **gate** (D-206).
     #: Otherwise a scout who set out from the trading yard would leave a trail

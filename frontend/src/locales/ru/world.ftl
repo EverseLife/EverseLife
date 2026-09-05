@@ -116,7 +116,8 @@ ui-map-node-spaceport = космодром
 
 ## Дороги от узла: что уложено, что просело и чего это стоит.
 
-ui-map-surface-trail = бездорожье
+ui-map-surface-wild = бездорожье
+ui-map-surface-trail = тропа
 ui-map-surface-road = дорога
 ui-map-surface-paved = тракт
 ui-map-road-working = идёт работа

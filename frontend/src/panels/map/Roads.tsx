@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Nurlan Urazkulov
 
 import { useEffect, useState } from "react";
-import type { Look, RoadWork } from "../../api";
+import { SURFACE, type Look, type RoadWork } from "../../api";
 import { Hint } from "../../Hint";
 import { useSession } from "../../actions";
 import { busyWith } from "../../busy";
@@ -53,8 +53,8 @@ export function Roads({
     <div className="row roads">
       {shown.map((path) => (
         <span key={path.edge} className="note">
-          {path.to}: {t(SURFACE_LABEL[path.surface])}
-          {path.surface !== "trail" && ` ${path.condition.toFixed(0)}%`}
+          {path.to}: {t(SURFACE[path.surface])}
+          {paved(path.surface) && ` ${path.condition.toFixed(0)}%`}
           {path.working ? (
             ` · ${t("ui-map-road-working")}`
           ) : (
@@ -75,7 +75,7 @@ export function Roads({
                     })
                   }
                 >
-                  {t(path.surface === "trail" ? "ui-map-road-lay" : "ui-map-road-pave", {
+                  {t(paved(path.surface) ? "ui-map-road-pave" : "ui-map-road-lay", {
                     needs: path.needs.toFixed(0),
                   })}
                 </button>
@@ -104,9 +104,8 @@ export function Roads({
   );
 }
 
-/** Surface in words: the player reads a road, not an enum. */
-const SURFACE_LABEL: Record<RoadWork["surface"], string> = {
-  trail: "ui-map-surface-trail",
-  road: "ui-map-surface-road",
-  paved: "ui-map-surface-paved",
-};
+/** Whether a crew laid this: only a road or a highway has a condition to
+ *  read and to mend. The wild and a trail are feet's work (D-319). */
+function paved(surface: RoadWork["surface"]): boolean {
+  return surface === "road" || surface === "paved";
+}

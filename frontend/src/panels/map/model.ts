@@ -59,7 +59,7 @@ export type Point = { x: number; y: number };
 /** An edge as the map draws it: two keys of **this** layer and what lies between. */
 export type Link = { a: string; b: string; surface: string; seconds: number };
 
-export const DASH: Record<string, string | undefined> = { trail: "4 6" };
+export const DASH: Record<string, string | undefined> = { wild: "1 7", trail: "4 6" };
 
 /**
  * The identity of a journey: where it ends, by key, or nothing when one

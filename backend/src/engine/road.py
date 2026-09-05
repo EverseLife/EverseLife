@@ -50,7 +50,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
-from sqlalchemy import inspect, or_, select
+from sqlalchemy import case, inspect, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants, current
@@ -69,7 +69,10 @@ from src.units import AMOUNT_SCALE, SCALE_MAX, SCALE_MIN, amount, amount_float
 SURFACE_GOODS = "roadbed"
 
 #: Surface tiers from bottom to top. The order is the laying ladder itself.
-LADDER = (Surface.TRAIL, Surface.ROAD, Surface.PAVED)
+LADDER = (Surface.WILD, Surface.TRAIL, Surface.ROAD, Surface.PAVED)
+#: The two rungs no crew lays (D-319): the wild is the world's, the trail is
+#: the feet's, and neither has a condition to mend or to lose.
+UNPAVED = (Surface.WILD, Surface.TRAIL)
 
 
 class RoadError(Refusal):
@@ -93,7 +96,13 @@ class AlreadyWorking(RoadError):
 
 
 def next_step(surface: Surface) -> Surface:
-    """The next surface tier. The highway is the ceiling."""
+    """The next surface a crew can lay. The highway is the ceiling.
+
+    Work starts at the road: a trail is worn, never laid (D-319), so from the
+    wild and from a trail alike the first thing a crew makes is a road.
+    """
+    if surface in UNPAVED:
+        return Surface.ROAD
     place = LADDER.index(surface)
     if place + 1 >= len(LADDER):
         raise TopSurface(key="road-top-surface")
@@ -101,9 +110,11 @@ def next_step(surface: Surface) -> Surface:
 
 
 def lower_step(surface: Surface) -> Surface | None:
-    """A tier down: an overgrown road. There is nothing below offroad."""
+    """A tier down: an overgrown road. Below the road only feet decide (D-319)."""
+    if surface in UNPAVED:
+        return None
     place = LADDER.index(surface)
-    return LADDER[place - 1] if place > 0 else None
+    return LADDER[place - 1]
 
 
 async def pending(session: AsyncSession, edge: Edge) -> Job | None:
@@ -162,7 +173,7 @@ async def lay(
     if mend:
         if float(edge.condition) >= SCALE_MAX:
             raise RoadError(key="road-intact")
-        if edge.surface is Surface.TRAIL:
+        if edge.surface in UNPAVED:
             raise RoadError(key="road-trail-not-mended")
         goal = edge.surface
     else:
@@ -263,7 +274,7 @@ async def decay(session: AsyncSession, constants: Constants) -> int:
     the very constant sink of materials which maintenance exists for at all (D-107).
     """
     edges = (
-        (await session.execute(select(Edge).where(Edge.surface != Surface.TRAIL))).scalars().all()
+        (await session.execute(select(Edge).where(Edge.surface.not_in(UNPAVED)))).scalars().all()
     )
 
     step = constants[R.ROAD_DECAY_RATE]
@@ -301,6 +312,68 @@ async def decay(session: AsyncSession, constants: Constants) -> int:
     return overgrown
 
 
+async def tread(session: AsyncSession, constants: Constants, edge_id: uuid.UUID) -> bool:
+    """One more pair of feet over the edge (D-319). Returns whether it became a trail.
+
+    Written by the arrival job and by nothing else -- a read does not write.
+    One statement, no read before it: the wear is a counter, and two arrivals
+    in the same second must both count (`wear = wear + 1`); whether the
+    threshold is crossed is decided in the same statement, on the value the
+    database has, not on the one this session read a moment ago.
+    """
+    threshold = int(constants[R.PATH_WEAR_THRESHOLD])
+    trodden = (Edge.surface == Surface.WILD) & (Edge.wear + 1 >= threshold)
+    row = (
+        await session.execute(
+            update(Edge)
+            .where(Edge.id == edge_id)
+            .values(
+                wear=Edge.wear + 1,
+                surface=case((trodden, Surface.TRAIL.value), else_=Edge.surface),
+            )
+            .returning(Edge.surface, Edge.wear)
+        )
+    ).one_or_none()
+    if row is None:  # pragma: no cover -- the leg's edge is gone with its gangway (D-201)
+        return False
+    surface, wear = row
+    became_trail = Surface(surface) is Surface.TRAIL and wear == threshold
+    if became_trail:
+        await events.record(session, EventKind.ROAD_TRODDEN, edge_id=str(edge_id))
+    return became_trail
+
+
+async def fade(session: AsyncSession, constants: Constants) -> int:
+    """Daily: every edge is a little less trodden, and a forgotten trail grows over.
+
+    Returns how many trails went back to the wild. Two marks, not one
+    (`path.fade_threshold` under `path.wear_threshold`), so an edge walked
+    about once a day does not flicker between the two every tick.
+    """
+    per_day = int(constants[R.PATH_FADE_PER_DAY])
+    floor = int(constants[R.PATH_FADE_THRESHOLD])
+    await session.execute(
+        update(Edge)
+        .where(Edge.wear > 0)
+        .values(wear=case((Edge.wear > per_day, Edge.wear - per_day), else_=0))
+    )
+    overgrown = (
+        (
+            await session.execute(
+                update(Edge)
+                .where(Edge.surface == Surface.TRAIL, Edge.wear < floor)
+                .values(surface=Surface.WILD.value)
+                .returning(Edge.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for edge_id in overgrown:
+        await events.record(session, EventKind.ROAD_OVERGROWN, edge_id=str(edge_id))
+    return len(overgrown)
+
+
 async def view(session: AsyncSession, constants: Constants, body: Body) -> list[dict]:
     """Edges from this node through the client's eyes: what is laid and what can be laid."""
 
@@ -332,7 +405,7 @@ async def view(session: AsyncSession, constants: Constants, body: Body) -> list[
             further, need_amount = None, None
         resurface = (
             None
-            if edge.surface is Surface.TRAIL or float(edge.condition) >= SCALE_MAX
+            if edge.surface in UNPAVED or float(edge.condition) >= SCALE_MAX
             else needed(constants, edge, mend=True)
         )
         result.append(

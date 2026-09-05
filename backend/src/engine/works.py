@@ -247,7 +247,7 @@ async def _sagged_edges(session: AsyncSession, constants: Constants) -> list[Edg
         (
             await session.execute(
                 select(Edge).where(
-                    Edge.surface != Surface.TRAIL,
+                    Edge.surface.in_((Surface.ROAD, Surface.PAVED)),
                     Edge.condition < threshold,
                 )
             )

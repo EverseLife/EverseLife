@@ -81,6 +81,10 @@ class EventKind(StrEnum):
     ROAD_LAID = "road.laid"
     #: Overgrown: the surface dropped a tier without maintenance.
     ROAD_DECAYED = "road.decayed"
+    #: Feet wore a trail into untrodden ground, or a trail nobody walked grew
+    #: over (D-319). Both are the edge's own doing, not a crew's.
+    ROAD_TRODDEN = "road.trodden"
+    ROAD_OVERGROWN = "road.overgrown"
 
     # the planet redraws its own map (D-197, D-233)
     #: The free signal: these nodes will be shaken, and what lies in them burns.

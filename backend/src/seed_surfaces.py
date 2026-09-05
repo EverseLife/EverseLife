@@ -182,7 +182,7 @@ async def _pyroxis(session: AsyncSession) -> None:
                 plateau,
                 laid.node,
                 base_seconds=PYROXIS_STEP_SECONDS,
-                surface=Surface.TRAIL,
+                surface=Surface.WILD,
             )
             await world.create_vein(
                 session,
@@ -222,7 +222,7 @@ async def _pyroxis(session: AsyncSession) -> None:
                     before,
                     laid.node,
                     base_seconds=PYROXIS_STEP_SECONDS,
-                    surface=Surface.TRAIL,
+                    surface=Surface.WILD,
                 )
 
 

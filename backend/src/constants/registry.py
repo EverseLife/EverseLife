@@ -70,6 +70,16 @@ ROAD_DECAY_RATE = Num("road.decay_rate")
 #: Multiplier to the decay rate by what the edge was laid from (D-252):
 #: asphalt sags at half the pace of gravel, and that is its whole point.
 ROAD_DECAY_BY_PAVING = Table("road.decay_by_paving")
+#: Below the ladder (D-319): an edge laid with the world and never walked.
+#: Slower than a trodden trail, and no vehicle passes either.
+ROAD_WILD_MULTIPLIER = Num("road.wild_multiplier")
+#: A trail is worn in by feet, never laid (D-319): this many arrivals over
+#: an untrodden edge make it a trail, below the lower mark it grows over
+#: again, and the daily tick takes this much wear off every edge. Two marks,
+#: not one, so an edge on the line does not flicker.
+PATH_WEAR_THRESHOLD = Num("path.wear_threshold")
+PATH_FADE_THRESHOLD = Num("path.fade_threshold")
+PATH_FADE_PER_DAY = Num("path.fade_per_day")
 
 # --- Inventory (20-systems/04-items, D-146) ---------------------------------
 INVENTORY_CARRY_MASS = Num("inventory.carry_mass")

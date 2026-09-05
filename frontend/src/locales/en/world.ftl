@@ -116,7 +116,8 @@ ui-map-node-spaceport = spaceport
 
 ## Roads from the node: what is laid, what has sagged and what it costs.
 
-ui-map-surface-trail = trackless
+ui-map-surface-wild = trackless
+ui-map-surface-trail = trail
 ui-map-surface-road = road
 ui-map-surface-paved = paved way
 ui-map-road-working = work under way

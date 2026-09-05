@@ -52,7 +52,7 @@ export type RoadWork = {
   edge: string;
   /** Where it leads. */
   to: string;
-  surface: "trail" | "road" | "paved";
+  surface: "wild" | "trail" | "road" | "paved";
   /** Surface condition 0..100: overgrows without maintenance. */
   condition: number;
   seconds: number;
@@ -70,7 +70,7 @@ export type RoadWork = {
 export type Exit = {
   key: string;
   name: string;
-  surface: "trail" | "road" | "paved";
+  surface: "wild" | "trail" | "road" | "paved";
   seconds: number;
   /** Stamina spend for the road. With a vehicle -- zero. */
   stamina: number;
@@ -172,6 +172,7 @@ export type InSight = { nodes: MapNode[]; edges: MapEdge[] };
 
 /** Surface in words, by message key: a module-scope map holds keys, not text. */
 export const SURFACE: Record<Exit["surface"], string> = {
+  wild: "ui-map-surface-wild",
   trail: "ui-map-surface-trail",
   road: "ui-map-surface-road",
   paved: "ui-map-surface-paved",

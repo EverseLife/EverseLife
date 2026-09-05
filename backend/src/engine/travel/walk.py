@@ -446,6 +446,13 @@ async def arrive(session: AsyncSession, job: Job) -> None:
     travel.state = TravelState.ARRIVED
     travel.arrived_at = job.run_at
     await session.flush()
+    #: The feet wear the edge (D-319): one more arrival over it, and past the
+    #: threshold the wild is a trail. Here and nowhere else -- a read does not
+    #: write, and the arrival job is the one write a walk makes.
+    if travel.edge_id is not None:
+        from src.engine import road  # noqa: PLC0415 -- lazy: road imports travel
+
+        await road.tread(session, constants_now(), travel.edge_id)
 
     await events.record(
         session,

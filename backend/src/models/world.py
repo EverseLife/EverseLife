@@ -224,9 +224,17 @@ class NodePass(Base):
 
 
 class Surface(StrEnum):
-    """The edge's surface decides both time and the very possibility to drive through (D-107)."""
+    """The edge's surface decides both time and the very possibility to drive through (D-107).
 
-    #: Offroad: two to three times longer, no vehicle passes at all.
+    The two lowest rungs are nobody's work (D-319): the world lays its edges
+    untrodden, feet wear a trail into one that is walked, and a trail nobody
+    walks grows over again. Both are set by `Edge.wear`, never by a crew.
+    """
+
+    #: Untrodden ground: an edge laid with the world and not yet walked in.
+    #: The slowest there is, and no vehicle passes.
+    WILD = "wild"
+    #: A trail worn in by feet: quicker than the wild, still no vehicle.
     TRAIL = "trail"
     #: Road -- the time reference.
     ROAD = "road"
@@ -270,6 +278,12 @@ class Edge(Base):
     #: `road.decay_by_paving`; a tier lost wipes it together with the
     #: covering. NULL -- the world's own road: laid by nobody, base rate.
     paving: Mapped[str | None] = mapped_column(nullable=True)
+    #: How trodden the edge is (D-319): one per arrival over it, less
+    #: `path.fade_per_day` every day, never below nought. Past
+    #: `path.wear_threshold` the wild is a trail; under `path.fade_threshold`
+    #: a trail is wild again. A counter, so it is only ever written as
+    #: `wear = wear + 1` -- two arrivals in one second are two.
+    wear: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     created_at: Mapped[datetime] = created_column()
 
 

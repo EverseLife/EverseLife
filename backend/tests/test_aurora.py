@@ -490,7 +490,7 @@ async def test_a_search_across_the_ice_finds_a_city_end_to_end(
             )
         )
     )
-    assert link is not None and link.surface is Surface.TRAIL
+    assert link is not None and link.surface is Surface.WILD
 
 
 async def _finish(session: AsyncSession, body) -> None:
