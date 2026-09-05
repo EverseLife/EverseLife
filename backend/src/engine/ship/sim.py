@@ -491,7 +491,7 @@ async def depart(
     found = await state_at(session, constants, ship, now=now)
     if found is None:  # pragma: no cover -- `offers` answered, so the hull is in the sky
         raise NoArc(key="ship-no-arc", hours=round(hours, ROUND_HOURS))
-    r, v, _ = found
+    r, v, t = found
     plan = sample
 
     weight, klass = await _afford(session, constants, catalog, ship, plan.dv_out, why="cross")
@@ -503,6 +503,15 @@ async def depart(
     _write_state(ship, r, v, at=now)
     ship.park_phase = None
     ship.held_ship_id = None
+    #: The wait for the ejection window, priced into the hour before it is
+    #: promised (D-316). The helm holds the burn until the circle turns the
+    #: hull the way the arc leaves; counting that here is what keeps the arc
+    #: deliverable -- waiting against an hour fixed for an immediate
+    #: departure only makes the arc steeper than the engines can fly.
+    #: The wait for the ejection window, as the slider counted it (D-316):
+    #: the console showed this hour before the button, and the order promises
+    #: the same one.
+    wait = plan.wait / HOURS_PER_DAY
     ship.course = {
         "target": None if isinstance(target, Ship) else target.key,
         "planet": None if isinstance(target, Ship) else target.planet.value,
@@ -512,13 +521,13 @@ async def depart(
         #: plan's burns are instants, the hull's are stretches, and braking
         #: from the arc's speed at this thrust puts the hull on the circle
         #: later than the arc reaches the planet (`sky.brake_days`).
-        "arrive_at": _stamp(now + timedelta(hours=hours)),
+        "arrive_at": _stamp(now + timedelta(days=wait, hours=hours)),
         "due_at": _stamp(
             now
-            + timedelta(hours=hours)
+            + timedelta(days=wait, hours=hours)
             + timedelta(
                 days=sky.brake_days(
-                    plan.dv_in, thrust_ratio * float(constants[R.ORBIT_THRUST_SCALE])
+                    world, plan.dv_in, thrust_ratio * float(constants[R.ORBIT_THRUST_SCALE])
                 )
             )
         ),

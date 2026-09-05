@@ -619,12 +619,18 @@ SHIP_FUEL_ENERGY = Table("ship.fuel_energy")
 #: down, the gravity one climbed against helps.
 SHIP_ASCENT_HOURS = Num("ship.ascent_hours")
 SHIP_DESCENT_HOURS = Num("ship.descent_hours")
-#: How heavy a planet is, as a share of Terra's (D-245). The first number by
-#: which planets differ from one another at all, before any geology: a heavy
-#: world is dear to leave and dear to land on.
-PLANET_GRAVITY = Table("planet.gravity")
-#: The body's radius in map units (D-289): nearer its centre than this a hull
-#: is on the ground, and a coasting hull is lost there.
+#: What a world *is*, and the only two numbers the vault gives it (D-320):
+#: how much matter it holds and how far that matter reaches, both as shares
+#: of Terra's. Everything a planet does to a ship follows from the pair --
+#: the pull at its surface is `mass / radius^2` and prices the climb off it
+#: and the fall onto it (D-245), the pull in its sky is `ORBIT_PLANET_MU`
+#: times the mass (D-289), and how dense the world is -- what it is made of
+#: -- is `mass / radius^3`. Storing the surface pull as well was the older
+#: shape, and it could not stay true: `g = M / R^2` ties the three, and the
+#: vault set all three by hand (OQ-138).
+PLANET_MASS = Table("planet.mass")
+#: A share, not a length: on the map it becomes ground through
+#: `ORBIT_BODY_RADIUS`, and that is the only place it has a size in units.
 PLANET_RADIUS = Table("planet.radius")
 #: Fuel for a crossing between worlds, per ton of hull and per unit of delta-v
 #: (D-271): a passage pays for speed, not for hours -- the legs to and from
@@ -648,8 +654,14 @@ ORBIT_BURN_SHARE = Num("orbit.burn_share")
 ORBIT_CORONA_RADIUS = Num("orbit.corona_radius")
 #: The slow end of the slider: no arc longer than this, however cheap.
 ORBIT_LONGEST_DAYS = Num("orbit.longest_days")
+#: How many map units a Terra radius is (D-320): the scale that turns the
+#: share in `PLANET_RADIUS` into the ground a hull can strike. The bodies are
+#: drawn far larger than life on purpose -- the tick steps a minute at a time,
+#: and a hull on approach crosses a real planet end to end in about two fifths
+#: of one step, so a true-to-scale world could not be hit at all.
+ORBIT_BODY_RADIUS = Num("orbit.body_radius")
 #: The sky simulated (D-289): a planet's pull all the way, per unit of
-#: `PLANET_GRAVITY`; the parking circle a moored hull runs on; the steps of
+#: `PLANET_MASS`; the parking circle a moored hull runs on; the steps of
 #: the tick's integrator and of the planner's; the window a hull is put on
 #: the circle in; the edge of the system, the horizon of the forecast and
 #: how often a coasting hull's stamp is moved along.
@@ -657,6 +669,10 @@ ORBIT_PLANET_MU = Num("orbit.planet_mu")
 ORBIT_PARK_RADIUS = Num("orbit.park_radius")
 ORBIT_STEP_MINUTES = Num("orbit.step_minutes")
 ORBIT_PLAN_STEP_MINUTES = Num("orbit.plan_step_minutes")
+#: The ejection window: the helm holds the departure burn until the parking
+#: circle has turned the hull within this of the excess its arc leaves with
+#: (D-316).
+ORBIT_EJECT_WINDOW = Num("orbit.eject_window")
 ORBIT_CAPTURE_RADIUS = Num("orbit.capture_radius")
 ORBIT_CAPTURE_SPEED = Num("orbit.capture_speed")
 ORBIT_SYSTEM_RADIUS = Num("orbit.system_radius")

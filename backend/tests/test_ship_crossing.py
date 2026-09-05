@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ship_kit import (
     CONSOLE,
+    LATE_HOURS,
     LIFE,
     _equip,
     _fast_sample,
@@ -110,8 +111,11 @@ async def test_ship_takes_the_planet_of_the_port_it_stands_at(
         await session.flush()
 
         await _in_orbit(session, constants, catalog, owner, vessel)
-        moment = datetime.now(UTC)
-        fast = await _fast_sample(session, constants, catalog, vessel, Planet.AURORA)
+        #: Cast off at the hour the hull moored, from the pinned place on the
+        #: circle: this test waits for the mooring at the far end, and the fast
+        #: end of the slider is the arc with the least room in it (`_fast_sample`).
+        moment = vessel.sky_at
+        fast = await _fast_sample(session, constants, catalog, vessel, Planet.AURORA, now=moment)
         arrives = await ship.fly(
             session, constants, catalog, owner, vessel, far, hours=fast["hours"], now=moment
         )
@@ -123,7 +127,9 @@ async def test_ship_takes_the_planet_of_the_port_it_stands_at(
 
     async with factory() as session, session.begin():
         vessel = await session.get(Ship, ship_id)
-        await _flown(session, constants, catalog, vessel, since=moment, until=arrives)
+        moored = await _flown(session, constants, catalog, vessel, since=moment, until=arrives)
+        #: At the hour the console promised, not merely in the end (`LATE_HOURS`).
+        assert moored - arrives <= timedelta(hours=LATE_HOURS), "рейс закрылся в обещанный час"
 
     async with factory() as session:
         vessel = await session.get(Ship, ship_id)

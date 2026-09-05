@@ -253,6 +253,8 @@ export function autonomy(air: Air): number | null {
 /** One point of the slider, priced for this hull. */
 export type Sample = {
   hours: number;
+  /** The wait for the ejection window before the arc starts, hours (D-316). */
+  wait: number;
   dv: number;
   fuel: number;
   /** Whether the engines can give that delta-v in that time. */

@@ -535,6 +535,11 @@ async def forecast(
         samples.append(
             {
                 "hours": round(sample.hours, ROUND_HOURS),
+                #: The wait for the ejection window before the arc begins
+                #: (D-316): the console adds it to the hours so the reader is
+                #: told the whole passage before choosing, and it cannot be
+                #: derived from anything else on the wire (D-225).
+                "wait": round(sample.wait, ROUND_HOURS),
                 "dv": round(sample.dv, ROUND_DV),
                 "fuel": round(burn, ROUND_MASS),
                 #: An arc is the engines' to deliver or not; the approach

@@ -14,7 +14,7 @@ lives in `test_ship_flight.py`.
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime
+from datetime import timedelta
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from ship_kit import (
     ENGINE,
     FUEL,
+    LATE_HOURS,
     TANK,
     _body_of,
     _equip,
@@ -35,10 +36,11 @@ from ship_kit import (
     _port,
     _shipwright,
 )
-from src.constants import Catalog, Constants
+from src import sky
+from src.constants import Catalog, ConstantError, Constants
 from src.constants import registry as R
 from src.engine import frost, jobs, ship, storage, world
-from src.engine.ship import lines
+from src.engine.ship import lines, sim
 from src.models.ship import Ship
 from src.models.world import Layer, Node, Planet
 from src.units import amount_float
@@ -90,8 +92,14 @@ async def test_the_way_between_worlds_goes_orbit_to_orbit(
         with pytest.raises(ship.TooFar):
             await ship.fly(session, constants, catalog, owner, vessel, await _orbit(session))
 
-        moment = datetime.now(UTC)
-        fast = await _fast_sample(session, constants, catalog, vessel, Planet.AURORA)
+        #: Cast off at the hour the hull moored, not at the wall clock: the
+        #: climb here is run by hand rather than by the journal, so the hull's
+        #: own stamp stands hours ahead of `now`, and the sky the passage is
+        #: planned under must be the sky the hull is actually in. That hour and
+        #: the pinned place on the circle (`PARK_HEADING`) are what make this
+        #: crossing one crossing rather than a fresh one every run.
+        moment = vessel.sky_at
+        fast = await _fast_sample(session, constants, catalog, vessel, Planet.AURORA, now=moment)
         arrives = await ship.fly(
             session, constants, catalog, owner, vessel, aurora, hours=fast["hours"], now=moment
         )
@@ -101,8 +109,14 @@ async def test_the_way_between_worlds_goes_orbit_to_orbit(
         vessel = await session.get(Ship, ship_id)
         #: Flown by the tick, hour by hour, until the helm puts the hull on
         #: Aurora's circle (D-289).
-        await _flown(session, constants, catalog, vessel, since=moment, until=arrives)
+        moored = await _flown(session, constants, catalog, vessel, since=moment, until=arrives)
         assert vessel.docked_node_id == aurora_id, "борт на орбите Авроры"
+        #: And moored at the hour the console promised, not merely in the end:
+        #: the fast end of the slider closes on time or it is a different
+        #: passage (`LATE_HOURS`).
+        assert moored - arrives <= timedelta(hours=LATE_HOURS), (
+            "и в обещанный час, а не когда-нибудь"
+        )
         connector = await session.get(Node, vessel.connector_node_id)
         assert connector.planet is Planet.AURORA, "и несёт планету, над которой висит"
 
@@ -135,9 +149,59 @@ def test_a_heavy_world_costs_more_to_leave(constants: Constants) -> None:
     light = ship.climb_hours(constants, Planet.AURORA, 1.0)
     assert light < home < heavy, "тяжесть планеты решает, сколько стоит уйти"
     assert ship.fall_hours(constants, Planet.TERRA, 1.0) < home, "спуск дешевле подъёма"
-    #: A planet the vault says nothing about weighs what Terra weighs: a missing
-    #: line must not make a world free to leave.
-    assert ship.gravity(constants, Planet.TERRA) == 1.0
+
+
+def test_the_pull_at_a_surface_is_the_mass_over_the_square_of_the_radius(
+    constants: Constants,
+) -> None:
+    """Gravity is not a number of its own since D-320, it is derived.
+
+    The vault gives a world two things -- how much matter it holds and how far
+    that matter reaches, both shares of Terra's -- and `g = M / R^2` follows.
+    Written down as a third number it drifted away from the other two: the
+    vault promised 1.3 at Pyroxis while the pair it also gave made 2.65
+    (OQ-138). The **square** is the point: a reader that divided by the radius
+    once would pass every other check in this file.
+    """
+    masses = constants[R.PLANET_MASS]
+    radii = constants[R.PLANET_RADIUS]
+    for planet in (Planet.TERRA, Planet.PYROXIS, Planet.AQUATICA, Planet.AURORA):
+        mass = float(masses[planet.value])
+        radius = float(radii[planet.value])
+        assert ship.gravity(constants, planet) == pytest.approx(mass / radius**2)
+    #: Terra is the yardstick, so it comes out at one whatever the numbers are.
+    assert ship.gravity(constants, Planet.TERRA) == pytest.approx(1.0)
+    #: And the worlds are not all alike, or the square would be untested: the
+    #: icy one is rounder for its mass and so holds the weaker.
+    assert ship.gravity(constants, Planet.AURORA) < ship.gravity(constants, Planet.TERRA)
+    assert float(radii[Planet.AURORA.value]) > float(radii[Planet.TERRA.value])
+
+
+def test_a_world_the_vault_forgot_is_terras_twin_in_both_numbers(
+    constants: Constants,
+) -> None:
+    """A missing line must not make a world free to leave -- nor a point of no
+    size, nor anything else self-contradictory (D-320).
+
+    The older shape defaulted the pull to Terra's and the radius to zero, which
+    is a world of infinite density: the very kind of thing this decision exists
+    to remove. Both now come from one reader and one guess.
+    """
+    assert sky.shape_of(constants, "no-such-world") == (1.0, 1.0)
+
+
+def test_a_world_of_no_size_is_refused_rather_than_divided_by(
+    constants: Constants,
+) -> None:
+    """Every quantity a planet has divides by its radius, and a negative one
+    would come back positive through the square and look like a good planet."""
+    for bad in (0.0, -1.0):
+        broken = Constants(
+            {R.PLANET_MASS.key: {"terra": 1.0}, R.PLANET_RADIUS.key: {"terra": bad}},
+            source="тест",
+        )
+        with pytest.raises(ConstantError):
+            sky.shape_of(broken, "terra")
 
 
 async def test_a_planet_with_no_lit_beacon_is_not_crossed_to(
@@ -246,6 +310,10 @@ async def test_an_orbit_has_no_pier_to_queue_at(
 
     Numbered berths would have made the twentieth hull over Terra climb a
     gangway twenty times the first one's, for a pier that does not exist.
+
+    Parked where the engine puts them (`heading=None`) rather than where the
+    kit pins them: hanging beside one another is the point, and this is the one
+    place the layout `sim.bearing_of` spins off the hulls' ids is looked at.
     """
     home = await _port(session, name="Космодром столицы")
     parked = []
@@ -256,9 +324,18 @@ async def test_an_orbit_has_no_pier_to_queue_at(
         connector = await session.get(Node, vessel.connector_node_id)
         owner.node_id = connector.id
         await session.flush()
-        parked.append(await _in_orbit(session, constants, catalog, owner, vessel))
+        parked.append(await _in_orbit(session, constants, catalog, owner, vessel, heading=None))
 
     assert [vessel.berth for vessel in parked] == [1, 1, 1], "на орбите причала нет"
+    #: And beside one another, not on top of one another: each hull's place on
+    #: the circle is its own id's, so a hull arriving over a planet never
+    #: inherits the point of the one already there. Asserted against the spin
+    #: itself rather than against "the three differ": the hash has 997 places
+    #: on the circle, and three draws out of them collide once in some three
+    #: hundred runs -- which is a flake, not a check.
+    assert [float(vessel.park_phase) for vessel in parked] == [
+        pytest.approx(sim.bearing_of(vessel)) for vessel in parked
+    ], "каждый борт встал туда, куда развернул его собственный id"
 
 
 # --- the kind of fuel (D-252) ------------------------------------------------

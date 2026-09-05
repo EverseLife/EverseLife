@@ -30,6 +30,7 @@ from src.sky._base import (  # noqa: F401
     TIME_EPS,
     Body,
     Drifter,
+    Rows,
     Star,
     System,
     Target,
@@ -39,10 +40,27 @@ from src.sky._base import (  # noqa: F401
     parking,
     place,
     place_any,
+    shape_of,
     star_circle,
     system_of,
 )
 from src.sky.field import advance, pull, sample  # noqa: F401
-from src.sky.forecast import CRASH, ESCAPE, STABLE, Fate, inertia  # noqa: F401
-from src.sky.guide import BURN, CAPTURE, COAST, Helm, brake_days, steer  # noqa: F401
+from src.sky.forecast import (  # noqa: F401
+    CRASH,
+    ESCAPE,
+    STABLE,
+    Fate,
+    coast_to,
+    ground_of,
+    inertia,
+)
+from src.sky.guide import (  # noqa: F401
+    BURN,
+    CAPTURE,
+    COAST,
+    Helm,
+    brake_days,
+    eject_wait,
+    steer,
+)
 from src.sky.plan import Sample, approach_quote, circle_quote, escape_dv, preview  # noqa: F401

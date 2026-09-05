@@ -14,6 +14,7 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src import sky
 from src.constants import Catalog, ConstantError, Constants
 from src.constants import registry as R
 from src.constants.catalog import ItemKind
@@ -576,15 +577,19 @@ async def corridors(
 
 
 def gravity(constants: Constants, planet: Planet) -> float:
-    """How heavy this world is, as a share of Terra's (D-245).
+    """The pull at this world's surface, as a share of Terra's (D-245).
 
-    The first number by which planets differ from one another at all, before
-    any geology: a heavy world is dear to leave and dear to come down onto. A
-    planet the vault says nothing about weighs what Terra weighs -- a missing
-    line must not make a world free to leave.
+    Not a number of its own since D-320: a world is its mass and its radius,
+    and what it pulls with is `M / R^2` -- both shares of Terra's, so Terra
+    comes out at one by construction. Storing the pull as well let it drift
+    away from the size, and it had: the vault promised 1.3 at Pyroxis while
+    the mass and the radius it also gave made 2.65 (OQ-138).
+
+    A world the vault says nothing about weighs what Terra weighs and is the
+    size of Terra -- a missing line must not make a world free to leave.
     """
-    table = constants[R.PLANET_GRAVITY]
-    return float(table.get(planet.value, 1.0))
+    mass, radius = sky.shape_of(constants, planet.value)
+    return mass / (radius * radius)
 
 
 def climb_hours(constants: Constants, planet: Planet, thrust_ratio: float) -> float:

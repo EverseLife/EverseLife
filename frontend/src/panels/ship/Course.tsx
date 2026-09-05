@@ -20,6 +20,13 @@ import { planetName } from "../../planets";
 import { term } from "../map/orbits";
 import { range, type CourseAnswer, type Sample, type Target, type Vessel } from "./model";
 
+/** The whole passage a point of the slider means, hours: the wait for the
+ *  ejection window and then the arc (D-316). The reader is told this and not
+ *  the arc alone -- the wait is time aboard too, and the order promises it. */
+function whole(one: Sample): number {
+  return one.hours + one.wait;
+}
+
 export function Course({
   vessel,
   target,
@@ -147,7 +154,7 @@ export function Course({
           and no slider between two ends that do not exist. */}
       {samples.length > 1 && (
       <p className="row">
-        <span className="note">{t("ui-ship-end-fast", { term: term(samples[fast].hours) })}</span>
+        <span className="note">{t("ui-ship-end-fast", { term: term(whole(samples[fast])) })}</span>
         <input
           type="range"
           min={fast}
@@ -157,12 +164,12 @@ export function Course({
           aria-label={t("ui-ship-slider")}
           onChange={(e) => setPick(Number(e.target.value))}
         />
-        <span className="note">{t("ui-ship-end-cheap", { term: term(samples[cheap].hours) })}</span>
+        <span className="note">{t("ui-ship-end-cheap", { term: term(whole(samples[cheap])) })}</span>
       </p>
       )}
       <p>
         {t("ui-ship-arc-cost", {
-          term: term(chosen.hours),
+          term: term(whole(chosen)),
           fuel: chosen.fuel.toFixed(0),
           dv: chosen.dv.toFixed(0),
         })}
