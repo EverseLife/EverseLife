@@ -83,7 +83,8 @@ moves and never fewer --
     космодром на Терре -> орбита Терры -> орбита Авроры -> космодром на Авроре
 
 -- and each of them is a leg with its own price. The climb and the descent are
-priced by `planet.gravity`, the crossing by the sky; the descent is the cheaper
+priced by the planet's own pull (`planet.mass` over `planet.radius` squared,
+D-320), the crossing by the sky; the descent is the cheaper
 of the two vertical ones, because coming down the weight one climbed against is
 on the ship's side.
 

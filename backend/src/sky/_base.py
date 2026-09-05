@@ -7,7 +7,9 @@ a hull all the way, and the numbers the whole simulation is measured in.
 Units are the map's, as in D-271: a length is the vault's orbit radius unit,
 a time is a real day, a speed is units per day. The star's gravitational
 parameter is read off the planets' orbits (Kepler III), never written down;
-a planet's is `orbit.planet_mu` times its share of Terra's gravity.
+a planet's is `orbit.planet_mu` times its share of Terra's mass (D-320 --
+its share of Terra's *gravity* is what this used to say, and the two are not
+the same number once the worlds differ in size).
 
 A hull is a test particle: it is pulled by all five bodies and pulls nothing.
 The planets keep to the circles the seed laid -- they do not perturb one
@@ -22,7 +24,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from src import astro
-from src.constants import Constants
+from src.constants import ConstantError, Constants
 from src.constants import registry as R
 from src.models.world import Planet
 
@@ -95,6 +97,51 @@ def bearing(hex_id: str) -> float:
     return (int(hex_id[:_BEARING_HEX], 16) % _BEARING_MOD) / _BEARING_MOD * 2 * math.pi
 
 
+#: What the vault gives a world it forgot to describe: Terra's twin, in both
+#: numbers at once. A missing line must not make a world free to leave, and it
+#: must not make one a point of no size either -- and above all the two must
+#: come from the same guess. The older shape defaulted the pull to Terra's and
+#: the radius to zero, which is a world of infinite density: exactly the kind
+#: of self-contradiction D-320 exists to remove.
+LIKE_TERRA = 1.0
+
+
+def shape_of(constants: Constants, key: str) -> tuple[float, float]:
+    """A world's mass and radius, both as shares of Terra's (D-320).
+
+    The one place either is read. Everything a planet does to a ship follows
+    from the pair -- what it pulls with at its surface (`mass / radius^2`),
+    what it pulls with out here (`orbit.planet_mu` times the mass), how dense
+    it is -- and a reader that took one without the other is how the vault
+    came to hold three numbers tied by two (OQ-138).
+    """
+    mass = float(constants[R.PLANET_MASS].get(key, LIKE_TERRA))
+    radius = float(constants[R.PLANET_RADIUS].get(key, LIKE_TERRA))
+    if radius <= 0.0:
+        #: Not a world at all: every quantity below divides by it, and a
+        #: negative one would come back positive through the square and look
+        #: like a perfectly good planet.
+        raise ConstantError(f"planet.radius: {key} is not a size ({radius})")
+    return mass, radius
+
+
+def _body_of(
+    constants: Constants,
+    planet: Planet,
+    orbit: astro.Orbit,
+    *,
+    planet_mu: float,
+    scale: float,
+) -> Body:
+    """One world as the sky sees it: what it pulls with, and the ground it has.
+
+    Both come from the same pair (D-320) -- the pull out here is the mass on
+    the vault's scale, and the ground is the radius on the map's.
+    """
+    mass, radius = shape_of(constants, planet.value)
+    return Body(key=planet.value, orbit=orbit, mu=planet_mu * mass, radius=scale * radius)
+
+
 def system_of(constants: Constants, orbits: dict[Planet, astro.Orbit]) -> System:
     """The system as the vault and the seed describe it. One reading per command."""
     #: A sky without planets -- a test world laid without spheres -- is a
@@ -117,16 +164,14 @@ def system_of(constants: Constants, orbits: dict[Planet, astro.Orbit]) -> System
             sight_radius=float(constants[R.ORBIT_SIGHT_RADIUS]),
         )
     first = next(iter(orbits.values()))
-    gravity = constants[R.PLANET_GRAVITY]
-    radii = constants[R.PLANET_RADIUS]
+    #: A world is its mass and its radius, both shares of Terra's (D-320):
+    #: what it pulls with out here is the one, and the ground a hull can
+    #: strike is the other on the map's scale. A world the vault says nothing
+    #: about is Terra's twin rather than a point of no size.
     planet_mu = float(constants[R.ORBIT_PLANET_MU])
+    body_radius = float(constants[R.ORBIT_BODY_RADIUS])
     bodies = tuple(
-        Body(
-            key=planet.value,
-            orbit=orbit,
-            mu=planet_mu * float(gravity.get(planet.value, 1.0)),
-            radius=float(radii.get(planet.value, 0.0)),
-        )
+        _body_of(constants, planet, orbit, planet_mu=planet_mu, scale=body_radius)
         for planet, orbit in sorted(orbits.items(), key=lambda pair: pair[0].value)
     )
     return System(

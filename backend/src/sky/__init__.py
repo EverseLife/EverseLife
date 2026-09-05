@@ -40,6 +40,7 @@ from src.sky._base import (  # noqa: F401
     parking,
     place,
     place_any,
+    shape_of,
     star_circle,
     system_of,
 )

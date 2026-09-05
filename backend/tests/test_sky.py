@@ -22,14 +22,20 @@ import numpy as np
 import pytest
 
 from src import seed_parts, sky
+from src.constants import Constants
+from src.constants import registry as R
+from src.models.world import Planet
 from src.sky import _base, field, forecast, guide, plan
 from src.units import HOURS_PER_DAY, MINUTES_PER_HOUR, TRACE_POINTS
 
-#: The seed's system with D-289's starting numbers, built by hand: the
-#: arithmetic is tested against the vault's shape, not the vault's build.
-GRAVITY = {"terra": 1.0, "pyroxis": 1.3, "aurora": 0.8, "aquatica": 1.1}
-RADIUS = {"terra": 0.5, "pyroxis": 0.35, "aurora": 0.45, "aquatica": 0.6}
+#: The seed's system with the vault's starting numbers, built by hand: the
+#: arithmetic is tested against the vault's shape, not the vault's build. The
+#: two numbers a world has are shares of Terra's (D-320) -- mass, which the
+#: sky turns into a pull, and radius, which the map's scale turns into ground.
+MASS = {"terra": 1.0, "pyroxis": 1.3, "aurora": 0.8, "aquatica": 1.1}
+SHARE = {"terra": 1.0, "pyroxis": 1.0, "aurora": 1.13, "aquatica": 1.09}
 PLANET_MU = 150.0
+BODY_RADIUS = 0.5
 
 
 def _system(*, bodies: bool = True) -> sky.System:
@@ -38,7 +44,9 @@ def _system(*, bodies: bool = True) -> sky.System:
     return sky.System(
         mu=mu,
         bodies=tuple(
-            sky.Body(key=key, orbit=orbit, mu=PLANET_MU * GRAVITY[key], radius=RADIUS[key])
+            sky.Body(
+                key=key, orbit=orbit, mu=PLANET_MU * MASS[key], radius=BODY_RADIUS * SHARE[key]
+            )
             for key, orbit in sorted(circles.items())
         )
         if bodies
@@ -55,6 +63,52 @@ def _system(*, bodies: bool = True) -> sky.System:
         dock_speed=0.5,
         sight_radius=5.0,
     )
+
+
+def test_a_world_is_built_from_the_two_numbers_the_vault_gives_it() -> None:
+    """`system_of` is where the shares become a body (D-320).
+
+    The mass share becomes the pull on the vault's scale, and the radius share
+    becomes ground on the map's -- and the map's scale is a number of its own
+    (`orbit.body_radius`), because the bodies are drawn far larger than life on
+    purpose. Drop the scale and every world doubles; nothing else in this file
+    would notice.
+    """
+    constants = Constants(
+        {
+            R.PLANET_MASS.key: MASS,
+            R.PLANET_RADIUS.key: SHARE,
+            R.ORBIT_PLANET_MU.key: PLANET_MU,
+            R.ORBIT_BODY_RADIUS.key: BODY_RADIUS,
+            R.ORBIT_CORONA_RADIUS.key: 35.0,
+            R.ORBIT_SYSTEM_RADIUS.key: 800.0,
+            R.ORBIT_PARK_RADIUS.key: 1.5,
+            R.ORBIT_CAPTURE_RADIUS.key: 3.0,
+            R.ORBIT_CAPTURE_SPEED.key: 2.0,
+            R.ORBIT_EJECT_WINDOW.key: 0.15,
+            R.ORBIT_APPROACH_RADII.key: 4.0,
+            R.ORBIT_LATE_LEG_DAYS.key: 0.25,
+            R.ORBIT_DOCK_RADIUS.key: 0.2,
+            R.ORBIT_DOCK_SPEED.key: 0.5,
+            R.ORBIT_SIGHT_RADIUS.key: 5.0,
+        },
+        source="тест",
+    )
+    orbits = {
+        Planet(one.planet.value if hasattr(one.planet, "value") else one.planet): (
+            float(one.radius),
+            float(one.period_days),
+            float(one.phase),
+        )
+        for one in seed_parts.SYSTEM
+    }
+    world = sky.system_of(constants, orbits)
+    for body in world.bodies:
+        assert body.mu == pytest.approx(PLANET_MU * MASS[body.key])
+        assert body.radius == pytest.approx(BODY_RADIUS * SHARE[body.key])
+    #: And the ground stays well inside the circle a hull moors on, or mooring
+    #: would be landing (D-289).
+    assert max(one.radius for one in world.bodies) < world.park
 
 
 def test_the_integrator_keeps_a_circle_a_circle() -> None:

@@ -36,7 +36,8 @@ from ship_kit import (
     _port,
     _shipwright,
 )
-from src.constants import Catalog, Constants
+from src import sky
+from src.constants import Catalog, ConstantError, Constants
 from src.constants import registry as R
 from src.engine import frost, jobs, ship, storage, world
 from src.engine.ship import lines, sim
@@ -148,9 +149,59 @@ def test_a_heavy_world_costs_more_to_leave(constants: Constants) -> None:
     light = ship.climb_hours(constants, Planet.AURORA, 1.0)
     assert light < home < heavy, "тяжесть планеты решает, сколько стоит уйти"
     assert ship.fall_hours(constants, Planet.TERRA, 1.0) < home, "спуск дешевле подъёма"
-    #: A planet the vault says nothing about weighs what Terra weighs: a missing
-    #: line must not make a world free to leave.
-    assert ship.gravity(constants, Planet.TERRA) == 1.0
+
+
+def test_the_pull_at_a_surface_is_the_mass_over_the_square_of_the_radius(
+    constants: Constants,
+) -> None:
+    """Gravity is not a number of its own since D-320, it is derived.
+
+    The vault gives a world two things -- how much matter it holds and how far
+    that matter reaches, both shares of Terra's -- and `g = M / R^2` follows.
+    Written down as a third number it drifted away from the other two: the
+    vault promised 1.3 at Pyroxis while the pair it also gave made 2.65
+    (OQ-138). The **square** is the point: a reader that divided by the radius
+    once would pass every other check in this file.
+    """
+    masses = constants[R.PLANET_MASS]
+    radii = constants[R.PLANET_RADIUS]
+    for planet in (Planet.TERRA, Planet.PYROXIS, Planet.AQUATICA, Planet.AURORA):
+        mass = float(masses[planet.value])
+        radius = float(radii[planet.value])
+        assert ship.gravity(constants, planet) == pytest.approx(mass / radius**2)
+    #: Terra is the yardstick, so it comes out at one whatever the numbers are.
+    assert ship.gravity(constants, Planet.TERRA) == pytest.approx(1.0)
+    #: And the worlds are not all alike, or the square would be untested: the
+    #: icy one is rounder for its mass and so holds the weaker.
+    assert ship.gravity(constants, Planet.AURORA) < ship.gravity(constants, Planet.TERRA)
+    assert float(radii[Planet.AURORA.value]) > float(radii[Planet.TERRA.value])
+
+
+def test_a_world_the_vault_forgot_is_terras_twin_in_both_numbers(
+    constants: Constants,
+) -> None:
+    """A missing line must not make a world free to leave -- nor a point of no
+    size, nor anything else self-contradictory (D-320).
+
+    The older shape defaulted the pull to Terra's and the radius to zero, which
+    is a world of infinite density: the very kind of thing this decision exists
+    to remove. Both now come from one reader and one guess.
+    """
+    assert sky.shape_of(constants, "no-such-world") == (1.0, 1.0)
+
+
+def test_a_world_of_no_size_is_refused_rather_than_divided_by(
+    constants: Constants,
+) -> None:
+    """Every quantity a planet has divides by its radius, and a negative one
+    would come back positive through the square and look like a good planet."""
+    for bad in (0.0, -1.0):
+        broken = Constants(
+            {R.PLANET_MASS.key: {"terra": 1.0}, R.PLANET_RADIUS.key: {"terra": bad}},
+            source="тест",
+        )
+        with pytest.raises(ConstantError):
+            sky.shape_of(broken, "terra")
 
 
 async def test_a_planet_with_no_lit_beacon_is_not_crossed_to(

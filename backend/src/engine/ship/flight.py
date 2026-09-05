@@ -289,9 +289,10 @@ async def ascend(
     passage between worlds -- so leaving a planet was cheaper than returning to
     it, which is the wrong way round for every world there is.
 
-    Now both ends of a planet cost what its **gravity** says they cost:
-    `planet.gravity` times the vault's base, stretched by thrust against mass
-    like any other leg. Pyroxis is dear to leave and dear to come down onto;
+    Now both ends of a planet cost what its **gravity** says they cost: the
+    world's own pull -- `planet.mass` over `planet.radius` squared, D-320 --
+    times the vault's base, stretched by thrust against mass like any other
+    leg. Pyroxis is dear to leave and dear to come down onto;
     Aurora is cheap at both ends and closed at one by its dark beacons (D-232).
 
     Cancellable, and that is the point of making it a leg rather than an
