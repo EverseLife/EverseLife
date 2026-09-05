@@ -68,8 +68,19 @@ def day_hours_of(constants: Constants, planet: Planet) -> float:
     return constants[_DAY_OF[planet]]
 
 
-def swing_of(constants: Constants, planet: Planet) -> float:
-    """The diurnal temperature swing around the node's mean (D-261)."""
+def swing_of(constants: Constants, planet: Planet, node: Node | None = None) -> float:
+    """The diurnal temperature swing around the node's mean (D-261).
+
+    A found node carries its biome's own swing (D-321, `temperature_swing`):
+    the desert is hot by day and cold by night where the forest is even. A
+    node without one -- seeded, or a room -- swings as its planet does.
+    """
+    own = (node.properties or {}).get("temperature_swing") if node is not None else None
+    if own is not None:
+        try:
+            return float(own)
+        except (TypeError, ValueError):  # pragma: no cover -- properties are engine-written
+            pass
     return float(constants[R.PLANET_TEMP_SWING].get(planet.value, 0.0))
 
 
@@ -157,7 +168,7 @@ def temperature_now(
     mean = mean_temperature(node)
     if mean is None:
         return None
-    swing = swing_of(constants, node.planet)
+    swing = swing_of(constants, node.planet, node)
     phase = day_phase(constants, node.planet, origin, moment, longitude=longitude_of(node))
     return mean - swing * math.cos(math.tau * phase)
 

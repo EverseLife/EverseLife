@@ -66,6 +66,14 @@ class AlreadyOut(ExploreError):
     """The body is already on a run."""
 
 
+class AlreadyJoined(ExploreError):
+    """The aimed cell is a node the origin already has a way to: nothing to find."""
+
+
+class ScoutGone(ExploreError):
+    """The scout died or walked away before the run was over."""
+
+
 def lattice_deg(constants: Constants, planet: Planet) -> float:
     """The lattice step as degrees of latitude on this planet."""
     radius = globe.radius_m(constants, planet)

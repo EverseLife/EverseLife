@@ -25,7 +25,7 @@ import random
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src import globe
@@ -35,25 +35,27 @@ from src.engine import biome, events, ground, occupation, places, ruins, travel,
 from src.engine.explore import aim as aiming
 from src.engine.explore._base import (
     Aim,
+    AlreadyJoined,
     AlreadyOut,
     Cell,
     ExploreError,
     NotFromHere,
+    ScoutGone,
     key_of,
     point_of,
 )
 from src.engine.jobs import enqueue, handler
 from src.models.event import EventKind
-from src.models.identity import Body
+from src.models.identity import Body, BodyState
 from src.models.job import Job, JobKind
-from src.models.world import ABOARD, Layer, Node, Planet, Surface, Vein
+from src.models.world import ABOARD, Layer, Node, Planet, Surface
 from src.units import PERCENT
 
 log = logging.getLogger(__name__)
 
 #: The properties a complex writes on its nodes: the scheme's role, and a ford.
 ROLE = "role"
-FORD = "ford"
+FORD = aiming.FORD_MARK
 
 
 def _wild_seconds(constants: Constants, metres: float) -> float:
@@ -78,6 +80,8 @@ async def survey(
     if (origin.properties or {}).get(ABOARD):
         raise NotFromHere(key="explore-not-from-here")
     aim = await aiming.check(session, constants, origin, target)
+    if aim.existing is not None and await travel.edge_between(session, origin, aim.existing):
+        raise AlreadyJoined(key="explore-already-joined", node=aim.existing.name)
     seconds = _wild_seconds(constants, aim.metres)
     await travel.pay_for_road(session, constants, body, seconds, moment=moment)
     started = await events.record(
@@ -98,7 +102,7 @@ async def survey(
             "planet": aim.planet.value,
             "cell": list(aim.cell),
         },
-        dedup_key=f"explore:{body.id}",
+        dedup_key=f"explore:{body.id}:{started.id}",
         cause_event_id=started.id,
         body_id=body.id,
     )
@@ -118,7 +122,13 @@ async def returned(session: AsyncSession, job: Job) -> None:
     planet = Planet(job.payload["planet"])
     cell: Cell = (int(job.payload["cell"][0]), int(job.payload["cell"][1]))
     point = point_of(constants, planet, cell)
+    #: The cell is held for the transaction before it is read: two scouts back
+    #: in the same second would otherwise both find it empty, and the second
+    #: would lose its run to the unique key rather than to a refusal.
+    await _hold_cell(session, key_of(planet, cell))
     try:
+        if body.state is not BodyState.ALIVE or body.node_id != origin.id:
+            raise ScoutGone(key="explore-scout-gone")
         aim = await aiming.check(session, constants, origin, point)
     except ExploreError as why:
         #: The ground was free when the scout left and is taken now -- a
@@ -141,6 +151,7 @@ async def returned(session: AsyncSession, job: Job) -> None:
             EventKind.EXPLORE_FOUND,
             actor_identity_id=body.identity_id,
             node_id=aim.existing.id,
+            node=aim.existing.name,
             cell=aim.existing.key,
             biome=biome.of_node(constants, aim.existing),
             known=True,
@@ -154,11 +165,18 @@ async def returned(session: AsyncSession, job: Job) -> None:
         EventKind.EXPLORE_FOUND,
         actor_identity_id=body.identity_id,
         node_id=node.id,
+        node=node.name,
         cell=node.key,
         biome=(node.properties or {}).get(biome.BIOME),
         complex=scheme,
         known=False,
     )
+
+
+async def _hold_cell(session: AsyncSession, key: str) -> None:
+    """Take the cell for the transaction: an advisory lock on its key, cheap and
+    released with the commit (`places._hold` does the same for a planet)."""
+    await session.execute(text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": key})
 
 
 async def _sphere_of(session: AsyncSession, planet: Planet) -> Node | None:
@@ -218,15 +236,12 @@ async def _found_node(
     if vein:
         richness = constants[R.EXPLORE_VEIN_RICHNESS]
         stock = constants[R.EXPLORE_VEIN_STOCK]
-        session.add(
-            Vein(
-                node_id=node.id,
-                resource=await ground.species_of(
-                    session, constants, catalog, dice, planet=planet, who=who
-                ),
-                richness=dice.uniform(richness.min, richness.max),
-                remaining=dice.uniform(stock.min, stock.max),
-            )
+        await world.create_vein(
+            session,
+            node,
+            await ground.species_of(session, constants, catalog, dice, planet=planet, who=who),
+            richness=dice.uniform(richness.min, richness.max),
+            remaining=dice.uniform(stock.min, stock.max),
         )
     await session.flush()
     return node
@@ -287,7 +302,7 @@ async def knit(
             continue
         if globe.distance_m(radius, where, point) > far:
             continue
-        if aiming.crosses_water(constants, node.planet, point, where):
+        if aiming.crosses_water(constants, node.planet, point, where, ford=aiming._is_ford(node)):
             continue
         try:
             await aiming.check(session, constants, other, point)
@@ -315,7 +330,7 @@ async def _complex(
     *,
     who: uuid.UUID | None,
 ) -> str | None:
-    """By the vault's chance, a scheme of nodes round the find (D-321 п. 6).
+    """By the vault's chance, a scheme of nodes round the find (D-321, point 6).
 
     The chance is rolled by dice of its own, seeded by the cell alone
     (`complex_roll`): whether a cell hides a complex is a fact of the map that
@@ -333,9 +348,14 @@ async def _complex(
     picked = dice.choices(names, weights=[float(offered[n].get("weight", 1)) for n in names])[0]
     scheme = offered[picked]
     if scheme.get("city"):
-        pier = await ruins.lost_city(
-            session, constants, node, who=who, at=_beside(constants, node, point, 0)
-        )
+        where = _beside(constants, node, point, 0)
+        try:
+            city_aim = await aiming.check(session, constants, node, where)
+        except ExploreError:
+            return None
+        if city_aim.existing is not None:
+            return None
+        pier = await ruins.lost_city(session, constants, node, who=who, at=where)
         await ruins.open_all(session, constants, pier, dice)
         return picked
     sphere = await _sphere_of(session, node.planet)
@@ -344,9 +364,13 @@ async def _complex(
         cell = aiming.cell_of(constants, node.planet, where)
         where = point_of(constants, node.planet, cell)
         try:
-            await aiming.check(session, constants, node, where)
+            part_aim = await aiming.check(session, constants, node, where)
         except ExploreError:
             #: The scheme yields to the ground: a part with no room is not laid.
+            continue
+        if part_aim.existing is not None:
+            #: Somebody's find already stands in the cell: the scheme joins it.
+            await travel.connect(session, node, part_aim.existing, surface=Surface.WILD)
             continue
         extra: dict = {ROLE: str(part.get("role", ""))}
         if part.get("water"):

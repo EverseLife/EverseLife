@@ -5,19 +5,25 @@
 
 from __future__ import annotations
 
+import math
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src import globe
 from src.api.commands.common import _alive
 from src.api.registry import Refused, command
 from src.constants import current
 from src.engine import explore
 
 
-def _degrees(message: dict, name: str) -> float:
+def _degrees(message: dict, name: str, limit: float) -> float:
     try:
-        return float(message[name])
+        value = float(message[name])
     except (KeyError, TypeError, ValueError) as wrong:
         raise Refused(key="cmd-bad-point", field=name) from wrong
+    if not math.isfinite(value) or abs(value) > limit:
+        raise Refused(key="cmd-bad-point", field=name)
+    return value
 
 
 @command("explore.survey")
@@ -29,9 +35,11 @@ async def _explore_survey(state: dict, db: AsyncSession, message: dict) -> dict:
     the find from the journal when the job fires (D-226).
     """
     body = await _alive(state, db)
-    job = await explore.survey(
-        db, current(), body, (_degrees(message, "lat"), _degrees(message, "lon"))
+    point = (
+        _degrees(message, "lat", globe.QUARTER_TURN),
+        globe.wrap_lon(_degrees(message, "lon", globe.FULL_TURN)),
     )
+    job = await explore.survey(db, current(), body, point)
     return {
         "job": str(job.id),
         "returns_at": job.run_at.isoformat(),

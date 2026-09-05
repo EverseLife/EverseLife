@@ -38,6 +38,7 @@ LAST_LAT = 89.0
 #: A full turn and a half turn of longitude, for wrapping.
 HALF_TURN = 180.0
 FULL_TURN = 360.0
+QUARTER_TURN = 90.0
 #: How many points along a straight way are read for what it crosses.
 WAY_SAMPLES = 8
 #: How many directions the compass is read in when looking round a point.
@@ -97,4 +98,4 @@ def lon_stretch(lat: float) -> float:
 
 def midpoint(a: float, b: float) -> float:
     """Halfway between two lengths."""
-    return (a + b) / (1 + 1)
+    return (a + b) / 2

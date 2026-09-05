@@ -22,12 +22,14 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from src import globe
+from src import globe, seed_planets
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import biome, explore, jobs, occupation, places, ruins, terrain, travel, world
-from src.models.identity import Body
+from src.models.event import Event, EventKind
+from src.models.identity import Body, BodyState
 from src.models.inventory import Container, ContainerKind, Item
+from src.models.job import Job, JobState
 from src.models.world import Edge, Layer, Node, Planet, Surface, Vein
 from src.units import METRES_PER_KM
 
@@ -472,3 +474,143 @@ def test_the_mountains_are_cold_and_bear_veins_more_often(constants: Constants) 
     warm, _ = terrain.climate_at(constants, Planet.TERRA, high[0], low[1])
     assert cold <= warm + 1, "в горах не холоднее, чем на той же широте внизу"
     assert METRES_PER_KM > 0 and Vein is not None
+
+
+async def test_a_body_scouts_again_after_a_run_is_over(
+    factory: async_sessionmaker[AsyncSession], constants: Constants, catalog: Catalog
+) -> None:
+    """The second run of a life is not refused: the job's dedup key names the
+    run, not the body (the review of D-321)."""
+    async with factory() as session, session.begin():
+        _, camp, scout = await _camp(session, constants)
+        here = places.geo_of(camp)
+        assert here is not None
+        _, far = _reach(constants, camp)
+        job = await explore.survey(
+            session, constants, scout, _step(constants, Planet.TERRA, here, far * 0.8, bearing=0.0)
+        )
+        term, scout_id = job.run_at, scout.id
+    assert await jobs.run_one(factory, now=term) is not None
+    async with factory() as session, session.begin():
+        scout = await session.get(Body, scout_id)
+        assert scout is not None
+        scout.stamina = constants[R.BODY_STAMINA_MAX]
+        camp = await session.get(Node, scout.node_id)
+        here = places.geo_of(camp)
+        #: Aiming at the node the camp is already joined to is refused before it is paid.
+        first = await session.scalar(select(Node).where(Node.key.like("terra.cell.%")))
+        assert first is not None
+        with pytest.raises(explore.AlreadyJoined):
+            await explore.survey(session, constants, scout, places.geo_of(first))
+        again = await explore.survey(
+            session, constants, scout, _step(constants, Planet.TERRA, here, far * 0.8, bearing=2.0)
+        )
+        assert again.state is JobState.PENDING
+
+
+async def test_the_loser_of_the_race_brings_home_a_way_and_both_runs_end(
+    factory: async_sessionmaker[AsyncSession], constants: Constants, catalog: Catalog
+) -> None:
+    """Two runs at one cell fired together: both jobs are done, one find is
+    laid, the other run is told it reached a known place -- no failure, no retry."""
+    async with factory() as session, session.begin():
+        sphere, camp, scout = await _camp(session, constants)
+        here = places.geo_of(camp)
+        assert here is not None
+        _, far = _reach(constants, camp)
+        target = _step(constants, Planet.TERRA, here, far * 0.8, bearing=0.0)
+        other_camp = await world.create_node(
+            session,
+            "terra.other",
+            "Other",
+            area_m2=60,
+            parent=sphere,
+            properties=_pin(_step(constants, Planet.TERRA, here, far * 1.6, bearing=0.0)),
+        )
+        other = await world.print_body(
+            session, await world.create_identity(session, "Other"), other_camp
+        )
+        other.stamina = constants[R.BODY_STAMINA_MAX]
+        await session.flush()
+        first = await explore.survey(session, constants, scout, target)
+        second = await explore.survey(session, constants, other, target)
+        term = max(first.run_at, second.run_at)
+        ids = (first.id, second.id)
+    ready = asyncio.Barrier(2)
+
+    async def fire() -> None:
+        await ready.wait()
+        await jobs.run_one(factory, now=term)
+
+    await asyncio.gather(fire(), fire())
+    async with factory() as session:
+        states = {
+            job.id: job.state
+            for job in (await session.execute(select(Job).where(Job.id.in_(ids)))).scalars()
+        }
+        assert set(states.values()) == {JobState.DONE}, f"поход не закончился: {states}"
+        found = (
+            (
+                await session.execute(
+                    select(Event).where(Event.kind == EventKind.EXPLORE_FOUND.value)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(found) == 2
+        assert sorted(bool(event.payload.get("known")) for event in found) == [False, True]
+
+
+async def test_a_scout_who_walked_away_comes_back_to_nothing(
+    factory: async_sessionmaker[AsyncSession], constants: Constants, catalog: Catalog
+) -> None:
+    """The run is spent if the body is not where it began when the job fires."""
+    async with factory() as session, session.begin():
+        sphere, camp, scout = await _camp(session, constants)
+        here = places.geo_of(camp)
+        assert here is not None
+        _, far = _reach(constants, camp)
+        job = await explore.survey(
+            session, constants, scout, _step(constants, Planet.TERRA, here, far * 0.8, bearing=0.0)
+        )
+        elsewhere = await world.create_node(
+            session,
+            "terra.elsewhere",
+            "Elsewhere",
+            area_m2=60,
+            parent=sphere,
+            properties=_pin(_step(constants, Planet.TERRA, here, far * 3, bearing=1.0)),
+        )
+        scout.node_id = elsewhere.id
+        term = job.run_at
+    assert await jobs.run_one(factory, now=term) is not None
+    async with factory() as session:
+        assert (
+            await session.scalar(
+                select(func.count()).select_from(Node).where(Node.key.like("terra.cell.%"))
+            )
+            == 0
+        )
+        empty = await session.scalar(
+            select(Event).where(Event.kind == EventKind.EXPLORE_EMPTY.value)
+        )
+        assert empty is not None and empty.payload["why"] == "explore-scout-gone"
+        assert BodyState.ALIVE is not None
+
+
+def test_the_seed_pins_pyroxis_on_the_lattice_a_reach_apart(constants: Constants) -> None:
+    """What the seed still lays itself stands where a scout would have found it."""
+    spots = seed_planets.sites(constants, Planet.PYROXIS, 4, taken=[])
+    assert len(spots) == 4
+    radius = globe.radius_m(constants, Planet.PYROXIS)
+    near, far = biome.reach_m(constants, biome.CINDER)
+    for spot in spots:
+        assert terrain.is_land(constants, Planet.PYROXIS, *spot.point)
+        cell = explore.cell_of(constants, Planet.PYROXIS, spot.point)
+        assert explore.point_of(constants, Planet.PYROXIS, cell) == spot.point
+    for a in spots:
+        for b in spots:
+            if a is not b:
+                assert globe.distance_m(radius, a.point, b.point) >= near
+    assert all(globe.distance_m(radius, spots[0].point, s.point) <= far * 1.5 for s in spots[1:])

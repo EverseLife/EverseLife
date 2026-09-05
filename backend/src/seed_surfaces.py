@@ -127,9 +127,9 @@ async def _pyroxis(session: AsyncSession) -> None:
     marks = {ship.OPEN_LANDING: True, oxygen.AIRLESS: True}
     if any(not (sphere.properties or {}).get(key) for key in marks):
         await props.stamp(session, sphere, marks)
-    #: The plateau and the fields stand where the relief puts them (D-319):
-    #: the first sites of the planet's own spiral, as far apart as its size
-    #: allows, so a walk between two fields is a walk and not a step.
+    #: The plateau and the fields stand where a scout would have found them
+    #: (D-321): a cluster on the lattice round the planet's first dry point,
+    #: one reach of the black field apart -- neighbours, not a scattering.
     spots = seed_planets.sites(current(), Planet.PYROXIS, PYROXIS_FIELDS + 1, taken=[])
     plateau = (
         await _ensure(

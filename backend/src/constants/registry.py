@@ -709,6 +709,9 @@ RUINS_CITY_ROOMS = Num("ruins.city_rooms")
 #: What rooms a city holds, by what the city **was**, and what lies in a room,
 #: by what the room is. Two books, and both are content: a new kind of room is
 #: a line in the vault.
+#: The area of a room, a hall or a pier of the Forerunners (D-232); apart from
+#: the found node's area, which D-321 shrank for the plain's reach.
+RUINS_ROOM_AREA = Span("ruins.room_area")
 RUINS_ROOM_TYPES = Book("ruins.room_types")
 RUINS_ROOM_FINDS = Book("ruins.room_finds")
 #: How much lies in a room, and how much richer each step deeper makes it (D-061).

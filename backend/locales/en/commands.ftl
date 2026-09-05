@@ -76,5 +76,8 @@ cmd-nothing-to-resume = nothing to resume: either nothing waits here, or the sta
 
 cmd-door-does-not-print = there is no printing at the door “{ $node }”
 cmd-world-not-created = the world is not made yet: nowhere to be printed
-cmd-bad-point = the command has no number { $field }
 cmd-no-such-planet = no such planet: { $planet }
+
+## Scouting (D-321)
+
+cmd-bad-point = the command has no number “{ $field }”

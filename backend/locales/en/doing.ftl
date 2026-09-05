@@ -13,7 +13,7 @@
 ## kind of occupation (`doing-<kind>`), so the names here are not arbitrary.
 
 doing-road = road
-doing-survey = exploration
+doing-survey = scouting
 doing-sleep = sleep
 doing-forage = foraging
 doing-plot = plowing
@@ -28,7 +28,7 @@ doing-paving = paving
 
 ## What is going on and where it is ended
 
-doing-survey-what = a run is under way
+doing-survey-what = scouting is under way
 doing-road-what = the body is on the road
 doing-sleep-what = the body is asleep — wake it first
 doing-forage-searching = a search is under way

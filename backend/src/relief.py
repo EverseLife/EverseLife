@@ -190,8 +190,47 @@ class Field:
                 best = min(best, _point_distance(phi, lat, lon, river[0]))
         return best
 
+    def river_crossed(self, a: tuple[float, float], b: tuple[float, float]) -> bool:
+        """Whether the straight way from `a` to `b` crosses a river's line.
+
+        The rivers are polylines through cell centres; a way of metres is a
+        hair beside them, so the test is plain segment intersection on the
+        local flat map (D-321: a river is crossed at a ford, not by aiming).
+        """
+        phi = math.radians(a[0])
+        for river in self.rivers:
+            for p, q in zip(river, river[1:], strict=False):
+                if _segments_cross(phi, a, b, p, q):
+                    return True
+        return False
+
     def land_share(self) -> float:
         return float(np.mean(self.grid >= self.sea_level))
+
+
+def _flat(phi: float, origin: tuple[float, float], p: tuple[float, float]) -> tuple[float, float]:
+    return (((p[1] - origin[1] + 180.0) % 360.0 - 180.0) * math.cos(phi), p[0] - origin[0])
+
+
+def _segments_cross(
+    phi: float,
+    a: tuple[float, float],
+    b: tuple[float, float],
+    p: tuple[float, float],
+    q: tuple[float, float],
+) -> bool:
+    """Whether segments a-b and p-q cross on the flat map round `a`."""
+    ax, ay = 0.0, 0.0
+    bx, by = _flat(phi, a, b)
+    px, py = _flat(phi, a, p)
+    qx, qy = _flat(phi, a, q)
+
+    def side(x1: float, y1: float, x2: float, y2: float, x3: float, y3: float) -> float:
+        return (x2 - x1) * (y3 - y1) - (y2 - y1) * (x3 - x1)
+
+    s1, s2 = side(ax, ay, bx, by, px, py), side(ax, ay, bx, by, qx, qy)
+    s3, s4 = side(px, py, qx, qy, ax, ay), side(px, py, qx, qy, bx, by)
+    return (s1 > 0) != (s2 > 0) and (s3 > 0) != (s4 > 0) and 0 not in (s1, s2, s3, s4)
 
 
 def _point_distance(phi: float, lat: float, lon: float, p: tuple[float, float]) -> float:

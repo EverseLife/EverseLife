@@ -311,7 +311,11 @@ async def pay_for_road(
     #: moment it stood in this node and warmed or froze by it, and on the road
     #: there is no shelter at all. Settled here rather than on arrival, because
     #: only here is it still known where the hours were spent.
-    from src.engine import frost, oxygen  # noqa: PLC0415 -- lazy: breaks the cycle with frost
+    #: Lazy: `frost` imports travel, and `oxygen` reads the hull through `ship`.
+    from src.engine import (  # noqa: PLC0415 -- lazy: breaks the cycles with frost and ship
+        frost,
+        oxygen,
+    )
 
     await frost.settle(session, constants, current_catalog(), body, now=moment)
     #: And the breathing, for the same reason and at the same moment: the hours

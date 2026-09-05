@@ -64,13 +64,21 @@ def radius_of(area_m2: float) -> float:
     return math.sqrt(float(area_m2) / math.pi)
 
 
-def crosses_water(constants: Constants, planet: Planet, a: globe.Geo, b: globe.Geo) -> bool:
-    """Whether the straight way between two points crosses water."""
+def crosses_water(
+    constants: Constants, planet: Planet, a: globe.Geo, b: globe.Geo, *, ford: bool = False
+) -> bool:
+    """Whether the straight way between two points crosses water.
+
+    Sea and lake are read along the way; a river is a line the way may cut
+    (`relief.Field.river_crossed`), and it may be cut only from or to a
+    **ford** (D-321): until the field draws rivers finer than a cell
+    (OQ-146), the ford is a mark a complex lays, not a place on the line.
+    """
     field = terrain.field_of(constants, planet)
     for step in range(1, globe.WAY_SAMPLES):
         if field.is_water(*globe.between(a, b, step / globe.WAY_SAMPLES)):
             return True
-    return False
+    return not ford and field.river_crossed(a, b)
 
 
 def _flat(radius: float, origin: globe.Geo, point: globe.Geo) -> tuple[float, float]:
@@ -97,6 +105,15 @@ def segments_cross(
     s1, s2 = _side(a, b, c), _side(a, b, d)
     s3, s4 = _side(c, d, a), _side(c, d, b)
     return (s1 > 0) != (s2 > 0) and (s3 > 0) != (s4 > 0) and 0 not in (s1, s2, s3, s4)
+
+
+#: The mark a complex writes on a crossing (`explore.run.FORD`); read here by
+#: name to keep the floor below the run.
+FORD_MARK = "ford"
+
+
+def _is_ford(node: Node) -> bool:
+    return bool((node.properties or {}).get(FORD_MARK))
 
 
 async def _surface(session: AsyncSession, planet: Planet) -> list[tuple[Node, globe.Geo]]:
@@ -147,7 +164,7 @@ async def check(
         raise TooFar(key="explore-too-far", metres=round(metres), far=round(far))
     if not terrain.is_land(constants, planet, *point):
         raise NotLand(key="explore-not-land")
-    if crosses_water(constants, planet, origin_point, point):
+    if crosses_water(constants, planet, origin_point, point, ford=_is_ford(origin)):
         raise IntoWater(key="explore-into-water")
 
     placed = await _surface(session, planet)

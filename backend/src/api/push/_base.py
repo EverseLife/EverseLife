@@ -58,6 +58,8 @@ TOUCHES: dict[str, tuple[str, ...]] = {
     "mining": ("mining", "inventory"),
     "travel": ("body", "node"),
     "road": ("node",),
+    #: A run ends the body's occupation and lays a way (D-321).
+    "explore": ("node", "doings"),
     #: A site laid, fed, started or ripe changes the plot and, for the
     #: bringer, the hands (D-266).
     "estate": ("node", "inventory"),

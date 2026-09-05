@@ -227,7 +227,7 @@ async def open_room(
     room_type = await luck.draw(session, who, f"{luck.RUINS_ROOM}:{kind}", types, dice=dice)
     depth = depth_of(origin) + 1
 
-    area = constants[R.EXPLORE_NODE_AREA]
+    area = constants[R.RUINS_ROOM_AREA]
     room = await world.create_node(
         session,
         f"{city.key}.room.{uuid.uuid4().hex}",
@@ -390,7 +390,7 @@ async def lost_city(
         anchor=origin,
         properties=marks,
     )
-    area = constants[R.EXPLORE_NODE_AREA]
+    area = constants[R.RUINS_ROOM_AREA]
     port = await world.create_node(
         session,
         f"{city.key}.port",

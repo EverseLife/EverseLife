@@ -157,3 +157,8 @@ from src.engine.travel.walk import (  # noqa: F401
     route,
     turn_back,
 )
+
+
+async def edge_between(session, one, other):
+    """The way between two nodes, if there is one (D-321 asks before a run is paid)."""
+    return await _edge_between(session, one.id, other.id)

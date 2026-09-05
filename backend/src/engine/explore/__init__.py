@@ -16,6 +16,7 @@ The package is a stack: `_base` is the floor (the lattice and the refusals),
 
 from src.engine.explore._base import (  # noqa: F401
     Aim,
+    AlreadyJoined,
     AlreadyOut,
     Cell,
     CrossesWay,
@@ -24,6 +25,7 @@ from src.engine.explore._base import (  # noqa: F401
     NoRoom,
     NotFromHere,
     NotLand,
+    ScoutGone,
     TooFar,
     TooNear,
     cell_of,
