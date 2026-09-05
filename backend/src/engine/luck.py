@@ -67,9 +67,9 @@ from src.units import PERCENT
 
 #: What the memory is about. ASCII ids: they are keys of a table, not words of
 #: the interface, and renaming one would lose everybody's counter.
-EXPLORE_FIND = "explore.find"
-EXPLORE_VEIN = "explore.vein"
-EXPLORE_SPECIES = "explore.species"
+#: Which species a vein carries, per planet (D-151, D-232): the world's own
+#: generation deals from it with nobody to remember for.
+GROUND_SPECIES = "ground.species"
 #: Which room of a Forerunner city is opened, and what lies in it (D-232).
 RUINS_ROOM = "ruins.room"
 RUINS_FIND = "ruins.find"

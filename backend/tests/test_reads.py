@@ -647,7 +647,6 @@ READS: dict[str, dict[str, object]] = {
     "craft.most": {"output": "nails"},
     "craft.plan": {"output": "nails", "units": 3},
     "deeds": {},
-    "explore.goals": {},
     "knowledge": {},
     "library.care": {"culture": "spelt"},
     "line.view": {},

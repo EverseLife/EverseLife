@@ -56,7 +56,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import current, current_catalog, display_name
-from src.engine import energy, explore, oxygen, plates, props, ruins, ship, travel, world
+from src.engine import energy, ground, oxygen, plates, props, ruins, ship, travel, world
 from src.models.world import Layer, Node, Planet, Surface
 
 #: The Anvil Plateau: the one stable ground of Pyroxis (10-world/04, D-197).
@@ -68,10 +68,9 @@ PYROXIS_PORT = "pyroxis.anvil.port"
 #: of them for an eruption to have somewhere to move a vein to, few enough that
 #: the first expedition can walk the lot.
 PYROXIS_FIELDS = 6
-#: How rich a field's vein is and how much is in it. The same spans exploring
-#: uses (`explore.vein_richness`, `explore.vein_stock`) would do, but the seed
-#: has no scout: these are the planet's own, and generous -- Pyroxis is a shift
-#: worth flying to (10-world/04).
+#: How rich a field's vein is and how much is in it. The world's own spans
+#: (`explore.vein_richness`, `explore.vein_stock`) would do, but these are the
+#: planet's own, and generous -- Pyroxis is a shift worth flying to (10-world/04).
 PYROXIS_VEIN_RICHNESS = 70
 PYROXIS_VEIN_STOCK = 4000
 #: A walk across the black fields: they are neighbours of the plateau and of
@@ -173,7 +172,7 @@ async def _pyroxis(session: AsyncSession) -> None:
             area=FIELD_AREA_M2,
             anchor=plateau,
         )
-        species = await explore.species_of(
+        species = await ground.species_of(
             session, current(), current_catalog(), dice, planet=Planet.PYROXIS
         )
         if laid.created:

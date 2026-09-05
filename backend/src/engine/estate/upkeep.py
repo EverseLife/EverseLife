@@ -30,14 +30,13 @@ from src.engine.estate.building import (
     spare_storeys,
 )
 from src.engine.jobs import enqueue, handler
-from src.engine.ship import ABOARD
 from src.models.estate import Building
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState
 from src.models.inventory import Container, ContainerKind, Item
 from src.models.job import Job, JobKind, JobState
 from src.models.works import WorkOrderKind
-from src.models.world import Node
+from src.models.world import ABOARD, Node
 from src.units import (
     SCALE_MAX,
     SCALE_MIN,

@@ -62,19 +62,14 @@ type Props = {
 export function TopBar({ look, waiting, narrow, onSummary, onIntro, onRefresh, view, onView }: Props) {
   const embodied = look.body != null;
   const ongoing = Boolean(look.travel);
-  const exploring = Boolean(look.survey);
   const asleep = Boolean(look.body?.sleeping_since);
-  const away = ongoing || exploring;
+  const away = ongoing;
   const fed =
     look.body?.satiated_until != null &&
     new Date(look.body.satiated_until).getTime() > Date.now();
   //: Where the body is, when that overrides everything else. Empty exactly
   //: when `away` is false, which is what lets sleep be joined onto it.
-  const where = ongoing
-    ? t("ui-top-travel", { to: look.travel!.final ?? look.travel!.to })
-    : exploring
-      ? t("ui-top-surveying")
-      : "";
+  const where = ongoing ? t("ui-top-travel", { to: look.travel!.final ?? look.travel!.to }) : "";
 
   return (
     <header>

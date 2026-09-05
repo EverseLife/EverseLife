@@ -51,11 +51,7 @@ async def present(session: AsyncSession, body: Body, node_id: uuid.UUID) -> bool
         return False
     if body.sleeping_since is not None:
         return False
-    if await travel.current(session, body) is not None:
-        return False
-    from src.engine import explore  # noqa: PLC0415 -- lazy: breaks the import cycle with explore
-
-    return await explore.pending(session, body) is None
+    return await travel.current(session, body) is None
 
 
 async def running(session: AsyncSession, body: Body) -> CraftBatch | None:

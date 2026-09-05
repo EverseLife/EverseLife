@@ -13,13 +13,12 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.api.commands.common import _alive, _alive_read, _body, _identity, _node, _own_item
+from src.api.commands.common import _alive, _alive_read, _identity, _node, _own_item
 from src.api.commands.views import _identity_by_name
 from src.api.registry import Refused, command
 from src.constants import current, current_catalog
 from src.engine import (
     access,
-    explore,
     frost,
     rest,
     road,
@@ -157,83 +156,3 @@ async def _road_here(state: dict, db: AsyncSession, message: dict) -> dict:
     """Roads from this node: what is laid, what sagged and what it costs."""
     body = await _alive_read(state, db)
     return {"roads": await road.view(db, current(), body)}
-
-
-@command("explore.survey")
-async def _explore_survey(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Go exploring for the named goal. The find arrives on schedule, including offline.
-
-    The player picks the goal: a plot in the city, a place for a city, or a vein
-    -- and for a vein a species can be named. A named one is found worse: aiming
-    at the rare means coming back empty more often (D-152).
-    """
-    body = await _alive(state, db)
-    job = await explore.survey(
-        db,
-        current(),
-        body,
-        goal=str(message.get("goal") or explore.SITE),
-        resource=message.get("resource") or None,
-        #: Near or far (D-262): omitted reads as the far it always was.
-        reach=str(message.get("reach") or explore.FAR),
-    )
-    return {"survey": str(job.id), "returns_at": job.run_at.isoformat()}
-
-
-@command("explore.cancel")
-async def _explore_cancel(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Turn back: the run is cancelled, the body is free again in the exit node.
-
-    Stamina does not come back, the find will not happen (D-152). Deliberately
-    not `_alive` + `require_here`: the scout is exactly the one for whom in-person
-    actions are closed, and returning is the only thing available.
-    """
-    body = await _body(db, state["identity_id"])
-    if body is None:
-        raise Refused(key="cmd-no-live-body")
-    job = await explore.cancel(db, body)
-    return {"cancelled": str(job.id)}
-
-
-@command("explore.goals", readonly=True)
-async def _explore_goals(state: dict, db: AsyncSession, message: dict) -> dict:
-    """What can be sought and what a run from here will cost.
-
-    The species list comes from the vault (D-151). The forecast is per place: the
-    price of exploration grows with every find from this node, and the player
-    must see it before leaving, otherwise it reads as engine randomness (D-156).
-    """
-    #: The goal list is reference data, and the dead are entitled to it too:
-    #: they simply have no forecast, because nobody can go into the field.
-    body = await _body(db, state["identity_id"])
-    #: The forecast is computed for the goal the player has picked right now: a
-    #: requested species narrows the chance (D-151), and that must be visible
-    #: before leaving rather than discovered after twenty empty runs.
-    species = message.get("resource") or None
-    standing = None if body is None else await db.get(Node, body.node_id)
-    here = () if standing is None else await explore.possible(db, standing)
-    #: Unasked, the forecast is for the **first goal this place offers**: in a
-    #: city of the Forerunners that is their rooms, and a first look that
-    #: answered about city ground would show a chance belonging to another
-    #: search (D-156).
-    goal = str(message.get("goal") or (here[0] if here else explore.SITE))
-    #: What may be sought **here** went out above: inside a city of the
-    #: Forerunners it is their next room, at its pier the ice as well, inside a
-    #: city of people a lot beside the open world (D-206, D-232). The client
-    #: draws its buttons from this and stops guessing by map layer.
-    return {
-        "goals": list(explore.GOALS),
-        "here": list(here),
-        "resources": list(explore.mineable(current_catalog())),
-        "outlook": (
-            None
-            if body is None
-            else await explore.outlook(
-                db,
-                current(),
-                body,
-                goal=goal,
-                resource=None if species is None else str(species),
-            )
-        ),
-    }

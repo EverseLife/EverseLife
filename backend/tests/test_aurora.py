@@ -25,16 +25,14 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import energy, explore, frost, ruins, ship, station, storage, travel, world
-from src.models.event import Event, EventKind
-from src.models.job import Job, JobKind, JobState
-from src.models.world import Edge, Layer, Node, Planet, Surface
-from src.units import HOURS_PER_DAY, PERCENT, amount_float
+from src.engine import energy, frost, ruins, ship, station, storage, travel, world
+from src.models.world import Layer, Node, Planet, Surface
+from src.units import HOURS_PER_DAY, amount_float
 
 PLANT = "precursor_heat_plant"
 REACTOR = "precursor_isotope_reactor"
@@ -405,145 +403,6 @@ async def test_a_city_is_worked_out_like_a_vein(
     await session.flush()
     await ruins.open_room(session, constants, random.Random(2), hall, who=None)
     assert ruins.opened(city) == 1
-
-
-async def test_rooms_are_opened_only_inside_a_city_of_the_forerunners(
-    session: AsyncSession, constants: Constants
-) -> None:
-    """There is nothing to reveal where nobody built: the refusal comes before
-    the run, not after the hours in the field."""
-    wild = await world.create_node(
-        session,
-        f"terra.wild.{uuid.uuid4().hex[:6]}",
-        "Пустошь",
-        area_m2=100,
-        layer=Layer.PLANET,
-    )
-    body = await _dweller(session, wild)
-    #: By the key, not by the sentence: the wording is the locale's (D-251 III).
-    with pytest.raises(explore.ExploreError) as refused:
-        await explore.survey(session, constants, body, goal=explore.ROOM)
-    assert refused.value.key == "explore-wrong-goal-here"
-
-    _, hall, _ = await _city(session)
-    assert await explore.possible(session, hall) == (explore.ROOM,)
-    assert explore.SITE in await explore.possible(session, wild)
-
-
-async def test_a_search_inside_a_city_opens_a_room_end_to_end(
-    session: AsyncSession, constants: Constants
-) -> None:
-    """The whole thing the player does: leave, come back, stand in the room.
-
-    Through `survey` and the job handler rather than through `ruins` alone --
-    the two are joined by the edge, the surface and the anchor, and a unit test
-    of the middle proves none of that.
-    """
-    _, hall, _ = await _city(session)
-    body = await _dweller(session, hall)
-    await explore.survey(session, constants, body, goal=explore.ROOM)
-    await _finish(session, body)
-
-    #: Found means you stand there (D-185).
-    room = await session.get(Node, body.node_id)
-    assert room is not None and room.id != hall.id
-    assert room.properties[ruins.ROOM_MARK]
-    #: And the way back is a step along a corridor, not a trail through snow.
-    edge = await travel.route(session, constants, room.id, hall.id)
-    assert edge == [hall.id]
-
-
-async def test_a_search_across_the_ice_finds_a_city_end_to_end(
-    session: AsyncSession, constants: Constants
-) -> None:
-    """A city beyond the ice is found on foot and reached on foot (D-232)."""
-    _, _, port = await _city(session)
-    plain = await world.create_node(
-        session,
-        f"aurora.plain.{uuid.uuid4().hex[:6]}",
-        "Ледяная равнина",
-        planet=Planet.AURORA,
-        area_m2=1000,
-        layer=Layer.PLANET,
-        parent=await session.get(Node, (await session.get(Node, port.parent_id)).parent_id),
-    )
-    body = await _dweller(session, plain)
-    await explore.survey(session, constants, body, goal=explore.SITE)
-    await _finish(session, body)
-
-    found = await session.get(Node, body.node_id)
-    assert found is not None
-    #: The scout stands on the pier of a city that has been standing here all
-    #: along -- dark, frozen, and reachable only the way they came.
-    assert await world.has_station(session, found, ship.SPACEPORT)
-    assert not await ship.beacon_lit(session, constants, found)
-    town = await session.get(Node, found.parent_id)
-    assert town is not None and ruins.is_precursor(town)
-
-    #: Snow is walked, not driven: the edge from the plain is the slowest
-    #: surface the world has.
-    link = await session.scalar(
-        select(Edge).where(
-            or_(
-                (Edge.node_a_id == plain.id) & (Edge.node_b_id == found.id),
-                (Edge.node_a_id == found.id) & (Edge.node_b_id == plain.id),
-            )
-        )
-    )
-    assert link is not None and link.surface is Surface.WILD
-
-
-async def _finish(session: AsyncSession, body) -> None:
-    """Run the scout's job to the end, the way the worker would."""
-    job = (
-        (
-            await session.execute(
-                select(Job).where(
-                    Job.kind == JobKind.EXPLORE_SURVEY.value,
-                    Job.body_id == body.id,
-                    Job.state == JobState.PENDING,
-                )
-            )
-        )
-        .scalars()
-        .first()
-    )
-    assert job is not None
-    #: The find is a roll (D-152); the test is about what a find **is**, so the
-    #: roll is made certain rather than repeated until it lands. The chance
-    #: travels in the job as a percentage, the way it is shown to the player.
-    job.payload = {**job.payload, "chance": PERCENT}
-    await session.flush()
-    await explore.returned(session, job)
-    job.state = JobState.DONE
-    await session.flush()
-
-
-async def test_the_last_room_taken_by_another_is_an_empty_run(
-    session: AsyncSession, constants: Constants
-) -> None:
-    """Somebody took the city's last room while this scout was in the field.
-
-    That is an empty run -- the ending every search already has -- and not a
-    job that throws: a thrown one retries five times, dies, and leaves the
-    scout with the strength spent, nothing found and nothing said.
-    """
-    city, hall, _ = await _city(session)
-    body = await _dweller(session, hall)
-    await explore.survey(session, constants, body, goal=explore.ROOM)
-
-    #: The city is worked out while the scout walks.
-    city.properties = {**(city.properties or {}), ruins.OPENED: constants[R.RUINS_CITY_ROOMS]}
-    await session.flush()
-
-    await _finish(session, body)
-    assert body.node_id == hall.id, "разведчик вернулся ни с чем — и это нормально"
-    empty = await session.scalar(
-        select(Event).where(
-            Event.kind == EventKind.EXPLORE_EMPTY.value, Event.actor_identity_id == body.identity_id
-        )
-    )
-    assert empty is not None, "пустой заход должен быть сказан миру, а не проглочен"
 
 
 # --- a city beyond the ice ----------------------------------------------------

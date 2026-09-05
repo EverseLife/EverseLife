@@ -530,41 +530,17 @@ TRADE_DUTY_FREE_WINDOW = Num("trade.duty_free_window")
 #: to compute the duty from: first the market, then customs.
 TRADE_REFERENCE_PRICE_WINDOW = Num("trade.reference_price_window")
 
-# --- Exploration (D-152, run price -- D-156) --------------------------------
-#: A run in untrodden surroundings: minutes. Grows with place depletion from there.
-#: Searching "near": temperature/precipitation drift from the origin node,
-#: and terrain marks repeat it with the kinship share (D-262).
-EXPLORE_NEAR_DRIFT = Table("explore.near_drift")
-EXPLORE_ATTEMPT_MINUTES = Span("explore.attempt_minutes")
-#: Ceiling of run duration, not its length.
-EXPLORE_ATTEMPT_HOURS = Num("explore.attempt_hours")
-#: This many times longer is each next run from the same node.
-EXPLORE_EFFORT_GROWTH = Num("explore.effort_growth")
-#: The price of a full-length run; a short one costs by time in the field.
-EXPLORE_ATTEMPT_STAMINA = Num("explore.attempt_stamina")
-#: The chance in an untrodden place; falls by `find_decay` with each find from
-#: here, but not below `find_floor`: the trodden grows poorer, not locked.
-EXPLORE_FIND_CHANCE = Num("explore.find_chance")
-EXPLORE_FIND_DECAY = Num("explore.find_decay")
-EXPLORE_FIND_FLOOR = Num("explore.find_floor")
-#: Crowding of the graph (D-207): the more edges the node a find will hang on
-#: already has -- and the more its neighbours have -- the worse the search. This
-#: is what turns a city outwards instead of into a star around the bioprinter.
-EXPLORE_CROWDING_FREE = Num("explore.crowding_free")
-EXPLORE_CROWDING_NEIGHBOUR_K = Num("explore.crowding_neighbour_k")
-EXPLORE_CROWDING_DECAY = Num("explore.crowding_decay")
-EXPLORE_CROWDING_FLOOR = Num("explore.crowding_floor")
+# --- Ground (D-126, D-151, D-191, D-196; laid at birth since D-319) ----------
+#: The keys still say `explore`: they were the scout's dice, and they are the
+#: world's now -- the vault renames them with the code that reads them.
 EXPLORE_VEIN_SHARE = Num("explore.vein_share")
-#: Forest cover of the world (D-191): the share of finds carrying woods, and
-#: the same share narrows the chance when the woods are what you asked for.
+#: Forest cover of the world (D-191): the share of places carrying woods.
 EXPLORE_FOREST_SHARE = Num("explore.forest_share")
-#: Stony and meadow places (D-196): place signs the scout hands out; since
-#: D-210 they have no mechanic of their own yet.
+#: Stony and meadow places (D-196): signs of a place; since D-210 they have
+#: no mechanic of their own yet.
 EXPLORE_STONES_SHARE = Num("explore.stones_share")
 EXPLORE_MEADOW_SHARE = Num("explore.meadow_share")
 EXPLORE_NODE_AREA = Span("explore.node_area")
-#: The transit length to a find is set by the node's distance (D-180), not by a
-#: separate exploration quantity: `explore.distance` is abolished.
 EXPLORE_VEIN_RICHNESS = Span("explore.vein_richness")
 EXPLORE_VEIN_STOCK = Span("explore.vein_stock")
 

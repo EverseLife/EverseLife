@@ -37,41 +37,6 @@ ui-map-unit-hours = h
 ui-map-term-hours = { $term } h
 ui-map-term-days = { $term } d
 
-## Scouting from the map: what is looked for here and what it costs.
-
-ui-map-goal-lot = a lot
-ui-map-goal-room = Precursor rooms
-ui-map-goal-site = a new place
-ui-map-goal-vein = a vein
-ui-map-goal-forest = forest
-ui-map-survey-label = scouting
-ui-map-search-away = you are out scouting · back
-ui-map-search-return = Come back now
-ui-map-search-return-rule = You can turn back at any moment: there will be no find, and the strength spent does not come back.
-ui-map-search-room = Break open the next room
-ui-map-search-room-rule = A Precursor city stood here before you: scouting does not create places, it opens the next door. A room comes with its contents at once, and the deeper from the spaceport, the richer it is. The city is finite: the more is broken open, the more often a run comes back with nothing, and then there is nothing left to open at all.
-ui-map-search-lot = Go looking for a lot
-ui-map-search-lot-rule = A lot once found stands as city land: it is bought out from the city. The scout goes out alone, is out of reach until the return, as in sleep, and stays at the find.
-ui-map-search-site = Go looking for a new place
-ui-map-search-vein = Go looking for a vein
-ui-map-search-any-ore = any rock
-ui-map-search-far = search farther
-ui-map-search-near = search nearby
-ui-map-search-reach-rule = A nearby search finds land akin to this place: warmth, rains and terrain drift from it. A far one is the lottery, with a chance at anything.
-ui-map-search-forest = Go looking for forest
-ui-map-search-forest-odds = chance { $chance }%: forest takes longer to find than the rest
-ui-map-search-forest-hint = wood is cut where there is forest
-ui-map-search-elsewhere = from here one also looks for
-ui-map-search-elsewhere-layer = { $goals } — on the “{ $layer }” layer
-ui-map-search-rule = The scout goes out alone and is out of reach until the return, as in sleep. Nobody goes into the field on empty legs: eat or sleep first. Found it — there he stays; the farther the find from the city, the longer the road to it. Forest turns up by itself as well, but ordered it takes longer. The button stands on the layer the find will fall on: a lot and a room in the built city, a place, a vein and forest on the planet's surface.
-ui-map-forecast = a run from here: { $term } · chance { $chance }% · { $price } stamina to leave
-ui-map-forecast-rare = { $goods } is rare: the chance is already { $times }× lower
-ui-map-forecast-explored = the neighbourhood is walked out: finds from here { $count }
-ui-map-forecast-crowding = crowded{ $near ->
-        [true] { " " }around { $anchor }
-       *[false] {""}
-    }: the chance is already { $times }× lower
-
 ## The column beside the map: everything about the node picked.
 
 ui-map-ongoing = On the way
@@ -101,7 +66,6 @@ ui-map-node-offworld = This is another planet: no way there on foot, only by shi
 ui-map-node-far-walk = Not a neighbour: the route will build itself, along passable edges.
 ui-map-go = Go
 ui-map-expand = Expand
-ui-map-surveying = The scout is in the field: the body is out of reach, as in sleep.
 
 ## The node menu under the right button.
 

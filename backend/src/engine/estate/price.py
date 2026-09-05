@@ -22,13 +22,12 @@ from src.engine import events, ledger, travel, world
 from src.engine.estate._base import BadName, EstateError, NotEnoughMoney, NotForSale, NotOwner
 from src.engine.estate.building import built_area, slots
 from src.engine.estate.deed import issue_deed
-from src.engine.ship import ABOARD
 from src.models.city import City, Power
 from src.models.estate import Deed
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState
 from src.models.ledger import AccountKind, PostingReason
-from src.models.world import Edge, Layer, Node, Vein, is_plot
+from src.models.world import ABOARD, Edge, Layer, Node, Vein, is_plot
 from src.runtime import LAND_ABOUT_LIMIT, LAND_NAME_LIMIT
 from src.units import (
     PERCENT,

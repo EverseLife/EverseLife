@@ -75,7 +75,7 @@ OPENED = "revealed"
 #: What kind of room this is. Sent to the client as a place property.
 ROOM_MARK = "indoors"
 
-#: The search goal. A string, like the others (`explore.GOALS`).
+#: The room kind a Forerunner city is made of (D-232).
 ROOM = "room"
 
 #: Thing classes of the Forerunners, by class (D-215): the seed and the ruins

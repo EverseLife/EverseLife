@@ -313,24 +313,6 @@ async def _rate_decided(event: Event, names: Names) -> Says | None:
     )
 
 
-async def _explore_found(event: Event, names: Names) -> Says | None:
-    """An exploration find -- without what was found.
-
-    The world will show the node on the common map anyway, and the vein's
-    species stays with the scout.
-    """
-    origin = plain(event.payload.get("from_node"))
-    return Says(
-        "chronicle-explore-found",
-        {
-            "what": plain(event.payload.get("name")) or await names.node(event.node_id),
-            "who": await names.identity(event.actor_identity_id),
-            "from_known": _flag(origin),
-            "from_node": origin,
-        },
-    )
-
-
 Line = Callable[[Event, Names], Awaitable[Says | None]]
 
 #: The allowlist. Everything not here does not go out.
@@ -342,7 +324,6 @@ LINES: dict[str, Line] = {
     EventKind.COUNCIL_SEATED: _council_seated,
     EventKind.CASE_JUDGED: _case_judged,
     EventKind.RATE_DECIDED: _rate_decided,
-    EventKind.EXPLORE_FOUND: _explore_found,
 }
 
 PUBLIC = frozenset(str(kind) for kind in LINES)

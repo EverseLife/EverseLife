@@ -282,32 +282,3 @@ death-no-iron = the printer holds { NUMBER($have, minimumFractionDigits: 0, maxi
 death-prison-printer = the prison printer prints convicts only: this is not a door into the world
 death-cannot-afford = printing costs { $price } ₭, and the account holds { $balance } ₭. The Precursor printer in the capital prints free — but takes twelve hours
 death-job-dangling = printing { $job } points nowhere
-
-# --- exploration (engine/explore/) -------------------------------------------
-
-explore-unknown-goal = unknown search goal: { $goal }
-explore-unknown-reach = a search is either near or far, and “{ $reach }” is neither
-explore-dead-scouts = a dead body does not scout
-explore-no-such-ore = that rock is not mined in this world: “{ NAME($resource) }”
-explore-body-off-node = a search goes out from a node, and the body stands nowhere
-explore-not-from-aboard = one does not scout from aboard: there is no land under a ship. Step off in the port and go from there
-explore-lot-only-in-city = a lot is looked for in a city: beyond the walls there is no city building
-# What can be looked for here: each goal names its own word and the language
-# strings them together (`inner`). This used to be a map of five Russian nouns
-# welded to this one sentence, which no other language could say.
-explore-goal-lot = a lot
-explore-goal-site = a new place
-explore-goal-vein = a vein
-explore-goal-forest = woods
-explore-goal-room = Forerunner rooms
-explore-wrong-goal-here = that is not looked for from here: here one looks for { $offers ->
-        [none] nothing
-       *[some] { $words }
-    }
-explore-city-exhausted = “{ $city }” is worked out: everything that could be broken open already has been
-explore-no-strength = a run needs { NUMBER($need, minimumFractionDigits: 1, maximumFractionDigits: 1) } stamina and you have { NUMBER($have, minimumFractionDigits: 1, maximumFractionDigits: 1) }: the price is the longest run this place can give, so eat or sleep first
-explore-already-out = a run is already out: wait for the return
-explore-run-queued = a run is already queued
-explore-run-dangling = run { $job } points nowhere
-explore-not-out = the body is not out scouting: there is nowhere to come back from
-explore-lot-outside-city = a lot is looked for in a city: beyond the walls there is no building

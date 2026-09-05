@@ -31,7 +31,7 @@ from src.constants import registry as R
 from src.constants.catalog import ItemKind
 from src.engine import account as accounts
 from src.engine import city as town
-from src.engine import death, energy, estate, explore, places, props, ship, tick, travel, utility
+from src.engine import death, energy, estate, ground, places, props, ship, tick, travel, utility
 from src.engine.ship import lines
 from src.engine.world.things import stands
 from src.models.city import City
@@ -40,7 +40,7 @@ from src.models.event import Event, EventKind
 from src.models.identity import Account, Identity
 from src.models.inventory import Container, ContainerKind, Item
 from src.models.ship import Ship
-from src.models.world import Edge, Layer, Node, Surface
+from src.models.world import PLOT, Edge, Layer, Node, Surface
 from src.seed_surfaces import surfaces
 
 log = logging.getLogger("everselife.seed")
@@ -451,7 +451,7 @@ async def _soil(session: AsyncSession, constants, scenario: seed_world.Scenario)
             await session.execute(
                 select(Node).where(
                     Node.layer == Layer.CITY,
-                    Node.properties[explore.PLOT].astext == "true",
+                    Node.properties[PLOT].astext == "true",
                 )
             )
         )
@@ -462,10 +462,10 @@ async def _soil(session: AsyncSession, constants, scenario: seed_world.Scenario)
     for node in plots:
         if FERTILITY in (node.properties or {}):
             continue
-        ground = laid.get(node.key) or await explore.civic_properties(
+        soil = laid.get(node.key) or await ground.civic_properties(
             session, constants, random.Random(node.key)
         )
-        await props.stamp(session, node, ground)
+        await props.stamp(session, node, soil)
         given += 1
     if given:
         await session.flush()

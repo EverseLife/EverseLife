@@ -80,8 +80,6 @@ KNOWN: dict[str, int] = {
     "src/engine/estate/building/build.py": 1,
     "src/engine/estate/deed.py": 1,
     "src/engine/estate/price.py": 3,
-    "src/engine/explore/run.py": 1,
-    "src/engine/explore/site.py": 4,
     "src/engine/farm/plot.py": 2,
     "src/engine/finance.py": 1,
     "src/engine/forage.py": 2,

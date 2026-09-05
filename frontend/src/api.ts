@@ -155,7 +155,7 @@ export type {
 export type { Card, Door, Enrollment, Line, Printer, Profile } from "./wire/person";
 
 /** The body's occupations and its scales (`wire/body.ts`). */
-export type { Air, Doing, Foraging, Frost, Outlook, Sight } from "./wire/body";
+export type { Air, Doing, Foraging, Frost, Sight } from "./wire/body";
 
 /** The deed and the bill that come with a plot (`wire/land.ts`). */
 export type { DeedView, Holding } from "./wire/land";

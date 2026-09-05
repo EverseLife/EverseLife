@@ -41,7 +41,6 @@ import { t } from "../locale";
 //: Keys rather than words: the map is built once at import, and a `t()` there
 //: would nail the session to whatever language was being spoken then.
 const MOVED: Record<string, string> = {
-  "explore.survey": "ui-alpha-job-explore-survey",
   "travel.leg": "ui-alpha-job-travel-leg",
   "craft.batch": "ui-alpha-job-craft-batch",
   "ship.keel": "ui-alpha-job-ship-keel",

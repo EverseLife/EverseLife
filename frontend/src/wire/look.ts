@@ -309,8 +309,6 @@ export type Look = {
     city?: string;
     since: string;
   };
-  /** An ongoing exploration run, if any (D-152). */
-  survey?: { returns_at: string };
   /**
    * Foraging on the empty land of the place (D-210). Empty where the land is
    * built up or somebody else's -- unless a search of ours is already going here.

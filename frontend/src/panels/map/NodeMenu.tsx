@@ -44,7 +44,6 @@ export function NodeMenu({
   //: and so is any place on one -- the surface is walked, the void is not.
   const may =
     !look.travel &&
-    !look.survey &&
     !here &&
     !node.orbit &&
     !offworld &&

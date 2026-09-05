@@ -18,7 +18,6 @@ from src.constants import Constants
 from src.constants import registry as R
 from src.engine import city as town
 from src.engine import (
-    explore,
     ship,
     transport,
     world,
@@ -193,28 +192,19 @@ class Asleep(TravelError):
     """The body sleeps. The same unavailability as the road, only voluntary."""
 
 
-class InField(TravelError):
-    """The body is exploring: it left on its own and returns on schedule or by cancel."""
-
-
 async def require_here(session: AsyncSession, body: Body) -> None:
     """The presence check -- one for all in-person actions.
 
     The road must really cost time: otherwise leaving a node becomes free, and
     the geography all this was made for disappears. Sleep stands at the same
     door: a sleeper is unavailable for everything in-person (D-091) -- that is
-    how hibernation pays for recovery. Exploration stands at it too (D-152):
-    the scout leaves in person, and while in the field is not in the node.
+    how hibernation pays for recovery.
     """
     if body.sleeping_since is not None:
         raise Asleep(key="travel-asleep")
     going = await current(session, body)
     if going is not None:
         raise InTransit(key="travel-in-transit", inner={"left": [left_to_say(going.arrives_at)]})
-
-    run = await explore.pending(session, body)
-    if run is not None:
-        raise InField(key="travel-in-field", inner={"left": [left_to_say(run.run_at)]})
 
 
 class NotGoing(TravelError):

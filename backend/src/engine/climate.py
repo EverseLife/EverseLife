@@ -42,9 +42,9 @@ from src.units import DAY_PHASE_DAWN, DAY_PHASE_DUSK, LIGHT_MAX, PERCENT, SECOND
 #: representation and lives in `units.LIGHT_MAX`.
 FULL_LIGHT = LIGHT_MAX
 
-#: The place mark exploration writes for a forest (`explore._base.WOODS`,
-#: D-191). Named here like farm's WATER: importing explore for one word would
-#: put a whole subsystem on this module's import path.
+#: The place mark the world's generation writes for a forest (`ground.WOODS`,
+#: D-191). Named here like farm's WATER: importing ground for one word would
+#: put the whole roll on this module's import path.
 WOODS = "woods"
 
 #: The vault's day length per planet (OQ-028). One map here rather than four

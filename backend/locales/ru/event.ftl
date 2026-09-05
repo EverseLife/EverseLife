@@ -20,8 +20,6 @@ event-farm-ripened = делянка созрела
 # Напасть (D-299): сводка называет знак, а не беду — чем гасят, знает тот,
 # кто прочёл агротехнику.
 event-farm-struck = на делянке напасть
-event-explore-found = разведка: находка
-event-explore-empty = разведка: пусто
 event-body-died = тело погибло
 event-body-printed = напечатано тело
 event-mining-collapsed = обвал в забое

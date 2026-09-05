@@ -44,7 +44,6 @@ from src.engine import (
     death,
     energy,
     estate,
-    explore,
     farm,
     forage,
     frost,
@@ -476,10 +475,6 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
         #: by comparing two translated strings -- so the tick beside a role
         #: hung on the wording of a sentence.
         seen["foundation"] = {"missing": list(await town.missing_for_foundation(db, node))}
-    #: An ongoing exploration run: the map grows on foot, and the wait is
-    #: real (D-152).
-    run = await explore.pending(db, body)
-    seen["survey"] = None if run is None else {"returns_at": run.run_at.isoformat()}
     #: Foraging on the empty land of the place (D-210): the window, its search
     #: and its find. Empty where the land is built up or somebody else's.
     seen["forage"] = await forage.view(db, constants, current_catalog(), body, node)

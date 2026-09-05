@@ -41,6 +41,10 @@ from src.units import money
 ORE = "iron_ore"
 
 
+#: Any counter in a node's properties: the race is about the map, not the key.
+COUNTER = "counted"
+
+
 async def test_the_eruption_does_not_burn_what_was_carried_out(
     session: AsyncSession,
     factory: async_sessionmaker[AsyncSession],
@@ -283,13 +287,12 @@ async def test_two_marks_on_one_node_do_not_erase_each_other(
 ) -> None:
     """`Node.properties` is one JSONB dict rewritten whole (review of D-238).
 
-    A founder stamps the gate while a scout's return bumps the counter. Each
+    A founder stamps the gate while somebody else bumps a counter. Each
     builds its new dict from what it read at the start; without the reread
     under the row lock (`props._held`) the slower writer's snapshot is stale
     and its rewrite silently erases the faster one's key.
     """
     from src.engine import props
-    from src.engine.explore import FOUND_HERE
 
     node = await world.create_node(
         session, f"terra.marks.{uuid.uuid4().hex[:6]}", "Перекрёсток", area_m2=100
@@ -310,7 +313,7 @@ async def test_two_marks_on_one_node_do_not_erase_each_other(
         async with factory() as db, db.begin():
             own = await db.get(Node, node_id)
             assert own is not None
-            await props.bump(db, own, FOUND_HERE)
+            await props.bump(db, own, COUNTER)
 
     await asyncio.gather(flag(), count())
 
@@ -318,8 +321,8 @@ async def test_two_marks_on_one_node_do_not_erase_each_other(
         again = await db.get(Node, node_id)
         assert again is not None
         held = again.properties or {}
-        assert held.get(travel.EXIT) is True, "печать ворот стёрта счётчиком разведки"
-        assert int(held.get(FOUND_HERE, 0)) == 1, "счётчик разведки стёрт печатью ворот"
+        assert held.get(travel.EXIT) is True, "печать ворот стёрта счётчиком"
+        assert int(held.get(COUNTER, 0)) == 1, "счётчик стёрт печатью ворот"
 
 
 async def test_two_harvests_of_one_strip_reap_it_once(
@@ -432,7 +435,6 @@ async def test_two_bumps_of_one_counter_lose_neither(
     """A counter in the properties map is a remainder like ore in a vein:
     two increments from the same snapshot would both write the same number."""
     from src.engine import props
-    from src.engine.explore import FOUND_HERE
 
     node = await world.create_node(
         session, f"terra.count.{uuid.uuid4().hex[:6]}", "Развилка", area_m2=100
@@ -445,16 +447,14 @@ async def test_two_bumps_of_one_counter_lose_neither(
             own = await db.get(Node, node_id)
             assert own is not None
             await asyncio.sleep(delay)
-            await props.bump(db, own, FOUND_HERE)
+            await props.bump(db, own, COUNTER)
 
     await asyncio.gather(one(0.0), one(0.1))
 
     async with factory() as db:
         again = await db.get(Node, node_id)
         assert again is not None
-        assert int((again.properties or {}).get(FOUND_HERE, 0)) == 2, (
-            "две разведки — два, а не одно"
-        )
+        assert int((again.properties or {}).get(COUNTER, 0)) == 2, "две разведки — два, а не одно"
 
 
 async def test_two_sessions_grow_one_landrace(

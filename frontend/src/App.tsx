@@ -390,10 +390,7 @@ export default function App() {
   const waiting = digest?.attention.length ?? 0;
 
   const ongoing = Boolean(look?.travel);
-  //: Exploration is a body state (D-152): the scout left on their own, and
-  //: while in the field, in-person is closed, as in sleep. Return -- by a button on the map.
-  const exploring = Boolean(look?.survey);
-  const away = ongoing || exploring;
+  const away = ongoing;
 
   //: The base tone belongs to the planet you stand on (D-074, D-080): arriving
   //: repaints the screen, and that is the fair price of a week through the

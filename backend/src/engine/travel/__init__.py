@@ -141,7 +141,6 @@ from src.engine.travel._base import (  # noqa: F401
     EdgeInUse,
     Exit,
     Imprisoned,
-    InField,
     InTransit,
     NoEdge,
     NoRoute,

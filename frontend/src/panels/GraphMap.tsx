@@ -122,7 +122,7 @@ type Props = {
 
 export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "act">) {
   //: The map itself performs nothing: it draws, pans and picks. Every action --
-  //: setting off, laying a road, going out to explore -- belongs to the
+  //: setting off, laying a road -- belongs to the
   //: inspector beside it, which keeps its own waiting and its own refusal.
   const { busy } = useActions();
   //: The map is answered from where the body stands (D-240), so the read
@@ -131,18 +131,15 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
 
   const [world, setWorld] = useState<WorldMap | null>(null);
   const here = look.node?.key ?? "";
-  //: The map grows by exploration (D-152), and a found node must appear by
-  //: itself. We reread it when what could have changed the map changes: own
-  //: node, the set of exits from it and the scout's return. One load on first
-  //: show lasted exactly until the first find.
+  //: The map opens by walking (D-319): what one sees changes with one's own
+  //: node and the set of exits from it, so those are the reasons to reread.
   const exits = (look.exits ?? []).map((path) => path.key).join("|");
-  const exploring = look.survey?.returns_at ?? "";
   useEffect(() => {
     void api.worldMap(session.token).then(setWorld);
     //: The token is read inside and is the session's own for its whole life:
     //: it is not a reason to reread the map, and the reasons are listed here.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [here, exits, exploring]);
+  }, [here, exits]);
   const ongoing = look.travel ?? null;
   //: Ships are not on the public map at all (D-201): from a distance a ship is
   //: a single hull on the space layer and nothing more. What is close enough
@@ -599,15 +596,13 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
   /**
    * Whether a step leads to the node -- the map's judgement, drawn by `Nodes`.
    *
-   * The scout goes nowhere: they are in the field, and not in the node (D-152).
-   * And to a planet one does not walk at all: it is reached by ship from a
+   * To a planet one does not walk at all: it is reached by ship from a
    * spaceport (D-201) -- a step across the void is not a road the map may draw.
    * A button the server will refuse anyway is a promise the interface may not
    * make.
    */
   const reachable = (node: MapNode) =>
     !ongoing &&
-    !look.survey &&
     node.key !== standingAt &&
     !node.orbit &&
     //: Another planet's surface is looked at, not walked to (D-201): its nodes
@@ -743,7 +738,6 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
         byKey={byKey}
         groups={groups}
         walkTargets={walkTargets}
-        layer={currentLayer}
         onExpand={expand}
         onEnter={onEnter}
       />

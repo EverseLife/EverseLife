@@ -334,25 +334,6 @@ def test_face_not_opened_without_device_fee(client, miner, cheap_pow) -> None:
         assert "refused" in ws.receive_json()
 
 
-def test_exploration_names_run_price_before_leaving(client, miner, constants: Constants) -> None:
-    """The run's price is a property of the place (D-156), and the client learns it before leaving.
-
-    Untrodden surroundings must give a find in minutes: exploration is a
-    newcomer's first meaningful action, and six hours of waiting kill it.
-    """
-    with client.websocket_connect("/session/ws") as ws:
-        ws.send_json(_input(miner))
-        ws.receive_json()
-
-        ws.send_json({"cmd": "explore.goals"})
-        forecast = ws.receive_json()["outlook"]
-        run = constants[R.EXPLORE_ATTEMPT_MINUTES]
-        assert forecast["explored"] == 0
-        assert forecast["minutes"] == {"min": run.min, "max": run.max}
-        assert forecast["chance"] == constants[R.EXPLORE_FIND_CHANCE]
-        assert 0 < forecast["stamina"] < constants[R.EXPLORE_ATTEMPT_STAMINA]
-
-
 def test_command_without_hello_rejected(client, miner) -> None:
     with client.websocket_connect("/session/ws") as ws:
         ws.send_json({"cmd": "mine.swing"})

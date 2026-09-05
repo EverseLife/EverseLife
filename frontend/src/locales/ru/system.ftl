@@ -81,7 +81,6 @@ ui-alpha-note-hurry = «Завершить сейчас» двигает сро�
 
 ## Виды сроков, которые альфа умеет подтянуть.
 
-ui-alpha-job-explore-survey = разведка
 ui-alpha-job-travel-leg = переход
 ui-alpha-job-craft-batch = работа
 ui-alpha-job-ship-keel = закладка корабля

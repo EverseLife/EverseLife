@@ -73,33 +73,6 @@ export type Sight = {
   state: "active" | "left" | "collapsed";
   session: string;
 };
-
-/** What an exploration run from here will cost (D-156).
- *
- * The price is a property of the place, not the player: untrodden
- * surroundings give a find in minutes, trodden ones in hours and not always.
- * Shown before leaving, otherwise it reads as engine randomness. */
-export type Outlook = {
-  /** How many finds have already been made from this node. */
-  explored: number;
-  minutes: { min: number; max: number };
-  /** The largest stamina price -- by the longest run. */
-  stamina: number;
-  /** Chance with the requested species in mind: the rare is found worse (D-151). */
-  chance: number;
-  /** By how much the species request narrowed the chance; 1 -- no request. */
-  aim?: number;
-  /**
-   * By how much the crowding of the graph narrowed it; 1 -- roomy here (D-207).
-   * Edges pile up where everybody wants to be, and a crowded place searches worse.
-   */
-  crowding?: number;
-  /** The node a find will hang on, when it is not this one: from a city, the gate. */
-  anchor?: string;
-  /** Which species is requested, if any. */
-  resource?: string;
-};
-
 /**
  * The heat reserve and the node it is spent in (D-231).
  *

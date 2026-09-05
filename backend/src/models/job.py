@@ -55,8 +55,6 @@ class JobKind(StrEnum):
     FARM_CARE = "farm.care"
     #: Household meter: once every `energy.meter_period` hours (D-135, D-149).
     UTILITY_METER = "utility.meter"
-    #: Exploration run: the find arrives on schedule, like every work (D-152).
-    EXPLORE_SURVEY = "explore.survey"
     #: Body print: minutes in a city, `death.print_time_capital` at the Forerunners (D-028).
     BODY_PRINT = "body.print"
     #: Building construction: materials written off at once, the building rises on schedule (D-131).

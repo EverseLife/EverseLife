@@ -268,13 +268,6 @@ class EventKind(StrEnum):
     STORAGE_OVERFULL = "storage.overfull"
     ITEM_PICKED = "item.picked"
 
-    # exploration (D-152)
-    EXPLORE_STARTED = "explore.started"
-    EXPLORE_FOUND = "explore.found"
-    EXPLORE_EMPTY = "explore.empty"
-    #: The scout turned back: the run is cancelled, the find did not happen.
-    EXPLORE_CANCELLED = "explore.cancelled"
-
     # foraging (D-210): a search on empty land, and what was done with the find
     FORAGE_STARTED = "forage.started"
     FORAGE_TAKEN = "forage.taken"

@@ -172,16 +172,3 @@ async def test_ground_without_a_planet_property_takes_nobody(
     )
     assert not await ship.lands_anywhere(session, wild)
     assert wild.key not in {node.key for node in await ship.open_landings(session)}
-
-
-async def test_nothing_grows_where_the_ground_bakes(
-    session: AsyncSession, constants: Constants
-) -> None:
-    """A grove on a lava field would be a property nobody could explain
-    (D-231, D-233): the search does not offer what the planet cannot hold."""
-    from src.engine import explore
-
-    _, fields = await _surface(session, count=1)
-    offered = await explore.possible(session, fields[0])
-    assert explore.VEIN in offered and explore.SITE in offered
-    assert explore.FOREST not in offered

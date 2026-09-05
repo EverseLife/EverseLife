@@ -13,7 +13,6 @@
 ## kind of occupation (`doing-<kind>`), so the names here are not arbitrary.
 
 doing-road = road
-doing-field = survey
 doing-sleep = sleep
 doing-forage = foraging
 doing-plot = plowing
@@ -29,7 +28,6 @@ doing-paving = paving
 ## What is going on and where it is ended
 
 doing-road-what = the body is on the road
-doing-field-what = the body is out on a survey — it can be called back on the map
 doing-sleep-what = the body is asleep — wake it first
 doing-forage-searching = a search is under way
 doing-forage-found = a find lies on the ground ({ NAME($goods) }) — settle it or end the search

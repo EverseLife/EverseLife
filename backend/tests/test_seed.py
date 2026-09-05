@@ -33,7 +33,6 @@ from src.engine import (
     death,
     estate,
     events,
-    explore,
     frost,
     justice,
     market,
@@ -47,7 +46,7 @@ from src.models.city import City
 from src.models.estate import Building, Deed
 from src.models.event import Event, EventKind
 from src.models.inventory import Container, ContainerKind, Item
-from src.models.world import Layer, Node, NodePass, Planet, Vein
+from src.models.world import PLOT, Layer, Node, NodePass, Planet, Vein
 from src.seed import CORE, seed
 from src.seed_surfaces import PYROXIS_FIELDS, PYROXIS_PLATEAU, pyroxis_field_key
 
@@ -291,25 +290,6 @@ async def test_the_capital_prints_on_the_original(
     assert printers and all(book.is_relic(name) for name in printers), printers
 
 
-async def test_the_ice_of_aurora_is_reached_from_a_pier(
-    capital: Node, session: AsyncSession, constants: Constants
-) -> None:
-    """A city of the Forerunners is opened from inside and left through its door.
-
-    The seed lays no wild node on Aurora: a ship lands at a pier, and if the
-    pier offered nothing but its own rooms the planet would end at three cities
-    (D-232). From the hall one goes deeper in; from the pier, out onto the ice.
-    """
-    port = await session.scalar(select(Node).where(Node.key == aurora_port(aurora_cities()[0])))
-    hall = await session.scalar(select(Node).where(Node.key == aurora_hall(aurora_cities()[0])))
-    assert port is not None and hall is not None
-
-    assert await explore.possible(session, hall) == (explore.ROOM,)
-    from_pier = await explore.possible(session, port)
-    assert explore.ROOM in from_pier
-    assert explore.SITE in from_pier, "с причала выходят на лёд, иначе Аврора — тупик"
-
-
 async def test_other_planets_have_somewhere_to_land(
     capital: Node, session: AsyncSession, constants: Constants
 ) -> None:
@@ -390,7 +370,7 @@ async def test_the_black_fields_carry_the_planets_own_veins(
         assert vein is not None, f"{field.key} без жилы"
         species.add(vein.resource)
         #: And the field is named by the word, not by the key it is laid with:
-        #: the same seam as the vein an explorer finds (`explore/run.py`), and
+        #: the same seam as a vein the world lays (`ground`), and
         #: a field name is persisted once and never laid again (pillar P2), so
         #: «Чёрное поле №1: pyroxite» would be permanent on a world seeded now.
         assert field.name.endswith(f": {display_name(vein.resource).lower()}"), field.name
@@ -446,7 +426,7 @@ async def test_a_plot_of_an_old_world_gets_its_soil(capital: Node, session: Asyn
     lot = await session.scalar(select(Node).where(Node.key == "terra.capital.lot1"))
     assert lot is not None
     #: Back to how a world of before D-246 holds it.
-    lot.properties = {explore.PLOT: True}
+    lot.properties = {PLOT: True}
     await session.flush()
 
     await seed(session)

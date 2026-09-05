@@ -77,7 +77,7 @@ WHERE = (HANDS, FLOOR)
 #: everyone aboard lands early with it. That is the ship, not a hole in the
 #: filter -- a passage belongs to the hull and never to one passenger.
 HURRIED = (
-    JobKind.EXPLORE_SURVEY.value,
+    JobKind.ROAD_WORK.value,
     JobKind.TRAVEL_LEG.value,
     JobKind.CRAFT_BATCH.value,
     JobKind.SHIP_KEEL.value,

@@ -36,7 +36,6 @@ from src.engine import (
     craft,
     death,
     estate,
-    explore,
     farm,
     jobs,
     ruins,
@@ -52,7 +51,7 @@ from src.models.identity import Body, Identity
 from src.models.inventory import Item
 from src.models.job import Job, JobKind, JobState
 from src.models.travel import Travel
-from src.models.world import Layer, Surface
+from src.models.world import Layer, Node, Surface
 from src.units import amount_float
 from test_alpha_kit import (  # noqa: F401 -- the family's helpers
     BENCH,
@@ -190,31 +189,52 @@ async def test_a_printed_liquid_without_a_vessel_is_refused(
 # --- hurrying a term ---------------------------------------------------------
 
 
-async def test_survey_term_comes_up_to_now(session: AsyncSession, constants: Constants) -> None:
-    """The survey's term lives in the job alone -- the simplest of the three."""
+async def _long_job(session: AsyncSession, constants: Constants, catalog: Catalog, body):
+    """The simplest term a pair of hands owns: a road laid from where the body stands (D-107)."""
+    from src.engine import road
+
+    stamp = uuid.uuid4().hex[:8]
+    here = await session.get(Node, body.node_id)
+    assert here is not None
+    there = await world.create_node(session, f"terra.alpha.{stamp}", "Там", area_m2=100)
+    edge = await travel.connect(session, here, there, base_seconds=600, surface=Surface.WILD)
+    pocket = await world.body_container(session, body)
+    await world.grant_item(
+        session,
+        pocket,
+        "road_paving",
+        amount=constants[R.ROAD_SURFACE_PER_EDGE] * 2,
+        origin="the alpha's road",
+    )
+    return await road.lay(session, constants, catalog, body, edge)
+
+
+async def test_road_term_comes_up_to_now(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The road's term lives in the job alone -- the simplest of the three."""
     body = await _body(session)
-    job = await explore.survey(session, constants, body)
+    job = await _long_job(session, constants, catalog, body)
     assert job.run_at > datetime.now(UTC)
-
     moved = await alpha.hurry(session, body.identity_id, body)
-    assert moved == (JobKind.EXPLORE_SURVEY.value,)
-    assert job.run_at <= datetime.now(UTC), "срок разведки остался в будущем"
+    assert moved == (JobKind.ROAD_WORK.value,)
+    assert job.run_at <= datetime.now(UTC), "срок работы остался в будущем"
 
 
-async def test_hurried_survey_is_finished_by_the_ordinary_handler(
+async def test_hurried_road_is_finished_by_the_ordinary_handler(
     session: AsyncSession,
     constants: Constants,
+    catalog: Catalog,
     factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """The lever moves the term; the work is done by the handler the world runs
-    anyway. There is no second path where a find could come out differently."""
+    anyway. There is no second path where a road could come out differently."""
     body = await _body(session)
-    await explore.survey(session, constants, body)
+    await _long_job(session, constants, catalog, body)
     await alpha.hurry(session, body.identity_id, body)
     await session.commit()
-
     ran = await jobs.run_one(factory)
-    assert ran is not None and ran.kind == JobKind.EXPLORE_SURVEY.value
+    assert ran is not None and ran.kind == JobKind.ROAD_WORK.value
     assert ran.state is JobState.DONE
 
 
@@ -238,12 +258,14 @@ async def test_passage_term_moves_with_its_job(session: AsyncSession, constants:
     assert fresh.arrives_at == job.run_at, "часы разошлись: задание и переход о разном"
 
 
-async def test_world_own_terms_are_left_alone(session: AsyncSession, constants: Constants) -> None:
+async def test_world_own_terms_are_left_alone(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
     """Only what this body is doing moves. The daily tick, meters and spoilage
     are the world's business -- pulling those forward would falsify a session,
     not speed it up."""
     body = await _body(session)
-    await explore.survey(session, constants, body)
+    await _long_job(session, constants, catalog, body)
     meter = await jobs.enqueue(
         session,
         JobKind.UTILITY_METER,
@@ -255,7 +277,7 @@ async def test_world_own_terms_are_left_alone(session: AsyncSession, constants: 
     was = meter.run_at
 
     moved = await alpha.hurry(session, body.identity_id, body)
-    assert moved == (JobKind.EXPLORE_SURVEY.value,)
+    assert moved == (JobKind.ROAD_WORK.value,)
     assert meter.run_at == was, "рычаг дотянулся до счётчика мира"
 
 
@@ -282,12 +304,14 @@ async def _printing_ground(session: AsyncSession, catalog: Catalog):
 
 
 async def test_somebody_elses_term_is_not_touched(
-    session: AsyncSession, constants: Constants
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
 ) -> None:
     """The lever reaches this body's work, not the neighbour's."""
     mine = await _body(session)
     theirs = await _body(session)
-    job = await explore.survey(session, constants, theirs)
+    job = await _long_job(session, constants, catalog, theirs)
     was = job.run_at
 
     assert await alpha.hurry(session, mine.identity_id, mine) == ()
@@ -599,6 +623,7 @@ def test_both_kinds_tell_the_client_what_to_reread() -> None:
 async def test_term_the_worker_already_took_is_skipped(
     session: AsyncSession,
     constants: Constants,
+    catalog: Catalog,
     factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """The worker claims pending jobs by `run_at` under `FOR UPDATE SKIP
@@ -610,7 +635,7 @@ async def test_term_the_worker_already_took_is_skipped(
     being run is skipped -- there is nothing left to hurry.
     """
     body = await _body(session)
-    job = await explore.survey(session, constants, body)
+    job = await _long_job(session, constants, catalog, body)
     body_id, job_id, term = body.id, job.id, job.run_at
     await session.commit()
 
@@ -683,13 +708,14 @@ async def test_a_claimed_passage_is_skipped_with_its_own_clock(
 async def test_two_levers_at_once_leave_one_term(
     session: AsyncSession,
     constants: Constants,
+    catalog: Catalog,
     factory: async_sessionmaker[AsyncSession],
 ) -> None:
     """Two clicks in the same instant -- two transactions on one row. The lock
     serialises them; the second finds the term already up to now and moves
     nothing, rather than both writing their own moment."""
     body = await _body(session)
-    await explore.survey(session, constants, body)
+    await _long_job(session, constants, catalog, body)
     body_id = body.id
     await session.commit()
 

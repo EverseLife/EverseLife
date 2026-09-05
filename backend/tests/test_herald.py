@@ -44,7 +44,6 @@ PRIVATE = {
     EventKind.DEBT_WITHHELD,
     EventKind.KNOWLEDGE_LEARNED,
     EventKind.REPORT_FILED,
-    EventKind.EXPLORE_STARTED,
     EventKind.TRAVEL_ARRIVED,
     EventKind.STORAGE_PUT,
 }
@@ -117,30 +116,6 @@ async def test_city_founding_names_city_and_place(session: AsyncSession, catalog
     assert "Рудный" in lines[0]
     assert "Медный склон" in lines[0]
     assert who.name in lines[0]
-
-
-async def test_exploration_find_does_not_name_species(
-    session: AsyncSession, catalog: Catalog
-) -> None:
-    """The vein's species is the scout's pay for risk, not news for everyone."""
-    node = await _node(session, "Пойма")
-    who = await world.create_identity(session, f"Вей-{uuid.uuid4().hex[:6]}")
-    event = await events.record(
-        session,
-        EventKind.EXPLORE_FOUND,
-        actor_identity_id=who.id,
-        node_id=node.id,
-        from_node="terra.city",
-        found="terra.wild",
-        name="Пойма",
-        resource="медь",
-        minutes=12,
-    )
-
-    line = (await chronicle.compose(session, [event]))[0]
-
-    assert "Пойма" in line
-    assert "медь" not in line
 
 
 async def test_silent_event_gives_no_line(session: AsyncSession, catalog: Catalog) -> None:

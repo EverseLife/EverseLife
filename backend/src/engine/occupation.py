@@ -56,7 +56,7 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.engine import craft, explore, forage, mining, travel
+from src.engine import craft, forage, mining, travel
 from src.engine.errors import Refusal, Says, left_to_say
 from src.models.farm import Plot
 from src.models.identity import Body
@@ -71,7 +71,6 @@ class Busy(Refusal):
 #: it -- which line to draw, which button ends it -- and a word of the interface
 #: must be free to change without breaking that.
 ROAD = "road"
-FIELD = "field"
 SLEEP = "sleep"
 FORAGE = "forage"
 PLOT = "plot"
@@ -96,7 +95,6 @@ PAVING = "paving"
 #: and a kind added without its word would show the player the key instead.
 KINDS: tuple[str, ...] = (
     ROAD,
-    FIELD,
     SLEEP,
     FORAGE,
     PLOT,
@@ -167,14 +165,6 @@ async def _travelling(session: AsyncSession, body: Body, jobs: Journal) -> Doing
     if going is None:
         return None
     return Doing(ROAD, Says("doing-road-what"), going.arrives_at)
-
-
-async def _exploring(session: AsyncSession, body: Body, jobs: Journal) -> Doing | None:
-
-    run = await explore.pending(session, body)
-    if run is None:
-        return None
-    return Doing(FIELD, Says("doing-field-what"), run.run_at)
 
 
 async def _foraging(session: AsyncSession, body: Body, jobs: Journal) -> Doing | None:
@@ -382,7 +372,6 @@ _LOOKUP: tuple[
     tuple[str, Callable[[AsyncSession, Body, Journal], Awaitable[Doing | None]]], ...
 ] = (
     (ROAD, _travelling),
-    (FIELD, _exploring),
     (SLEEP, _sleeping),
     (MINE, _mining),
     (FORAGE, _foraging),
