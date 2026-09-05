@@ -73,9 +73,6 @@ PYROXIS_FIELDS = 6
 #: planet's own, and generous -- Pyroxis is a shift worth flying to (10-world/04).
 PYROXIS_VEIN_RICHNESS = 70
 PYROXIS_VEIN_STOCK = 4000
-#: A walk across the black fields: they are neighbours of the plateau and of
-#: each other, and the ground between them is no road.
-PYROXIS_STEP_SECONDS = 900
 
 #: A black field is open ground, and the whole of it is a working face.
 FIELD_AREA_M2 = 5000
@@ -176,13 +173,7 @@ async def _pyroxis(session: AsyncSession) -> None:
             session, current(), current_catalog(), dice, planet=Planet.PYROXIS
         )
         if laid.created:
-            await travel.connect(
-                session,
-                plateau,
-                laid.node,
-                base_seconds=PYROXIS_STEP_SECONDS,
-                surface=Surface.WILD,
-            )
+            await travel.connect(session, plateau, laid.node, surface=Surface.WILD)
             await world.create_vein(
                 session,
                 laid.node,
@@ -216,13 +207,7 @@ async def _pyroxis(session: AsyncSession) -> None:
                 await session.execute(select(Node).where(Node.key == pyroxis_field_key(number - 1)))
             ).scalar_one_or_none()
             if before is not None:
-                await travel.connect(
-                    session,
-                    before,
-                    laid.node,
-                    base_seconds=PYROXIS_STEP_SECONDS,
-                    surface=Surface.WILD,
-                )
+                await travel.connect(session, before, laid.node, surface=Surface.WILD)
 
 
 def pyroxis_field_key(number: int) -> str:

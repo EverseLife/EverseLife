@@ -224,7 +224,6 @@ async def _bridge(
         session,
         node,
         where,
-        base_seconds=travel.frontier_seconds(constants, travel.reach_of(where) + 1),
         surface=Surface.WILD,
     )
     ways.setdefault(node.id, set()).add(where.id)

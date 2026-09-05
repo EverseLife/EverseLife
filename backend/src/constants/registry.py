@@ -44,12 +44,23 @@ BODY_DIET_VARIETY_BONUS = Num("body.diet_variety_bonus")
 BODY_HIBERNATION_RATE = Num("body.hibernation_rate")
 BODY_HIBERNATION_HOME_K = Num("body.hibernation_home_k")
 
-# --- Map and transits (D-045, D-089, D-107, D-147) --------------------------
-TRAVEL_CITY_STEP = Span("travel.city_step")
-TRAVEL_INTRA_CITY = Span("travel.intra_city")
-#: Node distance (D-180): the first ring beyond the walls and the growth of each next.
-TRAVEL_FRONTIER_STEP = Num("travel.frontier_step")
-TRAVEL_FRONTIER_GROWTH = Num("travel.frontier_growth")
+# --- Map and transits (D-045, D-089, D-107, D-147, D-319) -------------------
+#: The surface is a sphere (D-319): a planet's radius is its share of Terra's
+#: (`PLANET_RADIUS`, D-320) times this, and every distance on it is metres.
+PLANET_TERRA_RADIUS_KM = Num("planet.terra_radius_km")
+#: The ring a node is seated at from what it was laid beside, and the gap
+#: two nodes never stand nearer than -- metres on the tangent plane. Balance
+#: since the surface is finite: they decide how much fits on a planet (D-065).
+MAP_CITY_STEP_M = Num("map.city_step_m")
+MAP_MIN_GAP_M = Num("map.min_gap_m")
+#: No node is laid nearer the pole than this latitude: "north up" is not
+#: defined there.
+MAP_CITY_LAT_MAX = Num("map.city_lat_max")
+#: Time is distance (D-319): an edge between two surface nodes takes the
+#: metres between them at this pace, times the surface's multiplier (D-107).
+#: A city step is that too -- `travel.city_step` was seconds by decree and is
+#: the ring's metres at this pace now.
+TRAVEL_WALK_SPEED_KMH = Num("travel.walk_speed_kmh")
 TRAVEL_STAMINA_PER_HOUR = Num("travel.stamina_per_hour")
 TRANSPORT_STAMINA_K = Num("transport.stamina_k")
 # --- Transport (D-107, D-129, D-157) ----------------------------------------

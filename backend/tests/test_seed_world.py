@@ -28,7 +28,7 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src import seed_world
+from src import globe, seed_world
 from src.constants import Constants
 from src.constants import registry as R
 from src.engine import death, justice, market, places, travel, world
@@ -283,7 +283,7 @@ async def test_a_pinned_place_is_the_place_the_node_stands(
     """
     made = seed_world.Scenario(
         nodes=(
-            _spec("test.pinned", place=(300.0, -120.0)),
+            _spec("test.pinned", place={"x": 300.0, "y": -120.0}),
             #: And its neighbour, which has no pin: it must still be seated by
             #: the engine, and not on top of the pinned one.
             _spec("test.loose", anchor="test.pinned"),
@@ -295,58 +295,12 @@ async def test_a_pinned_place_is_the_place_the_node_stands(
 
     pinned = await _node(session, "test.pinned")
     loose = await _node(session, "test.loose")
-    assert places.place_of(pinned) == (300.0, -120.0)
-    assert places.place_of(loose) is not None
-    assert places.place_of(loose) != places.place_of(pinned)
-
-
-async def test_an_edge_by_reach_is_priced_by_the_far_end(
-    session: AsyncSession, constants: Constants
-) -> None:
-    """«По дали» means the transit is priced by how far beyond the walls it goes
-    (D-180), and every ring out is dearer than the last -- that is the whole
-    geography, and a number typed into the file would quietly undo it."""
-    made = seed_world.Scenario(
-        nodes=(
-            _spec("test.gate"),
-            _spec("test.near", anchor="test.gate", properties={travel.REACH: 1}),
-            _spec("test.far", anchor="test.gate", properties={travel.REACH: 3}),
-        ),
-        edges=(
-            seed_world.EdgeSpec("test.gate", "test.near", seed_world.BY_REACH, Surface.ROAD),
-            seed_world.EdgeSpec("test.gate", "test.far", seed_world.BY_REACH, Surface.ROAD),
-        ),
-        pockets={},
-    )
-    await seed_world.lay(session, constants, made)
-
-    gate = await _node(session, "test.gate")
-    near = await travel._edge_between(session, gate.id, (await _node(session, "test.near")).id)
-    far = await travel._edge_between(session, gate.id, (await _node(session, "test.far")).id)
-    assert near.base_seconds == int(travel.frontier_seconds(constants, 1))
-    assert far.base_seconds > near.base_seconds
-
-
-async def test_a_city_step_is_the_same_on_two_servers(
-    session: AsyncSession, constants: Constants
-) -> None:
-    """An edge with no length is a city step, rolled -- but rolled off the edge's
-    own name, so two servers replaying one scenario lay one world (D-007)."""
-    made = seed_world.Scenario(
-        nodes=(_spec("test.one"), _spec("test.two", anchor="test.one")),
-        edges=(seed_world.EdgeSpec("test.one", "test.two", None, Surface.PAVED),),
-        pockets={},
-    )
-    await seed_world.lay(session, constants, made)
-    one, two = await _node(session, "test.one"), await _node(session, "test.two")
-    first = (await travel._edge_between(session, one.id, two.id)).base_seconds
-
-    step = constants[R.TRAVEL_CITY_STEP]
-    assert step.min <= first <= step.max
-    #: The same roll on the next run: `connect` is idempotent, and even if it
-    #: were not, the dice are the edge's name and not the clock.
-    await seed_world.lay(session, constants, made)
-    assert (await travel._edge_between(session, one.id, two.id)).base_seconds == first
+    #: Metres east and north of the sphere's origin: a pin with nothing to
+    #: measure from (D-319).
+    radius = globe.radius_m(constants, Planet.TERRA)
+    assert places.geo_of(pinned) == globe.offset(radius, places.ORIGIN_GEO, 300.0, -120.0)
+    assert places.geo_of(loose) is not None
+    assert places.geo_of(loose) != places.geo_of(pinned)
 
 
 def test_a_city_of_the_layout_is_named_within_the_founding_ceiling() -> None:
@@ -390,3 +344,29 @@ def test_the_layout_gives_no_two_cities_one_name() -> None:
         if first != spec.key:
             clashes.append((first, spec.key))
     assert not clashes, f"два города разметки носят одно имя: {clashes}"
+
+
+async def test_an_edge_is_as_long_as_the_metres_between_its_ends(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """Time is distance (D-319): an edge with no seconds in the layout takes the
+    metres between its ends at the walking pace, and the same metres on two
+    servers lay the same seconds."""
+    made = seed_world.Scenario(
+        nodes=(
+            _spec("test.one", place={"x": 0.0, "y": 0.0}),
+            _spec("test.two", anchor="test.one", place={"x": 900.0, "y": 0.0}),
+        ),
+        edges=(seed_world.EdgeSpec("test.one", "test.two", None, Surface.PAVED),),
+        pockets={},
+    )
+    await seed_world.lay(session, constants, made)
+    one, two = await _node(session, "test.one"), await _node(session, "test.two")
+    edge = await travel._edge_between(session, one.id, two.id)
+    assert edge is not None
+    metres = places.distance_m(constants, one, two)
+    assert metres == pytest.approx(900.0, rel=1e-3)
+    assert edge.base_seconds == int(travel.walk_seconds(constants, metres))
+    assert edge.base_seconds == pytest.approx(
+        900.0 / (constants[R.TRAVEL_WALK_SPEED_KMH] * 1000 / 3600), abs=1
+    )

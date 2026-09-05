@@ -103,10 +103,11 @@ export type MapNode = {
   planet: string;
   /** Where the node stands, once and for everybody (D-237). Given by the
    *  server when the node is created and never recomputed, so the map is the
-   *  same map for every player and the same one tomorrow. Absent on the space
-   *  layer -- a planet's point comes from the clock -- and on a node laid
-   *  before the rule, where the client falls back to its own layout. */
-  place?: { x: number; y: number } | null;
+   *  same map for every player and the same one tomorrow. A surface node
+   *  stands on its planet's sphere in degrees (D-319); a floor or a room
+   *  stands on the flat plan of the inside in map units. Absent on the space
+   *  layer -- a planet's point comes from the clock. */
+  place?: { lat: number; lon: number } | { x: number; y: number } | null;
   /** A planet's place in the system: display radius, a full circle in real
    *  days and the phase at the world's epoch. Only planets have one -- on the
    *  space layer a place is a function of time, not of a settled layout. */

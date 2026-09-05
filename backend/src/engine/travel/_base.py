@@ -22,8 +22,8 @@ from src.engine import (
 from src.engine.errors import Refusal, left_to_say
 from src.models.identity import Body
 from src.models.travel import Travel, TravelState
-from src.models.world import Edge, Node, Surface
-from src.units import SECONDS_PER_HOUR
+from src.models.world import Edge, Surface
+from src.units import METRES_PER_KM, SECONDS_PER_HOUR
 
 
 class TravelError(Refusal):
@@ -92,27 +92,15 @@ def edge_seconds(constants: Constants, edge: Edge) -> float:
     return edge.base_seconds * surface_multiplier(constants, edge.surface)
 
 
-#: The node property "distance" (D-180): how many transits it is from civic
-#: land. Built-up area has none at all, and that is the same as zero.
-REACH = "distance"
+def walk_seconds(constants: Constants, metres: float) -> float:
+    """How long the road's reference walk over these metres takes (D-319).
 
-
-def reach_of(node: Node) -> int:
-    """The node's distance. Civic land and everything created before D-180 -- zero."""
-    return int((node.properties or {}).get(REACH, 0) or 0)
-
-
-def frontier_seconds(constants: Constants, reach: int) -> float:
-    """Transit length to a node of this distance (D-180).
-
-    The first ring beyond the walls costs `travel.frontier_step`, each next one
-    `travel.frontier_growth` times more than the previous. The settled
-    surroundings are thereby closer than the unexplored, and that is the only
-    reason a near resource is hauled daily and a far one by expedition.
+    The surface's multiplier (D-107) is applied on top by `edge_seconds`, so
+    this is the road's time: the wild is slower and the highway faster by their
+    own factors, and the metres are the same metres.
     """
-    step = constants[R.TRAVEL_FRONTIER_STEP]
-    growth = constants[R.TRAVEL_FRONTIER_GROWTH]
-    return step * growth ** max(0, reach - 1)
+    pace = float(constants[R.TRAVEL_WALK_SPEED_KMH]) * METRES_PER_KM / SECONDS_PER_HOUR
+    return max(1.0, metres / pace)
 
 
 async def has_transport(session: AsyncSession, body: Body) -> bool:

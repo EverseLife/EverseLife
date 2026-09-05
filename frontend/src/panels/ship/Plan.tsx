@@ -57,7 +57,8 @@ type Frame = { x: number; y: number; w: number; h: number };
  * would read as "nothing moved".
  */
 function cellOf(node: MapNode, cell: number): Cell | null {
-  if (!node.place) return null;
+  //: A room stands on the flat plan of the inside, never on the sphere (D-319).
+  if (!node.place || !("x" in node.place)) return null;
   const x = node.place.x / cell;
   const y = node.place.y / cell;
   if (!Number.isInteger(x) || !Number.isInteger(y)) return null;

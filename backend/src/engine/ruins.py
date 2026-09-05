@@ -249,7 +249,6 @@ async def open_room(
             #: (`estate.price.nodes_from_center`) -- depth is what the scouting
             #: goes by, not a second copy of that measurement.
             DEPTH: depth,
-            travel.REACH: travel.reach_of(origin),
         },
     )
     await _fill(session, constants, dice, room, room_type, depth, who=who)
@@ -354,7 +353,6 @@ async def lost_city(
             KIND: kind,
             #: The frontier recedes by a step, as with any find (D-180): the
             #: further from what is settled, the longer the walk.
-            travel.REACH: travel.reach_of(origin) + 1,
         },
     )
     area = constants[R.EXPLORE_NODE_AREA]
@@ -366,7 +364,7 @@ async def lost_city(
         area_m2=seed.uniform(area.min, area.max),
         layer=Layer.PLANET,
         parent=city,
-        properties={PRECURSOR: True, DEPTH: 0, travel.REACH: travel.reach_of(city)},
+        properties={PRECURSOR: True, DEPTH: 0},
     )
     hall = await world.create_node(
         session,
@@ -380,21 +378,13 @@ async def lost_city(
         properties={
             PRECURSOR: True,
             DEPTH: 1,
-            travel.REACH: travel.reach_of(city),
             #: Long dead: the anchor is pushed back past the reactor's whole
             #: life, so its output is nought from the first minute anybody sees
             #: it. Nobody was waiting here.
             energy.REACTOR_SINCE: _long_dead(constants).isoformat(),
         },
     )
-    step = constants[R.TRAVEL_CITY_STEP]
-    await travel.connect(
-        session,
-        port,
-        hall,
-        base_seconds=seed.uniform(step.min, step.max),
-        surface=Surface.PAVED,
-    )
+    await travel.connect(session, port, hall, surface=Surface.PAVED)
     await grant_relic(session, port, RELIC_YARD, origin=f"наследие Предтеч: {city.name}")
     await grant_relic(session, hall, RELIC_PLANT, origin=f"наследие Предтеч: {city.name}")
     await grant_relic(session, hall, energy.REACTOR, origin=f"наследие Предтеч: {city.name}")

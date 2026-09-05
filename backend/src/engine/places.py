@@ -1,31 +1,33 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Nurlan Urazkulov
 
-"""Where a node stands on the map, once and for everybody (D-237).
+"""Where a node stands, once and for everybody (D-237, D-319).
 
-Until now the map had no places at all. The client settled the graph with
-springs every time it was opened, and a spring layout has no preferred
-orientation: the same three nodes came out turned differently on two openings,
-turned differently again for the neighbour looking at the same city, and turned
-differently once more after a find. Nobody could say "the mine is north of the
-gate", because there was no north and no gate to be north of.
-
-So a place is a property of the node, like its area:
+A place is a property of the node, like its area:
 
 * **assigned once**, when the node is created, and never recomputed. The world
   is eternal and has no wipes (D-007) -- a map that redrew itself would be the
   one thing in it that does;
 * **next to the node it was laid from**. The anchor is passed by whoever
-  creates the node -- exploration knows which node the scout left from, a room
-  knows the corridor it opened off, a ship's node knows the one it was laid
-  from -- so an edge on the map is short and the graph reads as a graph;
-* **in the coordinates of its own layer**. A find beyond the walls stands next
-  to the *city* on the planet's map (D-206), because that is what the whole
-  city is on that map; a plot inside stands next to the very node it was sought
-  from.
+  creates the node -- a room knows the corridor it opened off, a ship's node
+  knows the one it was laid from, the seed knows what it lays beside what --
+  so an edge on the map is short and the graph reads as a graph.
+
+Two kinds of place, for the two levels the graph has (D-319):
+
+* **the surface is a sphere.** A node of a planet's surface stands at a
+  latitude and a longitude (`globe`), one level for the whole planet: a
+  house at the edge of a city and a vein in the taiga share one map, and the
+  seat is searched on the tangent plane around the anchor in metres
+  (`map.city_step_m`, `map.min_gap_m`), never nearer to anybody than the gap;
+* **the inside is flat.** Floors of a house and rooms aboard a hull (the
+  `location` level) stand at `x, y` in map units of their own group, as they
+  always did: they have no north, and the client draws them in the window of
+  the inside, not on the globe.
 
 The client draws what it is given and computes nothing. That is the whole
-point: one map for every player, the same one tomorrow, and no rotation.
+point: one map for every player, the same one tomorrow, and the globe turns
+only by latitude and longitude, north up.
 
 ## What is not placed here
 
@@ -33,13 +35,6 @@ The space layer. A planet's place is a function of time -- angle from the
 world's epoch, radius from the vault (`world.orbit_of`) -- and a stored point
 would be a second, lying opinion about where it is. A ship stands beside its
 planet, which is the same rule.
-
-## Units
-
-Map units, not metres and not pixels: `runtime.MAP_STEP` and its neighbours are
-execution numbers (D-065 does not apply -- a node standing a step further from
-another changes nothing in the world; what costs time is the edge's seconds).
-The client fits them into whatever frame it has.
 """
 
 from __future__ import annotations
@@ -50,6 +45,9 @@ import math
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src import globe
+from src.constants import Constants, current
+from src.constants import registry as R
 from src.engine import props
 from src.engine.errors import Refusal
 from src.models.world import Layer, Node
@@ -64,29 +62,35 @@ from src.runtime import (
 )
 
 #: The node property the place lives in. A data key of the world, like
-#: "орбита" and "даль" beside it -- and a `properties` key rather than a
-#: column, because a place is a fact about one node and needs no index.
+#: "орбита" beside it -- and a `properties` key rather than a column, because a
+#: place is a fact about one node and needs no index.
 PLACE = "map"
+#: The flat place of the inside: map units of the group.
 PLACE_X = "x"
 PLACE_Y = "y"
+#: The place on the sphere: degrees.
+PLACE_LAT = "lat"
+PLACE_LON = "lon"
 
 #: Where a group's first node stands when there is nothing to stand next to.
 ORIGIN = (0.0, 0.0)
+#: And on the sphere: the equator under the prime meridian. A city the seed
+#: gives no point to stands here, and the seed is expected to give one.
+ORIGIN_GEO: globe.Geo = (0.0, 0.0)
 
 
 class PlaceIsFixed(Refusal):
     """A node of the world does not move: its place is given once (D-237)."""
 
 
-#: The layers a place is stored for. Space is not among them: there a node's
+#: The levels a place is stored for. Space is not among them: there a node's
 #: point is computed from the clock, and a stored one would contradict it.
 PLACED = (Layer.PLANET, Layer.LOCATION)
 
 
-def _point(properties: dict | None) -> tuple[float, float] | None:
-    """The place out of a node's properties, whether the row came whole or by columns."""
+def _flat(properties: dict | None) -> tuple[float, float] | None:
     point = (properties or {}).get(PLACE)
-    if not isinstance(point, dict):
+    if not isinstance(point, dict) or PLACE_X not in point:
         return None
     try:
         return float(point[PLACE_X]), float(point[PLACE_Y])
@@ -94,15 +98,33 @@ def _point(properties: dict | None) -> tuple[float, float] | None:
         return None
 
 
+def _geo(properties: dict | None) -> globe.Geo | None:
+    point = (properties or {}).get(PLACE)
+    if not isinstance(point, dict) or PLACE_LAT not in point:
+        return None
+    try:
+        return float(point[PLACE_LAT]), float(point[PLACE_LON])
+    except (KeyError, TypeError, ValueError):  # pragma: no cover -- a hand-edited row
+        return None
+
+
 def place_of(node: Node) -> tuple[float, float] | None:
-    """The node's place, or None if it has none (space, or a node from before D-237)."""
-    return _point(node.properties)
+    """The node's flat place -- a floor's, a room's -- or None."""
+    return _flat(node.properties)
+
+
+def geo_of(node: Node) -> globe.Geo | None:
+    """The node's place on its planet's sphere, or None: the sky, or the inside."""
+    return _geo(node.properties)
 
 
 def wire(node: Node) -> dict[str, float] | None:
     """The place as the client is told it. The data key is the world's, this one is the code's."""
-    point = place_of(node)
-    return None if point is None else {"x": point[0], "y": point[1]}
+    on_sphere = geo_of(node)
+    if on_sphere is not None:
+        return {"lat": on_sphere[0], "lon": on_sphere[1]}
+    flat = place_of(node)
+    return None if flat is None else {"x": flat[0], "y": flat[1]}
 
 
 def _direction(key: str) -> float:
@@ -117,42 +139,21 @@ def _direction(key: str) -> float:
     return (seed / MAP_HASH_SPAN) * math.tau
 
 
-async def _neighbourhood(session: AsyncSession, node: Node) -> list[tuple[float, float]]:
-    """The places already taken on this node's own map.
-
-    A map is per group, not per world: the rooms of one house do not crowd the
-    rooms of another, and two planets share no ground. So the built-up layer
-    and the sub-nodes compete inside their parent, and the planet's surface
-    inside its planet.
-
-    Two columns, not whole rows: a planet's surface grows with every find and
-    has no ceiling, and this runs on every node created.
-    """
+def _group(node: Node) -> tuple[object, ...]:
+    """Which map this node is drawn on: one planet's surface, or one house's floors."""
     if node.layer is Layer.PLANET:
-        where = Node.planet == node.planet
-    else:
-        where = Node.parent_id == node.parent_id
-    rows = await session.execute(
-        select(Node.id, Node.properties).where(Node.layer == node.layer, where)
-    )
-    taken = []
-    for other_id, properties in rows:
-        if other_id == node.id:
-            continue
-        point = _point(properties)
-        if point is not None:
-            taken.append(point)
-    return taken
+        return (node.layer, node.planet)
+    return (node.layer, node.parent_id)
 
 
 async def _hold(session: AsyncSession, node: Node) -> None:
     """Hold this node's map until the transaction ends.
 
-    Two scouts returning in the same second, two rooms opened at once: both read
+    Two rooms opened at once, two nodes the seed lays in one breath: both read
     the same taken places and both pick the same free spot. A place is never
     recomputed, so an overlap made here would be permanent and there would be
-    nothing left to fix it with. The lock is per group -- one city, one planet's
-    surface -- so laying out Terra does not wait on laying out Aurora.
+    nothing left to fix it with. The lock is per group -- one planet's surface,
+    one house -- so laying out Terra does not wait on laying out Aurora.
     """
     stamp = hashlib.blake2b(str(_group(node)).encode(), digest_size=MAP_LOCK_BYTES).digest()
     await session.execute(
@@ -161,14 +162,30 @@ async def _hold(session: AsyncSession, node: Node) -> None:
     )
 
 
-async def _centre(session: AsyncSession, node: Node, anchor: Node | None) -> tuple[float, float]:
-    """What the new node is laid next to, in its own layer's coordinates.
+# --- the inside: flat --------------------------------------------------------
 
-    The anchor may stand on a lower layer than the node being placed -- a find
-    beyond the walls is sought from a node inside a city, and on the planet's
-    map that whole city is one point (D-206). So we climb to the delegate of
-    the anchor on this node's layer, which is the point the map actually draws.
-    """
+
+async def _flat_neighbourhood(session: AsyncSession, node: Node) -> list[tuple[float, float]]:
+    """The flat places already taken in this node's group: the rooms of one house."""
+    rows = await session.execute(
+        select(Node.id, Node.properties).where(
+            Node.layer == node.layer, Node.parent_id == node.parent_id
+        )
+    )
+    taken = []
+    for other_id, properties in rows:
+        if other_id == node.id:
+            continue
+        point = _flat(properties)
+        if point is not None:
+            taken.append(point)
+    return taken
+
+
+async def _flat_centre(
+    session: AsyncSession, node: Node, anchor: Node | None
+) -> tuple[float, float]:
+    """What the new room is laid next to: the room it opened off, on the same floor plan."""
     cursor = anchor
     while cursor is not None:
         if cursor.layer is node.layer:
@@ -179,46 +196,27 @@ async def _centre(session: AsyncSession, node: Node, anchor: Node | None) -> tup
     return ORIGIN
 
 
-def _free(spot: tuple[float, float], taken: list[tuple[float, float]]) -> bool:
+def _flat_free(spot: tuple[float, float], taken: list[tuple[float, float]]) -> bool:
     return all(math.hypot(spot[0] - x, spot[1] - y) >= MAP_MIN_GAP for x, y in taken)
 
 
-def _seat(
+def _flat_seat(
     centre: tuple[float, float], taken: list[tuple[float, float]], lean: float
 ) -> tuple[float, float]:
-    """A free place on some ring round the centre. Never one already taken.
+    """A free flat place on some ring round the centre. Never one already taken.
 
-    **How many seats a ring has is its own circumference's business.** Twelve on
-    every ring put the near rings' seats on top of each other and the far rings'
-    a screen apart, and the search gave up after `MAP_RINGS` of them -- after
-    which the old code kept whatever spot it had computed last, occupied or not.
-    A place is never recomputed (D-007), so that overlap was for ever, and on a
-    planet's surface it was not an exotic case: every find of one city anchors
-    to the same point, so a mature planet reached the ceiling by ordinary play.
-
-    Widening always ends: a ring's room grows with its radius while the places
-    already taken are finite. The walk out is bounded all the same, and past the
-    bound the node is seated a whole step beyond everything on the map, which is
-    further from every taken place than the gap and so cannot fail the test.
+    How many seats a ring has is its own circumference's business, and the
+    walk out is bounded: past the bound the node is seated a whole step beyond
+    everything on the map, which cannot fail the gap.
     """
-    #: A ring per node already placed, and `MAP_RINGS` on top: the innermost
-    #: ring alone seats several, so the walk cannot reach this before it finds
-    #: room. It is a guard against a misconfigured gap, not a policy.
     rings = len(taken) + MAP_RINGS
     for ring in range(1, rings + 1):
         radius = MAP_STEP * ring
-        #: The golden angle keeps the tried directions off rays whatever the
-        #: count; how many are worth trying is what the ring can actually hold.
         for seat in range(max(1, int(math.tau * radius / MAP_MIN_GAP))):
             angle = lean + MAP_TURN * seat
             spot = (centre[0] + radius * math.cos(angle), centre[1] + radius * math.sin(angle))
-            if _free(spot, taken):
+            if _flat_free(spot, taken):
                 return spot
-
-    #: Unreachable while the gap is smaller than a ring's circumference, and
-    #: still not a place to guess from: put the node past the whole map rather
-    #: than on somebody's head. A step is wider than a gap, so the distance from
-    #: here to the furthest taken place already clears the test.
     edge = max(  # pragma: no cover -- a gap wider than the rings it is measured on
         (math.hypot(x - centre[0], y - centre[1]) for x, y in taken), default=0.0
     )
@@ -226,38 +224,145 @@ def _seat(
     return (centre[0] + far * math.cos(lean), centre[1] + far * math.sin(lean))  # pragma: no cover
 
 
+# --- the surface: a sphere ----------------------------------------------------
+
+
+async def _geo_neighbourhood(session: AsyncSession, node: Node) -> list[globe.Geo]:
+    """The places already taken on this node's planet: the whole surface is one map (D-319).
+
+    Two columns, not whole rows: a planet's surface has no ceiling, and this
+    runs on every node created.
+    """
+    rows = await session.execute(
+        select(Node.id, Node.properties).where(
+            Node.layer == Layer.PLANET, Node.planet == node.planet
+        )
+    )
+    taken = []
+    for other_id, properties in rows:
+        if other_id == node.id:
+            continue
+        point = _geo(properties)
+        if point is not None:
+            taken.append(point)
+    return taken
+
+
+async def _geo_centre(session: AsyncSession, anchor: Node | None) -> globe.Geo:
+    """What the new node is laid next to: the anchor's nearest ancestor standing on the sphere."""
+    cursor = anchor
+    while cursor is not None:
+        point = geo_of(cursor)
+        if point is not None:
+            return point
+        if cursor.parent_id is None:
+            break
+        cursor = await session.get(Node, cursor.parent_id)
+    return ORIGIN_GEO
+
+
+def _geo_free(radius: float, gap: float, spot: globe.Geo, taken: list[globe.Geo]) -> bool:
+    return all(globe.distance_m(radius, spot, other) >= gap for other in taken)
+
+
+def _geo_seat(
+    constants: Constants,
+    radius: float,
+    centre: globe.Geo,
+    taken: list[globe.Geo],
+    lean: float,
+) -> globe.Geo:
+    """A free place on some ring round the centre, in metres on the tangent plane.
+
+    The same walk as the flat one -- rings a step apart, the golden angle
+    between tries, as many tries as the ring can hold -- only the ring is
+    measured in metres on the sphere, and a seat is free when it is a gap or
+    more from everybody, by great circle.
+    """
+    step = float(constants[R.MAP_CITY_STEP_M])
+    gap = float(constants[R.MAP_MIN_GAP_M])
+    rings = len(taken) + MAP_RINGS
+    for ring in range(1, rings + 1):
+        reach = step * ring
+        for seat in range(max(1, int(math.tau * reach / gap))):
+            angle = lean + MAP_TURN * seat
+            spot = globe.offset(radius, centre, reach * math.cos(angle), reach * math.sin(angle))
+            if _geo_free(radius, gap, spot, taken):
+                return spot
+    edge = max(  # pragma: no cover -- a gap wider than the rings it is measured on
+        (globe.distance_m(radius, centre, other) for other in taken), default=0.0
+    )
+    far = edge + step  # pragma: no cover
+    return globe.offset(
+        radius, centre, far * math.cos(lean), far * math.sin(lean)
+    )  # pragma: no cover
+
+
+# --- the one door --------------------------------------------------------------
+
+
 async def assign(
     session: AsyncSession,
     node: Node,
     *,
     anchor: Node | None = None,
-    taken: list[tuple[float, float]] | None = None,
+    taken: list | None = None,
 ) -> None:
     """Give the node its place, next to the anchor and clear of everybody else.
 
     Called once, from `world.create_node`. A node that already has a place
-    keeps it: this is the one property of a node that never moves.
+    keeps it: this is the one property of a node that never moves. A place
+    written before creation -- the seed's pin -- is such a place.
 
-    `taken` is the group's occupied places when the caller already holds them --
-    the backfill walks a whole group and would otherwise read the same rows back
-    once per node. Left out, they are read here, under the group's lock.
+    `taken` is the group's occupied places when the caller already holds them;
+    left out, they are read here, under the group's lock.
     """
-    if node.layer not in PLACED or place_of(node) is not None:
+    if node.layer not in PLACED or place_of(node) is not None or geo_of(node) is not None:
+        return
+    if node.layer is Layer.PLANET:
+        if taken is None:
+            await _hold(session, node)
+            taken = await _geo_neighbourhood(session, node)
+        constants = current()
+        radius = globe.radius_m(constants, node.planet)
+        centre = await _geo_centre(session, anchor)
+        gap = float(constants[R.MAP_MIN_GAP_M])
+        #: The surface's own first node stands at its origin: there is nothing
+        #: to stand beside.
+        spot = (
+            centre
+            if _geo_free(radius, gap, centre, taken)
+            else _geo_seat(constants, radius, centre, taken, _direction(node.key))
+        )
+        taken.append(spot)
+        await props.stamp(session, node, {PLACE: {PLACE_LAT: spot[0], PLACE_LON: spot[1]}})
         return
     if taken is None:
         await _hold(session, node)
-        taken = await _neighbourhood(session, node)
-    centre = await _centre(session, node, anchor)
-    #: The group's own first node stands at its origin: there is nothing to
-    #: stand beside, and a first node pushed onto a ring would make a forgotten
-    #: anchor and a lone node look exactly alike.
-    spot = centre if _free(centre, taken) else _seat(centre, taken, _direction(node.key))
+        taken = await _flat_neighbourhood(session, node)
+    centre = await _flat_centre(session, node, anchor)
+    spot = centre if _flat_free(centre, taken) else _flat_seat(centre, taken, _direction(node.key))
     taken.append(spot)
     await props.stamp(session, node, {PLACE: {PLACE_X: spot[0], PLACE_Y: spot[1]}})
 
 
+async def pin(session: AsyncSession, node: Node, point: globe.Geo) -> None:
+    """Put a surface node at this point on its sphere: the seed's pin, before any seat is searched.
+
+    The one way a place on the sphere is chosen rather than found: the
+    scenario names where a city stands, and everything laid beside it follows.
+    Refused once the node has a place (D-237).
+    """
+    if node.layer is not Layer.PLANET:
+        raise PlaceIsFixed(key="place-is-fixed", node=node.name)
+    if geo_of(node) is not None:
+        raise PlaceIsFixed(key="place-is-fixed", node=node.name)
+    await _hold(session, node)
+    await props.stamp(session, node, {PLACE: {PLACE_LAT: point[0], PLACE_LON: point[1]}})
+
+
 async def move(session: AsyncSession, node: Node, spot: tuple[float, float]) -> None:
-    """Put an existing node at this place -- the one way a place ever changes.
+    """Put an existing room at this flat place -- the one way a place ever changes.
 
     **Ground never moves** (D-237): the capital stands where it stands, for
     everybody and tomorrow, and that is the whole worth of the rule. The single
@@ -280,18 +385,13 @@ async def move(session: AsyncSession, node: Node, spot: tuple[float, float]) -> 
     await props.stamp(session, node, {PLACE: {PLACE_X: spot[0], PLACE_Y: spot[1]}})
 
 
-def _group(node: Node) -> tuple[object, ...]:
-    """Which map this node is drawn on: one planet's surface, or one house's floors."""
-    if node.layer is Layer.PLANET:
-        return (node.layer, node.planet)
-    return (node.layer, node.parent_id)
+def distance_m(constants: Constants, one: Node, other: Node) -> float | None:
+    """How far apart two surface nodes stand, in metres -- or None off the sphere.
 
-
-def _delegate(node: Node, layer: Layer, by_id: dict[object, Node]) -> Node | None:
-    """The node that stands for this one on that layer -- itself or an ancestor."""
-    cursor: Node | None = node
-    while cursor is not None:
-        if cursor.layer is layer:
-            return cursor
-        cursor = by_id.get(cursor.parent_id) if cursor.parent_id is not None else None
-    return None
+    Two planets share no ground: a pair on different planets has no distance,
+    like a pair of which one is a room or a hull.
+    """
+    here, there = geo_of(one), geo_of(other)
+    if here is None or there is None or one.planet is not other.planet:
+        return None
+    return globe.distance_m(globe.radius_m(constants, one.planet), here, there)

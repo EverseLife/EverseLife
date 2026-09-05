@@ -1,0 +1,68 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
+"""The sphere: where a point on a planet is, and how far two of them lie apart (D-319).
+
+Outside `engine` on purpose, beside `astro` and `units`: this is arithmetic
+with its own numbers -- the last latitude, the wrap of a longitude -- and the
+rule modules hold no numbers of their own (D-065). The radius alone is the
+vault's, and it is read here from the registry.
+
+A node of a planet's surface stands at a latitude and a longitude, in degrees,
+on a sphere whose radius is the planet's share of Terra (`planet.radius`, D-320)
+times Terra's own radius in kilometres (`planet.terra_radius_km`). Everything
+here is arithmetic over those two numbers: no session, no clock, no rounding
+into map units -- the client fits degrees into whatever frame it draws.
+
+Great-circle distances by the haversine formula; offsets on the tangent plane
+are turned into degrees by the same radius. Good to a metre over the few
+kilometres a city and its surroundings span, which is all the surface needs
+until wave 5 of the plan reads the sky in the same kilometres.
+"""
+
+from __future__ import annotations
+
+import math
+
+from src.constants import Constants
+from src.constants import registry as R
+from src.models.world import Planet
+from src.units import METRES_PER_KM
+
+#: A point on the sphere: latitude, longitude, degrees.
+Geo = tuple[float, float]
+
+#: The last usable latitude: "north up" is not defined on the pole itself, and
+#: a seat pushed past it would come back round the other side.
+LAST_LAT = 89.0
+
+
+def radius_m(constants: Constants, planet: Planet) -> float:
+    """The planet's radius in metres: its share of Terra times Terra's own."""
+    share = float(constants[R.PLANET_RADIUS].get(planet.value, 1.0))
+    return share * float(constants[R.PLANET_TERRA_RADIUS_KM]) * METRES_PER_KM
+
+
+def distance_m(radius: float, one: Geo, other: Geo) -> float:
+    """The great-circle distance between two points of a sphere of that radius."""
+    lat1, lon1 = math.radians(one[0]), math.radians(one[1])
+    lat2, lon2 = math.radians(other[0]), math.radians(other[1])
+    sin_lat = math.sin((lat2 - lat1) / 2)
+    sin_lon = math.sin((lon2 - lon1) / 2)
+    chord = sin_lat * sin_lat + math.cos(lat1) * math.cos(lat2) * sin_lon * sin_lon
+    return 2 * radius * math.asin(min(1.0, math.sqrt(chord)))
+
+
+def offset(radius: float, at: Geo, east_m: float, north_m: float) -> Geo:
+    """The point `east_m` east and `north_m` north of `at`, on the tangent plane.
+
+    The longitude step shrinks with the cosine of the latitude, so a step east
+    is the same metres at the equator and near the pole; the latitude is held
+    short of the pole itself.
+    """
+    lat = math.radians(at[0])
+    d_lat = math.degrees(north_m / radius)
+    d_lon = math.degrees(east_m / (radius * max(math.cos(lat), 1e-9)))
+    new_lat = max(-LAST_LAT, min(LAST_LAT, at[0] + d_lat))
+    new_lon = ((at[1] + d_lon + 180.0) % 360.0) - 180.0
+    return (new_lat, new_lon)

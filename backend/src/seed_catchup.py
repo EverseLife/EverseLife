@@ -40,7 +40,7 @@ from src.models.event import Event, EventKind
 from src.models.identity import Account, Identity
 from src.models.inventory import Container, ContainerKind, Item
 from src.models.ship import Ship
-from src.models.world import PLOT, Edge, Layer, Node, Surface, built_up
+from src.models.world import PLOT, Edge, Layer, Node, built_up
 from src.seed_surfaces import surfaces
 
 log = logging.getLogger("everselife.seed")
@@ -202,37 +202,6 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
     #: A world furnished before D-209 gets its base shelf: without it the
     #: capital's library would stand full of books nobody may copy.
     await parts.shelves(session, scenario, applied)
-
-    #: Node distance and exit lengths (D-180): the first ring beyond the walls
-    #: is twenty seconds of walking, not twenty minutes. A world created before
-    #: this decision gets distance retroactively, and its edges are recomputed by it.
-    gate = (
-        await session.execute(select(Node).where(Node.key == "terra.capital.gate"))
-    ).scalar_one_or_none()
-    for key in ("terra.coal", "terra.floodplain"):
-        node = (await session.execute(select(Node).where(Node.key == key))).scalar_one_or_none()
-        if node is None or gate is None:
-            continue
-        if travel.reach_of(node) == 0:
-            await props.stamp(session, node, {travel.REACH: 1})
-        edge = (
-            (
-                await session.execute(
-                    select(Edge).where(
-                        ((Edge.node_a_id == gate.id) & (Edge.node_b_id == node.id))
-                        | ((Edge.node_a_id == node.id) & (Edge.node_b_id == gate.id))
-                    )
-                )
-            )
-            .scalars()
-            .first()
-        )
-        seconds = travel.frontier_seconds(constants, travel.reach_of(node))
-        if edge is None:
-            await travel.connect(session, gate, node, base_seconds=seconds, surface=Surface.ROAD)
-        else:
-            edge.base_seconds = int(seconds)
-            edge.surface = Surface.ROAD
 
     #: The mint has been renamed twice: yard -> press (D-016, together with
     #: abolishing fineness), press -> station (D-200, "станок" became "рабочая

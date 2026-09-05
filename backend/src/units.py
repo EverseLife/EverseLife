@@ -206,3 +206,7 @@ def on_grid(value: float | Decimal, scale: int, rounding: str = ROUND_HALF_EVEN)
 def step(scale: int) -> Decimal:
     """The smallest a `Numeric(_, scale)` column can tell apart."""
     return Decimal(1).scaleb(-scale)
+
+
+#: Metres in a kilometre: the vault speaks of kilometres, the sphere of metres.
+METRES_PER_KM = 1000.0

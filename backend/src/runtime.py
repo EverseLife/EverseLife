@@ -160,12 +160,14 @@ POW_PARALLELISM = 1
 POW_STARTS_PER_WINDOW = 20
 POW_WINDOW = timedelta(minutes=10)
 
-#: Where a node stands on the map (D-237). Map units, not pixels and not
-#: metres: the client fits them to its own frame. Not balance either -- a node
-#: standing a step further from its neighbour changes nothing in the world, and
-#: the distance that does cost time is the edge's own seconds.
+#: Where a room stands on the floor plan of the inside (D-237, D-319). Map
+#: units, not pixels and not metres: the client fits them to its own frame.
+#: Not balance -- a room standing a step further from its neighbour changes
+#: nothing in the world. The surface is not measured in these: a node of a
+#: planet stands at a latitude and a longitude, and its step and gap are the
+#: vault's metres (`map.city_step_m`, `map.min_gap_m`).
 #:
-#: One step from the node a new one was laid from, and never nearer than a
+#: One step from the room a new one was laid from, and never nearer than a
 #: label's width to anybody else.
 MAP_STEP = 150.0
 MAP_MIN_GAP = 96.0

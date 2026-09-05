@@ -12,13 +12,14 @@ from collections.abc import Sequence
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.constants import Constants
+from src.constants import Constants, current
 from src.engine import (
     estate,
     net,
+    places,
 )
 from src.engine import ship as vessels
-from src.engine.travel._base import EdgeInUse, Exit, _edge_between, edge_seconds
+from src.engine.travel._base import EdgeInUse, Exit, _edge_between, edge_seconds, walk_seconds
 from src.models.travel import Travel, TravelState
 from src.models.world import Edge, Node, Surface
 
@@ -71,10 +72,16 @@ async def connect(
     a: Node,
     b: Node,
     *,
-    base_seconds: float,
+    base_seconds: float | None = None,
     surface: Surface = Surface.ROAD,
 ) -> Edge:
     """Connect two nodes with an edge. Undirected -- the road is the same both ways.
+
+    **Time is distance** (D-319): between two nodes of a planet's surface the
+    length is the metres between them at the walking pace, and nobody passes
+    it in. Seconds are given only where there are no metres -- a gangway, a
+    stair, a hatch between hulls -- and asking for them anywhere else is a
+    mistake, not a choice.
 
     The docking half of the pair (D-201): a ship couples to a spaceport by one
     edge between its connector and the port node, and nothing else in the graph
@@ -88,6 +95,11 @@ async def connect(
     existing = await _edge_between(session, a.id, b.id)
     if existing is not None:
         return existing
+    if base_seconds is None:
+        metres = places.distance_m(current(), a, b)
+        if metres is None:
+            raise ValueError(f"an edge {a.key} -- {b.key} has no metres and was given no seconds")
+        base_seconds = walk_seconds(current(), metres)
     #: Asked before the edge exists: whether either end is a place nothing led
     #: to yet. See below -- that decides whether measured distances survive.
 

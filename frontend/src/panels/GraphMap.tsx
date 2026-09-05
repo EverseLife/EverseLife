@@ -61,6 +61,7 @@ import { Inspector } from "./map/Inspector";
 import { NodeMenu } from "./map/NodeMenu";
 import { Edges, Nodes } from "./map/Nodes";
 import { useHand } from "./map/hand";
+import { flatten } from "./map/geo";
 import { settle } from "./map/layout";
 import { SkyBackdrop, SkyClock } from "./map/Sky";
 import { Switcher } from "./map/Switcher";
@@ -374,8 +375,7 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
     //: The sky is nobody's ground: there every point comes from the clock, and
     //: settling springs whose result is thrown away is pure work.
     if (orbiting) return new Map<string, Point>();
-    const given = new Map<string, Point>();
-    for (const node of visible) if (node.place) given.set(node.key, node.place);
+    const given = flatten(visible);
     return settle(
       visible.map((node) => node.key),
       shownEdges,

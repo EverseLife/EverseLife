@@ -32,15 +32,14 @@ from __future__ import annotations
 
 import json
 import logging
-import random
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.constants import ConstantError, Constants, current_catalog, load_renames
-from src.constants import registry as R
+from src import globe
+from src.constants import ConstantError, Constants, current, current_catalog, load_renames
 from src.constants.renames import RenameTable
 from src.engine import goods, places, ruins, travel, world
 from src.models.inventory import Item
@@ -54,7 +53,6 @@ log = logging.getLogger("everselife.seed")
 #: The edge length meaning "by the node's distance" (D-180): the transit is
 #: priced by how far beyond the walls the destination lies, not by a number
 #: somebody typed.
-BY_REACH = "reach"
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,9 +95,12 @@ class NodeSpec:
     parent: str | None
     anchor: str | None
     area_m2: float
-    #: A pinned place on the group's map, or None -- the engine seats the node
-    #: next to its anchor (D-237).
-    place: tuple[float, float] | None
+    #: A pinned place, or None -- the engine seats the node next to its anchor
+    #: (D-237). On the surface either `{"lat", "lon"}` in degrees, or `{"x",
+    #: "y"}` in metres east and north of the anchor's point (the parent's when
+    #: there is no anchor); inside a house, `{"x", "y"}` in the floor plan's
+    #: own units.
+    place: dict[str, float] | None
     #: An institutional city is founded here (D-154). The founding itself is
     #: `seed.py`'s: a charter and a treasury are rules, not layout.
     city: bool
@@ -114,8 +115,8 @@ class NodeSpec:
 class EdgeSpec:
     a: str
     b: str
-    #: None -- a city step, rolled; BY_REACH -- by distance (D-180); a number
-    #: -- exactly that many seconds.
+    #: None -- the metres between the two ends at the walking pace (D-319);
+    #: a number -- exactly that many seconds, where there are no metres.
     seconds: float | str | None
     surface: Surface
 
@@ -199,7 +200,7 @@ def load_scenario(build_dir: Path | None = None) -> Scenario:
                 anchor=node.get("anchor"),
                 area_m2=float(node["area_m2"]),
                 place=(
-                    (float(node["place"]["x"]), float(node["place"]["y"]))
+                    {axis: float(value) for axis, value in node["place"].items()}
                     if node.get("place")
                     else None
                 ),
@@ -338,11 +339,11 @@ async def _lay_node(session: AsyncSession, spec: NodeSpec, applied: Applied) -> 
         #: An external parent -- a planet the engine laid before the layout.
         parent = (await session.execute(select(Node).where(Node.key == spec.parent))).scalar_one()
     properties = dict(spec.properties)
+    anchor = applied.nodes.get(spec.anchor) if spec.anchor else None
     if spec.place is not None:
         #: A pinned place: written before creation, so `places.assign` keeps it
         #: -- the one property of a node that never changes afterwards (D-237).
-        properties[places.PLACE] = {places.PLACE_X: spec.place[0], places.PLACE_Y: spec.place[1]}
-    anchor = applied.nodes.get(spec.anchor) if spec.anchor else None
+        properties[places.PLACE] = await _pinned(session, spec, parent, anchor)
     node = await world.create_node(
         session,
         spec.key,
@@ -363,24 +364,46 @@ async def _lay_node(session: AsyncSession, spec: NodeSpec, applied: Applied) -> 
     return node
 
 
+async def _pinned(
+    session: AsyncSession, spec: NodeSpec, parent: Node | None, anchor: Node | None
+) -> dict[str, float]:
+    """The place the layout pins, in the shape `places` stores it.
+
+    Degrees are taken as they are. Metres are measured from the anchor's
+    point on the sphere -- the parent's when the layout names no anchor --
+    so a layout says "fifty metres east of the core" and never a latitude
+    to six decimals; a pin with nothing to measure from stands off the
+    sphere's origin. Inside a house the metres are the floor plan's own units.
+    """
+    if spec.place is None:  # pragma: no cover -- asked only with a pin
+        return {}
+    if "lat" in spec.place:
+        return {places.PLACE_LAT: spec.place["lat"], places.PLACE_LON: spec.place["lon"]}
+    if spec.layer is not Layer.PLANET:
+        return {places.PLACE_X: spec.place["x"], places.PLACE_Y: spec.place["y"]}
+    beside = anchor if anchor is not None else parent
+    at = places.ORIGIN_GEO
+    cursor = beside
+    while cursor is not None:
+        point = places.geo_of(cursor)
+        if point is not None:
+            at = point
+            break
+        cursor = None if cursor.parent_id is None else await session.get(Node, cursor.parent_id)
+    radius = globe.radius_m(current(), spec.planet)
+    lat, lon = globe.offset(radius, at, spec.place["x"], spec.place["y"])
+    return {places.PLACE_LAT: lat, places.PLACE_LON: lon}
+
+
 async def _lay_edges(
     session: AsyncSession, constants: Constants, scenario: Scenario, applied: Applied
 ) -> None:
-    step = constants[R.TRAVEL_CITY_STEP]
     for spec in scenario.edges:
         a, b = applied.nodes[spec.a], applied.nodes[spec.b]
-        if spec.seconds == BY_REACH:
-            reach = max(travel.reach_of(a), travel.reach_of(b))
-            seconds = travel.frontier_seconds(constants, reach)
-        elif spec.seconds is None:
-            #: A city step, rolled -- but by the edge's own name, so two
-            #: servers laying the same world lay the same seconds (D-007).
-            dice = random.Random("|".join(sorted((spec.a, spec.b))))
-            seconds = dice.uniform(step.min, step.max)
-        else:
-            seconds = float(spec.seconds)
-        #: `connect` is idempotent: an existing road keeps its length and its
-        #: wear -- what it is worth in seconds is the world's business now.
+        #: The metres between the ends at the walking pace (D-319), unless the
+        #: layout names seconds where there are no metres. `connect` is
+        #: idempotent: an existing road keeps its length and its wear.
+        seconds = None if spec.seconds is None else float(spec.seconds)
         await travel.connect(session, a, b, base_seconds=seconds, surface=spec.surface)
 
 
