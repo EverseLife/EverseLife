@@ -17,7 +17,7 @@
 import { t } from "./locale";
 
 /** Where the world's count starts and how long its day is (from `look.clock`). */
-export type Clock = { planet: string; epoch?: string; day_hours: number };
+export type Clock = { planet: string; epoch?: string; day_hours: number; longitude?: number };
 
 const MS_PER_HOUR = 3_600_000;
 
@@ -39,7 +39,11 @@ export function worldTime(clock: Clock, at: Date = new Date()) {
  */
 export function dayPhase(clock: Clock, at: Date = new Date()): number {
   const { hour, minute } = worldTime(clock, at);
-  return (hour + minute / 60) / clock.day_hours;
+  //: The planet turns (D-319): noon comes to a place east of the meridian
+  //: first, by its longitude's share of the turn. The hands stay the
+  //: planet's; the light is the place's.
+  const turned = (hour + minute / 60) / clock.day_hours + (clock.longitude ?? 0) / 360;
+  return ((turned % 1) + 1) % 1;
 }
 
 /** The lit half of the planetary day: the middle two quarters (D-261). */

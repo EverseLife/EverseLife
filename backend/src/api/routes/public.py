@@ -23,13 +23,13 @@ from src.constants import HOLDER, current, current_renames
 from src.constants import current_catalog as catalog
 from src.constants import registry as R
 from src.db.base import session_factory
-from src.engine import account, estate, market, places, sight, world
+from src.engine import account, estate, market, places, sight, terrain, world
 from src.engine import city as town
 from src.engine import ship as vessels
 from src.engine import travel as roads
 from src.engine.errors import Refusal
 from src.models.identity import Body, BodyState, Identity
-from src.models.world import Layer, Node
+from src.models.world import Layer, Node, Planet
 from src.runtime import MARKET_BOOK_DEPTH, MARKET_BOOK_STEPS
 from src.settings import settings
 
@@ -294,6 +294,21 @@ async def world_map(
             #: so the client ties a corridor to the bodies it already draws.
             "routes": await vessels.corridors(db, constants, at=datetime.now(UTC)),
         }
+
+
+@router.get("/terrain/{planet}")
+async def terrain_of(planet: str) -> dict[str, Any]:
+    """A planet's relief: the height grid, the water lines, the rivers (D-319).
+
+    Everybody's from the world's first day, and the same for everybody: the
+    shape of a planet is arithmetic over the vault, not intelligence, and it is
+    what a farmer walks a river by. No session: nothing here is anybody's.
+    """
+    try:
+        which = Planet(planet)
+    except ValueError as wrong:
+        raise Refusal(key="cmd-no-such-planet", planet=planet) from wrong
+    return terrain.sketch(current(), which)
 
 
 @router.get("/doors")

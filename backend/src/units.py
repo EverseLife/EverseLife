@@ -210,3 +210,6 @@ def step(scale: int) -> Decimal:
 
 #: Metres in a kilometre: the vault speaks of kilometres, the sphere of metres.
 METRES_PER_KM = 1000.0
+
+#: Degrees in a full turn: a longitude's share of the planet's day.
+FULL_TURN_DEGREES = 360.0

@@ -206,6 +206,10 @@ async def _clock(db: AsyncSession, constants, node: Node) -> dict[str, Any]:
         #: Each planet counts its own day (OQ-028, D-261): the clock used to
         #: say Terra's 38 hours on every planet.
         "day_hours": climate.day_hours_of(constants, node.planet),
+        #: The planet turns (D-319): the node's own noon is its longitude's
+        #: share of the day later than the meridian's. Sent with the clock
+        #: because the clock is read where the map is not open.
+        "longitude": climate.longitude_of(node),
     }
 
 

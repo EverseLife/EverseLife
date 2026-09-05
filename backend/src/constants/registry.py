@@ -62,6 +62,18 @@ MAP_CITY_LAT_MAX = Num("map.city_lat_max")
 #: the ring's metres at this pace now.
 TRAVEL_WALK_SPEED_KMH = Num("travel.walk_speed_kmh")
 TRAVEL_STAMINA_PER_HOUR = Num("travel.stamina_per_hour")
+#: The relief of a planet (D-319): one seed for the world, a share of sea and
+#: a count of rivers per planet, one mountain line for all, and how much
+#: colder the top of the land's rise is than its foot. Within
+#: `terrain.river_reach_km` of a river a node has river water, and a node in
+#: the mountains bears a vein `terrain.mountain_vein_k` times as often.
+TERRAIN_SEED = Num("terrain.seed")
+TERRAIN_SEA_SHARE = Table("terrain.sea_share")
+TERRAIN_MOUNTAIN_SHARE = Num("terrain.mountain_share")
+TERRAIN_RIVERS = Table("terrain.rivers")
+TERRAIN_LAPSE_C = Num("terrain.lapse_c")
+TERRAIN_RIVER_REACH_KM = Num("terrain.river_reach_km")
+TERRAIN_MOUNTAIN_VEIN_K = Num("terrain.mountain_vein_k")
 TRANSPORT_STAMINA_K = Num("transport.stamina_k")
 # --- Transport (D-107, D-129, D-157) ----------------------------------------
 #: Hold capacity and speed -- one layout by one key: two would diverge. The
