@@ -12,7 +12,6 @@ the planet's clock in `test_pyroxis_clock.py`.
 
 from __future__ import annotations
 
-import random
 import uuid
 
 from sqlalchemy import select
@@ -128,38 +127,6 @@ async def test_the_console_shows_the_planet_and_not_every_field_of_it(
     #: The name is the planet's own, not the field the row happens to carry:
     #: the hull comes down where the roll puts it (D-235).
     assert row["name"] == sphere.name
-
-
-async def test_a_landing_without_a_port_falls_where_the_rock_allows(
-    session: AsyncSession, constants: Constants
-) -> None:
-    """A planet with no ports takes a ship into a node of its own choosing
-    (D-233, D-235).
-
-    There is nothing to prefer: no piers, no berths, no lit beacons. So the
-    node is rolled at the landing rather than picked in the console -- one sets
-    down where the rock allows. Seeded by the job, so a flight that failed and
-    is retried puts the hull in the same place instead of teleporting it across
-    the planet on the second attempt.
-    """
-    from src.engine.ship.flight import _somewhere_on
-
-    plateau, fields = await _surface(session, count=6)
-    ground = {plateau.id, *(field.id for field in fields)}
-
-    #: The same job always lands in the same place.
-    twice = set()
-    for _ in range(2):
-        twice.add((await _somewhere_on(session, plateau, dice=random.Random("job-1"))).id)
-    assert len(twice) == 1, "повтор рейса не должен переносить корабль"
-
-    #: And across many flights the whole surface is used, not one node.
-    where = set()
-    for attempt in range(40):
-        landed = await _somewhere_on(session, plateau, dice=random.Random(f"job-{attempt}"))
-        assert landed.id in ground, "сели мимо планеты"
-        where.add(landed.id)
-    assert len(where) > 1, "садятся всегда в один узел — это не жеребьёвка"
 
 
 async def test_ground_without_a_planet_property_takes_nobody(

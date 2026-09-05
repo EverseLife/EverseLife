@@ -7,8 +7,9 @@ Docking leaves the land's measurements alone and the climb takes the edge
 with it; an overloaded hull or a crew beyond life support does not fly, and
 neither does a ship without the fuel to come back; a landing moors at the
 chosen pad, berths are numbered, and the summary names the price before
-the attempt. The slipway lives in `test_ship.py`, the console in
-`test_ship_console.py`.
+the attempt; a pad takes as many hulls as fit on its ground, and two hulls
+do not share the last place (D-319). The slipway lives in `test_ship.py`,
+the console in `test_ship_console.py`.
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from conftest import _slow
 from ship_kit import (
     CONSOLE,
     ENGINE,
@@ -38,7 +40,7 @@ from ship_kit import (
 )
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import jobs, ship, travel, world
+from src.engine import estate, jobs, ship, travel, world
 from src.models.identity import Body
 from src.models.job import Job, JobKind
 from src.models.ship import Ship
@@ -291,6 +293,129 @@ async def test_a_landing_moors_at_the_chosen_pad_and_carries_the_passenger(
         arrived_node = await session.get(Node, connector_id)
         ways = {way.node_id for way in await travel.exits(session, constants, arrived_node)}
         assert ways == {there_id}
+
+
+async def _hull_in_orbit(
+    session: AsyncSession, constants: Constants, catalog: Catalog, home: Node
+) -> tuple[Body, Ship]:
+    """A flightworthy hull of its own owner, already hanging over the planet."""
+    _, owner = await _shipwright(session, home)
+    vessel = await _laid(session, constants, owner, home)
+    await _flightworthy(session, constants, catalog, vessel)
+    connector = await session.get(Node, vessel.connector_node_id)
+    owner.node_id = connector.id
+    await session.flush()
+    await _in_orbit(session, constants, catalog, owner, vessel)
+    return owner, vessel
+
+
+async def test_a_pad_takes_as_many_hulls_as_fit_on_its_ground(
+    factory: async_sessionmaker[AsyncSession], constants: Constants, catalog: Catalog
+) -> None:
+    """A hull sets down on the pad's open ground the way a house stands on its
+    plot (D-319): a port with room for one hull takes one.
+
+    Refused **at the choice**, while the hull is still in orbit -- the beacon's
+    rule (D-245) -- and the ground is spoken for from the order, not from the
+    arrival: the second hull is refused while the first is still in the air,
+    and again once it is down. Casting off frees the ground.
+    """
+    async with factory() as session, session.begin():
+        home = await _port(session, name="Космодром столицы")
+        pad = await _port(session, name="Тесный космодром")
+        first_owner, first = await _hull_in_orbit(session, constants, catalog, home)
+        second_owner, second = await _hull_in_orbit(session, constants, catalog, home)
+        need = await ship.hull_footprint(session, first)
+        assert need == constants[R.SHIP_NODE_AREA] * 1, "корпус в один узел -- одна площадь узла"
+        #: Ground for exactly one hull: the yard's roof, and one hull's worth of apron.
+        pad.area_m2 = 80 + need
+        await session.flush()
+        assert await estate.free_ground(session, pad) == need
+
+        flight = await ship.land(session, constants, catalog, first_owner, first, pad)
+        assert await estate.free_ground(session, pad) == 0, "спуск занял землю с приказа"
+        with pytest.raises(ship.NoPort) as refused:
+            await ship.land(session, constants, catalog, second_owner, second, pad)
+        assert refused.value.key == "ship-no-room"
+        assert refused.value.params["room"] == 0 and refused.value.params["need"] == round(need)
+        term = flight.run_at
+        pad_id, first_id, second_id = pad.id, first.id, second.id
+        first_owner_id, second_owner_id = first_owner.id, second_owner.id
+
+    assert await jobs.run_one(factory, now=term) is not None
+
+    async with factory() as session, session.begin():
+        first = await session.get(Ship, first_id)
+        pad = await session.get(Node, pad_id)
+        assert first.docked_node_id == pad_id
+        assert await estate.free_ground(session, pad) == 0, "севший корпус стоит на земле"
+        second_owner = await session.get(Body, second_owner_id)
+        second = await session.get(Ship, second_id)
+        with pytest.raises(ship.NoPort):
+            await ship.land(session, constants, catalog, second_owner, second, pad)
+        #: The first lifts off: its ground is free again, and the second may come down.
+        first_owner = await session.get(Body, first_owner_id)
+        await ship.ascend(session, constants, catalog, first_owner, first)
+        assert await estate.free_ground(session, pad) == need, "улетевший корпус землю освободил"
+        await ship.land(session, constants, catalog, second_owner, second, pad)
+
+
+async def test_two_hulls_do_not_share_the_last_place(
+    factory: async_sessionmaker[AsyncSession],
+    constants: Constants,
+    catalog: Catalog,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two crews choose the same pad in the same second, and it has room for one.
+
+    The pad's row is held while the order is decided, so the second waits at
+    the lock and reads the first's descent among the hulls on their way down.
+    Without it both read the last place, both burn the fuel, and two hulls
+    arrive to ground for one.
+    """
+    async with factory() as session, session.begin():
+        home = await _port(session, name="Космодром столицы")
+        pad = await _port(session, name="Тесный космодром")
+        first_owner, first = await _hull_in_orbit(session, constants, catalog, home)
+        second_owner, second = await _hull_in_orbit(session, constants, catalog, home)
+        pad.area_m2 = 80 + await ship.hull_footprint(session, first)
+        await session.flush()
+        pad_id = pad.id
+        crews = [(first_owner.id, first.id), (second_owner.id, second.id)]
+
+    _slow(monkeypatch, estate, "free_ground")
+    ready = asyncio.Barrier(2)
+
+    async def order(owner_id: uuid.UUID, ship_id: uuid.UUID) -> str:
+        async with factory() as db, db.begin():
+            me = await db.get(Body, owner_id)
+            mine = await db.get(Ship, ship_id)
+            pad = await db.get(Node, pad_id)
+            await ready.wait()
+            try:
+                await ship.land(db, constants, catalog, me, mine, pad)
+            except ship.NoPort as refusal:
+                assert refusal.key == "ship-no-room"
+                return "refused"
+            return "descends"
+
+    answers = await asyncio.gather(*(order(*crew) for crew in crews))
+    assert sorted(answers) == ["descends", "refused"], f"оба спуска прошли: {answers}"
+
+    async with factory() as session:
+        legs = (
+            (
+                await session.execute(
+                    select(Job).where(
+                        Job.kind == JobKind.SHIP_FLIGHT.value,
+                        Job.payload["to"].astext == str(pad_id),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(legs) == 1, "на последнее место идут два корпуса"
 
 
 async def test_a_ship_under_way_takes_no_second_order(

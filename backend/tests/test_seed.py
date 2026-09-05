@@ -697,3 +697,21 @@ async def test_the_seed_leaves_a_yard_around_a_rural_hearth(
     assert laid["terra.field.lay"] == 10, "очаг у реки — это очаг, а не стена поперёк луга"
     assert laid["terra.city.lay"] == 260, "в городе застройка и есть участок"
     assert await estate.free_ground(session, field) > 350
+
+
+async def test_the_seed_leaves_an_apron_on_the_capital_port(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """A spaceport in a city is roofed over its machines and no more (D-319).
+
+    A hull sets down on the port's open ground the way a house stands on its
+    plot, and a port roofed over its whole plot would take no ship at all --
+    the capital's, the world's one lit pier, above all.
+    """
+    await seed(session)
+    port = await session.scalar(select(Node).where(Node.key == "terra.capital.port"))
+    assert port is not None
+    assert await world.has_station(session, port, ship.SPACEPORT)
+    apron = await estate.free_ground(session, port)
+    assert apron >= constants[R.SHIP_NODE_AREA], "столичному космодрому некуда принять корпус"
+    assert apron < float(port.area_m2), "верфь всё же стоит под крышей"

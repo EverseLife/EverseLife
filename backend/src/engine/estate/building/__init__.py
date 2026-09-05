@@ -25,6 +25,7 @@ from src.engine.estate.building.frame import (  # noqa: F401
     free_ground,
     height_of,
     hold_ground,
+    hulls_footprint,
     marked_ground,
     planned_footprint,
     slots,

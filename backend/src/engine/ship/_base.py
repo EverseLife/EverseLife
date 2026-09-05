@@ -92,12 +92,13 @@ for.
 
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants
 from src.constants import registry as R
 from src.engine.errors import Refusal
+from src.models.estate import Building
 from src.models.ship import Ship
 from src.models.world import ABOARD as ABOARD
 from src.models.world import Node, Planet
@@ -342,6 +343,24 @@ def _gangway_seconds(constants: Constants, berth: int) -> float:
     somebody else being there before you.
     """
     return berth * constants[R.SHIP_BERTH_SECONDS]
+
+
+async def hull_footprint(session: AsyncSession, ship: Ship) -> float:
+    """The ground a hull takes when it sets down: its compartments' footprints.
+
+    Each node aboard is registered as a building of `ship.node_area` so that
+    area and places are counted by one rule (D-106, D-202), and D-319 makes
+    the pad the other side of that rule: a hull stands on a spaceport's open
+    ground the way a house stands on its plot, and a port takes as many hulls
+    as fit on its ground (`estate.hulls_footprint`).
+    """
+    total = await session.scalar(
+        select(func.coalesce(func.sum(Building.footprint_m2), 0))
+        .select_from(Building)
+        .join(Node, Node.id == Building.node_id)
+        .where(Node.parent_id == ship.node_id)
+    )
+    return float(total or 0)
 
 
 async def _free_berth(session: AsyncSession, port: Node) -> int:

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import String, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants, current_catalog
@@ -26,6 +26,7 @@ from src.models.estate import Building, BuildSite, SiteState
 from src.models.farm import Plot
 from src.models.inventory import Item
 from src.models.job import Job, JobKind, JobState
+from src.models.ship import Ship
 from src.models.world import Node
 from src.units import (
     amount_float,
@@ -378,6 +379,42 @@ async def planned_footprint(session: AsyncSession, node: Node) -> float:
     return sum(float(work["area"]) for work in await under_construction(session, node))
 
 
+async def hulls_footprint(session: AsyncSession, node: Node, *, inbound: bool = False) -> float:
+    """Ground under the hulls set down here (D-319) -- or, asked for `inbound`,
+    under the ones already on their way down to it.
+
+    A hull sits on a pad the way a house stands on a plot: every compartment
+    aboard is a building of `ship.node_area` (D-202), and its footprint is what
+    the hull takes of the port's open ground. Summed off those rows rather than
+    counted times the constant, so the two rules cannot drift apart. A descent
+    is decided against the room there is **at the order** (D-245), which is why
+    the hulls in the air count too: the ground promised to one is spoken for
+    the way a started site's is (`planned_footprint`), and without it two
+    descents ordered an hour apart would both be lawful and one of them would
+    arrive to no pad. A hull that lifts off frees its ground by casting off.
+    """
+
+    async def measure() -> float:
+        aboard = (
+            select(func.coalesce(func.sum(Building.footprint_m2), 0))
+            .select_from(Building)
+            .join(Node, Node.id == Building.node_id)
+            .join(Ship, Ship.node_id == Node.parent_id)
+        )
+        if inbound:
+            coming = select(Job.payload["ship"].astext).where(
+                Job.kind == JobKind.SHIP_FLIGHT.value,
+                Job.state.in_((JobState.PENDING, JobState.RUNNING)),
+                Job.payload["to"].astext == str(node.id),
+            )
+            aboard = aboard.where(Ship.id.cast(String).in_(coming))
+        else:
+            aboard = aboard.where(Ship.docked_node_id == node.id)
+        return float(await session.scalar(aboard) or 0)
+
+    return await remember(session, ("hulls_footprint", node.id, inbound), measure)
+
+
 async def hold_ground(session: AsyncSession, node: Node) -> None:
     """Take the plot's row for the transaction before spending its metres.
 
@@ -445,18 +482,27 @@ async def spare_ground(session: AsyncSession, node: Node) -> float:
     #: out of it and nothing is gathered from it. Its metres are floor.
     if storey_of(node) is not None:
         return 0.0
-    taken = await built_area(session, node, ground=True) + await marked_ground(session, node)
+    taken = (
+        await built_area(session, node, ground=True)
+        + await marked_ground(session, node)
+        + await hulls_footprint(session, node)
+    )
     return float(node.area_m2) - taken
 
 
 async def free_ground(session: AsyncSession, node: Node) -> float:
     """What is left to spend: the empty land, minus what is already on the way.
 
-    This is the number a new house and a new strip are both measured against:
-    ground promised to a started site is ground gone, even though nothing
-    stands on it yet.
+    This is the number a new house, a new strip and a descent are all measured
+    against: ground promised to a started site is ground gone, even though
+    nothing stands on it yet, and so is the ground under a hull still in the
+    air on its way down (D-319).
     """
-    return await spare_ground(session, node) - await planned_footprint(session, node)
+    return (
+        await spare_ground(session, node)
+        - await planned_footprint(session, node)
+        - await hulls_footprint(session, node, inbound=True)
+    )
 
 
 async def storey_area_for(session: AsyncSession, node: Node, floor: int) -> float:

@@ -15,24 +15,21 @@ the surface:
 
     time = base_seconds * road.<surface>_multiplier
 
-An edge's own time is rolled when the map appears: inside a city from
-`travel.city_step`, beyond the walls from the node's **distance** (D-180).
+An edge's own time is its **length** (D-319): the metres between the two
+places on the globe -- an arc of the sphere on a planet, a straight line on a
+flat inside -- walked at `travel.walk_speed_kmh`. `connect` derives it from
+the places when nobody names it, and a ship's corridors name theirs (D-240).
 Stored in seconds so that a step across the quarter and a crossing of the
 steppe do not live in different units.
 
-## Distance: the farther from a city, the pricier the step (D-180)
+## Time is distance (D-319)
 
-Distance is a node property: how many transits it is from civic land. Built-up
-area is 0, the first ring beyond the walls is 1, a find from a node of distance
-`d` is `d + 1`. The transit length to it:
-
-    base_seconds = travel.frontier_step * travel.frontier_growth ^ (d - 1)
-
-The settled surroundings are thereby closer than the unexplored: the near mine
-is walked to in twenty seconds, the far frontier requires an expedition.
-Distance is stored in the node rather than computed over the graph: the map
-grows in branches, and "how many steps to the nearest city" would have to be
-recomputed on every find.
+Nothing else prices a transit. The ring of a city stands `map.city_step_m`
+from its printer, so the quarter is seconds; the wild nodes of a planet stand
+kilometres apart, so the steppe is hours -- and that is the whole geography,
+read off the map instead of stored in a node. The frontier step and growth of
+D-180 are gone with the exploration that laid them: there is no distance
+from civic land to keep in step, because the whole surface exists at birth.
 
 ## The road costs stamina (D-147)
 
@@ -81,8 +78,8 @@ whole of it; nothing else in the graph moves.
 Two rules follow, and they hold for the whole map rather than for space alone:
 
 * **an edge is removed, not flagged.** "The edge is there but you may not walk
-  it" would be a second state to account for in routing, in exploration, in
-  chat and in the search itself. An undocked ship is unreachable for exactly
+  it" would be a second state to account for in routing, in the map's memory,
+  in chat and in the search itself. An undocked ship is unreachable for exactly
   the reason any disconnected piece of the map is: there is no path;
 * **an edge nobody walks on** -- otherwise a transit hangs between a node that
   is no longer adjacent and a body with nowhere to arrive. Undocking waits for
@@ -92,30 +89,21 @@ An autopath tail is a different matter: a route laid before the edge went away
 is cut off at the node the body reached, the same way it is cut off by a
 customs refusal or by lack of strength. A route is a plan, not a promise.
 
-## A city touches the outside world only through its exits (D-206)
+## A city has no gate (D-319)
 
-The built-up area is a group of nodes joined by short edges, and until now
-nothing said **where** that group meets everything beyond it. So an edge out of
-the steppe could be welded to any node of it: a trail from the trading yard
-straight into the wild made a second gate out of a market, and the route out of
-the city stopped passing the gate at all.
+D-206 gave a city exactly one door on foot -- the node marked `exit` -- and
+`connect` refused an edge between the walls and the wild anywhere else. That
+rule is withdrawn: the surface is one level of the graph, a city is a mark on
+a group of nodes with a visible border, and an edge outward is lawful from any
+node of it. What the gate used to carry moved to the border itself: customs
+is settled on the transition between cities (D-123, below), and a siege
+stands on every edge of the border rather than on one node.
 
-A city therefore has exactly two doors, and both are nodes:
-
-* **the gate** -- the node property `exit`. The one place one leaves the walls
-  on foot, and hence the one place one arrives at from outside;
-* **the spaceport** -- the node a `shipyard` machine stands in. Ship groups
-  couple to it by one edge (D-201), and a ship is the only thing that arrives
-  anywhere but the gate.
-
-The rule lives in `connect`, because an edge is created nowhere else: an edge
-between a city node and a node outside that city is allowed only at an exit.
-Inside one city nothing is checked -- a street is not a border; outside every
-city nothing is checked either -- wild land has no walls to have doors in.
-
-The spaceport is a machine rather than a second property on purpose: what a
-place is, is set by what stands in it (D-176). A city builds itself a port, and
-loses it with the machine -- without a property to keep in step.
+The **spaceport** is still a machine and not a property: what a place is, is
+set by what stands in it (D-176). Ship groups couple to the node a `shipyard`
+stands in by one edge (D-201), a city builds itself a port and loses it with
+the machine -- and since D-319 a port takes as many hulls as fit on its open
+ground (`ship.hull_footprint`, `estate.hulls_footprint`).
 
 ## The border is settled at departure (D-123)
 

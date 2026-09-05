@@ -214,9 +214,9 @@ async def profile(
         #: again, per hull.
         lit = await lit_ports(session, constants)
         #: A planet one lands anywhere on is named in the list by **its own**
-        #: name, not by the node the row happens to carry: the hull comes down
-        #: where the roll puts it (D-235), and a row promising "Плато
-        #: Наковальни" would be a promise the landing does not keep.
+        #: name, not by the node the row happens to carry: the node is the
+        #: crew's choice on the globe (D-319), and a row promising "Плато
+        #: Наковальни" would be a promise the console has not asked about.
         spheres = {
             node.planet: node.name
             for node in (
@@ -299,10 +299,12 @@ async def profile(
         #: The pads under the hull. Every lit one of them, because this is the
         #: moment the choice is actually made (D-245) -- and a planet one lands
         #: **anywhere** on is one row rather than one per field (D-233): its
-        #: fields differ in nothing the console could show, and their number
-        #: grows with every scout. The node the hull comes down in is rolled at
-        #: the landing, so the row is named after the planet and not after
-        #: whichever field it happens to carry.
+        #: fields differ in nothing the console could show, and there are as
+        #: many of them as the seed laid. The row is named after the planet
+        #: and not after whichever field it happens to carry: the node itself
+        #: is picked on the globe under the hull (D-319), where its room for
+        #: the hull can be seen, and the field named here is the console's
+        #: stand-in until the client has that picker.
         #: The price of coming down is a fact about the **planet**, not about
         #: the pad: hours, fuel and reach are the same for every field of it.
         #: Sent once, beside the list, because Aurora has hundreds of piers

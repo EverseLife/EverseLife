@@ -99,6 +99,10 @@ ship-no-spaceport = “{ $port }” has no spaceport: { $why ->
        *[dock] there is nothing to moor to
     }
 ship-no-mooring-to-hull = one does not moor to a hull: the goal of a passage is a spaceport
+ship-no-room = “{ $port }” has no room for the hull: { $need } m² needed, { $room } m² free. { $why ->
+        [turn-back] There is nowhere to come back to, the ship will reach the goal of its passage
+       *[land] A spaceport takes as many hulls as fit on its ground
+    }
 ship-beacon-dark = the beacon of “{ $port }” is dark: the node is frozen through or the shipyard is without power. A spaceport works while its node is warm and there is something to feed the shipyard — generation is brought there on foot and no other way
 ship-command-dead = a dead body commands no ship
 ship-not-yours = this ship is somebody else's
