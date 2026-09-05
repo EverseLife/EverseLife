@@ -76,8 +76,7 @@ from src.db.base import dispose, session_factory
 from src.engine import breed, death, energy, estate, market, ruins, tick, utility, world
 from src.engine import city as town
 from src.models.world import Node
-from src.seed_planets import lay_all as planets
-from src.seed_surfaces import surfaces
+from src.seed_surfaces import forerunner_rooms, surfaces
 from src.settings import settings
 from src.units import PERCENT, money
 
@@ -195,7 +194,7 @@ async def seed(session: AsyncSession) -> Node:
     #: The rest of every surface, at birth (D-319): the wild nodes, the ways
     #: between them, the veins in the mountains, the frozen cities under the
     #: ice. What the layout pinned above is kept clear of and joined in.
-    await planets(session, constants, current_catalog())
+    await forerunner_rooms(session)
 
     #: Buildings of city nodes: a machine is placed in a building and takes area
     #: (D-106), and the seed must let the building stand before the machine.

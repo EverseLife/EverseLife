@@ -250,51 +250,7 @@ async def depart(
             now=moment,
         )
 
-    #: The reserve is settled **before** the body steps out (D-231): until this
-    #: moment it stood in this node and warmed or froze by it, and on the road
-    #: there is no shelter at all. Settled here rather than on arrival, because
-    #: only here is it still known where the hours were spent.
-    from src.engine import frost  # noqa: PLC0415 -- lazy: breaks the cycle with frost
-
-    await frost.settle(session, constants, current_catalog(), body, now=moment)
-    #: And the breathing, for the same reason and at the same moment: the hours
-    #: just spent were spent **here**, and only here is it known whether here
-    #: had air (D-233).
-    await oxygen.settle(session, constants, current_catalog(), body, now=moment)
-
-    #: The road costs stamina, and it is paid up front (D-147). Satiety slows
-    #: the spend exactly as at work: lunch is lunch, and the cold makes every
-    #: step dearer the same way (D-231).
-
-    spend = (
-        stamina_cost(constants, seconds, transport=await has_transport(session, body))
-        * food.drain_multiplier(constants, body, moment)
-        * await frost.drain_multiplier(session, constants, body)
-    )
-    if spend > float(body.stamina):
-        raise NoStrength(key="travel-no-strength", need=spend, have=float(body.stamina))
-    #: What the last steps cost and the column could not be charged for is
-    #: paid with this one. Stamina keeps hundredths and the road is priced by
-    #: time, so a step under nine seconds costs less than half of one -- and
-    #: most paved edges in a city are shorter than that, to say nothing of a
-    #: ship's corridor. Charged and rounded away, the step was free; the
-    #: engine believed it had taken the strength and the row disagreed.
-    #: Both sides on the grid before they are compared, and not merely the
-    #: answer: capped by the reserve, what is left owing is `owed` less what
-    #: the reserve could give, and that stays under a hundredth only while the
-    #: reserve itself sits on the grid. It does today -- `frost.settle` above
-    #: re-read the row -- but a bound that holds because of what someone else
-    #: did two lines up is not held at all, and breaking it is not a refusal
-    #: in words but the check rejecting the write.
-    #:
-    #: The row is locked for the whole command by `_alive`, and by
-    #: `session.get(..., with_for_update=True)` on the worker's path; the
-    #: reserve and its debt are one pair and want one lock.
-    have = float(on_grid(body.stamina, ROUND_STAMINA, ROUND_FLOOR))
-    owed = spend + float(body.stamina_owed)
-    takes = float(on_grid(min(owed, have), ROUND_STAMINA, ROUND_FLOOR))
-    body.stamina = on_grid(have - takes, ROUND_STAMINA)
-    body.stamina_owed = on_grid(max(0.0, owed - takes), ROUND_REMAINDER, ROUND_FLOOR)
+    spend = await pay_for_road(session, constants, body, seconds, moment=moment)
 
     travel = Travel(
         body_id=body.id,
@@ -340,6 +296,63 @@ async def depart(
         body_id=body.id,
     )
     return travel
+
+
+async def pay_for_road(
+    session: AsyncSession, constants: Constants, body: Body, seconds: float, *, moment: datetime
+) -> float:
+    """The road's price, paid up front: the reserve settled, the stamina taken (D-147, D-231).
+
+    Shared by a leg and by a scout's run (D-321): a run is priced as the walk
+    of its distance over wild ground, and it costs the body exactly what that
+    walk would.
+    """
+    #: The reserve is settled **before** the body steps out (D-231): until this
+    #: moment it stood in this node and warmed or froze by it, and on the road
+    #: there is no shelter at all. Settled here rather than on arrival, because
+    #: only here is it still known where the hours were spent.
+    from src.engine import frost, oxygen  # noqa: PLC0415 -- lazy: breaks the cycle with frost
+
+    await frost.settle(session, constants, current_catalog(), body, now=moment)
+    #: And the breathing, for the same reason and at the same moment: the hours
+    #: just spent were spent **here**, and only here is it known whether here
+    #: had air (D-233).
+    await oxygen.settle(session, constants, current_catalog(), body, now=moment)
+
+    #: The road costs stamina, and it is paid up front (D-147). Satiety slows
+    #: the spend exactly as at work: lunch is lunch, and the cold makes every
+    #: step dearer the same way (D-231).
+
+    spend = (
+        stamina_cost(constants, seconds, transport=await has_transport(session, body))
+        * food.drain_multiplier(constants, body, moment)
+        * await frost.drain_multiplier(session, constants, body)
+    )
+    if spend > float(body.stamina):
+        raise NoStrength(key="travel-no-strength", need=spend, have=float(body.stamina))
+    #: What the last steps cost and the column could not be charged for is
+    #: paid with this one. Stamina keeps hundredths and the road is priced by
+    #: time, so a step under nine seconds costs less than half of one -- and
+    #: most paved edges in a city are shorter than that, to say nothing of a
+    #: ship's corridor. Charged and rounded away, the step was free; the
+    #: engine believed it had taken the strength and the row disagreed.
+    #: Both sides on the grid before they are compared, and not merely the
+    #: answer: capped by the reserve, what is left owing is `owed` less what
+    #: the reserve could give, and that stays under a hundredth only while the
+    #: reserve itself sits on the grid. It does today -- `frost.settle` above
+    #: re-read the row -- but a bound that holds because of what someone else
+    #: did two lines up is not held at all, and breaking it is not a refusal
+    #: in words but the check rejecting the write.
+    #:
+    #: The row is locked for the whole command by `_alive`, and by
+    #: `session.get(..., with_for_update=True)` on the worker's path; the
+    #: reserve and its debt are one pair and want one lock.
+    have = float(on_grid(body.stamina, ROUND_STAMINA, ROUND_FLOOR))
+    owed = spend + float(body.stamina_owed)
+    takes = float(on_grid(min(owed, have), ROUND_STAMINA, ROUND_FLOOR))
+    body.stamina = on_grid(have - takes, ROUND_STAMINA)
+    body.stamina_owed = on_grid(max(0.0, owed - takes), ROUND_REMAINDER, ROUND_FLOOR)
+    return spend
 
 
 async def turn_back(

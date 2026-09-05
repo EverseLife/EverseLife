@@ -315,3 +315,23 @@ async def _ensure(
         properties=dict(properties or {}),
     )
     return Laid(node=made, created=True)
+
+
+async def forerunner_rooms(session: AsyncSession) -> None:
+    """Every room of the seeded cities of Aurora, open from the first day (D-319, D-321).
+
+    The cities the layout lays have a hall and a pier; their rooms were once
+    found by scouts, and nothing finds a room any more -- a complex is laid
+    whole (D-321). Idempotent: a city with its rooms open is left alone.
+    """
+    constants = current()
+    for hall_key in AURORA_HALLS:
+        pier = await session.scalar(
+            select(Node).where(Node.key == hall_key.removesuffix(".hall") + ".port")
+        )
+        if pier is None:
+            continue
+        city = await ruins.city_of(session, pier)
+        if city is None or ruins.exhausted(constants, city):
+            continue
+        await ruins.open_all(session, constants, pier, random.Random(city.key))

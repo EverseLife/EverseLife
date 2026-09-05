@@ -47,7 +47,7 @@ from src.models.city import City
 from src.models.estate import Building, Deed
 from src.models.event import Event, EventKind
 from src.models.inventory import Container, ContainerKind, Item
-from src.models.world import PLOT, Edge, Layer, Node, NodePass, Planet, Surface, Vein
+from src.models.world import PLOT, Layer, Node, NodePass, Planet, Vein
 from src.seed import CORE, seed
 from src.seed_surfaces import PYROXIS_FIELDS, PYROXIS_PLATEAU, pyroxis_field_key
 
@@ -314,8 +314,7 @@ async def test_other_planets_have_somewhere_to_land(
         by_planet[port.planet.value] = by_planet.get(port.planet.value, 0) + 1
     #: The three cities of the layout and the frozen ones laid under the ice at
     #: birth (D-319): each has a pier, dark or lit, and a dark pier is a place.
-    lost = int(constants[R.RUINS_LOST_CITIES].get("aurora", 0))
-    assert by_planet["aurora"] == len(aurora_cities()) + lost
+    assert by_planet["aurora"] == len(aurora_cities())
     #: The plateau and its black fields, and not a spaceport among them: on
     #: Pyroxis a ship sets down on the ground itself (D-233).
     assert by_planet["pyroxis"] == 1 + PYROXIS_FIELDS
@@ -355,7 +354,7 @@ async def test_other_planets_have_somewhere_to_land(
     #: Running the seed again lays nothing twice.
     await seed(session)
     again = sum(1 for port in await ship.ports(session) if port.planet.value == "aurora")
-    assert again == len(aurora_cities()) + lost
+    assert again == len(aurora_cities())
     twice = sum(1 for place in await ship.landings(session) if place.planet.value == "pyroxis")
     assert twice == 1 + PYROXIS_FIELDS
 
@@ -698,38 +697,6 @@ async def test_the_seed_leaves_a_yard_around_a_rural_hearth(
     assert laid["terra.field.lay"] == 10, "очаг у реки — это очаг, а не стена поперёк луга"
     assert laid["terra.city.lay"] == 260, "в городе застройка и есть участок"
     assert await estate.free_ground(session, field) > 350
-
-
-async def test_every_wild_way_of_the_seed_is_within_a_bodys_strength(
-    session: AsyncSession, constants: Constants
-) -> None:
-    """The first step out of the capital is a walk, not an expedition (D-319).
-
-    The surface is laid as settled edges round the seeded cities, and every
-    wild way inside one is hours -- less than the stamina a body carries.
-    """
-    await seed(session)
-    wild = (await session.execute(select(Edge).where(Edge.surface == Surface.WILD))).scalars().all()
-    assert wild, "дикие рёбра заложены"
-    hours_a_body_has = float(constants[R.BODY_STAMINA_MAX]) / float(
-        constants[R.TRAVEL_STAMINA_PER_HOUR]
-    )
-    seconds_per_hour = 3600
-    for edge in wild:
-        hours = (
-            float(edge.base_seconds) * float(constants[R.ROAD_WILD_MULTIPLIER]) / seconds_per_hour
-        )
-        assert hours <= hours_a_body_has, f"ребро {edge.id}: {hours:.0f} ч по бездорожью"
-    #: And the capital's own nodes are where the wild is sewn on -- never the
-    #: city's delegate, which is a mark and not ground.
-    capital = await session.scalar(select(Node).where(Node.key == "terra.capital"))
-    assert capital is not None
-    sewn = await session.scalar(
-        select(func.count())
-        .select_from(Edge)
-        .where((Edge.node_a_id == capital.id) | (Edge.node_b_id == capital.id))
-    )
-    assert sewn == 0, "ребро пришито к метке города"
 
 
 async def test_the_seeded_cities_of_the_forerunners_are_laid_open(

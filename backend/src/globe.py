@@ -35,6 +35,17 @@ Geo = tuple[float, float]
 #: The last usable latitude: "north up" is not defined on the pole itself, and
 #: a seat pushed past it would come back round the other side.
 LAST_LAT = 89.0
+#: A full turn and a half turn of longitude, for wrapping.
+HALF_TURN = 180.0
+FULL_TURN = 360.0
+#: How many points along a straight way are read for what it crosses.
+WAY_SAMPLES = 8
+#: How many directions the compass is read in when looking round a point.
+COMPASS_POINTS = 8
+#: The golden angle: points fanned round a centre without a pattern.
+GOLDEN_ANGLE = math.pi * (3 - math.sqrt(5))
+#: Below this the cosine of the latitude is treated as at the pole.
+COS_FLOOR = 1e-9
 
 
 def radius_m(constants: Constants, planet: Planet) -> float:
@@ -66,3 +77,24 @@ def offset(radius: float, at: Geo, east_m: float, north_m: float) -> Geo:
     new_lat = max(-LAST_LAT, min(LAST_LAT, at[0] + d_lat))
     new_lon = ((at[1] + d_lon + 180.0) % 360.0) - 180.0
     return (new_lat, new_lon)
+
+
+def wrap_lon(lon: float) -> float:
+    """A longitude brought into the half-open turn round the zero meridian."""
+    return ((lon + HALF_TURN) % FULL_TURN) - HALF_TURN
+
+
+def between(a: Geo, b: Geo, share: float) -> Geo:
+    """The point `share` of the way from `a` to `b`, the short way round."""
+    dlon = wrap_lon(b[1] - a[1])
+    return (a[0] + (b[0] - a[0]) * share, wrap_lon(a[1] + dlon * share))
+
+
+def lon_stretch(lat: float) -> float:
+    """How many degrees of longitude one degree of latitude's metres make here."""
+    return 1 / max(math.cos(math.radians(lat)), COS_FLOOR)
+
+
+def midpoint(a: float, b: float) -> float:
+    """Halfway between two lengths."""
+    return (a + b) / (1 + 1)

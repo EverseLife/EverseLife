@@ -205,6 +205,27 @@ class Book(Spec):
 
 
 @dataclass(frozen=True, slots=True)
+class Shape(Spec):
+    """A map `name -> record`: a named record the engine reads by its own shape.
+
+    A scheme of a complex (D-321) is a planet, a biome, a weight and a list of
+    parts, each with a role, a name and what it holds -- neither a number nor a
+    word. Read apart from `Book` on purpose: the book stays numbers, and what
+    a record must contain is the reader's business, checked where it is used.
+    """
+
+    def read(self, raw: Any) -> dict[str, dict[str, Any]]:
+        if not isinstance(raw, dict) or not raw:
+            raise self._fail(raw, "a non-empty map of name -> record")
+        out: dict[str, dict[str, Any]] = {}
+        for name, body in raw.items():
+            if not isinstance(body, dict) or not body:
+                raise self._fail(raw, f"a record at key {name!r}")
+            out[str(name)] = dict(body)
+        return out
+
+
+@dataclass(frozen=True, slots=True)
 class Tiers(Spec):
     """A list of tiers `{from, to, name}` -- the quality shop window."""
 

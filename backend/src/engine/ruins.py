@@ -259,6 +259,40 @@ async def open_room(
     return room
 
 
+async def open_all(
+    session: AsyncSession, constants: Constants, pier: Node, dice: random.Random
+) -> None:
+    """Every room of a city of the Forerunners, open from the first day (D-319, D-321).
+
+    Deeper and deeper off the hall: one corridor, as a digger would have
+    opened it, so the depth of a room still means what it meant.
+    """
+    city = await city_of(session, pier)
+    if city is None:  # pragma: no cover -- a pier is always a city's
+        return
+    origin = pier
+    hall = await session.scalar(select(Node).where(Node.key == f"{city.key}.hall"))
+    if hall is not None:
+        origin = hall
+    while not exhausted(constants, city):
+        origin = await open_room(session, constants, dice, origin)
+        await session.refresh(city)
+
+
+async def stock(
+    session: AsyncSession,
+    constants: Constants,
+    dice: random.Random,
+    room: Node,
+    room_type: str,
+    *,
+    who: uuid.UUID | None,
+) -> None:
+    """What lies in a room of a complex (D-321): a store's worth of `ruins.room_finds`,
+    at the pier's depth -- a complex is found from the outside, not dug into."""
+    await _fill(session, constants, dice, room, room_type, 0, who=who)
+
+
 def _any_room(constants: Constants) -> dict[str, float]:
     """Every kind of room there is, for a city whose own kind is unknown."""
     every: dict[str, float] = {}

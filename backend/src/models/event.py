@@ -86,6 +86,11 @@ class EventKind(StrEnum):
     ROAD_TRODDEN = "road.trodden"
     ROAD_OVERGROWN = "road.overgrown"
 
+    # exploration (D-321): the graph of a planet grows by runs
+    EXPLORE_STARTED = "explore.started"
+    EXPLORE_FOUND = "explore.found"
+    EXPLORE_EMPTY = "explore.empty"
+
     # the planet redraws its own map (D-197, D-233)
     #: The free signal: these nodes will be shaken, and what lies in them burns.
     PLATES_WARNED = "plates.warned"

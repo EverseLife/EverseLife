@@ -79,6 +79,7 @@ WHERE = (HANDS, FLOOR)
 HURRIED = (
     JobKind.ROAD_WORK.value,
     JobKind.TRAVEL_LEG.value,
+    JobKind.EXPLORE_SURVEY.value,
     JobKind.CRAFT_BATCH.value,
     JobKind.SHIP_KEEL.value,
     JobKind.SHIP_FLIGHT.value,

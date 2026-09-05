@@ -71,6 +71,7 @@ class Busy(Refusal):
 #: it -- which line to draw, which button ends it -- and a word of the interface
 #: must be free to change without breaking that.
 ROAD = "road"
+SURVEY = "survey"
 SLEEP = "sleep"
 FORAGE = "forage"
 PLOT = "plot"
@@ -95,6 +96,7 @@ PAVING = "paving"
 #: and a kind added without its word would show the player the key instead.
 KINDS: tuple[str, ...] = (
     ROAD,
+    SURVEY,
     SLEEP,
     FORAGE,
     PLOT,
@@ -167,6 +169,13 @@ async def _travelling(session: AsyncSession, body: Body, jobs: Journal) -> Doing
     return Doing(ROAD, Says("doing-road-what"), going.arrives_at)
 
 
+async def _surveying(session: AsyncSession, body: Body, jobs: Journal) -> Doing | None:
+    job = await jobs.of(JobKind.EXPLORE_SURVEY)
+    if job is None:
+        return None
+    return Doing(SURVEY, Says("doing-survey-what"), job.run_at)
+
+
 async def _foraging(session: AsyncSession, body: Body, jobs: Journal) -> Doing | None:
 
     row = await forage.current(session, body)
@@ -188,6 +197,7 @@ _JOURNAL = (
     JobKind.BUILD_FINISH,
     JobKind.BUILD_DEMOLISH,
     JobKind.ROAD_WORK,
+    JobKind.EXPLORE_SURVEY,
 )
 
 
@@ -372,6 +382,7 @@ _LOOKUP: tuple[
     tuple[str, Callable[[AsyncSession, Body, Journal], Awaitable[Doing | None]]], ...
 ] = (
     (ROAD, _travelling),
+    (SURVEY, _surveying),
     (SLEEP, _sleeping),
     (MINE, _mining),
     (FORAGE, _foraging),

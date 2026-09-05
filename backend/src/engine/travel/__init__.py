@@ -25,11 +25,13 @@ steppe do not live in different units.
 ## Time is distance (D-319)
 
 Nothing else prices a transit. The ring of a city stands `map.city_step_m`
-from its printer, so the quarter is seconds; the wild nodes of a planet stand
-kilometres apart, so the steppe is hours -- and that is the whole geography,
-read off the map instead of stored in a node. The frontier step and growth of
-D-180 are gone with the exploration that laid them: there is no distance
-from civic land to keep in step, because the whole surface exists at birth.
+from its printer, so the quarter is seconds; a found node stands as far from
+the node it was explored from as the scout aimed (`biome.reach_m`, D-321), so
+the wild is minutes step by step and hours over a day's finds -- and that is
+the whole geography, read off the map instead of stored in a node. The
+frontier step and growth of D-180 are gone: a run is priced as the walk of
+its metres (`pay_for_road`), and there is no distance from civic land to keep
+in step.
 
 ## The road costs stamina (D-147)
 
@@ -151,6 +153,7 @@ from src.engine.travel.map import (  # noqa: F401
 from src.engine.travel.walk import (  # noqa: F401
     arrive,
     depart,
+    pay_for_road,
     route,
     turn_back,
 )

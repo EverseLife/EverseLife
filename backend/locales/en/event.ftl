@@ -13,6 +13,7 @@
 # only the ends of things: what finished, arrived, was found, was settled, was lost.
 
 event-craft-finished = batch ready
+event-explore-found = the run found a new place
 event-travel-arrived = arrived
 event-farm-harvested = harvest gathered
 event-farm-died = plot died

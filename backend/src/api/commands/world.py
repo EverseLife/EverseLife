@@ -280,6 +280,7 @@ TOLD = frozenset(
     {
         EventKind.CRAFT_FINISHED.value,
         EventKind.TRAVEL_ARRIVED.value,
+        EventKind.EXPLORE_FOUND.value,
         EventKind.PLOT_HARVESTED.value,
         EventKind.PLOT_DIED.value,
         EventKind.PLOT_RIPENED.value,

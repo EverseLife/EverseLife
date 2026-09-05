@@ -13,6 +13,7 @@ is already wired up and what is not yet.
 
 from __future__ import annotations
 
+from src.constants.registry_map import *  # noqa: F403 -- the map's keys are declared beside
 from src.constants.spec import (
     Bands,
     Book,
@@ -56,44 +57,15 @@ MAP_MIN_GAP_M = Num("map.min_gap_m")
 #: No node is laid nearer the pole than this latitude: "north up" is not
 #: defined there.
 MAP_CITY_LAT_MAX = Num("map.city_lat_max")
-#: The settled edge round each seeded city: the wild nodes of a planet are
-#: laid inside this circle, not over the whole sphere, so a neighbour is an
-#: hour or two on foot rather than a month (D-319, plan §6).
-MAP_REGION_KM = Num("map.region_km")
-#: The share of the even spacing two wild nodes must keep between them.
-MAP_SPACING_SHARE = Num("map.spacing_share")
+#: A founded city's first ring of plots (D-089): the count the authority
+#: hands out, laid at the founding since nothing is found in a city (D-319).
+CITY_RING_SLOTS_BASE = Num("city.ring_slots_base")
 #: Time is distance (D-319): an edge between two surface nodes takes the
 #: metres between them at this pace, times the surface's multiplier (D-107).
 #: A city step is that too -- `travel.city_step` was seconds by decree and is
 #: the ring's metres at this pace now.
 TRAVEL_WALK_SPEED_KMH = Num("travel.walk_speed_kmh")
 TRAVEL_STAMINA_PER_HOUR = Num("travel.stamina_per_hour")
-#: The relief of a planet (D-319): one seed for the world, a share of sea and
-#: a count of rivers per planet, one mountain line for all, and how much
-#: colder the top of the land's rise is than its foot. Within
-#: `terrain.river_reach_km` of a river a node has river water, and a node in
-#: the mountains bears a vein `terrain.mountain_vein_k` times as often.
-TERRAIN_SEED = Num("terrain.seed")
-TERRAIN_SEA_SHARE = Table("terrain.sea_share")
-TERRAIN_MOUNTAIN_SHARE = Num("terrain.mountain_share")
-TERRAIN_RIVERS = Table("terrain.rivers")
-TERRAIN_LAPSE_C = Num("terrain.lapse_c")
-TERRAIN_RIVER_REACH_KM = Num("terrain.river_reach_km")
-TERRAIN_MOUNTAIN_VEIN_K = Num("terrain.mountain_vein_k")
-#: How much of a place's rain is the field's own noise; the rest is water nearby.
-TERRAIN_RAIN_NOISE_SHARE = Num("terrain.rain_noise_share")
-#: How many wild nodes each planet is laid with at the world's birth (D-319):
-#: the whole surface exists from the first day and is walked, not found.
-MAP_NODES_TERRA = Num("map.nodes_terra")
-MAP_NODES_AURORA = Num("map.nodes_aurora")
-MAP_NODES_PYROXIS = Num("map.nodes_pyroxis")
-MAP_NODES_AQUATICA = Num("map.nodes_aquatica")
-#: How many cities of the Forerunners a planet is laid with, frozen and dark,
-#: every room already open (D-232, D-319).
-RUINS_LOST_CITIES = Table("ruins.lost_cities")
-#: A founded city's first ring of plots (D-089): the count the authority
-#: hands out, laid at the founding since nothing is found any more (D-319).
-CITY_RING_SLOTS_BASE = Num("city.ring_slots_base")
 TRANSPORT_STAMINA_K = Num("transport.stamina_k")
 # --- Transport (D-107, D-129, D-157) ----------------------------------------
 #: Hold capacity and speed -- one layout by one key: two would diverge. The
@@ -116,13 +88,6 @@ ROAD_DECAY_BY_PAVING = Table("road.decay_by_paving")
 #: Below the ladder (D-319): an edge laid with the world and never walked.
 #: Slower than a trodden trail, and no vehicle passes either.
 ROAD_WILD_MULTIPLIER = Num("road.wild_multiplier")
-#: A trail is worn in by feet, never laid (D-319): this many arrivals over
-#: an untrodden edge make it a trail, below the lower mark it grows over
-#: again, and the daily tick takes this much wear off every edge. Two marks,
-#: not one, so an edge on the line does not flicker.
-PATH_WEAR_THRESHOLD = Num("path.wear_threshold")
-PATH_FADE_THRESHOLD = Num("path.fade_threshold")
-PATH_FADE_PER_DAY = Num("path.fade_per_day")
 
 # --- Inventory (20-systems/04-items, D-146) ---------------------------------
 INVENTORY_CARRY_MASS = Num("inventory.carry_mass")

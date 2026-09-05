@@ -13,6 +13,7 @@
 ## занятия (`doing-<вид>`), поэтому имена здесь не произвольные.
 
 doing-road = путь
+doing-survey = разведка
 doing-sleep = сон
 doing-forage = собирательство
 doing-plot = вспашка
@@ -28,6 +29,7 @@ doing-paving = укладка
 ## Что идёт и где это заканчивают
 
 doing-road-what = тело в пути
+doing-survey-what = идёт разведка
 doing-sleep-what = тело спит — сначала проснуться
 doing-forage-searching = идёт поиск
 doing-forage-found = на земле лежит находка ({ NAME($goods) }) — решите с ней или закончите поиск

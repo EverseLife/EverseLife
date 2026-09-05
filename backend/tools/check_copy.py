@@ -108,7 +108,6 @@ KNOWN: dict[str, int] = {
     "src/seed.py": 8,
     "src/seed_catchup.py": 7,
     "src/seed_parts.py": 18,
-    "src/seed_planets.py": 6,
     "src/seed_surfaces.py": 2,
     "src/seed_world.py": 10,
     "src/telemetry/metrics.py": 23,

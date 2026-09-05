@@ -65,6 +65,7 @@ async def properties(
     woods: bool = False,
     who: uuid.UUID | None = None,
     at: tuple[Planet, tuple[float, float]] | None = None,
+    shares: dict[str, float] | None = None,
 ) -> dict:
     """Place properties under a common merit budget (D-126).
 
@@ -97,15 +98,24 @@ async def properties(
         )
         #: The budget is spent the same way: water costs fertility.
         for_water = dice.uniform(0, budget) if river else 0.0
+
+        #: The biome's shares, when the caller knows the biome (D-321): a
+        #: forest is woods nine times in ten whatever the noise says. Without
+        #: them the field's own texture decides, as for a seeded node.
+        def sign(key: str) -> bool:
+            if shares is None:
+                return bool(marks[key])
+            return dice.random() < float(shares.get(key, 0)) / PERCENT
+
         return {
             world.WATER: world.RIVER if river else marks[world.WATER],
             terrain.MOUNTAIN: marks[terrain.MOUNTAIN],
             "fertility": 0 if vein else round(PERCENT * max(0.0, budget - for_water) / budget),
             "temperature": temperature,
             "precipitation": precipitation,
-            WOODS: woods or marks[WOODS],
-            STONES: marks[STONES],
-            MEADOW: marks[MEADOW],
+            WOODS: woods or sign(WOODS),
+            STONES: sign(STONES),
+            MEADOW: sign(MEADOW),
             WILD: True,
         }
 

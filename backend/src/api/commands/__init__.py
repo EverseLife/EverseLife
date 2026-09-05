@@ -11,6 +11,7 @@ from src.api.commands import (  # noqa: F401
     common,
     craft,
     estate,
+    explore,
     farm,
     finance,
     lines,

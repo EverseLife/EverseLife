@@ -46,6 +46,8 @@ class JobKind(StrEnum):
     TICK_STEP = "world.step"
     CRAFT_BATCH = "craft.batch"
     TRAVEL_LEG = "travel.leg"
+    #: A scout is out (D-321): the cell becomes a node when the job fires.
+    EXPLORE_SURVEY = "explore.survey"
     MARKET_ORDER_EXPIRY = "market.order_expiry"
     MARKET_RESERVATION_EXPIRY = "market.reservation_expiry"
     FARM_PLOW = "farm.plow"
