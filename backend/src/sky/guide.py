@@ -44,9 +44,6 @@ BRAKE_MARGIN = 1.5
 BRAKE_SHARE = 0.85
 #: A difference of velocity below this is a coast, not a burn: units a day.
 STILL = 1e-3
-#: How far above the ground a fall must still pass for the helm to let it
-#: run: nearer than this many planet radii it is a crash, not an approach.
-CLEARS = 1.6
 
 #: The three things the helm can be doing.
 BURN = "burn"
@@ -65,21 +62,29 @@ class Helm:
     captured: bool
 
 
-def brake_days(dv: float, a_max: float) -> float:
+def brake_days(system: System, dv: float, a_max: float) -> float:
     """How much later than the impulsive plan a hull of this thrust arrives:
     the fall to the circle, and the braking on it.
 
-    Two stretches, not one. The braking is not an instant and the hull is
-    slower over all of it -- half its length, near enough. Before that comes
-    the fall (D-316): the helm takes the arc up at `BRAKE_MARGIN` braking
-    distances out and lets the pull bring the hull down, which at the
-    approach speed takes `BRAKE_MARGIN / 2` of the same `dv / a_max` again.
-    The old word counted only the braking and the console promised an hour
-    the fall then missed.
+    Two stretches, and the first of them has two shapes (OQ-136). The braking
+    is not an instant and the hull is slower over all of it -- half its length,
+    near enough. Before it comes the fall from wherever the helm took the arc
+    up, and where that is depends on how fast the hull is coming: fast, and it
+    is `BRAKE_MARGIN` braking distances out, so the fall grows with the speed;
+    slow, and it is the flat `orbit.approach_radii` of the hold, so the fall
+    *shrinks* with the speed -- the slower the approach, the longer the same
+    few units take. One term cannot be both, which is why a single factor
+    under-promised the fast end by five to seven hours and the cheap end by
+    three and a half against four tenths.
     """
     if a_max <= 0:
         return 0.0
-    return dv / a_max * (BRAKE_MARGIN / 2.0 + 1.0 / (2.0 * BRAKE_SHARE))
+    speed = max(dv, STILL)
+    fall = max(
+        BRAKE_MARGIN / 2.0 * speed / a_max,
+        (system.approach - 1.0) * system.park / speed,
+    )
+    return fall + speed / (2.0 * a_max * BRAKE_SHARE)
 
 
 def steer(
@@ -123,7 +128,7 @@ def steer(
         #: once in a while, running away at a thousand units a day; the
         #: profile asks for speed toward the target and never for more than
         #: the way left can shed. The order's hour stays the console's word.
-        return _meet(system, rel, v_rel, a_max=a_max, dt=dt)
+        return _meet(system, target, t, r, v, rel, v_rel, a_max=a_max, dt=dt)
     if gap <= max(system.approach * system.park, system.park + BRAKE_MARGIN * brake):
         return _capture(system, target, rel, v_rel, a_max=a_max, dt=dt)
     tof = arrive - t
@@ -141,7 +146,10 @@ def steer(
     wanted = _lambert_velocity(system.mu, r, (float(goal[0]), float(goal[1])), tof, v)
     if wanted is None:
         return Helm(thrust=(0.0, 0.0), phase=COAST, captured=False)
-    if eject_wait(system, target, t, r, v, wanted) > 0.0:
+    #: The world that holds the hull, read once for the two questions that
+    #: follow -- the tick asks them of every ordered hull every minute.
+    leaving = _holding(system, target, t, r)
+    if leaving is not None and _wait_days(system, leaving, t, r, v, wanted) > 0.0:
         #: Turned the wrong way: the circle brings the hull round for nothing,
         #: while leaving from here would cost the walk round it under thrust
         #: (D-316). The order already counted this wait into the hour it
@@ -155,7 +163,7 @@ def steer(
         return Helm(thrust=(0.0, 0.0), phase=COAST, captured=False)
     accel = min(a_max, size / dt)
     thrust = need / size * accel
-    return Helm(thrust=_outward(system, target, t, r, v, thrust, dt), phase=BURN, captured=False)
+    return Helm(thrust=_outward(system, leaving, t, r, v, thrust, dt), phase=BURN, captured=False)
 
 
 def eject_wait(
@@ -168,9 +176,11 @@ def eject_wait(
 ) -> float:
     """The wait for the ejection window from wherever the hull is, days.
 
-    One reading for the helm and for the order alike: which world holds the
-    hull is asked here and nowhere else, so the hour an order promises and the
-    hour the helm flies to cannot part company. Nought where no world holds it.
+    The whole question in one call, for the plan (`sky.preview`) and the order
+    (`ship.sim.depart`); the helm asks the same two pieces apart, having read
+    the holding world once for the burn as well. Which world that is is decided
+    here alone, so the hour an order promises and the hour the helm flies to
+    cannot part company. Nought where no world holds the hull.
     """
     leaving = _holding(system, target, t, r)
     return 0.0 if leaving is None else _wait_days(system, leaving, t, r, v, wanted)
@@ -227,13 +237,27 @@ def _holding(system: System, target: Target, t: float, r: tuple[float, float]) -
     the target's circle is the whole point of the arrival, and the same rule
     there would forbid it.
     """
-    if not isinstance(target, Body):
-        return None
     hold = system.approach * system.park
+    #: The world the hull is going to, or -- for a hull as the target -- the
+    #: world that hull is itself in the hold of: coming down toward either is
+    #: the arrival, and the same rule there would forbid it.
+    goal: str | None = None
+    if isinstance(target, Body):
+        goal = target.key
+    elif isinstance(target, Drifter):
+        theirs = place_any(target, t)[0][0]
+        near = hold
+        for body in system.bodies:
+            p, _ = place_any(body, t)
+            gap = float(np.hypot(theirs[0] - p[0, 0], theirs[1] - p[0, 1]))
+            if gap < near:
+                goal, near = body.key, gap
+    else:
+        return None
     found: Body | None = None
     nearest = hold
     for body in system.bodies:
-        if body.key == target.key:
+        if body.key == goal:
             continue
         p, _ = place_any(body, t)
         gap = float(np.hypot(r[0] - p[0, 0], r[1] - p[0, 1]))
@@ -244,7 +268,7 @@ def _holding(system: System, target: Target, t: float, r: tuple[float, float]) -
 
 def _outward(
     system: System,
-    target: Target,
+    body: Body | None,
     t: float,
     r: tuple[float, float],
     v: tuple[float, float],
@@ -259,7 +283,6 @@ def _outward(
     hull therefore climbs away from the world it is on -- gaining speed round
     it, as a departure does -- and takes the arc up once it is clear.
     """
-    body = _holding(system, target, t, r)
     if body is None:
         return (float(thrust[0]), float(thrust[1]))
     p, vp = place_any(body, t)
@@ -307,12 +330,34 @@ def _capture(
         and float(np.hypot(*(around * circle_speed(target, park) - v_rel))) <= system.capture_speed
     ):
         return Helm(thrust=(0.0, 0.0), phase=CAPTURE, captured=True)
-    falling = float(np.dot(v_rel, rel)) / max(gap, 1e-9) < 0.0
-    if falling and gap > park and _low_point(target.mu, rel, v_rel) > target.radius * CLEARS:
-        return Helm(thrust=(0.0, 0.0), phase=CAPTURE, captured=False)
-    #: At the circle, or on a fall that ends on the ground: match the circle
-    #: through where the hull is, which is the circle itself once it is down.
-    need = around * circle_speed(target, gap) - v_rel
+    coming = -float(np.dot(v_rel, rel)) / max(gap, 1e-9)
+    #: The fall is let run only while it would still pass **above the circle**.
+    #: Clearing the ground is not enough: a fall whose lowest point is under
+    #: the circle takes the hull through it, and down there the burn finds a
+    #: circle of its own -- a stable orbit at the wrong radius, which the
+    #: mooring (measured against the circle's own speed) never recognises.
+    if coming > 0.0 and gap > park and _low_point(target.mu, rel, v_rel) > park:
+        #: Coast while the speed is still one the way left can shed: `v² = 2ad`
+        #: over what remains to the circle, at the profile's share of the
+        #: thrust, plus the circle's own speed, which is not shed at all. The
+        #: pull does the work for nothing up to that line and cannot be
+        #: afforded past it -- a hull near `ship.min_thrust_ratio` that keeps
+        #: falling sails through the circle and settles on whatever ring it
+        #: reaches, which the mooring (measured against the circle's own speed)
+        #: never recognises: an order that never closes. The line is exact for
+        #: a fall and wants no margin.
+        allowed = float(np.sqrt(2.0 * BRAKE_SHARE * a_max * (gap - park))) + circle_speed(
+            target, park
+        )
+        if float(np.hypot(*v_rel)) <= allowed:
+            return Helm(thrust=(0.0, 0.0), phase=CAPTURE, captured=False)
+    #: At the circle, or on a fall that would go through it: match the circle
+    #: the mooring is measured against -- the one at `orbit.park_radius`, and
+    #: not the one through where the hull happens to be. Matching the local
+    #: circle leaves the hull turning at whatever radius it stopped at, which
+    #: is a stable orbit and an order that never closes: the mooring wants the
+    #: parking circle's own speed, so that is what the burn asks for.
+    need = around * circle_speed(target, park) - v_rel
     size = float(np.hypot(*need))
     if size < STILL:
         return Helm(thrust=(0.0, 0.0), phase=CAPTURE, captured=False)
@@ -324,7 +369,7 @@ def _capture(
 def _low_point(mu: float, rel: np.ndarray, v_rel: np.ndarray) -> float:
     """How near the planet this fall passes, if nothing is burnt: the
     periapsis of the two-body orbit the hull is on."""
-    gap = float(np.hypot(*rel))
+    gap = max(float(np.hypot(*rel)), 1e-9)
     speed = float(np.hypot(*v_rel))
     energy = speed * speed / 2.0 - mu / gap
     if abs(energy) < 1e-12:
@@ -336,6 +381,10 @@ def _low_point(mu: float, rel: np.ndarray, v_rel: np.ndarray) -> float:
 
 def _meet(
     system: System,
+    target: Target,
+    t: float,
+    r: tuple[float, float],
+    v: tuple[float, float],
     rel: np.ndarray,
     v_rel: np.ndarray,
     *,
@@ -361,7 +410,15 @@ def _meet(
         return Helm(thrust=(0.0, 0.0), phase=CAPTURE, captured=False)
     accel = min(a_max, size / dt)
     thrust = need / size * accel
-    return Helm(thrust=(float(thrust[0]), float(thrust[1])), phase=CAPTURE, captured=False)
+    #: And not through the world the chaser is still on (D-316): the profile
+    #: aims at the other hull from the first minute, so a rescuer ordered off
+    #: a parking circle would drive into its own planet exactly as a crossing
+    #: used to.
+    return Helm(
+        thrust=_outward(system, _holding(system, target, t, r), t, r, v, thrust, dt),
+        phase=CAPTURE,
+        captured=False,
+    )
 
 
 def _circle(

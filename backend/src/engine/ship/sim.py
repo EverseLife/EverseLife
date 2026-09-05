@@ -527,7 +527,7 @@ async def depart(
             + timedelta(days=wait, hours=hours)
             + timedelta(
                 days=sky.brake_days(
-                    plan.dv_in, thrust_ratio * float(constants[R.ORBIT_THRUST_SCALE])
+                    world, plan.dv_in, thrust_ratio * float(constants[R.ORBIT_THRUST_SCALE])
                 )
             )
         ),

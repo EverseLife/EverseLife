@@ -117,15 +117,16 @@ PARK_HEADING = 0.0
 #: apart, so the tests that fly to a mooring say what they expect rather than
 #: leaning on the slack in `_flown`.
 #:
-#: Twelve, and not the two the first wave measured: since D-316 gave the helm
-#: a capture that falls to the circle before it brakes, the arrival takes a
-#: fall the promised hour does not fully count, and the fast end of the slider
-#: moors 5.3 to 7.2 hours past it over the circle of departure angles. That
-#: shortfall is a defect of the promise rather than of the flight (OQ-136);
-#: this number is drawn above the measured worst so the check keeps catching
-#: what it was written for -- a passage that does not close at all, which was
-#: thirty to ninety hours out -- without failing on the shortfall itself.
-LATE_HOURS = 12.0
+#: Eight, and not the two the first wave measured: the arrival now falls to
+#: the circle before it brakes, and the promised hour counts that fall in two
+#: shapes (OQ-136) rather than one factor. The middle of the slider is then
+#: exact to a tenth of an hour; the two ends are still about five out, and in
+#: opposite directions -- the fast end late, the cheap end early -- which is
+#: the crudeness of «the fall takes the way left over the speed» and not a
+#: systematic lie any more. Drawn above the measured worst of 5.2 so the check
+#: keeps catching what it was written for: a passage that does not close at
+#: all, which was thirty to ninety hours out.
+LATE_HOURS = 8.0
 
 
 async def _heading_of(
@@ -282,8 +283,8 @@ async def _fast_sample(
     """The fastest arc the engines deliver to `planet`, off the slider.
 
     The one a test flies: the tick steps the sky a minute at a time (D-289),
-    and the horizon's forty-five days of the cheapest arc is not a test
-    (`orbit.longest_days`, D-271). It is also the arc with
+    and the horizon's twelve days of the cheapest arc is not a test
+    (`orbit.longest_days`, D-271 as reset by D-317). It is also the arc with
     the least room in it -- the first `ok` point of the slider is the one the
     thrust barely covers -- so a test that flies it and waits for the mooring
     reads the sky at the hour it casts off from (`now`) and departs from a
