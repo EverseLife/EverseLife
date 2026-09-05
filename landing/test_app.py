@@ -65,6 +65,33 @@ def test_pages_carry_their_own_canonical() -> None:
         assert canonical.group(1) == f"{SITE}{path}", path
 
 
+#: The numbers are Bing's, not a house style: its SEO report fails a title
+#: longer than this and a description outside the band, and it named two of our
+#: pages before anybody here noticed.
+TITLE_LIMIT = 65
+DESCRIPTION_BAND = (25, 160)
+
+
+def test_a_page_fits_its_title_and_description_into_a_search_result() -> None:
+    """Length is the one thing about copy a test can hold.
+
+    Copy written past the limit renders correctly, reads well in the editor and
+    passes every other test in this file. It breaks in the one place nobody on
+    this side looks -- the search result, where the engine cuts it. So the
+    limit is checked here rather than discovered in a report months later.
+    """
+    low, high = DESCRIPTION_BAND
+    for path in PAGES:
+        html = client.get(path).text
+        title = re.search(r"<title>(.*?)</title>", html, re.DOTALL)
+        description = re.search(r'<meta name="description" content="(.*?)">', html, re.DOTALL)
+        assert title and description, path
+        written = unescape(title.group(1))
+        said = unescape(description.group(1))
+        assert len(written) <= TITLE_LIMIT, f"{path}: title is {len(written)} characters"
+        assert low <= len(said) <= high, f"{path}: description is {len(said)} characters"
+
+
 def test_shared_assets_serve_get_and_head() -> None:
     for path, kind in (
         ("/site.css", "text/css"),
