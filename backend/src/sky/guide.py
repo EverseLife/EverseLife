@@ -33,6 +33,9 @@ BRAKE_MARGIN = 1.5
 BRAKE_SHARE = 0.85
 #: A difference of velocity below this is a coast, not a burn: units a day.
 STILL = 1e-3
+#: How far above the ground a fall must still pass for the helm to let it
+#: run: nearer than this many planet radii it is a crash, not an approach.
+CLEARS = 1.6
 
 #: The three things the helm can be doing.
 BURN = "burn"
@@ -53,11 +56,19 @@ class Helm:
 
 def brake_days(dv: float, a_max: float) -> float:
     """How much later than the impulsive plan a hull of this thrust arrives:
-    the braking is a stretch, not an instant, and the hull is slower over
-    all of it -- half the stretch's length, near enough."""
+    the fall to the circle, and the braking on it.
+
+    Two stretches, not one. The braking is not an instant and the hull is
+    slower over all of it -- half its length, near enough. Before that comes
+    the fall (D-316): the helm takes the arc up at `BRAKE_MARGIN` braking
+    distances out and lets the pull bring the hull down, which at the
+    approach speed takes `BRAKE_MARGIN / 2` of the same `dv / a_max` again.
+    The old word counted only the braking and the console promised an hour
+    the fall then missed.
+    """
     if a_max <= 0:
         return 0.0
-    return dv / (2.0 * a_max * BRAKE_SHARE)
+    return dv / a_max * (BRAKE_MARGIN / 2.0 + 1.0 / (2.0 * BRAKE_SHARE))
 
 
 def steer(
@@ -197,34 +208,50 @@ def _capture(
     a_max: float,
     dt: float,
 ) -> Helm:
-    """Shed the speed and match the circle.
+    """Fall to the circle, then match it (D-316).
 
-    The wanted velocity, relative to the planet, is a profile of the way
-    left: inward, at the speed one can still brake to nought by the circle
-    with a share of the thrust -- and over the last radii blended into the
-    circle's own velocity, prograde. Once the hull is inside the capture
-    radius and within the capture speed of the circle, it is on it.
+    The planet's pull brings a hull down for nothing, and braking high in
+    its well pays for what the well gives. The helm used to do exactly that
+    -- hold an inward profile from three to six radii out, shedding speed
+    the fall then handed straight back -- and it cost five to nine times
+    what the arrival is priced at. So while the hull is coming down, is
+    still above the circle, and its fall clears the ground, nothing is
+    burnt; at the circle the burn matches the circle. Once inside the
+    capture radius and within the capture speed of it, the hull is on it.
     """
     gap = float(np.hypot(*rel))
     park = system.park
-    inward = -rel / max(gap, 1e-9)
     around = np.array([-rel[1], rel[0]]) / max(gap, 1e-9)
-    on_circle = around * circle_speed(target, park)
-    if gap <= system.capture_radius and float(np.hypot(*(on_circle - v_rel))) <= (
-        system.capture_speed
+    if (
+        gap <= system.capture_radius
+        and float(np.hypot(*(around * circle_speed(target, park) - v_rel))) <= system.capture_speed
     ):
         return Helm(thrust=(0.0, 0.0), phase=CAPTURE, captured=True)
-    left = max(gap - park, 0.0)
-    closing = inward * float(np.sqrt(2.0 * BRAKE_SHARE * a_max * left))
-    share = float(np.clip(1.0 - left / ((system.approach - 1.0) * park), 0.0, 1.0))
-    wanted = (1.0 - share) * closing + share * on_circle
-    need = wanted - v_rel
+    falling = float(np.dot(v_rel, rel)) / max(gap, 1e-9) < 0.0
+    if falling and gap > park and _low_point(target.mu, rel, v_rel) > target.radius * CLEARS:
+        return Helm(thrust=(0.0, 0.0), phase=CAPTURE, captured=False)
+    #: At the circle, or on a fall that ends on the ground: match the circle
+    #: through where the hull is, which is the circle itself once it is down.
+    need = around * circle_speed(target, gap) - v_rel
     size = float(np.hypot(*need))
     if size < STILL:
         return Helm(thrust=(0.0, 0.0), phase=CAPTURE, captured=False)
     accel = min(a_max, size / dt)
     thrust = need / size * accel
     return Helm(thrust=(float(thrust[0]), float(thrust[1])), phase=CAPTURE, captured=False)
+
+
+def _low_point(mu: float, rel: np.ndarray, v_rel: np.ndarray) -> float:
+    """How near the planet this fall passes, if nothing is burnt: the
+    periapsis of the two-body orbit the hull is on."""
+    gap = float(np.hypot(*rel))
+    speed = float(np.hypot(*v_rel))
+    energy = speed * speed / 2.0 - mu / gap
+    if abs(energy) < 1e-12:
+        return gap
+    momentum = float(rel[0] * v_rel[1] - rel[1] * v_rel[0])
+    excess = 1.0 + 2.0 * energy * momentum * momentum / (mu * mu)
+    return -mu / (2.0 * energy) * (1.0 - float(np.sqrt(max(0.0, excess))))
 
 
 def _meet(

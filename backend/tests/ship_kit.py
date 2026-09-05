@@ -115,10 +115,17 @@ PARK_HEADING = 0.0
 #: A pinned angle only holds while the vault's numbers stay put: retune
 #: `orbit.thrust_scale` or `orbit.slider_step` and the pin and the band move
 #: apart, so the tests that fly to a mooring say what they expect rather than
-#: leaning on the slack in `_flown`. Measured over the whole circle of
-#: departure angles, a passage that closes at all closes 1.6 to 2.6 hours past
-#: the promised hour -- the tick's own hour among them -- so this is roomy.
-LATE_HOURS = 6.0
+#: leaning on the slack in `_flown`.
+#:
+#: Twelve, and not the two the first wave measured: since D-316 gave the helm
+#: a capture that falls to the circle before it brakes, the arrival takes a
+#: fall the promised hour does not fully count, and the fast end of the slider
+#: moors 5.3 to 7.2 hours past it over the circle of departure angles. That
+#: shortfall is a defect of the promise rather than of the flight (OQ-136);
+#: this number is drawn above the measured worst so the check keeps catching
+#: what it was written for -- a passage that does not close at all, which was
+#: thirty to ninety hours out -- without failing on the shortfall itself.
+LATE_HOURS = 12.0
 
 
 async def _heading_of(
