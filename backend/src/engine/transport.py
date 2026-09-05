@@ -58,7 +58,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.constants.catalog import ItemKind, current_catalog
+from src.constants.catalog import current_catalog
 from src.engine import events, gear, travel, wear, world
 from src.engine.errors import Refusal
 from src.models.event import EventKind
@@ -99,11 +99,9 @@ class Impassable(TransportError):
 
 def is_vehicle(catalog: Catalog, type_key: str) -> bool:
     """Whether this is a vehicle. The sign is `kind: vehicle` from the vault, not the name
-    (D-090)."""
-    try:
-        return catalog.recipes.recipe(type_key).kind is ItemKind.VEHICLE
-    except Exception:  # noqa: BLE001 -- raw material has no recipe, and that is normal
-        return False
+    (D-090). One truth, kept in `gear`: the carry limit stands below this
+    module and must know a hold when it sees one (D-313)."""
+    return gear.is_vehicle_kind(catalog, type_key)
 
 
 def word(constants: Constants, type_key: str) -> str | None:
@@ -272,12 +270,17 @@ async def cargo_items(session: AsyncSession, vehicle: Item) -> list[Item]:
 
 
 async def cargo_mass(session: AsyncSession, catalog: Catalog, vehicle: Item) -> float:
-    """How many kilograms the hold already carries."""
+    """How many kilograms the hold already carries, what lies inside chests included.
 
-    return sum(
-        gear.mass_of(catalog, thing.type_key, amount_float(thing.amount))
-        for thing in await cargo_items(session, vehicle)
-    )
+    The hold is bounded by mass, as the hands and a chest are, and a chest
+    loaded onto the wagon brings its contents with it (D-313). Weighing the
+    lid alone would make furniture a way past that bound -- and the wear,
+    which reads how full the hold is, would believe it too.
+    """
+
+    things = await cargo_items(session, vehicle)
+    own = sum(gear.mass_of(catalog, thing.type_key, amount_float(thing.amount)) for thing in things)
+    return own + await gear.inner_mass(session, catalog, things)
 
 
 async def fill(
@@ -314,7 +317,13 @@ async def load(
     qty = amount_float(item.amount) if quantity is None else quantity
     if qty <= 0:
         raise TransportError(key="transport-nothing-to-load")
-    bonus = gear.mass_of(catalog, item.type_key, qty)
+    #: A chest goes into the hold with what is in it (D-313): the hold is
+    #: bounded by mass, and weighing the lid would let three hundred kilograms
+    #: onto a barrow rated for eighty. Read before the move: afterwards the
+    #: row's own amount has changed, and the question "does the whole of it
+    #: go" no longer has the answer it had.
+    inside = await gear.moved_inside(session, catalog, item, qty)
+    bonus = gear.mass_of(catalog, item.type_key, qty) + inside
     free = capacity(constants, wagon.type_key) - await cargo_mass(session, catalog, wagon)
     if bonus > free:
         raise Overloaded(key="transport-overloaded", free=free, mass=bonus)
@@ -329,7 +338,11 @@ async def load(
         item_id=str(wagon.id),
         type_key=item.type_key,
         amount=carried,
-        mass=gear.mass_of(catalog, item.type_key, carried),
+        #: What the hold actually took, contents and all (D-313): the refusal
+        #: beside this names that number, and a journal saying four kilograms
+        #: where three hundred travelled would be read as the truth. Less than
+        #: was asked for means a stack was split, and a split-off piece is bare.
+        mass=gear.mass_of(catalog, item.type_key, carried) + (inside if carried >= qty else 0.0),
     )
     return carried
 
@@ -358,7 +371,9 @@ async def unload(
     qty = amount_float(item.amount) if quantity is None else quantity
     if qty <= 0:
         raise TransportError(key="transport-nothing-to-unload")
-    await gear.check_carry(session, constants, catalog, body, item.type_key, qty)
+    #: A chest comes off the wagon with what is in it (D-313): the hold weighs
+    #: by mass, and the hands must ask the same question of the same thing.
+    await gear.check_carry_thing(session, constants, catalog, body, item, qty)
 
     pocket = await world.body_container(session, body)
     carried = await _move(session, item, pocket, qty)

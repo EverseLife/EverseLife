@@ -7,6 +7,7 @@
 import { useEffect, useState } from "react";
 import * as api from "../../api";
 import { Refusal, useActions, useBook, useNames, useSession } from "../../actions";
+import { busyWith } from "../../busy";
 import { t } from "../../locale";
 import { buildingKindName, goodsName } from "../../names";
 import { Deadline } from "../../Deadline";
@@ -132,6 +133,10 @@ export function House({
   //: The start's price from the public constants (D-225), never from the wire.
   const startStamina = (w: Work) =>
     (values?.["build.start_stamina_per_m2"] ?? 0) * w.area * w.floors;
+  //: A build is an occupation (D-310), and a busy body has none to spare --
+  //: including for its own second site. Grey with the reason on the button,
+  //: rather than a refusal collected after the click.
+  const occupied = busyWith(look);
 
   return (
     <>
@@ -277,15 +282,19 @@ export function House({
                 {mine(w) ? (
                   <div className="row">
                     <button
-                      disabled={busy || !complete(w)}
-                      title={t("ui-place-site-start-hint")}
+                      disabled={busy || !complete(w) || occupied !== null}
+                      title={occupied ?? t("ui-place-site-start-hint")}
                       onClick={() =>
                         act(() => session.send("build.site_start", { site: w.site }))
                       }
                     >
                       {t("ui-place-site-start", { stamina: startStamina(w).toFixed(1) })}
                     </button>
-                    {!complete(w) && <span className="note">{t("ui-place-site-waiting")}</span>}
+                    {occupied !== null ? (
+                      <span className="note">{occupied}</span>
+                    ) : (
+                      !complete(w) && <span className="note">{t("ui-place-site-waiting")}</span>
+                    )}
                   </div>
                 ) : (
                   <p className="note">{t("ui-place-site-owner-only")}</p>

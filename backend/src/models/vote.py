@@ -68,7 +68,9 @@ class Vote(Base):
     #: Who votes: `citizens` or `council` (D-164). Captured at convening like
     #: everything else: dissolving the council mid-poll does not turn it into a
     #: city-wide one.
-    voters: Mapped[str] = mapped_column(nullable=False, default="citizens")
+    voters: Mapped[str] = mapped_column(
+        nullable=False, default="citizens", server_default="citizens"
+    )
 
     state: Mapped[VoteState] = enum_column(
         VoteState, "vote_state", nullable=False, default=VoteState.OPEN

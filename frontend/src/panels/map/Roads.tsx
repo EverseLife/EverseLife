@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import type { Look, RoadWork } from "../../api";
 import { Hint } from "../../Hint";
 import { useSession } from "../../actions";
+import { busyWith } from "../../busy";
 import { t } from "../../locale";
 
 /** Roads from this node: what is laid, what sagged and what it costs (D-158).
@@ -38,6 +39,11 @@ export function Roads({
     //: ступень меняет и покрытие, и остаток полотна в руках.
   }, [session, look.node?.key, look.inventory]);
 
+  //: Laying a surface is an occupation (D-310), and a busy body has no hands
+  //: for it. The button goes grey with the reason on it: a refusal collected
+  //: after the click says the same thing one step too late.
+  const occupied = busyWith(look);
+
   const shown = only ? roads.filter((path) => path.to === only) : roads;
   if (shown.length === 0) return null;
   const work_ = (edge: string, mend: boolean) =>
@@ -60,11 +66,14 @@ export function Roads({
                 <button
                   className="quiet"
                   onClick={() => work_(path.edge, false)}
-                  disabled={busy || path.at_hand < path.needs}
-                  title={t("ui-map-road-need", {
-                    needs: path.needs.toFixed(0),
-                    hand: path.at_hand.toFixed(0),
-                  })}
+                  disabled={busy || path.at_hand < path.needs || occupied !== null}
+                  title={
+                    occupied ??
+                    t("ui-map-road-need", {
+                      needs: path.needs.toFixed(0),
+                      hand: path.at_hand.toFixed(0),
+                    })
+                  }
                 >
                   {t(path.surface === "trail" ? "ui-map-road-lay" : "ui-map-road-pave", {
                     needs: path.needs.toFixed(0),
@@ -75,8 +84,10 @@ export function Roads({
                 <button
                   className="quiet"
                   onClick={() => work_(path.edge, true)}
-                  disabled={busy || path.at_hand < path.mend_needs}
-                  title={t("ui-map-road-mend-need", { needs: path.mend_needs.toFixed(0) })}
+                  disabled={busy || path.at_hand < path.mend_needs || occupied !== null}
+                  title={
+                    occupied ?? t("ui-map-road-mend-need", { needs: path.mend_needs.toFixed(0) })
+                  }
                 >
                   {t("ui-map-road-mend", { needs: path.mend_needs.toFixed(0) })}
                 </button>

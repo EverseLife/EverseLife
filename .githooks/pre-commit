@@ -78,6 +78,15 @@ if ! "$py" tools/spdx.py; then
     exit 1
 fi
 
+# Russian typography does not end a line on a one- or two-letter word, and the
+# markup is the only place that rule can live -- see landing/nbsp.py. It runs
+# before the stamps below on purpose: tying a space changes the page's bytes.
+if "$py" -c "import fastapi" > /dev/null 2>&1; then
+    if ! "$py" landing/nbsp.py --check; then
+        exit 1
+    fi
+fi
+
 # The sitemap dates its pages by content, not by mtime, so the stamps have to
 # be restamped when a page changes -- see landing/lastmod.py. Only with a
 # python that has FastAPI: the script reads the page list from the landing app,

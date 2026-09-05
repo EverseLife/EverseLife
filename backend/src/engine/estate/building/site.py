@@ -39,7 +39,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import craft, events, goods, travel
+from src.engine import craft, events, goods, occupation, travel
 from src.engine.estate._base import EstateError, NoRoom, TooSmall, storey_of
 from src.engine.estate.building.build import (
     bill,
@@ -288,6 +288,17 @@ async def start(
     """
     moment = now or datetime.now(UTC)
     node = await _at(session, body, site)
+    #: A site's build is a build (D-310): the same hands, the same term and the
+    #: same rule about a second work. Before the site's row is locked, not after
+    #: -- the check is half a dozen reads of the journal and the road, and the
+    #: site would be held against its own owner for all of them. Nothing is
+    #: shadowed by asking first: a site already building is a build of these
+    #: same hands, and "the body is at a build" is the truer sentence for it.
+    #:
+    #: **Bringing** materials is not a work and asks nothing (`contribute_to_site`):
+    #: anybody standing here may carry timber to a yard, busy or not. Only the
+    #: start is the work.
+    await occupation.require_free(session, body)
     await session.refresh(site, with_for_update=True)
     if site.owner_identity_id != body.identity_id:
         raise SiteError(key="estate-site-not-yours")

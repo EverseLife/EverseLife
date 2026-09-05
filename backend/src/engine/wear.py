@@ -3,9 +3,15 @@
 
 """Wear: why things run out (D-129, D-058, 15-quality).
 
-Pillar P2 requires an item to be finite. Hence four wear streams, each
-parameterised by the vault separately: a tool per mining session, a machine
-per batch, gear per day of wearing, a vehicle per transit.
+Pillar P2 requires an item to be finite. Hence five wear streams, each
+parameterised by the vault separately: a tool per mining session, a tool per
+hour of a batch (D-309), a machine per batch, gear per day of wearing, a
+vehicle per transit.
+
+The tool has two of them because it is worked in two shapes. A mining session
+is a stretch of swings with no length of its own, so it is charged whole; a
+batch has an hour count, and charging it per batch instead would make one
+felling of fifty logs cost an axe what fifty fellings of one log cost it.
 
 ## Two numbers on an item, and they are confused most often
 
@@ -27,7 +33,9 @@ just break suddenly.
 
 **Reached zero -- the thing is finished.** Not "works with zero output" but
 disappears: the acceptance benchmark is direct -- a tool runs out in
-`100 / wear.tool_per_session` sessions (07-implementation-map).
+`100 / wear.tool_per_session` mining sessions, and in `100 / wear.tool_per_hour`
+hours of batch work (07-implementation-map, D-309). Of ordinary quality, both:
+a good tool lasts longer exactly as many times as it is better.
 
 The environment speeds up gear wear by the `wear.environment_k` multiplier.
 That is what makes Pyroxis expensive by itself, without a single special
@@ -36,6 +44,7 @@ mechanic (D-129).
 
 from __future__ import annotations
 
+import uuid
 from decimal import ROUND_FLOOR, Decimal
 
 from sqlalchemy import select
@@ -45,7 +54,7 @@ from src.constants import Catalog, Constants, current_catalog
 from src.constants import registry as R
 from src.constants.catalog import ItemKind
 from src.constants.spec import ConstantError
-from src.engine import events
+from src.engine import events, gear
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState
 from src.models.inventory import Container, ContainerKind, Item
@@ -196,8 +205,19 @@ async def spend(
         cause="worn_out",
         doing=cause,
     )
+    #: Asked while the thing is still worn: the slot forgets it, and the excess
+    #: of this moment is read to be compared with the one it leaves behind. A
+    #: thing that was never worn -- a rig, a wagon, a heap of ore -- answers
+    #: `None` here without touching the database (D-305).
+    losing = await gear.losing_worn(session, constants, current_catalog(), item)
     await session.delete(item)
     await session.flush()
+    if losing is not None:
+        #: And **after** the thing is gone, what it was holding up comes down
+        #: -- only the difference its ending makes, never an overload another
+        #: door let in (D-306).
+        wearer, before = losing
+        await gear.settle_lost(session, constants, current_catalog(), wearer, before)
     return True
 
 
@@ -209,7 +229,7 @@ async def daily_gear_wear(session: AsyncSession, constants: Constants, catalog: 
     """
     rows = (
         await session.execute(
-            select(Item, Node.planet, Body.identity_id)
+            select(Item, Node.planet, Body.identity_id, Body.id)
             .join(Container, Container.id == Item.container_id)
             .join(Body, Body.id == Container.owner_id)
             .join(Node, Node.id == Body.node_id)
@@ -217,27 +237,55 @@ async def daily_gear_wear(session: AsyncSession, constants: Constants, catalog: 
                 Container.kind == ContainerKind.BODY,
                 Body.state == BodyState.ALIVE,
             )
+            #: **In body order, and the rows of one body together**, because
+            #: this step now takes body rows: a thing worn through ends under
+            #: `gear.losing_worn`, which locks its wearer to settle the load.
+            #: Tick steps run in transactions of their own (`tick.tick_step`),
+            #: so this walks beside every other sweep that locks bodies --
+            #: `gear.wear_exoskeletons`, `frost.tick_bodies`,
+            #: `oxygen.tick_bodies` -- and all of them take their bodies in id
+            #: order too. Two sweeps taking the same rows in two orders is a
+            #: deadlock; taking them in one order is not.
+            .order_by(Body.id)
         )
     ).all()
 
     per_day = constants[R.WEAR_GEAR_PER_DAY]
     modifiers = constants[R.WEAR_ENVIRONMENT_K]
-    gone = 0
-    for item, planet, identity_id in rows:
+    #: Gathered by body before anything is written. The rows arrive in body
+    #: order above, so this keeps that order, and it buys the look-ahead the
+    #: locking below needs: whether this body loses anything at all today.
+    worn: dict[uuid.UUID, list[tuple[Item, float, uuid.UUID]]] = {}
+    for item, planet, identity_id, body_id in rows:
         if not _is_gear(catalog, item.type_key):
             continue
         #: `wear.environment_k` keys are planet ids since D-251 normalization.
-        environment = modifiers.get(planet.value, 1.0)
-        if await spend(
-            session,
-            constants,
-            item,
-            per_day,
-            environment=environment,
-            cause="wearing",
-            actor_identity_id=identity_id,
-        ):
-            gone += 1
+        worn.setdefault(body_id, []).append((item, modifiers.get(planet.value, 1.0), identity_id))
+
+    gone = 0
+    for body_id, theirs in worn.items():
+        #: **The body first, then what lies in its hands** -- but only for a
+        #: body something ends on today. Writing wear takes the thing's row,
+        #: and a thing worn through then takes its wearer's to settle the load,
+        #: so the order here would otherwise be the thing and then the body,
+        #: against every other holder in the world (`overload._fall` takes the
+        #: body and then the stacks it moves). Asked before the first write of
+        #: this body's, so the order holds; asked with `wears_out` rather than
+        #: taken blindly, so a daily step does not hold the row of every living
+        #: body in the world for a wearing-through that happens to a handful.
+        if any(wears_out(constants, one, per_day, environment=where) for one, where, _ in theirs):
+            await session.execute(select(Body.id).where(Body.id == body_id).with_for_update())
+        for one, where, identity_id in theirs:
+            if await spend(
+                session,
+                constants,
+                one,
+                per_day,
+                environment=where,
+                cause="wearing",
+                actor_identity_id=identity_id,
+            ):
+                gone += 1
     return gone
 
 

@@ -31,10 +31,23 @@ def _month_start(moment: datetime, plus: int = 0) -> datetime:
     return datetime(year, month, 1, tzinfo=UTC)
 
 
+def partition_name(moment: datetime) -> str:
+    """The partition a moment belongs in.
+
+    The one place the month's format is written. `db.ddl.PARTITION` is the
+    rule that matches these names, and it cannot call this -- `db` lies below
+    `engine` -- so the two are held together by a test instead
+    (`tests/test_migrations.py`). Without that, a change of format here would
+    leave the filter matching nothing and autogeneration proposing to drop
+    every month it no longer recognised.
+    """
+    return f"event_{_month_start(moment):%Y%m}"
+
+
 def partition_ddl(month: datetime) -> str:
     start = _month_start(month)
     end = _month_start(month, 1)
-    name = f"event_{start:%Y%m}"
+    name = partition_name(start)
     return (
         f"CREATE TABLE IF NOT EXISTS {name} PARTITION OF event "
         f"FOR VALUES FROM ('{start:%Y-%m-%d}') TO ('{end:%Y-%m-%d}')"

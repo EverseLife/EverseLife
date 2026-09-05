@@ -262,8 +262,6 @@ h3 { font-weight: 600; color: var(--ink); letter-spacing: -.01em; }
 .rv-stag.in > *:nth-child(7) { transition-delay: .6s; }
 .rv-stag.in > *:nth-child(8) { transition-delay: .7s; }
 .rv-stag.in > *:nth-child(9) { transition-delay: .8s; }
-.sec-head.rv h1, .sec-head.rv h2 { font-weight: 250; transition: font-weight 1.2s var(--ease-out) .15s; }
-.sec-head.rv.in h1, .sec-head.rv.in h2 { font-weight: 700; }
 /* the section index flickers once as it lands: a machine settling on a value */
 .rv.in .sec-num { animation: glitch .45s steps(1) 1 .1s; }
 @keyframes glitch {
@@ -646,7 +644,6 @@ footer .bar .r { margin-left: auto; }
   html { scroll-behavior: auto; }
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
   .rv, .rv-stag > *, table.no tr, .hero .lead, .hero .actions, .system { opacity: 1; transform: none; filter: none; }
-  .sec-head.rv h1, .sec-head.rv h2 { font-weight: 700; }
   h1 .line > span { transform: none; }
   .grain { animation: none; }
 }

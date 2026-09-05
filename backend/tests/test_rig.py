@@ -398,6 +398,256 @@ async def test_eats_vein_twice_as_fast(session: AsyncSession, constants: Constan
     assert went == pytest.approx(mined * constants[R.RIG_DEPLETION_MULTIPLIER], rel=0.01)
 
 
+# --- standing, or not working (D-278, D-314) ---------------------------------
+
+
+async def test_a_rig_taken_down_mines_nothing(session: AsyncSession, constants: Constants) -> None:
+    """A machine that does not stand does not work (D-278). The rig was the one
+    machine that went on regardless: `advance` asked only whether the thing and
+    the vein still existed, and nothing ever deleted the row (D-314)."""
+    from src.constants import current_catalog
+    from src.engine import station
+
+    _, vein, body, installation, machine = await _face(session)
+    await rig.advance(session, constants, installation, now=_via(installation, 2))
+    assert float(installation.hopper) > 0
+    #: Taking down asks for an empty hopper (D-314); the loaded machine is the
+    #: knocked-over one below.
+    await rig.empty_hopper(session, constants, body, installation, now=_via(installation, 2))
+    left = int(vein.remaining)
+
+    await station.take(session, current_catalog(), body, machine)
+    assert machine.installed is False
+
+    later = _via(installation, 10)
+    mined = await rig.advance(session, constants, installation, now=later)
+    assert mined == 0
+    #: Nothing is spent either: the vein waits for the machine to be stood up
+    #: again. Only the stamp moves -- held back, it would mine the whole spell
+    #: in the sack on the first pass after.
+    assert int(vein.remaining) == left
+    assert installation.counted_at == later
+
+
+async def test_a_rig_stood_up_again_goes_on_from_where_it_stopped(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """The row is the enterprise and travels with the machine (D-314): put back
+    up, it drills on with the hopper it had."""
+    _, vein, body, installation, machine = await _face(session)
+    await rig.advance(session, constants, installation, now=_via(installation, 2))
+    hopper = float(installation.hopper)
+    #: Knocked over rather than taken down -- a demolition, an owner's death:
+    #: the taking-down door refuses a loaded hopper (D-314), and this is how a
+    #: loaded machine comes to be lying.
+    machine.installed = False
+    await session.flush()
+    #: A day on its side, and then back onto the same vein.
+    lying = _via(installation, 24)
+    assert await rig.advance(session, constants, installation, now=lying) == 0
+    assert float(installation.hopper) == pytest.approx(hopper)
+    again = await rig.place(session, body, machine, vein, now=lying)
+
+    assert again.id == installation.id
+    assert machine.installed is True
+    assert float(again.hopper) == pytest.approx(hopper)
+    mined = await rig.advance(session, constants, again, now=lying + timedelta(hours=1))
+    assert mined == pytest.approx(constants[R.RIG_OUTPUT_PER_HOUR])
+
+
+async def test_a_loaded_rig_is_not_taken_down(session: AsyncSession, constants: Constants) -> None:
+    """By the full chest's rule (D-181, D-314): taking down weighs nothing, so a
+    full hopper would ride off in the hands past the carry limit and past the
+    carter it exists to require."""
+    from src.constants import current_catalog
+    from src.engine import station
+
+    _, _, body, installation, machine = await _face(session)
+    await rig.advance(session, constants, installation, now=_via(installation, 2))
+    assert float(installation.hopper) > 0
+
+    with pytest.raises(station.NotEmpty):
+        await station.take(session, current_catalog(), body, machine)
+    assert machine.installed is True
+
+    #: Emptied, it comes down like any other machine.
+    await rig.empty_hopper(session, constants, body, installation)
+    await station.take(session, current_catalog(), body, machine)
+    assert machine.installed is False
+
+
+async def test_a_rig_moves_to_another_vein_only_empty(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """The rock is read off the vein it stands on **now**, so ore of the old one
+    would come out as the new one's (D-314)."""
+    node, _, body, installation, machine = await _face(session)
+    other = await world.create_vein(session, node, "coal", richness=40, remaining=50_000)
+    await rig.advance(session, constants, installation, now=_via(installation, 2))
+    moment = _via(installation, 2)
+
+    with pytest.raises(rig.HopperNotEmpty):
+        await rig.place(session, body, machine, other, now=moment)
+
+    await rig.empty_hopper(session, constants, body, installation, now=moment)
+    moved = await rig.place(session, body, machine, other, now=moment)
+    assert moved.id == installation.id
+    assert moved.vein_id == other.id
+    #: The slivers stayed with the old vein: the ore one is its rock, the coal
+    #: one a debt to its yard.
+    assert float(moved.hopper_remainder) == 0
+    assert float(moved.fuel_remainder) == 0
+
+
+async def test_the_row_dies_with_the_machine(session: AsyncSession, constants: Constants) -> None:
+    """Nothing ever deleted a rig row, and `tick_rigs` locks every row in the
+    world each pass: an orphan was a lock the world paid for forever (D-314)."""
+    _, _, _, installation, machine = await _face(session)
+    row_id = installation.id
+    await session.delete(machine)
+    await session.flush()
+
+    assert await rig.tick_rigs(session, constants, now=_via(installation, 1)) == 0
+    assert await session.get(Rig, row_id) is None
+
+
+async def test_a_rig_knocked_over_is_still_emptied(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """D-278 forbids a lying machine to work and to be programmed; opening a
+    hatch is neither (D-314). Without this the ore would be stuck for good in
+    everything that knocks a rig down past the taking-down door."""
+    _, _, body, installation, machine = await _face(session)
+    await rig.advance(session, constants, installation, now=_via(installation, 2))
+    #: As a demolition or an owner's death leaves it: lying where it stood.
+    machine.installed = False
+    await session.flush()
+
+    taken = await rig.empty_hopper(
+        session, constants, body, installation, now=_via(installation, 2)
+    )
+    assert taken > 0
+    assert float(installation.hopper) == 0
+
+
+async def test_the_hopper_gives_what_the_hands_hold(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """A full hopper outweighs the hands, and all-or-nothing made it impossible
+    to empty at all -- the enterprise's own obligation falling due exactly when
+    it could not be met (D-146, D-314). What fits is taken, the rest waits."""
+    from src.constants import current_catalog
+    from src.engine import gear
+
+    _, _, body, installation, _ = await _face(session, coal=10_000)
+    full = rig.hopper_capacity(constants)
+    await rig.advance(session, constants, installation, now=_via(installation, 100))
+    assert float(installation.hopper) == pytest.approx(full)
+
+    catalog = current_catalog()
+    room = await gear.room_for(session, constants, catalog, body, "iron_ore")
+    assert room < full, "the test wants a hopper heavier than the hands"
+
+    taken = await rig.empty_hopper(session, constants, body, installation)
+    assert taken == pytest.approx(room, abs=1)
+    assert float(installation.hopper) == pytest.approx(full - taken)
+    #: And the machine goes on: room in the hopper is room again.
+    assert await gear.room_for(session, constants, catalog, body, "iron_ore") < 1
+
+
+async def test_a_knocked_over_rig_is_not_stood_up_by_a_passer_by(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """The standing door asks whose the plot is (D-278) -- and the rig's never
+    did. It was harmless while a machine could only be stood out of the hands:
+    44 kg does not come off the floor. Standing one up off the floor (D-314)
+    removes that accidental guard, and the row's owner goes to whoever stands
+    it -- so without the door a passer-by would inherit a knocked-over rig on
+    somebody's plot, hopper and all."""
+    node, vein, body, installation, machine = await _face(session)
+    await rig.advance(session, constants, installation, now=_via(installation, 2))
+    ore = float(installation.hopper)
+    #: The plot is the owner's, and the machine lies where a demolition left it.
+    node.owner_identity_id = body.identity_id
+    machine.installed = False
+    await session.flush()
+
+    stranger_id = await world.create_identity(session, f"Прохожий-{uuid.uuid4().hex[:6]}")
+    stranger = await world.print_body(session, stranger_id, node)
+    with pytest.raises(rig.NotYours):
+        await rig.place(session, stranger, machine, vein, now=_via(installation, 2))
+    assert installation.owner_identity_id == body.identity_id
+    with pytest.raises(rig.NotYours):
+        await rig.empty_hopper(session, constants, stranger, installation)
+    assert float(installation.hopper) == pytest.approx(ore)
+
+    #: The holder stands their own machine back up, and it is theirs still.
+    again = await rig.place(session, body, machine, vein, now=_via(installation, 2))
+    assert again.owner_identity_id == body.identity_id
+    assert machine.installed is True
+
+
+async def test_a_hopper_is_not_emptied_where_the_machine_is_not(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """The row says which node it belongs to, and the machine can leave without
+    the row hearing -- a counter takes an unsold machine off the yard. The row
+    would go on offering its hopper to whoever stands where the rig used to be
+    (D-314)."""
+    _, _, body, installation, machine = await _face(session)
+    await rig.advance(session, constants, installation, now=_via(installation, 2))
+    assert float(installation.hopper) > 0
+
+    #: Off the yard and out of anybody's hands, as a counter puts it.
+    stall = await world.create_node(
+        session, f"terra.stall.{uuid.uuid4().hex[:8]}", "Прилавок", area_m2=10
+    )
+    machine.container_id = (await world.node_container(session, stall)).id
+    machine.installed = False
+    await session.flush()
+
+    with pytest.raises(rig.RigError):
+        await rig.empty_hopper(session, constants, body, installation, now=_via(installation, 2))
+    assert float(installation.hopper) > 0, "бункер не тронут"
+
+
+async def test_the_place_door_takes_a_rig_off_the_floor(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """`_own_item` asks for the hands, and a rig that stopped standing is on the
+    floor: taken down, dropped by a demolition, fallen with its owner. Standing
+    it up again is the point of the row surviving (D-314), and that door would
+    have been shut."""
+    import src.api.session  # noqa: F401 -- registers the commands
+    from src.api.registry import COMMANDS, Refused
+    from src.constants import current_catalog
+    from src.engine import station
+
+    node, vein, body, installation, machine = await _face(session)
+    #: Through the real door: since D-308 taking a machine down lays it on the
+    #: surface it stood on, and that lying machine is exactly what this accepts.
+    await station.take(session, current_catalog(), body, machine)
+    assert machine.installed is False
+    assert machine.container_id == (await world.node_container(session, node)).id
+
+    answer = await COMMANDS["rig.place"].run(
+        {"identity_id": body.identity_id},
+        session,
+        {"cmd": "rig.place", "item": str(machine.id), "vein": str(vein.id)},
+    )
+    assert answer["rig"] == str(installation.id)
+    assert machine.installed is True
+
+    #: And what stands is not taken this way: that goes through the taking-down
+    #: door, which is the one that asks whose the plot is (D-278).
+    with pytest.raises(Refused):
+        await COMMANDS["rig.place"].run(
+            {"identity_id": body.identity_id},
+            session,
+            {"cmd": "rig.place", "item": str(machine.id), "vein": str(vein.id)},
+        )
+
+
 # --- the liquid vein (D-252) -------------------------------------------------
 
 

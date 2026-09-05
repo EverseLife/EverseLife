@@ -34,6 +34,13 @@ type Props = {
 
 type RigRow = {
   id: string;
+  /** The machine itself: which thing this enterprise sits in (D-314). Whether
+   *  it stands is read off this id among the node's standing machines, and
+   *  putting a lying one back up needs the thing to name. */
+  item: string;
+  /** The vein it sits on: standing it back up puts it where it was, and a
+   *  loaded hopper may go back onto no other (D-314). */
+  vein: string;
   resource: string | null;
   hopper: number;
   capacity: number;
@@ -57,6 +64,11 @@ export function Rig({ look }: Omit<Props, "busy" | "act">) {
   const rigName = firstOfClass(book, look.inventory.map((t) => t.goods), RIG);
   const machine = look.inventory.find((t) => t.goods === rigName);
   const vein = look.veins?.[0];
+  //: What stands here (D-278): a rig whose machine is not among them was taken
+  //: down or knocked over, and a machine that does not stand does not drill
+  //: (D-314). Derived rather than sent -- the row names its thing, and the
+  //: standing things are already on the wire (D-225).
+  const standing = (rig: RigRow) => (look.bench ?? []).some((one) => one.id === rig.item);
 
   const reload = useCallback(async () => {
     const answer = await session.send("rig.status");
@@ -104,12 +116,23 @@ export function Rig({ look }: Omit<Props, "busy" | "act">) {
             })}
             {u.fuel <= 0 && <b> · {t("ui-rig-no-fuel")}</b>}
           </p>
+          {!standing(u) && <p className="note">{t("ui-rig-down")}</p>}
           <button
             onClick={() => go(() => session.send("rig.empty", { rig: u.id }))}
             disabled={busy || u.hopper <= 0}
           >
             {t("ui-rig-empty")}
           </button>
+          {!standing(u) && (
+            <button
+              onClick={() =>
+                go(() => session.send("rig.place", { item: u.item, vein: u.vein }))
+              }
+              disabled={busy}
+            >
+              {t("ui-rig-place")}
+            </button>
+          )}
         </div>
       ))}
 

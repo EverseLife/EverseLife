@@ -142,7 +142,7 @@ class Plot(Base):
     #: dropped only by a separate decision. `plow_since` is when the current
     #: run began -- empty while the plough stands paused.
     plow_done_minutes: Mapped[float] = mapped_column(
-        Numeric(10, 2), nullable=False, default=0, server_default="0"
+        Numeric(10, 2), nullable=False, default=0, server_default=text("0")
     )
     plow_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

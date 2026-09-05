@@ -24,6 +24,7 @@ from enum import StrEnum
 from typing import Any
 
 from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, Index, Numeric, Uuid
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.db.base import Base, created_column, enum_column, uuid_pk
@@ -87,7 +88,15 @@ class CraftBatch(Base):
     station: Mapped[str | None] = mapped_column(nullable=True)
     #: The machine occupied by the current run. Empty while the batch waits.
     station_item_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
-    tool_item_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    #: The tools the work is done with, as ids -- the ones the requirements
+    #: resolved to at the start, plus any the master named. They set the
+    #: quality ceiling together with the machine, and they wear by the hours
+    #: worked (D-309), so the batch has to remember **which** ones: resolving
+    #: them again at the end would let a master swap a good axe for a junk one
+    #: a minute before the batch lands. A list rather than one id because a
+    #: requirement list may name two, and one column would silently wear the
+    #: first of them.
+    tool_item_ids: Mapped[list[str] | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
 
     #: The forecast shown to the player before the batch. The result is it plus spread.
     quality: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False)
@@ -125,5 +134,5 @@ class CraftBatch(Base):
     #: How many times the batch was (re)started. The finishing job carries the
     #: number it was queued for: a job left over from a run that was frozen
     #: must not finish the batch ahead of the resumed one.
-    runs: Mapped[int] = mapped_column(nullable=False, default=0)
+    runs: Mapped[int] = mapped_column(nullable=False, default=0, server_default="0")
     finished_at: Mapped[datetime | None] = mapped_column(nullable=True)
