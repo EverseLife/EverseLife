@@ -16,6 +16,7 @@ import { useEffect, useRef, type RefObject } from "react";
 
 import type { Transit } from "../../api";
 import type { Camera } from "./camera";
+import { placeAt } from "./globe";
 import type { Point } from "./model";
 
 /** Where the dot is now along the leg. */
@@ -47,7 +48,9 @@ export function useWalker({
   /** Where the body stands, as the scene draws it. */
   myRepr: string | null;
 }) {
-  const walkerRef = useRef<SVGCircleElement | null>(null);
+  //: A group, not the circle itself: the dot is stood by a matrix, because
+  //: a `cx` half a globe from the eye saturates (`globe.placeAt`).
+  const walkerRef = useRef<SVGGElement | null>(null);
   //: While walking the camera follows the dot, frame by frame (D-238): the
   //: player watches themselves go, and arrival lands with nothing left to
   //: jump. A grab or a zoom hands the frame back to the hand.
@@ -55,16 +58,15 @@ export function useWalker({
     if (!ongoing) return;
     let raf = 0;
     const step = () => {
-      const circle = walkerRef.current;
+      const mark = walkerRef.current;
       const dot = dotOn(
         ongoing,
         where.current(reprScene(ongoing.from_key) ?? ""),
         where.current(reprScene(ongoing.to_key) ?? ""),
         Date.now(),
       );
-      if (circle && dot) {
-        circle.setAttribute("cx", String(dot.x));
-        circle.setAttribute("cy", String(dot.y));
+      if (mark && dot) {
+        mark.setAttribute("transform", placeAt(dot));
         //: The dot names where it is; the camera decides whether to chase it
         //: -- it does, unless the hand has taken the frame for this journey.
         cam.toDot(dot);

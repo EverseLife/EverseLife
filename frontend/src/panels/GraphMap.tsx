@@ -49,7 +49,7 @@ import { NodeMenu } from "./map/NodeMenu";
 import { Borders, Edges, Nodes, Stubs } from "./map/Nodes";
 import { useHand } from "./map/hand";
 import { flatten, withCityScene } from "./map/geo";
-import { projectAll } from "./map/globe";
+import { placeAt, projectAll } from "./map/globe";
 import { Ground } from "./map/Ground";
 import { useArcs, useGlobe, radiusOf } from "./map/useGlobe";
 import { factsOf, useBands, useHandOver, type Sphere } from "./map/useBands";
@@ -624,14 +624,12 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
 
           {/* The first frame is drawn from the reckoning; after it the dot is
               led by rAF, outside React. */}
+          {/* Stood by a matrix like every node (`placeAt`): a road on the far
+              side of the globe runs past what a `cx` can hold. */}
           {walker && (
-            <circle
-              ref={walkerRef}
-              cx={walker.x}
-              cy={walker.y}
-              r={5}
-              className="walker"
-            />
+            <g ref={walkerRef} transform={placeAt(walker)}>
+              <circle cx={0} cy={0} r={5} className="walker" />
+            </g>
           )}
         </svg>
       )}

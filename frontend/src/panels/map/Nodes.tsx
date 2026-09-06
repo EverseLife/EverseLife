@@ -22,7 +22,7 @@
 
 import { SHAPES } from "../../glyphs";
 import { nodeGlyph } from "../../marks";
-import { midOf } from "./globe";
+import { midOf, placeAt } from "./globe";
 import { SURFACE, spell, type MapNode } from "../../api";
 import { t } from "../../locale";
 import { DASH, SPHERE_R, type Link, type Point } from "./model";
@@ -30,10 +30,10 @@ import type { MapStub } from "../../api";
 
 type Place = (key: string) => Point | undefined;
 
-/** The glyph of the node's kind, inside its circle. Nothing for what has no kind. */
-function Sign({ node, at, settlement, moored, big }: {
+/** The glyph of the node's kind, inside its circle. Nothing for what has no kind.
+ *  About the node's origin: the node itself is stood by `placeAt`. */
+function Sign({ node, settlement, moored, big }: {
   node: MapNode;
-  at: Point;
   settlement: boolean;
   /** A ship lies at this port. */
   moored: boolean;
@@ -50,8 +50,8 @@ function Sign({ node, at, settlement, moored, big }: {
   const size = big ? 14 : 12;
   return (
     <svg
-      x={at.x - size / 2}
-      y={at.y - size / 2}
+      x={-size / 2}
+      y={-size / 2}
       width={size}
       height={size}
       viewBox="0 0 16 16"
@@ -187,6 +187,10 @@ export function Nodes({
         return (
           <g
             key={node.key}
+            //: Stood by a matrix, and drawn about its own origin (`placeAt`):
+            //: the circles below take CSS lengths, and half a globe away from
+            //: the eye those saturate.
+            transform={placeAt(p)}
             style={
               sphere
                 ? ({ "--pc": `var(--planet-${node.planet})` } as React.CSSProperties)
@@ -212,54 +216,48 @@ export function Nodes({
             }}
           >
             {hull ? (
-              <path
-                className="hull"
-                d={`M${p.x} ${p.y - 8} L${p.x + 6} ${p.y} L${p.x} ${p.y + 8} L${
-                  p.x - 6
-                } ${p.y} Z`}
-              />
+              <path className="hull" d="M0 -8 L6 0 L0 8 L-6 0 Z" />
             ) : sphere ? (
               <>
-                <circle cx={p.x} cy={p.y} r={mine ? SPHERE_R + 2 : SPHERE_R} className="corona" />
-                <circle cx={p.x} cy={p.y} r={mine ? 9 : 7} className="orb" />
+                <circle cx={0} cy={0} r={mine ? SPHERE_R + 2 : SPHERE_R} className="corona" />
+                <circle cx={0} cy={0} r={mine ? 9 : 7} className="orb" />
               </>
             ) : (
               <>
-                <circle cx={p.x} cy={p.y} r={mine ? 14 : settlement ? 12 : 10} />
+                <circle cx={0} cy={0} r={mine ? 14 : settlement ? 12 : 10} />
                 {settlement && (
-                  <circle cx={p.x} cy={p.y} r={mine ? 18 : 16} className="halo" />
+                  <circle cx={0} cy={0} r={mine ? 18 : 16} className="halo" />
                 )}
                 <Sign
                   node={node}
-                  at={p}
                   settlement={settlement}
                   moored={Boolean(node.moored)}
                   big={mine}
                 />
               </>
             )}
-            {chosen && <circle cx={p.x} cy={p.y} r={mine ? 20 : 18} className="ring" />}
+            {chosen && <circle cx={0} cy={0} r={mine ? 20 : 18} className="ring" />}
             {/* A ship's name hangs below the hull: above it there is already a
                 planet's name, and two ships at one port would write over it
                 and over each other. */}
             {/* A find has no name (D-321): its sign inside the circle is the
                 whole of what it is called, and an empty label is not drawn. */}
             {node.name && (
-              <text x={p.x} y={hull ? p.y + 21 : p.y - 20} className="node-label">
+              <text x={0} y={hull ? 21 : -20} className="node-label">
                 {node.name}
               </text>
             )}
             {/* Aquatica is drawn precisely because one cannot go there (D-104):
                 the map shows the unreachable and says so. */}
             {node.deferred && (
-              <text x={p.x} y={p.y + 30} className="node-door">
+              <text x={0} y={30} className="node-door">
                 {t("ui-map-node-alpha")}
               </text>
             )}
             {/* The spaceport is the one door left (D-206, D-319): every ship
                 couples to it, and a port unmarked reads as any other yard. */}
             {node.port && (
-              <text x={p.x} y={p.y + 30} className="node-door">
+              <text x={0} y={30} className="node-door">
                 {t("ui-map-node-spaceport")}
               </text>
             )}
@@ -275,7 +273,9 @@ export function Borders({ rings }: { rings: readonly { city: string; ring: { cx:
   return (
     <g className="borders" aria-hidden="true">
       {rings.map(({ city, ring }) => (
-        <circle key={city} className="border" cx={ring.cx} cy={ring.cy} r={ring.r} />
+        <g key={city} transform={placeAt({ x: ring.cx, y: ring.cy })}>
+          <circle className="border" cx={0} cy={0} r={ring.r} />
+        </g>
       ))}
     </g>
   );

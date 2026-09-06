@@ -64,6 +64,25 @@ export function diskPath(radius: number): string {
 }
 
 /**
+ * Where a shape stands, as a transform of its own frame: a **matrix**, never
+ * `translate`.
+ *
+ * The same saturation as `diskPath` above, by another door. A `translate()`
+ * takes CSS lengths -- so do the `x` and `y` of a CSS transform -- and the
+ * browser saturates them at the same 2^25 device pixels, which on a display
+ * scaled past one is nearer than the limb: a node a quarter of the way round
+ * the globe would be placed at the saturation rather than where it stands,
+ * and its name -- `<text>` takes numbers -- would stay behind without it.
+ * A matrix is six numbers, and numbers go as far as the ground does.
+ *
+ * So a node is drawn about its own origin and stood here, and its circles,
+ * its glyph and its label keep the small coordinates they had.
+ */
+export function placeAt(p: Point): string {
+  return `matrix(1 0 0 1 ${p.x} ${p.y})`;
+}
+
+/**
  * A point of the sphere as seen from the eye: where it lands on the frame,
  * and whether it faces the eye at all.
  */

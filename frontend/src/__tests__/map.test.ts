@@ -17,7 +17,16 @@ import {
   type Frame,
 } from "../panels/map/camera";
 import { flatten, withCityScene } from "../panels/map/geo";
-import { arc, midOf, project, projectAll, radiusUnits, slerp, turn } from "../panels/map/globe";
+import {
+  arc,
+  midOf,
+  placeAt,
+  project,
+  projectAll,
+  radiusUnits,
+  slerp,
+  turn,
+} from "../panels/map/globe";
 import { clampScale, lensOn, pinchScale, pinchTo, worldAt } from "../panels/map/hand";
 import {
   DEPTH,
@@ -722,6 +731,25 @@ describe("the globe", () => {
     expect(beyond!.length).toBeLessThan(9);
     //: Between two points on the far side nothing is drawn at all.
     expect(arc(eye, R, { lat: -40, lon: -150 }, { lat: -42, lon: -160 }, 8)).toBeNull();
+  });
+
+  it("stands a mark by a matrix, so that the limb is not saturated away", () => {
+    //: The browser reads `cx`, `r` and the arguments of a `translate()` as CSS
+    //: lengths and saturates them at 2^25 device pixels. On a display scaled
+    //: by 1.5 -- Windows at 150%, and the common laptop -- that is nearer than
+    //: the limb: sixty degrees from the eye a node is already past it, and it
+    //: would be drawn short of where it stands while its name, which takes
+    //: numbers, stayed behind. A matrix is six numbers and holds.
+    const saturates = 2 ** 25 / 1.5;
+    const far = project({ lat: 0, lon: 0 }, R, { lat: 0, lon: 60 });
+    expect(far.front).toBe(true);
+    expect(Math.abs(far.x)).toBeGreaterThan(saturates);
+    const stood = placeAt(far);
+    expect(stood).not.toMatch(/translate/);
+    const numbers = stood.match(/^matrix\(([^)]+)\)$/)?.[1].split(" ").map(Number);
+    expect(numbers?.slice(0, 4)).toEqual([1, 0, 0, 1]);
+    expect(numbers?.[4]).toBe(far.x);
+    expect(numbers?.[5]).toBeCloseTo(far.y, 9);
   });
 
   it("interpolates along the great circle", () => {
