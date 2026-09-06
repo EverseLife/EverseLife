@@ -16,8 +16,8 @@ from src.constants.spec import Bands, Book, Num, Shape, Table, Words
 #: The relief of a planet (D-319): one seed for the world, a share of sea and
 #: a count of rivers per planet, one mountain line for all, and how much
 #: colder the top of the land's rise is than its foot. Within
-#: `terrain.river_reach_km` of a river a node has river water, and a node in
-#: the mountains bears a vein `terrain.mountain_vein_k` times as often.
+#: `terrain.river_reach_km` of a river a node has river water, and a node
+#: bears a vein `biome.vein_k` times as often as its biome says (D-321).
 TERRAIN_SEED = Num("terrain.seed")
 TERRAIN_SEA_SHARE = Table("terrain.sea_share")
 TERRAIN_MOUNTAIN_SHARE = Num("terrain.mountain_share")

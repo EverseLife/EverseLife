@@ -716,8 +716,12 @@ async def test_summary_names_the_price_before_the_attempt(
     assert pads == {port.key, there.key}, "с орбиты видно оба космодрома планеты"
     #: One price for the whole planet, beside the list rather than copied into
     #: every row of it (D-225, D-245): a pad differs from a pad in its name and
+    #: its room -- the free ground the globe sizes its mark by (D-319) -- and
     #: in nothing the console could charge for.
-    assert all(set(pad) <= {"node", "name", "anywhere"} for pad in aloft["landings"])
+    assert all(set(pad) <= {"node", "name", "anywhere", "room"} for pad in aloft["landings"])
+    assert all(pad["room"] >= 0 for pad in aloft["landings"])
+    #: And what the hull needs of that room, once beside the list.
+    assert aloft["footprint"] == round(await ship.hull_footprint(session, vessel))
     down = aloft["descent"]
     assert down["hours"] > 0 and down["reachable"]
     #: The ground is the one place a hull may stand with dry tanks: nothing is

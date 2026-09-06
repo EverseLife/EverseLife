@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from pyroxis_kit import _surface
 from src.constants import Constants, current_catalog
-from src.engine import ship, world
+from src.engine import estate, ship, world
 from src.models.ship import Ship
 from src.models.world import Layer, Node, Planet
 
@@ -111,22 +111,25 @@ async def test_the_console_shows_the_planet_and_not_every_field_of_it(
 
     console = await profile(session, constants, current_catalog(), hulk)
     assert console["stage"] == "orbit"
-    assert len(console["landings"]) == 1, "консоль перечисляет планету, а не каждое её поле"
-    row = console["landings"][0]
-    #: And it says so, so the client knows a node picker belongs here.
+    #: Every node of the surface is a row: the globe under the hull picks
+    #: among them (D-319 item 10), and each says how much ground is free.
+    rows = {row["node"]: row for row in console["landings"]}
+    assert set(rows) == {plateau.key, *(field.key for field in fields)}
+    row = rows[plateau.key]
+    #: And it says so, so the client knows the whole surface is a pad.
     assert row["anywhere"] is True
-    assert row["node"] in {plateau.key, *(field.key for field in fields)}
-    #: A name and nothing else: what a descent costs is a fact about the planet,
-    #: and it is sent once beside the list rather than copied into every field
-    #: of it (D-225, D-245).
-    assert set(row) == {"node", "name", "anywhere"}
+    #: The node's own name and its room, nothing else: what a descent costs
+    #: is a fact about the planet, and it is sent once beside the list rather
+    #: than copied into every field of it (D-225, D-245).
+    assert set(row) == {"node", "name", "anywhere", "room"}
+    assert row["name"] == plateau.name
+    assert row["room"] == round(await estate.free_ground(session, plateau))
+    #: What the hull needs of that room, once beside the list.
+    assert console["footprint"] == round(await ship.hull_footprint(session, hulk))
     #: This hull has no engines at all, so the price is offered and unreachable
     #: rather than hidden: "не отрывается" is an answer, and a missing row is not.
     assert set(console["descent"]) == {"hours", "fuel", "needs", "reachable"}
     assert console["descent"]["reachable"] is False
-    #: The name is the planet's own, not the field the row happens to carry:
-    #: the hull comes down where the roll puts it (D-235).
-    assert row["name"] == sphere.name
 
 
 async def test_ground_without_a_planet_property_takes_nobody(

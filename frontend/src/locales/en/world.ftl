@@ -182,9 +182,12 @@ ui-ship-course-later = A course to another planet is set from orbit already: fir
 
 ui-ship-nowhere-to-land = There is nowhere to land here: not one spaceport with a lit beacon on this planet. A course to another planet is set on the map.
 ui-ship-land-title = Land on the planet
-ui-ship-pad-choice = spaceport to land at
-ui-ship-blind = blind landing
-ui-ship-blind-hint = there are no spaceports here: the landing node is drawn on the approach, and you land where the rock lets you
+ui-ship-pad-choice = pad to land at
+ui-ship-pad-wild = unnamed node
+ui-ship-pad-room = { $room } m² free
+ui-ship-pad-full = no room: { $room } m² free, the hull needs { $need }
+ui-ship-pads-label = the planet under the ship: pads to land at
+ui-ship-pads-hint = turn the planet and pick a pad: a mark's size is its free ground, and a hollow mark has no room for the hull
 ui-ship-land = Land
 ui-ship-land-hint = the descent goes by the planet's gravity and the hull's thrust — a little cheaper than the climb
 ui-ship-land-short = not enough thrust even to land: shed mass

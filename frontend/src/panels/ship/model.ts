@@ -60,15 +60,18 @@ export type Route = {
   reserve: number;
 };
 
-/** A pad under the hull. Nothing but a name: what the descent costs is a fact
- *  about the planet, and it is sent once beside the list (D-225, D-245). */
+/** A pad under the hull: a name and its room. What the descent costs is a
+ *  fact about the planet, and it is sent once beside the list (D-225, D-245). */
 export type Pad = {
   node: string;
   name: string;
+  /** The free ground of the pad, square metres: what the hull would set down
+   *  on (D-319). The map says a node's whole ground; what is left of it only
+   *  the server knows. */
+  room?: number;
   /**
-   * The whole planet stands behind this row: it takes a landing anywhere on
-   * its surface (D-233), and the node the hull comes down in is rolled at the
-   * landing (D-235). There is no pier to choose.
+   * The planet takes a landing anywhere on its surface (D-233): every node
+   * of it is a row like this one, and the globe picks among them (D-319).
    */
   anywhere?: boolean;
 };
@@ -181,6 +184,9 @@ export type Vessel = {
   climb: Leg | null;
   /** What coming down costs from here: one price for the whole planet (D-245). */
   descent: Price | null;
+  /** The ground the hull takes on a pad, square metres, in orbit: the pads'
+   *  `room` is read against it (D-319). Absent elsewhere. */
+  footprint?: number;
   /**
    * The pads under the hull, offered from orbit only. This is the moment the
    * pier is actually chosen -- with the planet already below (D-245).
@@ -204,8 +210,9 @@ export type Vessel = {
   /** What speed the tanks buy at this mass, units a day: the plan's delta-v is
    *  read against it, and the console warns before the button (D-289). */
   dv: number;
-  /** The order under way, in numbers; nothing when there is none. */
-  course: Order | null;
+  /** The order under way, in two numbers (D-289). Absent as well as null:
+   *  the wire drops what says nothing, and a climb or a descent has none. */
+  course?: Order | null;
   routes: Route[];
   /** Who else is in the sky near this hull (D-289, wave 3). */
   sightings: Sighting[];

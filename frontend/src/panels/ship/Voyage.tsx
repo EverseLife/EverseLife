@@ -44,7 +44,11 @@ export function Passage({
   //: What is left of the plan against the tanks (D-289): after the departure
   //: burn the tanks hold less than the whole plan by definition, so the
   //: number that matters is the rest of it.
-  const short = v.course !== null && v.dv < v.course.left;
+  //: Absent, not null: the wire drops a field that says nothing
+  //: (`session._without_nulls`), and a hull on a climb or a descent has no
+  //: course at all -- `!== null` here read `undefined.left` and took the
+  //: whole window down the moment a landing was ordered.
+  const short = !!v.course && v.dv < v.course.left;
   return (
     <div className="doing">
       <span className="doing-what">

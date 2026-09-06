@@ -81,11 +81,12 @@ export const tiers = () =>
 export const founding = () =>
   read<{ roles: FoundingRole[] }>("/public/founding");
 /**
- * The map as it looks from where you stand (D-240).
+ * The map as it looks from where you stand (D-240, D-319).
  *
- * Two steps of the graph around the body, one step of the planet's surface,
- * and the sky. Without a token -- the sky alone: the surface asks for a body.
- * So this is the one public read that takes one.
+ * With a token: what the body sees and the identity remembers, and the
+ * public. Without one -- the sky, and every planet's surface as it was
+ * `map.public_delay_days` ago (D-319 item 7): the entry globe and the
+ * landing picker read that. So this is the one public read that takes one.
  */
 //: The anonymous map is served with a public cache of minutes and an ETag
 //: (D-319 item 7); asked with `no-cache` it is revalidated every time, so a
