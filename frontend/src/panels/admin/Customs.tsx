@@ -122,8 +122,11 @@ function parse(value: string | null): Record<string, { rate: number; free: numbe
       return parsed as Record<string, { rate: number; free: number }>;
     }
   } catch {
-    //: An old value written as a number is the rate on everything, and the
-    //: table of laws above shows it. What is edited here are the aimed rows.
+    //: A value that is not JSON at all gets the same answer as the one below.
   }
+  //: An old value written as a number is the rate on everything: it parses
+  //: without throwing, but not into rows, so it lands here rather than in the
+  //: `catch` above. The table of laws shows it; what is edited here are the
+  //: aimed rows.
   return {};
 }
