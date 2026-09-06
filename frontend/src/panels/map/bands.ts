@@ -22,7 +22,7 @@
  */
 
 import { LAST_LAT, UNITS_PER_METRE, type Eye } from "./globe";
-import { H, SPHERE_R, type Point } from "./model";
+import { H, SPHERE_R, W, type Point } from "./model";
 
 export type Band = "sky" | "surface" | "inside";
 
@@ -34,9 +34,50 @@ export const INSIDE_BOUNDS: Bounds = { nearest: 4, furthest: 0.4 };
 export const SURFACE_NEAREST = 4;
 /** The scale a city's streets are drawn at: the flat map's own. */
 export const STREET_SCALE = 1;
-/** At this scale and farther the frame holds several cells of the relief,
- *  and the ground is drawn cell by cell; nearer, one cell fills it. */
-export const GROUND_SCALE = 5e-4;
+/** The relief's cell, degrees: the terrain grid is two degrees. */
+export const CELL_DEG = 2;
+/** Below this many drawn cells across the frame the ground is one flat
+ *  colour: nearer than that the frame lies inside a cell. */
+export const CELLS_ACROSS = 1.5;
+/** The finest reading of the grid, an eighth of a cell: finer than that the
+ *  relief has nothing more to say. */
+export const FINEST_UNIT = 1 / 8;
+/** The drawn cell is halved while the frame holds fewer than this many. */
+const HALVE_BELOW = 24;
+const RAD = Math.PI / 180;
+
+/**
+ * How the ground is drawn for a frame at `scale` over a planet of `radius`:
+ * the drawn cell in cells of the grid -- one while the frame holds many,
+ * halved as it holds fewer, down to `FINEST_UNIT` -- and whether it is
+ * drawn at all. From the radius, not from a scale: a scale that meant
+ * "several cells across" on a planet of Terra's old size meant "more than
+ * the whole disk" on one a twentieth of it (D-322), and the ground went
+ * flat long before the coast could be seen. Powers of two, so the fact
+ * flips a few times on the way down and not at every frame.
+ */
+export function groundOf(scale: number, radius: number | null): { unit: number; shown: boolean } {
+  if (!radius || !(scale > 0)) return { unit: 1, shown: false };
+  const span = W / scale;
+  const cell = radius * CELL_DEG * RAD;
+  let unit = 1;
+  while (unit > FINEST_UNIT && span < HALVE_BELOW * cell * unit) unit /= 2;
+  return { unit, shown: span > CELLS_ACROSS * cell * unit };
+}
+
+/**
+ * How far from the eye the ground is laid at this drawn cell, in map units:
+ * half the widest frame the cell serves, so that the ground laid at one
+ * frame still covers every frame up to the next halving. Not the frame's
+ * own width -- the ground is redrawn when a fact flips, not at every notch
+ * of the zoom, and a window cut to the frame of the last flip would leave
+ * the land short of the edge on the way out. A whole cell has no limit:
+ * the frame then holds the disk, or most of it.
+ */
+export function groundReach(unit: number, radius: number | null): number | undefined {
+  if (!radius || unit >= 1) return undefined;
+  return HALVE_BELOW * radius * CELL_DEG * RAD * unit;
+}
 /** How much of the frame's height the globe takes when the sky opens a
  *  surface: a little more than all of it, so the marker becomes the disk. */
 export const GLOBE_FILL = 1.2;

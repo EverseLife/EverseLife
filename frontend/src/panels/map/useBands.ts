@@ -17,12 +17,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { RecipeBook } from "../../api";
 import {
-  GROUND_SCALE,
   SKY_BOUNDS,
   STREET_SCALE,
   cityOpen,
   descentOf,
   globeScale,
+  groundOf,
   leavesSurface,
   openScale,
   planetUnder,
@@ -42,6 +42,8 @@ export type Facts = {
   ceiling: boolean;
   /** The frame holds several cells of the relief: the ground is worth drawing. */
   ground: boolean;
+  /** The drawn cell of the ground, in cells of the grid (`groundOf`). */
+  unit: number;
   /** The planet under the middle of the frame at the sky's ceiling, if any. */
   over: string | null;
   /** How far down the approach the frame is: 1 at the floor, 0 at the globe. */
@@ -53,12 +55,14 @@ export const NO_FACTS: Facts = {
   floor: false,
   ceiling: false,
   ground: false,
+  unit: 1,
   over: null,
   descent: 0,
 };
 
-/** The surface's bounds, and the scale its globe fills the frame at. */
-export type Surface = Bounds & { globe: number };
+/** The surface's bounds, the scale its globe fills the frame at, and the
+ *  planet's radius in map units the ground's cell is read from. */
+export type Surface = Bounds & { globe: number; radius: number | null };
 
 export type Sphere = { key: string; planet: string; at: Point };
 
@@ -66,11 +70,13 @@ export type Sphere = { key: string; planet: string; at: Point };
 export function factsOf(frame: Frame, surface: Surface, spheres: readonly Sphere[]): Facts {
   const ceiling = reachesSurface(frame.scale);
   const middle = { x: frame.x + W / (2 * frame.scale), y: frame.y + H / (2 * frame.scale) };
+  const ground = groundOf(frame.scale, surface.radius);
   return {
     cities: cityOpen(frame.scale),
     floor: leavesSurface(frame.scale, surface.furthest),
     ceiling,
-    ground: frame.scale <= GROUND_SCALE,
+    ground: ground.shown,
+    unit: ground.unit,
     over: ceiling ? (planetUnder(middle, spheres)?.planet ?? null) : null,
     descent: descentOf(frame.scale, surface.furthest, surface.globe),
   };
@@ -82,6 +88,7 @@ export function sameFacts(a: Facts, b: Facts): boolean {
     a.floor === b.floor &&
     a.ceiling === b.ceiling &&
     a.ground === b.ground &&
+    a.unit === b.unit &&
     a.over === b.over &&
     a.descent === b.descent
   );
@@ -122,6 +129,7 @@ export function useBands({
     () => ({
       ...surfaceBounds(Number(book?.constants?.["map.approach_km"])),
       globe: globeScale(radius),
+      radius,
     }),
     [book, radius],
   );

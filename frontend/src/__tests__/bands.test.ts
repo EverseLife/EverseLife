@@ -19,6 +19,8 @@ import {
   cityOpen,
   descentOf,
   globeScale,
+  groundOf,
+  groundReach,
   leavesSurface,
   openScale,
   tilted,
@@ -28,7 +30,7 @@ import {
   surfaceBounds,
   surfaceFloor,
 } from "../panels/map/bands";
-import { H, SPHERE_R } from "../panels/map/model";
+import { H, SPHERE_R, W } from "../panels/map/model";
 import { edgesOf, visibleOf } from "../panels/map/useScene";
 import { dotOn } from "../panels/map/useWalker";
 import { nodeGlyph } from "../marks";
@@ -54,6 +56,31 @@ const node = (over: Partial<MapNode>): MapNode =>
   }) as MapNode;
 
 describe("the bands", () => {
+  it("draw the ground by the planet's cell, finer the nearer, flat only inside a cell", () => {
+    //: A planet a twentieth of Earth (D-322): the disk fills the frame at
+    //: the globe scale, and the ground is cells there -- on a scale pinned
+    //: to Earth's size it went flat before the coast could be seen.
+    const small = radiusUnits(319);
+    const disk = globeScale(small);
+    expect(groundOf(disk, small)).toEqual({ unit: 1, shown: true });
+    //: Nearer, the drawn cell halves while fewer than two dozen fit, down
+    //: to an eighth; the frame goes flat only inside a cell and a half of
+    //: the finest reading.
+    const cell = small * 2 * (Math.PI / 180);
+    expect(groundOf(W / (12 * cell), small).unit).toBe(1 / 2);
+    expect(groundOf(W / (3 * cell), small).unit).toBe(1 / 8);
+    expect(groundOf(W / (0.5 * cell), small)).toEqual({ unit: 1 / 8, shown: true });
+    expect(groundOf(W / (0.1 * cell), small).shown).toBe(false);
+    //: Earth's size draws its cells at the same share of the disk.
+    const earth = radiusUnits(6371);
+    expect(groundOf(globeScale(earth), earth)).toEqual({ unit: 1, shown: true });
+    expect(groundOf(1, null)).toEqual({ unit: 1, shown: false });
+    //: The ground laid at a drawn cell reaches as far as the widest frame
+    //: that cell serves: half of it, about the eye; a whole cell, no limit.
+    expect(groundReach(1 / 8, small)).toBeCloseTo(24 * cell * (1 / 8), 6);
+    expect(groundReach(1, small)).toBeUndefined();
+  });
+
   it("open a city at the city scale and close it a hair farther out", () => {
     expect(cityOpen(CITY_SCALE)).toBe(true);
     expect(cityOpen(1)).toBe(true);

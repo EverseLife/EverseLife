@@ -58,7 +58,7 @@ import { Switcher } from "./map/Switcher";
 import { useScene } from "./map/useScene";
 import { useWalker } from "./map/useWalker";
 import { useSky } from "./map/useSky";
-import { STREET_SCALE, boundsOf, ring, tilted } from "./map/bands";
+import { STREET_SCALE, boundsOf, groundReach, ring, tilted } from "./map/bands";
 import {
   delegate,
   journeyOf,
@@ -603,6 +603,8 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
               clock={look.clock}
               detailed={zoomed.ground}
               coarse={zoomed.descent > 0}
+              unit={zoomed.descent > 0 ? undefined : zoomed.unit}
+              within={zoomed.descent > 0 ? undefined : groundReach(zoomed.unit, radius)}
             />
           )}
           {citiesOpen && <Borders rings={borders} />}
