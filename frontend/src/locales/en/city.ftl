@@ -60,6 +60,7 @@ ui-register-again-hint = repeat the password
 ui-register-to-login = ← to login
 ui-register-next = Next →
 ui-register-line = Line
+ui-register-lines-empty = No lines at all: the world is not built yet. Try again later.
 ui-register-line-note = Who printed you. One line is playable in the alpha; the second is shown as a promise, not as a stub.
 ui-register-line-players = playing
 ui-register-line-world = world
@@ -100,7 +101,7 @@ ui-doors-pick-on-globe = Choose a printer — a large dot on the globe: the card
 
 ## The globe at the entry and at the printer step (D-319, D-013)
 ui-entry-globe-label = globe of the planet
-ui-entry-globe-doors-hint = The large dots are the printers you can be printed at: a click opens the card alongside.
+ui-entry-globe-doors-hint = The large dots are the printers you can be printed at: a click opens the card alongside. Drag to turn the globe, scroll to come closer.
 
 ## The state tab: economy and population (D-124, D-140, D-154)
 

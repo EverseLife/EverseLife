@@ -304,7 +304,8 @@ button.eye:not(:disabled):active {
   border-style: dashed;
 }
 
-/* Character lines: two cards side by side; the unavailable one is muted.
+/* Character lines: a tab apiece and the one being read below them; the line
+   still in the works is muted.
 
    Every rule below is scoped to the row it belongs to. `.line` alone is not
    this screen's word: the room's talk and the Net's letters name a spoken line
@@ -319,11 +320,11 @@ button.eye:not(:disabled):active {
 .lines-step .line li {
   margin: 0.2rem 0;
 }
-/* A promise, not a stub (D-104): the card is muted by tone and a dashed
-   border, never by opacity -- its own hint would go under the floor. */
-/* A promise is muted by tone, never by opacity -- and the card of a line
-   still in the works has no border of its own to dash, so the mute is the
-   tone and the word where its button would be (`.soon-tag`). */
+/* A promise, not a stub (D-104), and muted by tone rather than by opacity --
+   an opacity composites against whatever lies beneath and takes the hint under
+   the floor with it. The card lies flat in the step's box and has no border of
+   its own to dash, so the mute is the tone and the word standing where the
+   button would be (`.soon-tag`). */
 .lines-step .line.soon,
 .lines-step .line.soon .note {
   color: var(--base-400);
@@ -446,6 +447,17 @@ button.eye:not(:disabled):active {
 }
 .entry-globe .door.picked circle {
   fill: var(--accent);
+}
+/* The mark is a control, so the keyboard must see where it stands (D-077).
+   The ring is the mark's own stroke, widened: an `outline` round an SVG group
+   is drawn about its bounding box, which on a sphere is not where the mark
+   is. */
+.entry-globe .door:focus-visible {
+  outline: none;
+}
+.entry-globe .door:focus-visible circle {
+  stroke: var(--act);
+  stroke-width: 5;
 }
 /* The last row of a step reads like the account's and the character's: back
    on the left, on at the right edge. Those get it from `.card .row`; the line

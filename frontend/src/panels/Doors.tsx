@@ -18,9 +18,11 @@
  *
  * On the globe and nowhere else: the row of names that used to stand here was
  * a second way to do the one thing this screen is for, and two ways to choose
- * a city taught neither. What the globe cannot show is the exception -- a door
- * with no place on the sphere is not drawn anywhere, and its name is offered
- * below rather than leaving a newcomer with no door at all.
+ * a city taught neither. The mark itself is the control -- it takes focus and
+ * answers Enter (D-077), so the globe is not a hand's privilege. What the
+ * globe cannot show is the exception: a door off its planet or without
+ * degrees on it is offered below by name rather than leaving a newcomer with
+ * no door at all.
  *
  * The rows are the whole of what is said. Three paragraphs used to stand
  * under them -- where a grant comes from, that citizenship holds nobody, that
@@ -34,6 +36,7 @@
 import * as api from "../api";
 import type { Door } from "../api";
 import { t } from "../locale";
+import { drawnOn } from "./EntryGlobe";
 
 type Props = {
   doors: Door[];
@@ -48,9 +51,15 @@ type Props = {
 
 export function Doors({ doors, name, busy, trouble, picked, onPick, onEnter, onBack }: Props) {
   const door = doors.find((one) => one.node === picked) ?? null;
-  //: What no mark stands for: a door the globe cannot place. The globe draws
-  //: what has degrees on the sphere, and this is the rest.
-  const unplaced = doors.filter((one) => !one.place || !("lat" in one.place));
+  //: What no mark stands for. The globe draws one planet (`drawnOn`) and on
+  //: it what has degrees: a door with a flat place, or one standing on
+  //: another planet, has no mark to press -- and without a name here it could
+  //: not be chosen at all. The free door of the Forerunners is among the ones
+  //: this must never lose (D-028).
+  const globe = drawnOn(doors);
+  const unplaced = doors.filter(
+    (one) => one.planet !== globe || !one.place || !("lat" in one.place),
+  );
 
   return (
     <section className="doors-step">
@@ -61,10 +70,10 @@ export function Doors({ doors, name, busy, trouble, picked, onPick, onEnter, onB
         <p className="trouble">{t("ui-doors-empty-world")}</p>
       ) : (
         <>
-          {/* A door the globe cannot draw: no place on the sphere, so no mark
-              to click. It stands here by name, and normally there are none. */}
+          {/* A door the globe cannot draw: no place on its sphere, or another
+              planet's. It stands here by name, and normally there are none. */}
           {unplaced.length > 0 && (
-            <div className="row tabs doors-list">
+            <div className="row tabs">
               {unplaced.map((one) => (
                 <button
                   key={one.node}

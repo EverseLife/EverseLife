@@ -232,12 +232,16 @@ export function Register({
           <p className="note center">{t("ui-register-line-note")}</p>
           {lines === null ? (
             <p className="note center">…</p>
+          ) : lines.length === 0 ? (
+            //: A world with no lines is a world not yet built -- say so, the
+            //: way the door step says it of a world with no doors.
+            <p className="trouble">{t("ui-register-lines-empty")}</p>
           ) : (
             <>
               {/* Tabs, not cards side by side: two lines fitted, and a third
                   would not -- and the step is the width of the three around
                   it now. One is read at a time, and the tab says which. */}
-              <div className="row tabs line-tabs">
+              <div className="row tabs">
                 {lines.map((l) => (
                   <button
                     key={l.id}

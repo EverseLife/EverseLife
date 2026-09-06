@@ -48,7 +48,7 @@ const DOT = 1 / 300;
  *  the rest: the mark is a target for a finger before it is a picture, and a
  *  share of the frame made it three pixels across on a phone, where the globe
  *  is a third of the size it has on a desktop. */
-const MARK_PX = 9;
+const MARK_PX = 10;
 const LABEL = 1 / 36;
 /** Below this many drawn cells across the frame the ground is one flat colour. */
 const CELLS_ACROSS = 1.5;
@@ -96,6 +96,16 @@ function sameField(a: Field, b: Field): boolean {
   return sameBox(a.square, b.square) && sameBox(a.half, b.half) && sameBox(a.canvas, b.canvas);
 }
 
+/**
+ * The planet the globe draws: the one the first door with degrees on it
+ * stands on. One globe is one planet, so a door on another is not drawn --
+ * and the half beside the globe offers those by name instead (`Doors`), which
+ * is why this rule is exported rather than read twice.
+ */
+export function drawnOn(doors: readonly Door[] | null): string | null {
+  return doors?.find((door) => door.place && "lat" in door.place)?.planet ?? null;
+}
+
 /** The surface nodes the public map places on this planet, and the sky. */
 function surfaceOf(world: WorldMap | null, planet: string | null): MapNode[] {
   if (!world || !planet) return [];
@@ -138,11 +148,21 @@ export function EntryGlobe({
   }, []);
 
   const planets = useMemo(() => (world?.nodes ?? []).filter((node) => node.orbit), [world]);
-  //: Shown: the planet with doors, else the first of the sky -- the home world.
-  const shown = doors?.find((door) => door.place)?.planet ?? planets[0]?.planet ?? null;
+  //: Shown: the planet with doors, else the first of the sky -- the home
+  //: world. Doors on any other planet are not drawn, and `Doors` names them
+  //: instead: the two halves read the same rule (`drawnOn`).
+  const shown = drawnOn(doors) ?? planets[0]?.planet ?? null;
   const surface = useMemo(() => surfaceOf(world, shown), [world, shown]);
+  //: The doors this globe draws: on the planet it shows, and with degrees on
+  //: its sphere -- a flat place is not a place on a globe. What is left out
+  //: is named beside it instead (`Doors`), so nothing is lost by being
+  //: undrawable.
   const onPlanet = useMemo(
-    () => (doors ?? []).filter((door) => door.planet === shown && door.place),
+    () =>
+      (doors ?? []).filter(
+        (door): door is Door & { place: Geo } =>
+          door.planet === shown && !!door.place && "lat" in door.place,
+      ),
     [doors, shown],
   );
   const globe = useGlobe({ book, planet: shown, active: true });
@@ -304,7 +324,10 @@ export function EntryGlobe({
       <svg
         ref={svg}
         viewBox={sheet.viewBox}
-        role="img"
+        //: A group, not a picture: `role="img"` takes the whole drawing for
+        //: one image and hides what is inside it, and inside it are the doors
+        //: -- controls a keyboard has to reach (D-077).
+        role="group"
         aria-label={t("ui-entry-globe-label")}
         style={{ "--pc": `var(--planet-${shown})` } as React.CSSProperties}
         onPointerDown={(e) => {
@@ -384,6 +407,21 @@ export function EntryGlobe({
               <g
                 key={door.node}
                 className={`door ${mine ? "picked" : ""}`}
+                //: A control, and reachable without a hand: the row of names
+                //: beside the globe is gone, so this mark is the whole of how
+                //: a door is chosen, and "full keyboard navigation" is not a
+                //: wish of the vault's but a rule (D-077, 50-interface/00).
+                role="button"
+                tabIndex={0}
+                aria-label={door.city ? `${door.name} · ${door.city}` : door.name}
+                aria-pressed={mine}
+                onKeyDown={(e) => {
+                  if (e.key !== "Enter" && e.key !== " ") return;
+                  //: Space scrolls a page and Enter submits a form: neither is
+                  //: what a pressed button means here.
+                  e.preventDefault();
+                  onPick(door.node);
+                }}
                 //: A press, not a click, and it does not reach the globe
                 //: beneath -- the map picks a node the same way (`Nodes`).
                 //: A click would never come: the field takes the pointer to
