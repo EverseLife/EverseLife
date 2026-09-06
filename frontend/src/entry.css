@@ -367,6 +367,11 @@ button.eye:not(:disabled):active {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   height: 100%;
   min-height: 0;
+  /* The screen does not scroll -- the way in scrolls inside its own half --
+     and this says so rather than leaving it to hold by accident: the globe's
+     canvas is fixed and measured in client coordinates, so a page that
+     scrolled under it would leave the planet behind. */
+  overflow: hidden;
 }
 .entry-split > main.entry {
   min-height: 0;
@@ -426,10 +431,13 @@ button.eye:not(:disabled):active {
   touch-action: pan-y pinch-zoom;
   cursor: grab;
 }
-/* The word under the globe stands on the canvas, not under it. */
+/* The word under the globe stands on the canvas, not under it -- and lets the
+   hand through: it is a line to read, and a drag begun on it should turn the
+   globe like a drag begun anywhere else on that half. */
 .entry-globe .note {
   position: relative;
   z-index: 1;
+  pointer-events: none;
 }
 .entry-globe .way {
   fill: none;

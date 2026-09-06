@@ -23,6 +23,7 @@ import type { Door, MapNode, RecipeBook, WorldMap } from "../api";
 import { t } from "../locale";
 import { Ground } from "./map/Ground";
 import { arc, projectAll, type Geo } from "./map/globe";
+import { paper, type Box } from "./map/paper";
 import { useGlobe } from "./map/useGlobe";
 
 /** How much of the frame the disk takes at the outermost zoom. */
@@ -63,34 +64,31 @@ const CELL_DEG = 2;
 const EQUATOR: Geo = { lat: 0, lon: 0 };
 
 /**
- * Where the planet stands and how far the drawing reaches: the square the
- * globe is drawn at (`globe-space`, kept in the flow), and the window the
- * canvas covers.
+ * What the drawing is measured against (`map/paper`): the empty square that
+ * says where the planet stands, the half of the screen the globe has, and the
+ * canvas itself -- all three read the same way, so nothing is assumed about
+ * where the canvas begins or how big the window says it is.
  */
-type Field = {
-  side: number;
-  cx: number;
-  cy: number;
-  w: number;
-  h: number;
-  /** The half of the screen the globe has: what is drawn beyond it is behind
-   *  the way in, which is opaque, and nobody sees it. */
-  seen: { x: number; y: number; w: number; h: number };
-};
+type Field = { square: Box; half: Box; canvas: Box };
 
-/** Whether two measurements say the same thing, to the pixel the eye has. */
+/** A box to the pixel: finer than that is a render nobody sees, and the
+ *  layout effect below takes a measurement after every render. */
+function pixels(box: DOMRect): Box {
+  return {
+    x: Math.round(box.x),
+    y: Math.round(box.y),
+    w: Math.round(box.width),
+    h: Math.round(box.height),
+  };
+}
+
+function sameBox(a: Box, b: Box): boolean {
+  return a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h;
+}
+
+/** Whether two measurements say the same thing. */
 function sameField(a: Field, b: Field): boolean {
-  return (
-    a.side === b.side &&
-    a.cx === b.cx &&
-    a.cy === b.cy &&
-    a.w === b.w &&
-    a.h === b.h &&
-    a.seen.x === b.seen.x &&
-    a.seen.y === b.seen.y &&
-    a.seen.w === b.seen.w &&
-    a.seen.h === b.seen.h
-  );
+  return sameBox(a.square, b.square) && sameBox(a.half, b.half) && sameBox(a.canvas, b.canvas);
 }
 
 /** The surface nodes the public map places on this planet, and the sky. */
@@ -169,18 +167,18 @@ export function EntryGlobe({
   const [field, setField] = useState<Field | null>(null);
   const measure = useCallback(() => {
     const mark = space.current;
-    if (!mark) return;
-    const box = mark.getBoundingClientRect();
-    const half = (mark.parentElement ?? mark).getBoundingClientRect();
-    if (!box.width || !box.height) return;
-    const now: Field = {
-      side: Math.min(box.width, box.height),
-      cx: box.x + box.width / 2,
-      cy: box.y + box.height / 2,
-      w: window.innerWidth,
-      h: window.innerHeight,
-      seen: { x: half.x, y: half.y, w: half.width, h: half.height },
-    };
+    const sheet = svg.current;
+    const cell = mark?.closest(".entry-globe");
+    if (!mark || !sheet || !cell) return;
+    const square = pixels(mark.getBoundingClientRect());
+    const canvas = pixels(sheet.getBoundingClientRect());
+    if (!square.w || !square.h || !canvas.w || !canvas.h) return;
+    //: The canvas's own box, not the window's: `width: 100%` of a fixed
+    //: element is the initial containing block, and that is not `innerWidth`
+    //: -- a scrollbar or a phone's address bar parts the two, and a viewBox
+    //: whose sides no longer match the box's is letterboxed, which moves the
+    //: planet and changes its size. Not moving it is the whole promise here.
+    const now: Field = { square, canvas, half: pixels(cell.getBoundingClientRect()) };
     //: The same field is the same object: the measurement runs after every
     //: render, and a new object every time would be a render every time.
     setField((was) => (was && sameField(was, now) ? was : now));
@@ -192,10 +190,14 @@ export function EntryGlobe({
   useLayoutEffect(measure);
   useEffect(() => {
     const mark = space.current;
-    if (!mark) return;
-    //: And when nothing renders: the window resizes, the half slides.
+    const cell = mark?.closest(".entry-globe");
+    if (!mark || !cell) return;
+    //: And when nothing renders: the window resizes, the half grows a line of
+    //: its own. Both boxes are watched -- the planet stands on the square's
+    //: middle, the ground is laid to the half's edges.
     const watch = new ResizeObserver(measure);
     watch.observe(mark);
+    watch.observe(cell);
     window.addEventListener("resize", measure);
     return () => {
       watch.disconnect();
@@ -207,14 +209,14 @@ export function EntryGlobe({
   //: scroll under it. React attaches wheel passively, so the listener is
   //: native. A finger scrolls the page (`touch-action: pan-y`).
   useEffect(() => {
-    const field = svg.current;
-    if (!field) return;
+    const canvas = svg.current;
+    if (!canvas) return;
     const wheel = (e: WheelEvent) => {
       e.preventDefault();
       setZoom((was) => Math.min(ZOOM_MAX, Math.max(1, was * (e.deltaY < 0 ? NOTCH : 1 / NOTCH))));
     };
-    field.addEventListener("wheel", wheel, { passive: false });
-    return () => field.removeEventListener("wheel", wheel);
+    canvas.addEventListener("wheel", wheel, { passive: false });
+    return () => canvas.removeEventListener("wheel", wheel);
   }, [shown, eye, radius]);
   //: The globe turns by itself on the login screen, slowly, eastwards --
   //: and stops under the hand and on the door step, where a mark must
@@ -256,36 +258,31 @@ export function EntryGlobe({
     );
   }
   const span = (2 * DISK * FRAME) / zoom;
-  //: Picture units to a pixel, from the square: the planet keeps the size it
-  //: had when the canvas was that square and nothing more.
-  const perPixel = field ? span / field.side : span / (svg.current?.clientHeight || 1);
+  //: The paper (`map/paper`): where the planet lands on a canvas that is the
+  //: window, how far the ground is laid, how fine the grid is read. Until the
+  //: first measurement the drawing is the square it always was -- one frame
+  //: at most, since the measurement is taken before the paint.
+  const square = svg.current
+    ? Math.min(svg.current.clientWidth, svg.current.clientHeight)
+    : 0;
+  const sheet = field
+    ? paper(field.square, field.half, field.canvas, span)
+    : {
+        perPixel: span / (square || 1),
+        reach: span / 2,
+        spread: 1,
+        across: span,
+        viewBox: `${-span / 2} ${-span / 2} ${span} ${span}`,
+      };
   //: A pixel of the hand in map units: the eye turns by the planet's
   //: measure, not the picture's.
-  const unitsPerPixel = () => perPixel * (radius / DISK);
+  const unitsPerPixel = () => sheet.perPixel * (radius / DISK);
   //: The closer, the finer the grid is read, so that the cells in the frame
   //: stay about as many as at the outermost zoom -- and the frame, not the
   //: planet, is what a redraw costs.
-  //: How far from the planet's middle the ground is laid: to the edges of
-  //: the half the globe has, and no further -- the canvas is the window, but
-  //: the other half of it is behind the way in, which is opaque.
-  const reach = field
-    ? Math.max(
-        field.cx - field.seen.x,
-        field.seen.x + field.seen.w - field.cx,
-        field.cy - field.seen.y,
-        field.seen.y + field.seen.h - field.cy,
-      ) * perPixel
-    : span / 2;
-  //: How many squares of the old canvas the drawn ground spans. The grid is
-  //: read that much coarser, so that widening the paper does not multiply
-  //: the work: the same ground at the same fineness over five times the area
-  //: is five times the paths, laid afresh at every turn of the globe -- and
-  //: the globe turns by itself on this screen, on whatever the visitor has.
-  const spread = field ? (2 * reach) / span : 1;
-  const unit = Math.max(FINEST_UNIT, Math.min(1, spread / zoom));
+  const unit = Math.max(FINEST_UNIT, Math.min(1, sheet.spread / zoom));
   const cellUnits = DISK * CELL_DEG * RAD * unit;
-  const across = field ? Math.max(field.seen.w, field.seen.h) * perPixel : span;
-  const detailed = across > CELLS_ACROSS * cellUnits;
+  const detailed = sheet.across > CELLS_ACROSS * cellUnits;
   const placed = projectAll(eye, DISK, surface);
   const marks = projectAll(
     eye,
@@ -296,17 +293,12 @@ export function EntryGlobe({
   //: A city is the node others hang under: it wears its name.
   const cities = new Set(surface.map((node) => node.parent).filter(Boolean));
 
-  //: The window in the picture's units, with the planet's middle where the
-  //: square puts it. The sides are the window's own, so nothing is letterboxed.
-  const viewBox = field
-    ? `${-field.cx * perPixel} ${-field.cy * perPixel} ${field.w * perPixel} ${field.h * perPixel}`
-    : `${-span / 2} ${-span / 2} ${span} ${span}`;
   return (
     <div className="entry-globe">
       <div className="globe-space" ref={space} />
       <svg
         ref={svg}
-        viewBox={viewBox}
+        viewBox={sheet.viewBox}
         role="img"
         aria-label={t("ui-entry-globe-label")}
         style={{ "--pc": `var(--planet-${shown})` } as React.CSSProperties}
@@ -340,7 +332,7 @@ export function EntryGlobe({
           detailed={detailed}
           coarse={false}
           unit={unit}
-          within={reach}
+          within={sheet.reach}
         />
         <g className="ways">
           {(world?.edges ?? []).map((edge) => {

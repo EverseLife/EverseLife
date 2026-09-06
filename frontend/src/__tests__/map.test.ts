@@ -42,6 +42,7 @@ import {
   type Point,
 } from "../panels/map/model";
 import { along, forecast, mooring, term, windowOpen } from "../panels/map/orbits";
+import { paper, type Box } from "../panels/map/paper";
 import { long, price, spread } from "../panels/map/words";
 import { DEFAULT_LOCALE, Words, learn } from "../locale";
 
@@ -692,6 +693,80 @@ describe("withCityScene", () => {
   });
 });
 
+
+describe("the entry globe's paper", () => {
+  //: The square the globe used to be drawn in, centred in the left half of a
+  //: 1200x800 window: the numbers the screen actually gives.
+  const half: Box = { x: 0, y: 0, w: 600, h: 800 };
+  const square: Box = { x: 80, y: 180, w: 440, h: 440 };
+  const canvas: Box = { x: 0, y: 0, w: 1200, h: 800 };
+  //: The picture across the square: the planet and the room round it.
+  const span = 2100;
+  /** Where a point of the picture lands on the canvas, in its own pixels. */
+  const onCanvas = (sheet: { viewBox: string }, x: number, y: number) => {
+    const [vx, vy, vw] = sheet.viewBox.split(" ").map(Number);
+    const k = canvas.w / vw;
+    return { x: (x - vx) * k, y: (y - vy) * k };
+  };
+
+  it("puts the planet where the square says, whatever the paper round it", () => {
+    const sheet = paper(square, half, canvas, span);
+    //: The middle of the picture lands on the middle of the square -- that is
+    //: the whole promise of drawing on a canvas bigger than the box.
+    const middle = onCanvas(sheet, 0, 0);
+    expect(middle.x).toBeCloseTo(square.x + square.w / 2 - canvas.x, 9);
+    expect(middle.y).toBeCloseTo(square.y + square.h / 2 - canvas.y, 9);
+    //: And a picture unit is the square's own length, so the disk keeps the
+    //: size it had: the square, not the window, sets the scale.
+    expect(sheet.perPixel).toBeCloseTo(span / 440, 12);
+    //: The sides are the canvas's, so nothing is letterboxed -- a viewBox of
+    //: another shape would centre the drawing and shrink it.
+    const [, , vw, vh] = sheet.viewBox.split(" ").map(Number);
+    expect(vw / vh).toBeCloseTo(canvas.w / canvas.h, 12);
+  });
+
+  it("draws what the box used to draw when the canvas is the box", () => {
+    //: The old canvas was the square itself, and then the paper is the old
+    //: viewBox to the digit.
+    const sheet = paper(square, square, square, span);
+    expect(sheet.viewBox).toBe(`${-span / 2} ${-span / 2} ${span} ${span}`);
+    expect(sheet.spread).toBe(1);
+  });
+
+  it("lays the ground over the half that is seen, and no further", () => {
+    const sheet = paper(square, half, canvas, span);
+    //: A square of `reach` about the planet covers every corner of the half:
+    //: no corner of what is seen is left unlaid.
+    const middleX = square.x + square.w / 2;
+    const middleY = square.y + square.h / 2;
+    for (const corner of [
+      { x: half.x, y: half.y },
+      { x: half.x + half.w, y: half.y },
+      { x: half.x, y: half.y + half.h },
+      { x: half.x + half.w, y: half.y + half.h },
+    ]) {
+      expect(Math.abs(corner.x - middleX) * sheet.perPixel).toBeLessThanOrEqual(sheet.reach + 1e-9);
+      expect(Math.abs(corner.y - middleY) * sheet.perPixel).toBeLessThanOrEqual(sheet.reach + 1e-9);
+    }
+    //: And no further than that: the canvas is twice the half wide, and the
+    //: ground is not laid behind the way in, which is opaque.
+    expect(sheet.reach).toBeLessThan((canvas.w / 2) * sheet.perPixel);
+  });
+
+  it("never reads the grid finer than the old box did", () => {
+    //: `spread` is what the fineness is divided by: the wider the paper, the
+    //: coarser the grid, so that filling a window does not multiply the work.
+    //: Never below one, because the square lies inside the half.
+    for (const box of [half, canvas, { x: -100, y: -100, w: 3000, h: 2000 }]) {
+      expect(paper(square, box, canvas, span).spread).toBeGreaterThanOrEqual(1);
+    }
+    //: The planet sits in the middle of a 600x800 half, so the furthest edge
+    //: is 400 pixels away and the paper is 800 of them across: near twice the
+    //: square's 440, and the grid is read near twice as coarse.
+    const wide = paper(square, half, canvas, span);
+    expect(wide.spread).toBeCloseTo(800 / 440, 12);
+  });
+});
 
 describe("the globe", () => {
   //: Terra's radius in map units, as the vault gives it (D-320): the tests
