@@ -128,6 +128,11 @@ class Scenario:
     #: Starting inventories by identity name. The identities themselves are
     #: `seed.py`'s business (D-187) -- the scenario only says what they carry.
     pockets: dict[str, tuple[Stock, ...]]
+    #: The names of what the seed lays by rule rather than by layout -- the
+    #: plateau and the black fields of Pyroxis (D-251): the world's voice
+    #: stays in the vault, and `seed_surfaces` reads it here. Empty in a
+    #: scenario built by hand: a test lays its own nodes.
+    names: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -190,6 +195,7 @@ def load_scenario(build_dir: Path | None = None) -> Scenario:
 
     doc = json.loads(path.read_text(encoding="utf-8"))
     return Scenario(
+        names={str(key): str(value) for key, value in (doc.get("names") or {}).items()},
         nodes=tuple(
             NodeSpec(
                 key=node["key"],

@@ -55,8 +55,8 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src import seed_planets
-from src.constants import current, current_catalog, display_name
+from src import seed_planets, seed_world
+from src.constants import ConstantError, current, current_catalog, display_name
 from src.engine import energy, ground, oxygen, places, plates, props, ruins, ship, travel, world
 from src.models.world import Layer, Node, Planet, Surface
 
@@ -131,11 +131,12 @@ async def _pyroxis(session: AsyncSession) -> None:
     #: (D-321): a cluster on the lattice round the planet's first dry point,
     #: one reach of the black field apart -- neighbours, not a scattering.
     spots = seed_planets.sites(current(), Planet.PYROXIS, PYROXIS_FIELDS + 1, taken=[])
+    names = seed_world.load_scenario().names
     plateau = (
         await _ensure(
             session,
             PYROXIS_PLATEAU,
-            "Плато Наковальни",
+            _named(names, "pyroxis_plateau"),
             planet=Planet.PYROXIS,
             layer=Layer.PLANET,
             parent=sphere,
@@ -167,7 +168,7 @@ async def _pyroxis(session: AsyncSession) -> None:
         laid = await _ensure(
             session,
             pyroxis_field_key(number),
-            f"Чёрное поле №{number}",
+            _named(names, "pyroxis_field").format(number=number),
             planet=Planet.PYROXIS,
             layer=Layer.PLANET,
             parent=sphere,
@@ -214,6 +215,16 @@ async def _pyroxis(session: AsyncSession) -> None:
             ).scalar_one_or_none()
             if before is not None:
                 await travel.connect(session, before, laid.node, surface=Surface.WILD)
+
+
+def _named(names: dict[str, str], key: str) -> str:
+    """A name the vault gives the seed (`world.yaml` `names`, D-251): the
+    world's voice is data, and a missing one is a broken build, not a
+    literal to fall back on."""
+    try:
+        return names[key]
+    except KeyError as missing:
+        raise ConstantError(f"world.names lacks {key!r}") from missing
 
 
 def pyroxis_field_key(number: int) -> str:
