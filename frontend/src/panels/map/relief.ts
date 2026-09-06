@@ -157,45 +157,74 @@ export type GroundPaths = {
  *  smaller than the frame: a cell is then a pixel or two, and the descent
  *  redraws the ground at every step. */
 export const COARSE_STRIDE = 3;
+/** How fine the grid is read close up: half a cell, the height between
+ *  cells read between them. Four times the cells of the grid. */
+export const FINE_UNIT = 0.5;
+
+/** The height of the field at a point, read between the four nearest
+ *  cells: the grid is two degrees, and a coast drawn cell by cell is a
+ *  staircase; read between the cells it bends. */
+export function heightAt(terrain: Terrain, lat: number, lon: number): number {
+  const { rows, cols, grid } = terrain;
+  const fr = Math.min(rows - 1, Math.max(0, ((lat + 90) * rows) / 180 - 0.5));
+  const fc = ((((lon + 180) * cols) / 360 - 0.5) % cols + cols) % cols;
+  const r0 = Math.floor(fr);
+  const r1 = Math.min(rows - 1, r0 + 1);
+  const c0 = Math.floor(fc);
+  const c1 = (c0 + 1) % cols;
+  const t = fr - r0;
+  const u = fc - c0;
+  return (
+    grid[r0][c0] * (1 - t) * (1 - u) +
+    grid[r0][c1] * (1 - t) * u +
+    grid[r1][c0] * t * (1 - u) +
+    grid[r1][c1] * t * u
+  );
+}
 
 /**
  * The cells of the relief as paths, as the eye sees them: land by tone,
  * mountains, and the lakes. The sea is not drawn -- it is the disk under
  * everything. A cell is drawn when all four of its corners face the eye,
- * so the coast at the limb frays by a cell at most. With a `stride` the
- * grid is read every so many rows and columns, each drawn cell taking the
- * kind of the grid cell in its middle.
+ * so the coast at the limb frays by a cell at most. The drawn cell is
+ * `unit` cells of the grid across: coarser than the grid on the approach
+ * (`COARSE_STRIDE`), finer than it close up (`FINE_UNIT`), where the
+ * height between the cells is read between them and the coast bends.
  */
 export function cellPaths(
   terrain: Terrain,
   eye: Eye,
   radius: number,
   bands: Warmth,
-  stride = 1,
+  unit = 1,
+  within?: number,
 ): GroundPaths {
   const { rows, cols } = terrain;
   const dlat = 180 / rows;
   const dlon = 360 / cols;
-  const nr = Math.ceil(rows / stride);
-  const nc = Math.ceil(cols / stride);
+  const nr = Math.ceil(rows / unit);
+  const nc = Math.ceil(cols / unit);
   //: One projection per drawn corner, shared by the four cells round it.
   const corners: (Point | null)[] = new Array((nr + 1) * (nc + 1));
   for (let i = 0; i <= nr; i++) {
-    const lat = -90 + Math.min(rows, i * stride) * dlat;
+    const lat = -90 + Math.min(rows, i * unit) * dlat;
     for (let j = 0; j <= nc; j++) {
-      const seen = project(eye, radius, { lat, lon: -180 + Math.min(cols, j * stride) * dlon });
+      const seen = project(eye, radius, { lat, lon: -180 + Math.min(cols, j * unit) * dlon });
       corners[i * (nc + 1) + j] = seen.front ? { x: seen.x, y: seen.y } : null;
     }
   }
   const out: Record<string, string[]> = { cold: [], cool: [], warm: [], high: [], water: [] };
   const lakes = new Set(terrain.lakes.map(([r, c]) => r * cols + c));
-  const half = stride >> 1;
   for (let i = 0; i < nr; i++) {
-    const r = Math.min(rows - 1, i * stride + half);
+    const lat = -90 + Math.min(rows, (i + 0.5) * unit) * dlat;
+    const r = Math.min(rows - 1, Math.floor((i + 0.5) * unit));
     const tone = toneOf(terrain.warmth[r], bands);
     for (let j = 0; j < nc; j++) {
-      const c = Math.min(cols - 1, j * stride + half);
-      const height = terrain.grid[r][c];
+      const lon = -180 + Math.min(cols, (j + 0.5) * unit) * dlon;
+      const c = Math.min(cols - 1, Math.floor((j + 0.5) * unit)) % cols;
+      //: Between the cells the height is read between them; on the grid or
+      //: coarser it is the cell's own -- the same number either way there.
+      const height = unit < 1 ? heightAt(terrain, lat, lon) : terrain.grid[r][c];
       const lake = lakes.has(r * cols + c);
       if (height < terrain.sea_level && !lake) continue;
       const a = corners[i * (nc + 1) + j];
@@ -203,6 +232,9 @@ export function cellPaths(
       const d = corners[(i + 1) * (nc + 1) + j + 1];
       const e = corners[(i + 1) * (nc + 1) + j];
       if (!a || !b || !d || !e) continue;
+      //: Outside a frame of `within` about the eye a cell is not drawn:
+      //: close up the frame holds a corner of the disk, not the disk.
+      if (within !== undefined && outside(within, a, b, d, e)) continue;
       const kind = lake ? "water" : height >= terrain.mountain_level ? "high" : tone;
       out[kind].push(`M${a.x},${a.y}L${b.x},${b.y}L${d.x},${d.y}L${e.x},${e.y}Z`);
     }
@@ -212,6 +244,16 @@ export function cellPaths(
     high: out.high.join(""),
     water: out.water.join(""),
   };
+}
+
+/** Whether all the corners lie beyond one edge of the square frame. */
+function outside(within: number, ...corners: Point[]): boolean {
+  return (
+    corners.every((p) => p.x < -within) ||
+    corners.every((p) => p.x > within) ||
+    corners.every((p) => p.y < -within) ||
+    corners.every((p) => p.y > within)
+  );
 }
 
 /** The rivers as the eye sees them: each a polyline, cut where it goes over

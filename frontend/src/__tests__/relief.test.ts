@@ -7,7 +7,14 @@ import { describe, expect, it } from "vitest";
 
 import type { Terrain } from "../api";
 import { project, radiusUnits } from "../panels/map/globe";
-import { cellPaths, nightPath, riverRuns, subsolar, toneOf } from "../panels/map/relief";
+import {
+  cellPaths,
+  heightAt,
+  nightPath,
+  riverRuns,
+  subsolar,
+  toneOf,
+} from "../panels/map/relief";
 
 const R = radiusUnits(6371);
 const EPOCH = "2026-01-01T00:00:00Z";
@@ -105,6 +112,19 @@ describe("the land", () => {
       [p.land.cold, p.land.cool, p.land.warm, p.high, p.water].join("").split("M").length - 1;
     expect(cells(coarse)).toBeLessThan(cells(fine));
     expect(cells(coarse)).toBeGreaterThan(0);
+  });
+
+  it("reads the height between the cells, and draws more cells when read finer", () => {
+    //: Between a sea cell of 0.2 and a land cell of 0.6 the field is 0.4.
+    expect(heightAt(world, 0, -180 + 22.5)).toBeCloseTo(0.4, 6);
+    //: On a cell's centre the field is the cell's own.
+    expect(heightAt(world, 22.5, -180 + 22.5)).toBeCloseTo(0.6, 6);
+    const eye = { lat: 45, lon: -60 };
+    const cells = (p: { land: Record<string, string>; high: string; water: string }) =>
+      [p.land.cold, p.land.cool, p.land.warm, p.high, p.water].join("").split("M").length - 1;
+    const plain = cellPaths(world, eye, R, { cold: 0, cool: 15 });
+    const fine = cellPaths(world, eye, R, { cold: 0, cool: 15 }, 0.5);
+    expect(cells(fine)).toBeGreaterThan(cells(plain) * 2);
   });
 
   it("runs a river as one polyline where it faces the eye and cuts it at the horizon", () => {

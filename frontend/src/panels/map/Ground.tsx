@@ -18,6 +18,7 @@ import type { Look, RecipeBook, Terrain } from "../../api";
 import type { Eye } from "./globe";
 import {
   COARSE_STRIDE,
+  FINE_UNIT,
   cellPaths,
   kindAt,
   nightPath,
@@ -68,6 +69,8 @@ export function Ground({
   clock,
   detailed,
   coarse,
+  fine = false,
+  within,
 }: {
   planet: string;
   eye: Eye;
@@ -82,6 +85,12 @@ export function Ground({
   /** Whether the disk is smaller than the frame -- on the approach -- and
    *  the ground is read every third cell, the rivers not at all. */
   coarse: boolean;
+  /** Whether the frame is close enough for the grid's cells to show as
+   *  steps: then the ground is read between the cells, and the coast bends. */
+  fine?: boolean;
+  /** Half the frame's width in map units, when the frame is a square about
+   *  the eye: cells beyond it are not laid. */
+  within?: number;
 }) {
   const terrain = useTerrain(planet);
   /** The land's tones: the climate's two bounds, from the vault (D-065).
@@ -97,10 +106,11 @@ export function Ground({
   const dayHours =
     clock?.planet === planet ? clock.day_hours : Number(book?.constants?.[`time.day_${planet}`] ?? 0);
   const sun = subsolar(clock?.epoch ?? null, dayHours, Date.now());
-  const stride = coarse ? COARSE_STRIDE : 1;
+  const unit = coarse ? COARSE_STRIDE : fine ? FINE_UNIT : 1;
   const paths = useMemo(
-    () => (terrain && bands && detailed ? cellPaths(terrain, eye, radius, bands, stride) : null),
-    [terrain, eye, radius, bands, detailed, stride],
+    () =>
+      terrain && bands && detailed ? cellPaths(terrain, eye, radius, bands, unit, within) : null,
+    [terrain, eye, radius, bands, detailed, unit, within],
   );
   const rivers = useMemo(
     () => (terrain && detailed && !coarse ? riverRuns(terrain, eye, radius) : []),

@@ -353,17 +353,22 @@ button.eye:not(:disabled):active {
 }
 
 /* Before the world the screen is two halves (D-319): the globe of the public
-   map on one, the way in on the other. The globe is a square as tall as the
-   half allows; narrow, the halves stack and the globe takes the top. */
+   map on one, the way in on the other. The halves fill the root; the way in
+   scrolls on its own, the globe stays. Narrow, the halves stack: the globe
+   on top, a square no taller than a third of the screen, the way in below. */
 .entry-split {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  min-height: 100vh;
+  height: 100%;
+  min-height: 0;
 }
 .entry-split > main.entry {
   min-height: 0;
+  height: auto;
+  overflow-y: auto;
 }
 .entry-globe {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -371,14 +376,29 @@ button.eye:not(:disabled):active {
   gap: 0.5rem;
   padding: 1rem;
   min-height: 0;
+  min-width: 0;
+  overflow: hidden;
 }
 .entry-globe svg {
   display: block;
-  width: min(100%, 85vh);
+  width: min(100%, 80vh);
+  max-height: 100%;
   aspect-ratio: 1;
-  touch-action: none;
+  /* A finger scrolls the page; only a sideways drag turns the globe. */
+  touch-action: pan-y pinch-zoom;
   cursor: grab;
   overflow: visible;
+}
+.entry-globe .zoom {
+  position: absolute;
+  right: 1rem;
+  bottom: 1rem;
+  gap: 0.25rem;
+}
+.entry-globe .zoom button {
+  min-width: 2.25rem;
+  font-size: 1.1rem;
+  line-height: 1;
 }
 .entry-globe .way {
   fill: none;
@@ -422,13 +442,21 @@ button.eye:not(:disabled):active {
 @media (max-width: 56rem) {
   .entry-split {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-rows: minmax(0, 34vh) minmax(0, 1fr);
+  }
+  .entry-globe {
+    padding: 0.5rem;
   }
   .entry-globe svg {
-    width: min(100%, 45vh);
+    width: auto;
+    height: 100%;
+    max-width: 100%;
+  }
+  .entry-globe .zoom {
+    right: 0.5rem;
+    bottom: 0.5rem;
   }
 }
-
 
 /* The account moved from a header modal to the sidebar's tab (D-238):
    its panel styles live in `hud.css` with the rest of the redesign. */

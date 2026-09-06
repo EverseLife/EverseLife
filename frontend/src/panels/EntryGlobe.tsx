@@ -6,7 +6,8 @@
  * registration screens is the planet itself, from the public map.
  *
  * The same globe as the map's -- the true sphere, the ground of the relief,
- * north up, turned by the hand and zoomed by the wheel -- with what the
+ * north up, turned by the hand and zoomed by its buttons or Ctrl+wheel --
+ * with what the
  * public map shows to everybody: the cities and the ways between them, as
  * of the delayed snapshot (D-319 item 7). There is no session yet, so the
  * book is read from the public catalog and there is no clock, hence no
@@ -26,15 +27,21 @@ import { useGlobe } from "./map/useGlobe";
 
 /** How much of the frame the disk takes at the outermost zoom. */
 const FRAME = 1.15;
-/** How far in the wheel may go, and one notch of it. */
+/** How far in the zoom may go, and one notch of it. */
 const ZOOM_MAX = 400;
-const NOTCH = 1.15;
+const NOTCH = 1.25;
 /** Sizes in shares of the frame: a node's dot, a door's mark, a label. */
 const DOT = 1 / 300;
 const MARK = 1 / 60;
 const LABEL = 1 / 36;
 /** Below this many cells across the frame the ground is one flat colour. */
-const CELLS_ACROSS = 4;
+const CELLS_ACROSS = 1.5;
+/** From this zoom on the plain nodes are drawn, and from this one the
+ *  cities' names: farther out they are a smudge, not a map. */
+const NODES_ZOOM = 2;
+const LABELS_ZOOM = 4;
+/** From this zoom on the ground is read between the grid's cells. */
+const FINE_ZOOM = 2;
 /** The relief's cell, degrees. */
 const CELL_DEG = 2;
 const EQUATOR: Geo = { lat: 0, lon: 0 };
@@ -108,16 +115,23 @@ export function EntryGlobe({
   const [zoom, setZoom] = useState(1);
   const svg = useRef<SVGSVGElement | null>(null);
   const drag = useRef<{ x: number; y: number } | null>(null);
-  //: The wheel over the globe is zoom, and only zoom. React attaches wheel
-  //: passively, so `preventDefault` from a prop does not stop the page --
-  //: and the registration form beside the globe is taller than the screen.
+  //: The page scrolls over the globe as anywhere: the wheel zooms only
+  //: with Ctrl or Cmd held, the way maps in pages do, and then -- and only
+  //: then -- the page must not scroll under it. React attaches wheel
+  //: passively, so the listener is native.
   useEffect(() => {
     const field = svg.current;
     if (!field) return;
-    const block = (e: Event) => e.preventDefault();
-    field.addEventListener("wheel", block, { passive: false });
-    return () => field.removeEventListener("wheel", block);
+    const wheel = (e: WheelEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      e.preventDefault();
+      setZoom((was) => Math.min(ZOOM_MAX, Math.max(1, was * (e.deltaY < 0 ? NOTCH : 1 / NOTCH))));
+    };
+    field.addEventListener("wheel", wheel, { passive: false });
+    return () => field.removeEventListener("wheel", wheel);
   }, [shown, eye, radius]);
+  const nearer = () => setZoom((was) => Math.min(ZOOM_MAX, was * NOTCH));
+  const farther = () => setZoom((was) => Math.max(1, was / NOTCH));
   if (!shown || !eye || !radius) {
     return <div className="entry-globe" aria-hidden="true" />;
   }
@@ -158,6 +172,9 @@ export function EntryGlobe({
         aria-label={t("ui-entry-globe-label")}
         style={{ "--pc": `var(--planet-${shown})` } as React.CSSProperties}
         onPointerDown={(e) => {
+          //: A finger is the page's first: it scrolls, and only a sideways
+          //: drag turns the globe (`touch-action: pan-y` in the stylesheet).
+          //: The mouse turns it outright.
           drag.current = { x: e.clientX, y: e.clientY };
           e.currentTarget.setPointerCapture(e.pointerId);
         }}
@@ -174,11 +191,6 @@ export function EntryGlobe({
         onPointerCancel={() => {
           drag.current = null;
         }}
-        onWheel={(e) => {
-          setZoom((was) =>
-            Math.min(ZOOM_MAX, Math.max(1, was * (e.deltaY < 0 ? NOTCH : 1 / NOTCH))),
-          );
-        }}
       >
         <Ground
           planet={shown}
@@ -187,7 +199,9 @@ export function EntryGlobe({
           book={book}
           clock={undefined}
           detailed={detailed}
-          coarse={zoom < 3}
+          coarse={false}
+          fine={zoom >= FINE_ZOOM}
+          within={span / 2}
         />
         <g className="ways">
           {(world?.edges ?? []).map((edge) => {
@@ -208,12 +222,15 @@ export function EntryGlobe({
         <g className="places">
           {surface.map((node) => {
             const at = placed.get(node.key);
-            if (!at) return null;
             const city = cities.has(node.key);
+            //: Far out a city is a dot and a node nothing: a hundred dots
+            //: on a disk the size of a coin is a smudge, and a name on it
+            //: cannot be read at all.
+            if (!at || (!city && zoom < NODES_ZOOM)) return null;
             return (
               <g key={node.key} className={`place ${city ? "city" : ""}`}>
                 <circle cx={at.x} cy={at.y} r={span * DOT * (city ? 2 : 1)} />
-                {city && (
+                {city && zoom >= LABELS_ZOOM && (
                   <text x={at.x} y={at.y - span * DOT * 4} fontSize={span * LABEL}>
                     {node.name}
                   </text>
@@ -240,9 +257,15 @@ export function EntryGlobe({
           })}
         </g>
       </svg>
-      <p className="note center">
-        {doors ? t("ui-entry-globe-doors-hint") : t("ui-entry-globe-hint")}
-      </p>
+      <div className="row zoom">
+        <button className="quiet" aria-label={t("ui-zoom-in")} onClick={nearer} disabled={zoom >= ZOOM_MAX}>
+          +
+        </button>
+        <button className="quiet" aria-label={t("ui-zoom-out")} onClick={farther} disabled={zoom <= 1}>
+          −
+        </button>
+      </div>
+      {doors && <p className="note center">{t("ui-entry-globe-doors-hint")}</p>}
     </div>
   );
 }
