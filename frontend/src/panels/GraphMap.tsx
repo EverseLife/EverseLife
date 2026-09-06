@@ -55,7 +55,7 @@ import { Ground } from "./map/Ground";
 import { useArcs, useGlobe, radiusOf } from "./map/useGlobe";
 import { factsOf, useBands, useHandOver, type Sphere } from "./map/useBands";
 import { SkyBackdrop, SkyClock } from "./map/Sky";
-import { Switcher } from "./map/Switcher";
+import { Switcher, Zoom, notchOf, scaleOf } from "./map/Switcher";
 import { useScene } from "./map/useScene";
 import { useWalker } from "./map/useWalker";
 import { useSky } from "./map/useSky";
@@ -234,6 +234,7 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
   // --- where everything stands ----------------------------------------------
 
   const svgRef = useRef<SVGSVGElement | null>(null);
+  const zoomRef = useRef<HTMLInputElement | null>(null);
 
   /**
    * The camera (`map/camera`): outside React, painted straight onto the
@@ -253,6 +254,12 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
     camera.current = createCamera({
       onFrame: (f) => {
         svgRef.current?.setAttribute("viewBox", viewBoxOf(f));
+        //: The slider rides with the frame, off React like the viewBox.
+        if (zoomRef.current) {
+          zoomRef.current.value = String(
+            notchOf(f.scale, boundsOf(bandRef.current, surfaceRef.current)),
+          );
+        }
         //: What the frame decides is React's business only when it flips:
         //: cities opening, a band's edge reached, a planet under the middle.
         tell(factsOf(f, surfaceRef.current, spheres.current()));
@@ -334,7 +341,7 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
   //: What a hand may do to the frame lives in `map/hand`: the rule differs by
   //: whether the camera is tied to the body, and it is one rule in one place
   //: rather than a check repeated at every handler.
-  const { grabField, movePointer, releasePointer, zoom, zoomBy } = useHand({
+  const { grabField, movePointer, releasePointer, zoom, zoomToScale } = useHand({
     cam,
     svg: svgRef,
     tethered,
@@ -595,7 +602,10 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
         onInside={(on) => enter(on ? "inside" : "surface")}
         tethered={tethered}
         onTether={tether}
-        onZoom={zoomBy}
+      />
+      <Zoom
+        slider={zoomRef}
+        onZoom={(notch) => zoomToScale(scaleOf(notch, boundsOf(bandRef.current, surfaceRef.current)))}
       />
 
       {visible.length === 0 ? (

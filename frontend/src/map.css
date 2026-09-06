@@ -86,6 +86,41 @@
   border: 1px solid var(--hairline);
   border-radius: var(--r-pop);
 }
+/* The layer bar stands on the map bare (owner, 2026-09-06): no box, no
+   ground, no hint -- its buttons are their own frame. The sky's winder
+   keeps its box: a scrubber over stars needs a ground to be read on. */
+.map-layers {
+  background: none;
+  border: 0;
+  padding: 0;
+}
+
+/* The zoom slider (owner, 2026-09-06): a vertical range at the right edge
+   of the map in place of the two loupe buttons -- up is nearer. On a phone
+   it runs the map's whole height; on a wide screen it is shorter, centred.
+   A native range, written vertically: the browser draws it, the finger
+   knows it. */
+.map-zoom {
+  position: absolute;
+  right: 0.6rem;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 40%;
+  width: 1.6rem;
+  margin: 0;
+  writing-mode: vertical-lr;
+  direction: rtl;
+  accent-color: var(--act);
+  cursor: pointer;
+}
+@media (max-width: 56rem) {
+  .map-zoom {
+    top: 0.5rem;
+    bottom: 0.5rem;
+    height: auto;
+    transform: none;
+  }
+}
 .map-layers {
   top: 0.4rem;
   width: fit-content;
@@ -382,13 +417,15 @@ polyline.edge {
   stroke-opacity: 0.5;
 }
 /* Where a city ends (D-323 addendum): the contour of its land, the discs
-   of its nodes joined -- a hairline, no fill, the same width at any zoom. */
+   of its nodes joined -- a grey dashed hairline, no fill, the same width at
+   any zoom; grey and dashed so that it is never read as a road. */
 .territory .city-edge {
   fill: none;
-  stroke: currentColor;
-  stroke-opacity: 0.55;
+  stroke: var(--base-400);
+  stroke-opacity: 0.6;
   stroke-width: 1.5;
   stroke-linejoin: round;
+  stroke-dasharray: 6 6;
   vector-effect: non-scaling-stroke;
 }
 .node.near {

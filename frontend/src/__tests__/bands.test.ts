@@ -47,6 +47,7 @@ import { ZOOM_PACE, createCamera, zoomStep } from "../panels/map/camera";
 const APPROACH_KM = 50000;
 const SURFACE = surfaceBounds(APPROACH_KM);
 import { STUB_M, UNITS_PER_METRE, ahead, arc, project, radiusUnits } from "../panels/map/globe";
+import { ZOOM_STEPS, notchOf, scaleOf } from "../panels/map/Switcher";
 import { delegateAmong } from "../panels/map/model";
 
 const node = (over: Partial<MapNode>): MapNode =>
@@ -60,6 +61,20 @@ const node = (over: Partial<MapNode>): MapNode =>
     orbit: null,
     ...over,
   }) as MapNode;
+
+describe("the zoom slider", () => {
+  it("maps a scale to a notch on the log of the bounds, and back", () => {
+    const bounds = { nearest: 4, furthest: 1 / 64 };
+    expect(notchOf(bounds.furthest, bounds)).toBe(0);
+    expect(notchOf(bounds.nearest, bounds)).toBe(ZOOM_STEPS);
+    expect(notchOf(0.25, bounds)).toBe(500);
+    expect(scaleOf(500, bounds)).toBeCloseTo(0.25, 9);
+    expect(scaleOf(notchOf(1, bounds), bounds)).toBeCloseTo(1, 6);
+    //: Past the bounds the notch holds at the end; empty bounds give nothing.
+    expect(notchOf(100, bounds)).toBe(ZOOM_STEPS);
+    expect(notchOf(1, { nearest: 1, furthest: 1 })).toBe(0);
+  });
+});
 
 describe("the bands", () => {
   it("stop the map tab at the disk: no floor, no descent, no sky beyond", () => {

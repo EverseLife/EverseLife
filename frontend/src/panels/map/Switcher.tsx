@@ -6,9 +6,9 @@
  *
  * It holds the two questions that are about the view rather than about the
  * world -- from what height am I looking, and does the camera come with me --
- * and it holds them together because they are one question asked twice --
- * and, beside the tether, the two loupe buttons: a phone has no wheel to turn
- * and a pinch is a gesture one has to know about. It
+ * and it holds them together because they are one question asked twice.
+ * The zoom is not here: it is the slider at the map's right edge
+ * (`Zoom`), where a thumb can reach it on a phone. The bar
  * stands on the map itself, in the middle of its top edge, where the eye
  * already is: a strip above the field would cost a line of the height the map
  * is the whole point of.
@@ -19,13 +19,11 @@
  * alternative was worse in the same brief's terms. At 375px the words wrap the
  * bar onto three lines over a map 214px tall, and a control that hides its own
  * subject fails harder than a mark somebody has to learn once. The word is
- * hidden by CSS only: it stays in the button for a screen reader, it is the
- * button's `aria-label` in every case, and the hint at the end of the bar
- * says in words what the wheel and the door do.
+ * hidden by CSS only: it stays in the button for a screen reader, and it is
+ * the button's `aria-label` in every case.
  */
 
 import { Glyph } from "../../Glyph";
-import { Hint } from "../../Hint";
 import { t } from "../../locale";
 
 export function Switcher({
@@ -33,7 +31,6 @@ export function Switcher({
   onInside,
   tethered,
   onTether,
-  onZoom,
 }: {
   /** Whether there is an inside to open from here -- floors, a hull's rooms
    *  (D-319, wave 4) -- and whether it is open now. Null: nothing inside. */
@@ -42,8 +39,6 @@ export function Switcher({
   /** Whether the camera is tied to the body -- see `GraphMap`. */
   tethered: boolean;
   onTether: (on: boolean) => void;
-  /** A notch nearer (`1`) or farther (`-1`), about the middle of the frame. */
-  onZoom: (direction: 1 | -1) => void;
 }) {
   const word = t(tethered ? "ui-map-cam-tied" : "ui-map-cam-free");
   const door = t(inside ? "ui-map-outside" : "ui-map-inside");
@@ -70,26 +65,52 @@ export function Switcher({
         <Glyph name={tethered ? "pinned" : "loose"} />
         <span className="tab-word">{word}</span>
       </button>
-      {/* Marks alone at every width: a loupe reads without a word, and the
-          word would make the bar wrap on the very screens these are for. A
-          `title` where the others have none, for the same reason. */}
-      <button
-        className="quiet"
-        aria-label={t("ui-zoom-in")}
-        title={t("ui-zoom-in")}
-        onClick={() => onZoom(1)}
-      >
-        <Glyph name="nearer" />
-      </button>
-      <button
-        className="quiet"
-        aria-label={t("ui-zoom-out")}
-        title={t("ui-zoom-out")}
-        onClick={() => onZoom(-1)}
-      >
-        <Glyph name="farther" />
-      </button>
-      <Hint>{t("ui-map-switcher-rule")}</Hint>
     </nav>
+  );
+}
+
+/** How finely the slider is stepped: a thousand notches from the farthest
+ *  to the nearest, on the log of the scale, so every notch is one share of
+ *  the way and the wheel's own steps land between them. */
+export const ZOOM_STEPS = 1000;
+
+/** The slider's notch for a scale within its bounds, and back. */
+export function notchOf(scale: number, bounds: { nearest: number; furthest: number }): number {
+  const span = Math.log(bounds.nearest / bounds.furthest);
+  if (!(span > 0)) return 0;
+  const share = Math.log(scale / bounds.furthest) / span;
+  return Math.round(Math.min(1, Math.max(0, share)) * ZOOM_STEPS);
+}
+export function scaleOf(notch: number, bounds: { nearest: number; furthest: number }): number {
+  const share = Math.min(1, Math.max(0, notch / ZOOM_STEPS));
+  return bounds.furthest * (bounds.nearest / bounds.furthest) ** share;
+}
+
+/**
+ * The zoom slider at the map's right edge (owner, 2026-09-06): up is
+ * nearer. Its notch follows the frame by the ref -- set from the camera's
+ * own frame loop, not through React, as the viewBox is -- and a drag of the
+ * thumb zooms about the middle like the wheel does.
+ */
+export function Zoom({
+  slider,
+  onZoom,
+}: {
+  slider: React.RefObject<HTMLInputElement | null>;
+  onZoom: (notch: number) => void;
+}) {
+  return (
+    <input
+      ref={slider}
+      className="map-zoom"
+      type="range"
+      min={0}
+      max={ZOOM_STEPS}
+      step={1}
+      defaultValue={0}
+      aria-label={t("ui-map-zoom")}
+      title={t("ui-map-zoom")}
+      onInput={(e) => onZoom(Number((e.target as HTMLInputElement).value))}
+    />
   );
 }

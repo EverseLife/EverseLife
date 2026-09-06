@@ -322,13 +322,12 @@ export function useHand({
       cam.zoomTo(toWorld(e), scale);
     },
 
-    /** The loupe buttons: a notch nearer or farther about the middle -- a
-     *  button has no cursor to zoom towards. Loose, it is the hand like the
-     *  wheel and takes the frame; tethered, the middle stays the middle. */
-    zoomBy(direction: 1 | -1) {
-      const scale = clampScale(cam.frame().scale * (direction > 0 ? NOTCH : 1 / NOTCH), limits());
+    /** The slider: a scale asked for outright, about the middle -- a thumb
+     *  has no cursor to zoom towards. Loose, it is the hand like the wheel
+     *  and takes the frame; tethered, the middle stays the middle. */
+    zoomToScale(scale: number) {
       if (!tethered) cam.takeFrame();
-      cam.zoomOnMiddle(scale);
+      cam.zoomOnMiddle(clampScale(scale, limits()));
     },
   };
 }

@@ -104,7 +104,7 @@ ui-map-sky-rule = The planets go round the star each on its own term, and the di
 
 ui-map-cam-tied = camera follows you
 ui-map-cam-free = camera is free
-ui-map-switcher-rule = You see what is within sight, what you remember and what everybody knows — the planet's cities and roads; the rest opens by walking. Nodes stand where they stand: a node's place is the same for every player and the same tomorrow, so they are not dragged with the mouse. Camera follows you: you are in the middle of the map, it rides after you; the wheel, the loupe buttons and a two-finger pinch only zoom in and out. Camera is free: the map is panned with the mouse or a finger and stays where it was left — it will not ride after you as you walk. Height is the wheel's: far out the sky, closer the planet's surface, at the ground a city opens into its nodes; floors and compartments are behind the “Inside” door.
+ui-map-zoom = zoom in or out
 
 ## The map field itself.
 
