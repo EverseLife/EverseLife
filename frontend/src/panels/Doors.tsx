@@ -77,9 +77,10 @@ export function Doors({ doors, name, busy, trouble, onPick, onBack }: Props) {
         <div className="doors">
           {visible.map((door) => (
             <section key={door.node}>
-              {/* В заголовке — чем эта дверь отличается от соседней. Город
-                  вынесен в строку: у столицы дверей две, и одинаковые
-                  заголовки не давали бы их различить. */}
+              {/* The heading says how this door differs from the one beside
+                  it. The city goes into a row of its own: a capital has two
+                  doors, and identical headings would leave them
+                  indistinguishable. */}
               <h2>{door.precursor ? t("ui-doors-precursor") : door.name}</h2>
               <p className="note">
                 {door.precursor ? t("ui-doors-precursor-note") : t("ui-doors-city-note")}
@@ -108,11 +109,12 @@ export function Doors({ doors, name, busy, trouble, onPick, onBack }: Props) {
                     <td>{t("ui-doors-first-body")}</td>
                     <td className="num">{t("ui-doors-at-once")}</td>
                   </tr>
-                  {/* Что даёт дверь (D-184, D-281). Показано у городских
-                      дверей и только у них: гражданство даёт город, а дверь,
-                      вокруг которой города нет, не даёт ничего — записывать
-                      не во что. Срока обязательства больше нет: выйти можно
-                      в первую же минуту, пока не взят кредит. */}
+                  {/* What a door gives (D-184, D-281). Shown for city doors
+                      and only for them: citizenship is given by the city, and
+                      a door with no city around it gives nothing -- there is
+                      nothing to be enrolled in. There is no term of obligation
+                      any more: one may leave in the very first minute, as long
+                      as no loan has been taken. */}
                   {door.city && (
                     <>
                       <tr>
@@ -129,8 +131,9 @@ export function Doors({ doors, name, busy, trouble, onPick, onBack }: Props) {
                   )}
                 </tbody>
               </table>
-              {/* Слово города: его пишет власть, а не движок (D-183). Молчащий
-                  город показывает только числа — сочинять за него нечего. */}
+              {/* The city's own word: the authorities write it, not the
+                  engine (D-183). A silent city shows numbers only -- there is
+                  nothing to invent on its behalf. */}
               {door.about && <p className="say">«{door.about}»</p>}
               <div className="row">
                 <button onClick={() => onPick(door.node)} disabled={busy}>
