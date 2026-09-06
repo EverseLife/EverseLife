@@ -188,9 +188,13 @@ export function Nodes({
             {/* A ship's name hangs below the hull: above it there is already a
                 planet's name, and two ships at one port would write over it
                 and over each other. */}
-            <text x={p.x} y={hull ? p.y + 21 : p.y - 20} className="node-label">
-              {node.name}
-            </text>
+            {/* A find has no name (D-321): its sign inside the circle is the
+                whole of what it is called, and an empty label is not drawn. */}
+            {node.name && (
+              <text x={p.x} y={hull ? p.y + 21 : p.y - 20} className="node-label">
+                {node.name}
+              </text>
+            )}
             {/* Aquatica is drawn precisely because one cannot go there (D-104):
                 the map shows the unreachable and says so. */}
             {node.deferred && (

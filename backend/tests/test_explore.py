@@ -283,7 +283,7 @@ async def test_the_run_reads_the_field_and_sews_the_node_on(
         point = places.geo_of(node)
         assert point == explore.point_of(constants, Planet.TERRA, cell)
         here = node.properties[biome.BIOME]
-        assert node.name == biome.name(constants, here)
+        assert node.name == explore.NAMELESS, "находка безымянна: её тип показывает знак"
         assert node.properties[biome.TEMPERATURE_SWING] == biome.swing_c(constants, here)
         assert (
             node.properties["temperature"] == terrain.climate_at(constants, Planet.TERRA, *point)[0]
@@ -614,3 +614,38 @@ def test_the_seed_pins_pyroxis_on_the_lattice_a_reach_apart(constants: Constants
             if a is not b:
                 assert globe.distance_m(radius, a.point, b.point) >= near
     assert all(globe.distance_m(radius, spots[0].point, s.point) <= far * 1.5 for s in spots[1:])
+
+
+async def test_a_long_leap_lands_on_wide_ground_and_a_wide_node_keeps_others_off(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """The find's area follows the leap (the owner, 2026-09-06): the farther the
+    aim, the wider the node; and next to a wide node there is no room to aim."""
+    sphere, camp, _ = await _camp(session, constants)
+    here = places.geo_of(camp)
+    assert here is not None
+    near, far = _reach(constants, camp)
+    short = await explore.check(
+        session, constants, camp, _step(constants, Planet.TERRA, here, far * 0.5)
+    )
+    long = await explore.check(
+        session, constants, camp, _step(constants, Planet.TERRA, here, far * 0.75)
+    )
+    assert long.area > short.area, "дальний выпад — больше площадь"
+    span = constants[R.EXPLORE_NODE_AREA]
+    assert span.min <= short.area <= span.max and long.area <= span.max
+    #: A wide node standing near the camp: the ground beside it is taken.
+    wide_at = _step(constants, Planet.TERRA, here, far * 0.7, bearing=math.pi / 2)
+    await world.create_node(
+        session, "terra.wide", "Wide", area_m2=span.max, parent=sphere, properties=_pin(wide_at)
+    )
+    with pytest.raises(explore.NoRoom):
+        await explore.check(
+            session,
+            constants,
+            camp,
+            _step(constants, Planet.TERRA, here, far * 0.8, bearing=math.pi / 2 + 0.3),
+        )
+    #: Too short a leap leaves no room for a node at all: refused as no room.
+    with pytest.raises((explore.NoRoom, explore.TooNear)):
+        await explore.check(session, constants, camp, _step(constants, Planet.TERRA, here, near))

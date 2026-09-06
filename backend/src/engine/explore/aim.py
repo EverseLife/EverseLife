@@ -26,7 +26,6 @@ read stays narrow.
 from __future__ import annotations
 
 import math
-import random
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -37,7 +36,6 @@ from src.constants import registry as R
 from src.engine import biome, places, terrain
 from src.engine.explore._base import (
     Aim,
-    Cell,
     CrossesWay,
     IntoWater,
     NoRoom,
@@ -46,22 +44,40 @@ from src.engine.explore._base import (
     TooFar,
     TooNear,
     cell_of,
-    key_of,
     point_of,
 )
 from src.models.world import Edge, Layer, Node, Planet
 
 
-def area_of(constants: Constants, planet: Planet, cell: Cell) -> float:
-    """The area a node found in this cell has: rolled once, from the cell alone."""
-    span = constants[R.EXPLORE_NODE_AREA]
-    dice = random.Random(key_of(planet, cell))
-    return dice.uniform(span.min, span.max)
-
-
 def radius_of(area_m2: float) -> float:
     """The radius of the circle a node's area makes: its footprint on the map."""
     return math.sqrt(float(area_m2) / math.pi)
+
+
+def area_for(constants: Constants, free_m: float) -> float | None:
+    """The area a find takes from the room round it (D-321, the owner's rule of
+    2026-09-06): a long leap lands on wide ground, a short one on a patch.
+
+    The find fills `explore.fill_share` of the free radius -- the distance to
+    the nearest standing node's edge -- and is bounded by `explore.node_area`:
+    above the ceiling the rest stays open ground, below the floor there is no
+    room for a node at all and the aim is refused. The exclusion round a node
+    is therefore its own circle: the wider the node, the farther the next
+    scout must aim.
+    """
+    span = constants[R.EXPLORE_NODE_AREA]
+    radius = float(constants[R.EXPLORE_FILL_SHARE]) * free_m
+    if radius < radius_of(span.min):
+        return None
+    return min(span.max, math.pi * radius * radius)
+
+
+def word_of(constants: Constants, node: Node) -> str:
+    """How a node is spoken of: by its name, or -- a nameless find -- by its biome."""
+    if node.name:
+        return node.name
+    here = biome.of_node(constants, node)
+    return biome.name(constants, here) if here else node.key
 
 
 def crosses_water(
@@ -174,16 +190,21 @@ async def check(
     existing = next(
         (node for node, where in placed if cell_of(constants, planet, where) == cell), None
     )
+    area = float(existing.area_m2) if existing is not None else None
     if existing is None:
-        #: Two circles that do not overlap: the new node's by its rolled area,
-        #: the standing node's by its own. No gap on top -- on the plain the
-        #: reach is twenty metres, and a gap would leave no lawful aim at all.
-        own = radius_of(area_of(constants, planet, cell))
+        #: The room there is: the distance to the nearest standing node's
+        #: edge, the origin's included -- a find takes its share of it
+        #: (`area_for`), and where the share is below a node's floor the
+        #: ground is taken. The exclusion round a node is its own circle.
+        free = math.inf
+        nearest = origin
         for node, where in placed:
-            if node.id == origin.id:
-                continue
-            if globe.distance_m(radius, where, point) < own + radius_of(node.area_m2):
-                raise NoRoom(key="explore-no-room", node=node.name)
+            room = globe.distance_m(radius, where, point) - radius_of(node.area_m2)
+            if room < free:
+                free, nearest = room, node
+        area = area_for(constants, free)
+        if area is None:
+            raise NoRoom(key="explore-no-room", node=word_of(constants, nearest))
     #: The new way against every way of the surface, on the plane tangent at
     #: the origin: two ways that cross would make a crossroads nobody stands at.
     flat = {node.id: _flat(radius, origin_point, where) for node, where in placed}
@@ -203,4 +224,5 @@ async def check(
         metres=metres,
         biome=here,
         existing=existing,
+        area=area,
     )

@@ -56,6 +56,10 @@ log = logging.getLogger(__name__)
 #: The properties a complex writes on its nodes: the scheme's role, and a ford.
 ROLE = "role"
 FORD = aiming.FORD_MARK
+#: The sign of a vein on the node, for the map's glyph: the rows are in `vein`.
+VEIN = "vein"
+#: A find has no name: the map shows the sign of its kind (the owner, 2026-09-06).
+NAMELESS = ""
 
 
 def _wild_seconds(constants: Constants, metres: float) -> float:
@@ -151,7 +155,7 @@ async def returned(session: AsyncSession, job: Job) -> None:
             EventKind.EXPLORE_FOUND,
             actor_identity_id=body.identity_id,
             node_id=aim.existing.id,
-            node=aim.existing.name,
+            node=aiming.word_of(constants, aim.existing),
             cell=aim.existing.key,
             biome=biome.of_node(constants, aim.existing),
             known=True,
@@ -165,7 +169,7 @@ async def returned(session: AsyncSession, job: Job) -> None:
         EventKind.EXPLORE_FOUND,
         actor_identity_id=body.identity_id,
         node_id=node.id,
-        node=node.name,
+        node=aiming.word_of(constants, node),
         cell=node.key,
         biome=(node.properties or {}).get(biome.BIOME),
         complex=scheme,
@@ -195,13 +199,19 @@ async def _found_node(
     point: globe.Geo,
     *,
     sphere: Node | None,
-    name: str,
+    area: float,
     extra: dict | None = None,
     vein: bool | None = None,
     who: uuid.UUID | None,
 ) -> Node:
     """One node of the surface out of the field: properties read at the point,
-    the biome's marks and swing on it, a vein by the biome's chance."""
+    the biome's marks and swing on it, a vein by the biome's chance.
+
+    **Nameless** (the owner, 2026-09-06): a find is known by the sign of its
+    kind on the map -- the vein, the river, the forest, the desert -- not by a
+    word; the word is the locale's, drawn by the client off the signs. What
+    the engine writes is the signs, and `vein` is one of them.
+    """
     here = biome.classify(constants, planet, *point)
     if here is None:  # pragma: no cover -- `aim.check` refused water already
         raise ExploreError(key="explore-not-land")
@@ -221,14 +231,16 @@ async def _found_node(
         biome.TEMPERATURE_SWING: biome.swing_c(constants, here),
         places.PLACE: {places.PLACE_LAT: point[0], places.PLACE_LON: point[1]},
     }
+    if vein:
+        properties[VEIN] = True
     if extra:
         properties |= extra
     node = await world.create_node(
         session,
         key_of(planet, cell),
-        name,
+        NAMELESS,
         planet=planet,
-        area_m2=aiming.area_of(constants, planet, cell),
+        area_m2=area,
         layer=Layer.PLANET,
         parent=sphere,
         properties=properties,
@@ -263,7 +275,6 @@ async def materialise(
     planet = aim.planet
     dice = random.Random(key_of(planet, aim.cell))
     sphere = await _sphere_of(session, planet)
-    here = biome.classify(constants, planet, *aim.point)
     node = await _found_node(
         session,
         constants,
@@ -273,7 +284,7 @@ async def materialise(
         aim.cell,
         aim.point,
         sphere=sphere,
-        name=biome.name(constants, here or aim.biome),
+        area=aim.area,
         who=who,
     )
     await travel.connect(session, origin, node, surface=Surface.WILD)
@@ -388,7 +399,7 @@ async def _complex(
             cell,
             where,
             sphere=sphere,
-            name=str(part.get("name") or biome.name(constants, here)),
+            area=part_aim.area,
             extra=extra,
             vein=bool(part.get("vein", False)) or None,
             who=who,

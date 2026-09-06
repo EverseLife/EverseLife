@@ -143,6 +143,9 @@ export function groundGlyph(ground: string): GlyphName {
   return GROUND_MARKS[ground] ?? "money";
 }
 
+/** Biomes with no sign of their own: open ground, drawn as a glade. */
+const BARE_BIOMES = ["steppe", "coast", "floodplain", "foothills", "forest"] as const;
+
 type NodeFace = {
   /** The owner's nailed mark, if any: their word beats the land's signs. */
   emblem?: string | null;
@@ -162,9 +165,19 @@ export function nodeGlyph({ emblem, features, settlement, port }: NodeFace): Gly
   if (emblem && EMBLEM_MARKS[emblem]) return EMBLEM_MARKS[emblem];
   const signs = new Set(features ?? []);
   if (signs.has("precursors")) return "ruins";
+  //: A find has no name (D-321): the rarer sign outranks the biome, and the
+  //: biome outranks nothing but the bare ground.
+  if (signs.has("vein")) return "pick";
   if (signs.has("stones")) return "ore";
+  if (signs.has("water")) return "water";
+  if (signs.has("mountain")) return "peak";
   if (signs.has("woods")) return "forest";
-  if (signs.has("meadow")) return "glade";
+  if (signs.has("marsh")) return "reed";
+  if (signs.has("desert")) return "dune";
+  if (signs.has("ice") || signs.has("tundra")) return "snow";
+  if (signs.has("cinder")) return "warmth";
+  if (signs.has("taiga")) return "forest";
+  if (signs.has("meadow") || BARE_BIOMES.some((name) => signs.has(name))) return "glade";
   if (signs.has("plot")) return "plot";
   if (settlement) return "state";
   if (port) return "port";

@@ -33,10 +33,12 @@ from src.engine.explore._base import (  # noqa: F401
     lattice_deg,
     point_of,
 )
-from src.engine.explore.aim import area_of, check, crosses_water, radius_of  # noqa: F401
+from src.engine.explore.aim import area_for, check, crosses_water, radius_of, word_of  # noqa: F401
 from src.engine.explore.run import (  # noqa: F401
     FORD,
+    NAMELESS,
     ROLE,
+    VEIN,
     complex_roll,
     knit,
     materialise,

@@ -53,7 +53,7 @@ DEFERRED = "deferred"
 #: unauthenticated internet silently, and what only `look` should say to
 #: whoever stands in the node stays with `look`. Deliberately narrow: the
 #: node-type glyphs the client draws, and nothing else.
-PUBLIC_SIGNS = ("precursors", "stones", "woods", "meadow", PLOT)
+PUBLIC_SIGNS = ("precursors", "stones", "woods", "meadow", "mountain", "vein", PLOT)
 
 
 def public_signs(node: Node) -> list[str]:

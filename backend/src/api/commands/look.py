@@ -41,6 +41,7 @@ from src.api.registry import Ctx, command
 from src.constants import current, current_catalog
 from src.engine import (
     access,
+    biome,
     death,
     energy,
     estate,
@@ -250,6 +251,10 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
             #: here turns up and whether a bed needs water carried to it -- and
             #: the client cannot derive it from anything else sent (D-225).
             | ({world.WATER} if world.has_place(node, world.WATER) else set())
+            #: The biome of a find (D-321): a nameless node is shown by the
+            #: sign of its kind, and the kind is the biome unless a rarer sign
+            #: -- a vein, the river, the mountain -- outranks it.
+            | ({str(here)} if (here := (node.properties or {}).get(biome.BIOME)) else set())
         ),
         #: The owner's map mark, if one is nailed on (D-238): the plot window
         #: preselects it in the picker. Belted like the public map's copy.

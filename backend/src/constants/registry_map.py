@@ -37,6 +37,9 @@ PATH_FADE_PER_DAY = Num("path.fade_per_day")
 #: the nearest cell, and the cell is the found node's key -- one node for
 #: everybody (D-237) without a row laid in advance.
 MAP_LATTICE_M = Num("map.lattice_m")
+#: The share of the free radius a find fills (D-321): a long leap lands on
+#: wide ground, and the exclusion round a node is its own circle.
+EXPLORE_FILL_SHARE = Num("explore.fill_share")
 #: Biomes (D-321): the classes of the field, their names, how near and far one
 #: explores from them, the swing of their day, the marks and veins they bear,
 #: and the bounds that sort a point into one.
@@ -62,6 +65,7 @@ __all__ = [
     "PATH_FADE_THRESHOLD",
     "PATH_FADE_PER_DAY",
     "MAP_LATTICE_M",
+    "EXPLORE_FILL_SHARE",
     "BIOME_NAMES",
     "BIOME_REACH_M",
     "BIOME_SWING_C",

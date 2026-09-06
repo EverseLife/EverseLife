@@ -118,3 +118,5 @@ class Aim:
     biome: str
     #: The node already standing in the cell, when somebody found it first.
     existing: Node | None
+    #: The area the find takes: the room round it, or the standing node's own.
+    area: float

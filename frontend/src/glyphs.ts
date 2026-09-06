@@ -50,6 +50,10 @@ export type GlyphName =
   | "ruins"
   | "market"
   | "port"
+  | "peak"
+  | "reed"
+  | "dune"
+  | "snow"
   | "orbit"
   | "globe"
   | "rooms"
@@ -133,6 +137,14 @@ export const SHAPES: Record<GlyphName, string> = {
   market: "M8 2.6v10.8M5 13.4h6M3.4 4.6h9.2M3.4 4.6L2 8.6a2 1.6 0 004 0zM12.6 4.6L11 8.6a2 1.6 0 004 0z",
   //: A rocket over the pad: the spaceport.
   port: "M8 1.8c1.6 1.4 2.4 3.2 2.4 5.4L8 9.4 5.6 7.2c0-2.2.8-4 2.4-5.4zM5.6 7.6L4.2 10M10.4 7.6l1.4 2.4M8 9.4v1.8M4.5 13.4h7",
+  //: A mountain: two peaks, the nearer one higher (D-321).
+  peak: "M1.8 13.2L6.2 4.4l2.6 4.6 1.8-2.8 3.6 7z",
+  //: Reeds over water: a marsh (D-321).
+  reed: "M2.5 12.8h11M5.2 12.8V5.2M5.2 6.6c-1.2-.4-2-1.4-2-2.8M8.2 12.8V4M8.2 5.4c1.4-.2 2.2-1.2 2.4-2.6M11 12.8V6.4M11 7.6c1.2 0 2-.8 2.4-2",
+  //: A dune under the sun: a desert (D-321).
+  dune: "M2 12.6c2.2-3 4.4-3 6.6-.6 1.8-2 3.6-2 5.4 0M11.4 4a2 2 0 100 4 2 2 0 100-4",
+  //: A snowflake: ice and tundra (D-321).
+  snow: "M8 2v12M2.8 5l10.4 6M2.8 11l10.4-6M8 2l-1.6 1.8M8 2l1.6 1.8M8 14l-1.6-1.8M8 14l1.6-1.8",
   //: A star and a body on its ring: the space layer.
   orbit: "M8 6.4a1.6 1.6 0 100 3.2 1.6 1.6 0 100-3.2M1.6 8a6.4 3.2 0 1012.8 0 6.4 3.2 0 10-12.8 0M2.6 9.6a1.1 1.1 0 102.2 0 1.1 1.1 0 10-2.2 0",
   //: A globe with a latitude and a meridian: one planet's surface.
