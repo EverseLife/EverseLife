@@ -27,7 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src import globe
 from src.constants import Constants
 from src.constants import registry as R
-from src.engine import climate, estate, memory, places, sheet, sight, travel, world
+from src.engine import biome, climate, estate, memory, places, sheet, sight, travel, world
 from src.engine import ship as vessels
 from src.models.city import City
 from src.models.identity import Body
@@ -45,6 +45,7 @@ def node_row(
     faded: bool = False,
     moored: bool = False,
     drawn: int | None = None,
+    reach: tuple[float, float] | None = None,
 ) -> dict[str, Any]:
     """A node as the map draws it (D-045, D-097, D-237, D-238)."""
     row: dict[str, Any] = {
@@ -90,6 +91,11 @@ def node_row(
     #: the day it was drawn is the map's own mark of "old".
     if drawn is not None:
         row["drawn"] = drawn
+    #: How near and how far one may scout from here (D-321 item 4): the
+    #: biome's reach, sent with the node the body stands in alone -- the
+    #: client draws the scout's field by it and cannot read the biome (D-225).
+    if reach is not None:
+        row["reach"] = {"min": reach[0], "max": reach[1]}
     return row
 
 
@@ -239,6 +245,8 @@ async def personal(
     )
     nodes = [node for node in every if node.id in view.seen and node.id not in inside]
     shown = {node.id for node in nodes}
+    here_biome = biome.of_node(constants, standing) if standing is not None else None
+    reach = biome.reach_m(constants, here_biome) if here_biome else None
     #: The surface beyond sight: what a stub points at. Insides are not
     #: hidden by the fog, they are simply not the map's (D-201, item 9).
     beyond = {node.id: node for node in _public_surface(every) if node.id not in shown}
@@ -252,6 +260,7 @@ async def personal(
                 faded=node.id in view.faded,
                 moored=node.id in piers,
                 drawn=drawn_day(node) if node.id in view.faded else None,
+                reach=reach if standing is not None and node.id == standing.id else None,
             )
             for node in nodes
         ],

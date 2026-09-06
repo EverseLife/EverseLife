@@ -433,6 +433,19 @@ polyline.edge {
 .territory.near .city-edge {
   stroke-dasharray: 6 6;
 }
+/* The scout's field (D-321 item 4): where one may aim, green over the
+   ground; and the line from the node to the cursor, seen only where the
+   aim would be taken. */
+.scout-field > path {
+  fill: #58b27a;
+  fill-opacity: 0.22;
+}
+.scout-line {
+  stroke: #58b27a;
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
 /* The scout's aim (D-321): a ring and a cross in the action colour. */
 .aim circle,
 .aim path {

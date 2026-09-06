@@ -46,7 +46,11 @@ import { t } from "../locale";
 import { PHONE } from "../narrow";
 import { Inspector } from "./map/Inspector";
 import { NodeMenu } from "./map/NodeMenu";
-import { Aim, Edges, Nodes, Outlines, Stubs } from "./map/Nodes";
+import { Aim, Edges, Nodes, Outlines, ScoutField, Stubs } from "./map/Nodes";
+import { tilesHeld, useTerrain } from "./map/Ground";
+import { fieldOf, scoutable, type Way } from "./map/scout";
+import { kindAt, type Warmth } from "./map/relief";
+import { worldAt } from "./map/hand";
 import { Survey } from "./map/Survey";
 import { cityOutlines } from "./map/territory";
 import { useHand } from "./map/hand";
@@ -350,6 +354,53 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
   const stand = byKey[here]?.place;
   const standing = stand && "lat" in stand ? (stand as Geo) : null;
   const onGround = Boolean(globeScene && !orbiting && !inside && standing);
+  //: The scout's field (D-321 item 4): the ring of the reach about the node
+  //: one stands in, less every node's land and every way's shadow. Drawn
+  //: while scouting is armed; the cursor's line and the tap are judged by
+  //: it, with the ground under the point read for water.
+  const reach = byKey[here]?.reach;
+  const terrain = useTerrain(sphereShown);
+  const bands = useMemo<Warmth | null>(() => {
+    const bounds = book?.constants?.["biome.bounds"] as Record<string, unknown> | undefined;
+    const cold = Number(bounds?.cold_c);
+    const cool = Number(bounds?.cool_c);
+    return Number.isFinite(cold) && Number.isFinite(cool) ? { cold, cool } : null;
+  }, [book]);
+  const field = useMemo(() => {
+    if (!scouting || !onGround || !reach) return null;
+    const origin = ground.get(here);
+    if (!origin) return null;
+    const placed = visible
+      .filter((node) => node.place && "lat" in node.place && ground.get(node.key))
+      .map((node) => ({ key: node.key, at: ground.get(node.key)!, area: node.area }));
+    const ways: Way[] = [];
+    for (const edge of shownEdges) {
+      const a = ground.get(edge.a);
+      const b = ground.get(edge.b);
+      if (a && b) ways.push([a, b]);
+    }
+    return fieldOf(origin, reach, placed, ways, here);
+  }, [scouting, onGround, reach, ground, visible, shownEdges, here]);
+  const isLand = (point: Point): boolean => {
+    if (!terrain || !bands || !eye || !radius) return true;
+    const geo = geoUnder(eye, radius, point);
+    if (!geo) return false;
+    const kind = kindAt(terrain, geo, bands, tilesHeld(sphereShown));
+    return kind !== "sea" && kind !== "water";
+  };
+  const mayAim = (point: Point): boolean => (field ? scoutable(field, point, isLand(point)) : true);
+  const lineRef = useRef<SVGLineElement | null>(null);
+  const followCursor = (e: React.PointerEvent<SVGSVGElement>) => {
+    const line = lineRef.current;
+    if (!line || !field) return;
+    const point = worldAt(e.currentTarget.getBoundingClientRect(), cam.frame(), e);
+    const ok = mayAim(point);
+    line.setAttribute("x1", String(field.origin.x));
+    line.setAttribute("y1", String(field.origin.y));
+    line.setAttribute("x2", String(point.x));
+    line.setAttribute("y2", String(point.y));
+    line.setAttribute("visibility", ok ? "visible" : "hidden");
+  };
   const { grabField, movePointer, releasePointer, zoom, zoomToScale } = useHand({
     cam,
     svg: svgRef,
@@ -357,9 +408,9 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
     ready: Boolean(map) && visible.length > 0,
     rotate: globe.rotate,
     onTap: (point) => {
-      //: Only with the scout's aim armed, on the ground of one's own planet:
-      //: a tap otherwise is a tap on nothing.
-      if (!scouting || !onGround || !eye || !radius) return;
+      //: Only with the scout's aim armed, on the ground of one's own planet,
+      //: and only within the field: a tap elsewhere is a tap on nothing.
+      if (!scouting || !onGround || !eye || !radius || !mayAim(point)) return;
       setAim(geoUnder(eye, radius, point));
     },
     bounds: () => boundsOf(bandRef.current, surfaceRef.current),
@@ -638,7 +689,10 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
           aria-label={t("ui-map-world")}
           className={tethered ? "tethered" : undefined}
           onPointerDown={grabField}
-          onPointerMove={movePointer}
+          onPointerMove={(e) => {
+            movePointer(e);
+            followCursor(e);
+          }}
           onPointerUp={releasePointer}
           onPointerLeave={releasePointer}
           onPointerCancel={releasePointer}
@@ -671,6 +725,8 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
           {globeScene && eye && radius && (
             <Outlines outlines={outlines} eye={eye} radius={radius} open={citiesOpen} />
           )}
+          {field && <ScoutField field={field} id={`scout-${here.replace(/[^A-Za-z0-9_-]/g, "")}`} />}
+          {field && <line ref={lineRef} className="scout-line" visibility="hidden" />}
           {globeScene && eye && radius && aim && (
             <Aim at={project(eye, radius, aim)} />
           )}

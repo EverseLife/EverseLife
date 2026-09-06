@@ -23,6 +23,7 @@
 import { SHAPES } from "../../glyphs";
 import { nodeGlyph } from "../../marks";
 import { placeAt, project, type Eye, type Geo } from "./globe";
+import { ringPath, wayShadow, type Field } from "./scout";
 import { SURFACE, spell, type MapNode } from "../../api";
 import { t } from "../../locale";
 import { cityRadius, citySeen } from "./bands";
@@ -327,6 +328,28 @@ export function Aim({ at }: { at: { x: number; y: number; front: boolean } }) {
     <g className="aim" transform={placeAt(at)} aria-hidden="true">
       <circle cx={0} cy={0} r={7} />
       <path d="M-11 0H-4M4 0H11M0 -11V-4M0 4V11" />
+    </g>
+  );
+}
+
+/** The scout's field (D-321 item 4): the ring of the reach in green, the
+ *  land of every node and the shadow of every way cut out of it by a mask.
+ *  Where the ground is water the server still refuses: the shore is read
+ *  at the cursor, not drawn here. */
+export function ScoutField({ field, id }: { field: Field; id: string }) {
+  return (
+    <g className="scout-field" aria-hidden="true">
+      <mask id={id} maskUnits="userSpaceOnUse">
+        <path d={ringPath(field)} fill="white" fillRule="evenodd" />
+        {field.blocks.map((block, i) => (
+          <circle key={i} transform={placeAt(block.at)} r={block.r} fill="black" />
+        ))}
+        {field.ways.map((way, i) => {
+          const d = wayShadow(field, way);
+          return d ? <path key={`w${i}`} d={d} fill="black" /> : null;
+        })}
+      </mask>
+      <path d={ringPath(field)} fillRule="evenodd" mask={`url(#${id})`} />
     </g>
   );
 }

@@ -143,3 +143,21 @@ async def test_a_ship_at_the_pier_marks_the_port_and_a_parking_marks_nothing(
     #: what stands where, and it is old like the rest.
     snapshot = await mapshot.take(session, constants, datetime.now(UTC))
     assert {row["key"] for row in snapshot.data["nodes"] if row.get("moored")} == {port.key}
+
+
+async def test_the_map_tells_the_reach_of_the_node_one_stands_in(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """The scout's field is drawn by the biome's reach of the node under the
+    body (D-321 item 4), sent with that node alone (D-225)."""
+    from src.engine import mapshot
+    from src.seed import seed
+
+    core = await seed(session)
+    identity = await world.create_identity(session, "Разведчица")
+    body = await world.print_body(session, identity, core)
+    got = await mapshot.personal(session, constants, body, datetime.now(UTC))
+    rows = {row["key"]: row for row in got["nodes"]}
+    here = rows[core.key]
+    assert 0 < here["reach"]["min"] < here["reach"]["max"]
+    assert all("reach" not in row for key, row in rows.items() if key != core.key)

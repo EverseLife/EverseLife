@@ -100,6 +100,9 @@ export type MapNode = {
   /** The land under the node, square metres (D-323 addendum): a city's
    *  outline is the land of its nodes joined. Absent off the ground. */
   area?: number | null;
+  /** How near and how far one may scout from here, metres (D-321 item 4):
+   *  the biome's reach, sent with the node the body stands in alone. */
+  reach?: { min: number; max: number };
   /** The spaceport: the city's second door, the one ships couple to (D-206). */
   port: boolean;
   /** Which planet the node belongs to. The space layer paints by it. */

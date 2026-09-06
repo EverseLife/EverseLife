@@ -54,6 +54,12 @@ function reliefOf(planet: string): Promise<Terrain> {
  *  numbers; a frame's worth and a walk's is a few. */
 const TILES = new Map<string, Map<string, Tile>>();
 const ASKED = new Set<string>();
+
+/** The tiles held for a planet, for a reading of the ground off the map --
+ *  the scout's field asks whether a point is land. */
+export function tilesHeld(planet: string | null): Tiles | undefined {
+  return planet ? TILES.get(planet) : undefined;
+}
 const TILE_KEEP = 64;
 
 /**
