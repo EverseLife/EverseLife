@@ -82,7 +82,6 @@ ui-register-about-hint = looks, character, where you are from — as you like
 ui-doors-title = Where to print you
 ui-doors-lead = { $name }, you have no body yet — you have a choice of the machine that will assemble it. The first body is printed at once and free of charge everywhere; after that you pay for speed.
 ui-doors-empty-world = There is not a single bioprinter in the world. This state must not happen: the way into the game is never blocked.
-ui-doors-precursor = Forerunner printer
 ui-doors-people = people right now
 ui-doors-citizens = citizens
 ui-doors-grant = settling grant

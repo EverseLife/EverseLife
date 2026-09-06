@@ -102,11 +102,11 @@ export function Doors({
                   onClick={() => onPick(one.node)}
                   disabled={busy}
                 >
-                  {/* The door's own name, the city after it: the capital has two
-                      doors, and two buttons reading the city alone would not
-                      tell them apart. */}
-                  {one.precursor ? t("ui-doors-precursor") : one.name}
-                  {!one.precursor && one.city ? ` · ${one.city}` : ""}
+                  {/* The door's own name, the city after it: a city may have
+                      more than one door, and two buttons reading the city
+                      alone would not tell them apart. */}
+                  {one.name}
+                  {one.city ? ` · ${one.city}` : ""}
                 </button>
               ))}
             </div>
@@ -131,6 +131,11 @@ export function Doors({
  * and repeating the machine's name over a table that says nothing about the
  * machine only pushed the city a line down. A door with no city round it has
  * no name to put there but its own.
+ *
+ * No door is singled out here, and the Forerunners' printer least of all
+ * (owner, 2026-09-06): a city has one bioprinter, cities are equal, and a
+ * client that gave the first of them a name of its own would be teaching a
+ * newcomer that the capital is the place to be printed at.
  */
 export function Chosen({
   door,
@@ -147,7 +152,7 @@ export function Chosen({
 }) {
   return (
     <section className="doors-step">
-      <h1>{door.city ?? (door.precursor ? t("ui-doors-precursor") : door.name)}</h1>
+      <h1>{door.city ?? door.name}</h1>
       <section className="card flat door">
         <table>
           <tbody>
