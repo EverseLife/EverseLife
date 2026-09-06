@@ -134,6 +134,7 @@ from src.engine.travel._base import (  # noqa: F401
     NoRoute,
     NoStrength,
     NotGoing,
+    Scouting,
     TravelError,
     _edge_between,
     current,

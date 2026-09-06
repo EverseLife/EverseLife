@@ -539,18 +539,18 @@ TRADE_DUTY_FREE_WINDOW = Num("trade.duty_free_window")
 TRADE_REFERENCE_PRICE_WINDOW = Num("trade.reference_price_window")
 
 # --- Ground (D-126, D-151, D-191, D-196; laid at birth since D-319) ----------
-#: The keys still say `explore`: they were the scout's dice, and they are the
-#: world's now -- the vault renames them with the code that reads them.
-EXPLORE_VEIN_SHARE = Num("explore.vein_share")
+#: Once the scout's dice (`explore.*`), the world's now: what a place carries
+#: when it is made without a point of the field -- rooms, hand-laid nodes.
+GROUND_VEIN_SHARE = Num("ground.vein_share")
 #: Forest cover of the world (D-191): the share of places carrying woods.
-EXPLORE_FOREST_SHARE = Num("explore.forest_share")
+GROUND_FOREST_SHARE = Num("ground.forest_share")
 #: Stony and meadow places (D-196): signs of a place; since D-210 they have
 #: no mechanic of their own yet.
-EXPLORE_STONES_SHARE = Num("explore.stones_share")
-EXPLORE_MEADOW_SHARE = Num("explore.meadow_share")
+GROUND_STONES_SHARE = Num("ground.stones_share")
+GROUND_MEADOW_SHARE = Num("ground.meadow_share")
 EXPLORE_NODE_AREA = Span("explore.node_area")
-EXPLORE_VEIN_RICHNESS = Span("explore.vein_richness")
-EXPLORE_VEIN_STOCK = Span("explore.vein_stock")
+GROUND_VEIN_RICHNESS = Span("ground.vein_richness")
+GROUND_VEIN_STOCK = Span("ground.vein_stock")
 
 # --- Foraging (D-210) -------------------------------------------------------
 #: Below this much empty land -- plot minus the building footprint -- there is

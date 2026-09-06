@@ -18,6 +18,7 @@
 
 travel-asleep = the body is asleep: wake up first
 travel-in-transit = the body is on the road: { $left } — matter demands presence
+travel-scouting = the body is scouting: { $left } — a second deed waits
 travel-no-route = { $how ->
         [convoy] no road there for a convoy: trackless ground lets no transport through
        *[foot] there is no way at all: the nodes share no edge

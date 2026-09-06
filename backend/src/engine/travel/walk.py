@@ -39,6 +39,7 @@ from src.engine.travel._base import (
     NoRoute,
     NoStrength,
     NotGoing,
+    Scouting,
     TravelError,
     _edge_between,
     current,
@@ -145,6 +146,21 @@ async def depart(
     #: list as a separate copy would mean forgetting a line in it sooner or
     #: later: the scout did exactly that, walking away while staying "in the field".
     await require_here(session, body)
+    #: A run of the scout under way is a deed (D-211), and the road would be
+    #: a second one: refused at the door rather than found out at the run's
+    #: end, when the run would be spent (D-321 item 7). The body itself
+    #: stands in the node all the while, so nothing else in it is refused.
+    scouting = await session.scalar(
+        select(Job.run_at)
+        .where(
+            Job.body_id == body.id,
+            Job.kind == JobKind.EXPLORE_SURVEY.value,
+            Job.state.in_((JobState.PENDING, JobState.RUNNING)),
+        )
+        .limit(1)
+    )
+    if scouting is not None:
+        raise Scouting(key="travel-scouting", inner={"left": [left_to_say(scouting)]})
     if target.id == body.node_id:
         raise NoEdge(key="travel-same-node")
 

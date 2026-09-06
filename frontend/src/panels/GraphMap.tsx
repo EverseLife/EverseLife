@@ -31,21 +31,9 @@
  * it. Hence also no dragging -- a map somebody rearranged is a map only they
  * have -- and no rotation to be confused by.
  *
- * `map/layout` still exists for the two cases the server has no place for: a
- * world caught mid-deploy, and a hull in the sky. It settles in one synchronous
- * pass, before the first frame, so the map never appears crawling into place.
- *
- * ## Where you stand is the middle of it
- *
- * The camera follows the body: your node is in the centre of the frame, and it
- * stays there when you walk. Around it the map reaches `DEPTH` steps of the
- * graph and no further -- where you can go, and what you would see from there.
- * The rest of the planet is not hidden out of secrecy: it is simply not the
- * decision in front of you, and its labels were overwriting the three nodes
- * that were.
- *
- * While walking, the dot creeps along the edge, and nowhere can be entered.
- * Arrived -- "Enter".
+ * `map/layout`, the springs that once seated what had no place, is gone
+ * (wave 6): a node without a place is not drawn, and the hull in the sky is
+ * laid by the clock (`useSky`).
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -65,10 +53,10 @@ import { projectAll } from "./map/globe";
 import { Ground } from "./map/Ground";
 import { useArcs, useGlobe, radiusOf } from "./map/useGlobe";
 import { factsOf, useBands, useHandOver, type Sphere } from "./map/useBands";
-import { settle } from "./map/layout";
 import { SkyBackdrop, SkyClock } from "./map/Sky";
 import { Switcher } from "./map/Switcher";
 import { useScene } from "./map/useScene";
+import { useWalker } from "./map/useWalker";
 import { useSky } from "./map/useSky";
 import { STREET_SCALE, boundsOf, ring, tilted } from "./map/bands";
 import {
@@ -302,21 +290,12 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
     [globe.eye, zoomed.descent],
   );
   const ground = useMemo(() => {
-    //: The sky is nobody's ground: there every point comes from the clock, and
-    //: settling springs whose result is thrown away is pure work.
+    //: The sky is nobody's ground: there every point comes from the clock.
     if (orbiting) return new Map<string, Point>();
-    const given = globeScene && eye && radius ? projectAll(eye, radius, visible) : flatten(visible);
-    //: What the eye does not see is not settled either: a node behind the
-    //: sphere must not be seated beside the body by the springs.
-    const shown = visible.filter(
-      (node) => !(node.place && "lat" in node.place) || given.has(node.key),
-    );
-    return settle(
-      shown.map((node) => node.key),
-      shownEdges,
-      given,
-    );
-  }, [visible, shownEdges, orbiting, globeScene, eye, radius]);
+    //: Every place is the server's (D-237): what has none, or faces away
+    //: from the eye, is not drawn -- nothing is made up for it (wave 6).
+    return globeScene && eye && radius ? projectAll(eye, radius, visible) : flatten(visible);
+  }, [visible, orbiting, globeScene, eye, radius]);
   const { curve, stubCurve } = useArcs({ globeScene, eye, radius, byKey, reprScene });
 
   useEffect(() => {
@@ -495,60 +474,13 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
     cam.follow(journey !== null);
   }, [journey, cam, tethered]);
 
-  /**
-   * The walker moves by frames, not renders.
-   *
-   * Previously a timer recomputed its position every half second -- on a
-   * six-second transit that is a dozen jumps instead of movement. Now the dot
-   * moves right in `requestAnimationFrame`, bypassing React: React re-renders
-   * the map when the map changed, not sixty times a second for one dot.
-   *
-   * The leg's endpoints are asked for on every frame through `where`: on the
-   * space layer the planets under the dot are moving even while it walks.
-   */
-  const walkerRef = useRef<SVGCircleElement | null>(null);
-  //: While walking the camera follows the dot, frame by frame (D-238): the
-  //: player watches themselves go, and arrival lands with nothing left to
-  //: jump. A grab or a zoom hands the frame back to the hand.
-  useEffect(() => {
-    if (!ongoing) return;
-    let raf = 0;
-    const step = () => {
-      const circle = walkerRef.current;
-      const from = where.current(reprScene(ongoing.from_key) ?? "");
-      const to = where.current(reprScene(ongoing.to_key) ?? "");
-      if (circle && from && to) {
-        const t0 = new Date(ongoing.started_at).getTime();
-        const t1 = new Date(ongoing.arrives_at).getTime();
-        const share = Math.min(1, Math.max(0, (Date.now() - t0) / Math.max(1, t1 - t0)));
-        const dot = {
-          x: from.x + (to.x - from.x) * share,
-          y: from.y + (to.y - from.y) * share,
-        };
-        circle.setAttribute("cx", String(dot.x));
-        circle.setAttribute("cy", String(dot.y));
-        //: The dot names where it is; the camera decides whether to chase it
-        //: -- it does, unless the hand has taken the frame for this journey.
-        cam.toDot(dot);
-      }
-      raf = requestAnimationFrame(step);
-    };
-    raf = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(raf);
-    //: The legs of the transit rather than `ongoing` itself: the object
-    //: arrives new with every poll, and the effect would be rebuilt twice a
-    //: second -- the very stutter this is here to avoid. Every field the
-    //: closure reads is listed, so it never goes stale, and the camera is one
-    //: object for the life of the map; the linter cannot be shown either.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    ongoing?.from_key,
-    ongoing?.to_key,
-    ongoing?.started_at,
-    ongoing?.arrives_at,
+  const { walkerRef, walker, standingAt } = useWalker({
+    ongoing,
+    where,
     reprScene,
     cam,
-  ]);
+    myRepr,
+  });
 
   const { descend } = useHandOver({
     band,
@@ -570,29 +502,6 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
 
   const at = (key: string) => where.current(key);
 
-  const walker = (() => {
-    if (!ongoing) return null;
-    const from = at(reprScene(ongoing.from_key) ?? "");
-    const to = at(reprScene(ongoing.to_key) ?? "");
-    if (!from || !to) return null;
-    const t0 = new Date(ongoing.started_at).getTime();
-    const t1 = new Date(ongoing.arrives_at).getTime();
-    const share = Math.min(1, Math.max(0, (Date.now() - t0) / Math.max(1, t1 - t0)));
-    return { x: from.x + (to.x - from.x) * share, y: from.y + (to.y - from.y) * share };
-  })();
-
-  /**
-   * Which node wears the player, if any.
-   *
-   * On the road the body stands in no node at all (D-107), so the node one
-   * walked out of must stop wearing them -- but only where the dot on the
-   * road says where they are instead. On a layer that draws neither end of
-   * the leg there is no dot, and a map that says nothing at all is worse than
-   * one that says where the walk began. A scout in the field (D-152) keeps
-   * the mark for the same reason: they went **from** the node, they come back
-   * to it, and no dot is drawn for them.
-   */
-  const standingAt = walker ? null : myRepr;
 
   /**
    * Whether a step leads to the node -- the map's judgement, drawn by `Nodes`.

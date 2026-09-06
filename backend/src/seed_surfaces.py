@@ -70,7 +70,7 @@ PYROXIS_PORT = "pyroxis.anvil.port"
 #: the first expedition can walk the lot.
 PYROXIS_FIELDS = 6
 #: How rich a field's vein is and how much is in it. The world's own spans
-#: (`explore.vein_richness`, `explore.vein_stock`) would do, but these are the
+#: (`ground.vein_richness`, `ground.vein_stock`) would do, but these are the
 #: planet's own, and generous -- Pyroxis is a shift worth flying to (10-world/04).
 PYROXIS_VEIN_RICHNESS = 70
 PYROXIS_VEIN_STOCK = 4000

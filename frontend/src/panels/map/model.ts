@@ -76,11 +76,11 @@ export function journeyOf(travel: Transit | null | undefined): string | null {
  * never flown -- the flight would sweep across places that hold nothing.
  */
 export function sceneKey(
-  layer: string,
+  band: string,
   city: string | null,
   planet: string | null,
 ): string {
-  return `${layer}|${city ?? ""}|${planet ?? ""}`;
+  return `${band}|${city ?? ""}|${planet ?? ""}`;
 }
 
 /** The layer in words: the player reads a place, not an enum. */

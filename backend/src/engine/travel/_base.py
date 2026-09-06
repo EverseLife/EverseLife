@@ -137,6 +137,11 @@ class Asleep(TravelError):
     """The body sleeps. The same unavailability as the road, only voluntary."""
 
 
+class Scouting(TravelError):
+    """A run of the scout is under way (D-321 item 7): the body stands in its
+    node, and the road would be a second deed (D-211)."""
+
+
 async def require_here(session: AsyncSession, body: Body) -> None:
     """The presence check -- one for all in-person actions.
 

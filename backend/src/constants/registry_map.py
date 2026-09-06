@@ -49,6 +49,11 @@ MAP_PUBLIC_DELAY_DAYS = Num("map.public_delay_days")
 #: The share of the free radius a find fills (D-321): a long leap lands on
 #: wide ground, and the exclusion round a node is its own circle.
 EXPLORE_FILL_SHARE = Num("explore.fill_share")
+#: How far round the aim the surface is consulted (D-321): the nodes and
+#: ways within it decide the room and the crossings; beyond it the ground
+#: is taken as empty. Far wider than any reach, so nothing that matters is
+#: outside it -- and a window at all, so an aim does not read the planet.
+EXPLORE_WINDOW_KM = Num("explore.window_km")
 #: Biomes (D-321): the classes of the field, their names, how near and far one
 #: explores from them, the swing of their day, the marks and veins they bear,
 #: and the bounds that sort a point into one.
@@ -79,6 +84,7 @@ __all__ = [
     "MAP_MEMORY_PLACES",
     "MAP_PUBLIC_DELAY_DAYS",
     "EXPLORE_FILL_SHARE",
+    "EXPLORE_WINDOW_KM",
     "BIOME_NAMES",
     "BIOME_REACH_M",
     "BIOME_SWING_C",

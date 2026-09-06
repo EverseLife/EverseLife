@@ -81,7 +81,7 @@ def marks_at(constants: Constants, planet: Planet, lat: float, lon: float) -> di
     The river is not a chance but a fact of the map: within
     `terrain.river_reach_km` of a river line the node has river water, and
     nowhere else. The other signs are the field's noise cut at the vault's
-    shares (`explore.forest_share` and its sisters), so a planet is forested
+    shares (`ground.forest_share` and its sisters), so a planet is forested
     to the share the vault says and the forest lies where the noise puts it,
     not scattered one node at a time.
     """
@@ -91,9 +91,9 @@ def marks_at(constants: Constants, planet: Planet, lat: float, lon: float) -> di
     #: do not simply follow the mountains.
     texture = relief.noise_at(field.seed + TEXTURE, lat, lon)
     stony = relief.noise_at(field.seed + STONES, lat, lon)
-    forest = float(constants[R.EXPLORE_FOREST_SHARE]) / PERCENT
-    stones = float(constants[R.EXPLORE_STONES_SHARE]) / PERCENT
-    meadow = float(constants[R.EXPLORE_MEADOW_SHARE]) / PERCENT
+    forest = float(constants[R.GROUND_FOREST_SHARE]) / PERCENT
+    stones = float(constants[R.GROUND_STONES_SHARE]) / PERCENT
+    meadow = float(constants[R.GROUND_MEADOW_SHARE]) / PERCENT
     mountain = field.is_mountain(lat, lon)
     return {
         world.WATER: world.RIVER if near_river else world.NO_WATER,

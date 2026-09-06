@@ -16,6 +16,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ship_kit import _laid, _port, _shipwright
 from src.constants import Constants
 from src.constants import registry as R
 from src.engine import mapshot, memory, travel, world
@@ -124,3 +125,21 @@ async def test_the_personal_map_is_the_askers_sight_and_memory(
     assert "ship.x.room" not in keys, "борт не публичен (D-201)"
     assert "faded" not in keys["terra.city.plot"], "где стоишь — ярко"
     assert isinstance(body, Body)
+
+
+async def test_a_ship_at_the_pier_marks_the_port_and_a_parking_marks_nothing(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """The hull is not a point of the map (D-319 item 10): the port it lies at
+    says so, and the client cannot tell that off the hull's own row."""
+    port = await _port(session)
+    _, body = await _shipwright(session, port)
+    await _laid(session, constants, body, port)
+    answer = await mapshot.personal(session, constants, body, datetime.now(UTC))
+    rows = {row["key"]: row for row in answer["nodes"]}
+    assert rows[port.key].get("moored") is True
+    assert all("moored" not in row for key, row in rows.items() if key != port.key)
+    #: The public snapshot carries the mark too: a pier with a ship at it is
+    #: what stands where, and it is old like the rest.
+    snapshot = await mapshot.take(session, constants, datetime.now(UTC))
+    assert {row["key"] for row in snapshot.data["nodes"] if row.get("moored")} == {port.key}

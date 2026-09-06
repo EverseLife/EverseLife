@@ -19,7 +19,8 @@ import uuid
 from datetime import UTC, datetime
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src import globe, seed_planets
@@ -649,3 +650,57 @@ async def test_a_long_leap_lands_on_wide_ground_and_a_wide_node_keeps_others_off
     #: Too short a leap leaves no room for a node at all: refused as no room.
     with pytest.raises((explore.NoRoom, explore.TooNear)):
         await explore.check(session, constants, camp, _step(constants, Planet.TERRA, here, near))
+
+
+async def test_a_scout_with_a_run_under_way_does_not_set_out(
+    factory: async_sessionmaker[AsyncSession], constants: Constants
+) -> None:
+    """The road is a second deed (D-211): refused at the door, not found out
+    at the run's end (D-321 item 7). The body stands in the node meanwhile."""
+    async with factory() as session, session.begin():
+        sphere, camp, scout = await _camp(session, constants)
+        here = places.geo_of(camp)
+        assert here is not None
+        _, far = _reach(constants, camp)
+        await explore.survey(
+            session, constants, scout, _step(constants, Planet.TERRA, here, far * 0.8, bearing=0.0)
+        )
+        elsewhere = await world.create_node(
+            session,
+            "terra.elsewhere",
+            "Elsewhere",
+            area_m2=60,
+            parent=sphere,
+            properties=_pin(_step(constants, Planet.TERRA, here, far * 3, bearing=1.0)),
+        )
+        await travel.connect(session, camp, elsewhere, base_seconds=60, surface=Surface.WILD)
+        with pytest.raises(travel.Scouting):
+            await travel.depart(session, constants, scout, elsewhere)
+        #: Not an absence: in the node, the scout is still there to be asked.
+        await travel.require_here(session, scout)
+
+
+def test_every_scheme_of_a_complex_names_a_planet_and_a_biome_that_exist(
+    constants: Constants,
+) -> None:
+    """A scheme with a typo in its planet or biome would never roll and never
+    complain (`spec.Shape` checks no record's shape): this does."""
+    planets = {planet.value for planet in Planet}
+    biomes = set(constants[R.BIOME_NAMES])
+    for name, scheme in constants[R.COMPLEX_SCHEMES].items():
+        assert scheme.get("planet") in planets, name
+        assert scheme.get("biome") in biomes, name
+        assert scheme.get("city") or scheme.get("nodes"), name
+
+
+async def test_the_aim_reads_the_surface_by_its_index(session: AsyncSession) -> None:
+    """The window is read by the index over the node's degrees, not by a
+    scan of the planet: the query must be spelled as the index is."""
+    await session.execute(text("SET LOCAL enable_seqscan = off"))
+    window = (
+        select(Node.id)
+        .where(places.degrees(places.PLACE_LAT).between(40, 42))
+        .compile(dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True})
+    )
+    plan = "\n".join(row[0] for row in (await session.execute(text(f"EXPLAIN {window}"))).all())
+    assert "ix_node_map_lat" in plan, plan

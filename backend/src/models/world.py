@@ -26,6 +26,7 @@ from sqlalchemy import (
     UniqueConstraint,
     Uuid,
     select,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -137,10 +138,28 @@ def is_plot(node: Node) -> bool:
     return bool((node.properties or {}).get(PLOT))
 
 
+#: The surface by degrees (D-321): an aim reads a window of the planet round
+#: its point, and the window is a range on each. Spelled as `pg_get_indexdef`
+#: spells it, so that the schema built from the models and the migrated one
+#: compare equal (`test_migrations`); the migration writes the same text.
+INDEX_LAT = "((((properties -> 'map'::text) ->> 'lat'::text))::double precision)"
+INDEX_LON = "((((properties -> 'map'::text) ->> 'lon'::text))::double precision)"
+
+
 class Node(Base):
     __tablename__ = "node"
     __table_args__ = (
         Index("ix_node_parent", "parent_id"),
+        #: The surface by degrees (D-321): an aim reads a window of the
+        #: planet round its point, and the window is a range on each.
+        Index(
+            "ix_node_map_lat",
+            text(INDEX_LAT),
+        ),
+        Index(
+            "ix_node_map_lon",
+            text(INDEX_LON),
+        ),
         #: `world.epoch()` is `min(created_at)`, asked by every look.
         Index("ix_node_created", "created_at"),
     )

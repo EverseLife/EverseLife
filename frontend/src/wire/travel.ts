@@ -112,6 +112,10 @@ export type MapNode = {
    *  days and the phase at the world's epoch. Only planets have one -- on the
    *  space layer a place is a function of time, not of a settled layout. */
   orbit: { radius: number; period_days: number; phase: number } | null;
+  /** A ship lies at this pier (D-319 item 10): sent only when so. The hull
+   *  is not a point of the map, and its row cannot tell a pier from the
+   *  parking -- both hang under the planet -- so the port says it. */
+  moored?: boolean;
   /** Drawn, but not playable yet: Aquatica is out of the alpha (D-104). */
   deferred: boolean;
   /** Part of a ship: its delegate on the space layer or a room aboard (D-201). */

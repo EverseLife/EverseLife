@@ -31,6 +31,7 @@ from src.engine import estate, memory, places, sight, travel, world
 from src.engine import ship as vessels
 from src.models.city import City
 from src.models.identity import Body
+from src.models.ship import Ship
 from src.models.snapshot import MapSnapshot
 from src.models.world import Edge, Layer, Node
 
@@ -42,6 +43,7 @@ def node_row(
     port: bool,
     flight: dict[str, Any] | None = None,
     faded: bool = False,
+    moored: bool = False,
 ) -> dict[str, Any]:
     """A node as the map draws it (D-045, D-097, D-237, D-238)."""
     row: dict[str, Any] = {
@@ -73,7 +75,23 @@ def node_row(
     #: so the bright majority of rows carry nothing for it.
     if faded:
         row["faded"] = True
+    #: A ship lies at this pier (D-319 item 10): the hull is not a point of
+    #: the map, the port wears the mark. The client cannot tell a pier from
+    #: the parking off the hull's row -- both hang under the planet -- so
+    #: the port says so itself (D-225).
+    if moored:
+        row["moored"] = True
     return row
+
+
+async def moored_at(session: AsyncSession) -> set[uuid.UUID]:
+    """The surface nodes with a ship docked at them: piers, not parkings."""
+    rows = await session.execute(
+        select(Ship.docked_node_id)
+        .join(Node, Node.id == Ship.docked_node_id)
+        .where(Node.layer == Layer.PLANET)
+    )
+    return {node_id for node_id in rows.scalars() if node_id is not None}
 
 
 def edge_row(constants: Constants, edge: Edge, by_key: dict[uuid.UUID, str]) -> dict[str, Any]:
@@ -180,6 +198,7 @@ async def personal(
     by_key = {node.id: node.key for node in every}
     under_way = await vessels.passages(session)
     ports = {node.id for node in await vessels.ports(session)}
+    piers = await moored_at(session)
     cities = set((await session.execute(select(City.node_id))).scalars())
     #: A ship's rooms are **not** public (D-201): from outside a ship is one
     #: hull. The interior comes with `look`, to whoever stands in it.
@@ -207,6 +226,7 @@ async def personal(
                 port=node.id in ports,
                 flight=passage_row(under_way.get(node.id), by_key),
                 faded=node.id in view.faded,
+                moored=node.id in piers,
             )
             for node in nodes
         ],
@@ -238,8 +258,14 @@ async def take(session: AsyncSession, constants: Constants, now: datetime) -> Ma
     #: as on the personal map -- the client climbs parents to the space layer.
     by_key = {node.id: node.key for node in every}
     ports = {node.id for node in await vessels.ports(session)}
+    piers = await moored_at(session)
     rows = [
-        node_row(node, parent_key=by_key.get(node.parent_id), port=node.id in ports)
+        node_row(
+            node,
+            parent_key=by_key.get(node.parent_id),
+            port=node.id in ports,
+            moored=node.id in piers,
+        )
         for node in nodes
     ]
     edges = [

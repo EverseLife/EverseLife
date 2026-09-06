@@ -42,7 +42,7 @@ from __future__ import annotations
 import hashlib
 import math
 
-from sqlalchemy import select, text
+from sqlalchemy import Float, cast, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src import globe
@@ -111,6 +111,17 @@ def _geo(properties: dict | None) -> globe.Geo | None:
 def place_of(node: Node) -> tuple[float, float] | None:
     """The node's flat place -- a floor's, a room's -- or None."""
     return _flat(node.properties)
+
+
+def degrees(which: str):
+    """The node's latitude or longitude as SQL, for a window over the surface.
+
+    Spelled with the `->` and `->>` operators and not the subscript SQLAlchemy
+    writes for `properties["map"]`: the index of `Node` is declared over the
+    operator form, and Postgres matches an index by the shape of the
+    expression -- a subscript would read the whole table past it.
+    """
+    return cast(Node.properties.op("->")(PLACE).op("->>")(which), Float)
 
 
 def geo_of(node: Node) -> globe.Geo | None:

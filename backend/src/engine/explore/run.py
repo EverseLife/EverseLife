@@ -221,7 +221,7 @@ async def _found_node(
     if here is None:  # pragma: no cover -- `aim.check` refused water already
         raise ExploreError(key="explore-not-land")
     if vein is None:
-        chance = float(constants[R.EXPLORE_VEIN_SHARE]) / PERCENT * biome.vein_k(constants, here)
+        chance = float(constants[R.GROUND_VEIN_SHARE]) / PERCENT * biome.vein_k(constants, here)
         vein = dice.random() < chance
     properties = await ground.properties(
         session,
@@ -251,8 +251,8 @@ async def _found_node(
         properties=properties,
     )
     if vein:
-        richness = constants[R.EXPLORE_VEIN_RICHNESS]
-        stock = constants[R.EXPLORE_VEIN_STOCK]
+        richness = constants[R.GROUND_VEIN_RICHNESS]
+        stock = constants[R.GROUND_VEIN_STOCK]
         await world.create_vein(
             session,
             node,
@@ -313,7 +313,7 @@ async def knit(
         return
     _, far = biome.reach_m(constants, here)
     radius = globe.radius_m(constants, node.planet)
-    for other, where in await aiming._surface(session, node.planet):
+    for other, where in await aiming._surface(session, constants, node.planet, point):
         if other.id == node.id or other.id in except_for:
             continue
         if globe.distance_m(radius, where, point) > far:

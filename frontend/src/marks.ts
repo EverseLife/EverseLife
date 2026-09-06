@@ -154,6 +154,9 @@ type NodeFace = {
   settlement?: boolean;
   /** The city's spaceport door. */
   port?: boolean;
+  /** A ship lies at the port (D-319 item 10): the hull is not drawn, the
+   *  port says so. */
+  moored?: boolean;
 };
 
 /**
@@ -161,7 +164,7 @@ type NodeFace = {
  * signs (the rarer resource outranks the woods grown over it), then what
  * the map itself knows. `null` -- a bare circle.
  */
-export function nodeGlyph({ emblem, features, settlement, port }: NodeFace): GlyphName | null {
+export function nodeGlyph({ emblem, features, settlement, port, moored }: NodeFace): GlyphName | null {
   if (emblem && EMBLEM_MARKS[emblem]) return EMBLEM_MARKS[emblem];
   const signs = new Set(features ?? []);
   if (signs.has("precursors")) return "ruins";
@@ -180,6 +183,7 @@ export function nodeGlyph({ emblem, features, settlement, port }: NodeFace): Gly
   if (signs.has("meadow") || BARE_BIOMES.some((name) => signs.has(name))) return "glade";
   if (signs.has("plot")) return "plot";
   if (settlement) return "state";
+  if (port && moored) return "moored";
   if (port) return "port";
   return null;
 }

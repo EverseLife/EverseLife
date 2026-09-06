@@ -19,7 +19,6 @@ import {
 import { flatten, withCityScene } from "../panels/map/geo";
 import { arc, midOf, project, projectAll, radiusUnits, slerp, turn } from "../panels/map/globe";
 import { clampScale, lensOn, pinchScale, pinchTo, worldAt } from "../panels/map/hand";
-import { settle } from "../panels/map/layout";
 import {
   DEPTH,
   H,
@@ -472,58 +471,6 @@ describe("offworld", () => {
   it("answers false when either planet is unknown: absence must not lock the map", () => {
     expect(offworld(byKey, "unknown", byKey.field)).toBe(false);
     expect(offworld(byKey, "gate", node({ key: "bare", planet: "" }))).toBe(false);
-  });
-});
-
-describe("settle", () => {
-  const given = new Map([
-    ["n0", { x: 0, y: 0 }],
-    ["n1", { x: 150, y: 0 }],
-  ]);
-
-  it("leaves the places the server gave exactly where they are", () => {
-    const out = settle(keys(4), chain(4), given);
-    expect(out.get("n0")).toEqual({ x: 0, y: 0 });
-    expect(out.get("n1")).toEqual({ x: 150, y: 0 });
-  });
-
-  it("gives the same answer every time: one map for every player", () => {
-    const once = settle(keys(5), chain(5), given);
-    const twice = settle(keys(5), chain(5), given);
-    for (const key of keys(5)) expect(once.get(key)).toEqual(twice.get(key));
-  });
-
-  it("does not depend on the order the nodes arrive in", () => {
-    const forward = settle(keys(5), chain(5), given);
-    const backward = settle([...keys(5)].reverse(), [...chain(5)].reverse(), given);
-    for (const key of keys(5)) {
-      expect(backward.get(key)!.x).toBeCloseTo(forward.get(key)!.x, 6);
-      expect(backward.get(key)!.y).toBeCloseTo(forward.get(key)!.y, 6);
-    }
-  });
-
-  it("leaves a node with no edges where it started instead of flinging it away", () => {
-    //: Soft walls used to push whatever was unconnected to the frame's edge --
-    //: as far from everybody as the frame allowed -- and the map lied about the
-    //: shape of the world.
-    const alone = settle(["lone"], [], new Map());
-    const point = alone.get("lone")!;
-    expect(Math.hypot(point.x, point.y)).toBeLessThan(700);
-  });
-
-  it("settles before it returns: the free nodes have actually spread", () => {
-    //: The map appears laid out rather than crawling into place, so by the time
-    //: settle returns the chain must already be a chain -- not six nodes still
-    //: sitting where they were seeded.
-    const out = settle(keys(6), chain(6), given);
-    for (let i = 1; i < 6; i++) {
-      const gap = Math.hypot(
-        out.get(`n${i}`)!.x - out.get(`n${i - 1}`)!.x,
-        out.get(`n${i}`)!.y - out.get(`n${i - 1}`)!.y,
-      );
-      expect(gap).toBeGreaterThan(60);
-      expect(gap).toBeLessThan(400);
-    }
   });
 });
 

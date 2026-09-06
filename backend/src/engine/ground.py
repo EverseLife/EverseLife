@@ -70,7 +70,7 @@ async def properties(
     """Place properties under a common merit budget (D-126).
 
     There is no perfect place: a river eats part of the budget, and the more
-    water, the less is left for fertility. Woods grow on `explore.forest_share`
+    water, the less is left for fertility. Woods grow on `ground.forest_share`
     of places (D-191), and always where asked for; stones and meadow fall out
     on their own the same way (D-196).
 
@@ -133,9 +133,9 @@ async def properties(
         "fertility": 0 if vein else round(PERCENT * for_land / budget),
         "temperature": round(dice.uniform(temperature.min, temperature.max)),
         "precipitation": round(dice.uniform(rainfall.min, rainfall.max)),
-        WOODS: woods or await mark_of(luck.SITE_WOODS, constants[R.EXPLORE_FOREST_SHARE]),
-        STONES: await mark_of(luck.SITE_STONES, constants[R.EXPLORE_STONES_SHARE]),
-        MEADOW: await mark_of(luck.SITE_MEADOW, constants[R.EXPLORE_MEADOW_SHARE]),
+        WOODS: woods or await mark_of(luck.SITE_WOODS, constants[R.GROUND_FOREST_SHARE]),
+        STONES: await mark_of(luck.SITE_STONES, constants[R.GROUND_STONES_SHARE]),
+        MEADOW: await mark_of(luck.SITE_MEADOW, constants[R.GROUND_MEADOW_SHARE]),
         WILD: True,
     }
 

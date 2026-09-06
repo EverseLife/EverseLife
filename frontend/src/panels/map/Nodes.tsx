@@ -31,10 +31,12 @@ import type { MapStub } from "../../api";
 type Place = (key: string) => Point | undefined;
 
 /** The glyph of the node's kind, inside its circle. Nothing for what has no kind. */
-function Sign({ node, at, settlement, big }: {
+function Sign({ node, at, settlement, moored, big }: {
   node: MapNode;
   at: Point;
   settlement: boolean;
+  /** A ship lies at this port. */
+  moored: boolean;
   big: boolean;
 }) {
   const sign = nodeGlyph({
@@ -42,6 +44,7 @@ function Sign({ node, at, settlement, big }: {
     features: node.features,
     settlement,
     port: node.port,
+    moored,
   });
   if (!sign) return null;
   const size = big ? 14 : 12;
@@ -226,7 +229,13 @@ export function Nodes({
                 {settlement && (
                   <circle cx={p.x} cy={p.y} r={mine ? 18 : 16} className="halo" />
                 )}
-                <Sign node={node} at={p} settlement={settlement} big={mine} />
+                <Sign
+                  node={node}
+                  at={p}
+                  settlement={settlement}
+                  moored={Boolean(node.moored)}
+                  big={mine}
+                />
               </>
             )}
             {chosen && <circle cx={p.x} cy={p.y} r={mine ? 20 : 18} className="ring" />}

@@ -26,8 +26,9 @@ read stays narrow.
 from __future__ import annotations
 
 import math
+import uuid
 
-from sqlalchemy import select
+from sqlalchemy import or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src import globe
@@ -47,6 +48,7 @@ from src.engine.explore._base import (
     point_of,
 )
 from src.models.world import Edge, Layer, Node, Planet
+from src.units import METRES_PER_KM
 
 
 def radius_of(area_m2: float) -> float:
@@ -132,10 +134,41 @@ def _is_ford(node: Node) -> bool:
     return bool((node.properties or {}).get(FORD_MARK))
 
 
-async def _surface(session: AsyncSession, planet: Planet) -> list[tuple[Node, globe.Geo]]:
-    """Every placed node of the planet's surface, with where it stands."""
+async def _surface(
+    session: AsyncSession, constants: Constants, planet: Planet, around: globe.Geo
+) -> list[tuple[Node, globe.Geo]]:
+    """The placed nodes of the planet's surface within the aim's window of
+    `around` (`explore.window_km`), with where they stand.
+
+    Read by degrees in SQL over the place the node carries, so that an aim
+    costs a window of the surface and not the surface: the finds of a planet
+    grow without bound, and the room round one point does not.
+    """
+    radius = globe.radius_m(constants, planet)
+    span = float(constants[R.EXPLORE_WINDOW_KM]) * METRES_PER_KM
+    d_lat = math.degrees(span / radius)
+    d_lon = d_lat * globe.lon_stretch(around[0])
+    lat = places.degrees(places.PLACE_LAT)
+    lon = places.degrees(places.PLACE_LON)
+    low, high = around[1] - d_lon, around[1] + d_lon
+    #: The window may straddle the antimeridian: then it is two ranges.
+    if high - low >= globe.FULL_TURN:
+        across = true()
+    elif low < -globe.HALF_TURN:
+        across = or_(lon >= low + globe.FULL_TURN, lon <= high)
+    elif high > globe.HALF_TURN:
+        across = or_(lon >= low, lon <= high - globe.FULL_TURN)
+    else:
+        across = lon.between(low, high)
     rows = (
-        await session.execute(select(Node).where(Node.layer == Layer.PLANET, Node.planet == planet))
+        await session.execute(
+            select(Node).where(
+                Node.layer == Layer.PLANET,
+                Node.planet == planet,
+                lat.between(around[0] - d_lat, around[0] + d_lat),
+                across,
+            )
+        )
     ).scalars()
     placed = []
     for node in rows:
@@ -146,16 +179,36 @@ async def _surface(session: AsyncSession, planet: Planet) -> list[tuple[Node, gl
 
 
 async def _ways_among(session: AsyncSession, nodes: list[Node]) -> list[Edge]:
+    """The ways with at least one end among the nodes: a long way from
+    outside the window crosses it as surely as a short one inside."""
     ids = [node.id for node in nodes]
     if not ids:
         return []
     return list(
         (
             await session.execute(
-                select(Edge).where(Edge.node_a_id.in_(ids), Edge.node_b_id.in_(ids))
+                select(Edge).where(or_(Edge.node_a_id.in_(ids), Edge.node_b_id.in_(ids)))
             )
         ).scalars()
     )
+
+
+async def _far_ends(
+    session: AsyncSession, edges: list[Edge], known: set[uuid.UUID]
+) -> dict[uuid.UUID, globe.Geo]:
+    """Where the ends of the ways outside the window stand."""
+    missing = {
+        end for edge in edges for end in (edge.node_a_id, edge.node_b_id) if end not in known
+    }
+    if not missing:
+        return {}
+    rows = (await session.execute(select(Node).where(Node.id.in_(missing)))).scalars()
+    out: dict[uuid.UUID, globe.Geo] = {}
+    for node in rows:
+        point = places.geo_of(node)
+        if point is not None:
+            out[node.id] = point
+    return out
 
 
 async def check(
@@ -183,7 +236,7 @@ async def check(
     if crosses_water(constants, planet, origin_point, point, ford=_is_ford(origin)):
         raise IntoWater(key="explore-into-water")
 
-    placed = await _surface(session, planet)
+    placed = await _surface(session, constants, planet, point)
     #: Whatever stands in the cell is the cell's node -- a find with the cell's
     #: key or a seeded place the layout pinned there (D-237): the second scout
     #: joins it rather than laying a twin beside it.
@@ -209,12 +262,18 @@ async def check(
     #: the origin: two ways that cross would make a crossroads nobody stands at.
     flat = {node.id: _flat(radius, origin_point, where) for node, where in placed}
     a, b = (0.0, 0.0), _flat(radius, origin_point, point)
-    for edge in await _ways_among(session, [node for node, _ in placed]):
+    ways = await _ways_among(session, [node for node, _ in placed])
+    for node_id, where in (await _far_ends(session, ways, set(flat))).items():
+        flat[node_id] = _flat(radius, origin_point, where)
+    for edge in ways:
         if origin.id in (edge.node_a_id, edge.node_b_id):
             continue
         if existing is not None and existing.id in (edge.node_a_id, edge.node_b_id):
             continue
-        if segments_cross(a, b, flat[edge.node_a_id], flat[edge.node_b_id]):
+        ends = (flat.get(edge.node_a_id), flat.get(edge.node_b_id))
+        if ends[0] is None or ends[1] is None:  # pragma: no cover -- an end with no place
+            continue
+        if segments_cross(a, b, ends[0], ends[1]):
             raise CrossesWay(key="explore-crosses-way")
     return Aim(
         origin_id=origin.id,

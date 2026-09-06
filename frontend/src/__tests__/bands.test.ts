@@ -30,6 +30,8 @@ import {
 } from "../panels/map/bands";
 import { H, SPHERE_R } from "../panels/map/model";
 import { edgesOf, visibleOf } from "../panels/map/useScene";
+import { dotOn } from "../panels/map/useWalker";
+import { nodeGlyph } from "../marks";
 import { LAST_LAT } from "../panels/map/globe";
 import { ZOOM_PACE, createCamera, zoomStep } from "../panels/map/camera";
 
@@ -374,5 +376,33 @@ describe("a zoom over time", () => {
     cam.zoomOnMiddle(0.5);
     expect(cam.descending()).toBe(false);
     expect(cam.frame().scale).toBe(0.5);
+  });
+});
+
+describe("a ship at the pier", () => {
+  it("marks the port the server says it lies at, and nothing else", () => {
+    expect(nodeGlyph({ port: true, moored: true })).toBe("moored");
+    expect(nodeGlyph({ port: true, moored: false })).toBe("port");
+    expect(nodeGlyph({ port: false, moored: true })).toBe(null);
+  });
+});
+
+describe("the walker's dot", () => {
+  const leg = {
+    from_key: "a",
+    to_key: "b",
+    started_at: "2026-01-01T00:00:00Z",
+    arrives_at: "2026-01-01T00:01:00Z",
+  } as Parameters<typeof dotOn>[0];
+  const t0 = new Date(leg.started_at).getTime();
+
+  it("is on the leg by the share of the time gone, and clamped at both ends", () => {
+    expect(dotOn(leg, { x: 0, y: 0 }, { x: 100, y: 50 }, t0 + 30_000)).toEqual({ x: 50, y: 25 });
+    expect(dotOn(leg, { x: 0, y: 0 }, { x: 100, y: 50 }, t0 - 5_000)).toEqual({ x: 0, y: 0 });
+    expect(dotOn(leg, { x: 0, y: 0 }, { x: 100, y: 50 }, t0 + 90_000)).toEqual({ x: 100, y: 50 });
+  });
+
+  it("is nowhere when an end of the leg is not drawn", () => {
+    expect(dotOn(leg, undefined, { x: 1, y: 1 }, t0)).toBe(null);
   });
 });
