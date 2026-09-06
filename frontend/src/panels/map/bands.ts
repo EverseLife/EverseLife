@@ -192,8 +192,8 @@ export function farOf(scale: number): number {
  *  larger the farther out -- from afar the cities are the map (owner,
  *  2026-09-06: as a web map shows the great cities first). */
 export const CITY_R_MIN = 8;
-export const CITY_R_MAX = 60;
-export const CITY_GROWTH = 0.3;
+export const CITY_R_MAX = 80;
+export const CITY_GROWTH = 0.6;
 export function cityRadius(size: number, far: number): number {
   const base = Math.min(40, Math.max(CITY_R_MIN, size));
   return Math.min(CITY_R_MAX, base * (1 + (CITY_GROWTH * far) / 2));
