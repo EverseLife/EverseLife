@@ -129,7 +129,7 @@ describe("the land", () => {
     expect(toneOf(20, bands)).toBe("warm");
   });
 
-  it("draws land and mountains over the sea, and a lake as a hole in the land", () => {
+  it("draws land, mountains and lakes over the sea, the lake over a hole in the land", () => {
     const eye = { lat: 45, lon: -60 };
     const paths = cellPaths(world, eye, R, { cold: 0, cool: 15 });
     const cells = (d: string) => (d.match(/M/g) ?? []).length;
@@ -140,11 +140,13 @@ describe("the land", () => {
     //: The massif: the cell between its four centres whole, and a piece of
     //: each of the eight cells round it, cut at the tree line.
     expect(cells(paths.high)).toBe(9);
-    //: The lake is not a path of its own: the land round it is cut by the
-    //: sea's level, and the disk shows through.
+    //: The lake is water of its own over the land: the land round it is
+    //: cut by the sea's level, and the lake drawn over the hole.
     const unflooded = cellPaths({ ...world, lakes: [] }, eye, R, { cold: 0, cool: 15 });
     expect(paths.land.cool).not.toBe(unflooded.land.cool);
     expect(paths.land.cool.length).toBeGreaterThan(unflooded.land.cool.length);
+    expect((paths.water.match(/M/g) ?? []).length).toBeGreaterThan(0);
+    expect(unflooded.water).toBe("");
     //: The far side is not drawn: from over the equator the cells on the
     //: other side of the sphere have no corner facing the eye.
     const half = cellPaths(world, { lat: 0, lon: -60 }, R, { cold: 0, cool: 15 });
@@ -220,6 +222,8 @@ describe("the land", () => {
     const highs = (d: string) => (d.match(/M/g) ?? []).length;
     expect(highs(fine.high)).toBeGreaterThan(highs(plain.high));
     expect(fine.land.cool).not.toBe(plain.land.cool);
+    //: The basin is water of its own over the hole, told from the sea.
+    expect(highs(fine.water)).toBeGreaterThan(highs(plain.water));
     //: Under a frame inside one cell the flat colour reads the tile too.
     expect(kindAt(world, { lat: 67.5, lon: -112.5 }, { cold: 0, cool: 15 }, tiles)).toBe("high");
     expect(kindAt(world, { lat: 45.5, lon: -134.5 }, { cold: 0, cool: 15 }, tiles)).toBe("water");

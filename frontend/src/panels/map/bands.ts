@@ -36,9 +36,6 @@ export const SURFACE_NEAREST = 4;
 export const STREET_SCALE = 1;
 /** The relief's cell, degrees: the terrain grid is two degrees. */
 export const CELL_DEG = 2;
-/** Below this many drawn cells across the frame the ground is one flat
- *  colour: nearer than that the frame lies inside a cell. */
-export const CELLS_ACROSS = 1.5;
 /** From this drawn cell and finer the ground is read off the tiles of the
  *  local relief (D-323): a sixteenth of a grid cell, the frame under some
  *  thirty kilometres on a small world. */
@@ -54,7 +51,7 @@ const RAD = Math.PI / 180;
  * How the ground is drawn for a frame at `scale` over a planet of `radius`:
  * the drawn cell in cells of the grid -- one while the frame holds many,
  * halved as it holds fewer, down to `FINEST_UNIT` -- and whether it is
- * drawn at all. From the radius, not from a scale: a scale that meant
+ * drawn at all: it is, wherever there is a radius. From the radius, not from a scale: a scale that meant
  * "several cells across" on a planet of Terra's old size meant "more than
  * the whole disk" on one a twentieth of it (D-322), and the ground went
  * flat long before the coast could be seen. Powers of two, so the fact
@@ -66,7 +63,10 @@ export function groundOf(scale: number, radius: number | null): { unit: number; 
   const cell = radius * CELL_DEG * RAD;
   let unit = 1;
   while (unit > FINEST_UNIT && span < HALVE_BELOW * cell * unit) unit /= 2;
-  return { unit, shown: span > CELLS_ACROSS * cell * unit };
+  //: Drawn at every frame, the streets' included: inside a cell the cut
+  //: still says where the lake's shore and the mountain's foot run, and a
+  //: frame inside one cell costs a few polygons.
+  return { unit, shown: true };
 }
 
 /**
@@ -173,7 +173,7 @@ export function openScale(radius: number | null, floor: number): number {
 
 /** At this scale and nearer a city opens into its nodes; farther, it is a
  *  point with a name -- the printer's (plan §2). */
-export const CITY_SCALE = 0.35;
+export const CITY_SCALE = 0.1;
 /** In the sky, zoomed all the way in on a planet, the surface opens: the
  *  marker within this many map units of the frame's middle. */
 export const OPEN_REACH = 60;

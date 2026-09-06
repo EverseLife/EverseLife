@@ -215,6 +215,7 @@ export function Ground({
           <path className="land cold" d={paths.land.cold} />
           <path className="land cool" d={paths.land.cool} />
           <path className="land warm" d={paths.land.warm} />
+          <path className="water" d={paths.water} />
           <path className="high" d={paths.high} />
         </>
       )}

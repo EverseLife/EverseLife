@@ -229,6 +229,9 @@ export function localAt(terrain: Terrain, tiles: Tiles, lat: number, lon: number
 export type GroundPaths = {
   land: Record<Tone, string>;
   high: string;
+  /** The lakes: a river's end, a basin of the local relief -- drawn over
+   *  the land in water's own tone, so a lake is told from the sea. */
+  water: string;
 };
 
 /** How many cells of the grid make one drawn cell while the disk is
@@ -438,7 +441,8 @@ export function cellPaths(
       }
     }
   }
-  const out: Record<string, string[]> = { cold: [], cool: [], warm: [], high: [] };
+  const out: Record<string, string[]> = { cold: [], cool: [], warm: [], high: [], water: [] };
+  const lakes = new Set(terrain.lakes.map(([r, c]) => r * cols + c));
   for (let i = 0; i + 1 < ps.length; i++) {
     //: The row's tone is the climate's at the cell's middle.
     const r = Math.min(rows - 1, Math.max(0, Math.round((ps[i] + ps[i + 1]) / 2)));
@@ -465,11 +469,28 @@ export function cellPaths(
       //: corners read their tiles it is cut once more along the noise, a
       //: basin a hole in it -- on a coast cell too, as the server reads it.
       const known = ls.every(Number.isFinite);
+      //: A river's lake is its whole cell of the grid -- the square about
+      //: the grid's centre, half a cell each way -- water over the hole the
+      //: sunk height leaves in the land: every drawn cell whose middle lies
+      //: in that square, the square's edge included.
+      if (lakes.size && onLake(lakes, rows, cols, (ps[i] + ps[i + 1]) / 2, (qs[j] + qs[j + 1]) / 2)) {
+        out.water.push(ring(quad));
+      }
       const shore = cut(quad, hs, terrain.sea_level, known ? ls : undefined);
       if (!shore) continue;
       const land = known && terrain.wet ? cut(shore.points, shore.carry, terrain.basin_level) : shore;
+      if (land) out[tone].push(ring(land.points));
+      //: The basin's part of the shore is the lake: the other side of the
+      //: same cut, drawn in water's tone over the land.
+      if (known && terrain.wet) {
+        const sunk = cut(
+          shore.points,
+          shore.carry.map((v) => -v),
+          -terrain.basin_level,
+        );
+        if (sunk) out.water.push(ring(sunk.points));
+      }
       if (!land) continue;
-      out[tone].push(ring(land.points));
       //: The planet's ranges from the height, the local peaks from the
       //: noise -- the peak's part that is land, the sea keeps no mountains.
       const high = above(quad, hs, terrain.mountain_level);
@@ -482,7 +503,20 @@ export function cellPaths(
   return {
     land: { cold: out.cold.join(""), cool: out.cool.join(""), warm: out.warm.join("") },
     high: out.high.join(""),
+    water: out.water.join(""),
   };
+}
+
+/** Whether a drawn cell's middle, in cells of the grid, lies on a lake
+ *  cell: within half a cell of its centre, the edge included. */
+function onLake(lakes: ReadonlySet<number>, rows: number, cols: number, p: number, q: number): boolean {
+  for (const r of [Math.floor(p + 0.5), Math.ceil(p - 0.5)]) {
+    if (r < 0 || r >= rows) continue;
+    for (const c of [Math.floor(q + 0.5), Math.ceil(q - 0.5)]) {
+      if (lakes.has(r * cols + (((c % cols) + cols) % cols))) return true;
+    }
+  }
+  return false;
 }
 
 /** Whether all the corners lie beyond one edge of the square frame. */

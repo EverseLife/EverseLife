@@ -107,7 +107,8 @@ describe("the bands", () => {
     expect(groundOf(W / (12 * cell), small).unit).toBe(1 / 2);
     expect(groundOf(W / (3 * cell), small).unit).toBe(1 / 8);
     expect(groundOf(W / (0.5 * cell), small)).toEqual({ unit: 1 / 32, shown: true });
-    expect(groundOf(W / (0.02 * cell), small).shown).toBe(false);
+    //: Inside a cell the ground is still cut: the streets see the shore.
+    expect(groundOf(W / (0.02 * cell), small).shown).toBe(true);
     //: Earth's size draws its cells at the same share of the disk.
     const earth = radiusUnits(6371);
     expect(groundOf(globeScale(earth), earth)).toEqual({ unit: 1, shown: true });

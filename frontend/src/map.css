@@ -335,9 +335,11 @@ polyline.edge {
   fill: none;
 }
 /* The ground of the globe (D-319, wave 4): flat colour, no textures. The
-   sea takes the planet's own hue; the land is the palette's grey by the
-   warmth of its row, mountains a shade lighter; the night a wash of the
-   darkest step. */
+   sea takes the planet's own hue, deep; a lake the same hue, bright, so
+   that water inland is told from the sea at a glance; the land is the
+   palette's grey by the warmth of its row, mountains a pale grey well
+   apart from every water (owner, 2026-09-06: "mountains, lakes and the
+   ocean were one colour"); the night a wash of the darkest step. */
 /* Every cell is stroked in its own fill, a pixel wide: neighbouring cells
    of one tone otherwise show hairline seams where their edges meet --
    thin wedges round the pole most of all. */
@@ -348,9 +350,12 @@ polyline.edge {
   stroke-linejoin: round;
   vector-effect: non-scaling-stroke;
 }
-.ground .sea,
-.ground .water {
+.ground .sea {
   --tone: color-mix(in srgb, var(--pc) 22%, var(--base-900));
+  fill: var(--tone);
+}
+.ground .water {
+  --tone: color-mix(in srgb, var(--pc) 62%, var(--base-700));
   fill: var(--tone);
 }
 .ground .land.cold {
@@ -363,7 +368,7 @@ polyline.edge {
   --tone: var(--base-850);
 }
 .ground .high {
-  --tone: var(--base-700);
+  --tone: color-mix(in srgb, var(--base-400) 40%, var(--base-700));
 }
 .ground .night {
   --tone: var(--base-950);
