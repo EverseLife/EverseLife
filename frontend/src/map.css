@@ -338,21 +338,32 @@ polyline.edge {
    sea takes the planet's own hue; the land is the palette's grey by the
    warmth of its row, mountains a shade lighter; the night a wash of the
    darkest step. */
+/* Every cell is stroked in its own fill, a pixel wide: neighbouring cells
+   of one tone otherwise show hairline seams where their edges meet --
+   thin wedges round the pole most of all. */
+.ground path {
+  fill: var(--tone);
+  stroke: var(--tone);
+  stroke-width: 1;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
 .ground .sea,
 .ground .water {
-  fill: color-mix(in srgb, var(--pc) 22%, var(--base-900));
+  --tone: color-mix(in srgb, var(--pc) 22%, var(--base-900));
+  fill: var(--tone);
 }
 .ground .land.cold {
-  fill: var(--base-800);
+  --tone: var(--base-800);
 }
 .ground .land.cool {
-  fill: color-mix(in srgb, var(--base-800) 60%, var(--base-850));
+  --tone: color-mix(in srgb, var(--base-800) 60%, var(--base-850));
 }
 .ground .land.warm {
-  fill: var(--base-850);
+  --tone: var(--base-850);
 }
 .ground .high {
-  fill: var(--base-700);
+  --tone: var(--base-700);
 }
 .ground .river {
   fill: none;
@@ -361,7 +372,9 @@ polyline.edge {
   vector-effect: non-scaling-stroke;
 }
 .ground .night {
-  fill: var(--base-950);
+  --tone: var(--base-950);
+  fill: var(--tone);
+  stroke: none;
   fill-opacity: 0.45;
   pointer-events: none;
 }

@@ -100,8 +100,10 @@ describe("the land", () => {
     expect(cells(paths.land.cool)).toBeGreaterThan(0);
     expect(cells(paths.high)).toBe(1);
     expect(cells(paths.water)).toBe(1);
-    //: The far side is not drawn: fewer cells than the land has.
-    expect(cells(paths.land.warm) + cells(paths.high)).toBeLessThan(8);
+    //: The far side is not drawn: from over the equator the cells on the
+    //: other side of the sphere have no corner facing the eye.
+    const half = cellPaths(world, { lat: 0, lon: -60 }, R, { cold: 0, cool: 15 });
+    expect(cells(half.land.warm) + cells(half.high)).toBeLessThan(8);
   });
 
   it("reads the grid every so many cells on the approach, fewer cells drawn", () => {
@@ -112,6 +114,20 @@ describe("the land", () => {
       [p.land.cold, p.land.cool, p.land.warm, p.high, p.water].join("").split("M").length - 1;
     expect(cells(coarse)).toBeLessThan(cells(fine));
     expect(cells(coarse)).toBeGreaterThan(0);
+  });
+
+  it("draws the land up to the horizon, its far corners pushed to the limb", () => {
+    //: The whole northern half is land: seen from over the pole, the disk
+    //: is land to its very edge -- some corner of every cell reaches R.
+    const paths = cellPaths(world, { lat: 85, lon: 0 }, R, { cold: 0, cool: 15 });
+    const points = [paths.land.cold, paths.land.cool, paths.land.warm, paths.high]
+      .join("")
+      .split(/[MLZ]/)
+      .filter(Boolean)
+      .map((pair) => pair.split(",").map(Number));
+    const farthest = Math.max(...points.map(([x, y]) => Math.hypot(x, y)));
+    expect(farthest).toBeCloseTo(R, 0);
+    expect(farthest).toBeLessThanOrEqual(R + 1e-6);
   });
 
   it("reads the height between the cells, and draws more cells when read finer", () => {

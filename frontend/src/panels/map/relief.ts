@@ -185,8 +185,9 @@ export function heightAt(terrain: Terrain, lat: number, lon: number): number {
 /**
  * The cells of the relief as paths, as the eye sees them: land by tone,
  * mountains, and the lakes. The sea is not drawn -- it is the disk under
- * everything. A cell is drawn when all four of its corners face the eye,
- * so the coast at the limb frays by a cell at most. The drawn cell is
+ * everything. A cell is drawn when any of its corners faces the eye, the
+ * far corners pushed to the horizon, so the land meets the edge of the
+ * disk. The drawn cell is
  * `unit` cells of the grid across: coarser than the grid on the approach
  * (`COARSE_STRIDE`), finer than it close up (`FINE_UNIT`), where the
  * height between the cells is read between them and the coast bends.
@@ -204,13 +205,23 @@ export function cellPaths(
   const dlon = 360 / cols;
   const nr = Math.ceil(rows / unit);
   const nc = Math.ceil(cols / unit);
-  //: One projection per drawn corner, shared by the four cells round it.
+  //: One projection per drawn corner, shared by the four cells round it. A
+  //: corner facing away is pushed out to the limb along its own ray: a cell
+  //: cut by the horizon is then drawn up to the horizon, and the land
+  //: reaches the edge of the disk instead of stopping a cell short of it.
   const corners: (Point | null)[] = new Array((nr + 1) * (nc + 1));
+  const front: boolean[] = new Array((nr + 1) * (nc + 1));
   for (let i = 0; i <= nr; i++) {
     const lat = -90 + Math.min(rows, i * unit) * dlat;
     for (let j = 0; j <= nc; j++) {
       const seen = project(eye, radius, { lat, lon: -180 + Math.min(cols, j * unit) * dlon });
-      corners[i * (nc + 1) + j] = seen.front ? { x: seen.x, y: seen.y } : null;
+      const k = i * (nc + 1) + j;
+      front[k] = seen.front;
+      if (seen.front) corners[k] = { x: seen.x, y: seen.y };
+      else {
+        const away = Math.hypot(seen.x, seen.y);
+        corners[k] = away > 0 ? { x: (seen.x / away) * radius, y: (seen.y / away) * radius } : null;
+      }
     }
   }
   const out: Record<string, string[]> = { cold: [], cool: [], warm: [], high: [], water: [] };
@@ -227,10 +238,16 @@ export function cellPaths(
       const height = unit < 1 ? heightAt(terrain, lat, lon) : terrain.grid[r][c];
       const lake = lakes.has(r * cols + c);
       if (height < terrain.sea_level && !lake) continue;
-      const a = corners[i * (nc + 1) + j];
-      const b = corners[i * (nc + 1) + j + 1];
-      const d = corners[(i + 1) * (nc + 1) + j + 1];
-      const e = corners[(i + 1) * (nc + 1) + j];
+      const ka = i * (nc + 1) + j;
+      const kb = ka + 1;
+      const ke = (i + 1) * (nc + 1) + j;
+      const kd = ke + 1;
+      //: A cell with no corner facing the eye is behind the sphere.
+      if (!front[ka] && !front[kb] && !front[kd] && !front[ke]) continue;
+      const a = corners[ka];
+      const b = corners[kb];
+      const d = corners[kd];
+      const e = corners[ke];
       if (!a || !b || !d || !e) continue;
       //: Outside a frame of `within` about the eye a cell is not drawn:
       //: close up the frame holds a corner of the disk, not the disk.

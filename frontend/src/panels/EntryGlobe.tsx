@@ -6,8 +6,8 @@
  * registration screens is the planet itself, from the public map.
  *
  * The same globe as the map's -- the true sphere, the ground of the relief,
- * north up, turned by the hand and zoomed by its buttons or Ctrl+wheel --
- * with what the
+ * north up, turning by itself until the hand takes it, zoomed by the
+ * wheel -- with what the
  * public map shows to everybody: the cities and the ways between them, as
  * of the delayed snapshot (D-319 item 7). There is no session yet, so the
  * book is read from the public catalog and there is no clock, hence no
@@ -26,7 +26,11 @@ import { arc, projectAll, type Geo } from "./map/globe";
 import { useGlobe } from "./map/useGlobe";
 
 /** How much of the frame the disk takes at the outermost zoom. */
-const FRAME = 1.15;
+const FRAME = 1.05;
+/** How fast the globe turns by itself, degrees of longitude a second: a
+ *  slow turn on the login screen, stopped by the hand and on the door step. */
+const SPIN_DEG_PER_S = 2;
+const RAD = Math.PI / 180;
 /** How far in the zoom may go, and one notch of it. */
 const ZOOM_MAX = 400;
 const NOTCH = 1.25;
@@ -88,10 +92,8 @@ export function EntryGlobe({
   }, []);
 
   const planets = useMemo(() => (world?.nodes ?? []).filter((node) => node.orbit), [world]);
-  const [planet, setPlanet] = useState<string | null>(null);
-  //: Shown: the chosen planet, else the one with doors, else the first of the sky.
-  const shown =
-    planet ?? doors?.find((door) => door.place)?.planet ?? planets[0]?.planet ?? null;
+  //: Shown: the planet with doors, else the first of the sky -- the home world.
+  const shown = doors?.find((door) => door.place)?.planet ?? planets[0]?.planet ?? null;
   const surface = useMemo(() => surfaceOf(world, shown), [world, shown]);
   const onPlanet = useMemo(
     () => (doors ?? []).filter((door) => door.planet === shown && door.place),
@@ -115,23 +117,46 @@ export function EntryGlobe({
   const [zoom, setZoom] = useState(1);
   const svg = useRef<SVGSVGElement | null>(null);
   const drag = useRef<{ x: number; y: number } | null>(null);
-  //: The page scrolls over the globe as anywhere: the wheel zooms only
-  //: with Ctrl or Cmd held, the way maps in pages do, and then -- and only
-  //: then -- the page must not scroll under it. React attaches wheel
-  //: passively, so the listener is native.
+  //: The wheel over the globe is zoom, and only zoom: the page must not
+  //: scroll under it. React attaches wheel passively, so the listener is
+  //: native. A finger scrolls the page (`touch-action: pan-y`).
   useEffect(() => {
     const field = svg.current;
     if (!field) return;
     const wheel = (e: WheelEvent) => {
-      if (!(e.ctrlKey || e.metaKey)) return;
       e.preventDefault();
       setZoom((was) => Math.min(ZOOM_MAX, Math.max(1, was * (e.deltaY < 0 ? NOTCH : 1 / NOTCH))));
     };
     field.addEventListener("wheel", wheel, { passive: false });
     return () => field.removeEventListener("wheel", wheel);
   }, [shown, eye, radius]);
-  const nearer = () => setZoom((was) => Math.min(ZOOM_MAX, was * NOTCH));
-  const farther = () => setZoom((was) => Math.max(1, was / NOTCH));
+  //: The globe turns by itself on the login screen, slowly, eastwards --
+  //: and stops under the hand and on the door step, where a mark must
+  //: stay where it is to be picked. Frames, not renders: the turn goes
+  //: through the eye's own frame-batched `rotate`.
+  const rotate = globe.rotate;
+  const spinning = doors === null;
+  useEffect(() => {
+    if (!spinning || !rotate || !eye || !radius) return;
+    let raf = 0;
+    let last = performance.now();
+    const step = (t: number) => {
+      const dt = Math.min(100, t - last);
+      last = t;
+      if (!drag.current) {
+        //: `rotate` takes the ground's movement in map units: to turn the
+        //: eye east the ground goes west, by the arc of the turn at the
+        //: eye's latitude.
+        const stretch = Math.max(Math.cos(eye.lat * RAD), 1e-3);
+        rotate(-SPIN_DEG_PER_S * (dt / 1000) * RAD * radius * stretch, 0);
+      }
+      raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+    //: The eye's latitude changes only under the hand; the loop reads it
+    //: afresh each time the hand lets go (a new `eye` remounts it).
+  }, [spinning, rotate, eye?.lat, radius]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!shown || !eye || !radius) {
     return <div className="entry-globe" aria-hidden="true" />;
   }
@@ -151,20 +176,6 @@ export function EntryGlobe({
 
   return (
     <div className="entry-globe">
-      {planets.length > 1 && (
-        <div className="row tabs">
-          {planets.map((sphere) => (
-            <button
-              key={sphere.key}
-              className={sphere.planet === shown ? "" : "quiet"}
-              aria-pressed={sphere.planet === shown}
-              onClick={() => setPlanet(sphere.planet)}
-            >
-              {sphere.name}
-            </button>
-          ))}
-        </div>
-      )}
       <svg
         ref={svg}
         viewBox={`${-span / 2} ${-span / 2} ${span} ${span}`}
@@ -257,14 +268,6 @@ export function EntryGlobe({
           })}
         </g>
       </svg>
-      <div className="row zoom">
-        <button className="quiet" aria-label={t("ui-zoom-in")} onClick={nearer} disabled={zoom >= ZOOM_MAX}>
-          +
-        </button>
-        <button className="quiet" aria-label={t("ui-zoom-out")} onClick={farther} disabled={zoom <= 1}>
-          −
-        </button>
-      </div>
       {doors && <p className="note center">{t("ui-entry-globe-doors-hint")}</p>}
     </div>
   );
