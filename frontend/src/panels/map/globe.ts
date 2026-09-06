@@ -58,6 +58,18 @@ export function radiusUnits(radiusKm: number): number {
  * one -- the sea came out two thirds of the ground and the clip cut the
  * land with it. A path's coordinates are numbers, not lengths, and go
  * as far as the ground does.
+ *
+ * Which attribute is a length and which a number is **measured**, not read
+ * off a specification: in Chrome, in the running map, at a device pixel
+ * ratio of 1.5, where the saturation falls at 22,369,621 map units against
+ * Terra's 31,855,000. `r`, `cx`, `cy` and the arguments of a `translate()`
+ * -- the SVG attribute and the CSS property alike -- saturate there, and
+ * `getComputedStyle(el).cx` reads the saturated value back. A `matrix(...)`
+ * transform, `<path d>`, `<polyline points>`, `<line x1>`, `<text x y>` and
+ * a nested `<svg x y>` do not, at twice the saturation. What is left drawn
+ * at a scene's own coordinates below is left so on that measurement, and a
+ * browser that changed its mind would be found by re-measuring, not by a
+ * test: jsdom saturates nothing.
  */
 export function diskPath(radius: number): string {
   return `M${-radius} 0A${radius} ${radius} 0 1 0 ${radius} 0A${radius} ${radius} 0 1 0 ${-radius} 0Z`;

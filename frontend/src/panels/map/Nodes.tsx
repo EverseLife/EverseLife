@@ -22,7 +22,7 @@
 
 import { SHAPES } from "../../glyphs";
 import { nodeGlyph } from "../../marks";
-import { midOf, placeAt } from "./globe";
+import { diskPath, midOf, placeAt } from "./globe";
 import { SURFACE, spell, type MapNode } from "../../api";
 import { t } from "../../locale";
 import { DASH, SPHERE_R, type Link, type Point } from "./model";
@@ -272,10 +272,17 @@ export function Nodes({
 export function Borders({ rings }: { rings: readonly { city: string; ring: { cx: number; cy: number; r: number } }[] }) {
   return (
     <g className="borders" aria-hidden="true">
+      {/* A path, and stood like a node: every other radius on the map is a
+          constant of the drawing, and this one is the spread of a city's
+          nodes -- the one length here that data could push past what a `r`
+          holds (`diskPath`). */}
       {rings.map(({ city, ring }) => (
-        <g key={city} transform={placeAt({ x: ring.cx, y: ring.cy })}>
-          <circle className="border" cx={0} cy={0} r={ring.r} />
-        </g>
+        <path
+          key={city}
+          className="border"
+          d={diskPath(ring.r)}
+          transform={placeAt({ x: ring.cx, y: ring.cy })}
+        />
       ))}
     </g>
   );

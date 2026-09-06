@@ -45,6 +45,13 @@ import { along, forecast, mooring, term, windowOpen } from "../panels/map/orbits
 import { long, price, spread } from "../panels/map/words";
 import { DEFAULT_LOCALE, Words, learn } from "../locale";
 
+/** The map's drawing, as text: the guard below reads it rather than runs it. */
+const SOURCES = import.meta.glob(["../panels/GraphMap.tsx", "../panels/map/*.ts*"], {
+  query: "?raw",
+  import: "default",
+  eager: true,
+}) as Record<string, string>;
+
 //: The terms below are assembled from the client's own locale (D-251), which
 //: ships with the build rather than over the wire -- so an empty bundle is
 //: still a complete one here, and `spread(40, 120)` comes out in words.
@@ -750,6 +757,32 @@ describe("the globe", () => {
     expect(numbers?.slice(0, 4)).toEqual([1, 0, 0, 1]);
     expect(numbers?.[4]).toBe(far.x);
     expect(numbers?.[5]).toBeCloseTo(far.y, 9);
+  });
+
+  it("gives no scene coordinate to a length: a mark is stood, not centred", () => {
+    //: The test above pins the helper; this one pins its use. Nothing else
+    //: would: there are no DOM tests here, and jsdom saturates nothing, so a
+    //: `cx={p.x}` put back tomorrow would pass every gate and be wrong only
+    //: on a real screen scaled past one. So the files that draw a surface
+    //: scene are read as text: a circle's middle there is its own origin,
+    //: and where it stands is a matrix (`placeAt`).
+    //: `map/Sky` is not among them -- the sky's places are fitted to the
+    //: frame (`useSky`), never map units -- and neither is the entry
+    //: screen's globe, which draws at a constant radius of its own.
+    const drawn = Object.entries(SOURCES).filter(([path]) =>
+      /(GraphMap\.tsx|map\/Nodes\.tsx|map\/useWalker\.ts)$/.test(path),
+    );
+    expect(drawn.length).toBe(3);
+    for (const [path, source] of drawn) {
+      source.split("\n").forEach((line, i) => {
+        const at = `${path}:${i + 1}`;
+        //: `cx={0}` is the mark's own middle; anything else is a place.
+        expect(/c[xy]=\{(?!0\})/.test(line) ? at : null).toBeNull();
+        expect(/setAttribute\("c[xy]"/.test(line) ? at : null).toBeNull();
+        //: And a place is never a `translate`: its arguments are lengths too.
+        expect(line.includes("translate(") ? at : null).toBeNull();
+      });
+    }
   });
 
   it("interpolates along the great circle", () => {
