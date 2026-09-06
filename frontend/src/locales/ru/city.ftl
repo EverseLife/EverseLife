@@ -39,6 +39,7 @@ ui-intro-again = Открыть снова — знак «?» в шапке, а 
 ui-register-step-account = аккаунт
 ui-register-step-line = линия
 ui-register-step-character = персонаж
+ui-register-step-printer = биопринтер
 ui-register-step-city = город
 ui-register-steps-label = шаги регистрации
 ui-register-bad-email = почта выглядит неправильно
@@ -80,10 +81,6 @@ ui-doors-title = Где вас напечатать
 ui-doors-lead = { $name }, тела у вас ещё нет — есть выбор машины, которая его соберёт. Первое тело печатается сразу и бесплатно везде; дальше за скорость платят.
 ui-doors-empty-world = В мире нет ни одного биопринтера. Этого положения быть не должно: вход в игру не блокируется никогда.
 ui-doors-precursor = Принтер Предтеч
-ui-doors-precursor-note = Вечная машина настоящих людей: ничьей казны не требует и не откажет никому.
-ui-doors-city-note = Городской биопринтер: работает на энергии и железе города.
-ui-doors-city = город
-ui-doors-outside = вне города
 ui-doors-people = людей сейчас
 ui-doors-citizens = граждан
 ui-doors-grant = подъёмные
@@ -95,7 +92,7 @@ ui-doors-citizenship-at-once = сразу
 ui-doors-tax = налог с продажи
 ui-doors-print-here = Печататься здесь
 ui-doors-back = ← назад
-ui-doors-pick-on-globe = Выберите принтер — крупную точку на глобусе: карточка выбранного появится здесь. Чем больше точка, тем больше в городе граждан.
+ui-doors-pick-on-globe = Выберите принтер — крупную точку на глобусе. Чем больше точка, тем больше в городе граждан.
 
 ## Глобус у входа и на шаге принтера (D-319, D-013)
 ui-entry-globe-label = глобус планеты

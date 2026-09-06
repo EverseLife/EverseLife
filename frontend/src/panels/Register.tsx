@@ -2,14 +2,23 @@
 // Copyright (C) 2026 Nurlan Urazkulov
 
 /**
- * Registration in four steps (D-187): email and password -> line -> character
- * -> door. Everything goes to the server as one command at the last step:
- * there is no half-account, and a refusal on any field leaves the world untouched.
+ * Registration in five steps (D-187): email and password -> line -> character
+ * -> printer -> city. Everything goes to the server as one command at the last
+ * step: there is no half-account, and a refusal on any field leaves the world
+ * untouched.
  *
  * The step order is not accidental: first what is about the account, then
  * what is about the world. The line before the character, because the name
  * and description are written for somebody already. The door last: it is the
  * first **game** decision (D-182), and before it the player must know who they are.
+ *
+ * The door is two steps and not one, because it is two questions. **Which
+ * machine** is a question about a planet, and it is answered on the globe:
+ * that step is a heading and a sphere. **Which city** is a question about
+ * people, and it is answered on a card of numbers -- one that opens only once
+ * a printer is chosen, and would otherwise stand empty beside the globe
+ * telling a newcomer to choose something first. Going back from the city is
+ * going back to the planet.
  */
 
 import { type FormEvent, useEffect, useState } from "react";
@@ -18,16 +27,17 @@ import type { Door, Enrollment, Line } from "../api";
 import { t } from "../locale";
 import { Logo } from "../Logo";
 import { useNarrow } from "../narrow";
-import { Doors } from "./Doors";
+import { Chosen, Doors } from "./Doors";
 import { Secret } from "./Secret";
 
 const STEPS = [
   "ui-register-step-account",
   "ui-register-step-line",
   "ui-register-step-character",
+  "ui-register-step-printer",
   "ui-register-step-city",
 ] as const;
-type Step = 0 | 1 | 2 | 3;
+type Step = 0 | 1 | 2 | 3 | 4;
 
 //: The limits are the same as the server's (`runtime.py`): the client hints
 //: earlier, the server decides. A divergence here is an inconvenience, not a hole.
@@ -90,15 +100,23 @@ export function Register({
     if (step === 1 && lines === null) {
       api.lines().then((r) => setLines(r.lines)).catch((e) => setLocal(String(e)));
     }
-    if (step === 3 && doors === null) {
+    if (step >= 3 && doors === null) {
       api.doors().then((r) => setDoors(r.doors)).catch((e) => setLocal(String(e)));
     }
   }, [step, lines, doors]);
-  //: The globe beside the form shows the doors while this is the step of
-  //: choosing one, and nothing of them before or after.
+  //: The globe beside the form shows the doors while a door is the question --
+  //: on the step that chooses one and on the step that reads its city, where
+  //: the mark stays lit to say which planet one is looking at.
   useEffect(() => {
-    onDoors(step === 3 ? doors : null);
+    onDoors(step >= 3 ? doors : null);
   }, [step, doors, onDoors]);
+  //: A printer chosen on the globe **is** that step answered: the city it
+  //: stands in is the next one, and nobody has to press anything to be told
+  //: so. Going back unchooses (below), so this cannot bounce the player
+  //: forward again the moment they step off it.
+  useEffect(() => {
+    if (step === 3 && picked) setStep(4);
+  }, [step, picked]);
 
   const go = (to: Step) => {
     setLocal(null);
@@ -160,13 +178,13 @@ export function Register({
   };
 
   const error = local ?? trouble;
-  const overGlobe = narrow && step === 3;
-  //: Nothing but the globe and the way back: no mark of the game's own over
-  //: a planet the player is looking at to choose from. The same word as the
-  //: one `Doors` says to itself -- a door **chosen**, not a key remembered:
-  //: a key naming no door of this world would leave the two disagreeing, one
-  //: drawing a heading and the other nothing under it.
-  const bare = overGlobe && !(doors ?? []).some((one) => one.node === picked);
+  //: On a phone the printer step is the planet and a heading over it: the
+  //: words that would explain the choosing stand between the player and the
+  //: thing they are choosing from.
+  const bare = narrow && step === 3;
+  //: The door being read at the city step, if the key still names one: a key
+  //: from before a reload may name a door this world no longer has.
+  const chosen = (doors ?? []).find((one) => one.node === picked) ?? null;
   //: The line under the tabs: the one being read, else the first playable one
   //: -- the alpha has one, and opening on a promise would read as the offer.
   const shown =
@@ -386,14 +404,34 @@ export function Register({
         ) : (
           <Doors
             doors={doors}
-            overGlobe={overGlobe}
+            overGlobe={bare}
             name={name}
             busy={busy}
             trouble={error}
             picked={picked}
             onPick={onPick}
-            onEnter={finish}
             onBack={() => go(2)}
+          />
+        ))}
+
+      {step === 4 &&
+        (chosen === null ? (
+          //: The key names no door of this world: back to choosing one, which
+          //: is the only place that key can come from.
+          <p className="note center">…</p>
+        ) : (
+          <Chosen
+            door={chosen}
+            busy={busy}
+            trouble={error}
+            onEnter={finish}
+            onBack={() => {
+              //: Back to the planet, and to no printer chosen: the mark one
+              //: pressed is the answer to the step behind, and stepping off
+              //: the city asks the question again.
+              onPick(null);
+              go(3);
+            }}
           />
         ))}
     </main>

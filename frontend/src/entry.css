@@ -550,6 +550,13 @@ button.eye:not(:disabled):active {
     background: none;
     padding: 0;
   }
+  /* Its heading still has to be read, and it is read off a planet: the wash
+     travels with the words rather than with the box that is not there. */
+  .entry.auth > .doors-step.bare h1 {
+    background: var(--base-900);
+    background: color-mix(in srgb, var(--base-900) 88%, transparent);
+    padding: 0.35rem 0.6rem;
+  }
 }
 
 /* On a phone the way in takes the whole width. A step that has a box of its

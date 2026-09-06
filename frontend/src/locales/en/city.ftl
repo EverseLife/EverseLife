@@ -41,6 +41,7 @@ ui-intro-again = To open this again — the “?” in the header, or “who you
 ui-register-step-account = account
 ui-register-step-line = line
 ui-register-step-character = character
+ui-register-step-printer = bioprinter
 ui-register-step-city = city
 ui-register-steps-label = registration steps
 ui-register-bad-email = the email looks wrong
@@ -82,10 +83,6 @@ ui-doors-title = Where to print you
 ui-doors-lead = { $name }, you have no body yet — you have a choice of the machine that will assemble it. The first body is printed at once and free of charge everywhere; after that you pay for speed.
 ui-doors-empty-world = There is not a single bioprinter in the world. This state must not happen: the way into the game is never blocked.
 ui-doors-precursor = Forerunner printer
-ui-doors-precursor-note = The everlasting machine of the real people: it asks no city's treasury and refuses no one.
-ui-doors-city-note = A city bioprinter: it runs on the city's energy and iron.
-ui-doors-city = city
-ui-doors-outside = outside a city
 ui-doors-people = people right now
 ui-doors-citizens = citizens
 ui-doors-grant = settling grant
@@ -97,7 +94,7 @@ ui-doors-citizenship-at-once = at once
 ui-doors-tax = sales tax
 ui-doors-print-here = Print here
 ui-doors-back = ← back
-ui-doors-pick-on-globe = Choose a printer — a large dot on the globe: the card of the chosen one appears here. The larger the dot, the more citizens the city has.
+ui-doors-pick-on-globe = Choose a printer — a large dot on the globe. The larger the dot, the more citizens the city has.
 
 ## The globe at the entry and at the printer step (D-319, D-013)
 ui-entry-globe-label = globe of the planet
