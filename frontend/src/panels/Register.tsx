@@ -162,8 +162,11 @@ export function Register({
   const error = local ?? trouble;
   const overGlobe = narrow && step === 3;
   //: Nothing but the globe and the way back: no mark of the game's own over
-  //: a planet the player is looking at to choose from.
-  const bare = overGlobe && !picked;
+  //: a planet the player is looking at to choose from. The same word as the
+  //: one `Doors` says to itself -- a door **chosen**, not a key remembered:
+  //: a key naming no door of this world would leave the two disagreeing, one
+  //: drawing a heading and the other nothing under it.
+  const bare = overGlobe && !(doors ?? []).some((one) => one.node === picked);
   //: The line under the tabs: the one being read, else the first playable one
   //: -- the alpha has one, and opening on a promise would read as the offer.
   const shown =

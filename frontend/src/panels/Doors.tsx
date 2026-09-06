@@ -107,7 +107,9 @@ export function Doors({
   //: The globe has the screen, and nothing is chosen on it yet: the way back
   //: is the whole of this half. The hint under the planet says what to do,
   //: and a heading over an empty box would only take the sky away from it.
-  if (overGlobe && door === null) {
+  //: A world with no doors at all is not this state but the one below: there
+  //: the globe has nothing to press and the screen has to say so.
+  if (overGlobe && door === null && doors.length > 0) {
     return (
       <section className="doors-step bare">
         {names}

@@ -339,8 +339,9 @@ button.eye:not(:disabled):active {
 
 /* Before the world the screen is two halves (D-319): the globe of the public
    map on one, the way in on the other. The halves fill the root; the way in
-   scrolls on its own, the globe stays. Narrow, the halves stack: the globe
-   on top, a square no taller than a third of the screen, the way in below. */
+   scrolls on its own, the globe stays. Narrow, there is one half: the planet
+   is the background of the whole screen and the way in floats on it (the
+   phone rules at the end of this file). */
 .entry-split {
   display: grid;
   /* The globe's layer is laid out against this on a phone (below). */
@@ -402,9 +403,9 @@ button.eye:not(:disabled):active {
 }
 /* The canvas is the window (D-319). Zoomed in, the ground used to stop at the
    square's edge -- a seam across the screen with the page behind it -- and the
-   half the globe sits in was never filled. Fixed and behind everything: the
-   way in is opaque and covers its own half, so this shows through nowhere it
-   is not wanted. */
+   half the globe sits in was never filled. Fixed and behind everything: on a
+   desktop the way in is opaque and covers its own half, and on a phone it is
+   a wash the planet shows through. */
 .entry-globe svg {
   display: block;
   position: fixed;
@@ -504,33 +505,50 @@ button.eye:not(:disabled):active {
     margin: 0;
     padding-inline: 0.75rem;
   }
-  /* The way in lies over the planet and lets it through: transparent where
-     there is nothing to read, and a hand that lands between the cards turns
-     the globe instead of hitting a sheet of glass. */
   .entry-split > main.entry {
     background: transparent;
-    pointer-events: none;
-  }
-  .entry.auth > * {
-    pointer-events: auto;
   }
   /* What is read stands on a wash of the page, not on the ground itself: the
-     planet is a background, and a background is not a thing to read text off. */
+     planet is a background, and a background is not a thing to read text off.
+     The steps and the lines under the cards are text as much as the cards
+     are; the logo is a white mark and keeps the sky behind it, with a shadow
+     under it for the tone of ground it happens to cross. */
   .entry.auth > .card,
-  .entry.auth > section {
+  .entry.auth > section,
+  .entry.auth > .steps,
+  .entry.auth > p {
     background: var(--base-900);
     background: color-mix(in srgb, var(--base-900) 88%, transparent);
   }
+  .entry.auth > .steps,
+  .entry.auth > p {
+    padding: 0.35rem 0.6rem;
+  }
+  .entry.auth > .brand {
+    text-shadow: 0 1px 4px var(--base-900);
+  }
+  /* Both hands turn the globe here: the screen does not scroll (`.entry-split`
+     above), so giving the browser a vertical pan gave it nothing and took the
+     latitude away -- half the sphere was unreachable by finger. */
+  .entry-globe svg {
+    touch-action: none;
+  }
   /* The step of the doors, before one is chosen: the globe **is** the step,
      so this half is the way back and nothing else -- no box, no wash, no
-     heading over a planet the player is reading. */
+     heading over a planet the player is reading. And the hand goes through
+     it: only in this state, because everywhere else the way in is a form to
+     scroll, and a form that lets the wheel through does not scroll. */
+  .entry.auth.bare {
+    justify-content: flex-start;
+    pointer-events: none;
+  }
+  .entry.auth.bare button {
+    pointer-events: auto;
+  }
   .entry.auth > .doors-step.bare {
     border: none;
     background: none;
     padding: 0;
-  }
-  .entry.auth.bare {
-    justify-content: flex-start;
   }
 }
 

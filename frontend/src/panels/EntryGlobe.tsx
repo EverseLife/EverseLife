@@ -176,9 +176,17 @@ export function EntryGlobe({
     //: A planet the public map shows nothing on yet -- a world younger than
     //: its first snapshot -- is looked at from over its equator and meridian.
     EQUATOR;
+  //: Whether the eye has ever been put somewhere on purpose.
+  const aimed = useRef(false);
   useEffect(() => {
+    //: Unchoosing a door must not move the sky: on a phone the way back from
+    //: the card is the way to the globe, and a player who turned the planet
+    //: to its far side would find it spun home under them. The first aim
+    //: still happens -- the screen opens over a door, not over a meridian.
+    if (!picked && aimed.current) return;
+    aimed.current = true;
     lookAt(target);
-  }, [target.lat, target.lon, lookAt]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [target.lat, target.lon, picked, lookAt]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [zoom, setZoom] = useState(1);
   const svg = useRef<SVGSVGElement | null>(null);
@@ -208,9 +216,9 @@ export function EntryGlobe({
     //: render, and a new object every time would be a render every time.
     setField((was) => (was && sameField(was, now) ? was : now));
   }, []);
-  //: After every render, because the square **moves** as well as resizes: the
-  //: door step hangs a line under the globe and the square rides up by half
-  //: its height. A `ResizeObserver` sees a size, not a place, and the planet
+  //: After every render, because the square **moves** as well as resizes: a
+  //: step opens or closes and the half it is in changes shape under the
+  //: square. A `ResizeObserver` sees a size, not a place, and the planet
   //: would have stayed where the square was two steps ago.
   useLayoutEffect(measure);
   useEffect(() => {
@@ -452,7 +460,12 @@ export function EntryGlobe({
           })}
         </g>
       </svg>
-      {doors && <p className="note center">{t("ui-entry-globe-doors-hint")}</p>}
+      {/* Only while it is worth saying: with a door chosen the card is what
+          the screen is about, and on a phone that card stands over this line
+          anyway. An empty world has no dots to point at either. */}
+      {doors && !picked && onPlanet.length > 0 && (
+        <p className="note center">{t("ui-entry-globe-doors-hint")}</p>
+      )}
     </div>
   );
 }

@@ -101,7 +101,7 @@ ui-doors-pick-on-globe = Choose a printer — a large dot on the globe: the card
 
 ## The globe at the entry and at the printer step (D-319, D-013)
 ui-entry-globe-label = globe of the planet
-ui-entry-globe-doors-hint = The large dots are the printers you can be printed at: a click opens the card alongside. Drag to turn the globe, scroll to come closer.
+ui-entry-globe-doors-hint = The large dots are the printers you can be printed at: choose one and its card opens. Drag to turn the globe.
 
 ## The state tab: economy and population (D-124, D-140, D-154)
 
