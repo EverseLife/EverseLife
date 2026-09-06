@@ -10,7 +10,6 @@ the catalogs is pointless -- they lie in the vault anyway.
 
 from __future__ import annotations
 
-import uuid
 from dataclasses import asdict
 from datetime import UTC, datetime
 from typing import Any
@@ -24,13 +23,12 @@ from src.constants import HOLDER, current, current_renames
 from src.constants import current_catalog as catalog
 from src.constants import registry as R
 from src.db.base import session_factory
-from src.engine import account, mapshot, market, memory, sight, terrain, world
+from src.engine import account, mapshot, market, terrain, world
 from src.engine import city as town
-from src.engine import ship as vessels
 from src.engine.errors import Refusal
 from src.models.identity import Body, BodyState, Identity
-from src.models.world import Layer, Node, Planet
-from src.runtime import MARKET_BOOK_DEPTH, MARKET_BOOK_STEPS
+from src.models.world import Node, Planet
+from src.runtime import MARKET_BOOK_DEPTH, MARKET_BOOK_STEPS, PUBLIC_MAP_MAX_AGE_S
 from src.settings import settings
 
 router = APIRouter(prefix="/public", tags=["reads"])
@@ -129,29 +127,6 @@ async def plants() -> dict[str, Any]:
     }
 
 
-def _passage(under_way: dict[str, Any] | None, by_id: dict[Any, str]) -> dict[str, str] | None:
-    """A ship's passage for the map: the port it is due at and the two moments.
-
-    The destination is given as a node key rather than a planet: the client
-    climbs the parent hierarchy to whatever layer it is drawing, and a key
-    keeps that one rule instead of adding a second.
-    """
-    if under_way is None:
-        return None
-    #: A drifter (D-289) is bound nowhere: its line is the coast ahead, and
-    #: the two moments are now and the hour the coast ends -- or the horizon.
-    goal = None if under_way.get("to") is None else by_id.get(under_way["to"])
-    if (
-        goal is None and under_way.get("to") is not None
-    ):  # pragma: no cover -- a node like any other
-        return None
-    return {
-        "to": goal,
-        "started_at": under_way["started_at"].isoformat(),
-        "arrives_at": under_way["arrives_at"].isoformat(),
-    }
-
-
 async def _standing(db: AsyncSession, authorization: str | None) -> Body | None:
     """The asker's body, if the header names one at all -- it says where one
     stands and whose memory the map is.
@@ -186,85 +161,37 @@ async def _standing(db: AsyncSession, authorization: str | None) -> Body | None:
 async def world_map(
     response: Response, authorization: str | None = Header(default=None)
 ) -> dict[str, Any]:
-    """The map as it looks from where the asker stands (D-240).
+    """The map as it looks from where the asker stands (D-240, D-319).
 
-    **Not the world any more.** Two steps of the graph around the body, one step
-    of the planet's surface, and the sky -- which is everybody's, because a
-    planet's place is arithmetic over the epoch and hiding it would only make
-    passages unplannable. The surfaces of other planets are simply absent, so
-    there is nothing to expand: one reaches a planet by flying to it.
+    With a token: the asker's own map -- what their body sees within
+    `map.sight_km`, what their identity remembers, the cities of the planet,
+    and the sky (`mapshot.personal`). Without one: the sky as it is and the
+    public surface as it **was** `map.public_delay_days` ago -- the daily
+    snapshot (`mapshot.anonymous`). The route stays under `/public` because
+    what it gives an anonymous reader is public (D-097).
 
     The token is read from the ordinary `Authorization: Bearer` header and is
-    **optional**: without one the answer is the sky alone. The route stays under
-    `/public` because what it gives an anonymous reader is still public -- the
-    system, its corridors and the hulls in it (D-097 in that part).
+    **optional**; a bad or stale one names nobody and gets the public map,
+    not an error -- a stale tab is a distant map, not a broken one.
     """
-
-    #: The answer stopped being everybody's the day it started depending on
-    #: where the asker stands. Said out loud to whatever sits in front of this
-    #: one day: a shared cache would hand one player another player's
-    #: neighbourhood, and that is the one failure this route must not have.
-    response.headers["Cache-Control"] = "private, no-store"
-    response.headers["Vary"] = "Authorization"
-
     constants = current()
     now = datetime.now(UTC)
+    response.headers["Vary"] = "Authorization"
     async with session_factory()() as db:
         asker = await _standing(db, authorization)
-        standing = None if asker is None else await db.get(Node, asker.node_id)
-        every, all_edges = await sight.read(db)
-        by_key = {node.id: node.key for node in every}
-        #: The corridors of space. Not edges of the graph -- between planets
-        #: there are none -- but what a passage costs: a calendar of the
-        #: cheapest arc for the coming days (D-271), keyed by planet.
-        routes = await vessels.corridors(db, constants, at=now)
-        #: A ship under way has no edges at all (D-201), so the graph cannot
-        #: say where it is. The passage does.
-        under_way = await vessels.passages(db)
-        ports = {node.id for node in await vessels.ports(db)}
-
-        def rows(shown: list[Node], faded: set[uuid.UUID]) -> list[dict[str, Any]]:
-            return [
-                mapshot.node_row(
-                    node,
-                    parent_key=by_key.get(node.parent_id),
-                    port=node.id in ports,
-                    flight=_passage(under_way.get(node.id), by_key),
-                    faded=node.id in faded,
-                )
-                for node in shown
-            ]
-
-        if standing is None:
-            #: Nobody's body: the sky as it is, and the surface as it **was**
-            #: -- the daily snapshot old enough to be fair (D-319 п. 7).
-            heaven = [node for node in every if node.layer is Layer.SPACE]
-            old = await mapshot.served(db, constants, now)
-            surface = old.data if old is not None else {"nodes": [], "edges": []}
-            return {
-                "nodes": rows(heaven, set()) + list(surface["nodes"]),
-                "edges": list(surface["edges"]),
-                "routes": routes,
-            }
-
-        #: The asker's own memory, not that of whoever else stands here.
-        known = set() if asker is None else await memory.known(db, asker.identity_id)
-        #: A ship's rooms are **not** public (D-201): from outside a ship is
-        #: one hull. The interior comes with `look`, to whoever stands in it.
-        inside = {
-            node.id for node in every if vessels.is_aboard(node) and node.layer is not Layer.SPACE
-        }
-        view = sight.around(
-            standing, constants=constants, nodes=every, edges=all_edges, known=known
-        )
-        nodes = [node for node in every if node.id in view.seen and node.id not in inside]
-        shown = {node.id for node in nodes}
-        edges = [edge for edge in all_edges if edge.node_a_id in shown and edge.node_b_id in shown]
-        return {
-            "nodes": rows(nodes, view.faded),
-            "edges": [mapshot.edge_row(constants, edge, by_key) for edge in edges],
-            "routes": routes,
-        }
+        if asker is None:
+            #: Everybody's answer, and the heaviest: every anonymous reader
+            #: may share it for a while, and name it by the snapshot served.
+            answer, old = await mapshot.anonymous(db, constants, now)
+            response.headers["Cache-Control"] = f"public, max-age={PUBLIC_MAP_MAX_AGE_S}"
+            if old is not None:
+                response.headers["ETag"] = f'"{old.id}"'
+            return answer
+        #: The answer depends on where the asker stands and what they
+        #: remember: a shared cache would hand one player another player's
+        #: map, and that is the one failure this route must not have.
+        response.headers["Cache-Control"] = "private, no-store"
+        return await mapshot.personal(db, constants, asker, now)
 
 
 @router.get("/terrain/{planet}")

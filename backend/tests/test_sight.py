@@ -12,6 +12,7 @@ body gets the sky.
 
 from __future__ import annotations
 
+import math
 import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -62,8 +63,6 @@ async def _node(
 
 def _away(constants: Constants, km: float, bearing: float = 0.0) -> globe.Geo:
     radius = globe.radius_m(constants, Planet.TERRA)
-    import math
-
     return globe.offset(
         radius, HOME, km * METRES_PER_KM * math.sin(bearing), km * METRES_PER_KM * math.cos(bearing)
     )
@@ -89,21 +88,22 @@ async def test_the_eye_reaches_the_sight_radius_and_no_farther(
     assert near.id not in view.faded, "в радиусе — ярко"
 
 
-async def test_a_step_of_the_graph_is_seen_whatever_the_distance(
+async def test_a_step_into_an_inside_is_seen_and_a_road_neighbour_is_not(
     session: AsyncSession, constants: Constants
 ) -> None:
-    """The gangway, the corridor, the door: one step is always in sight."""
+    """The gangway, the corridor, the door: the step into an inside is in
+    sight; a road neighbour beyond the eye is not, for being joined."""
     terra = await _sphere(session, Planet.TERRA)
     home = await _node(session, "terra.home", terra, at=HOME)
     far = await _node(
         session, "terra.far", terra, at=_away(constants, constants[R.MAP_SIGHT_KM] * 3)
     )
     room = await _node(session, "terra.home.room", home, layer=Layer.LOCATION)
-    await travel.connect(session, home, far, base_seconds=60, surface=Surface.ROAD)
+    await travel.connect(session, home, far, base_seconds=60, surface=Surface.WILD)
     await travel.connect(session, home, room, base_seconds=1, surface=Surface.PAVED)
     nodes, edges = await _graph(session)
     view = sight.around(home, constants=constants, nodes=nodes, edges=edges)
-    assert far.id in view.seen and room.id in view.seen
+    assert room.id in view.seen and far.id not in view.seen
     #: Standing in the room, the eye looks out from the house it is in.
     view = sight.around(room, constants=constants, nodes=nodes, edges=edges)
     assert home.id in view.seen
@@ -113,7 +113,7 @@ async def test_memory_and_the_public_are_drawn_dark(
     session: AsyncSession, constants: Constants
 ) -> None:
     """A remembered place beyond the eye is there, dark; a city of the planet
-    too; the same node in sight is bright."""
+    too; a frozen city of the Forerunners is not public; in sight all is bright."""
     terra = await _sphere(session, Planet.TERRA)
     reach = constants[R.MAP_SIGHT_KM]
     home = await _node(session, "terra.home", terra, at=HOME)
@@ -125,13 +125,38 @@ async def test_memory_and_the_public_are_drawn_dark(
     plot = await _node(
         session, "terra.city.plot", city, at=_away(constants, reach * 4, bearing=2.0)
     )
+    #: A frozen city of the Forerunners hangs its rooms on itself like a city
+    #: does, and is nobody's polity: a find, known by sight and memory alone.
+    ruin = await _node(session, "terra.lost", terra, at=_away(constants, reach * 5, bearing=3.0))
+    hall = await _node(
+        session, "terra.lost.hall", ruin, at=_away(constants, reach * 5, bearing=3.0)
+    )
     nodes, edges = await _graph(session)
-    view = sight.around(home, constants=constants, nodes=nodes, edges=edges, known={remembered.key})
+    view = sight.around(
+        home,
+        constants=constants,
+        nodes=nodes,
+        edges=edges,
+        known={remembered.key},
+        cities={city.id},
+    )
     assert remembered.id in view.seen and remembered.id in view.faded, "память темна"
     assert forgotten.id not in view.seen, "что не помнишь и не видишь — не рисуется"
     assert city.id in view.seen and plot.id in view.seen, "город публичен (D-097)"
     assert city.id in view.faded and plot.id in view.faded
     assert home.id not in view.faded and terra.id not in view.faded
+    assert ruin.id not in view.seen and hall.id not in view.seen, "руины не публичны"
+    #: A laid road is public (D-097): the node it reaches is drawn dark.
+    roadside = await _node(
+        session, "terra.roadside", terra, at=_away(constants, reach * 6, bearing=4.0)
+    )
+    wild = await _node(session, "terra.wild", terra, at=_away(constants, reach * 6, bearing=4.2))
+    await travel.connect(session, city, roadside, base_seconds=600, surface=Surface.ROAD)
+    await travel.connect(session, roadside, wild, base_seconds=600, surface=Surface.WILD)
+    nodes, edges = await _graph(session)
+    view = sight.around(home, constants=constants, nodes=nodes, edges=edges, cities={city.id})
+    assert roadside.id in view.faded, "дорога публична"
+    assert wild.id not in view.seen, "бездорожье за ней — нет"
 
 
 async def test_another_planet_has_no_surface_to_expand(

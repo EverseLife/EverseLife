@@ -18,7 +18,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants
 from src.constants import registry as R
-from src.engine import mapshot, travel, world
+from src.engine import mapshot, memory, travel, world
+from src.models.identity import Body
 from src.models.snapshot import MapSnapshot
 from src.models.world import ABOARD, Layer, Node, Planet, Surface
 
@@ -83,3 +84,43 @@ async def test_the_route_serves_only_a_snapshot_old_enough_and_the_tick_prunes(
     left = set((await session.execute(select(MapSnapshot.id))).scalars())
     assert left == {older.id, fresh.id} and old.id not in left
     assert await session.scalar(select(func.count()).select_from(MapSnapshot)) == 2
+
+
+async def test_the_anonymous_map_is_the_sky_now_and_the_surface_then(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """Without a body: the sky live, the surface from the served snapshot, no tones."""
+    terra, city, plot = await _world(session)
+    delay = timedelta(days=float(constants[R.MAP_PUBLIC_DELAY_DAYS]))
+    now = datetime.now(UTC)
+    answer, old = await mapshot.anonymous(session, constants, now)
+    assert old is None
+    assert {row["key"] for row in answer["nodes"]} == {"terra", "ship.x"}, (
+        "без снимка — только небо"
+    )
+    taken = await mapshot.take(session, constants, now - delay * 2)
+    late = await world.create_node(session, "terra.city.late", "Late", area_m2=100, parent=city)
+    answer, old = await mapshot.anonymous(session, constants, now)
+    assert old is not None and old.id == taken.id
+    keys = {row["key"] for row in answer["nodes"]}
+    assert {"terra", "terra.city", "terra.city.plot"} <= keys
+    assert late.key not in keys, "то, что появилось после снимка, аноним не видит"
+    assert all("faded" not in row for row in answer["nodes"])
+    city_row = next(row for row in answer["nodes"] if row["key"] == "terra.city")
+    assert city_row["parent"] == "terra", "родитель города — его планета, как на личной карте"
+    assert answer["edges"] and "routes" in answer
+
+
+async def test_the_personal_map_is_the_askers_sight_and_memory(
+    session: AsyncSession, constants: Constants
+) -> None:
+    terra, city, plot = await _world(session)
+    identity = await world.create_identity(session, "Asker")
+    body = await world.print_body(session, identity, plot)
+    await memory.remember(session, constants, identity.id, ["terra.city"], at=datetime.now(UTC))
+    answer = await mapshot.personal(session, constants, body, datetime.now(UTC))
+    keys = {row["key"]: row for row in answer["nodes"]}
+    assert "terra.city.plot" in keys and "terra.city" in keys and "terra" in keys
+    assert "ship.x.room" not in keys, "борт не публичен (D-201)"
+    assert "faded" not in keys["terra.city.plot"], "где стоишь — ярко"
+    assert isinstance(body, Body)

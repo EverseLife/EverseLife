@@ -185,6 +185,10 @@ MAP_RINGS = 6
 #: to fold it into. Not a number of the world at all -- it decides only which
 #: way a node leans off its anchor, and it has to be the same on every server
 #: for ever, which is the whole reason it is written down rather than rolled.
+#: How long every anonymous reader may share one answer of `/public/map`: the
+#: surface in it is days old by design (D-319 п. 7), the sky moves by the
+#: minute-long tick, and five minutes of staleness on either is invisible.
+PUBLIC_MAP_MAX_AGE_S = 300
 MAP_HASH_STEP = 31
 MAP_HASH_SPAN = 65_521
 #: Width of the advisory-lock key that holds one group's map while a node

@@ -26,8 +26,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants
 from src.constants import registry as R
-from src.engine import estate, places, sight, travel, world
+from src.engine import estate, memory, places, sight, travel, world
 from src.engine import ship as vessels
+from src.models.city import City
+from src.models.identity import Body
 from src.models.snapshot import MapSnapshot
 from src.models.world import Edge, Layer, Node
 
@@ -82,6 +84,102 @@ def edge_row(constants: Constants, edge: Edge, by_key: dict[uuid.UUID, str]) -> 
     }
 
 
+def passage_row(under_way: dict[str, Any] | None, by_key: dict[Any, str]) -> dict[str, str] | None:
+    """A ship's passage for the map: the port it is due at and the two moments.
+
+    The destination is a node key rather than a planet: the client climbs the
+    parent hierarchy to whatever layer it is drawing.
+    """
+    if under_way is None:
+        return None
+    #: A drifter (D-289) is bound nowhere: its line is the coast ahead.
+    goal = None if under_way.get("to") is None else by_key.get(under_way["to"])
+    if goal is None and under_way.get("to") is not None:  # pragma: no cover
+        return None
+    return {
+        "to": goal,
+        "started_at": under_way["started_at"].isoformat(),
+        "arrives_at": under_way["arrives_at"].isoformat(),
+    }
+
+
+async def anonymous(
+    session: AsyncSession, constants: Constants, now: datetime
+) -> tuple[dict[str, Any], MapSnapshot | None]:
+    """The map for nobody's body: the sky as it is, the surface as it was.
+
+    The sky is live -- a planet's place is arithmetic, a hull under way is a
+    passage anybody may plan around -- and the surface is the daily snapshot
+    old enough to be fair (D-319 п. 7). Returns the snapshot served too, so
+    the route can name it in an `ETag`.
+    """
+    every, _ = await sight.read(session)
+    heaven = [node for node in every if node.layer is Layer.SPACE]
+    by_key = {node.id: node.key for node in every}
+    under_way = await vessels.passages(session)
+    old = await served(session, constants, now)
+    surface = old.data if old is not None else {"nodes": [], "edges": []}
+    return {
+        "nodes": [
+            node_row(
+                node,
+                parent_key=by_key.get(node.parent_id),
+                port=False,
+                flight=passage_row(under_way.get(node.id), by_key),
+            )
+            for node in heaven
+        ]
+        + list(surface["nodes"]),
+        "edges": list(surface["edges"]),
+        "routes": await vessels.corridors(session, constants, at=now),
+    }, old
+
+
+async def personal(
+    session: AsyncSession, constants: Constants, asker: Body, now: datetime
+) -> dict[str, Any]:
+    """The map as the asker's body sees it and their identity remembers it."""
+    standing = await session.get(Node, asker.node_id)
+    every, all_edges = await sight.read(session)
+    by_key = {node.id: node.key for node in every}
+    under_way = await vessels.passages(session)
+    ports = {node.id for node in await vessels.ports(session)}
+    cities = set((await session.execute(select(City.node_id))).scalars())
+    #: A ship's rooms are **not** public (D-201): from outside a ship is one
+    #: hull. The interior comes with `look`, to whoever stands in it.
+    inside = {
+        node.id for node in every if vessels.is_aboard(node) and node.layer is not Layer.SPACE
+    }
+    view = sight.around(
+        standing,
+        constants=constants,
+        nodes=every,
+        edges=all_edges,
+        known=await memory.known(session, asker.identity_id),
+        cities=cities,
+    )
+    nodes = [node for node in every if node.id in view.seen and node.id not in inside]
+    shown = {node.id for node in nodes}
+    return {
+        "nodes": [
+            node_row(
+                node,
+                parent_key=by_key.get(node.parent_id),
+                port=node.id in ports,
+                flight=passage_row(under_way.get(node.id), by_key),
+                faded=node.id in view.faded,
+            )
+            for node in nodes
+        ],
+        "edges": [
+            edge_row(constants, edge, by_key)
+            for edge in all_edges
+            if edge.node_a_id in shown and edge.node_b_id in shown
+        ],
+        "routes": await vessels.corridors(session, constants, at=now),
+    }
+
+
 def _public_surface(nodes: list[Node]) -> list[Node]:
     """What the snapshot carries: the surfaces, without the insides.
 
@@ -96,7 +194,9 @@ async def take(session: AsyncSession, constants: Constants, now: datetime) -> Ma
     every, all_edges = await sight.read(session)
     nodes = _public_surface(every)
     shown = {node.id for node in nodes}
-    by_key = {node.id: node.key for node in nodes}
+    #: Keys of the whole graph, so a city's parent is its planet's sphere here
+    #: as on the personal map -- the client climbs parents to the space layer.
+    by_key = {node.id: node.key for node in every}
     ports = {node.id for node in await vessels.ports(session)}
     rows = [
         node_row(node, parent_key=by_key.get(node.parent_id), port=node.id in ports)

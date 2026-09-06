@@ -17,6 +17,8 @@ remembers, and what is public. Three sources, two tones:
   stands for snapshots);
 * **the public** -- the cities of the planet and what stands inside their
   walls (D-097): a newcomer must find the door. Dark too, unless in sight.
+  A city is a polity's node (`City`), not any node with children: a frozen
+  city of the Forerunners is a find, and a find is known by sight and memory.
 
 And **the sky, always and to everybody** (D-240): a planet's place is
 arithmetic over the epoch, and hiding it would hide the one thing that makes a
@@ -41,7 +43,7 @@ from src import globe
 from src.constants import Constants
 from src.constants import registry as R
 from src.engine import places
-from src.models.world import Edge, Layer, Node
+from src.models.world import Edge, Layer, Node, Surface
 from src.units import METRES_PER_KM
 
 
@@ -103,17 +105,22 @@ def _standpoint(standing: Node, by_id: dict[uuid.UUID, Node]) -> globe.Geo | Non
     return None
 
 
-def _public(nodes: Sequence[Node], by_id: dict[uuid.UUID, Node]) -> set[uuid.UUID]:
-    """The cities and what stands inside their walls (D-097): a surface node whose
-    parent is itself a surface node, and that parent."""
-    inside: set[uuid.UUID] = set()
+def _public(nodes: Sequence[Node], edges: Sequence[Edge], cities: set[uuid.UUID]) -> set[uuid.UUID]:
+    """The cities, what stands inside their walls, and the highways (D-097):
+    the polities' nodes, every surface node hanging on one of them, and every
+    surface node a laid road or a paved way touches -- a road is work (D-107),
+    and work in the open is seen from afar."""
+    by_id = {node.id: node for node in nodes}
+    inside = set(cities)
     for node in nodes:
-        if node.layer is not Layer.PLANET or node.parent_id is None:
-            continue
-        parent = by_id.get(node.parent_id)
-        if parent is not None and parent.layer is Layer.PLANET:
+        if node.layer is Layer.PLANET and node.parent_id in cities:
             inside.add(node.id)
-            inside.add(parent.id)
+    for edge in edges:
+        if edge.surface in (Surface.ROAD, Surface.PAVED):
+            for end in (edge.node_a_id, edge.node_b_id):
+                node = by_id.get(end)
+                if node is not None and node.layer is Layer.PLANET:
+                    inside.add(end)
     return inside
 
 
@@ -124,13 +131,15 @@ def around(
     nodes: Sequence[Node],
     edges: Sequence[Edge],
     known: Iterable[str] = (),
+    cities: Iterable[uuid.UUID] = (),
 ) -> View:
     """What this body may be shown, by id, and which of it dark.
 
     `standing` is where the body is, or None for whoever has no body to stand
     anywhere -- an anonymous reader, an identity in the cloud. They get the sky
     and nothing else: the surface asks for a body. `known` are the keys the
-    identity remembers (`engine.memory.known`).
+    identity remembers (`engine.memory.known`); `cities` the nodes of the
+    polities (`City.node_id`), which are public.
     """
     by_id = {node.id: node for node in nodes}
     seen = sky(nodes)
@@ -138,8 +147,16 @@ def around(
         return View(seen=seen)
 
     bright = {standing.id}
-    #: The step one actually takes: a gangway, a corridor aboard, a door.
-    bright |= _neighbourhood(edges).get(standing.id, set())
+    #: The step into or out of an inside: a gangway, a corridor aboard, a
+    #: door. Only where a point of the globe is missing on one side -- a
+    #: room, a hull -- because the eye is a radius (D-319 п. 6), and a road
+    #: neighbour fifteen kilometres off is not in sight for being joined.
+    for other_id in _neighbourhood(edges).get(standing.id, set()):
+        other = by_id.get(other_id)
+        if other is None:
+            continue
+        if places.geo_of(standing) is None or places.geo_of(other) is None:
+            bright.add(other_id)
     #: The eye: everything of this planet's surface within the radius.
     point = _standpoint(standing, by_id)
     if point is not None:
@@ -155,15 +172,18 @@ def around(
 
     #: Memory and the public, on this planet, dark where the eye does not reach.
     remembered = set(known)
+    #: Memory is of the surface: a floor or a cabin is the inside window's
+    #: (D-319 п. 9), and remembering it would drag its house or hull onto the
+    #: map dark from a memory of a room.
     dark = {
         node.id
         for node in nodes
-        if node.planet is standing.planet
-        and node.layer is not Layer.SPACE
-        and node.key in remembered
+        if node.planet is standing.planet and node.layer is Layer.PLANET and node.key in remembered
     }
     dark |= {
-        node_id for node_id in _public(nodes, by_id) if by_id[node_id].planet is standing.planet
+        node_id
+        for node_id in _public(nodes, edges, set(cities))
+        if node_id in by_id and by_id[node_id].planet is standing.planet
     }
     dark = _with_parents(dark, by_id) - bright
     return View(seen=seen | bright | dark, faded=dark)

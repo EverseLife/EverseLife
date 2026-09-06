@@ -51,7 +51,7 @@ from src.models.event import EventKind
 from src.models.identity import Body, BodyState
 from src.models.job import Job, JobKind, JobState
 from src.models.travel import Travel, TravelState
-from src.models.world import Edge, Node
+from src.models.world import Edge, Layer, Node
 from src.units import ROUND_REMAINDER, ROUND_STAMINA, on_grid
 
 
@@ -480,8 +480,13 @@ async def arrive(session: AsyncSession, job: Job) -> None:
         travel_id=str(travel.id),
     )
     #: Memory instead of fog (D-319 п. 6): the place one arrives at stays on
-    #: one's map. Written here, by the job -- a read does not write.
-    await memory.remember(session, constants_now(), body.identity_id, [target.key], at=job.run_at)
+    #: one's map. Written here, by the job -- a read does not write. Places
+    #: only: a floor or a cabin is the inside window's (п. 9), and a memory
+    #: of rooms would crowd out the places.
+    if target.layer is Layer.PLANET:
+        await memory.remember(
+            session, constants_now(), body.identity_id, [target.key], at=job.run_at
+        )
 
     #: Back at a machine: a work frozen here goes on from where it stopped
     #: (D-209). Only when the road ends here -- a leg of a longer route sends

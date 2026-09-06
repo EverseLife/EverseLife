@@ -22,7 +22,7 @@ import uuid
 from collections.abc import Iterable
 from datetime import datetime
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -43,10 +43,15 @@ async def remember(
     """Write the places into the identity's memory, renewing what is already there,
     and forget the oldest beyond the ceiling.
 
-    One statement to write, one to forget: the ceiling is a count like any
-    remainder, and two arrivals in one second must not both slip past it. The
-    write is an upsert on the identity-kind-key unique, so a place visited
-    twice is one row with the later moment.
+    One statement to write, one to forget. The write is an upsert on the
+    identity-kind-key unique, and the **later** visit wins whichever job fires
+    first -- a retried job with an old moment must not age a fresh memory into
+    the first to be forgotten. The forgetting is a `DELETE` over the rows past
+    the ceiling; under two jobs of one identity in the same instant it is
+    serialised by the lock every caller already holds on the body
+    (`walk.arrive`, `explore.returned` take the row `FOR UPDATE`), not by this
+    statement -- and a ceiling one over for a moment is a count of memories,
+    not money: the next arrival trims it.
     """
     rows = [
         {
@@ -64,7 +69,8 @@ async def remember(
     stmt = insert(Knowledge).values(rows)
     await session.execute(
         stmt.on_conflict_do_update(
-            constraint="uq_knowledge_identity_key", set_={"acquired_at": stmt.excluded.acquired_at}
+            constraint="uq_knowledge_identity_key",
+            set_={"acquired_at": func.greatest(Knowledge.acquired_at, stmt.excluded.acquired_at)},
         )
     )
     ceiling = int(constants[R.MAP_MEMORY_PLACES]) if cap is None else cap
