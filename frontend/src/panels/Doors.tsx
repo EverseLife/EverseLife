@@ -38,7 +38,10 @@ import { t } from "../locale";
 import { drawnOn } from "./EntryGlobe";
 
 type Props = {
-  doors: Door[];
+  /** Null while the doors are still being asked for -- or while that ask has
+   *  failed, which is `trouble` below. The step draws itself either way: a
+   *  step that renders nothing renders no way back either. */
+  doors: Door[] | null;
   name: string;
   busy: boolean;
   trouble?: string | null;
@@ -67,26 +70,26 @@ export function Doors({
   //: not be chosen at all. The free door of the Forerunners is among the ones
   //: this must never lose (D-028).
   const globe = drawnOn(doors);
-  const unplaced = doors.filter(
+  const unplaced = (doors ?? []).filter(
     (one) => one.planet !== globe || !one.place || !("lat" in one.place),
   );
 
   return (
     <section className={`doors-step${overGlobe ? " bare" : ""}`}>
       <h1>{t("ui-doors-title")}</h1>
-      {doors.length === 0 ? (
+      {doors === null ? (
+        //: Still coming, or not coming at all: the refusal is printed below,
+        //: with the way back under it either way.
+        !trouble && <p className="note center">…</p>
+      ) : doors.length === 0 ? (
         <p className="trouble">{t("ui-doors-empty-world")}</p>
       ) : (
         <>
-          {/* The globe says the rest of it: on a phone it is the screen, and
-              three lines of explanation over a planet are three lines the
-              planet does not have. */}
-          {!overGlobe && (
-            <>
-              <p className="note center">{t("ui-doors-lead", { name })}</p>
-              <p className="note center">{t("ui-doors-pick-on-globe")}</p>
-            </>
-          )}
+          {/* What to do is said under the planet, where the dots are
+              (`ui-entry-globe-doors-hint`): this half says whose choice it is
+              and what it is not -- no price, no term. On a phone even that
+              stands between the player and the thing they are choosing. */}
+          {!overGlobe && <p className="note center">{t("ui-doors-lead", { name })}</p>}
           {/* A door the globe cannot draw: no place on its sphere, or another
               planet's. It stands here by name, and normally there are none. */}
           {unplaced.length > 0 && (
@@ -143,7 +146,7 @@ export function Chosen({
   onBack: () => void;
 }) {
   return (
-    <section className="doors-step city">
+    <section className="doors-step">
       <h1>{door.city ?? (door.precursor ? t("ui-doors-precursor") : door.name)}</h1>
       <section className="card flat door">
         <table>
@@ -185,6 +188,11 @@ export function Chosen({
             )}
           </tbody>
         </table>
+        {/* No city round the door, and that is a fact of the same order as the
+            grant: no treasury to pay one, no charter to join, no tax to
+            withhold. Two dashes and three missing rows say it only to
+            somebody who knows what rows a city door has. */}
+        {!door.city && <p className="note">{t("ui-doors-no-city")}</p>}
         {/* The city's word: the authority writes it, not the engine (D-183).
             A silent city shows its numbers only -- there is nothing to make up
             on its behalf. */}

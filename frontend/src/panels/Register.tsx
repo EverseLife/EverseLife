@@ -52,7 +52,7 @@ type Props = {
   trouble: string | null;
   onSubmit: (application: Enrollment) => Promise<unknown>;
   /** Whether the email is free: asked at the first step, refused there
-   *  rather than at the door, four steps later. Resolves to whether it is. */
+   *  rather than at the door, four steps on. Resolves to whether it is. */
   onCheck: (email: string) => Promise<boolean>;
   /** The doors, once read: the globe beside the form draws them (D-319). */
   onDoors: (doors: Door[] | null) => void;
@@ -115,8 +115,24 @@ export function Register({
   //: so. Going back unchooses (below), so this cannot bounce the player
   //: forward again the moment they step off it.
   useEffect(() => {
-    if (step === 3 && picked) setStep(4);
+    if (step === 3 && picked) {
+      //: The same clearing every other change of step does (`go`): a refusal
+      //: from the step behind is not a refusal of the one ahead.
+      setLocal(null);
+      setStep(4);
+    }
   }, [step, picked]);
+  //: And a key that names no door of this world is not a step at all: back to
+  //: the planet, which is the only place a key comes from. Unreachable while
+  //: the only two things that set one are the globe and the names beside it --
+  //: and worth its three lines anyway, because the shape of that failure is a
+  //: player locked on the last screen before the world.
+  useEffect(() => {
+    if (step === 4 && doors !== null && !doors.some((one) => one.node === picked)) {
+      onPick(null);
+      setStep(3);
+    }
+  }, [step, doors, picked, onPick]);
 
   const go = (to: Step) => {
     setLocal(null);
@@ -398,26 +414,26 @@ export function Register({
         </form>
       )}
 
-      {step === 3 &&
-        (doors === null ? (
-          <p className="note center">…</p>
-        ) : (
-          <Doors
-            doors={doors}
-            overGlobe={bare}
-            name={name}
-            busy={busy}
-            trouble={error}
-            picked={picked}
-            onPick={onPick}
-            onBack={() => go(2)}
-          />
-        ))}
+      {/* The step draws itself while the doors are still coming, and if they
+          never come: a bare "…" would be a screen with no way off it, and on
+          a phone the way in does not even take a press in that state. */}
+      {step === 3 && (
+        <Doors
+          doors={doors}
+          overGlobe={bare}
+          name={name}
+          busy={busy}
+          trouble={error}
+          picked={picked}
+          onPick={onPick}
+          onBack={() => go(2)}
+        />
+      )}
 
       {step === 4 &&
         (chosen === null ? (
-          //: The key names no door of this world: back to choosing one, which
-          //: is the only place that key can come from.
+          //: A blink at most: the effect above puts the player back on the
+          //: planet as soon as the doors are known.
           <p className="note center">…</p>
         ) : (
           <Chosen

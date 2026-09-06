@@ -36,7 +36,7 @@ ui-intro-step-sell = Sell what you made at a terminal. Prices here are set by pe
 ui-intro-go = Begin
 ui-intro-again = To open this again — the “?” in the header, or “who you are” under “more” on a phone.
 
-## Registration in four steps (D-187)
+## Registration in five steps (D-187)
 
 ui-register-step-account = account
 ui-register-step-line = line
@@ -86,6 +86,7 @@ ui-doors-precursor = Forerunner printer
 ui-doors-people = people right now
 ui-doors-citizens = citizens
 ui-doors-grant = settling grant
+ui-doors-no-city = There is no city round this door: nobody to pay a settling grant, nothing to enrol into and nothing to withhold from a sale.
 ui-doors-nothing = none
 ui-doors-first-body = first body
 ui-doors-at-once = at once
@@ -94,11 +95,10 @@ ui-doors-citizenship-at-once = at once
 ui-doors-tax = sales tax
 ui-doors-print-here = Print here
 ui-doors-back = ← back
-ui-doors-pick-on-globe = Choose a printer — a large dot on the globe. The larger the dot, the more citizens the city has.
 
 ## The globe at the entry and at the printer step (D-319, D-013)
 ui-entry-globe-label = globe of the planet
-ui-entry-globe-doors-hint = The large dots are the printers you can be printed at: choose one and its card opens. Drag to turn the globe.
+ui-entry-globe-doors-hint = The large dots are the printers you can be printed at: the larger the dot, the more citizens the city has. Choose one and its city's card opens; drag to turn the globe.
 
 ## The state tab: economy and population (D-124, D-140, D-154)
 
