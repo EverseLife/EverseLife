@@ -189,6 +189,10 @@ MAP_RINGS = 6
 #: surface in it is days old by design (D-319 п. 7), the sky moves by the
 #: minute-long tick, and five minutes of staleness on either is invisible.
 PUBLIC_MAP_MAX_AGE_S = 300
+#: How long a browser may keep a tile of the local relief (D-323): an hour
+#: -- a constant of the seed, but a world reborn with another seed must not
+#: draw the old ground for days.
+TILE_MAX_AGE_S = 3600
 MAP_HASH_STEP = 31
 MAP_HASH_SPAN = 65_521
 #: Width of the advisory-lock key that holds one group's map while a node

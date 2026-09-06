@@ -25,6 +25,23 @@ nodes, coarse enough that a whole planet is a few thousand numbers. The sea
 level is the height that puts the asked share of the grid under water; the
 mountain line, the height that leaves the asked share of the land above it.
 
+## The local relief (D-323)
+
+The grid decides sea and land; what a place is like on foot is finer than
+any grid of a planet can be. A second noise, its first octave a few
+kilometres across (the vault's `terrain.detail_km`, given here as lattice
+cells across the diameter) and one halving octave under it, is laid over
+the land at the vault's amplitude. Its highest share of the land is
+**peaks** and its lowest **basins** (`terrain.peak_share`,
+`terrain.basin_share`): a peak is a mountain wherever it stands, a basin a
+lake on any planet with a sea -- so a lowland city has hills, a range and
+a lake within a walk, and the shares hold at every place alike. The noise is read from
+**tiles** -- squares of `TILE_DEG` a side sampled `TILE_N` steps each, the
+height at every lattice point being the grid's bilinear reading plus the
+detail -- and between the lattice points bilinearly. The client draws the
+very same tiles, so what the globe shows and what a scout finds agree to
+the last bit, and a tile is computed once and kept.
+
 ## Rivers
 
 A river starts at one of the highest cells of the land and walks downhill,
@@ -39,7 +56,8 @@ is, and this gives exactly that, deterministically, for a few dozen rivers.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from collections import OrderedDict
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -56,6 +74,29 @@ PERSISTENCE = 0.5
 LATTICE = 3.0
 #: The mix of large and small: a planet is a few continents and many bays.
 ROUGHNESS = 2.0
+#: The local relief: how many halving octaves from the vault's feature
+#: size. Its seed is the height's plus the vault's offset
+#: (`terrain.detail_seed`), so the hills do not simply repeat the continents.
+DETAIL_OCTAVES = 2
+#: How many tiles a field keeps at once: a walker's neighbourhood and a
+#: frame's worth, not a planet's -- six hundred tiles of two grids would be
+#: half a gigabyte a planet, open to anybody who cared to ask for them.
+TILE_KEEP = 64
+#: A tile's two grids, by index: the heights and the local noise.
+HEIGHTS = 0
+LOCAL = 1
+#: How far off the sea's level the land and the sea are held apart in a
+#: tile: a hundred-thousandth of the height, invisible, and wider than the
+#: single precision the tile is kept in.
+SHORE = 1e-5
+#: How finely a tile's numbers are written on the wire: a hundred-thousandth
+#: is a thousandth of a percent of the rise, well under any line drawn.
+TILE_DECIMALS = 5
+#: The tiles the local relief is read from: degrees a side, steps a side.
+#: A tenth of a degree a step -- half a kilometre on a small world, enough
+#: for features of a few kilometres -- and ten thousand numbers a tile.
+TILE_DEG = 10.0
+TILE_N = 100
 #: How far apart two rivers' sources keep, in degrees of arc. By arc, not by
 #: cells: a polar row is a hundred and eighty cells round one point, and a
 #: cap of high ground there would seat a river on every third of them -- a
@@ -96,15 +137,26 @@ def _value_noise(seed: int, px: np.ndarray, py: np.ndarray, pz: np.ndarray) -> n
 
 def heights(seed: int, lat: np.ndarray, lon: np.ndarray) -> np.ndarray:
     """The height in [0, 1] at these points of the sphere, degrees in, fractal noise out."""
+    return _fractal(seed, lat, lon, LATTICE, OCTAVES)
+
+
+def detail(seed: int, lat: np.ndarray, lon: np.ndarray, lattice: float) -> np.ndarray:
+    """The local relief in [-1, 1] at these points: the finer noise, centred."""
+    return (_fractal(seed, lat, lon, lattice, DETAIL_OCTAVES) - 0.5) * 2.0
+
+
+def _fractal(
+    seed: int, lat: np.ndarray, lon: np.ndarray, lattice: float, octaves: int
+) -> np.ndarray:
     phi, lam = np.radians(lat), np.radians(lon)
     x = np.cos(phi) * np.cos(lam)
     y = np.cos(phi) * np.sin(lam)
     z = np.sin(phi)
     total = np.zeros_like(x, dtype=float)
     amplitude = 1.0
-    frequency = LATTICE
+    frequency = lattice
     norm = 0.0
-    for octave in range(OCTAVES):
+    for octave in range(octaves):
         #: Each octave is offset along the lattice so the octaves do not share
         #: their corners: summed in place they would ring at the same points.
         shift = octave * 17.0
@@ -135,7 +187,7 @@ def _cell_centres() -> tuple[np.ndarray, np.ndarray]:
 
 @dataclass(frozen=True, slots=True)
 class Field:
-    """A planet's relief: the grid, its water lines and its rivers."""
+    """A planet's relief: the grid, its water lines, its rivers and its local relief."""
 
     seed: int
     grid: np.ndarray
@@ -145,6 +197,26 @@ class Field:
     rivers: tuple[tuple[tuple[float, float], ...], ...]
     #: The cells that are lakes: rivers ended there with nowhere lower to go.
     lakes: frozenset[tuple[int, int]]
+    #: The local relief (D-323): the lattice of its first octave, cells
+    #: across the diameter, and its amplitude as a share of the land's rise
+    #: above the sea. Zero amplitude is a planet with no local relief, read
+    #: from the grid alone.
+    detail_lattice: float = 0.0
+    detail_amplitude: float = 0.0
+    #: The offset of the local noise's seed from the field's (D-323).
+    detail_seed: int = 0
+    #: Whether a basin holds water: a planet with a sea has lakes, a dry one
+    #: has dry basins.
+    wet: bool = False
+    #: The local noise's levels of a peak and of a basin, from the vault's
+    #: shares of the land: none by default.
+    peak_level: float = 2.0
+    basin_level: float = -2.0
+    #: The tiles read of late, by (row, col), the `TILE_KEEP` most recent:
+    #: computed once each while they stay.
+    tiles: OrderedDict[tuple[int, int], tuple[np.ndarray, np.ndarray]] = field(
+        default_factory=OrderedDict, compare=False, repr=False
+    )
 
     # --- reading -------------------------------------------------------------
 
@@ -159,8 +231,8 @@ class Field:
             -180.0 + (col + 0.5) * (360.0 / GRID_COLS),
         )
 
-    def height(self, lat: float, lon: float) -> float:
-        """The height at a point: the field interpolated between its cells."""
+    def coarse(self, lat: float, lon: float) -> float:
+        """The grid's height at a point, interpolated between its cells: sea or land."""
         row = (lat + 90.0) / (180.0 / GRID_ROWS) - 0.5
         col = (lon + 180.0) / (360.0 / GRID_COLS) - 0.5
         r0 = int(math.floor(row))
@@ -172,17 +244,114 @@ class Field:
         bottom = self.grid[rows[1], cols[0]] * (1 - fc) + self.grid[rows[1], cols[1]] * fc
         return float(top * (1 - fr) + bottom * fr)
 
+    def _coarse_grid(self, lat: np.ndarray, lon: np.ndarray) -> np.ndarray:
+        """`coarse` at many points at once."""
+        row = (lat + 90.0) / (180.0 / GRID_ROWS) - 0.5
+        col = (lon + 180.0) / (360.0 / GRID_COLS) - 0.5
+        r0 = np.floor(row).astype(int)
+        c0 = np.floor(col).astype(int)
+        fr, fc = row - r0, col - c0
+        ra = np.clip(r0, 0, GRID_ROWS - 1)
+        rb = np.clip(r0 + 1, 0, GRID_ROWS - 1)
+        ca = c0 % GRID_COLS
+        cb = (c0 + 1) % GRID_COLS
+        top = self.grid[ra, ca] * (1 - fc) + self.grid[ra, cb] * fc
+        bottom = self.grid[rb, ca] * (1 - fc) + self.grid[rb, cb] * fc
+        return top * (1 - fr) + bottom * fr
+
+    def tile(self, row: int, col: int) -> tuple[np.ndarray, np.ndarray]:
+        """A tile of the local relief, `TILE_N + 1` a side: the heights, and
+        the local noise itself.
+
+        Lattice points from the tile's south-west corner, `TILE_DEG / TILE_N`
+        apart, the last row and column on the next tile's first. The height
+        is the grid's reading plus the noise at the vault's amplitude, the
+        coast kept the grid's: the land never dips under the sea's level nor
+        the sea rises over it, whatever the noise says -- a lowland is a
+        plain at the sea's level, not a marsh of holes. The noise is given
+        beside the height because a peak and a basin are read off it, not
+        off the height (`is_mountain`, `is_lake`). Computed once.
+        """
+        key = (row, col)
+        got = self.tiles.get(key)
+        if got is not None:
+            self.tiles.move_to_end(key)
+            return got
+        lat0, lon0 = tile_origin(row, col)
+        steps = np.arange(TILE_N + 1) * (TILE_DEG / TILE_N)
+        lat, lon = np.meshgrid(np.minimum(90.0, lat0 + steps), lon0 + steps, indexing="ij")
+        coarse = self._coarse_grid(lat, lon)
+        if self.detail_amplitude > 0:
+            rise = max(1e-9, 1.0 - self.sea_level)
+            local = detail(self.seed + self.detail_seed, lat, lon, self.detail_lattice)
+            total = coarse + self.detail_amplitude * rise * local
+            land = coarse >= self.sea_level
+            total = np.where(land, np.maximum(total, self.sea_level + SHORE), total)
+            total = np.where(land, total, np.minimum(total, self.sea_level - SHORE))
+        else:
+            local = np.zeros_like(coarse)
+            total = coarse
+        #: Single precision: a ten-millionth of the rise, under the wire's
+        #: own rounding, at half the memory.
+        got = (total.astype(np.float32), local.astype(np.float32))
+        self.tiles[key] = got
+        while len(self.tiles) > TILE_KEEP:
+            self.tiles.popitem(last=False)
+        return got
+
+    def _tiled(self, lat: float, lon: float, which: int) -> float:
+        """One of a tile's grids read bilinearly at a point."""
+        row, col = tile_of(lat, lon)
+        lat0, lon0 = tile_origin(row, col)
+        step = TILE_DEG / TILE_N
+        fi = min(TILE_N, max(0.0, (lat - lat0) / step))
+        fj = min(TILE_N, max(0.0, ((lon - lon0) % 360.0) / step))
+        i0 = min(TILE_N - 1, int(math.floor(fi)))
+        j0 = min(TILE_N - 1, int(math.floor(fj)))
+        ti, tj = fi - i0, fj - j0
+        grid = self.tile(row, col)[which]
+        top = grid[i0, j0] * (1 - tj) + grid[i0, j0 + 1] * tj
+        bottom = grid[i0 + 1, j0] * (1 - tj) + grid[i0 + 1, j0 + 1] * tj
+        return float(top * (1 - ti) + bottom * ti)
+
+    def height(self, lat: float, lon: float) -> float:
+        """The height at a point with its local relief: the tile read bilinearly.
+
+        Without a local relief, the grid's own reading -- a field built for
+        a test, or a world before D-323.
+        """
+        if self.detail_amplitude <= 0:
+            return self.coarse(lat, lon)
+        return self._tiled(lat, lon, HEIGHTS)
+
+    def local(self, lat: float, lon: float) -> float:
+        """The local noise at a point, in [-1, 1]: zero without a local relief."""
+        if self.detail_amplitude <= 0:
+            return 0.0
+        return self._tiled(lat, lon, LOCAL)
+
     def is_sea(self, lat: float, lon: float) -> bool:
-        return self.height(lat, lon) < self.sea_level
+        """Sea is the grid's word: the local relief does not move a coast."""
+        return self.coarse(lat, lon) < self.sea_level
 
     def is_lake(self, lat: float, lon: float) -> bool:
-        return self.cell(lat, lon) in self.lakes
+        """A river's end with nowhere lower to go, or -- on a planet with a
+        sea -- a basin of the local relief on land: a bowl holds water."""
+        if self.cell(lat, lon) in self.lakes:
+            return True
+        return self.wet and not self.is_sea(lat, lon) and self.local(lat, lon) <= self.basin_level
 
     def is_water(self, lat: float, lon: float) -> bool:
         return self.is_sea(lat, lon) or self.is_lake(lat, lon)
 
     def is_mountain(self, lat: float, lon: float) -> bool:
-        return self.height(lat, lon) >= self.mountain_level
+        """Above the planet's mountain line -- the grid's word, as the coast
+        is -- or a peak of the local relief on land: a range stands where
+        the noise puts it, a lowland's included, and the planet's ranges
+        stay ranges whatever the noise says over them."""
+        if self.coarse(lat, lon) >= self.mountain_level:
+            return True
+        return not self.is_sea(lat, lon) and self.local(lat, lon) >= self.peak_level
 
     def relief(self, lat: float, lon: float) -> float:
         """How far above the sea the point stands, as a share of the range above sea level."""
@@ -266,6 +435,49 @@ def _segment_distance(
 # --- building --------------------------------------------------------------
 
 
+def lattice_for(radius_km: float, feature_km: float) -> float:
+    """The frequency of a noise whose first octave's wavelength -- a rise and
+    a dip, two lattice cells -- spans `feature_km`: the sphere's diameter
+    divided by the feature, since the unit sphere's diameter is two cells at
+    frequency one."""
+    return 2.0 * radius_km / feature_km
+
+
+def around(lat: float, lon: float, reach_deg: float) -> list[tuple[float, float]]:
+    """Points within `reach_deg` of a place, on `AROUND_RAYS` bearings at
+    `AROUND_STEPS` distances: what lies within a walk of it is read here."""
+    out: list[tuple[float, float]] = []
+    stretch = max(1e-6, math.cos(math.radians(lat)))
+    for ray in range(AROUND_RAYS):
+        bearing = 2 * math.pi * ray / AROUND_RAYS
+        for step in range(1, AROUND_STEPS + 1):
+            d = reach_deg * step / AROUND_STEPS
+            out.append((lat + d * math.cos(bearing), lon + d * math.sin(bearing) / stretch))
+    return out
+
+
+AROUND_RAYS = 8
+AROUND_STEPS = 3
+
+
+def tile_counts() -> tuple[int, int]:
+    """How many tiles cover the sphere: rows of latitude, columns of longitude."""
+    return int(round(180.0 / TILE_DEG)), int(round(360.0 / TILE_DEG))
+
+
+def tile_of(lat: float, lon: float) -> tuple[int, int]:
+    """Which tile a point lies on."""
+    rows, cols = tile_counts()
+    row = min(rows - 1, max(0, int(math.floor((lat + 90.0) / TILE_DEG))))
+    col = int(math.floor((lon + 180.0) / TILE_DEG)) % cols
+    return row, col
+
+
+def tile_origin(row: int, col: int) -> tuple[float, float]:
+    """A tile's south-west corner, degrees."""
+    return -90.0 + row * TILE_DEG, -180.0 + col * TILE_DEG
+
+
 def _level_for_share(grid: np.ndarray, below: float) -> float:
     """The height that puts this share of the grid under it."""
     if below <= 0.0:
@@ -305,11 +517,25 @@ def _trace_river(
             return path, True
 
 
-def build(seed: int, *, sea_share: float, mountain_share: float, rivers: int) -> Field:
+def build(
+    seed: int,
+    *,
+    sea_share: float,
+    mountain_share: float,
+    rivers: int,
+    detail_lattice: float = 0.0,
+    detail_amplitude: float = 0.0,
+    peak_share: float = 0.0,
+    basin_share: float = 0.0,
+    detail_seed: int = 0,
+) -> Field:
     """The relief of a sphere for this seed and these shares.
 
     Deterministic: the same seed and shares give the same field on every
     machine, so two servers replaying one world lay the same continents.
+    The local relief (D-323) is given as its first octave's lattice, cells
+    across the diameter, its amplitude, and the shares of the land that are
+    its peaks and its basins; none by default.
     """
     lat, lon = _cell_centres()
     grid = heights(seed, lat, lon)
@@ -349,6 +575,13 @@ def build(seed: int, *, sea_share: float, mountain_share: float, rivers: int) ->
         mountain_level=mountain_level,
         rivers=tuple(lines),
         lakes=frozenset(lakes),
+        detail_lattice=detail_lattice,
+        detail_amplitude=detail_amplitude,
+        detail_seed=detail_seed,
+        wet=sea_share > 0.0,
+        **_local_levels(
+            seed + detail_seed, detail_lattice, detail_amplitude, peak_share, basin_share
+        ),
     )
 
 
@@ -360,6 +593,51 @@ def _arc_deg(a: tuple[float, float], b: tuple[float, float]) -> float:
         lam_a - lam_b
     )
     return math.degrees(math.acos(max(-1.0, min(1.0, cos))))
+
+
+def _local_levels(
+    seed: int,
+    lattice: float,
+    amplitude: float,
+    peak_share: float,
+    basin_share: float,
+) -> dict[str, float]:
+    """The local noise's levels that leave the asked shares of the ground
+    above and below them.
+
+    Of the ground as it is **read** -- bilinearly between the tile's lattice
+    points -- not of the noise at the points: between the points the field
+    is smoother than at them, and a level cut at the points' tails would
+    leave half the share. The noise is the same everywhere on the sphere,
+    so one patch of it, sampled as a tile is and read at random points,
+    stands for all of it. Nothing without a local relief.
+    """
+    if amplitude <= 0:
+        return {}
+    step = TILE_DEG / TILE_N
+    span = 2 * TILE_DEG
+    n = int(round(span / step))
+    grid_lat, grid_lon = np.meshgrid(
+        -span / 2 + np.arange(n + 1) * step, np.arange(n + 1) * step, indexing="ij"
+    )
+    local = detail(seed, grid_lat, grid_lon, lattice)
+    rng = np.random.default_rng(seed)
+    fi = rng.uniform(0.0, n, LEVEL_SAMPLES)
+    fj = rng.uniform(0.0, n, LEVEL_SAMPLES)
+    i0 = np.minimum(n - 1, np.floor(fi).astype(int))
+    j0 = np.minimum(n - 1, np.floor(fj).astype(int))
+    ti, tj = fi - i0, fj - j0
+    top = local[i0, j0] * (1 - tj) + local[i0, j0 + 1] * tj
+    bottom = local[i0 + 1, j0] * (1 - tj) + local[i0 + 1, j0 + 1] * tj
+    read = top * (1 - ti) + bottom * ti
+    return {
+        "peak_level": float(np.quantile(read, 1.0 - peak_share)) if peak_share > 0 else 2.0,
+        "basin_level": float(np.quantile(read, basin_share)) if basin_share > 0 else -2.0,
+    }
+
+
+#: How many readings of the patch the levels are cut from.
+LEVEL_SAMPLES = 40_000
 
 
 def _centre(row: int, col: int) -> tuple[float, float]:

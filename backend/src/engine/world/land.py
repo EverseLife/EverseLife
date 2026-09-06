@@ -68,6 +68,8 @@ def public_signs(node: Node) -> list[str]:
 #: watered, so the one word that means water is named here.
 WATER = "water"
 RIVER = "river"
+#: A lake of the local relief within reach (D-323): water as a river is.
+LAKE = "lake"
 #: The same property saying there is none. A word, not an absence: a node
 #: whose water was never rolled and one rolled dry read alike to `has_place`.
 NO_WATER = "none"
@@ -85,7 +87,7 @@ def has_place(node: Node | None, mark: str) -> bool:
         return False
     held = (node.properties or {}).get(mark)
     if mark == WATER:
-        return held == RIVER
+        return held in (RIVER, LAKE)
     return bool(held)
 
 

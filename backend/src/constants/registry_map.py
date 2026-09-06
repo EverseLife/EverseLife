@@ -24,6 +24,11 @@ TERRAIN_MOUNTAIN_SHARE = Num("terrain.mountain_share")
 TERRAIN_RIVERS = Table("terrain.rivers")
 TERRAIN_LAPSE_C = Num("terrain.lapse_c")
 TERRAIN_RIVER_REACH_KM = Num("terrain.river_reach_km")
+TERRAIN_DETAIL_KM = Num("terrain.detail_km")
+TERRAIN_DETAIL_AMPLITUDE = Num("terrain.detail_amplitude")
+TERRAIN_PEAK_SHARE = Num("terrain.peak_share")
+TERRAIN_BASIN_SHARE = Num("terrain.basin_share")
+TERRAIN_DETAIL_SEED = Num("terrain.detail_seed")
 #: How much of a place's rain is the field's own noise; the rest is water nearby.
 TERRAIN_RAIN_NOISE_SHARE = Num("terrain.rain_noise_share")
 #: A trail is worn in by feet, never laid (D-319): this many arrivals over
@@ -77,6 +82,11 @@ __all__ = [
     "TERRAIN_RIVERS",
     "TERRAIN_LAPSE_C",
     "TERRAIN_RIVER_REACH_KM",
+    "TERRAIN_DETAIL_KM",
+    "TERRAIN_DETAIL_AMPLITUDE",
+    "TERRAIN_PEAK_SHARE",
+    "TERRAIN_BASIN_SHARE",
+    "TERRAIN_DETAIL_SEED",
     "TERRAIN_RAIN_NOISE_SHARE",
     "PATH_WEAR_THRESHOLD",
     "PATH_FADE_THRESHOLD",

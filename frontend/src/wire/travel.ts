@@ -188,6 +188,28 @@ export type Terrain = {
   rivers: [number, number][][];
   lakes: [number, number][];
   warmth: number[];
+  /** The tiling of the local relief (D-323): degrees a tile, steps a tile. */
+  tile: { deg: number; n: number };
+  /** The local noise's levels of a peak and of a basin, and whether a basin
+   *  holds water on this planet. */
+  peak_level: number;
+  basin_level: number;
+  wet: boolean;
+};
+
+/** A tile of a planet's local relief (D-323): `n + 1` rows and columns of
+ *  the local noise from the tile's south-west corner, `step` degrees apart
+ *  -- the very numbers a scout's feet read. The heights the page has from
+ *  the grid (D-225); a peak and a basin are cut from the noise against the
+ *  sketch's levels. */
+export type Tile = {
+  row: number;
+  col: number;
+  lat0: number;
+  lon0: number;
+  step: number;
+  n: number;
+  local: number[][];
 };
 
 export type WorldMap = {

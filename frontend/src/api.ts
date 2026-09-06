@@ -27,7 +27,7 @@ import type { FoundingRole, LawBook } from "./wire/city";
 import type { RecipeBook } from "./wire/craft";
 import type { Door, Line } from "./wire/person";
 import type { Book } from "./wire/trade";
-import type { Terrain, WorldMap } from "./wire/travel";
+import type { Terrain, Tile, WorldMap } from "./wire/travel";
 
 async function read<T>(path: string, token?: string, cache?: RequestCache): Promise<T> {
   //: The token travels in the ordinary header and only where it means
@@ -62,6 +62,10 @@ export const laws = () => read<LawBook>("/public/laws");
  *  token and once per planet -- the globe draws its ground from it. */
 export const terrain = (planet: string) =>
   read<Terrain>(`/public/terrain/${encodeURIComponent(planet)}`);
+/** A tile of a planet's local relief (D-323): asked for under a close
+ *  frame, once per tile, without a token. */
+export const terrainTile = (planet: string, row: number, col: number) =>
+  read<Tile>(`/public/terrain/${encodeURIComponent(planet)}/${row}/${col}`);
 /** Doors into the world: read before identification -- a newcomer has no identity yet. */
 export const doors = () => read<{ doors: Door[] }>("/public/doors");
 /** Character lines and the number of players -- also before identification (D-187). */
@@ -146,6 +150,7 @@ export type {
   MapRoute,
   RoadWork,
   Terrain,
+  Tile,
   Transit,
   Vehicle,
   WorldMap,

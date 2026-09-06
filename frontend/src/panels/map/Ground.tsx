@@ -16,8 +16,9 @@
 import { useEffect, useId, useMemo, useState } from "react";
 
 import * as api from "../../api";
-import type { Look, RecipeBook, Terrain } from "../../api";
+import type { Look, RecipeBook, Terrain, Tile } from "../../api";
 import { diskPath, type Eye } from "./globe";
+import { TILE_UNIT } from "./bands";
 import {
   COARSE_STRIDE,
   FINE_UNIT,
@@ -25,6 +26,9 @@ import {
   kindAt,
   nightPath,
   subsolar,
+  tileKey,
+  tilesAbout,
+  type Tiles,
   type Warmth,
 } from "./relief";
 
@@ -42,6 +46,70 @@ function reliefOf(planet: string): Promise<Terrain> {
     RELIEF.set(planet, asked);
   }
   return asked;
+}
+
+/** The tiles of the local relief held of late, by planet, the `TILE_KEEP`
+ *  most recent each -- and the ones on their way, so a tile is asked for
+ *  once. A planet's worth of tiles would be a hundred megabytes of parsed
+ *  numbers; a frame's worth and a walk's is a few. */
+const TILES = new Map<string, Map<string, Tile>>();
+const ASKED = new Set<string>();
+const TILE_KEEP = 64;
+
+/**
+ * The tiles a close frame needs, fetched as the frame comes to need them
+ * and kept: the ground redraws as each arrives. Nothing is asked for from
+ * afar -- the grid does there -- nor for a frame that would need too many.
+ */
+export function useTiles(
+  planet: string | null,
+  terrain: Terrain | null,
+  eye: Eye,
+  radius: number,
+  unit: number,
+  within: number | undefined,
+): Tiles | undefined {
+  const [held, setHeld] = useState(0);
+  useEffect(() => {
+    if (!planet || !terrain?.tile || unit > TILE_UNIT || within === undefined) return;
+    let live = true;
+    let own = TILES.get(planet);
+    if (!own) {
+      own = new Map();
+      TILES.set(planet, own);
+    }
+    const store = own;
+    for (const [row, col] of tilesAbout(terrain, eye, radius, within)) {
+      const key = `${planet}/${tileKey(row, col)}`;
+      if (store.has(tileKey(row, col)) || ASKED.has(key)) continue;
+      ASKED.add(key);
+      api.terrainTile(planet, row, col).then(
+        (tile) => {
+          store.set(tileKey(row, col), tile);
+          for (const old of store.keys()) {
+            if (store.size <= TILE_KEEP) break;
+            store.delete(old);
+            ASKED.delete(`${planet}/${old}`);
+          }
+          if (live) setHeld((n) => n + 1);
+        },
+        (why) => {
+          //: Not a fact about the planet: ask again next time.
+          ASKED.delete(key);
+          console.warn(`tile ${key}:`, why);
+        },
+      );
+    }
+    return () => {
+      live = false;
+    };
+  }, [planet, terrain, eye, radius, unit, within]);
+  //: A new map each time a tile lands, so that what is memoised on it redraws.
+  return useMemo(() => {
+    void held;
+    const own = planet ? TILES.get(planet) : undefined;
+    return own && unit <= TILE_UNIT ? new Map(own) : undefined;
+  }, [planet, unit, held]);
 }
 
 export function useTerrain(planet: string | null): Terrain | null {
@@ -113,12 +181,15 @@ export function Ground({
     clock?.planet === planet ? clock.day_hours : Number(book?.constants?.[`time.day_${planet}`] ?? 0);
   const sun = subsolar(clock?.epoch ?? null, dayHours, Date.now());
   const unit = chosen ?? (coarse ? COARSE_STRIDE : fine ? FINE_UNIT : 1);
+  const tiles = useTiles(planet, terrain, eye, radius, unit, within);
   const paths = useMemo(
     () =>
-      terrain && bands && detailed ? cellPaths(terrain, eye, radius, bands, unit, within) : null,
-    [terrain, eye, radius, bands, detailed, unit, within],
+      terrain && bands && detailed
+        ? cellPaths(terrain, eye, radius, bands, unit, within, tiles)
+        : null,
+    [terrain, eye, radius, bands, detailed, unit, within, tiles],
   );
-  const under = terrain && bands && !detailed ? kindAt(terrain, eye, bands) : null;
+  const under = terrain && bands && !detailed ? kindAt(terrain, eye, bands, tiles) : null;
   const night = useMemo(() => (sun ? nightPath(eye, radius, sun) : null), [eye, radius, sun]);
   //: The clip's id is this instance's own: a second ground on the page --
   //: the entry screen's beside the map's -- must not share it.

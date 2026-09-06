@@ -5,12 +5,17 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { Terrain } from "../api";
+import type { Terrain, Tile } from "../api";
 import { project, radiusUnits } from "../panels/map/globe";
 import {
   above,
   cellPaths,
+  cut,
   heightAt,
+  kindAt,
+  localAt,
+  tileKey,
+  tilesAbout,
   nightPath,
   subsolar,
   toneOf,
@@ -44,6 +49,26 @@ const world: Terrain = {
   ],
   lakes: [[3, 0]],
   warmth: [-10, 10, 25, 5],
+  tile: { deg: 45, n: 2 },
+  peak_level: 0.5,
+  basin_level: -0.5,
+  wet: true,
+};
+
+/** A tile of the north-western land: flat at the grid's height, with a
+ *  basin at its south-west corner and a peak in its middle. */
+const tile: Tile = {
+  row: 3,
+  col: 1,
+  lat0: 45,
+  lon0: -135,
+  step: 22.5,
+  n: 2,
+  local: [
+    [-0.9, 0, 0],
+    [0, 0.9, 0],
+    [0, 0, 0],
+  ],
 };
 
 /** How many cells a set of ground paths holds. */
@@ -178,6 +203,56 @@ describe("the land", () => {
     const plain = cellPaths(world, eye, R, { cold: 0, cool: 15 });
     const fine = cellPaths(world, eye, R, { cold: 0, cool: 15 }, 0.5);
     expect(cells(fine)).toBeGreaterThan(cells(plain) * 2);
+  });
+
+  it("reads the local relief off its tile: a basin is a hole, a peak a mountain", () => {
+    const eye = { lat: 67.5, lon: -112.5 };
+    const tiles = new Map([[tileKey(3, 1), tile]]);
+    //: Between the lattice points the tile reads bilinearly.
+    expect(localAt(world, tiles, 67.5, -112.5)).toBeCloseTo(0.9, 9);
+    expect(localAt(world, tiles, 56.25, -112.5)).toBeCloseTo(0.45, 9);
+    expect(localAt(world, tiles, 10, 10)).toBe(null);
+    //: Drawn at a sixteenth of a cell: without the tile the land is whole
+    //: and there is no mountain; with it the peak is high ground and the
+    //: basin a hole in the land.
+    const plain = cellPaths(world, eye, R, { cold: 0, cool: 15 }, 1 / 16, R / 2);
+    const fine = cellPaths(world, eye, R, { cold: 0, cool: 15 }, 1 / 16, R / 2, tiles);
+    const highs = (d: string) => (d.match(/M/g) ?? []).length;
+    expect(highs(fine.high)).toBeGreaterThan(highs(plain.high));
+    expect(fine.land.cool).not.toBe(plain.land.cool);
+    //: Under a frame inside one cell the flat colour reads the tile too.
+    expect(kindAt(world, { lat: 67.5, lon: -112.5 }, { cold: 0, cool: 15 }, tiles)).toBe("high");
+    expect(kindAt(world, { lat: 45.5, lon: -134.5 }, { cold: 0, cool: 15 }, tiles)).toBe("water");
+    expect(kindAt(world, { lat: 67.5, lon: -112.5 }, { cold: 0, cool: 15 })).toBe("cool");
+    //: The tiles a frame needs: the eye's own under a small frame, none
+    //: for a frame that would need the whole planet.
+    expect(tilesAbout(world, eye, R, R / 20)).toEqual([[3, 1]]);
+    expect(tilesAbout(world, eye, R, R)).toEqual([]);
+  });
+
+  it("cuts a coast cell by the height and then by the noise: a basin at the shore is a hole", () => {
+    //: Left half sea, right half land; the land's far corner is a basin.
+    const quad = [
+      { x: 0, y: 0 },
+      { x: 1, y: 0 },
+      { x: 1, y: 1 },
+      { x: 0, y: 1 },
+    ];
+    const hs = [0.25, 0.75, 0.75, 0.25];
+    const ls = [0, 0, -0.9, 0];
+    const shore = cut(quad, hs, 0.5, ls);
+    expect(shore?.points).toEqual([
+      { x: 0.5, y: 0 },
+      { x: 1, y: 0 },
+      { x: 1, y: 1 },
+      { x: 0.5, y: 1 },
+    ]);
+    //: The noise is carried to the shore's own vertices by the same cut.
+    expect(shore?.carry).toEqual([0, 0, -0.9, -0.45]);
+    const land = cut(shore!.points, shore!.carry, -0.5);
+    //: The basin corner (1, 1) is out of the land; the shore corner stays.
+    expect(land?.points.some((p) => p.x === 1 && p.y === 1)).toBe(false);
+    expect(land?.points.some((p) => p.x === 1 && p.y === 0)).toBe(true);
   });
 
   it("cuts a cell along the level, the cut where the heights cross it", () => {

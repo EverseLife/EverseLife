@@ -39,9 +39,13 @@ export const CELL_DEG = 2;
 /** Below this many drawn cells across the frame the ground is one flat
  *  colour: nearer than that the frame lies inside a cell. */
 export const CELLS_ACROSS = 1.5;
-/** The finest reading of the grid, an eighth of a cell: finer than that the
- *  relief has nothing more to say. */
-export const FINEST_UNIT = 1 / 8;
+/** From this drawn cell and finer the ground is read off the tiles of the
+ *  local relief (D-323): a sixteenth of a grid cell, the frame under some
+ *  thirty kilometres on a small world. */
+export const TILE_UNIT = 1 / 16;
+/** The finest reading of the ground, a thirty-second of a grid cell: one
+ *  halving under `TILE_UNIT`, so the tiles' features bend. */
+export const FINEST_UNIT = 1 / 32;
 /** The drawn cell is halved while the frame holds fewer than this many. */
 const HALVE_BELOW = 24;
 const RAD = Math.PI / 180;

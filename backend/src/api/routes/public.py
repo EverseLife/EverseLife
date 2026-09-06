@@ -28,7 +28,7 @@ from src.engine import city as town
 from src.engine.errors import Refusal
 from src.models.identity import Body, BodyState, Identity
 from src.models.world import Node, Planet
-from src.runtime import MARKET_BOOK_DEPTH, MARKET_BOOK_STEPS, PUBLIC_MAP_MAX_AGE_S
+from src.runtime import MARKET_BOOK_DEPTH, MARKET_BOOK_STEPS, PUBLIC_MAP_MAX_AGE_S, TILE_MAX_AGE_S
 from src.settings import settings
 
 router = APIRouter(prefix="/public", tags=["reads"])
@@ -207,6 +207,31 @@ async def terrain_of(planet: str) -> dict[str, Any]:
     except ValueError as wrong:
         raise Refusal(key="cmd-no-such-planet", planet=planet) from wrong
     return terrain.sketch(current(), which)
+
+
+@router.get("/terrain/{planet}/{row}/{col}")
+async def terrain_tile(planet: str, row: int, col: int) -> Response:
+    """A tile of a planet's local relief (D-323): the heights a close frame
+    draws, the same the field reads under a scout's feet.
+
+    A constant of the vault like the sketch, cut into tiles because a
+    planet's worth of them is millions of numbers and a frame needs a few.
+    """
+    try:
+        which = Planet(planet)
+    except ValueError as wrong:
+        raise Refusal(key="cmd-no-such-planet", planet=planet) from wrong
+    got = terrain.tile_json(current(), which, row, col)
+    if got is None:
+        raise HTTPException(status_code=404, detail="no such tile")
+    return Response(
+        content=got,
+        media_type="application/json",
+        headers={
+            "Cache-Control": f"public, max-age={TILE_MAX_AGE_S}",
+            "ETag": f'"{HOLDER.current().digest}"',
+        },
+    )
 
 
 @router.get("/doors")

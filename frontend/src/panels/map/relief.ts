@@ -22,7 +22,7 @@
  * Pure arithmetic, so a test can draw a night without a DOM.
  */
 
-import type { Terrain } from "../../api";
+import type { Terrain, Tile } from "../../api";
 import { project, type Eye, type Geo } from "./globe";
 import type { Point } from "./model";
 
@@ -136,7 +136,7 @@ export function toneOf(warmth: number, bands: Warmth): Tone {
 export type Kind = Tone | "high" | "water" | "sea";
 
 /** The kind of the cell under a point of the sphere. */
-export function kindAt(terrain: Terrain, at: Geo, bands: Warmth): Kind {
+export function kindAt(terrain: Terrain, at: Geo, bands: Warmth, tiles?: Tiles): Kind {
   const { rows, cols } = terrain;
   const r = Math.min(rows - 1, Math.max(0, Math.floor(((at.lat + 90) * rows) / 180)));
   const c = (((Math.floor(((at.lon + 180) * cols) / 360) % cols) + cols) % cols);
@@ -144,7 +144,86 @@ export function kindAt(terrain: Terrain, at: Geo, bands: Warmth): Kind {
   if (terrain.lakes.some(([lr, lc]) => lr === r && lc === c)) return "water";
   if (height < terrain.sea_level) return "sea";
   if (height >= terrain.mountain_level) return "high";
+  //: On land the local relief has the last word, where its tile is known.
+  const local = tiles ? localAt(terrain, tiles, at.lat, at.lon) : null;
+  if (local !== null) {
+    if (terrain.wet && local <= terrain.basin_level) return "water";
+    if (local >= terrain.peak_level) return "high";
+  }
   return toneOf(terrain.warmth[r], bands);
+}
+
+/** The tiles of a planet's local relief the page holds, by `tileKey`. */
+export type Tiles = ReadonlyMap<string, Tile>;
+
+export const tileKey = (row: number, col: number): string => `${row}:${col}`;
+
+/** Which tile a point lies on. */
+export function tileOf(terrain: Terrain, lat: number, lon: number): [number, number] {
+  const { deg } = terrain.tile;
+  const rows = Math.round(180 / deg);
+  const cols = Math.round(360 / deg);
+  const row = Math.min(rows - 1, Math.max(0, Math.floor((lat + 90) / deg)));
+  const col = ((Math.floor((lon + 180) / deg) % cols) + cols) % cols;
+  return [row, col];
+}
+
+/**
+ * The tiles a frame needs: those under the arc the frame's corner subtends
+ * about the eye (as `lattice` cuts the rows), every column when a pole is
+ * in. None when the frame would need more than `TILE_LIMIT`: that frame is
+ * far enough out for the grid to do -- and a frame at a pole, which would
+ * need every column, gets none: no city stands past `map.city_lat_max`.
+ */
+export const TILE_LIMIT = 16;
+export function tilesAbout(
+  terrain: Terrain,
+  eye: Eye,
+  radius: number,
+  within: number,
+): [number, number][] {
+  const { deg } = terrain.tile;
+  const rows = Math.round(180 / deg);
+  const cols = Math.round(360 / deg);
+  const reach = within * Math.SQRT2;
+  const ang = reach >= radius ? 90 : Math.asin(reach / radius) / RAD;
+  const latLo = Math.max(-90, eye.lat - ang);
+  const latHi = Math.min(90, eye.lat + ang);
+  const nearestPole = Math.max(Math.abs(latLo), Math.abs(latHi));
+  const spread = ang / Math.max(1e-9, Math.cos(nearestPole * RAD));
+  const r0 = Math.min(rows - 1, Math.max(0, Math.floor((latLo + 90) / deg)));
+  const r1 = Math.min(rows - 1, Math.max(0, Math.floor((latHi + 90) / deg)));
+  let c0 = 0;
+  let count = cols;
+  if (latLo > -90 && latHi < 90 && spread < 180) {
+    c0 = Math.floor((eye.lon - spread + 180) / deg);
+    count = Math.floor((eye.lon + spread + 180) / deg) - c0 + 1;
+  }
+  const out: [number, number][] = [];
+  for (let r = r0; r <= r1; r++) {
+    for (let k = 0; k < count; k++) out.push([r, (((c0 + k) % cols) + cols) % cols]);
+  }
+  return out.length > TILE_LIMIT ? [] : out;
+}
+
+/** The local noise at a point, read bilinearly off its tile -- or nothing,
+ *  when the page does not hold that tile. */
+export function localAt(terrain: Terrain, tiles: Tiles, lat: number, lon: number): number | null {
+  const [row, col] = tileOf(terrain, lat, lon);
+  const tile = tiles.get(tileKey(row, col));
+  if (!tile) return null;
+  const { n, step } = tile;
+  const fi = Math.min(n, Math.max(0, (lat - tile.lat0) / step));
+  const fj = Math.min(n, Math.max(0, ((((lon - tile.lon0) % 360) + 360) % 360) / step));
+  const i0 = Math.min(n - 1, Math.floor(fi));
+  const j0 = Math.min(n - 1, Math.floor(fj));
+  const ti = fi - i0;
+  const tj = fj - j0;
+  const g = tile.local;
+  return (
+    (g[i0][j0] * (1 - tj) + g[i0][j0 + 1] * tj) * (1 - ti) +
+    (g[i0 + 1][j0] * (1 - tj) + g[i0 + 1][j0 + 1] * tj) * ti
+  );
 }
 
 export type GroundPaths = {
@@ -193,24 +272,45 @@ export function above(
   heights: readonly number[],
   level: number,
 ): Point[] | null {
+  return cut(corners, heights, level)?.points ?? null;
+}
+
+/**
+ * `above`, carrying a second reading through the cut: the value of
+ * `carry` at every vertex of the part kept, the crossings' by the same
+ * interpolation -- so the part can be cut again along the other reading.
+ * A land polygon cut from the height is cut once more along the noise for
+ * its basins; a peak cut from the noise once more along the height for
+ * the sea (D-323).
+ */
+export function cut(
+  corners: readonly Point[],
+  values: readonly number[],
+  level: number,
+  carry?: readonly number[],
+): { points: Point[]; carry: number[] } | null {
   const n = corners.length;
-  const out: Point[] = [];
+  const points: Point[] = [];
+  const carried: number[] = [];
   let any = false;
   for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
     const a = corners[i];
-    const b = corners[(i + 1) % n];
-    const ha = heights[i];
-    const hb = heights[(i + 1) % n];
-    if (ha >= level) {
-      out.push(a);
+    const b = corners[j];
+    const va = values[i];
+    const vb = values[j];
+    if (va >= level) {
+      points.push(a);
+      carried.push(carry ? carry[i] : 0);
       any = true;
     }
-    if ((ha >= level) !== (hb >= level)) {
-      const t = (level - ha) / (hb - ha);
-      out.push({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
+    if ((va >= level) !== (vb >= level)) {
+      const t = (level - va) / (vb - va);
+      points.push({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
+      carried.push(carry ? carry[i] + (carry[j] - carry[i]) * t : 0);
     }
   }
-  return any && out.length >= 3 ? out : null;
+  return any && points.length >= 3 ? { points, carry: carried } : null;
 }
 
 const ring = (points: readonly Point[]): string =>
@@ -292,7 +392,10 @@ function lattice(
  * height is read at the corners and the cell is cut along the sea's level
  * and the mountains' (`above`): the coast and the tree line run through
  * the cells as lines, and a lone cell of land or of peak is a diamond
- * about its centre, not nothing.
+ * about its centre, not nothing. Where the page holds the tiles of the
+ * local relief (D-323) the corners read them instead: on land a peak of
+ * the noise is a mountain and a basin a lake, cut along the noise's
+ * levels -- the very lines a scout's feet find.
  */
 export function cellPaths(
   terrain: Terrain,
@@ -301,9 +404,11 @@ export function cellPaths(
   bands: Warmth,
   unit = 1,
   within?: number,
+  tiles?: Tiles,
 ): GroundPaths {
   const { rows, cols } = terrain;
   const field = withLakesSunk(terrain);
+  const fine = tiles && tiles.size > 0 ? tiles : null;
   const dlat = 180 / rows;
   const dlon = 360 / cols;
   const { ps, qs } = lattice(rows, cols, eye, radius, unit, within);
@@ -314,6 +419,8 @@ export function cellPaths(
   const corners: (Point | null)[] = new Array(ps.length * nc);
   const front: boolean[] = new Array(ps.length * nc);
   const heights: number[] = new Array(ps.length * nc);
+  //: The local noise at each corner, NaN where its tile is not held.
+  const locals: number[] = new Array(ps.length * nc);
   for (let i = 0; i < ps.length; i++) {
     const lat = -90 + (ps[i] + 0.5) * dlat;
     for (let j = 0; j < nc; j++) {
@@ -322,6 +429,8 @@ export function cellPaths(
       const k = i * nc + j;
       front[k] = seen.front;
       heights[k] = heightAt(field, lat, lon);
+      const local = fine ? localAt(terrain, fine, lat, lon) : null;
+      locals[k] = local ?? NaN;
       if (seen.front) corners[k] = { x: seen.x, y: seen.y };
       else {
         const away = Math.hypot(seen.x, seen.y);
@@ -351,11 +460,23 @@ export function cellPaths(
       if (within !== undefined && outside(within, a, b, d, e)) continue;
       const quad = [a, b, d, e];
       const hs = [heights[ka], heights[kb], heights[kd], heights[ke]];
-      const land = above(quad, hs, terrain.sea_level);
+      const ls = [locals[ka], locals[kb], locals[kd], locals[ke]];
+      //: The land is cut from the height along the sea's level; where the
+      //: corners read their tiles it is cut once more along the noise, a
+      //: basin a hole in it -- on a coast cell too, as the server reads it.
+      const known = ls.every(Number.isFinite);
+      const shore = cut(quad, hs, terrain.sea_level, known ? ls : undefined);
+      if (!shore) continue;
+      const land = known && terrain.wet ? cut(shore.points, shore.carry, terrain.basin_level) : shore;
       if (!land) continue;
-      out[tone].push(ring(land));
+      out[tone].push(ring(land.points));
+      //: The planet's ranges from the height, the local peaks from the
+      //: noise -- the peak's part that is land, the sea keeps no mountains.
       const high = above(quad, hs, terrain.mountain_level);
       if (high) out.high.push(ring(high));
+      const peak = known ? cut(quad, ls, terrain.peak_level, hs) : null;
+      const risen = peak && cut(peak.points, peak.carry, terrain.sea_level);
+      if (risen) out.high.push(ring(risen.points));
     }
   }
   return {
