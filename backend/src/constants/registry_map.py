@@ -37,6 +37,11 @@ PATH_FADE_PER_DAY = Num("path.fade_per_day")
 #: the nearest cell, and the cell is the found node's key -- one node for
 #: everybody (D-237) without a row laid in advance.
 MAP_LATTICE_M = Num("map.lattice_m")
+#: Memory instead of fog (D-319 п. 6-7): how far the eye reaches over the
+#: globe, how many places an identity keeps, and how old the public map is.
+MAP_SIGHT_KM = Num("map.sight_km")
+MAP_MEMORY_PLACES = Num("map.memory_places")
+MAP_PUBLIC_DELAY_DAYS = Num("map.public_delay_days")
 #: The share of the free radius a find fills (D-321): a long leap lands on
 #: wide ground, and the exclusion round a node is its own circle.
 EXPLORE_FILL_SHARE = Num("explore.fill_share")
@@ -65,6 +70,9 @@ __all__ = [
     "PATH_FADE_THRESHOLD",
     "PATH_FADE_PER_DAY",
     "MAP_LATTICE_M",
+    "MAP_SIGHT_KM",
+    "MAP_MEMORY_PLACES",
+    "MAP_PUBLIC_DELAY_DAYS",
     "EXPLORE_FILL_SHARE",
     "BIOME_NAMES",
     "BIOME_REACH_M",

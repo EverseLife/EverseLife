@@ -191,12 +191,6 @@ MAP_HASH_SPAN = 65_521
 #: is being seated. Eight bytes, because Postgres takes a bigint.
 MAP_LOCK_BYTES = 8
 
-#: How far the map reaches from the body, in steps of the graph (D-240). Not
-#: balance: what a player may reach is decided by edges and their seconds, and
-#: this decides only how much of the reachable is drawn at once. Two, because
-#: one shows the ways out and nothing to choose between them, and three already
-#: draws the next city over.
-MAP_SIGHT = 2
 
 #: The grid a ship's rooms snap to when the owner arranges them (D-240). One
 #: cell is exactly the gap two nodes may never be nearer than, so a tidy hull

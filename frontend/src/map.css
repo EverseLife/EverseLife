@@ -326,6 +326,10 @@
 .node.me circle {
   fill: currentColor;
 }
+/* Memory and the public: there, but not in sight (D-319). */
+.node.faded {
+  opacity: 0.45;
+}
 .node.near {
   cursor: pointer;
 }

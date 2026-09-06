@@ -147,6 +147,8 @@ export function Nodes({
                 : undefined
             }
             className={`node ${sphere ? "sphere" : ""} ${hull ? "ship" : ""} ${
+              node.faded ? "faded" : ""
+            } ${
               node.deferred ? "later" : ""
             } ${mine ? "me" : ""} ${near || settlement ? "near" : ""}${
               chosen ? " picked" : ""

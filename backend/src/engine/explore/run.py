@@ -31,7 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src import globe
 from src.constants import Catalog, Constants, current, current_catalog
 from src.constants import registry as R
-from src.engine import biome, events, ground, occupation, places, ruins, travel, world
+from src.engine import biome, events, ground, memory, occupation, places, ruins, travel, world
 from src.engine.explore import aim as aiming
 from src.engine.explore._base import (
     Aim,
@@ -150,6 +150,9 @@ async def returned(session: AsyncSession, job: Job) -> None:
         #: Found before us: the cell is one node for the world (D-237), and the
         #: second scout brings home a way to it rather than a second node.
         await travel.connect(session, origin, aim.existing, surface=Surface.WILD)
+        await memory.remember(
+            session, constants, body.identity_id, [aim.existing.key], at=job.run_at
+        )
         await events.record(
             session,
             EventKind.EXPLORE_FOUND,
@@ -164,6 +167,8 @@ async def returned(session: AsyncSession, job: Job) -> None:
     node, scheme = await materialise(
         session, constants, current_catalog(), aim, origin, who=body.identity_id
     )
+    #: The scout was there: the find is remembered like a place arrived at.
+    await memory.remember(session, constants, body.identity_id, [node.key], at=job.run_at)
     await events.record(
         session,
         EventKind.EXPLORE_FOUND,

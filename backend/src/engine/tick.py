@@ -42,6 +42,7 @@ from src.engine import (
     frost,
     gear,
     journal,
+    mapshot,
     oxygen,
     panel,
     plates,
@@ -222,6 +223,17 @@ async def _roads(session: AsyncSession, now: datetime) -> dict[str, Any]:
     }
 
 
+async def _snapshot(session: AsyncSession, now: datetime) -> dict[str, Any]:
+    #: The public map is a snapshot with a delay (D-319 п. 7): written here,
+    #: served by the route once it is old enough, pruned once it is older
+    #: than the one served.
+    taken = await mapshot.take(session, current(), now)
+    return {
+        "snapshot": str(taken.id),
+        "snapshots_pruned": await mapshot.prune(session, current(), now),
+    }
+
+
 async def _houses(session: AsyncSession, now: datetime) -> dict[str, Any]:
     #: A house wears out at the pace of what it is built of, and at nothing it
     #: falls (D-218). Timber wants mending twice a year, metal once in a life.
@@ -297,6 +309,7 @@ DAILY_STEPS: dict[str, tuple[Step, str]] = {
     "works": (_works, "later"),
     "metrics": (_metrics, "last"),
     "cities": (_cities, "last"),
+    "snapshot": (_snapshot, "last"),
     "partitions": (_partitions, "first"),
 }
 STEPS = {**WORLD_STEPS, **DAILY_STEPS}

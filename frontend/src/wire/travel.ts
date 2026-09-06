@@ -134,6 +134,8 @@ export type MapNode = {
   features?: string[];
   /** The owner's nailed mark, if any (D-238): beats the place signs. */
   emblem?: string | null;
+  /** Shown dark: remembered or public, not in sight (D-319). */
+  faded?: boolean;
 };
 
 export type MapEdge = {

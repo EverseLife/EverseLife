@@ -27,6 +27,7 @@ from src.engine import (
     events,
     food,
     justice,
+    memory,
     transport,
 )
 from src.engine.errors import left_to_say
@@ -478,6 +479,9 @@ async def arrive(session: AsyncSession, job: Job) -> None:
         node_id=target.id,
         travel_id=str(travel.id),
     )
+    #: Memory instead of fog (D-319 п. 6): the place one arrives at stays on
+    #: one's map. Written here, by the job -- a read does not write.
+    await memory.remember(session, constants_now(), body.identity_id, [target.key], at=job.run_at)
 
     #: Back at a machine: a work frozen here goes on from where it stopped
     #: (D-209). Only when the road ends here -- a leg of a longer route sends

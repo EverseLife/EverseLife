@@ -122,6 +122,9 @@ class KnowledgeKind(StrEnum):
     AGROTECH = "agrotech"
     COMBINATION = "combination"
     PROGRAM = "program"
+    #: A place the identity has been to (D-319 п. 6): the key is the node's,
+    #: `acquired_at` the last visit. Memory instead of fog, and it is I8's.
+    PLACE = "place"
 
 
 class Knowledge(Base):
