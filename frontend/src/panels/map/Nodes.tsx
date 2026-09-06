@@ -22,7 +22,7 @@
 
 import { SHAPES } from "../../glyphs";
 import { nodeGlyph } from "../../marks";
-import { midOf, placeAt, project, type Eye, type Geo } from "./globe";
+import { placeAt, project, type Eye, type Geo } from "./globe";
 import { SURFACE, spell, type MapNode } from "../../api";
 import { t } from "../../locale";
 import { cityRadius, citySeen } from "./bands";
@@ -90,9 +90,6 @@ export function Edges({ edges, at, labelled, curve }: {
         const a = at(edge.a);
         const b = at(edge.b);
         if (!run && (!a || !b)) return null;
-        //: The label sits on the middle of what is drawn: the arc's, or the
-        //: chord's where the edge is a line.
-        const mid = run ? midOf(run) : { x: (a!.x + b!.x) / 2, y: (a!.y + b!.y) / 2 };
         return (
           <g key={`${edge.a}|${edge.b}`} className="road">
             {run ? (
@@ -108,14 +105,14 @@ export function Edges({ edges, at, labelled, curve }: {
                 strokeDasharray={DASH[edge.surface]}
               />
             )}
-            {/* In space an edge is a gangway and nothing else: the only thing
-                coupled to a planet is a ship standing at its port (D-201).
-                "21 s of paved highway" would be a road's label on something
-                that is not a road, so the tie is drawn bare. */}
+            {/* The way's time and kind are told on hover, not written on the
+                map (owner, 2026-09-06): with honest metres the eye sees the
+                distance, and the kind is the line's own drawing. In space an
+                edge is a gangway and nothing else (D-201), and says nothing. */}
             {labelled && (
-              <text x={mid.x} y={mid.y - 6} className="edge-label">
+              <title>
                 {spell(edge.seconds)} · {t(SURFACE[edge.surface as keyof typeof SURFACE])}
-              </text>
+              </title>
             )}
           </g>
         );
@@ -292,13 +289,17 @@ export function Outlines({
   outlines,
   eye,
   radius,
+  open,
 }: {
   outlines: ReadonlyMap<string, Geo[][]>;
   eye: Eye;
   radius: number;
+  /** Whether the cities are open: near, the edge is dashed among the
+   *  streets; from afar it is a line, a dash being no line at all. */
+  open: boolean;
 }) {
   return (
-    <g className="territory" aria-hidden="true">
+    <g className={`territory ${open ? "near" : "far"}`} aria-hidden="true">
       {[...outlines.entries()].map(([city, loops]) => {
         const d = loops
           .map((loop) => {
@@ -310,6 +311,18 @@ export function Outlines({
           .join("");
         return d ? <path key={city} className="city-edge" d={d} /> : null;
       })}
+    </g>
+  );
+}
+
+/** The scout's aim on the ground (D-321): a small cross where the finger
+ *  tapped, stood like a node, the same size at any zoom. */
+export function Aim({ at }: { at: { x: number; y: number; front: boolean } }) {
+  if (!at.front) return null;
+  return (
+    <g className="aim" transform={placeAt(at)} aria-hidden="true">
+      <circle cx={0} cy={0} r={7} />
+      <path d="M-11 0H-4M4 0H11M0 -11V-4M0 4V11" />
     </g>
   );
 }

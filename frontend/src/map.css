@@ -425,8 +425,17 @@ polyline.edge {
   stroke-opacity: 0.6;
   stroke-width: 1.5;
   stroke-linejoin: round;
-  stroke-dasharray: 6 6;
   vector-effect: non-scaling-stroke;
+}
+.territory.near .city-edge {
+  stroke-dasharray: 6 6;
+}
+/* The scout's aim (D-321): a ring and a cross in the action colour. */
+.aim circle,
+.aim path {
+  fill: none;
+  stroke: var(--act);
+  stroke-width: 1.5;
 }
 .node.near {
   cursor: pointer;

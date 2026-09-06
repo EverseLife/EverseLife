@@ -46,11 +46,12 @@ import { t } from "../locale";
 import { PHONE } from "../narrow";
 import { Inspector } from "./map/Inspector";
 import { NodeMenu } from "./map/NodeMenu";
-import { Edges, Nodes, Outlines, Stubs } from "./map/Nodes";
+import { Aim, Edges, Nodes, Outlines, Stubs } from "./map/Nodes";
+import { Survey } from "./map/Survey";
 import { cityOutlines } from "./map/territory";
 import { useHand } from "./map/hand";
 import { flatten, withCityScene } from "./map/geo";
-import { placeAt, projectAll, UNITS_PER_METRE } from "./map/globe";
+import { placeAt, projectAll, UNITS_PER_METRE, arcDeg, geoUnder, project, type Geo } from "./map/globe";
 import { Ground } from "./map/Ground";
 import { useArcs, useGlobe, radiusOf } from "./map/useGlobe";
 import { factsOf, useBands, useHandOver, type Sphere } from "./map/useBands";
@@ -92,6 +93,7 @@ import { STAR, horizon } from "./map/orbits";
  * would not come back with it either: `cityFocus` is cleared on every move.
  * A pointer relative to the body is not a setting.
  */
+const RAD = Math.PI / 180;
 const CAMERA = "everselife.map.tethered";
 
 /**
@@ -115,7 +117,7 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
   //: The map itself performs nothing: it draws, pans and picks. Every action --
   //: setting off, laying a road -- belongs to the
   //: inspector beside it, which keeps its own waiting and its own refusal.
-  const { busy } = useActions();
+  const { busy, act, trouble } = useActions();
   //: The map is answered from where the body stands (D-240), so the read
   //: carries the session's token: without it the server shows the sky alone.
   const session = useSession();
@@ -341,12 +343,24 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
   //: What a hand may do to the frame lives in `map/hand`: the rule differs by
   //: whether the camera is tied to the body, and it is one rule in one place
   //: rather than a check repeated at every handler.
+  //: The scout's aim (D-321): a tap on the ground names a point of the
+  //: globe, the panel below says how far and offers the run.
+  const [aim, setAim] = useState<Geo | null>(null);
+  const stand = byKey[here]?.place;
+  const standing = stand && "lat" in stand ? (stand as Geo) : null;
   const { grabField, movePointer, releasePointer, zoom, zoomToScale } = useHand({
     cam,
     svg: svgRef,
     tethered,
     ready: Boolean(map) && visible.length > 0,
     rotate: globe.rotate,
+    onTap: (point) => {
+      //: Only on the ground of one's own planet, seen whole: a tap on the
+      //: sky or a house is a tap on nothing.
+      if (!globeScene || !eye || !radius || orbiting || inside || !standing) return;
+      const place = geoUnder(eye, radius, point);
+      setAim(place);
+    },
     bounds: () => boundsOf(bandRef.current, surfaceRef.current),
   });
 
@@ -649,7 +663,10 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
             />
           )}
           {globeScene && eye && radius && (
-            <Outlines outlines={outlines} eye={eye} radius={radius} />
+            <Outlines outlines={outlines} eye={eye} radius={radius} open={citiesOpen} />
+          )}
+          {globeScene && eye && radius && aim && (
+            <Aim at={project(eye, radius, aim)} />
           )}
           <Edges edges={shownEdges} at={at} labelled={!orbiting} curve={curve} />
           {stubCurve && <Stubs stubs={map.stubs} curve={stubCurve} />}
@@ -705,6 +722,25 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
         />
       )}
 
+      {aim && standing && radius && (
+        <Survey
+          metres={(arcDeg(standing, aim) * RAD * radius) / UNITS_PER_METRE}
+          busy={busy}
+          trouble={trouble}
+          onGo={() => {
+            //: The aim is cleared only when the run is on: a refusal keeps
+            //: the point and its words on the panel.
+            let sent = false;
+            void act(async () => {
+              await session.send("explore.survey", { lat: aim.lat, lon: aim.lon });
+              sent = true;
+            }).then(() => {
+              if (sent) setAim(null);
+            });
+          }}
+          onClear={() => setAim(null)}
+        />
+      )}
       <Inspector
         look={look}
         picked={picked}

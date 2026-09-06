@@ -131,6 +131,34 @@ export function project(
   };
 }
 
+/**
+ * The place under a point of the frame: the projection run backwards, for
+ * a tap on the ground (D-321: the scout aims at a point of the globe).
+ * Nothing off the disk.
+ */
+export function geoUnder(eye: Eye, radius: number, point: Point): Geo | null {
+  const X = point.x / radius;
+  const Y = -point.y / radius;
+  const rho = Math.hypot(X, Y);
+  if (rho > 1) return null;
+  if (rho === 0) return { lat: eye.lat, lon: eye.lon };
+  const lat0 = eye.lat * RAD;
+  const c = Math.asin(rho);
+  const lat = Math.asin(Math.cos(c) * Math.sin(lat0) + (Y * Math.sin(c) * Math.cos(lat0)) / rho);
+  const lon =
+    eye.lon +
+    Math.atan2(X * Math.sin(c), rho * Math.cos(c) * Math.cos(lat0) - Y * Math.sin(c) * Math.sin(lat0)) / RAD;
+  return { lat: lat / RAD, lon: ((lon + 540) % 360) - 180 };
+}
+
+/** The arc between two places, degrees. */
+export function arcDeg(a: Geo, b: Geo): number {
+  const p1 = a.lat * RAD;
+  const p2 = b.lat * RAD;
+  const cos = Math.sin(p1) * Math.sin(p2) + Math.cos(p1) * Math.cos(p2) * Math.cos((a.lon - b.lon) * RAD);
+  return Math.acos(Math.max(-1, Math.min(1, cos))) / RAD;
+}
+
 /** The point `share` of the way from `a` to `b` along the great circle. */
 export function slerp(a: Geo, b: Geo, share: number): Geo {
   const toVec = (p: Geo) => {

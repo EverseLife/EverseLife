@@ -467,3 +467,9 @@ ui-ship-short-land = В баках { $fuel }, а с посадкой в конц
 ui-ship-course-dv = Δv до цели { $need } · на борту { $have }
 ui-ship-course-short = Δv на борту меньше, чем нужно на переход: баки опустеют в пути, и корабль ляжет в дрейф.
 ui-ship-course-failed = Небо не ответило: { $why }
+
+## Разведка: точка на земле и отправка тела (D-321).
+
+ui-map-survey-aim = Точка разведки: { $metres } м от вас
+ui-map-survey = Разведать
+ui-map-survey-clear = Снять точку

@@ -467,3 +467,9 @@ ui-ship-short-land = The tanks hold { $fuel }, and the crossing with its landing
 ui-ship-course-dv = Δv to go { $need } · aboard { $have }
 ui-ship-course-short = Less Δv aboard than the crossing needs: the tanks run dry under way, and the ship goes adrift.
 ui-ship-course-failed = The sky did not answer: { $why }
+
+## Scouting: a point on the ground and sending the body (D-321).
+
+ui-map-survey-aim = Scouting point: { $metres } m from you
+ui-map-survey = Scout
+ui-map-survey-clear = Clear the point

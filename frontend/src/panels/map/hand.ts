@@ -117,6 +117,7 @@ export function useHand({
   tethered,
   ready,
   rotate,
+  onTap,
   bounds = SKY_BOUNDS,
 }: {
   cam: Camera;
@@ -131,6 +132,9 @@ export function useHand({
    * the scene moves the eye. Absent on the flat scenes -- the sky, a house.
    */
   rotate?: (dx: number, dy: number) => void;
+  /** A tap on the field -- a press let go where it was pressed, no pan,
+   *  no pinch -- with the world point under it: the scout's aim. */
+  onTap?: (point: Point) => void;
   /** How far in and out this band lets the hand zoom (`bands.ts`). A
    *  function where the band can change between a frame and the render
    *  that follows it: the hand-over sets the scale and a notch of the wheel
@@ -151,6 +155,9 @@ export function useHand({
   //: down at all -- were it, the pair would change under the pinch when one
   //: of the first two lifted, and the frame would jump to the new pair.
   const fingers = useRef(new Map<number, Point>());
+  //: Where the one finger pressed, tethered or loose: a release within the
+  //: slop of it is a tap, whatever else the hand may or may not do.
+  const press = useRef<{ id: number; x: number; y: number; tapped: boolean } | null>(null);
   //: The pinch under way: what the scale and the fingers' spread were when
   //: the second finger came down, and where their middle was on the last move.
   const pinch = useRef<{ scale0: number; spread0: number; mid: Point } | null>(null);
@@ -207,6 +214,8 @@ export function useHand({
     grabField(e: PointerEvent) {
       if (fingers.current.size >= 2) return;
       fingers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      press.current =
+        fingers.current.size === 1 ? { id: e.pointerId, x: e.clientX, y: e.clientY, tapped: false } : null;
       if (fingers.current.size === 2) {
         //: The second finger turns a press or a pan into a pinch, and the
         //: pan is over for good: resumed after the pinch from a start point
@@ -300,6 +309,19 @@ export function useHand({
     releasePointer(e: PointerEvent) {
       //: A finger that was never written down (the third) changes nothing.
       if (!fingers.current.delete(e.pointerId)) return;
+      const pressed = press.current;
+      if (
+        pressed &&
+        pressed.id === e.pointerId &&
+        !pressed.tapped &&
+        e.type === "pointerup" &&
+        fingers.current.size === 0 &&
+        Math.hypot(e.clientX - pressed.x, e.clientY - pressed.y) <= SLOP
+      ) {
+        pressed.tapped = true;
+        onTap?.(toWorld(e));
+      }
+      if (fingers.current.size === 0) press.current = null;
       //: The pinch is over the moment either of its fingers lifts, and the
       //: one left does not go on as a pan (see `grabField`).
       pinch.current = null;
