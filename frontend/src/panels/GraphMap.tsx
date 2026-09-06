@@ -46,7 +46,7 @@ import { t } from "../locale";
 import { PHONE } from "../narrow";
 import { Inspector } from "./map/Inspector";
 import { NodeMenu } from "./map/NodeMenu";
-import { Borders, Edges, Nodes, Stubs } from "./map/Nodes";
+import { Edges, Nodes, Stubs } from "./map/Nodes";
 import { useHand } from "./map/hand";
 import { flatten, withCityScene } from "./map/geo";
 import { placeAt, projectAll } from "./map/globe";
@@ -58,7 +58,7 @@ import { Switcher } from "./map/Switcher";
 import { useScene } from "./map/useScene";
 import { useWalker } from "./map/useWalker";
 import { useSky } from "./map/useSky";
-import { STREET_SCALE, boundsOf, groundReach, ring, tilted } from "./map/bands";
+import { STREET_SCALE, boundsOf, groundReach, tilted } from "./map/bands";
 import {
   delegate,
   journeyOf,
@@ -371,19 +371,6 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
     }
     return out;
   }, [map]);
-  /** The borders of the open cities: a ring round each city's drawn nodes. */
-  const borders = useMemo(() => {
-    if (!citiesOpen) return [];
-    const members = new Map<string, Point[]>();
-    for (const node of visible) {
-      if (node.layer !== "city" || !node.parent) continue;
-      const p = ground.get(node.key);
-      if (p) members.set(node.parent, [...(members.get(node.parent) ?? []), p]);
-    }
-    return [...members.entries()]
-      .map(([city, points]) => ({ city, ring: ring(points) }))
-      .filter((b): b is { city: string; ring: { cx: number; cy: number; r: number } } => Boolean(b.ring));
-  }, [citiesOpen, visible, ground]);
 
   /**
    * Where a key is drawn: the ground for the layers one walks, the clock for
@@ -644,7 +631,6 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
               within={zoomed.descent > 0 ? undefined : groundReach(zoomed.unit, radius)}
             />
           )}
-          {citiesOpen && <Borders rings={borders} />}
           <Edges edges={shownEdges} at={at} labelled={!orbiting} curve={curve} />
           {stubCurve && <Stubs stubs={map.stubs} curve={stubCurve} />}
           <Nodes

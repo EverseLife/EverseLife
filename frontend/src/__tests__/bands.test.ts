@@ -7,7 +7,6 @@ import { describe, expect, it } from "vitest";
 
 import type { MapNode } from "../api";
 import {
-  BORDER_MARGIN,
   CITY_SCALE,
   GLOBE_FILL,
   OPEN_REACH,
@@ -33,7 +32,6 @@ import {
   tilted,
   planetUnder,
   reachesSurface,
-  ring,
   surfaceBounds,
   surfaceFloor,
 } from "../panels/map/bands";
@@ -213,27 +211,6 @@ describe("planetUnder", () => {
   });
 });
 
-describe("ring", () => {
-  it("is nothing round nothing", () => {
-    expect(ring([])).toBe(null);
-  });
-
-  it("circles the nodes about their middle, with room to spare", () => {
-    const border = ring([
-      { x: -10, y: 0 },
-      { x: 10, y: 0 },
-      { x: 0, y: 30 },
-    ]);
-    expect(border).not.toBe(null);
-    expect(border!.cx).toBeCloseTo(0);
-    expect(border!.cy).toBeCloseTo(10);
-    expect(border!.r).toBeCloseTo(20 + BORDER_MARGIN);
-  });
-
-  it("gives a lone node a circle of the margin alone", () => {
-    expect(ring([{ x: 3, y: 4 }])).toEqual({ cx: 3, cy: 4, r: BORDER_MARGIN });
-  });
-});
 
 describe("delegateAmong", () => {
   const byKey: Record<string, MapNode> = {

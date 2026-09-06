@@ -212,8 +212,6 @@ export function citySeen(size: number, far: number): boolean {
 /** In the sky, zoomed all the way in on a planet, the surface opens: the
  *  marker within this many map units of the frame's middle. */
 export const OPEN_REACH = 60;
-/** Room left round a city's nodes by its border. */
-export const BORDER_MARGIN = 28;
 
 export function boundsOf(band: Band, surface: Bounds): Bounds {
   if (band === "sky") return SKY_BOUNDS;
@@ -253,11 +251,3 @@ export function planetUnder(
   return best;
 }
 
-/** The border of an open city: a circle round its nodes, with room to spare. */
-export function ring(points: readonly Point[]): { cx: number; cy: number; r: number } | null {
-  if (points.length === 0) return null;
-  const cx = points.reduce((sum, p) => sum + p.x, 0) / points.length;
-  const cy = points.reduce((sum, p) => sum + p.y, 0) / points.length;
-  const reach = points.reduce((far, p) => Math.max(far, Math.hypot(p.x - cx, p.y - cy)), 0);
-  return { cx, cy, r: reach + BORDER_MARGIN };
-}

@@ -381,14 +381,6 @@ polyline.edge {
 .stubs .stub {
   stroke-opacity: 0.5;
 }
-/* Where a city ends (D-319, wave 4): a hairline round its open nodes. */
-.borders .border {
-  fill: none;
-  stroke: currentColor;
-  stroke-opacity: 0.25;
-  stroke-width: 1;
-  stroke-dasharray: 2 4;
-}
 .node.near {
   cursor: pointer;
 }
