@@ -15,9 +15,12 @@ main.entry.auth {
 .entry.auth > * {
   width: min(26rem, 100%);
 }
-/* Wide steps -- lines and doors -- do not fit into the narrow column. */
-.entry.auth > .wide,
-.entry.auth > .doors-step {
+/* The lines are compared side by side, and two of those do not fit into the
+   narrow column. Every other step keeps it -- the door step included: beside
+   the globe (D-319) it is a heading, a name or two and one card, and spread
+   over 56rem it read as another screen rather than the fourth step of this
+   one. */
+.entry.auth > .wide {
   width: min(56rem, 100%);
   border: none;
   padding: 0;
@@ -425,9 +428,12 @@ button.eye:not(:disabled):active {
   justify-content: center;
   margin: 0.5rem 0;
 }
+/* The chosen door's card is the step's own box, the way the account and the
+   character steps are a `.card`: the heading and the notes stand outside it,
+   as they do on the step of the lines. */
 .doors-step .card.door {
-  width: min(28rem, 100%);
-  margin-inline: auto;
+  width: 100%;
+  box-sizing: border-box;
 }
 @media (max-width: 56rem) {
   .entry-split {

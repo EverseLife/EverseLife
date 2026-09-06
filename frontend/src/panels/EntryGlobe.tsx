@@ -280,7 +280,17 @@ export function EntryGlobe({
               <g
                 key={door.node}
                 className={`door ${mine ? "picked" : ""}`}
-                onClick={() => onPick(door.node)}
+                //: A press, not a click, and it does not reach the globe
+                //: beneath -- the map picks a node the same way (`Nodes`).
+                //: A click would never come: the field takes the pointer to
+                //: turn the globe, and a captured pointer's click is fired
+                //: at the field, not at what was under the finger. So the
+                //: mark was dead to the hand, and only the list of names
+                //: beside it worked.
+                onPointerDown={(e) => {
+                  e.stopPropagation();
+                  onPick(door.node);
+                }}
               >
                 <title>{door.city ? `${door.name} · ${door.city}` : door.name}</title>
                 <circle cx={at.x} cy={at.y} r={span * MARK * (mine ? 1.4 : 1)} />
