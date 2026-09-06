@@ -135,21 +135,25 @@ export function Doors({ doors, name, busy, trouble, picked, onPick, onEnter, onB
               {/* Слово города: его пишет власть, а не движок (D-183). Молчащий
                   город показывает только числа — сочинять за него нечего. */}
               {door.about && <p className="say">«{door.about}»</p>}
-              <div className="row">
-                <button onClick={() => onEnter(door.node)} disabled={busy}>
-                  {t("ui-doors-print-here")}
-                </button>
-              </div>
             </section>
           )}
         </>
       )}
 
       {trouble && <p className="trouble">{trouble}</p>}
-      <div className="row">
+      {/* The last row of the step, where the three steps before it keep
+          theirs: the way back on the left, the way on at the right edge.
+          Printing is the way on -- it stood inside the door's card, a step
+          down and to the left of where the hand had learnt to look. */}
+      <div className="row last">
         <button className="quiet" onClick={onBack} disabled={busy}>
           {t("ui-doors-back")}
         </button>
+        {door && (
+          <button onClick={() => onEnter(door.node)} disabled={busy}>
+            {t("ui-doors-print-here")}
+          </button>
+        )}
       </div>
     </section>
   );

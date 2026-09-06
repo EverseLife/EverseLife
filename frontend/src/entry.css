@@ -372,6 +372,11 @@ button.eye:not(:disabled):active {
   min-height: 0;
   height: auto;
   overflow-y: auto;
+  /* Over the canvas, and opaque: the globe's drawing is the whole window now
+     (below), and the way in is read against the page, not against a planet. */
+  position: relative;
+  z-index: 1;
+  background: var(--base-900);
   /* `safe`, because the way in is centred in its half and a step can be
      taller than it: a plain `center` overflows a flex box **both** ways, and
      what goes off the top cannot be scrolled back to -- the door step lost
@@ -397,17 +402,34 @@ button.eye:not(:disabled):active {
   min-height: 0;
   min-width: 0;
 }
-.entry-globe svg {
-  display: block;
+/* Where the planet stands: an empty square in the flow, the size the globe
+   was drawn at when the canvas was a box of its own. The drawing reads it and
+   puts the planet's middle in its middle, so the planet did not move -- what
+   moved is the edge of the paper. */
+.globe-space {
   width: min(100%, 80vh);
   max-height: 100%;
   aspect-ratio: 1;
+}
+/* The canvas is the window (D-319). Zoomed in, the ground used to stop at the
+   square's edge -- a seam across the screen with the page behind it -- and the
+   half the globe sits in was never filled. Fixed and behind everything: the
+   way in is opaque and covers its own half, so this shows through nowhere it
+   is not wanted. */
+.entry-globe svg {
+  display: block;
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   /* A finger scrolls the page; only a sideways drag turns the globe. */
   touch-action: pan-y pinch-zoom;
   cursor: grab;
-  /* Zoomed in, the frame is a window on the disk: what lies outside it
-     must not spill over the page. */
-  overflow: hidden;
+}
+/* The word under the globe stands on the canvas, not under it. */
+.entry-globe .note {
+  position: relative;
+  z-index: 1;
 }
 .entry-globe .way {
   fill: none;
@@ -439,6 +461,12 @@ button.eye:not(:disabled):active {
 .entry-globe .door.picked circle {
   fill: var(--accent);
 }
+/* The step's last row reads like the account's and the character's: back on
+   the left, on at the right edge. Those get it from `.card .row`; the door
+   step is a `section`, not a card, so it says so itself. */
+.doors-step .row.last {
+  justify-content: space-between;
+}
 .doors-step .doors-list {
   flex-wrap: wrap;
   justify-content: center;
@@ -452,7 +480,7 @@ button.eye:not(:disabled):active {
   .entry-globe {
     padding: 0.5rem;
   }
-  .entry-globe svg {
+  .globe-space {
     width: auto;
     height: 100%;
     max-width: 100%;
