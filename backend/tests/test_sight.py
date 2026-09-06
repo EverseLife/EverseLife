@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import math
 import uuid
+from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,7 +23,7 @@ from src.api.routes.public import _standing
 from src.constants import Constants
 from src.constants import registry as R
 from src.engine import account as accounts
-from src.engine import places, sight, travel, world
+from src.engine import mapshot, places, sight, travel, world
 from src.models.identity import Account
 from src.models.world import Layer, Node, Planet, Surface
 from src.units import METRES_PER_KM
@@ -196,3 +197,31 @@ async def test_a_token_names_the_body_and_rubbish_names_nobody(session: AsyncSes
     assert await _standing(session, "Bearer nonsense") is None
     assert await _standing(session, None) is None
     assert await _standing(session, token) is None, "без схемы это не заголовок"
+
+
+async def test_an_edge_out_of_sight_is_a_stub_that_tells_the_way_and_not_the_end(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """The map draws a way into the fog from its seen end (D-319 п. 6): the
+    bearing to set out on, and neither how far nor where it ends."""
+    terra = await _sphere(session, Planet.TERRA)
+    reach = constants[R.MAP_SIGHT_KM]
+    home = await _node(session, "terra.home", terra, at=HOME)
+    near = await _node(session, "terra.near", terra, at=_away(constants, reach * 0.5))
+    north = await _node(session, "terra.north", terra, at=_away(constants, reach * 3))
+    east = await _node(session, "terra.east", terra, at=_away(constants, reach * 3, math.pi / 2))
+    await travel.connect(session, home, near, base_seconds=60, surface=Surface.WILD)
+    await travel.connect(session, home, north, base_seconds=600, surface=Surface.WILD)
+    await travel.connect(session, near, east, base_seconds=600, surface=Surface.TRAIL)
+    identity = await world.create_identity(session, f"Walker-{uuid.uuid4().hex[:6]}")
+    body = await world.print_body(session, identity, home)
+    answer = await mapshot.personal(session, constants, body, datetime.now(UTC))
+    assert {row["key"] for row in answer["nodes"]} >= {home.key, near.key}
+    assert north.key not in {row["key"] for row in answer["nodes"]}
+    assert [(e["a"], e["b"]) for e in answer["edges"]] == [(home.key, near.key)]
+    stubs = {row["from"]: row for row in answer["stubs"]}
+    assert stubs.keys() == {home.key, near.key}, "по обрубку с каждого видимого конца"
+    assert stubs[home.key]["bearing"] == 0 and stubs[home.key]["surface"] == "wild"
+    #: East of home is east and a little south of a node north of home.
+    assert globe.QUARTER_TURN < stubs[near.key]["bearing"] < globe.QUARTER_TURN + 15
+    assert set(stubs[home.key]) == {"from", "bearing", "surface"}, "ни конца, ни расстояния"

@@ -19,10 +19,8 @@
 
 ## The map: layers, nodes, roads, the sky.
 
-ui-map-layer-space = space
-ui-map-layer-planet = planet
-ui-map-layer-city = city
-ui-map-layer-location = location
+ui-map-inside = Inside
+ui-map-outside = Outside
 
 ## Where a node stands: the player reads a place, not an enum.
 
@@ -106,12 +104,12 @@ ui-map-sky-rule = The planets go round the star each on its own term, and the di
 
 ui-map-cam-tied = camera follows you
 ui-map-cam-free = camera is free
-ui-map-switcher-rule = Two steps of the graph are visible around you — where you can walk and what is seen from there; the rest opens by walking. Nodes stand where they stand: a node's place is the same for every player and the same tomorrow, so they are not dragged with the mouse. Camera follows you: you are in the middle of the map, it rides after you; the wheel, the loupe buttons and a two-finger pinch only zoom in and out. Camera is free: the map is panned with the mouse or a finger and stays where it was left — it will not ride after you as you walk. Layers: space, planet, city — the same graph from different heights.
+ui-map-switcher-rule = You see what is within sight, what you remember and what everybody knows — the planet's cities and roads; the rest opens by walking. Nodes stand where they stand: a node's place is the same for every player and the same tomorrow, so they are not dragged with the mouse. Camera follows you: you are in the middle of the map, it rides after you; the wheel, the loupe buttons and a two-finger pinch only zoom in and out. Camera is free: the map is panned with the mouse or a finger and stays where it was left — it will not ride after you as you walk. Height is the wheel's: far out the sky, closer the planet's surface, at the ground a city opens into its nodes; floors and compartments are behind the “Inside” door.
 
 ## The map field itself.
 
 ui-map-loading = the map is loading…
-ui-map-layer-empty = There is nothing on this layer yet.
+ui-map-empty = There is nothing here yet.
 ui-map-world = world map
 
 ## The ship: the hull's card, the bridge's orders, the plan.

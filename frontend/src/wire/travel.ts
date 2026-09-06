@@ -159,9 +159,34 @@ export type MapRoute = {
   days: ForecastDay[];
 };
 
+/** A way out of sight (D-319 п. 6): drawn from its seen end a little way
+ *  towards where it leads, and no farther. The bearing is degrees clockwise
+ *  from north; where the way ends and how far is the fog's to keep. */
+export type MapStub = {
+  from: string;
+  bearing: number;
+  surface: Exit["surface"];
+};
+
+/** A planet's relief as the globe draws it (D-319): a grid of heights, the
+ *  two levels that make sea and mountain of it, the rivers as runs of
+ *  lat/lon, the lakes as cells, and the warmth of each row -- everybody's
+ *  from the world's first day, the same for everybody. */
+export type Terrain = {
+  rows: number;
+  cols: number;
+  sea_level: number;
+  mountain_level: number;
+  grid: number[][];
+  rivers: [number, number][][];
+  lakes: [number, number][];
+  warmth: number[];
+};
+
 export type WorldMap = {
   nodes: MapNode[];
   edges: MapEdge[];
+  stubs: MapStub[];
   routes: MapRoute[];
 };
 

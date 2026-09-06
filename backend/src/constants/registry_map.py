@@ -40,6 +40,10 @@ MAP_LATTICE_M = Num("map.lattice_m")
 #: Memory instead of fog (D-319 п. 6-7): how far the eye reaches over the
 #: globe, how many places an identity keeps, and how old the public map is.
 MAP_SIGHT_KM = Num("map.sight_km")
+#: Read by the client through `/public/constants`: the floor of the surface
+#: band of the map (D-319). Declared so that the vault's key is checked at
+#: bootstrap like every other, though the server itself does not read it.
+MAP_APPROACH_KM = Num("map.approach_km")
 MAP_MEMORY_PLACES = Num("map.memory_places")
 MAP_PUBLIC_DELAY_DAYS = Num("map.public_delay_days")
 #: The share of the free radius a find fills (D-321): a long leap lands on
@@ -69,6 +73,7 @@ __all__ = [
     "PATH_WEAR_THRESHOLD",
     "PATH_FADE_THRESHOLD",
     "PATH_FADE_PER_DAY",
+    "MAP_APPROACH_KM",
     "MAP_LATTICE_M",
     "MAP_SIGHT_KM",
     "MAP_MEMORY_PLACES",

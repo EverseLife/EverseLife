@@ -117,6 +117,11 @@ def noise_at(seed: int, lat: float, lon: float) -> float:
     return float(heights(seed, np.array([lat], dtype=float), np.array([lon], dtype=float))[0])
 
 
+def row_latitudes() -> list[float]:
+    """The latitude at the middle of each row of the grid, south to north."""
+    return [-90.0 + (row + 0.5) * (180.0 / GRID_ROWS) for row in range(GRID_ROWS)]
+
+
 def _cell_centres() -> tuple[np.ndarray, np.ndarray]:
     lat = -90.0 + (np.arange(GRID_ROWS) + 0.5) * (180.0 / GRID_ROWS)
     lon = -180.0 + (np.arange(GRID_COLS) + 0.5) * (360.0 / GRID_COLS)

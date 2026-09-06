@@ -80,6 +80,15 @@ def offset(radius: float, at: Geo, east_m: float, north_m: float) -> Geo:
     return (new_lat, new_lon)
 
 
+def bearing(one: Geo, other: Geo) -> float:
+    """The way from `one` to `other` as one sets out: degrees clockwise from north."""
+    lat1, lat2 = math.radians(one[0]), math.radians(other[0])
+    dlon = math.radians(wrap_lon(other[1] - one[1]))
+    east = math.sin(dlon) * math.cos(lat2)
+    north = math.cos(lat1) * math.sin(lat2) - math.sin(lat1) * math.cos(lat2) * math.cos(dlon)
+    return math.degrees(math.atan2(east, north)) % FULL_TURN
+
+
 def wrap_lon(lon: float) -> float:
     """A longitude brought into the half-open turn round the zero meridian."""
     return ((lon + HALF_TURN) % FULL_TURN) - HALF_TURN

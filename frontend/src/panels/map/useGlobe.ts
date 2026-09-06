@@ -13,8 +13,21 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import type { RecipeBook } from "../../api";
-import { radiusUnits, turn, type Eye, type Geo } from "./globe";
+import type { MapNode, MapStub, RecipeBook } from "../../api";
+import { STUB_M, ahead, arc, radiusUnits, turn, type Eye, type Geo } from "./globe";
+import type { Link, Point } from "./model";
+
+/** The planet's radius in map units: the vault's (`planet.radius` on
+ *  `planet.terra_radius_km`, D-320), read from the book -- no number of the
+ *  client's own. Null until the book has come, or for no planet. */
+export function radiusOf(book: RecipeBook | null, planet: string | null): number | null {
+  if (!book?.constants || !planet) return null;
+  const shares = book.constants["planet.radius"] as Record<string, number> | undefined;
+  const share = Number(shares?.[planet]);
+  const terra = Number(book.constants["planet.terra_radius_km"]);
+  if (!Number.isFinite(share) || !Number.isFinite(terra) || share <= 0 || terra <= 0) return null;
+  return radiusUnits(share * terra);
+}
 
 export function useGlobe({
   book,
@@ -27,17 +40,8 @@ export function useGlobe({
   /** Whether the scene is a surface at all -- the sky and a house are flat. */
   active: boolean;
 }) {
-  //: The planet's radius is the vault's (`planet.radius` on
-  //: `planet.terra_radius_km`, D-320), read from the book: no number of the
-  //: client's own. Without it the scene is flat, as it was before the globe.
-  const radius = useMemo(() => {
-    if (!book?.constants || !planet) return null;
-    const shares = book.constants["planet.radius"] as Record<string, number> | undefined;
-    const share = Number(shares?.[planet]);
-    const terra = Number(book.constants["planet.terra_radius_km"]);
-    if (!Number.isFinite(share) || !Number.isFinite(terra) || share <= 0 || terra <= 0) return null;
-    return radiusUnits(share * terra);
-  }, [book, planet]);
+  //: Without a radius the scene is flat, as it was before the globe.
+  const radius = useMemo(() => radiusOf(book, planet), [book, planet]);
   const globeScene = active && radius !== null;
 
   //: Where the eye stands: put on a place at every new scene, turned by the
@@ -84,4 +88,44 @@ export function useGlobe({
      *  drag falls through to the frame, so a loose camera is never stuck. */
     rotate: globeScene && eye ? rotate : undefined,
   };
+}
+
+/**
+ * The curves of a surface scene: an edge as the runs of its great-circle
+ * arc that face the eye, and a stub into the fog as a short arc out of its
+ * seen end -- where that end stands for itself in the scene, since a closed
+ * city has no fog round it. Both undefined off the globe: there the edges
+ * are lines.
+ */
+export function useArcs({
+  globeScene,
+  eye,
+  radius,
+  byKey,
+  reprScene,
+}: {
+  globeScene: boolean;
+  eye: Eye | null;
+  radius: number | null;
+  byKey: Record<string, MapNode>;
+  reprScene: (key: string) => string | null;
+}) {
+  const curve = useMemo(() => {
+    if (!globeScene || !eye || !radius) return undefined;
+    return (edge: Link): Point[] | null => {
+      const a = byKey[edge.a]?.place;
+      const b = byKey[edge.b]?.place;
+      if (!a || !b || !("lat" in a) || !("lat" in b)) return null;
+      return arc(eye, radius, a, b);
+    };
+  }, [globeScene, eye, radius, byKey]);
+  const stubCurve = useMemo(() => {
+    if (!globeScene || !eye || !radius) return undefined;
+    return (stub: MapStub): Point[] | null => {
+      const from = byKey[stub.from]?.place;
+      if (!from || !("lat" in from) || reprScene(stub.from) !== stub.from) return null;
+      return arc(eye, radius, from, ahead(radius, from, stub.bearing, STUB_M));
+    };
+  }, [globeScene, eye, radius, byKey, reprScene]);
+  return { curve, stubCurve };
 }

@@ -36,6 +36,11 @@ export const UNITS_PER_METRE = 5;
 export const LAST_LAT = 85;
 /** How many pieces a great-circle arc is drawn in. */
 export const ARC_STEPS = 16;
+/** How far a stub into the fog is drawn, in metres of the surface: enough
+ *  to show the way. The same length whatever the edge's, so the stub tells
+ *  nothing of how far the way goes -- though not where it leads: two stubs
+ *  towards one hidden node cross there. */
+export const STUB_M = 25;
 
 const RAD = Math.PI / 180;
 
@@ -83,6 +88,23 @@ export function slerp(a: Geo, b: Geo, share: number): Geo {
   const y = wa * ay + wb * by;
   const z = wa * az + wb * bz;
   return { lat: Math.atan2(z, Math.hypot(x, y)) / RAD, lon: Math.atan2(y, x) / RAD };
+}
+
+/** The point `metres` along the great circle from `from` on `bearing`
+ *  (degrees clockwise from north), on a sphere of `radius` map units. */
+export function ahead(radius: number, from: Geo, bearing: number, metres: number): Geo {
+  const lat = from.lat * RAD;
+  const way = bearing * RAD;
+  const span = (metres * UNITS_PER_METRE) / radius;
+  const lat2 = Math.asin(
+    Math.sin(lat) * Math.cos(span) + Math.cos(lat) * Math.sin(span) * Math.cos(way),
+  );
+  const dlon = Math.atan2(
+    Math.sin(way) * Math.sin(span) * Math.cos(lat),
+    Math.cos(span) - Math.sin(lat) * Math.sin(lat2),
+  );
+  const lon = from.lon + dlon / RAD;
+  return { lat: lat2 / RAD, lon: ((lon + 180) % 360 + 360) % 360 - 180 };
 }
 
 /**

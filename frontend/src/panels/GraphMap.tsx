@@ -56,28 +56,27 @@ import { createCamera, viewBoxOf, type Camera } from "./map/camera";
 import { UNFLAG, useKept } from "../kept";
 import { t } from "../locale";
 import { PHONE } from "../narrow";
-import { cityWord } from "../planets";
 import { Inspector } from "./map/Inspector";
 import { NodeMenu } from "./map/NodeMenu";
-import { Edges, Nodes } from "./map/Nodes";
+import { Borders, Edges, Nodes, Stubs } from "./map/Nodes";
 import { useHand } from "./map/hand";
 import { flatten, withCityScene } from "./map/geo";
-import { arc, projectAll } from "./map/globe";
-import { useGlobe } from "./map/useGlobe";
+import { projectAll } from "./map/globe";
+import { Ground } from "./map/Ground";
+import { useArcs, useGlobe, radiusOf } from "./map/useGlobe";
+import { factsOf, useBands, useHandOver, type Sphere } from "./map/useBands";
 import { settle } from "./map/layout";
 import { SkyBackdrop, SkyClock } from "./map/Sky";
 import { Switcher } from "./map/Switcher";
+import { useScene } from "./map/useScene";
 import { useSky } from "./map/useSky";
+import { STREET_SCALE, boundsOf, globeScale, ring } from "./map/bands";
 import {
-  LAYERS,
   delegate,
-  homeCity,
   journeyOf,
-  nearby,
   offworld,
   sceneKey,
   type LayerId,
-  type Link,
   type Point,
 } from "./map/model";
 import { STAR, horizon } from "./map/orbits";
@@ -178,10 +177,7 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
     [byKey],
   );
 
-  //: The default layer is the one you stand on; explicit expansion lives until
-  //: the transit. Deliberately **not** remembered past the panel -- see the
-  //: note on `CAMERA` above for what storing it did to the map.
-  const [layer, setLayer] = useState<LayerId | null>(initialLayer ?? null);
+  const book = useBook();
   //: The node the inspector talks about. Where you stand, until you pick another.
   const [picked, setPicked] = useState<string | null>(null);
   //: A right-click menu on a node. A left click picks -- which is what makes a
@@ -200,29 +196,16 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
   //: Tied is the default, hence the wire whose default is yes: with `FLAG` a
   //: deliberate "loose" would leave no key and read back as tied.
   const [tethered, tether] = useKept(CAMERA, true, UNFLAG);
-  const [cityFocus, setCityFocus] = useState<string | null>(null);
   //: Whose surface the planet layer shows. There are four planets in the sky
   //: now, and "everything of layer `planet`" would mix their nodes into one
   //: heap the first time a second planet gets a node of its own.
   const [planetFocus, setPlanetFocus] = useState<string | null>(null);
   useEffect(() => {
-    setCityFocus(null);
     setPlanetFocus(null);
     setPicked(null);
     setMenu(null);
   }, [here]);
 
-  const cities = useMemo(() => {
-    const out = new Set<string>();
-    for (const node of map?.nodes ?? []) {
-      if (node.layer === "city" && node.parent) out.add(node.parent);
-    }
-    return out;
-  }, [map]);
-  //: The city above where you stand, or -- aboard a moored ship, where there
-  //: is no city above the hull at all -- the one the gangway leads into.
-  const myCity = homeCity(byKey, here, look.exits ?? []);
-  const focus = cityFocus ?? myCity ?? [...cities].sort()[0] ?? null;
 
   const locationBase =
     byKey[here]?.layer === "location" ? (byKey[here]?.parent ?? here) : here;
@@ -234,91 +217,28 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
     [map, locationBase],
   );
 
+  //: The band of scale the map is in (D-319, wave 4) and what the last frame
+  //: decided -- `map/useBands`. Not remembered past the panel -- see `CAMERA`.
+  const { band, bandRef, enter, surfaceRef, zoomed, tell } = useBands({
+    book,
+    initialLayer: initialLayer ?? "planet",
+    hasSubnodes,
+  });
   const mySphere = byKey[repr(here, "space") ?? ""]?.planet ?? byKey[here]?.planet ?? null;
   const sphereShown = planetFocus ?? mySphere;
-  //: The built-up layer is named by the planet it is on (D-230): a camp on
-  //: Pyroxis, an abandoned city on Aurora. The word follows the planet whose
-  //: surface is shown, which is the one the city tab would open.
-  const layers = LAYERS.filter(
-    (option) =>
-      (option.id !== "location" || hasSubnodes) &&
-      (option.id !== "city" || cities.size > 0),
-  ).map((option) => ({
-    id: option.id,
-    mark: option.mark,
-    //: The switcher is handed words, not keys: the city's is not in the locale
-    //: at all -- it follows the planet whose surface is shown (D-230).
-    label: option.id === "city" ? cityWord(sphereShown).name : t(option.word),
-  }));
-  const desired: LayerId =
-    layer ?? ((byKey[here]?.layer as LayerId | undefined) ?? "planet");
-  const currentLayer: LayerId = layers.some((s) => s.id === desired)
-    ? desired
-    : "planet";
-
-  /** Where you stand, as this layer draws it. Null when you are not on it at all. */
-  const myRepr = repr(here, currentLayer);
-  //: The sky is a layer apart at every step below: it is not laid out, not
-  //: windowed by distance in edges, and it moves on its own.
-  const orbiting = currentLayer === "space";
   const epoch = look.clock?.epoch ?? null;
-
-  //: Everything this layer holds: one planet's surface, one city, one house.
-  const onLayer = useMemo(() => {
-    return (map?.nodes ?? []).filter((node) => {
-      if (node.layer !== currentLayer) return false;
-      if (currentLayer === "city") return node.parent === focus;
-      if (currentLayer === "location") return node.parent === locationBase;
-      if (currentLayer === "planet") return !sphereShown || node.planet === sphereShown;
-      return true;
-    });
-  }, [map, currentLayer, focus, locationBase, sphereShown]);
-
-  //: Every edge of the world projected onto this layer: a road from a city
-  //: gate to a field joins, here, the city and the field. The shortest of
-  //: several, because two nodes joined twice are drawn once.
-  const layerEdges = useMemo(() => {
-    const seen = new Map<string, Link>();
-    const keys = new Set(onLayer.map((node) => node.key));
-    for (const edge of map?.edges ?? []) {
-      const pa = repr(edge.a, currentLayer);
-      const pb = repr(edge.b, currentLayer);
-      if (!pa || !pb || pa === pb) continue;
-      if (!keys.has(pa) || !keys.has(pb)) continue;
-      const id = [pa, pb].sort().join("|");
-      const known = seen.get(id);
-      if (!known || edge.seconds < known.seconds) {
-        seen.set(id, { a: pa, b: pb, surface: edge.surface, seconds: edge.seconds });
-      }
-    }
-    return [...seen.values()];
-  }, [map, onLayer, repr, currentLayer]);
-
-  /**
-   * What is actually drawn: `DEPTH` steps of the graph around where you stand.
-   *
-   * The sky is the exception and has to be: there is no walking between
-   * planets, so a distance in edges means nothing there -- the whole system is
-   * one view, and always was.
-   *
-   * Looking at somebody else's city or another planet there is no node of
-   * yours to measure from, and then the group is shown whole: a window with no
-   * centre would be an empty screen.
-   */
-  const visible = useMemo(() => {
-    if (currentLayer === "space") return onLayer;
-    const near = nearby(
-      myRepr,
-      onLayer.map((node) => node.key),
-      layerEdges,
-    );
-    return onLayer.filter((node) => near.has(node.key));
-  }, [onLayer, layerEdges, myRepr, currentLayer]);
-
-  const shownEdges = useMemo(() => {
-    const keys = new Set(visible.map((node) => node.key));
-    return layerEdges.filter((edge) => keys.has(edge.a) && keys.has(edge.b));
-  }, [layerEdges, visible]);
+  //: The scene the band draws -- which nodes, which edges, who stands for
+  //: whom -- lives in `map/useScene`; the map keeps the camera and the hand.
+  const scene = useScene({
+    map,
+    byKey,
+    band,
+    citiesOpen: zoomed.cities,
+    locationBase,
+    sphereShown,
+    here,
+  });
+  const { orbiting, inside, citiesOpen, reprScene, myRepr, visible, shownEdges } = scene;
 
   // --- where everything stands ----------------------------------------------
 
@@ -330,6 +250,8 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
    * its own reasons never puts back a frame the animation has moved on from.
    */
   const camera = useRef<Camera | null>(null);
+  //: Where the planets are, read at frame time: the sky lays them out below.
+  const spheres = useRef<() => Sphere[]>(() => []);
   //: A phone's field is a third of a desktop's width, and the same frame
   //: over it drew a node's name at five pixels. The frame starts twice as
   //: close there: the body's neighbourhood, legible, and the rest a pan away.
@@ -338,7 +260,12 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
   //: had -- a hook here would redraw forty nodes for a value read once.
   if (!camera.current) {
     camera.current = createCamera({
-      onFrame: (f) => svgRef.current?.setAttribute("viewBox", viewBoxOf(f)),
+      onFrame: (f) => {
+        svgRef.current?.setAttribute("viewBox", viewBoxOf(f));
+        //: What the frame decides is React's business only when it flips:
+        //: cities opening, a band's edge reached, a planet under the middle.
+        tell(factsOf(f, surfaceRef.current.furthest, spheres.current()));
+      },
       scale: window.matchMedia(PHONE).matches ? PHONE_SCALE : 1,
       still: () => window.matchMedia("(prefers-reduced-motion: reduce)").matches,
     });
@@ -360,9 +287,9 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
    * one point of it -- the eye -- and the hand turns it (`map/useGlobe`).
    */
   const globe = useGlobe({
-    book: useBook(),
+    book,
     planet: sphereShown,
-    active: !orbiting && currentLayer !== "location",
+    active: !orbiting && !inside,
   });
   const { globeScene, radius, eye } = globe;
   const ground = useMemo(() => {
@@ -381,16 +308,7 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
       given,
     );
   }, [visible, shownEdges, orbiting, globeScene, eye, radius]);
-  /** An edge on the globe: the runs of its arc that face the eye. */
-  const curve = useMemo(() => {
-    if (!globeScene || !eye || !radius) return undefined;
-    return (edge: Link): Point[] | null => {
-      const a = byKey[edge.a]?.place;
-      const b = byKey[edge.b]?.place;
-      if (!a || !b || !("lat" in a) || !("lat" in b)) return null;
-      return arc(eye, radius, a, b);
-    };
-  }, [globeScene, eye, radius, byKey]);
+  const { curve, stubCurve } = useArcs({ globeScene, eye, radius, byKey, reprScene });
 
   useEffect(() => {
     if (!menu) return;
@@ -416,6 +334,11 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
     horizon: horizon(map?.routes),
   });
   const { fit } = sky;
+  spheres.current = () =>
+    (map?.nodes ?? [])
+      .filter((node) => node.orbit)
+      .map((node) => ({ key: node.key, planet: node.planet, at: sky.places.current.get(node.key) }))
+      .filter((s): s is Sphere => Boolean(s.at));
 
   // --- mouse: pan, zoom, pick -----------------------------------------------
 
@@ -428,6 +351,7 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
     tethered,
     ready: Boolean(map) && visible.length > 0,
     rotate: globe.rotate,
+    bounds: () => boundsOf(bandRef.current, surfaceRef.current),
   });
 
   // --- node behaviour -------------------------------------------------------
@@ -435,21 +359,34 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
   const walkTargets = useMemo(() => {
     const out: Record<string, { key: string; seconds: number }> = {};
     for (const exit of look.exits ?? []) {
-      const p = repr(exit.key, currentLayer);
-      if (!p || p === repr(here, currentLayer)) continue;
+      const p = reprScene(exit.key);
+      if (!p || p === reprScene(here)) continue;
       const known = out[p];
       if (!known || exit.seconds < known.seconds) {
         out[p] = { key: exit.key, seconds: exit.seconds };
       }
     }
     return out;
-  }, [look.exits, repr, here, currentLayer]);
+  }, [look.exits, reprScene, here]);
 
   const groups = useMemo(() => {
     const out = new Set<string>();
     for (const node of map?.nodes ?? []) if (node.parent) out.add(node.parent);
     return out;
   }, [map]);
+  /** The borders of the open cities: a ring round each city's drawn nodes. */
+  const borders = useMemo(() => {
+    if (!citiesOpen) return [];
+    const members = new Map<string, Point[]>();
+    for (const node of visible) {
+      if (node.layer !== "city" || !node.parent) continue;
+      const p = ground.get(node.key);
+      if (p) members.set(node.parent, [...(members.get(node.parent) ?? []), p]);
+    }
+    return [...members.entries()]
+      .map(([city, points]) => ({ city, ring: ring(points) }))
+      .filter((b): b is { city: string; ring: { cx: number; cy: number; r: number } } => Boolean(b.ring));
+  }, [citiesOpen, visible, ground]);
 
   /**
    * Where a key is drawn: the ground for the layers one walks, the clock for
@@ -490,7 +427,7 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
       ? (skyPlaces.current.get(myRepr ?? "") ?? STAR)
       : (laid.get(myRepr ?? "") ?? [...laid.values()][0]);
     if (!middle) return;
-    const scene = sceneKey(currentLayer, focus, sphereShown);
+    const scene = sceneKey(band, inside ? locationBase : null, sphereShown);
     const cut = shownScene.current !== scene;
     shownScene.current = scene;
     //: On a globe the eye goes to where the body stands whenever the scene is
@@ -528,7 +465,7 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
     //: changed, the tether was tied back on, or the map has just landed and
     //: there is at last a place to aim at. A push from the server is not one.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [myRepr, currentLayer, orbiting, focus, sphereShown, drawn, tethered]);
+  }, [myRepr, band, orbiting, locationBase, sphereShown, drawn, tethered]);
 
   /**
    * A journey: the frame follows the dot while it lasts (D-238).
@@ -569,8 +506,8 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
     let raf = 0;
     const step = () => {
       const circle = walkerRef.current;
-      const from = where.current(repr(ongoing.from_key, currentLayer) ?? "");
-      const to = where.current(repr(ongoing.to_key, currentLayer) ?? "");
+      const from = where.current(reprScene(ongoing.from_key) ?? "");
+      const to = where.current(reprScene(ongoing.to_key) ?? "");
       if (circle && from && to) {
         const t0 = new Date(ongoing.started_at).getTime();
         const t1 = new Date(ongoing.arrives_at).getTime();
@@ -600,11 +537,11 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
     ongoing?.to_key,
     ongoing?.started_at,
     ongoing?.arrives_at,
-    currentLayer,
-    repr,
+    reprScene,
     cam,
   ]);
 
+  useHandOver({ band, zoomed, enter, cam, book, mySphere, setPlanetFocus });
   if (!map) {
     return (
       <section className="map-pane">
@@ -617,8 +554,8 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
 
   const walker = (() => {
     if (!ongoing) return null;
-    const from = at(repr(ongoing.from_key, currentLayer) ?? "");
-    const to = at(repr(ongoing.to_key, currentLayer) ?? "");
+    const from = at(reprScene(ongoing.from_key) ?? "");
+    const to = at(reprScene(ongoing.to_key) ?? "");
     if (!from || !to) return null;
     const t0 = new Date(ongoing.started_at).getTime();
     const t1 = new Date(ongoing.arrives_at).getTime();
@@ -661,15 +598,23 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
     //: at all, and switching to an empty layer would read as a broken map
     //: rather than as a place one has still to fly to.
     if (offworld(byKey, here, node)) return;
-    if (currentLayer === "space") {
+    if (band === "sky") {
       //: Opening a planet means opening **this** planet: without that the
-      //: layer below would show somebody else's surface.
+      //: surface below would be somebody else's.
       setPlanetFocus(node.planet);
-      setLayer("planet");
-    } else if (currentLayer === "planet") {
-      setCityFocus(node.key);
-      setLayer("city");
+      enter("surface");
+      cam.zoomOnMiddle(globeScale(radiusOf(book, node.planet)));
+      return;
     }
+    if (band === "surface" && groups.has(node.key) && node.place && "lat" in node.place) {
+      //: A city opens by coming near: the eye goes over it and the frame
+      //: zooms to the scale its streets are drawn at.
+      globe.lookAt(node.place);
+      cam.cut({ x: 0, y: 0 });
+      cam.zoomOnMiddle(Math.max(cam.frame().scale, STREET_SCALE));
+      return;
+    }
+    if (band === "surface" && hasSubnodes && node.key === locationBase) enter("inside");
   };
 
   const click = (node: MapNode) => {
@@ -690,16 +635,15 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
       <div className="map-face">
       <div className="map-field">
       <Switcher
-        layers={layers}
-        current={currentLayer}
-        onLayer={setLayer}
+        inside={hasSubnodes ? inside : null}
+        onInside={(on) => enter(on ? "inside" : "surface")}
         tethered={tethered}
         onTether={tether}
         onZoom={zoomBy}
       />
 
       {visible.length === 0 ? (
-        <p className="note">{t("ui-map-layer-empty")}</p>
+        <p className="note">{t("ui-map-empty")}</p>
       ) : (
         <svg
           ref={svgRef}
@@ -725,7 +669,19 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
             />
           )}
 
+          {globeScene && eye && radius && sphereShown && (
+            <Ground
+              planet={sphereShown}
+              eye={eye}
+              radius={radius}
+              book={book}
+              clock={look.clock}
+              detailed={zoomed.ground}
+            />
+          )}
+          {citiesOpen && <Borders rings={borders} />}
           <Edges edges={shownEdges} at={at} labelled={!orbiting} curve={curve} />
+          {stubCurve && <Stubs stubs={map.stubs} curve={stubCurve} />}
           <Nodes
             nodes={visible}
             at={at}

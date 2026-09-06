@@ -21,6 +21,7 @@
 
 import { useEffect, useRef, type PointerEvent, type RefObject, type WheelEvent } from "react";
 
+import { SKY_BOUNDS, type Bounds } from "./bands";
 import type { Camera } from "./camera";
 import { H, W, type Point } from "./model";
 
@@ -70,14 +71,12 @@ export function worldAt(
   };
 }
 
-/** The zoom the wheel gives per notch, and how far in and out it may go. */
+/** The zoom the wheel gives per notch. */
 const NOTCH = 1.15;
-const NEAREST = 4;
-const FURTHEST = 0.4;
 
-/** A scale kept within what the map may show. */
-export function clampScale(scale: number): number {
-  return Math.min(NEAREST, Math.max(FURTHEST, scale));
+/** A scale kept within what the band may show (`bands.ts`). */
+export function clampScale(scale: number, bounds: Bounds = SKY_BOUNDS): number {
+  return Math.min(bounds.nearest, Math.max(bounds.furthest, scale));
 }
 
 /**
@@ -86,9 +85,14 @@ export function clampScale(scale: number): number {
  * start rather than from the last move, so that a hundred rounded steps do
  * not drift the picture away from the fingers.
  */
-export function pinchScale(scale0: number, spread0: number, spread: number): number {
+export function pinchScale(
+  scale0: number,
+  spread0: number,
+  spread: number,
+  bounds: Bounds = SKY_BOUNDS,
+): number {
   if (spread0 <= 0) return scale0;
-  return clampScale(scale0 * (spread / spread0));
+  return clampScale(scale0 * (spread / spread0), bounds);
 }
 
 const spreadOf = (a: Point, b: Point) => Math.hypot(b.x - a.x, b.y - a.y);
@@ -113,6 +117,7 @@ export function useHand({
   tethered,
   ready,
   rotate,
+  bounds = SKY_BOUNDS,
 }: {
   cam: Camera;
   svg: RefObject<SVGSVGElement | null>;
@@ -126,7 +131,13 @@ export function useHand({
    * the scene moves the eye. Absent on the flat scenes -- the sky, a house.
    */
   rotate?: (dx: number, dy: number) => void;
+  /** How far in and out this band lets the hand zoom (`bands.ts`). A
+   *  function where the band can change between a frame and the render
+   *  that follows it: the hand-over sets the scale and a notch of the wheel
+   *  in that gap must not clamp it to the band just left. */
+  bounds?: Bounds | (() => Bounds);
 }) {
+  const limits = () => (typeof bounds === "function" ? bounds() : bounds);
   //: A grab on the field is a pan; a grab on a node is only ever a click.
   const dragging = useRef<{
     moved: boolean;
@@ -231,7 +242,7 @@ export function useHand({
       const held = pinch.current;
       if (held && fingers.current.size >= 2) {
         const [a, b] = [...fingers.current.values()];
-        const scale = pinchScale(held.scale0, held.spread0, spreadOf(a, b));
+        const scale = pinchScale(held.scale0, held.spread0, spreadOf(a, b), limits());
         //: Tethered, a pinch is the wheel: the middle stays the middle.
         if (tethered) return cam.zoomOnMiddle(scale);
         //: Loose, the fingers hold the world (`pinchTo`).
@@ -287,7 +298,7 @@ export function useHand({
     },
 
     zoom(e: WheelEvent) {
-      const scale = clampScale(cam.frame().scale * (e.deltaY < 0 ? NOTCH : 1 / NOTCH));
+      const scale = clampScale(cam.frame().scale * (e.deltaY < 0 ? NOTCH : 1 / NOTCH), limits());
       //: Tethered, the wheel changes how much is seen and nothing else: the
       //: middle stays the middle, and the follow is not taken away by it.
       if (tethered) return cam.zoomOnMiddle(scale);
@@ -301,7 +312,7 @@ export function useHand({
      *  button has no cursor to zoom towards. Loose, it is the hand like the
      *  wheel and takes the frame; tethered, the middle stays the middle. */
     zoomBy(direction: 1 | -1) {
-      const scale = clampScale(cam.frame().scale * (direction > 0 ? NOTCH : 1 / NOTCH));
+      const scale = clampScale(cam.frame().scale * (direction > 0 ? NOTCH : 1 / NOTCH), limits());
       if (!tethered) cam.takeFrame();
       cam.zoomOnMiddle(scale);
     },

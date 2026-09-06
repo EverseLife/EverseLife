@@ -105,6 +105,15 @@ def marks_at(constants: Constants, planet: Planet, lat: float, lon: float) -> di
     }
 
 
+def by_latitude(constants: Constants, lat: float) -> float:
+    """The mean temperature at sea level here: the vault's warm end at the
+    equator, its cold end at the pole, by the square of the sine of the
+    latitude -- the shape sunlight has."""
+    warm, cold = constants[R.SITE_TEMP_RANGE].max, constants[R.SITE_TEMP_RANGE].min
+    tilt = math.sin(math.radians(lat))
+    return warm - (warm - cold) * tilt * tilt
+
+
 def climate_at(constants: Constants, planet: Planet, lat: float, lon: float) -> tuple[int, int]:
     """The mean temperature and the rainfall a node here carries (D-261).
 
@@ -115,11 +124,8 @@ def climate_at(constants: Constants, planet: Planet, lat: float, lon: float) -> 
     near water.
     """
     field = field_of(constants, planet)
-    warm, cold = constants[R.SITE_TEMP_RANGE].max, constants[R.SITE_TEMP_RANGE].min
-    tilt = math.sin(math.radians(lat))
-    sun = tilt * tilt
-    temperature = (
-        warm - (warm - cold) * sun - float(constants[R.TERRAIN_LAPSE_C]) * field.relief(lat, lon)
+    temperature = by_latitude(constants, lat) - float(constants[R.TERRAIN_LAPSE_C]) * field.relief(
+        lat, lon
     )
     rain = constants[R.SITE_RAIN_RANGE]
     wet = relief.noise_at(field.seed + RAIN, lat, lon)
@@ -160,4 +166,7 @@ def _sketched(constants: Constants, planet: Planet, field: relief.Field) -> dict
         "grid": [[float(value) for value in row] for row in field.grid],
         "rivers": [[[lat, lon] for lat, lon in river] for river in field.rivers],
         "lakes": sorted(list(cell) for cell in field.lakes),
+        #: The climate field as the globe tints it (plan, "Climate field"):
+        #: the sea-level mean of each row of the grid, warm to cold.
+        "warmth": [round(by_latitude(constants, lat)) for lat in relief.row_latitudes()],
     }

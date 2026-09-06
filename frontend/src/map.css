@@ -334,6 +334,49 @@
 polyline.edge {
   fill: none;
 }
+/* The ground of the globe (D-319, wave 4): flat colour, no textures. The
+   sea takes the planet's own hue; the land is the palette's grey by the
+   warmth of its row, mountains a shade lighter; the night a wash of the
+   darkest step. */
+.ground .sea,
+.ground .water {
+  fill: color-mix(in srgb, var(--pc) 22%, var(--base-900));
+}
+.ground .land.cold {
+  fill: var(--base-800);
+}
+.ground .land.cool {
+  fill: color-mix(in srgb, var(--base-800) 60%, var(--base-850));
+}
+.ground .land.warm {
+  fill: var(--base-850);
+}
+.ground .high {
+  fill: var(--base-700);
+}
+.ground .river {
+  fill: none;
+  stroke: color-mix(in srgb, var(--pc) 40%, var(--base-700));
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+.ground .night {
+  fill: var(--base-950);
+  fill-opacity: 0.45;
+  pointer-events: none;
+}
+/* A way into the fog (D-319 п. 6): the edge's stroke, fading out. */
+.stubs .stub {
+  stroke-opacity: 0.5;
+}
+/* Where a city ends (D-319, wave 4): a hairline round its open nodes. */
+.borders .border {
+  fill: none;
+  stroke: currentColor;
+  stroke-opacity: 0.25;
+  stroke-width: 1;
+  stroke-dasharray: 2 4;
+}
 .node.near {
   cursor: pointer;
 }

@@ -1,0 +1,159 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Nurlan Urazkulov
+
+/**
+ * The band the map is in, and the hand-over between bands (D-319, wave 4).
+ *
+ * The arithmetic of the bands is `bands.ts`; this is what React keeps of it:
+ * which band is shown, what the camera's last frame decided (the **facts**:
+ * cities open, the floor or the ceiling reached, the planet under the
+ * middle), and the effect that hands the map from one band to the next when
+ * a fact flips. The camera is made once and paints outside React, so it
+ * reads the surface's bounds through a ref and tells the facts through a
+ * setter that changes nothing when nothing changed.
+ */
+
+import { useEffect, useMemo, useRef, useState } from "react";
+
+import type { RecipeBook } from "../../api";
+import {
+  GROUND_SCALE,
+  SKY_BOUNDS,
+  cityOpen,
+  globeScale,
+  leavesSurface,
+  planetUnder,
+  reachesSurface,
+  surfaceBounds,
+  type Band,
+  type Bounds,
+} from "./bands";
+import type { Camera, Frame } from "./camera";
+import { H, W, type Point } from "./model";
+import { radiusOf } from "./useGlobe";
+
+/** What a frame decided: React's business only when one of these flips. */
+export type Facts = {
+  cities: boolean;
+  floor: boolean;
+  ceiling: boolean;
+  /** The frame holds several cells of the relief: the ground is worth drawing. */
+  ground: boolean;
+  /** The planet under the middle of the frame at the sky's ceiling, if any. */
+  over: string | null;
+};
+
+export const NO_FACTS: Facts = {
+  cities: false,
+  floor: false,
+  ceiling: false,
+  ground: false,
+  over: null,
+};
+
+export type Sphere = { key: string; planet: string; at: Point };
+
+/** The facts of a frame, from the surface's floor and where the planets are. */
+export function factsOf(frame: Frame, floor: number, spheres: readonly Sphere[]): Facts {
+  const ceiling = reachesSurface(frame.scale);
+  const middle = { x: frame.x + W / (2 * frame.scale), y: frame.y + H / (2 * frame.scale) };
+  return {
+    cities: cityOpen(frame.scale),
+    floor: leavesSurface(frame.scale, floor),
+    ceiling,
+    ground: frame.scale <= GROUND_SCALE,
+    over: ceiling ? (planetUnder(middle, spheres)?.planet ?? null) : null,
+  };
+}
+
+export function sameFacts(a: Facts, b: Facts): boolean {
+  return (
+    a.cities === b.cities &&
+    a.floor === b.floor &&
+    a.ceiling === b.ceiling &&
+    a.ground === b.ground &&
+    a.over === b.over
+  );
+}
+
+export function useBands({
+  book,
+  initialLayer,
+  hasSubnodes,
+}: {
+  book: RecipeBook | null;
+  initialLayer: string;
+  /** Whether where one stands has an inside to show. */
+  hasSubnodes: boolean;
+}) {
+  //: The band of scale the map is in: the sky, the surface, or the inside --
+  //: a window, not a height. The console opens on the sky.
+  const [asked, setBand] = useState<Band>(initialLayer === "space" ? "sky" : "surface");
+  //: The inside is shown only where there is one: a walk from a house to a
+  //: field with the door open would otherwise leave the map empty, with no
+  //: door to close and no hand -- so the band is derived, not trusted.
+  const band: Band = asked === "inside" && !hasSubnodes ? "surface" : asked;
+  //: The band as of the last hand-over, ahead of the render: the hand reads
+  //: its bounds here, so a notch of the wheel between a hand-over and the
+  //: render that follows it clamps to the band entered, not the one left.
+  const bandRef = useRef(band);
+  bandRef.current = band;
+  const enter = (next: Band) => {
+    bandRef.current = next;
+    setBand(next);
+  };
+  //: The surface's bounds come from the vault's height (`map.approach_km`)
+  //: through the book; read through a ref by the camera, which is made once.
+  const surface = useMemo<Bounds>(
+    () => surfaceBounds(Number(book?.constants?.["map.approach_km"])),
+    [book],
+  );
+  const surfaceRef = useRef(surface);
+  surfaceRef.current = surface;
+  const [zoomed, setZoomed] = useState<Facts>(NO_FACTS);
+  //: Compared before it is set, so a frame that changes nothing costs no render.
+  const tell = (facts: Facts) => setZoomed((was) => (sameFacts(was, facts) ? was : facts));
+  return { band, bandRef, enter, surface, surfaceRef, zoomed, tell };
+}
+
+/**
+ * The hand-over between bands: zoomed out to the floor of the surface the
+ * map is the sky; zoomed all the way in on a planet's marker -- or panned
+ * onto one at the ceiling -- the surface opens as a globe. A cut, not a
+ * flight: the two coordinate systems do not meet (plan §2, item 2), and the
+ * stitch is wave 5's. Another planet's surface is not in the answer (D-240),
+ * so only one's own opens.
+ */
+export function useHandOver({
+  band,
+  zoomed,
+  enter,
+  cam,
+  book,
+  mySphere,
+  setPlanetFocus,
+}: {
+  band: Band;
+  zoomed: Facts;
+  enter: (next: Band) => void;
+  cam: Camera;
+  book: RecipeBook | null;
+  mySphere: string | null;
+  setPlanetFocus: (planet: string | null) => void;
+}) {
+  useEffect(() => {
+    if (band === "surface" && zoomed.floor) {
+      enter("sky");
+      cam.zoomOnMiddle(SKY_BOUNDS.furthest);
+      return;
+    }
+    if (band === "sky" && zoomed.ceiling && zoomed.over) {
+      if (mySphere && zoomed.over !== mySphere) return;
+      setPlanetFocus(zoomed.over);
+      enter("surface");
+      cam.zoomOnMiddle(globeScale(radiusOf(book, zoomed.over)));
+    }
+    //: The facts and the band are the reasons; the rest is read as it is.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [zoomed.floor, zoomed.ceiling, zoomed.over, band]);
+}

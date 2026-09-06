@@ -26,6 +26,7 @@ import { midOf } from "./globe";
 import { SURFACE, spell, type MapNode } from "../../api";
 import { t } from "../../locale";
 import { DASH, type Link, type Point } from "./model";
+import type { MapStub } from "../../api";
 
 type Place = (key: string) => Point | undefined;
 
@@ -116,6 +117,31 @@ export function Edges({ edges, at, labelled, curve }: {
         );
       })}
     </>
+  );
+}
+
+/** The ways out of sight (D-319 item 6): a short dashed piece of each edge
+ *  that leads into the fog, from its seen end. Drawn only where the scene
+ *  gives it a run -- on the globe; the inside has no fog. */
+export function Stubs({ stubs, curve }: {
+  stubs: MapStub[];
+  curve: (stub: MapStub) => Point[] | null;
+}) {
+  return (
+    <g className="stubs">
+      {stubs.map((stub, i) => {
+        const run = curve(stub);
+        if (!run) return null;
+        return (
+          <polyline
+            key={`${stub.from}|${i}`}
+            points={run.map((p) => `${p.x},${p.y}`).join(" ")}
+            className={`edge stub ${stub.surface}`}
+            strokeDasharray={DASH[stub.surface]}
+          />
+        );
+      })}
+    </g>
   );
 }
 
@@ -232,5 +258,16 @@ export function Nodes({
         );
       })}
     </>
+  );
+}
+
+/** The borders of the open cities: where a city ends (plan §2). */
+export function Borders({ rings }: { rings: readonly { city: string; ring: { cx: number; cy: number; r: number } }[] }) {
+  return (
+    <g className="borders" aria-hidden="true">
+      {rings.map(({ city, ring }) => (
+        <circle key={city} className="border" cx={ring.cx} cy={ring.cy} r={ring.r} />
+      ))}
+    </g>
   );
 }

@@ -135,6 +135,11 @@ def test_the_sketch_is_the_field_the_client_draws(constants: Constants) -> None:
         len(point) == 2 for river in sketch["rivers"] for point in river
     )
     assert 0.0 < sketch["sea_level"] < sketch["mountain_level"] < 1.0
+    warmth = sketch["warmth"]
+    assert len(warmth) == relief.GRID_ROWS
+    middle = relief.GRID_ROWS // 2
+    assert warmth[0] < warmth[middle] > warmth[-1], "экватор теплее полюсов"
+    assert warmth[middle] == round(terrain.by_latitude(constants, 1.0))
 
 
 async def test_noon_comes_to_the_east_first(session: AsyncSession, constants: Constants) -> None:

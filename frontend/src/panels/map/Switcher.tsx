@@ -13,10 +13,6 @@
  * already is: a strip above the field would cost a line of the height the map
  * is the whole point of.
  *
- * Every layer wears the mark of what it opens, and the city's is the colonnade
- * the map already draws on a settlement -- a switcher whose icons were invented
- * apart from the map would be a second vocabulary to learn.
- *
  * The marks stand **beside** the words, never instead of them (D-238) -- with
  * one exception, and it is written down rather than assumed: on a screen
  * narrower than 56rem the words are hidden and the bar is marks alone. The
@@ -25,29 +21,24 @@
  * subject fails harder than a mark somebody has to learn once. The word is
  * hidden by CSS only: it stays in the button for a screen reader, it is the
  * button's `aria-label` in every case, and the hint at the end of the bar
- * names the layers in words.
+ * says in words what the wheel and the door do.
  */
 
 import { Glyph } from "../../Glyph";
 import { Hint } from "../../Hint";
-import type { GlyphName } from "../../glyphs";
 import { t } from "../../locale";
-import type { LayerId } from "./model";
-
-type Layer = { id: LayerId; label: string; mark: GlyphName };
 
 export function Switcher({
-  layers,
-  current,
-  onLayer,
+  inside,
+  onInside,
   tethered,
   onTether,
   onZoom,
 }: {
-  /** The layers worth offering: an empty one is not shown at all. */
-  layers: readonly Layer[];
-  current: LayerId;
-  onLayer: (id: LayerId) => void;
+  /** Whether there is an inside to open from here -- floors, a hull's rooms
+   *  (D-319, wave 4) -- and whether it is open now. Null: nothing inside. */
+  inside: boolean | null;
+  onInside: (on: boolean) => void;
   /** Whether the camera is tied to the body -- see `GraphMap`. */
   tethered: boolean;
   onTether: (on: boolean) => void;
@@ -55,27 +46,21 @@ export function Switcher({
   onZoom: (direction: 1 | -1) => void;
 }) {
   const word = t(tethered ? "ui-map-cam-tied" : "ui-map-cam-free");
+  const door = t(inside ? "ui-map-outside" : "ui-map-inside");
   return (
     <nav className="row tabs map-layers">
-      {layers.map((option) => (
-        <button
-          key={option.id}
-          className={current === option.id ? "" : "quiet"}
-          aria-current={current === option.id || undefined}
-          //: The word is hidden on a narrow screen, not removed: the button
-          //: keeps its name for a reader, and for the hint that lists the
-          //: layers beside it. No `title`: on a wide screen the word is right
-          //: there, and a tooltip repeating it would pop over the map.
-          aria-label={option.label}
-          onClick={() => onLayer(option.id)}
-        >
-          <Glyph name={option.mark} />
-          <span className="tab-word">{option.label}</span>
+      {/* The heights are the wheel's now (D-319, wave 4): far out the sky,
+          close in the surface, and a city opens as one comes near. The one
+          thing that is not a height is the inside -- floors, rooms -- and
+          it is a door, not a tab: the button names the way through it, in
+          or out, and is not a pressed state like the camera's. */}
+      {inside !== null && (
+        <button className="quiet" aria-label={door} onClick={() => onInside(!inside)}>
+          <Glyph name="rooms" />
+          <span className="tab-word">{door}</span>
         </button>
-      ))}
-      {/* The two questions are not a row of equals: the height is a set of
-          alternatives, the tether is a state of its own. */}
-      <span className="map-sep" aria-hidden="true" />
+      )}
+      {inside !== null && <span className="map-sep" aria-hidden="true" />}
       <button
         className={`cam-tie${tethered ? "" : " quiet"}`}
         aria-pressed={tethered}

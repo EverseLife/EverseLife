@@ -17,31 +17,18 @@
  */
 
 import type { MapNode, Transit } from "../../api";
-import type { GlyphName } from "../../glyphs";
 
 /** The frame the map is drawn in. The camera (`viewBox`) moves over it. */
 export const W = 880;
 export const H = 540;
 
 /**
- * The four layers, each with the mark it wears in the switcher (D-238).
- *
- * The city's mark is the colonnade the map already draws on a settlement, so
- * the tab and the node it opens say the same thing -- a switcher whose icons
- * were invented apart from the map would be a second vocabulary to learn.
- *
- * `word` is a message name, not a word: the layer is named in the language the
- * player is reading, and the city's name is not even in the locale -- it
- * follows the planet whose surface is shown (`cityWord`). So the switcher is
- * handed resolved labels and this table keeps only the key.
+ * The four layers of the wire (D-045). Once tabs of a switcher, they are
+ * heights of one map now (D-319, wave 4: `bands.ts`) -- the ids stay, as the
+ * server's word for where a node sits in the hierarchy.
  */
-export const LAYERS = [
-  { id: "space", word: "ui-map-layer-space", mark: "orbit" },
-  { id: "planet", word: "ui-map-layer-planet", mark: "globe" },
-  { id: "city", word: "ui-map-layer-city", mark: "state" },
-  { id: "location", word: "ui-map-layer-location", mark: "rooms" },
-] as const satisfies readonly { id: string; word: string; mark: GlyphName }[];
-export type LayerId = (typeof LAYERS)[number]["id"];
+export const LAYER_IDS = ["space", "planet", "city", "location"] as const;
+export type LayerId = (typeof LAYER_IDS)[number];
 
 /**
  * How far from where you stand the map reaches, in steps of the graph.
@@ -114,6 +101,25 @@ export function delegate(
   let cursor: MapNode | undefined = byKey[key];
   while (cursor) {
     if (cursor.layer === layer) return cursor.key;
+    cursor = cursor.parent ? byKey[cursor.parent] : undefined;
+  }
+  return null;
+}
+
+/**
+ * The node's delegate among several layers: the nearest ancestor, itself
+ * included, that is drawn in a scene showing these layers. On the surface
+ * with the cities open that is the node itself or its city; with the cities
+ * closed, the city alone -- and a wild node, which has no city, is its own.
+ */
+export function delegateAmong(
+  byKey: Record<string, MapNode>,
+  key: string,
+  layers: readonly string[],
+): string | null {
+  let cursor: MapNode | undefined = byKey[key];
+  while (cursor) {
+    if (layers.includes(cursor.layer)) return cursor.key;
     cursor = cursor.parent ? byKey[cursor.parent] : undefined;
   }
   return null;

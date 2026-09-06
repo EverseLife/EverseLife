@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Nurlan Urazkulov
 
-"""The rows of the map, and the daily snapshot of the public ones (D-319 п. 7).
+"""The rows of the map, and the daily snapshot of the public ones (D-319 item 7).
 
 One shape for a node on the wire, whoever asks: the personal map of
 `/public/map` with a token, and the delayed public map without one. The rows
@@ -24,6 +24,7 @@ from typing import Any
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src import globe
 from src.constants import Constants
 from src.constants import registry as R
 from src.engine import estate, memory, places, sight, travel, world
@@ -68,7 +69,7 @@ def node_row(
         #: The owner's mark, if one is nailed on (D-238).
         "emblem": estate.public_emblem(node),
     }
-    #: Memory and the public are drawn dark (D-319 п. 6); sent only when so,
+    #: Memory and the public are drawn dark (D-319 item 6); sent only when so,
     #: so the bright majority of rows carry nothing for it.
     if faded:
         row["faded"] = True
@@ -82,6 +83,39 @@ def edge_row(constants: Constants, edge: Edge, by_key: dict[uuid.UUID, str]) -> 
         "surface": edge.surface.value,
         "seconds": round(travel.edge_seconds(constants, edge)),
     }
+
+
+def stub_rows(
+    edges: list[Edge], shown: dict[uuid.UUID, Node], hidden: dict[uuid.UUID, Node]
+) -> list[dict[str, Any]]:
+    """The edges that lead out of sight, as stubs into the fog (D-319 item 6).
+
+    An edge with one end in sight and the other on the surface beyond it is
+    drawn from the seen end a little way towards the unseen one, and no
+    farther: the row carries the way to set out, to the degree, and not how
+    far the way goes. A stub has a direction by nature (D-319 item 4), and
+    two of them towards one hidden node cross where it stands; what the fog
+    keeps is the distance, and the row carries none.
+    """
+    rows: list[dict[str, Any]] = []
+    for edge in edges:
+        if edge.node_a_id in shown and edge.node_b_id in hidden:
+            seen, unseen = shown[edge.node_a_id], hidden[edge.node_b_id]
+        elif edge.node_b_id in shown and edge.node_a_id in hidden:
+            seen, unseen = shown[edge.node_b_id], hidden[edge.node_a_id]
+        else:
+            continue
+        here, there = places.geo_of(seen), places.geo_of(unseen)
+        if here is None or there is None:
+            continue
+        rows.append(
+            {
+                "from": seen.key,
+                "bearing": round(globe.bearing(here, there)),
+                "surface": edge.surface.value,
+            }
+        )
+    return rows
 
 
 def passage_row(under_way: dict[str, Any] | None, by_key: dict[Any, str]) -> dict[str, str] | None:
@@ -110,7 +144,7 @@ async def anonymous(
 
     The sky is live -- a planet's place is arithmetic, a hull under way is a
     passage anybody may plan around -- and the surface is the daily snapshot
-    old enough to be fair (D-319 п. 7). Returns the snapshot served too, so
+    old enough to be fair (D-319 item 7). Returns the snapshot served too, so
     the route can name it in an `ETag`.
     """
     every, _ = await sight.read(session)
@@ -131,6 +165,8 @@ async def anonymous(
         ]
         + list(surface["nodes"]),
         "edges": list(surface["edges"]),
+        #: The public surface is whole: no edge of it leads out of sight.
+        "stubs": [],
         "routes": await vessels.corridors(session, constants, at=now),
     }, old
 
@@ -160,6 +196,9 @@ async def personal(
     )
     nodes = [node for node in every if node.id in view.seen and node.id not in inside]
     shown = {node.id for node in nodes}
+    #: The surface beyond sight: what a stub points at. Insides are not
+    #: hidden by the fog, they are simply not the map's (D-201, item 9).
+    beyond = {node.id: node for node in _public_surface(every) if node.id not in shown}
     return {
         "nodes": [
             node_row(
@@ -176,6 +215,7 @@ async def personal(
             for edge in all_edges
             if edge.node_a_id in shown and edge.node_b_id in shown
         ],
+        "stubs": stub_rows(all_edges, {node.id: node for node in nodes}, beyond),
         "routes": await vessels.corridors(session, constants, at=now),
     }
 
@@ -184,7 +224,7 @@ def _public_surface(nodes: list[Node]) -> list[Node]:
     """What the snapshot carries: the surfaces, without the insides.
 
     The rooms of a hull are not public (D-201), and the floors and rooms of
-    the land are the inside window's, not the map's (D-319 п. 9).
+    the land are the inside window's, not the map's (D-319 item 9).
     """
     return [node for node in nodes if node.layer is Layer.PLANET and not vessels.is_aboard(node)]
 
