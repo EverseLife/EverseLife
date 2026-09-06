@@ -282,7 +282,7 @@ export function EntryGlobe({
   //: is five times the paths, laid afresh at every turn of the globe -- and
   //: the globe turns by itself on this screen, on whatever the visitor has.
   const spread = field ? (2 * reach) / span : 1;
-  const unit = Math.max(FINEST_UNIT, Math.min(1, 1 / zoom));
+  const unit = Math.max(FINEST_UNIT, Math.min(1, spread / zoom));
   const cellUnits = DISK * CELL_DEG * RAD * unit;
   const across = field ? Math.max(field.seen.w, field.seen.h) * perPixel : span;
   const detailed = across > CELLS_ACROSS * cellUnits;
@@ -340,7 +340,7 @@ export function EntryGlobe({
           detailed={detailed}
           coarse={false}
           unit={unit}
-          within={span / 2}
+          within={reach}
         />
         <g className="ways">
           {(world?.edges ?? []).map((edge) => {
