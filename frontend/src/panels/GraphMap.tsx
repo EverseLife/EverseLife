@@ -51,7 +51,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as api from "../api";
 import { type Look, type MapNode, type WorldMap } from "../api";
-import { useActions, useSession } from "../actions";
+import { useActions, useBook, useSession } from "../actions";
 import { createCamera, viewBoxOf, type Camera } from "./map/camera";
 import { UNFLAG, useKept } from "../kept";
 import { t } from "../locale";
@@ -62,6 +62,7 @@ import { NodeMenu } from "./map/NodeMenu";
 import { Edges, Nodes } from "./map/Nodes";
 import { useHand } from "./map/hand";
 import { flatten, withCityScene } from "./map/geo";
+import { arc, projectAll, radiusUnits, turn, type Eye } from "./map/globe";
 import { settle } from "./map/layout";
 import { SkyBackdrop, SkyClock } from "./map/Sky";
 import { Switcher } from "./map/Switcher";
@@ -353,17 +354,46 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
    * caught between the deploy and the catching-up seed -- is settled around
    * those in one synchronous pass, so the map is never seen crawling.
    */
+  /**
+   * The globe (D-319, wave 3): a surface scene is the planet seen from above
+   * one point of it -- the eye -- and the hand turns it. The planet's radius
+   * is the vault's (`planet.radius` on `planet.terra_radius_km`); until the
+   * book has arrived the scene is flattened round its first node as before.
+   */
+  const book = useBook();
+  const radius = useMemo(() => {
+    if (!book?.constants || !sphereShown) return null;
+    const values = book.constants as Record<string, any>;
+    const share = Number(values["planet.radius"]?.[sphereShown]);
+    const terra = Number(values["planet.terra_radius_km"]);
+    if (!Number.isFinite(share) || !Number.isFinite(terra) || share <= 0 || terra <= 0) return null;
+    return radiusUnits(share * terra);
+  }, [book, sphereShown]);
+  const globeScene = !orbiting && currentLayer !== "location" && radius !== null;
+  //: Where the eye stands: set on every new scene to where the body is, and
+  //: turned by the hand from there. Nowhere until the map has a place.
+  const [eye, setEye] = useState<Eye | null>(null);
   const ground = useMemo(() => {
     //: The sky is nobody's ground: there every point comes from the clock, and
     //: settling springs whose result is thrown away is pure work.
     if (orbiting) return new Map<string, Point>();
-    const given = flatten(visible);
+    const given = globeScene && eye && radius ? projectAll(eye, radius, visible) : flatten(visible);
     return settle(
       visible.map((node) => node.key),
       shownEdges,
       given,
     );
-  }, [visible, shownEdges, orbiting]);
+  }, [visible, shownEdges, orbiting, globeScene, eye, radius]);
+  /** An edge on the globe: the runs of its arc that face the eye. */
+  const curve = useMemo(() => {
+    if (!globeScene || !eye || !radius) return undefined;
+    return (edge: Link): Point[][] | null => {
+      const a = byKey[edge.a]?.place;
+      const b = byKey[edge.b]?.place;
+      if (!a || !b || !("lat" in a) || !("lat" in b)) return null;
+      return arc(eye, radius, a, b);
+    };
+  }, [globeScene, eye, radius, byKey]);
 
   useEffect(() => {
     if (!menu) return;
@@ -400,6 +430,10 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
     svg: svgRef,
     tethered,
     ready: Boolean(map) && visible.length > 0,
+    rotate:
+      globeScene && radius
+        ? (dx, dy) => setEye((was) => (was ? turn(was, radius, dx, dy) : was))
+        : undefined,
   });
 
   // --- node behaviour -------------------------------------------------------
@@ -453,6 +487,8 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
   //: just panned somewhere to look. The **reasons** to re-aim are below.
   const groundRef = useRef(ground);
   groundRef.current = ground;
+  const visibleRef = useRef(visible);
+  visibleRef.current = visible;
   const drawn = Boolean(map);
   useEffect(() => {
     const laid = groundRef.current;
@@ -463,6 +499,16 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
     const scene = sceneKey(currentLayer, focus, sphereShown);
     const cut = shownScene.current !== scene;
     shownScene.current = scene;
+    //: On a globe the eye goes to where the body stands whenever the scene is
+    //: new: the origin of the frame is the eye, so the middle is the origin.
+    if (cut && globeScene) {
+      const stand = byKey[myRepr ?? ""]?.place ?? visibleRef.current[0]?.place;
+      if (stand && "lat" in stand) {
+        setEye({ lat: stand.lat, lon: stand.lon });
+        cam.cut({ x: 0, y: 0 });
+        return;
+      }
+    }
     //: A new scene is moved to **whatever else is going on**, walking or not:
     //: its coordinates are not the old ones, and a frame left in them shows
     //: an empty field. The walker cannot bring it back either -- on somebody
@@ -680,7 +726,7 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
             />
           )}
 
-          <Edges edges={shownEdges} at={at} labelled={!orbiting} />
+          <Edges edges={shownEdges} at={at} labelled={!orbiting} curve={curve} />
           <Nodes
             nodes={visible}
             at={at}

@@ -17,6 +17,7 @@ import {
   type Frame,
 } from "../panels/map/camera";
 import { flatten, withCityScene } from "../panels/map/geo";
+import { arc, project, projectAll, radiusUnits, slerp, turn } from "../panels/map/globe";
 import { clampScale, lensOn, pinchScale, pinchTo, worldAt } from "../panels/map/hand";
 import { settle } from "../panels/map/layout";
 import {
@@ -725,5 +726,76 @@ describe("withCityScene", () => {
     expect(plot.layer).toBe("city");
     expect(wild.layer).toBe("planet");
     expect(room.layer).toBe("location");
+  });
+});
+
+
+describe("the globe", () => {
+  //: Terra's radius in map units, as the vault gives it (D-320): the tests
+  //: below only need it large next to a city step.
+  const R = radiusUnits(6371);
+  const eye = { lat: 41, lon: 24 };
+
+  it("puts the eye's point at the origin, north up and facing", () => {
+    expect(project(eye, R, eye)).toEqual({ x: 0, y: -0, front: true });
+    const north = project(eye, R, { lat: 42, lon: 24 });
+    expect(north.y).toBeLessThan(0);
+    expect(north.x).toBeCloseTo(0, 6);
+    const east = project(eye, R, { lat: 41, lon: 25 });
+    expect(east.x).toBeGreaterThan(0);
+    //: A degree of latitude is about 111 km: 111,000 m at 5 units a metre.
+    expect(-north.y).toBeCloseTo(radiusUnits(111.19), -3);
+  });
+
+  it("hides the far side of the sphere", () => {
+    const antipode = { lat: -41, lon: -156 };
+    expect(project(eye, R, antipode).front).toBe(false);
+    const placed = projectAll(eye, R, [
+      { key: "here", place: eye },
+      { key: "away", place: antipode },
+      { key: "room", place: { x: 1, y: 2 } },
+    ]);
+    expect([...placed.keys()]).toEqual(["here"]);
+  });
+
+  it("draws an edge as the visible runs of its great circle", () => {
+    const a = { lat: 41, lon: 24 };
+    const b = { lat: 41, lon: 25 };
+    const runs = arc(eye, R, a, b, 8);
+    expect(runs).toHaveLength(1);
+    expect(runs[0]).toHaveLength(9);
+    expect(runs[0][0].x).toBeCloseTo(0, 6);
+    expect(runs[0][0].y).toBeCloseTo(0, 6);
+    //: Over the horizon: the far half is cut off, the near half stays.
+    const beyond = arc(eye, R, a, { lat: -41, lon: -156 }, 8);
+    expect(beyond).toHaveLength(1);
+    expect(beyond[0].length).toBeLessThan(9);
+    //: Between two antipodal-side points nothing is drawn at all.
+    expect(arc(eye, R, { lat: -40, lon: -150 }, { lat: -42, lon: -160 }, 8)).toEqual([]);
+  });
+
+  it("interpolates along the great circle", () => {
+    const mid = slerp({ lat: 0, lon: 0 }, { lat: 0, lon: 90 }, 0.5);
+    expect(mid.lat).toBeCloseTo(0, 6);
+    expect(mid.lon).toBeCloseTo(45, 6);
+    const same = slerp({ lat: 10, lon: 10 }, { lat: 10, lon: 10 }, 0.3);
+    expect(same.lat).toBeCloseTo(10, 9);
+    expect(same.lon).toBeCloseTo(10, 9);
+  });
+
+  it("turns with the hand, two angles, north up and short of the pole", () => {
+    //: The ground dragged east: the eye looks west.
+    const west = turn(eye, R, 1000, 0);
+    expect(west.lon).toBeLessThan(eye.lon);
+    expect(west.lat).toBe(eye.lat);
+    //: Dragged down: the eye looks north.
+    const north = turn(eye, R, 0, 1000);
+    expect(north.lat).toBeGreaterThan(eye.lat);
+    //: A drag of a hundred metres moves the eye by a hundred metres of arc.
+    const step = turn(eye, R, 0, radiusUnits(0.1));
+    expect((step.lat - eye.lat) * (Math.PI / 180) * R).toBeCloseTo(radiusUnits(0.1), 0);
+    //: And never past the last latitude.
+    expect(turn({ lat: 84, lon: 0 }, R, 0, R).lat).toBe(85);
+    expect(turn({ lat: 0, lon: 179.5 }, R, -R * 0.02, 0).lon).toBeLessThan(180);
   });
 });

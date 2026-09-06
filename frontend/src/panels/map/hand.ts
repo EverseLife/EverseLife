@@ -112,6 +112,7 @@ export function useHand({
   svg,
   tethered,
   ready,
+  rotate,
 }: {
   cam: Camera;
   svg: RefObject<SVGSVGElement | null>;
@@ -119,6 +120,12 @@ export function useHand({
   tethered: boolean;
   /** Whether there is an svg to listen on -- it comes and goes with the map. */
   ready: boolean;
+  /**
+   * On a globe a drag turns the sphere instead of sliding the frame (D-319,
+   * plan §2): told the ground's movement in map units since the last move,
+   * the scene moves the eye. Absent on the flat scenes -- the sky, a house.
+   */
+  rotate?: (dx: number, dy: number) => void;
 }) {
   //: A grab on the field is a pan; a grab on a node is only ever a click.
   const dragging = useRef<{
@@ -258,6 +265,15 @@ export function useHand({
       }
       if (!drag.moved) return;
       const k = 1 / (pixelsPer() ?? 1);
+      if (rotate) {
+        //: The ground follows the hand: the eye is told how far it went since
+        //: the last move, and the frame stays where it is -- the origin moves
+        //: with the eye, so panning it would move the ground twice.
+        rotate(dx * k, dy * k);
+        drag.startX = e.clientX;
+        drag.startY = e.clientY;
+        return;
+      }
       cam.panTo(drag.panX0 - dx * k, drag.panY0 - dy * k);
     },
 

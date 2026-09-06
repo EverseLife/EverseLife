@@ -330,6 +330,10 @@
 .node.faded {
   opacity: 0.45;
 }
+/* An edge on the globe is a polyline: the same stroke as a line. */
+polyline.edge {
+  fill: none;
+}
 .node.near {
   cursor: pointer;
 }
