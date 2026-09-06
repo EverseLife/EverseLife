@@ -68,7 +68,7 @@ export function markSeen(at: string): void {
   try {
     localStorage.setItem(SEEN, at);
   } catch {
-    /* приватный режим — сводка просто будет за сутки */
+    /* private mode -- the summary will simply cover the last day */
   }
 }
 

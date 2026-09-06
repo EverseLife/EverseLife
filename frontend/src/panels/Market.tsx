@@ -647,8 +647,9 @@ export function Market({ look }: Props) {
             <p className="note">{t("ui-market-rest")}</p>
           </div>
 
-          {/* Бронь — единственное исключение из «купить только стоя здесь»:
-              купец, собираясь в дорогу, резервирует партию задатком (D-047). */}
+          {/* A reservation is the one exception to buying only while standing
+              here: a merchant setting out on the road holds a lot with a
+              deposit (D-047). */}
           {foreign.length > 0 && (
             <>
               <h3>
@@ -663,8 +664,9 @@ export function Market({ look }: Props) {
                         {goodsKeyName(names, offer.goods)}, {tierName(names, offer.tier)}
                       </td>
                       <td className="num">{api.tk(offer.price)} ₭</td>
-                      {/* Дробный остаток нельзя округлять до нуля: «0» рядом с
-                          живой кнопкой — обман, а не краткость. */}
+                      {/* A fractional remainder must not be rounded down to
+                          zero: a "0" beside a live button is a deceit, not
+                          brevity. */}
                       <td className="num">{exactly(offer.left)}</td>
                       <td>
                         <button
@@ -690,7 +692,7 @@ export function Market({ look }: Props) {
             </>
           )}
 
-          {/* Свои брони в этом узле выкупаются здесь же. */}
+          {/* One's own reservations in this node are redeemed right here. */}
           {look.reservations
             .filter((reservation) => reservation.node_key === node)
             .map((reservation) => (

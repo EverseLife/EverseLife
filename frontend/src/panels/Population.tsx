@@ -63,9 +63,10 @@ export function Population({ view, busy }: { view: StateView; busy: boolean }) {
       <h3>{t("ui-city-residents")}</h3>
       <p className="note">{city.citizens.join(" · ") || t("ui-city-residents-none")}</p>
 
-      {/* Дефектная печать (D-173): по лору принтер иногда печатает людей без
-          интеллекта. Репорт снижает доверие и кредит, а не убивает: необратимую
-          переработку делает только внеигровой саппорт. */}
+      {/* A faulty print (D-173): by the lore the printer sometimes prints
+          people with no mind behind them. A report lowers trust and credit
+          rather than killing: only out-of-game support does the irreversible
+          recycling. */}
       <div className="row">
         <input
           value={target}

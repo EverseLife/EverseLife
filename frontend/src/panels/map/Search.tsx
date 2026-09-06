@@ -88,7 +88,8 @@ export function Search({
   //: the choice is kept across reloads (`kept.ts`).
   const [reach, setReach] = useKept<Reach>("everselife.search.reach", "far", REACH_WIRE);
   const [forecast, setForecast] = useState<Outlook | null>(null);
-  //: Отдельный прогноз для леса: он сужает шанс на лесистость мира (D-191).
+  //: A forecast of its own for forest: it narrows the chance by how wooded the
+  //: world is (D-191).
   const [woods, setWoods] = useState<Outlook | null>(null);
   //: What may be sought here at all is the server's answer (D-232). The map
   //: layer no longer decides it: inside a city of the Forerunners one opens
@@ -114,8 +115,9 @@ export function Search({
 
   useEffect(() => {
     void session
-      //: Прогноз просится под выбранную породу: редкая ищется хуже частой
-      //: (D-151), и «шанс 90%» рядом с заказом золота был бы обманом.
+      //: A species chosen narrows the forecast to it: a rare one is found
+      //: worse than a common one (D-151), and a "90% chance" beside an order
+      //: for gold would be a deceit.
       //: The forecast is asked for the goal this node actually offers: in a
       //: worked-out city of the Forerunners the honest answer is "never", and a
       //: promise made for another goal would be a lie (D-156, D-232).
@@ -133,14 +135,14 @@ export function Search({
         setForecast(null);
         setHere([]);
       });
-    //: Лес сужает шанс на лесистость мира (D-191), и это должно быть видно
-    //: до выхода — как и с редкой породой.
+    //: Forest narrows the chance by how wooded the world is (D-191), and that
+    //: must be seen before setting out -- as with a rare species.
     void session
       .send("explore.goals", { goal: "forest" })
       .then((answer) => setWoods((answer.outlook as Outlook | null) ?? null))
       .catch(() => setWoods(null));
-    //: Заход меняет счёт находок узла, поэтому прогноз пересчитывается и по
-    //: возвращении разведчика, а не только при переходе.
+    //: A run changes the node's count of finds, so the forecast is recomputed
+    //: on the scout's return as well, not only on a move.
     //: The layer is not in the dependencies: the server's answer does not
     //: depend on it, and `aim` already changes when the layer changes what is
     //: on offer. Listing it as well would send two more `explore.goals` on
@@ -298,9 +300,10 @@ function Forecast({ forecast, names }: { forecast: Outlook; names: Names | null 
         })}`}
       {forecast.explored > 0 &&
         ` · ${t("ui-map-forecast-explored", { count: String(forecast.explored) })}`}
-      {/* Теснота — свойство места, на которое игрок может ответить: отойти от
-          скопления и идти от границы. Потому она названа отдельным числом, а не
-          спрятана в общем шансе (D-207). */}
+      {/* Crowding is a property of the place the player can answer: step away
+          from the cluster and work outward from the edge. That is why it is
+          named as a figure of its own instead of being hidden inside the
+          overall chance (D-207). */}
       {(forecast.crowding ?? 1) < 1 &&
         ` · ${t("ui-map-forecast-crowding", {
           near: String(Boolean(forecast.anchor)),

@@ -122,8 +122,8 @@ function parse(value: string | null): Record<string, { rate: number; free: numbe
       return parsed as Record<string, { rate: number; free: number }>;
     }
   } catch {
-    //: Старое значение числом — это ставка на всё, и её показывает таблица
-    //: законов выше. Здесь редактируются прицельные строки.
+    //: An old value written as a number is the rate on everything, and the
+    //: table of laws above shows it. What is edited here are the aimed rows.
   }
   return {};
 }

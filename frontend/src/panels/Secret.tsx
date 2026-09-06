@@ -62,7 +62,7 @@ export function Secret({
         onChange={(e) => onChange(e.target.value)}
         spellCheck={false}
       />
-      {/* Блик, пробегающий по полю при каждом переключении. */}
+      {/* The glint that runs across the field on every toggle. */}
       <span key={blink} className="secret-flash" aria-hidden="true" />
       <button
         type="button"
@@ -79,8 +79,8 @@ export function Secret({
         title={open ? t("ui-secret-hide") : t("ui-secret-show")}
       >
         <svg viewBox="0 0 32 22" width="30" height="20" aria-hidden="true">
-          {/* Открытый глаз: миндалина, радужка, зрачок. Зрачок смотрит туда,
-              где печатают. */}
+          {/* The open eye: the almond, the iris, the pupil. The pupil looks
+              where the typing is. */}
           <g className="eye-open">
             <path
               d="M2 11 Q16 -2 30 11 Q16 24 2 11 Z"
@@ -93,9 +93,10 @@ export function Secret({
               <circle cx="16" cy="11" r="2.2" fill="currentColor" />
             </g>
           </g>
-          {/* Веко: заслонка цвета фона, опускается сверху и стирает радужку. */}
+          {/* The lid: a shutter the colour of the background, it comes down
+              from above and wipes the iris out. */}
           <path className="eye-lid" d="M2 11 Q16 -2 30 11 Q16 24 2 11 Z" fill="Canvas" />
-          {/* Закрытый глаз: нижняя дуга и три ресницы. */}
+          {/* The shut eye: the lower arc and three lashes. */}
           <g className="eye-shut" fill="none" stroke="currentColor" strokeWidth="1.5">
             <path d="M2 11 Q16 24 30 11" />
             <path d="M9 16.5 L7.5 19.5" />

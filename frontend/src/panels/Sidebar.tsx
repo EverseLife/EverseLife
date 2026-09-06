@@ -287,9 +287,9 @@ export function Sidebar({ look, onLogout }: { look: Look; onLogout: () => void }
             <p className="note">{t("ui-side-no-account")}</p>
           ))}
         {current === "goods" && <Inventory look={look} />}
-        {/* Ручной крафт живёт в сайдбаре: верёвку вьют там, где стоят, и рабочая
-            станция этому месту не нужна. Запуск всё равно присутственный: в пути
-            и во сне сервер откажет. */}
+        {/* Hand craft lives in the sidebar: a rope is twisted where one stands,
+            and no workstation of the place is needed for it. Starting it is
+            still done in person: on the road and asleep the server refuses. */}
         {current === "work" && (
           <>
             <Doings look={look} busy={busy} act={act} />
@@ -297,15 +297,17 @@ export function Sidebar({ look, onLogout }: { look: Look; onLogout: () => void }
           </>
         )}
         {current === "knows" && <Knowledge look={look} />}
-        {/* Хозяйство — деньги и документы, а не материя: счета за быт и ценные
-            бумаги живут в Сети (D-116, D-149). */}
+        {/* Money and papers are not matter: the account, the statement and
+            one's own orders are reached from anywhere over the Net (D-116,
+            D-149). */}
         {current === "money" && (
           <>
             <Finance look={look} busy={busy} act={act} />
             <Trade look={look} busy={busy} act={act} />
           </>
         )}
-        {/* Хозяйство — счета за быт, сеть и ценные бумаги: имущество, а не деньги. */}
+        {/* Estate is the bills for daily life, the net and the securities:
+            property, not money. */}
         {current === "estate" && (
           <Holdings look={look} busy={busy} act={act} />
         )}
@@ -390,8 +392,8 @@ function Doings({ look, busy, act }: Props) {
   //: and the works on land, which run by their own clock and are none of the
   //: sleeper's business (D-310). The same list the engine keeps in `rest.sleep`.
   const cannotSleep = busyWith(look, [SLEEP, CRAFT, ...LAND_WORKS]);
-  //: Стопка кнопок «закончить»: у каждого занятия своя команда, и нет её
-  //: только там, где прерывать нечего.
+  //: The stack of end-it buttons: every occupation has a command of its own,
+  //: and it is missing only where there is nothing to break off.
   const ends: Record<string, { cmd: string; label: string; why: string }> = {
     sleep: { cmd: "rest.wake", label: t("ui-side-end-sleep"), why: t("ui-side-end-sleep-why") },
     forage: { cmd: "forage.stop", label: t("ui-side-end-forage"), why: t("ui-side-end-forage-why") },
@@ -447,8 +449,9 @@ function Doings({ look, busy, act }: Props) {
         />
       )}
 
-      {/* Занятия тела: сон, поиск, вспашка, разведка, забой. Дорога уже
-          показана выше со своей целью, партии — ниже со своей очередью. */}
+      {/* The body's occupations: sleep, foraging, ploughing, surveying, the
+          mine face. The road is already shown above with its destination, the
+          batches below with their queue. */}
       {doings
         .filter((d) => d.kind !== "road" && d.kind !== "craft")
         .map((d) => {
@@ -521,8 +524,9 @@ function Doings({ look, busy, act }: Props) {
       )}
       {empty && <p className="note">{t("ui-side-doings-none")}</p>}
 
-      {/* Привал стоит здесь же и последним: лечь спать — такое же занятие,
-          как остальные, и начинают его там, где их заканчивают (D-211). */}
+      {/* The rest stands here too, and last: lying down to sleep is an
+          occupation like the others, and one starts it where the others are
+          ended (D-211). */}
       {look.body != null && !asleep && (
         <div className="row">
           <button
@@ -547,8 +551,9 @@ function Trade({ look, busy, act }: Props) {
   const names = useNames();
   return (
     <div>
-      {/* Бронь — единственный способ купить удалённо, и она с часами:
-          не забрал в срок — задаток остаётся продавцу (D-047). */}
+      {/* A reservation is the only way to buy at a distance, and it comes with
+          a clock: not collected in time, and the deposit stays with the seller
+          (D-047). */}
       {look.reservations.length > 0 && (
         <>
           <h3>

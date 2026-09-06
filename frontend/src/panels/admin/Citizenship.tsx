@@ -79,10 +79,11 @@ export function Citizenship({ look }: { look: Look }) {
         </span>
       </div>
 
-      {/* Выход мгновенный, и держит его одно — непогашенный кредит (D-281).
-          Кнопка от этого не гаснет: долг живёт в банке, а не в look, и
-          выводить его сюда значило бы возить в каждом взгляде то, что нужно
-          раз в жизни (D-225). Не рассчитавшемуся отвечает отказ. */}
+      {/* Leaving is instant, and one thing alone holds it back -- an
+          outstanding loan (D-281). The button does not go grey for that: the
+          debt lives in the bank and not in `look`, and bringing it out here
+          would mean carrying in every glance what is needed once in a lifetime
+          (D-225). Whoever has not settled up is answered with a refusal. */}
       {own && (
         <div className="row">
           <button

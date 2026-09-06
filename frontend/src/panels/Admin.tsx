@@ -524,8 +524,9 @@ export function Admin({ look }: Omit<Props, "busy" | "act">) {
             </>
           )}
 
-          {/* Госзаказ и кредит казне (D-248): решения властью «казна» у себя в
-              администрации, как и любая трата. */}
+          {/* Public works and the loan to the treasury (D-248): the holder of
+              the treasury power decides them in their own administration, like
+              any other spending. */}
           {can("treasury") && decides && (
             <CityWorks busy={busy} act={act} capital={Boolean(city.capital)} />
           )}

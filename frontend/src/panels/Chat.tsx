@@ -105,7 +105,7 @@ export function Chat({ place }: Omit<Props, "busy" | "act">) {
       setLines(answer.lines as ChatLine[]);
       setCircles((answer.circles as Circle[]) ?? []);
     } catch {
-      //: В пути слушать нечего — панель всё равно скрыта.
+      //: On the road there is nothing to hear -- the panel is hidden anyway.
     }
   }, [session]);
   //: Only who stands with whom. `chat.hear` serves the delivery buffer of the
@@ -117,7 +117,7 @@ export function Chat({ place }: Omit<Props, "busy" | "act">) {
       const answer = await session.send("chat.hear");
       setCircles((answer.circles as Circle[]) ?? []);
     } catch {
-      //: В пути слушать нечего — панель всё равно скрыта.
+      //: On the road there is nothing to hear -- the panel is hidden anyway.
     }
   }, [session]);
   const mine = circles.find((circle) => circle.mine) ?? null;

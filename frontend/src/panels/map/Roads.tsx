@@ -35,8 +35,8 @@ export function Roads({
       .send("road.here")
       .then((answer) => setRoads((answer.roads as RoadWork[]) ?? []))
       .catch(() => setRoads([]));
-    //: Пересчитывается при переходе и после каждого действия: уложенная
-    //: ступень меняет и покрытие, и остаток полотна в руках.
+    //: Recomputed on a move and after every action: a step laid changes both
+    //: the surface and what is left of the roadbed in hand.
   }, [session, look.node?.key, look.inventory]);
 
   //: Laying a surface is an occupation (D-310), and a busy body has no hands
@@ -59,9 +59,9 @@ export function Roads({
             ` · ${t("ui-map-road-working")}`
           ) : (
             <>
-              {/* Цена работы стоит на кнопке, а не в подсказке при наведении:
-                  выключенная кнопка без объяснения читается как поломка, а с
-                  телефона подсказку не увидеть вовсе. */}
+              {/* The price of the work stands on the button, not in a hover
+                  hint: a disabled button with no explanation reads as a
+                  breakage, and from a phone a hint is not seen at all. */}
               {path.next && path.needs != null && (
                 <button
                   className="quiet"

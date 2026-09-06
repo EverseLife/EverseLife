@@ -77,8 +77,8 @@ export function Bank({ busy, act }: Props) {
 
   const refresh = useCallback(async () => {
     try {
-      //: Ставку просим под ту сумму, которую человек собрался брать: линия
-      //: города конечна, и после неё цена другая (D-193).
+      //: The rate is asked for the sum one means to take: the city's line is
+      //: finite, and past it the price is a different one (D-193).
       setBank(await session.send("bank.view", { amount: qty }));
     } catch {
       setBank(null);
@@ -99,10 +99,10 @@ export function Bank({ busy, act }: Props) {
 
   return (
     <>
-      {/* Блок читается сверху вниз как рассказ: как стоят деньги в мире, что
-          вы должны, что можете взять и кто назначает ставку. Раньше это было
-          пять абзацев вперемешку, и число в каждом терялось в своём же
-          объяснении. */}
+      {/* The block reads top to bottom as a story: how money stands in the
+          world, what you owe, what you may take and who sets the rate. It used
+          to be five paragraphs mixed together, and the figure in each was lost
+          inside its own explanation. */}
       <h3>
         {t("ui-bank-title")}
         <Rule>{t("ui-bank-rule")}</Rule>
@@ -121,8 +121,8 @@ export function Bank({ busy, act }: Props) {
           <span className="fact-name">{t("ui-bank-reserve")}</span>
           <span className="fact-val">{api.tk(bank.reserve)} ₭</span>
         </div>
-        {/* Фонд работ (D-248): куда возвращается процентный доход и откуда
-            платится госзаказ. Публичен, как резерв. */}
+        {/* The works fund (D-248): where the interest income comes back to and
+            out of which public works are paid. Public, like the reserve. */}
         <div className="fact">
           <span className="fact-name">{t("ui-bank-fund")}</span>
           <span className="fact-val">{api.tk(bank.fund)} ₭</span>
@@ -166,10 +166,11 @@ export function Bank({ busy, act }: Props) {
           <span className="fact-val lead">{api.tk(bank.limit)} ₭</span>
           <Why said={bank.limit_why} />
         </div>
-        {/* Своя ставка называется до кнопки, а не после (D-193): она зависит
-            от запрошенной суммы, поэтому стоит вплотную к полю. Пусто — ставки
-            нет вовсе: занимают только у города своего гражданства (D-281), и
-            «0,00 %» рядом с «кредита нет» читалось бы как даровые деньги. */}
+        {/* One's own rate is named before the button, not after (D-193): it
+            depends on the sum asked for, so it stands right beside the field.
+            Empty means there is no rate at all: one borrows only from the city
+            of one's own citizenship (D-281), and a "0,00 %" next to the line
+            saying there is no loan would read as free money. */}
         {bank.your_rate !== undefined && (
           <div className="fact">
             <span className="fact-name">{t("ui-bank-your-rate")}</span>

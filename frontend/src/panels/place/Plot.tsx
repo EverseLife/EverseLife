@@ -155,10 +155,11 @@ export function Plot({ look }: Omit<Props, "busy" | "act">) {
             ? t("ui-place-plot-upkeep-none")
             : null;
 
-  //: Во что обходится держать участок сутки (D-127, D-220). Стоит рядом с
-  //: ценой выкупа не для симметрии: ставка убывает с каждым узлом от
-  //: биопринтера, поэтому центр дорог дважды — и купить, и держать, — и вторую
-  //: половину счёта покупатель обязан видеть до того, как заплатит первую.
+  //: What holding the plot for a day costs (D-127, D-220). It stands beside the
+  //: price of buying it out not for symmetry: the rate falls off with every
+  //: node away from the bioprinter, so the centre is dear twice over -- to buy
+  //: and to hold -- and the buyer must see the second half of the bill before
+  //: paying the first.
   const tax = node.tax > 0 ? t("ui-place-plot-tax", { tax: api.tk(node.tax) }) : null;
 
   const mine = api.isMine(look);

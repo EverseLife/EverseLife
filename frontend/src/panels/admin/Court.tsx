@@ -111,8 +111,9 @@ export function Court({
                         onChange={(typed) => setQty(typed ?? 0)}
                         title={t("ui-admin-fine-title")}
                       />
-                      {/* Куда сажать — решает суд (D-176): каторга одна —
-                          очевидно, несколько — судья называет которую. */}
+                      {/* Where to send them is for the court to decide (D-176):
+                          with one penal colony it is obvious, with several the
+                          judge names which. */}
                       {sanction === "prison" && penalColonies.length > 1 && (
                         <select
                           value={penalColony}

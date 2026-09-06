@@ -48,9 +48,10 @@ export function Finance({ look, busy, act }: Props) {
         {t("ui-finance-transfer-title")}
         <Rule>{t("ui-finance-transfer-rule")}</Rule>
       </h3>
-      {/* Поля во всю ширину и подписаны сверху: имя личности длиннее, чем
-          остаток строки после поля суммы, а подсказка внутри поля исчезает
-          ровно в тот момент, когда по ней сверяют написанное. */}
+      {/* The fields run the full width and are labelled above: a person's name
+          is longer than what is left of the line after the amount field, and a
+          hint inside a field disappears at exactly the moment it is being
+          checked against what was typed. */}
       <div className="form">
         <label>
           <span>{t("ui-finance-to")}</span>
@@ -95,7 +96,7 @@ export function Finance({ look, busy, act }: Props) {
           changes `look.money`, and `act` refreshes the look after it. */}
       <Statement look={look} />
 
-      {/* Кредит — тоже Сеть: берут и гасят откуда угодно (D-167). */}
+      {/* A loan is the Net too: taken and repaid from anywhere (D-167). */}
       <Bank busy={busy} act={act} />
     </div>
   );

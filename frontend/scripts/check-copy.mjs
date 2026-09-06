@@ -18,7 +18,8 @@
  *
  * Both rules are one-sided: comments are stripped first, and only what is left
  * -- JSX text, string literals, `title`, `placeholder`, `aria-label` -- is
- * searched. A Russian word in a comment is fine and often better than English.
+ * searched. A Russian word in a comment slips through here; English in them is
+ * asked for by CLAUDE.md, not by this check.
  *
  * The exceptions to the second rule are listed below, each with its reason,
  * and the list is where a disputed line is settled -- not in an argument with

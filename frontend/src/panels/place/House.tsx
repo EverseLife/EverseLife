@@ -342,16 +342,18 @@ export function House({
         ),
       )}
 
-      {/* Ничью землю за городом строит всякий пришедший (D-198): окно нужно и
-          там, иначе правило есть, а руки к нему не приложить. */}
+      {/* Nobody's land outside a city is built on by whoever comes (D-198): the
+          window is needed there too, or the rule stands with no hands to put to
+          it. */}
       {/* One house per plot (D-279): where one stands or a site is laid, the
           form is gone -- a plot grows by storeys, not by a second house. */}
       {buildable && free > 0 && home.area === 0 && going.length === 0 && (
         <>
           <div className="row">
-            {/* Тип решает три вещи разом (D-218): состав, цену следующего этажа
-                и скорость порчи. Числа показаны прямо в списке — выбор делают
-                до сметы, и гадать о нём игрок не должен. */}
+            {/* The kind decides three things at once (D-218): the materials,
+                the price of the next storey and how fast it decays. The figures
+                are shown in the list itself -- the choice is made before the
+                estimate, and the player must not have to guess at it. */}
             <select
               value={picked}
               onChange={(e) => {
@@ -458,9 +460,10 @@ export function House({
         </>
       )}
 
-      {/* Сносят там же, где строят: своё — и любую ничью землю за городом, где
-          труд открыт всякому (D-198, D-205). Чужую городскую застройку
-          разбирают по решению суда (D-095). */}
+      {/* One demolishes where one builds: one's own, and any nobody's land
+          outside a city, where the work is open to all (D-198, D-205). Somebody
+          else's building inside a city is taken apart by a decision of the
+          court (D-095). */}
       {home.area > 0 && buildable && (
         <>
           <Repair look={look} busy={busy} act={act} />
