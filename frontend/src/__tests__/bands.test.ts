@@ -288,12 +288,15 @@ describe("the scene", () => {
   const repr = (layers: string[]) => (key: string) => delegateAmong(byKey, key, layers);
 
   it("draws a surface's own planet, and an inside only its base's", () => {
-    expect(visibleOf(nodes, ["planet"], "gate", "terra").map((n) => n.key)).toEqual([
+    //: Closed, the surface is its cities: the wild field between them is
+    //: not drawn -- unless one stands on it.
+    expect(visibleOf(nodes, ["planet"], "gate", "terra").map((n) => n.key)).toEqual(["city"]);
+    expect(visibleOf(nodes, ["planet"], "gate", "terra", "field").map((n) => n.key)).toEqual([
       "city",
       "field",
     ]);
+    //: Open, the members stand for the city and its own point is not drawn.
     expect(visibleOf(nodes, ["city", "planet"], "gate", "terra").map((n) => n.key)).toEqual([
-      "city",
       "gate",
       "field",
     ]);

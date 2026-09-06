@@ -24,22 +24,40 @@ import type { MapNode, WorldMap } from "../../api";
 import type { Band } from "./bands";
 import { delegateAmong, type LayerId, type Link } from "./model";
 
-/** The nodes a scene draws: those of its layers, an inside only its own
- *  base's, a surface only the shown planet's, the sky everybody's -- except
- *  a hull that is not under way: a ship at its parking or a pier is not a
- *  point of the map (D-319 item 10), it is reached through the port's
- *  shipyard window. */
+/**
+ * The nodes a scene draws: those of its layers, an inside only its own
+ * base's, a surface only the shown planet's, the sky everybody's -- except
+ * a hull that is not under way: a ship at its parking or a pier is not a
+ * point of the map (D-319 item 10), it is reached through the port's
+ * shipyard window.
+ *
+ * On the surface every node is the planet's and a city is the node others
+ * hang under (`parent`; the client's `city` scene is that reading). With
+ * the cities open the members stand for the city and the city's own point
+ * is not drawn -- an abstract node among the streets was a thing to walk
+ * to that was nowhere. With the cities closed a city is one point and the
+ * wild ground between cities -- a mine, a floodplain, a field -- is not
+ * drawn at all, so that from afar the map is the cities (owner,
+ * 2026-09-06); only the node under one's own feet is always there.
+ */
 export function visibleOf(
   nodes: readonly MapNode[],
   layers: readonly string[],
   locationBase: string,
   sphereShown: string | null,
+  here = "",
 ): MapNode[] {
+  const open = layers.includes("city");
+  const settlements = new Set<string>();
+  for (const node of nodes) if (node.layer === "city" && node.parent) settlements.add(node.parent);
   return nodes.filter((node) => {
     if (!layers.includes(node.layer)) return false;
     if (node.layer === "location") return node.parent === locationBase;
     if (node.layer === "space") return !(node.aboard && !node.flight);
-    return !sphereShown || node.planet === sphereShown;
+    if (sphereShown && node.planet !== sphereShown) return false;
+    if (node.layer !== "planet") return true;
+    const settlement = settlements.has(node.key);
+    return open ? !settlement : settlement || node.key === here;
   });
 }
 
@@ -110,8 +128,8 @@ export function useScene({
   );
 
   const visible = useMemo(
-    () => visibleOf(map?.nodes ?? [], layerKey.split("|"), locationBase, sphereShown),
-    [map, layerKey, locationBase, sphereShown],
+    () => visibleOf(map?.nodes ?? [], layerKey.split("|"), locationBase, sphereShown, here),
+    [map, layerKey, locationBase, sphereShown, here],
   );
 
   const shownEdges = useMemo(

@@ -362,6 +362,15 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
     for (const node of map?.nodes ?? []) if (node.parent) out.add(node.parent);
     return out;
   }, [map]);
+  /** How many nodes hang under each: a closed city is drawn as large as it
+   *  is, so a town and the capital are told apart from afar. */
+  const sizes = useMemo(() => {
+    const out = new Map<string, number>();
+    for (const node of map?.nodes ?? []) {
+      if (node.parent) out.set(node.parent, (out.get(node.parent) ?? 0) + 1);
+    }
+    return out;
+  }, [map]);
   /** The borders of the open cities: a ring round each city's drawn nodes. */
   const borders = useMemo(() => {
     if (!citiesOpen) return [];
@@ -645,6 +654,7 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
             picked={picked}
             reachable={reachable}
             group={(key) => groups.has(key)}
+            size={(key) => sizes.get(key) ?? 0}
             onPick={click}
             onMenu={(node, spot) => {
               setPicked(node.key);

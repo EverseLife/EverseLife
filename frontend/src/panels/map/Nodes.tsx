@@ -148,6 +148,11 @@ export function Stubs({ stubs, curve }: {
   );
 }
 
+/** A closed city's radius, pixels: its count of nodes, held between what
+ *  is still a city and what still fits beside its neighbours. */
+const SETTLEMENT_MIN_R = 8;
+const SETTLEMENT_MAX_R = 40;
+
 export function Nodes({
   nodes,
   at,
@@ -155,6 +160,7 @@ export function Nodes({
   picked,
   reachable,
   group,
+  size = () => 0,
   onPick,
   onMenu,
 }: {
@@ -167,6 +173,9 @@ export function Nodes({
   reachable: (node: MapNode) => boolean;
   /** Whether the node opens into a layer of its own. */
   group: (key: string) => boolean;
+  /** How many nodes hang under it: a closed city's circle is that many
+   *  pixels across in radius, so its size is read from afar. */
+  size?: (key: string) => number;
   onPick: (node: MapNode) => void;
   onMenu: (node: MapNode, spot: { x: number; y: number }) => void;
 }) {
@@ -181,6 +190,10 @@ export function Nodes({
         const mine = node.key === standingAt;
         const near = reachable(node);
         const settlement = group(node.key);
+        //: A city's radius is its count of nodes, within what fits a screen.
+        const spread = settlement
+          ? Math.min(SETTLEMENT_MAX_R, Math.max(SETTLEMENT_MIN_R, size(node.key)))
+          : 0;
         const chosen = node.key === picked;
         const sphere = Boolean(node.orbit);
         const hull = node.aboard;
@@ -224,9 +237,9 @@ export function Nodes({
               </>
             ) : (
               <>
-                <circle cx={0} cy={0} r={mine ? 14 : settlement ? 12 : 10} />
+                <circle cx={0} cy={0} r={settlement ? Math.max(spread, mine ? 14 : 0) : mine ? 14 : 10} />
                 {settlement && (
-                  <circle cx={0} cy={0} r={mine ? 18 : 16} className="halo" />
+                  <circle cx={0} cy={0} r={Math.max(spread, mine ? 14 : 0) + 4} className="halo" />
                 )}
                 <Sign
                   node={node}
@@ -236,14 +249,16 @@ export function Nodes({
                 />
               </>
             )}
-            {chosen && <circle cx={0} cy={0} r={mine ? 20 : 18} className="ring" />}
+            {chosen && (
+              <circle cx={0} cy={0} r={Math.max(spread + 6, mine ? 20 : 18)} className="ring" />
+            )}
             {/* A ship's name hangs below the hull: above it there is already a
                 planet's name, and two ships at one port would write over it
                 and over each other. */}
             {/* A find has no name (D-321): its sign inside the circle is the
                 whole of what it is called, and an empty label is not drawn. */}
             {node.name && (
-              <text x={0} y={hull ? 21 : -20} className="node-label">
+              <text x={0} y={hull ? 21 : -(Math.max(spread, 10) + 10)} className="node-label">
                 {node.name}
               </text>
             )}
