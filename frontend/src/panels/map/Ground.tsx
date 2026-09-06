@@ -3,7 +3,9 @@
 
 /**
  * The ground of the globe (D-319, wave 4): the sea, the land in the tone of
- * its climate, the mountains, the rivers, and the night.
+ * its climate, the mountains, and the night. Not the rivers: on a disk they
+ * are hairlines over the tone and read as scratches (owner, 2026-09-06);
+ * the field keeps them for the game, the picture does not show them.
  *
  * The relief is asked for once per planet and kept for the session: it is
  * a constant of the world, not a state of it, and the globe under a city
@@ -22,7 +24,6 @@ import {
   cellPaths,
   kindAt,
   nightPath,
-  riverRuns,
   subsolar,
   type Warmth,
 } from "./relief";
@@ -84,7 +85,7 @@ export function Ground({
    *  for a single flat colour. */
   detailed: boolean;
   /** Whether the disk is smaller than the frame -- on the approach -- and
-   *  the ground is read every third cell, the rivers not at all. */
+   *  the ground is read every third cell. */
   coarse: boolean;
   /** Whether the frame is close enough for the coast's line to show its
    *  corners: then the grid is read at half a cell (`FINE_UNIT`). */
@@ -117,10 +118,6 @@ export function Ground({
       terrain && bands && detailed ? cellPaths(terrain, eye, radius, bands, unit, within) : null,
     [terrain, eye, radius, bands, detailed, unit, within],
   );
-  const rivers = useMemo(
-    () => (terrain && detailed && !coarse ? riverRuns(terrain, eye, radius) : []),
-    [terrain, eye, radius, detailed, coarse],
-  );
   const under = terrain && bands && !detailed ? kindAt(terrain, eye, bands) : null;
   const night = useMemo(() => (sun ? nightPath(eye, radius, sun) : null), [eye, radius, sun]);
   //: The clip's id is this instance's own: a second ground on the page --
@@ -148,13 +145,6 @@ export function Ground({
           <path className="land cool" d={paths.land.cool} />
           <path className="land warm" d={paths.land.warm} />
           <path className="high" d={paths.high} />
-          {rivers.map((run, i) => (
-            <polyline
-              key={i}
-              className="river"
-              points={run.map((p) => `${p.x},${p.y}`).join(" ")}
-            />
-          ))}
         </>
       )}
       </g>

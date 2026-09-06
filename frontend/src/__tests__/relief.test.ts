@@ -12,7 +12,6 @@ import {
   cellPaths,
   heightAt,
   nightPath,
-  riverRuns,
   subsolar,
   toneOf,
 } from "../panels/map/relief";
@@ -204,12 +203,6 @@ describe("the land", () => {
     expect(saddle?.length).toBe(6);
     expect(saddle?.[0]).toEqual({ x: 0, y: 0 });
     expect(saddle?.[1]).toEqual({ x: 0.5, y: 0 });
-  });
-
-  it("runs a river as one polyline where it faces the eye and cuts it at the horizon", () => {
-    expect(riverRuns(world, { lat: 20, lon: 5 }, R)).toHaveLength(1);
-    expect(riverRuns(world, { lat: 20, lon: 5 }, R)[0]).toHaveLength(3);
-    expect(riverRuns(world, { lat: -20, lon: -175 }, R)).toHaveLength(0);
   });
 
   it("lays a cell where the projection lays its corners", () => {

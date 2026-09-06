@@ -365,12 +365,6 @@ polyline.edge {
 .ground .high {
   --tone: var(--base-700);
 }
-.ground .river {
-  fill: none;
-  stroke: color-mix(in srgb, var(--pc) 40%, var(--base-700));
-  stroke-width: 1;
-  vector-effect: non-scaling-stroke;
-}
 .ground .night {
   --tone: var(--base-950);
   fill: var(--tone);

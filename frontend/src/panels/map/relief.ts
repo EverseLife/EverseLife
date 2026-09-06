@@ -10,7 +10,7 @@
  * it as flat colour and nothing else (plan, "Climate field": muted bands of
  * tone, no textures): the sea is the disk of the sphere, the land its cells
  * laid over it, tinted by the row's warmth, the mountains a shade apart, the
- * lakes water again, the rivers lines.
+ * lakes holes in it. The rivers of the field are not drawn (`Ground`).
  *
  * The **terminator** is the night half's shadow, computed from the clock at
  * the moment of drawing: not a timer and not a request (D-226) -- what is
@@ -374,21 +374,3 @@ function outside(within: number, ...corners: Point[]): boolean {
   );
 }
 
-/** The rivers as the eye sees them: each a polyline, cut where it goes over
- *  the horizon -- a river that dips behind the sphere is two runs. */
-export function riverRuns(terrain: Terrain, eye: Eye, radius: number): Point[][] {
-  const runs: Point[][] = [];
-  for (const river of terrain.rivers) {
-    let run: Point[] = [];
-    for (const [lat, lon] of river) {
-      const seen = project(eye, radius, { lat, lon });
-      if (seen.front) run.push({ x: seen.x, y: seen.y });
-      else if (run.length) {
-        if (run.length >= 2) runs.push(run);
-        run = [];
-      }
-    }
-    if (run.length >= 2) runs.push(run);
-  }
-  return runs;
-}
