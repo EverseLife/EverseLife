@@ -226,20 +226,30 @@ async def test_a_node_the_world_changed_is_left_alone(
     Somebody bought the plot, somebody paved the road, somebody widened the
     yard -- and a deploy is not the moment any of that is taken back.
     """
-    plot = await _node(session, "terra.capital.lot1")
-    identity = await world.create_identity(session, "Хозяйка")
-    plot.owner_identity_id = identity.id
-    plot.owner_city_id = None
-    plot.name = "Двор Хозяйки"
-    plot.properties = {**(plot.properties or {}), "ring": 2, "обжито": True}
+    #: A plot somebody founded beside the forge -- the seed lays no free lots
+    #: since D-323 -- and a road somebody paved to it.
+    city = await _node(session, "terra.capital")
     forge = await _node(session, "terra.capital.forge")
-    road = await travel._edge_between(session, forge.id, plot.id)
-    road.base_seconds = 99
+    assert city is not None and forge is not None
+    identity = await world.create_identity(session, "Хозяйка")
+    plot = Node(
+        key="terra.capital.yard",
+        name="Двор Хозяйки",
+        planet=Planet.TERRA,
+        layer=Layer.PLANET,
+        parent_id=city.id,
+        area_m2=96,
+        owner_identity_id=identity.id,
+        properties={"ring": 2, "обжито": True},
+    )
+    session.add(plot)
+    await session.flush()
+    session.add(Edge(node_a_id=forge.id, node_b_id=plot.id, base_seconds=99, surface=Surface.PAVED))
     await session.flush()
 
     await seed_world.apply(session, constants)
 
-    again = await _node(session, "terra.capital.lot1")
+    again = await _node(session, "terra.capital.yard")
     assert again.owner_identity_id == identity.id
     assert again.name == "Двор Хозяйки"
     assert (again.properties or {}).get("обжито") is True

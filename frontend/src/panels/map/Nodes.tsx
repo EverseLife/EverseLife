@@ -48,7 +48,8 @@ function Sign({ node, settlement, moored, big }: {
     moored,
   });
   if (!sign) return null;
-  const size = big ? 14 : 12;
+  //: Small, as the node is (owner, 2026-09-06).
+  const size = big ? 10 : 8;
   return (
     <svg
       x={-size / 2}
@@ -258,7 +259,7 @@ export function Nodes({
             {/* A find has no name (D-321): its sign inside the circle is the
                 whole of what it is called, and an empty label is not drawn. */}
             {node.name && (
-              <text x={0} y={hull ? 21 : -(Math.max(spread, 6) + 8)} className="node-label">
+              <text x={0} y={hull ? 21 : -(Math.max(spread, 6) + 3)} className="node-label">
                 {node.name}
               </text>
             )}

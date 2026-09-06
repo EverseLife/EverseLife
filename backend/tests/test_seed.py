@@ -83,6 +83,30 @@ async def capital(session: AsyncSession) -> Node:
     return await seed(session)
 
 
+async def _plot(session: AsyncSession, key: str = "terra.capital.plot") -> Node:
+    """A city plot of one's own, for the tests of the catch-up: the seed lays
+    no free lots since D-323 -- plots are bought from the city ring by ring
+    (D-319) -- so a test that needs one makes it, as a founding would."""
+    city = await session.scalar(select(Node).where(Node.key == "terra.capital"))
+    assert city is not None
+    polity = await town.of_node(session, city)
+    assert polity is not None
+    plot = Node(
+        key=key,
+        name="Участок",
+        planet=Planet.TERRA,
+        layer=Layer.PLANET,
+        parent_id=city.id,
+        area_m2=96,
+        #: The city's own land, as an allotted plot is (D-282).
+        owner_city_id=polity.id,
+        properties={PLOT: True},
+    )
+    session.add(plot)
+    await session.flush()
+    return plot
+
+
 async def _things(session: AsyncSession) -> list[tuple[str, str, int]]:
     rows = (
         await session.execute(
@@ -433,15 +457,11 @@ async def test_a_plot_of_an_old_world_gets_its_soil(capital: Node, session: Asyn
     barren rock: the strips window never appeared on one, and the vault's own
     "on civic land the holder runs the estate" had nowhere to happen.
     """
-    lot = await session.scalar(select(Node).where(Node.key == "terra.capital.lot1"))
-    assert lot is not None
-    #: Back to how a world of before D-246 holds it.
-    lot.properties = {PLOT: True}
-    await session.flush()
-
+    lot = await _plot(session)
+    #: As a world of before D-246 holds it: the mark alone.
     await seed(session)
 
-    again = await session.scalar(select(Node).where(Node.key == "terra.capital.lot1"))
+    again = await session.scalar(select(Node).where(Node.key == lot.key))
     assert float((again.properties or {}).get("fertility", 0)) > 0, "участку не дали почвы"
     assert "water" in (again.properties or {})
 
@@ -483,7 +503,7 @@ async def test_a_city_location_handed_out_comes_back(capital: Node, session: Asy
     )
 
     #: And a plot is not touched by the same pass: it is its holder's, door and all.
-    lot = await session.scalar(select(Node).where(Node.key == "terra.capital.lot1"))
+    lot = await _plot(session, "terra.capital.plot2")
     await world.grant_node(session, lot, holder)
     await session.flush()
     await seed(session)
@@ -503,8 +523,7 @@ async def test_a_tall_house_of_an_old_world_gets_its_floors(
     """
     from src.models.estate import Building
 
-    lot = await session.scalar(select(Node).where(Node.key == "terra.capital.lot2"))
-    assert lot is not None
+    lot = await _plot(session, "terra.capital.plot3")
     session.add(Building(node_id=lot.id, area_m2=90, footprint_m2=30, floors=3, kind="wooden"))
     await session.flush()
     assert await estate.storeys_of(session, lot) == [], "фикстура не воспроизвела старый мир"
