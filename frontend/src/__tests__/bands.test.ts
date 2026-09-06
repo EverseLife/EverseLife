@@ -146,7 +146,7 @@ describe("the bands", () => {
     //: The radius is the node count at the closing and grows with the
     //: distance, to a ceiling.
     expect(cityRadius(13, 0)).toBe(13);
-    expect(cityRadius(3, 0)).toBe(8);
+    expect(cityRadius(3, 0)).toBe(6);
     expect(cityRadius(13, 2)).toBeCloseTo(13 * 1.6, 9);
     expect(cityRadius(40, 40)).toBe(CITY_R_MAX);
     //: A hamlet of three fades once the frame is wider than three of its

@@ -163,7 +163,8 @@
    The word and the mark change with the state as well -- tied or free, the
    pin or the loose one -- so the colour is not carrying this by itself even
    where the word is hidden. */
-.tabs button.cam-tie:not(.quiet):not(.link):not(.bare):not(:disabled) {
+.tabs button.cam-tie:not(.quiet):not(.link):not(.bare):not(:disabled),
+.tabs button.scout:not(.quiet):not(.link):not(.bare):not(:disabled) {
   box-shadow: none;
   border-color: var(--act);
 }

@@ -470,6 +470,7 @@ ui-ship-course-failed = The sky did not answer: { $why }
 
 ## Scouting: a point on the ground and sending the body (D-321).
 
+ui-map-scout = scouting
 ui-map-survey-aim = Scouting point: { $metres } m from you
 ui-map-survey = Scout
 ui-map-survey-clear = Clear the point

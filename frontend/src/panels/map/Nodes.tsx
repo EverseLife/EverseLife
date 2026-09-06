@@ -234,9 +234,12 @@ export function Nodes({
               </>
             ) : (
               <>
-                <circle cx={0} cy={0} r={settlement ? Math.max(spread, mine ? 14 : 0) : mine ? 14 : 10} />
+                {/* Small: the nodes of a city stand a few metres apart (D-323
+                    addendum), and a wide circle over each would cover its
+                    neighbour's. */}
+                <circle cx={0} cy={0} r={settlement ? Math.max(spread, mine ? 9 : 0) : mine ? 9 : 6} />
                 {settlement && (
-                  <circle cx={0} cy={0} r={Math.max(spread, mine ? 14 : 0) + 4} className="halo" />
+                  <circle cx={0} cy={0} r={Math.max(spread, mine ? 9 : 0) + 4} className="halo" />
                 )}
                 <Sign
                   node={node}
@@ -247,7 +250,7 @@ export function Nodes({
               </>
             )}
             {chosen && (
-              <circle cx={0} cy={0} r={Math.max(spread + 6, mine ? 20 : 18)} className="ring" />
+              <circle cx={0} cy={0} r={Math.max(spread + 6, mine ? 13 : 11)} className="ring" />
             )}
             {/* A ship's name hangs below the hull: above it there is already a
                 planet's name, and two ships at one port would write over it
@@ -255,7 +258,7 @@ export function Nodes({
             {/* A find has no name (D-321): its sign inside the circle is the
                 whole of what it is called, and an empty label is not drawn. */}
             {node.name && (
-              <text x={0} y={hull ? 21 : -(Math.max(spread, 10) + 10)} className="node-label">
+              <text x={0} y={hull ? 21 : -(Math.max(spread, 6) + 8)} className="node-label">
                 {node.name}
               </text>
             )}

@@ -346,8 +346,10 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
   //: The scout's aim (D-321): a tap on the ground names a point of the
   //: globe, the panel below says how far and offers the run.
   const [aim, setAim] = useState<Geo | null>(null);
+  const [scouting, setScouting] = useState(false);
   const stand = byKey[here]?.place;
   const standing = stand && "lat" in stand ? (stand as Geo) : null;
+  const onGround = Boolean(globeScene && !orbiting && !inside && standing);
   const { grabField, movePointer, releasePointer, zoom, zoomToScale } = useHand({
     cam,
     svg: svgRef,
@@ -355,11 +357,10 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
     ready: Boolean(map) && visible.length > 0,
     rotate: globe.rotate,
     onTap: (point) => {
-      //: Only on the ground of one's own planet, seen whole: a tap on the
-      //: sky or a house is a tap on nothing.
-      if (!globeScene || !eye || !radius || orbiting || inside || !standing) return;
-      const place = geoUnder(eye, radius, point);
-      setAim(place);
+      //: Only with the scout's aim armed, on the ground of one's own planet:
+      //: a tap otherwise is a tap on nothing.
+      if (!scouting || !onGround || !eye || !radius) return;
+      setAim(geoUnder(eye, radius, point));
     },
     bounds: () => boundsOf(bandRef.current, surfaceRef.current),
   });
@@ -616,6 +617,11 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
         onInside={(on) => enter(on ? "inside" : "surface")}
         tethered={tethered}
         onTether={tether}
+        scouting={onGround ? scouting : null}
+        onScout={(on) => {
+          setScouting(on);
+          if (!on) setAim(null);
+        }}
       />
       <Zoom
         slider={zoomRef}
@@ -735,7 +741,10 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
               await session.send("explore.survey", { lat: aim.lat, lon: aim.lon });
               sent = true;
             }).then(() => {
-              if (sent) setAim(null);
+              if (sent) {
+                setAim(null);
+                setScouting(false);
+              }
             });
           }}
           onClear={() => setAim(null)}

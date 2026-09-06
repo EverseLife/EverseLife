@@ -31,6 +31,8 @@ export function Switcher({
   onInside,
   tethered,
   onTether,
+  scouting,
+  onScout,
 }: {
   /** Whether there is an inside to open from here -- floors, a hull's rooms
    *  (D-319, wave 4) -- and whether it is open now. Null: nothing inside. */
@@ -39,8 +41,13 @@ export function Switcher({
   /** Whether the camera is tied to the body -- see `GraphMap`. */
   tethered: boolean;
   onTether: (on: boolean) => void;
+  /** Whether the scout's aim is armed: then a tap on the ground names the
+   *  point to survey (D-321). Null off the ground -- the sky, a house. */
+  scouting: boolean | null;
+  onScout: (on: boolean) => void;
 }) {
   const word = t(tethered ? "ui-map-cam-tied" : "ui-map-cam-free");
+  const scout = t("ui-map-scout");
   const door = t(inside ? "ui-map-outside" : "ui-map-inside");
   return (
     <nav className="row tabs map-layers">
@@ -65,6 +72,20 @@ export function Switcher({
         <Glyph name={tethered ? "pinned" : "loose"} />
         <span className="tab-word">{word}</span>
       </button>
+      {/* Scouting is a mode, not a click on empty ground (owner, 2026-09-06):
+          pressed, the next tap on the ground is the aim; a tap otherwise is
+          nothing but a tap. */}
+      {scouting !== null && (
+        <button
+          className={`scout${scouting ? "" : " quiet"}`}
+          aria-pressed={scouting}
+          aria-label={scout}
+          onClick={() => onScout(!scouting)}
+        >
+          <Glyph name="eye" />
+          <span className="tab-word">{scout}</span>
+        </button>
+      )}
     </nav>
   );
 }

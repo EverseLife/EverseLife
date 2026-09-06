@@ -127,7 +127,34 @@ function traceField(discs: readonly Disc[], spacing: number): { x: number; y: nu
     for (let i = 0; i < nx; i++) values[j * nx + i] = fieldAt(discs, x0 + i * cell, y0 + j * cell);
   }
   const segments = marchingSquares(values, nx, ny, 1, (i, j) => ({ x: x0 + i * cell, y: y0 + j * cell }));
-  return joinLoops(segments).map((loop) => smooth(loop, SMOOTHING));
+  return outerLoops(joinLoops(segments), cell).map((loop) => smooth(loop, SMOOTHING));
+}
+
+/** The signed area of a loop: its sign tells an outer edge from a hole. */
+function signedArea(loop: readonly { x: number; y: number }[]): number {
+  let sum = 0;
+  for (let i = 0; i < loop.length; i++) {
+    const a = loop[i];
+    const b = loop[(i + 1) % loop.length];
+    sum += a.x * b.y - b.x * a.y;
+  }
+  return sum / 2;
+}
+
+/**
+ * The outer edges alone: a hole inside the blot is a loop wound the other
+ * way, and the city has no holes (owner, 2026-09-06); a speck smaller than
+ * a raster cell is the field grazing the level, not land.
+ */
+function outerLoops(
+  loops: { x: number; y: number }[][],
+  cell: number,
+): { x: number; y: number }[][] {
+  if (!loops.length) return loops;
+  const areas = loops.map(signedArea);
+  const largest = areas.reduce((best, a, i) => (Math.abs(a) > Math.abs(areas[best]) ? i : best), 0);
+  const outward = Math.sign(areas[largest]);
+  return loops.filter((_, i) => Math.sign(areas[i]) === outward && Math.abs(areas[i]) > cell * cell);
 }
 
 type Seg = [{ x: number; y: number }, { x: number; y: number }];

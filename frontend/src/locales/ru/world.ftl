@@ -470,6 +470,7 @@ ui-ship-course-failed = Небо не ответило: { $why }
 
 ## Разведка: точка на земле и отправка тела (D-321).
 
+ui-map-scout = разведка
 ui-map-survey-aim = Точка разведки: { $metres } м от вас
 ui-map-survey = Разведать
 ui-map-survey-clear = Снять точку

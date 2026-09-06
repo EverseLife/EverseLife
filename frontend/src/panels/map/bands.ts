@@ -173,7 +173,7 @@ export function openScale(radius: number | null, floor: number): number {
 
 /** At this scale and nearer a city opens into its nodes; farther, it is a
  *  point with a name -- the printer's (plan §2). */
-export const CITY_SCALE = 0.1;
+export const CITY_SCALE = 0.8;
 
 /**
  * How far out the frame is past the cities' closing, in half-octaves: 0
@@ -191,7 +191,7 @@ export function farOf(scale: number): number {
  *  between what is still a city and what fits beside its neighbours, and
  *  larger the farther out -- from afar the cities are the map (owner,
  *  2026-09-06: as a web map shows the great cities first). */
-export const CITY_R_MIN = 8;
+export const CITY_R_MIN = 6;
 export const CITY_R_MAX = 80;
 export const CITY_GROWTH = 0.6;
 export function cityRadius(size: number, far: number): number {
