@@ -25,7 +25,7 @@ import { nodeGlyph } from "../../marks";
 import { midOf } from "./globe";
 import { SURFACE, spell, type MapNode } from "../../api";
 import { t } from "../../locale";
-import { DASH, type Link, type Point } from "./model";
+import { DASH, SPHERE_R, type Link, type Point } from "./model";
 import type { MapStub } from "../../api";
 
 type Place = (key: string) => Point | undefined;
@@ -217,7 +217,7 @@ export function Nodes({
               />
             ) : sphere ? (
               <>
-                <circle cx={p.x} cy={p.y} r={mine ? 13 : 11} className="corona" />
+                <circle cx={p.x} cy={p.y} r={mine ? SPHERE_R + 2 : SPHERE_R} className="corona" />
                 <circle cx={p.x} cy={p.y} r={mine ? 9 : 7} className="orb" />
               </>
             ) : (

@@ -97,6 +97,16 @@ describe("the land", () => {
     expect(cells(paths.land.warm) + cells(paths.high)).toBeLessThan(8);
   });
 
+  it("reads the grid every so many cells on the approach, fewer cells drawn", () => {
+    const eye = { lat: 45, lon: -60 };
+    const fine = cellPaths(world, eye, R, { cold: 0, cool: 15 });
+    const coarse = cellPaths(world, eye, R, { cold: 0, cool: 15 }, 2);
+    const cells = (p: { land: Record<string, string>; high: string; water: string }) =>
+      [p.land.cold, p.land.cool, p.land.warm, p.high, p.water].join("").split("M").length - 1;
+    expect(cells(coarse)).toBeLessThan(cells(fine));
+    expect(cells(coarse)).toBeGreaterThan(0);
+  });
+
   it("runs a river as one polyline where it faces the eye and cuts it at the horizon", () => {
     expect(riverRuns(world, { lat: 20, lon: 5 }, R)).toHaveLength(1);
     expect(riverRuns(world, { lat: 20, lon: 5 }, R)[0]).toHaveLength(3);

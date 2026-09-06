@@ -67,6 +67,24 @@ export function chase(from: Point, to: Point, dt: number, tau = CHASE_TAU): Poin
   };
 }
 
+/**
+ * One step of a zoom towards `to`, `dt` milliseconds after the last one:
+ * a steady pace in octaves, so that every octave of the descent takes the
+ * same time and the tilt on the way down is seen, not skipped -- a chase
+ * that closes by a share would cross the approach in a frame or two and
+ * dawdle at the streets. Arrives exactly.
+ */
+export function zoomStep(from: number, to: number, dt: number, pace = ZOOM_PACE): number {
+  const gap = Math.log2(to / from);
+  const step = (pace * Math.max(0, dt)) / 1000;
+  if (Math.abs(gap) <= step) return to;
+  return from * Math.pow(2, Math.sign(gap) * step);
+}
+
+/** How fast a zoom over time goes, octaves a second: the twenty octaves
+ *  from a marker to a street take two and a half seconds. */
+export const ZOOM_PACE = 8;
+
 /** Whether the frame is close enough to its aim to stop chasing. */
 export function arrived(from: Point, to: Point): boolean {
   return Math.hypot(to.x - from.x, to.y - from.y) < ARRIVED;
@@ -115,6 +133,11 @@ export function createCamera({
   //: under a chase (the wheel turns while the walker is followed), and a frame
   //: worked out for the old scale would land the body off centre.
   let aim: Point | null = null;
+  //: A scale the frame is closing on, about its middle: the approach to a
+  //: planet (D-319, wave 5) is a zoom that takes its time. Kept apart from
+  //: the aim, and through a cut -- a scene change on the way down must not
+  //: stop the descent -- but not through the hand.
+  let aimScale: number | null = null;
   let chasing = 0;
   let chasedAt = 0;
   let following = false;
@@ -125,19 +148,28 @@ export function createCamera({
     //: The frame it was scheduled for has fired: the invariant "chasing means
     //: a frame is booked" holds again from here.
     chasing = 0;
-    if (!aim) return;
+    if (!aim && aimScale === null) return;
     const dt = Math.min(LONGEST_STEP, Math.max(0, t - chasedAt));
     chasedAt = t;
-    const target = frameOn(aim, frame.scale);
-    if (arrived(frame, target)) {
-      frame = { ...frame, ...target };
-      aim = null;
-      show();
-      return;
+    if (aimScale !== null) {
+      //: About the middle; a point being chased at the same time is the
+      //: aim's business below, one step of its own, not a jump.
+      const scale = zoomStep(frame.scale, aimScale, dt);
+      const middle = middleOf(frame);
+      if (scale === aimScale) aimScale = null;
+      frame = { scale, ...frameOn(middle, scale) };
     }
-    frame = { ...frame, ...chase(frame, target, dt) };
+    if (aim) {
+      const target = frameOn(aim, frame.scale);
+      if (arrived(frame, target)) {
+        frame = { ...frame, ...target };
+        aim = null;
+      } else {
+        frame = { ...frame, ...chase(frame, target, dt) };
+      }
+    }
     show();
-    chasing = raf(step);
+    if (aim || aimScale !== null) chasing = raf(step);
   };
 
   const book = () => {
@@ -152,11 +184,13 @@ export function createCamera({
     aim = null;
   };
 
-  /** Put the frame on a place at once: no chase, nothing to see on the way. */
+  /** Put the frame on a place at once: no chase, nothing to see on the way.
+   *  A descent under way goes on from the new place. */
   const cut = (middle: Point) => {
     drop();
     frame = { ...frame, ...frameOn(middle, frame.scale) };
     show();
+    if (aimScale !== null) book();
   };
 
   /** Aim the frame at a place. Cut where a chase would sweep the frame
@@ -172,6 +206,21 @@ export function createCamera({
     x: f.x + W / (2 * f.scale),
     y: f.y + H / (2 * f.scale),
   });
+
+  /**
+   * A zoom that keeps the middle (D-238): what is centred stays centred.
+   *
+   * This is the whole of what a hand may do to a tethered camera. Zooming to
+   * the cursor would slide the body out of the frame, and a camera that is
+   * held to the body and does not hold it is worse than either mode. The
+   * hand outranks every autopilot: a zoom of its own ends a descent.
+   */
+  const zoomOnMiddle = (scale: number) => {
+    aimScale = null;
+    const middle = middleOf(frame);
+    frame = { scale, ...frameOn(middle, scale) };
+    show();
+  };
 
   return {
     frame: () => frame,
@@ -197,8 +246,18 @@ export function createCamera({
     /** The hand takes the frame: every autopilot lets go at once. */
     takeFrame() {
       following = false;
+      aimScale = null;
       drop();
     },
+
+    /** Close on a scale about the middle, over time: the approach. Cut
+     *  where motion is unwanted. */
+    zoomToward(scale: number) {
+      if (still()) return zoomOnMiddle(scale);
+      aimScale = scale;
+      book();
+    },
+    descending: () => aimScale !== null,
 
     /** A pan: the hand puts the frame exactly where it drags it. */
     panTo(x: number, y: number) {
@@ -206,21 +265,12 @@ export function createCamera({
       show();
     },
 
-    /**
-     * A zoom that keeps the middle (D-238): what is centred stays centred.
-     *
-     * This is the whole of what a hand may do to a tethered camera. Zooming to
-     * the cursor would slide the body out of the frame, and a camera that is
-     * held to the body and does not hold it is worse than either mode.
-     */
-    zoomOnMiddle(scale: number) {
-      const middle = middleOf(frame);
-      frame = { scale, ...frameOn(middle, scale) };
-      show();
-    },
+    zoomOnMiddle,
 
-    /** A zoom to the cursor: the point under it stays under it. */
+    /** A zoom to the cursor: the point under it stays under it. The hand's,
+     *  so it ends a descent too. */
     zoomTo(under: Point, scale: number) {
+      aimScale = null;
       frame = {
         scale,
         x: under.x - (under.x - frame.x) * (frame.scale / scale),
@@ -232,6 +282,7 @@ export function createCamera({
     /** The map is gone: nothing of this outlives it, the follow included --
      *  a camera that came back still following would refuse to be re-aimed. */
     stop() {
+      aimScale = null;
       drop();
       following = false;
     },

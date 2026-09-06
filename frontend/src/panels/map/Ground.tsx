@@ -16,7 +16,15 @@ import { useEffect, useMemo, useState } from "react";
 import * as api from "../../api";
 import type { Look, RecipeBook, Terrain } from "../../api";
 import type { Eye } from "./globe";
-import { cellPaths, kindAt, nightPath, riverRuns, subsolar, type Warmth } from "./relief";
+import {
+  COARSE_STRIDE,
+  cellPaths,
+  kindAt,
+  nightPath,
+  riverRuns,
+  subsolar,
+  type Warmth,
+} from "./relief";
 
 /** One answer per planet for the life of the page. */
 const RELIEF = new Map<string, Promise<Terrain>>();
@@ -59,6 +67,7 @@ export function Ground({
   book,
   clock,
   detailed,
+  coarse,
 }: {
   planet: string;
   eye: Eye;
@@ -70,6 +79,9 @@ export function Ground({
    *  cell under the eye fills it, and sixteen thousand cells are not laid
    *  for a single flat colour. */
   detailed: boolean;
+  /** Whether the disk is smaller than the frame -- on the approach -- and
+   *  the ground is read every third cell, the rivers not at all. */
+  coarse: boolean;
 }) {
   const terrain = useTerrain(planet);
   /** The land's tones: the climate's two bounds, from the vault (D-065).
@@ -85,13 +97,14 @@ export function Ground({
   const dayHours =
     clock?.planet === planet ? clock.day_hours : Number(book?.constants?.[`time.day_${planet}`] ?? 0);
   const sun = subsolar(clock?.epoch ?? null, dayHours, Date.now());
+  const stride = coarse ? COARSE_STRIDE : 1;
   const paths = useMemo(
-    () => (terrain && bands && detailed ? cellPaths(terrain, eye, radius, bands) : null),
-    [terrain, eye, radius, bands, detailed],
+    () => (terrain && bands && detailed ? cellPaths(terrain, eye, radius, bands, stride) : null),
+    [terrain, eye, radius, bands, detailed, stride],
   );
   const rivers = useMemo(
-    () => (terrain && detailed ? riverRuns(terrain, eye, radius) : []),
-    [terrain, eye, radius, detailed],
+    () => (terrain && detailed && !coarse ? riverRuns(terrain, eye, radius) : []),
+    [terrain, eye, radius, detailed, coarse],
   );
   const under = terrain && bands && !detailed ? kindAt(terrain, eye, bands) : null;
   const night = useMemo(() => (sun ? nightPath(eye, radius, sun) : null), [eye, radius, sun]);

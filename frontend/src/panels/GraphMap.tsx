@@ -70,7 +70,7 @@ import { SkyBackdrop, SkyClock } from "./map/Sky";
 import { Switcher } from "./map/Switcher";
 import { useScene } from "./map/useScene";
 import { useSky } from "./map/useSky";
-import { STREET_SCALE, boundsOf, globeScale, ring } from "./map/bands";
+import { STREET_SCALE, boundsOf, ring, tilted } from "./map/bands";
 import {
   delegate,
   journeyOf,
@@ -217,15 +217,17 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
     [map, locationBase],
   );
 
+  const mySphere = byKey[repr(here, "space") ?? ""]?.planet ?? byKey[here]?.planet ?? null;
+  const sphereShown = planetFocus ?? mySphere;
   //: The band of scale the map is in (D-319, wave 4) and what the last frame
   //: decided -- `map/useBands`. Not remembered past the panel -- see `CAMERA`.
-  const { band, bandRef, enter, surfaceRef, zoomed, tell } = useBands({
+  const sphereRadius = useMemo(() => radiusOf(book, sphereShown), [book, sphereShown]);
+  const { band, bandRef, enter, surface, surfaceRef, zoomed, tell } = useBands({
     book,
     initialLayer: initialLayer ?? "planet",
     hasSubnodes,
+    radius: sphereRadius,
   });
-  const mySphere = byKey[repr(here, "space") ?? ""]?.planet ?? byKey[here]?.planet ?? null;
-  const sphereShown = planetFocus ?? mySphere;
   const epoch = look.clock?.epoch ?? null;
   //: The scene the band draws -- which nodes, which edges, who stands for
   //: whom -- lives in `map/useScene`; the map keeps the camera and the hand.
@@ -264,7 +266,7 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
         svgRef.current?.setAttribute("viewBox", viewBoxOf(f));
         //: What the frame decides is React's business only when it flips:
         //: cities opening, a band's edge reached, a planet under the middle.
-        tell(factsOf(f, surfaceRef.current.furthest, spheres.current()));
+        tell(factsOf(f, surfaceRef.current, spheres.current()));
       },
       scale: window.matchMedia(PHONE).matches ? PHONE_SCALE : 1,
       still: () => window.matchMedia("(prefers-reduced-motion: reduce)").matches,
@@ -290,8 +292,15 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
     book,
     planet: sphereShown,
     active: !orbiting && !inside,
+    descent: zoomed.descent,
   });
-  const { globeScene, radius, eye } = globe;
+  const { globeScene, radius } = globe;
+  //: The eye as the descent shows it (D-319, wave 5): from over the pole at
+  //: the floor, tilting to where it stands as the frame comes down.
+  const eye = useMemo(
+    () => (globe.eye ? tilted(globe.eye, zoomed.descent) : null),
+    [globe.eye, zoomed.descent],
+  );
   const ground = useMemo(() => {
     //: The sky is nobody's ground: there every point comes from the clock, and
     //: settling springs whose result is thrown away is pure work.
@@ -541,7 +550,16 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
     cam,
   ]);
 
-  useHandOver({ band, zoomed, enter, cam, book, mySphere, setPlanetFocus });
+  const { descend } = useHandOver({
+    band,
+    zoomed,
+    enter,
+    cam,
+    book,
+    mySphere,
+    setPlanetFocus,
+    floor: surface.furthest,
+  });
   if (!map) {
     return (
       <section className="map-pane">
@@ -600,10 +618,8 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
     if (offworld(byKey, here, node)) return;
     if (band === "sky") {
       //: Opening a planet means opening **this** planet: without that the
-      //: surface below would be somebody else's.
-      setPlanetFocus(node.planet);
-      enter("surface");
-      cam.zoomOnMiddle(globeScale(radiusOf(book, node.planet)));
+      //: surface below would be somebody else's. The click flies down.
+      descend(node.planet);
       return;
     }
     if (band === "surface" && groups.has(node.key) && node.place && "lat" in node.place) {
@@ -677,6 +693,7 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
               book={book}
               clock={look.clock}
               detailed={zoomed.ground}
+              coarse={zoomed.descent > 0}
             />
           )}
           {citiesOpen && <Borders rings={borders} />}

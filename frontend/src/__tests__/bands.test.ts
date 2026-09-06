@@ -14,17 +14,24 @@ import {
   SKY_BOUNDS,
   SURFACE_NEAREST,
   boundsOf,
+  DESCENT_STEPS,
+  ABOVE_FLOOR,
   cityOpen,
+  descentOf,
   globeScale,
   leavesSurface,
+  openScale,
+  tilted,
   planetUnder,
   reachesSurface,
   ring,
   surfaceBounds,
   surfaceFloor,
 } from "../panels/map/bands";
-import { H } from "../panels/map/model";
+import { H, SPHERE_R } from "../panels/map/model";
 import { edgesOf, visibleOf } from "../panels/map/useScene";
+import { LAST_LAT } from "../panels/map/globe";
+import { ZOOM_PACE, createCamera, zoomStep } from "../panels/map/camera";
 
 //: The vault's `map.approach_km` as of D-319.
 const APPROACH_KM = 50000;
@@ -196,6 +203,14 @@ describe("the scene", () => {
     floor: node({ key: "floor", layer: "location", parent: "gate" }),
     cellar: node({ key: "cellar", layer: "location", parent: "field" }),
     outpost: node({ key: "outpost", layer: "planet", parent: "aurora", planet: "aurora" }),
+    parked: node({ key: "parked", layer: "space", parent: "terra", aboard: true } as Partial<MapNode>),
+    flying: node({
+      key: "flying",
+      layer: "space",
+      parent: "terra",
+      aboard: true,
+      flight: { to: "aurora", started_at: "", arrives_at: "" },
+    } as Partial<MapNode>),
   };
   const nodes = Object.values(byKey);
   const edges = [
@@ -216,9 +231,12 @@ describe("the scene", () => {
       "field",
     ]);
     expect(visibleOf(nodes, ["location"], "gate", "terra").map((n) => n.key)).toEqual(["floor"]);
+    //: The sky: the planets and a hull under way; a ship parked or moored
+    //: is not a point of the map (D-319 item 10).
     expect(visibleOf(nodes, ["space"], "gate", "terra").map((n) => n.key)).toEqual([
       "terra",
       "aurora",
+      "flying",
     ]);
   });
 
@@ -238,5 +256,123 @@ describe("the scene", () => {
     //: The floor is not on the surface; the sky shows no ways at all.
     expect(edgesOf(edges, new Set(["city", "gate", "field"]), repr(["city", "planet"]))).toHaveLength(2);
     expect(edgesOf(edges, new Set(["terra", "aurora"]), repr(["space"]))).toEqual([]);
+  });
+});
+
+describe("the approach", () => {
+  const terra = radiusUnits(6371);
+  const floor = SURFACE.furthest;
+  const globe = globeScale(terra);
+
+  it("opens the surface where the true disk is the marker's size, above the floor", () => {
+    const scale = openScale(terra, floor);
+    expect(terra * scale).toBeCloseTo(SPHERE_R * SKY_BOUNDS.nearest, 6);
+    expect(scale).toBeGreaterThan(floor);
+    expect(scale).toBeLessThan(globe);
+    //: A planet so large that its disk would be the marker's size only
+    //: below the floor opens just above the floor instead.
+    expect(openScale(radiusUnits(1e9), floor)).toBeCloseTo(floor * ABOVE_FLOOR, 12);
+    expect(openScale(null, floor)).toBe(1);
+  });
+
+  it("counts the descent by octaves between the globe and the floor, in steps", () => {
+    expect(descentOf(globe, floor, globe)).toBe(0);
+    expect(descentOf(globe * 3, floor, globe)).toBe(0);
+    expect(descentOf(floor, floor, globe)).toBe(1);
+    expect(descentOf(floor / 2, floor, globe)).toBe(1);
+    const half = Math.sqrt(globe * floor);
+    expect(descentOf(half, floor, globe)).toBeCloseTo(0.5, 12);
+    expect(descentOf(half * 1.01, floor, globe) * DESCENT_STEPS).toBeCloseTo(
+      Math.round(descentOf(half * 1.01, floor, globe) * DESCENT_STEPS),
+      12,
+    );
+    //: No globe to speak of: nothing to descend.
+    expect(descentOf(0.5, 1, 1)).toBe(0);
+  });
+
+  it("tilts the eye from over the pole down to where it stands, north up", () => {
+    const stand = { lat: 41, lon: 24 };
+    expect(tilted(stand, 0)).toEqual(stand);
+    expect(tilted(stand, 1)).toEqual({ lat: LAST_LAT, lon: 24 });
+    const halfway = tilted(stand, 0.5);
+    expect(halfway.lat).toBeCloseTo((41 + LAST_LAT) / 2, 6);
+    expect(halfway.lon).toBe(24);
+    //: Eased: the first step off the marker is smaller than the middle one.
+    const first = tilted(stand, 1 / DESCENT_STEPS).lat - 41;
+    const mid = tilted(stand, 0.5 + 1 / DESCENT_STEPS).lat - halfway.lat;
+    expect(first).toBeLessThan(mid);
+  });
+});
+
+describe("a zoom over time", () => {
+  it("goes at a steady pace in octaves whatever the scale, and arrives exactly", () => {
+    const a = zoomStep(1, 1e-5, 125);
+    const b = zoomStep(1e-3, 1e-8, 125);
+    expect(Math.log2(1 / a)).toBeCloseTo(ZOOM_PACE / 8, 9);
+    expect(Math.log2(1e-3 / b)).toBeCloseTo(ZOOM_PACE / 8, 9);
+    expect(zoomStep(1, 1.0001, 120)).toBe(1.0001);
+    expect(zoomStep(2, 2, 16)).toBe(2);
+    //: Up as well as down.
+    expect(zoomStep(1e-6, 1, 125)).toBeCloseTo(1e-6 * 2, 12);
+  });
+
+  it("shows the descent on the way down from the marker to the streets", () => {
+    //: The click's flight: from where the sky opens Terra to the streets, in
+    //: frames of sixteen milliseconds, the tilt must pass through its steps.
+    const terra = radiusUnits(6371);
+    const floor = SURFACE.furthest;
+    const globe = globeScale(terra);
+    const seen = new Set<number>();
+    let scale = openScale(terra, floor);
+    for (let i = 0; i < 1000 && scale !== 1; i++) {
+      seen.add(descentOf(scale, floor, globe));
+      scale = zoomStep(scale, 1, 16);
+    }
+    expect(seen.size).toBeGreaterThanOrEqual(DESCENT_STEPS / 2);
+  });
+
+  it("carries the camera to the scale about its middle, and the hand stops it", () => {
+    const frames: number[] = [];
+    const queue: { step: ((t: number) => void) | null } = { step: null };
+    let t = 0;
+    const cam = createCamera({
+      onFrame: (f) => frames.push(f.scale),
+      now: () => t,
+      raf: (step) => {
+        queue.step = step;
+        return 1;
+      },
+      cancel: () => {
+        queue.step = null;
+      },
+    });
+    cam.cut({ x: 100, y: 50 });
+    cam.zoomToward(0.25);
+    expect(cam.descending()).toBe(true);
+    for (let i = 0; i < 200 && queue.step; i++) {
+      t += 16;
+      const step = queue.step;
+      queue.step = null;
+      step(t);
+    }
+    expect(cam.frame().scale).toBe(0.25);
+    expect(cam.descending()).toBe(false);
+    //: About the middle: what was in the middle still is.
+    const f = cam.frame();
+    expect(f.x + 880 / (2 * f.scale)).toBeCloseTo(100, 6);
+    expect(f.y + 540 / (2 * f.scale)).toBeCloseTo(50, 6);
+    expect(frames.length).toBeGreaterThan(5);
+    //: A cut on the way keeps the descent, and books the next frame of it.
+    cam.zoomToward(1);
+    cam.cut({ x: 0, y: 0 });
+    expect(cam.descending()).toBe(true);
+    expect(queue.step).not.toBe(null);
+    //: The hand ends it: loose by taking the frame, tethered by a zoom of its own.
+    cam.takeFrame();
+    expect(cam.descending()).toBe(false);
+    cam.zoomToward(1);
+    cam.zoomOnMiddle(0.5);
+    expect(cam.descending()).toBe(false);
+    expect(cam.frame().scale).toBe(0.5);
   });
 });

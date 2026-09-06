@@ -245,11 +245,20 @@ export function useHand({
         const scale = pinchScale(held.scale0, held.spread0, spreadOf(a, b), limits());
         //: Tethered, a pinch is the wheel: the middle stays the middle.
         if (tethered) return cam.zoomOnMiddle(scale);
-        //: Loose, the fingers hold the world (`pinchTo`).
         const field = svg.current;
         if (!field) return;
         const mid = midOf(a, b);
-        pinchTo(cam, field.getBoundingClientRect(), held.mid, mid, scale);
+        if (rotate) {
+          //: On the globe the fingers turn the sphere as one finger does,
+          //: and the zoom keeps the middle: the origin is the eye, and a
+          //: frame panned under it would move the ground twice.
+          const k = 1 / (pixelsPer() ?? 1);
+          rotate((mid.x - held.mid.x) * k, (mid.y - held.mid.y) * k);
+          cam.zoomOnMiddle(scale);
+        } else {
+          //: Loose and flat, the fingers hold the world (`pinchTo`).
+          pinchTo(cam, field.getBoundingClientRect(), held.mid, mid, scale);
+        }
         held.mid = mid;
         return;
       }

@@ -14,14 +14,15 @@
  * it has no north, and it is a window one opens from a node (plan §2, item 4).
  *
  * The two coordinate systems do not meet (plan §2, item 2): the sky draws
- * bodies eighty-six times their size, the surface the true sphere. So the
- * hand-over is a cut at a threshold, and the choreography that would join
- * them -- the tilt to the equator, the marker shrinking to the sphere -- is
- * the stitch of wave 5. Pure numbers and functions, so a test can zoom.
+ * a planet as a marker of the glyph's size, the surface the true sphere. So
+ * the hand-over is a cut between two disks of one size (`openScale`), and
+ * the **approach** (wave 5) is what happens below it: the descent by scale
+ * (`descentOf`) tilts the eye from over the pole down to where one stands
+ * (`tilted`). Pure numbers and functions, so a test can zoom.
  */
 
-import { UNITS_PER_METRE } from "./globe";
-import { H, type Point } from "./model";
+import { LAST_LAT, UNITS_PER_METRE, type Eye } from "./globe";
+import { H, SPHERE_R, type Point } from "./model";
 
 export type Band = "sky" | "surface" | "inside";
 
@@ -65,6 +66,47 @@ const UNBOOKED_FLOOR = 1e-6;
 
 export function surfaceBounds(approachKm: number): Bounds {
   return { nearest: SURFACE_NEAREST, furthest: surfaceFloor(approachKm) };
+}
+
+/**
+ * The approach (D-319, wave 5, plan §2 "Камера"): between the floor of the
+ * surface and the scale the globe fills the frame at, the descent -- 1 at
+ * the floor, 0 at the globe and nearer, by the log of the scale, so that
+ * every octave of the zoom tilts as much. Told in steps, because it is a
+ * fact of the frame and React draws only when a fact flips.
+ */
+export const DESCENT_STEPS = 24;
+export function descentOf(scale: number, floor: number, globe: number): number {
+  if (!(globe > floor) || scale >= globe) return 0;
+  if (scale <= floor) return 1;
+  const share = Math.log(globe / scale) / Math.log(globe / floor);
+  return Math.round(share * DESCENT_STEPS) / DESCENT_STEPS;
+}
+
+/**
+ * The eye as the descent shows it: high up, from over the pole -- the sky
+ * looks at the ecliptic from its north, and the planet's axis stands
+ * perpendicular to it -- and, coming down, tilting to where the eye stands,
+ * north up all the way. Smooth at both ends, so the tilt neither jerks off
+ * the marker nor lands with a bump.
+ */
+export function tilted(eye: Eye, descent: number): Eye {
+  if (descent <= 0) return eye;
+  const t = Math.min(1, descent);
+  const ease = t * t * (3 - 2 * t);
+  return { lat: eye.lat + (LAST_LAT - eye.lat) * ease, lon: eye.lon };
+}
+
+/** The scale the surface opens at from the sky: where the true disk is the
+ *  size of the marker at the sky's ceiling, so that the one becomes the
+ *  other -- but never on the floor itself, or it would fall straight back:
+ *  a planet whose disk would be the marker's size only below the floor
+ *  (the larger ones, at the vault's approach height) opens a notch above
+ *  it, the disk a little larger than the marker. */
+export const ABOVE_FLOOR = 1.2;
+export function openScale(radius: number | null, floor: number): number {
+  if (!radius) return STREET_SCALE;
+  return Math.max(floor * ABOVE_FLOOR, (SPHERE_R * SKY_BOUNDS.nearest) / radius);
 }
 
 /** At this scale and nearer a city opens into its nodes; farther, it is a

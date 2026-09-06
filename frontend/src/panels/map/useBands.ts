@@ -19,9 +19,12 @@ import type { RecipeBook } from "../../api";
 import {
   GROUND_SCALE,
   SKY_BOUNDS,
+  STREET_SCALE,
   cityOpen,
+  descentOf,
   globeScale,
   leavesSurface,
+  openScale,
   planetUnder,
   reachesSurface,
   surfaceBounds,
@@ -41,6 +44,8 @@ export type Facts = {
   ground: boolean;
   /** The planet under the middle of the frame at the sky's ceiling, if any. */
   over: string | null;
+  /** How far down the approach the frame is: 1 at the floor, 0 at the globe. */
+  descent: number;
 };
 
 export const NO_FACTS: Facts = {
@@ -49,20 +54,25 @@ export const NO_FACTS: Facts = {
   ceiling: false,
   ground: false,
   over: null,
+  descent: 0,
 };
+
+/** The surface's bounds, and the scale its globe fills the frame at. */
+export type Surface = Bounds & { globe: number };
 
 export type Sphere = { key: string; planet: string; at: Point };
 
 /** The facts of a frame, from the surface's floor and where the planets are. */
-export function factsOf(frame: Frame, floor: number, spheres: readonly Sphere[]): Facts {
+export function factsOf(frame: Frame, surface: Surface, spheres: readonly Sphere[]): Facts {
   const ceiling = reachesSurface(frame.scale);
   const middle = { x: frame.x + W / (2 * frame.scale), y: frame.y + H / (2 * frame.scale) };
   return {
     cities: cityOpen(frame.scale),
-    floor: leavesSurface(frame.scale, floor),
+    floor: leavesSurface(frame.scale, surface.furthest),
     ceiling,
     ground: frame.scale <= GROUND_SCALE,
     over: ceiling ? (planetUnder(middle, spheres)?.planet ?? null) : null,
+    descent: descentOf(frame.scale, surface.furthest, surface.globe),
   };
 }
 
@@ -72,7 +82,8 @@ export function sameFacts(a: Facts, b: Facts): boolean {
     a.floor === b.floor &&
     a.ceiling === b.ceiling &&
     a.ground === b.ground &&
-    a.over === b.over
+    a.over === b.over &&
+    a.descent === b.descent
   );
 }
 
@@ -80,11 +91,14 @@ export function useBands({
   book,
   initialLayer,
   hasSubnodes,
+  radius,
 }: {
   book: RecipeBook | null;
   initialLayer: string;
   /** Whether where one stands has an inside to show. */
   hasSubnodes: boolean;
+  /** The shown planet's radius in map units, or null off the globe. */
+  radius: number | null;
 }) {
   //: The band of scale the map is in: the sky, the surface, or the inside --
   //: a window, not a height. The console opens on the sky.
@@ -104,9 +118,12 @@ export function useBands({
   };
   //: The surface's bounds come from the vault's height (`map.approach_km`)
   //: through the book; read through a ref by the camera, which is made once.
-  const surface = useMemo<Bounds>(
-    () => surfaceBounds(Number(book?.constants?.["map.approach_km"])),
-    [book],
+  const surface = useMemo<Surface>(
+    () => ({
+      ...surfaceBounds(Number(book?.constants?.["map.approach_km"])),
+      globe: globeScale(radius),
+    }),
+    [book, radius],
   );
   const surfaceRef = useRef(surface);
   surfaceRef.current = surface;
@@ -119,10 +136,12 @@ export function useBands({
 /**
  * The hand-over between bands: zoomed out to the floor of the surface the
  * map is the sky; zoomed all the way in on a planet's marker -- or panned
- * onto one at the ceiling -- the surface opens as a globe. A cut, not a
- * flight: the two coordinate systems do not meet (plan §2, item 2), and the
- * stitch is wave 5's. Another planet's surface is not in the answer (D-240),
- * so only one's own opens.
+ * onto one at the ceiling -- the surface opens where the true disk is the
+ * marker's size, and the descent from there tilts it from the pole to where
+ * one stands (plan §2 "Камера"). The two coordinate systems still do not
+ * meet (plan §2, item 2): the stitch is a cut between two disks of one
+ * size. Another planet's surface is not in the answer (D-240), so only
+ * one's own opens.
  */
 export function useHandOver({
   band,
@@ -132,6 +151,7 @@ export function useHandOver({
   book,
   mySphere,
   setPlanetFocus,
+  floor,
 }: {
   band: Band;
   zoomed: Facts;
@@ -140,7 +160,15 @@ export function useHandOver({
   book: RecipeBook | null;
   mySphere: string | null;
   setPlanetFocus: (planet: string | null) => void;
+  /** The surface's floor: where the disk is opened just above. */
+  floor: number;
 }) {
+  /** Open a planet's surface from the sky, the true disk the marker's size. */
+  const open = (planet: string) => {
+    setPlanetFocus(planet);
+    enter("surface");
+    cam.zoomOnMiddle(openScale(radiusOf(book, planet), floor));
+  };
   useEffect(() => {
     if (band === "surface" && zoomed.floor) {
       enter("sky");
@@ -149,11 +177,15 @@ export function useHandOver({
     }
     if (band === "sky" && zoomed.ceiling && zoomed.over) {
       if (mySphere && zoomed.over !== mySphere) return;
-      setPlanetFocus(zoomed.over);
-      enter("surface");
-      cam.zoomOnMiddle(globeScale(radiusOf(book, zoomed.over)));
+      open(zoomed.over);
     }
     //: The facts and the band are the reasons; the rest is read as it is.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [zoomed.floor, zoomed.ceiling, zoomed.over, band]);
+  /** Open a planet and fly down to its streets: the marker's click. */
+  const descend = (planet: string) => {
+    open(planet);
+    cam.zoomToward(STREET_SCALE);
+  };
+  return { descend };
 }

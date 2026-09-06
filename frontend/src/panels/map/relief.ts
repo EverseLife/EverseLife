@@ -153,37 +153,55 @@ export type GroundPaths = {
   water: string;
 };
 
+/** How many cells of the grid make one drawn cell while the disk is
+ *  smaller than the frame: a cell is then a pixel or two, and the descent
+ *  redraws the ground at every step. */
+export const COARSE_STRIDE = 3;
+
 /**
  * The cells of the relief as paths, as the eye sees them: land by tone,
  * mountains, and the lakes. The sea is not drawn -- it is the disk under
  * everything. A cell is drawn when all four of its corners face the eye,
- * so the coast at the limb frays by a cell at most.
+ * so the coast at the limb frays by a cell at most. With a `stride` the
+ * grid is read every so many rows and columns, each drawn cell taking the
+ * kind of the grid cell in its middle.
  */
-export function cellPaths(terrain: Terrain, eye: Eye, radius: number, bands: Warmth): GroundPaths {
+export function cellPaths(
+  terrain: Terrain,
+  eye: Eye,
+  radius: number,
+  bands: Warmth,
+  stride = 1,
+): GroundPaths {
   const { rows, cols } = terrain;
   const dlat = 180 / rows;
   const dlon = 360 / cols;
-  //: One projection per grid corner, shared by the four cells round it.
-  const corners: (Point | null)[] = new Array((rows + 1) * (cols + 1));
-  for (let r = 0; r <= rows; r++) {
-    const lat = -90 + r * dlat;
-    for (let c = 0; c <= cols; c++) {
-      const seen = project(eye, radius, { lat, lon: -180 + c * dlon });
-      corners[r * (cols + 1) + c] = seen.front ? { x: seen.x, y: seen.y } : null;
+  const nr = Math.ceil(rows / stride);
+  const nc = Math.ceil(cols / stride);
+  //: One projection per drawn corner, shared by the four cells round it.
+  const corners: (Point | null)[] = new Array((nr + 1) * (nc + 1));
+  for (let i = 0; i <= nr; i++) {
+    const lat = -90 + Math.min(rows, i * stride) * dlat;
+    for (let j = 0; j <= nc; j++) {
+      const seen = project(eye, radius, { lat, lon: -180 + Math.min(cols, j * stride) * dlon });
+      corners[i * (nc + 1) + j] = seen.front ? { x: seen.x, y: seen.y } : null;
     }
   }
   const out: Record<string, string[]> = { cold: [], cool: [], warm: [], high: [], water: [] };
   const lakes = new Set(terrain.lakes.map(([r, c]) => r * cols + c));
-  for (let r = 0; r < rows; r++) {
+  const half = stride >> 1;
+  for (let i = 0; i < nr; i++) {
+    const r = Math.min(rows - 1, i * stride + half);
     const tone = toneOf(terrain.warmth[r], bands);
-    for (let c = 0; c < cols; c++) {
+    for (let j = 0; j < nc; j++) {
+      const c = Math.min(cols - 1, j * stride + half);
       const height = terrain.grid[r][c];
       const lake = lakes.has(r * cols + c);
       if (height < terrain.sea_level && !lake) continue;
-      const a = corners[r * (cols + 1) + c];
-      const b = corners[r * (cols + 1) + c + 1];
-      const d = corners[(r + 1) * (cols + 1) + c + 1];
-      const e = corners[(r + 1) * (cols + 1) + c];
+      const a = corners[i * (nc + 1) + j];
+      const b = corners[i * (nc + 1) + j + 1];
+      const d = corners[(i + 1) * (nc + 1) + j + 1];
+      const e = corners[(i + 1) * (nc + 1) + j];
       if (!a || !b || !d || !e) continue;
       const kind = lake ? "water" : height >= terrain.mountain_level ? "high" : tone;
       out[kind].push(`M${a.x},${a.y}L${b.x},${b.y}L${d.x},${d.y}L${e.x},${e.y}Z`);

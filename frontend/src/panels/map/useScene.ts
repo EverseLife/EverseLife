@@ -25,7 +25,10 @@ import type { Band } from "./bands";
 import { delegateAmong, type LayerId, type Link } from "./model";
 
 /** The nodes a scene draws: those of its layers, an inside only its own
- *  base's, a surface only the shown planet's, the sky everybody's. */
+ *  base's, a surface only the shown planet's, the sky everybody's -- except
+ *  a hull that is not under way: a ship at its parking or a pier is not a
+ *  point of the map (D-319 item 10), it is reached through the port's
+ *  shipyard window. */
 export function visibleOf(
   nodes: readonly MapNode[],
   layers: readonly string[],
@@ -35,7 +38,7 @@ export function visibleOf(
   return nodes.filter((node) => {
     if (!layers.includes(node.layer)) return false;
     if (node.layer === "location") return node.parent === locationBase;
-    if (node.layer === "space") return true;
+    if (node.layer === "space") return !(node.aboard && !node.flight);
     return !sphereShown || node.planet === sphereShown;
   });
 }

@@ -28,6 +28,11 @@ export const H = 540;
  * server's word for where a node sits in the hierarchy.
  */
 export const LAYER_IDS = ["space", "planet", "city", "location"] as const;
+
+/** The radius of a planet's marker in the sky, map units: the corona round
+ *  its orb. The approach (D-319, wave 5) opens the surface at the scale
+ *  where the true disk is this size, so the marker becomes the globe. */
+export const SPHERE_R = 11;
 export type LayerId = (typeof LAYER_IDS)[number];
 
 /**

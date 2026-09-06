@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { MapNode, MapStub, RecipeBook } from "../../api";
+import { tilted } from "./bands";
 import { STUB_M, ahead, arc, radiusUnits, turn, type Eye, type Geo } from "./globe";
 import type { Link, Point } from "./model";
 
@@ -33,12 +34,17 @@ export function useGlobe({
   book,
   planet,
   active,
+  descent = 0,
 }: {
   book: RecipeBook | null;
   /** Whose surface the scene shows: the planet the radius is read for. */
   planet: string | null;
   /** Whether the scene is a surface at all -- the sky and a house are flat. */
   active: boolean;
+  /** How far down the approach the frame is (`bands.descentOf`): on the way
+   *  down the eye is shown tilted towards the pole, and the hand turns what
+   *  is shown. */
+  descent?: number;
 }) {
   //: Without a radius the scene is flat, as it was before the globe.
   const radius = useMemo(() => radiusOf(book, planet), [book, planet]);
@@ -49,6 +55,8 @@ export function useGlobe({
   const [eye, setEye] = useState<Eye | null>(null);
   const eyeRef = useRef(eye);
   eyeRef.current = eye;
+  const descentRef = useRef(descent);
+  descentRef.current = descent;
   //: The drags since the last frame, and the frame booked to spend them.
   const pending = useRef({ dx: 0, dy: 0, raf: 0 });
   const flush = useCallback(() => {
@@ -59,6 +67,16 @@ export function useGlobe({
     const { dx, dy } = held;
     held.dx = 0;
     held.dy = 0;
+    const down = descentRef.current;
+    if (down > 0) {
+      //: Tilted, the sphere turns about its axis only: the hand's sideways
+      //: drag is read at the latitude shown, where a degree is short, and
+      //: the up-and-down is the descent's, not the hand's -- a latitude
+      //: banked unseen would surface as a jump when the tilt came off.
+      const shown = tilted(was, down);
+      setEye({ lat: was.lat, lon: turn(shown, radius, dx, 0).lon });
+      return;
+    }
     setEye(turn(was, radius, dx, dy));
   }, [radius]);
   const rotate = useCallback(
