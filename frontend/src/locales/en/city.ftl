@@ -96,7 +96,7 @@ ui-doors-citizenship-at-once = at once
 ui-doors-tax = sales tax
 ui-doors-print-here = Print here
 ui-doors-back = ← back
-ui-doors-pick-on-globe = Choose a printer — a large dot on the globe, or a name above: the card of the chosen one appears here.
+ui-doors-pick-on-globe = Choose a printer — a large dot on the globe: the card of the chosen one appears here. The larger the dot, the more citizens the city has.
 
 ## The globe at the entry and at the printer step (D-319, D-013)
 ui-entry-globe-label = globe of the planet

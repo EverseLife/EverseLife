@@ -42,7 +42,14 @@ import {
   type Point,
 } from "../panels/map/model";
 import { along, forecast, mooring, term, windowOpen } from "../panels/map/orbits";
-import { paper, type Box } from "../panels/map/paper";
+import {
+  MARK_CROWD,
+  MARK_LEAST,
+  MARK_MOST,
+  markShare,
+  paper,
+  type Box,
+} from "../panels/map/paper";
 import { long, price, spread } from "../panels/map/words";
 import { DEFAULT_LOCALE, Words, learn } from "../locale";
 
@@ -693,6 +700,46 @@ describe("withCityScene", () => {
   });
 });
 
+
+describe("a printer's mark on the entry globe", () => {
+  it("grows with the citizens, and stops growing", () => {
+    //: An empty door -- the Forerunners' Printer, which has no city -- is the
+    //: smallest a mark is drawn, and it is still a mark: a target for a
+    //: finger, not a speck to be hunted.
+    expect(markShare(0)).toBe(MARK_LEAST);
+    //: More people, a larger mark, always.
+    const sizes = [0, 10, 100, 1000, 10000].map(markShare);
+    for (let i = 1; i < sizes.length; i++) expect(sizes[i]).toBeGreaterThan(sizes[i - 1]);
+    //: And never past the ceiling, however many: a city of a million and one
+    //: of three million are both simply the big one.
+    expect(markShare(MARK_CROWD)).toBeCloseTo(MARK_MOST, 12);
+    expect(markShare(1e6)).toBe(MARK_MOST);
+    expect(markShare(1e12)).toBe(MARK_MOST);
+    //: Nothing below the floor either, whatever nonsense the wire brings.
+    expect(markShare(-5)).toBe(MARK_LEAST);
+  });
+
+  it("compresses, so ten citizens and a million are drawn on one globe", () => {
+    //: The whole point of the logarithm: drawn to the count, a city of a
+    //: million would be a hundred thousand times the radius of a city of ten
+    //: -- across the ocean it stands on -- and this keeps the two within
+    //: three times each other while still telling them apart.
+    const small = markShare(10);
+    const great = markShare(1e6);
+    expect(great / small).toBeLessThan(3);
+    expect(great).toBeGreaterThan(small * 1.5);
+    //: And every order of magnitude is worth a comparable step, so the eye
+    //: reads the difference between a village and a town and not only the
+    //: extremes. Not an equal step -- the scale counts from one citizen, not
+    //: from none, and that bends the first orders -- but none of them
+    //: swallows the others.
+    const steps = [1, 10, 100, 1000].map((n) => markShare(n * 10) - markShare(n));
+    for (const step of steps) {
+      expect(step).toBeGreaterThan(0);
+      expect(step).toBeLessThan(Math.min(...steps) * 1.5);
+    }
+  });
+});
 
 describe("the entry globe's paper", () => {
   //: The square the globe used to be drawn in, centred in the left half of a

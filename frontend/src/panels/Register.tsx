@@ -66,6 +66,9 @@ export function Register({
   const [password, setPassword] = useState("");
   const [again, setAgain] = useState("");
   const [line, setLine] = useState<Line["id"] | null>(null);
+  //: Which line the tabs are showing. Not the same as the line chosen: one
+  //: reads both before choosing either, and the choice is the button below.
+  const [reading, setReading] = useState<Line["id"] | null>(null);
   const [name, setName] = useState("");
   const [surname, setSurname] = useState("");
   const [age, setAge] = useState("");
@@ -152,6 +155,10 @@ export function Register({
   };
 
   const error = local ?? trouble;
+  //: The line under the tabs: the one being read, else the first playable one
+  //: -- the alpha has one, and opening on a promise would read as the offer.
+  const shown =
+    lines?.find((l) => l.id === reading) ?? lines?.find((l) => l.playable) ?? lines?.[0] ?? null;
 
   return (
     <main className="entry auth">
@@ -220,63 +227,78 @@ export function Register({
       )}
 
       {step === 1 && (
-        <section className="wide">
+        <section className="lines-step">
           <h1>{t("ui-register-line")}</h1>
           <p className="note center">{t("ui-register-line-note")}</p>
           {lines === null ? (
             <p className="note center">…</p>
           ) : (
-            <div className="lines">
-              {lines.map((l) => (
-                <section
-                  key={l.id}
-                  className={`line${l.playable ? "" : " soon"}${line === l.id ? " picked" : ""}`}
-                >
-                  <h2>{l.name}</h2>
-                  <p className="note">{l.world}</p>
-                  <p>{l.summary}</p>
+            <>
+              {/* Tabs, not cards side by side: two lines fitted, and a third
+                  would not -- and the step is the width of the three around
+                  it now. One is read at a time, and the tab says which. */}
+              <div className="row tabs line-tabs">
+                {lines.map((l) => (
+                  <button
+                    key={l.id}
+                    type="button"
+                    className={l.id === shown?.id ? "" : "quiet"}
+                    aria-pressed={l.id === shown?.id}
+                    onClick={() => setReading(l.id)}
+                    disabled={busy}
+                  >
+                    {l.name}
+                  </button>
+                ))}
+              </div>
+              {shown && (
+                <section className={`card flat line${shown.playable ? "" : " soon"}`}>
+                  <p className="note">{shown.world}</p>
+                  <p>{shown.summary}</p>
                   <ul>
-                    {l.traits.map((t) => (
-                      <li key={t}>{t}</li>
+                    {shown.traits.map((trait) => (
+                      <li key={trait}>{trait}</li>
                     ))}
                   </ul>
                   <table>
                     <tbody>
                       <tr>
                         <td>{t("ui-register-line-players")}</td>
-                        <td className="num">{l.playable ? l.players : "—"}</td>
+                        <td className="num">{shown.playable ? shown.players : "—"}</td>
                       </tr>
                       <tr>
                         <td>{t("ui-register-line-world")}</td>
-                        <td className="num">{l.world}</td>
+                        <td className="num">{shown.world}</td>
                       </tr>
                     </tbody>
                   </table>
-                  <div className="row">
-                    {l.playable ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setLine(l.id);
-                          go(2);
-                        }}
-                        disabled={busy}
-                      >
-                        {t("ui-register-pick")}
-                      </button>
-                    ) : (
-                      <span className="soon-tag">{t("ui-register-soon")}</span>
-                    )}
-                  </div>
                 </section>
-              ))}
-            </div>
+              )}
+            </>
           )}
           {error && <p className="trouble">{error}</p>}
-          <div className="row">
+          {/* The step's last row, like every other step's: back on the left,
+              on at the right edge -- and a line still in the works says so
+              where its button would be (D-104): a promise, not a stub. */}
+          <div className="row last">
             <button type="button" className="quiet" onClick={() => go(0)} disabled={busy}>
               {t("ui-register-back")}
             </button>
+            {shown &&
+              (shown.playable ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLine(shown.id);
+                    go(2);
+                  }}
+                  disabled={busy}
+                >
+                  {t("ui-register-pick")}
+                </button>
+              ) : (
+                <span className="soon-tag">{t("ui-register-soon")}</span>
+              ))}
           </div>
         </section>
       )}

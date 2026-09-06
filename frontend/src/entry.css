@@ -15,19 +15,13 @@ main.entry.auth {
 .entry.auth > * {
   width: min(26rem, 100%);
 }
-/* The lines are compared side by side, and two of those do not fit into the
-   narrow column. Every other step keeps it -- the door step included: beside
-   the globe (D-319) it is a heading, a name or two and one card, and spread
-   over 56rem it read as another screen rather than the fourth step of this
-   one. In the column it is one box like the account's and the character's:
-   the border and the padding are the `section`'s own (`place.css`), and the
-   chosen door lies flat inside it -- a card within a card would frame the
-   same thing twice. */
-.entry.auth > .wide {
-  width: min(56rem, 100%);
-  border: none;
-  padding: 0;
-}
+/* Every step is one box in one column: the account's and the character's are
+   a `.card`, the line's and the door's a `section` whose border and padding
+   are the global rule's (`place.css`), with the read line or the chosen door
+   lying flat inside -- a card within a card would frame the same thing twice.
+   The lines used to stand side by side and needed 56rem for it; they are tabs
+   now, and beside the globe (D-319) a step spread over 56rem read as another
+   screen rather than the next step of this one. */
 .entry.auth h1 {
   margin: 0 0 0.75rem;
   font-size: 1.25rem;
@@ -317,38 +311,22 @@ button.eye:not(:disabled):active {
    with it too, and a bare rule here reached them: the speaker's name became a
    flex item of full width and the words dropped to the line beneath it.
    `talk.css` scopes its own half; this is the other half of the same pair. */
-.lines {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(18rem, 100%), 1fr));
-  gap: 0.75rem;
-  align-items: stretch;
-  margin: 0.75rem 0;
-}
-.lines .line {
-  display: flex;
-  flex-direction: column;
-}
-.lines .line ul {
+.lines-step .line ul {
   margin: 0.35rem 0;
   padding-left: 1.1rem;
   font-size: 0.9rem;
 }
-.lines .line li {
+.lines-step .line li {
   margin: 0.2rem 0;
-}
-.lines .line table {
-  margin-top: auto;
 }
 /* A promise, not a stub (D-104): the card is muted by tone and a dashed
    border, never by opacity -- its own hint would go under the floor. */
-.lines .line.soon,
-.lines .line.soon .note {
-  border-style: dashed;
+/* A promise is muted by tone, never by opacity -- and the card of a line
+   still in the works has no border of its own to dash, so the mute is the
+   tone and the word where its button would be (`.soon-tag`). */
+.lines-step .line.soon,
+.lines-step .line.soon .note {
   color: var(--base-400);
-}
-.lines .line.picked {
-  border-color: var(--act);
-  box-shadow: inset 0 0 0 1px var(--act);
 }
 .soon-tag {
   display: inline-block;
@@ -469,13 +447,14 @@ button.eye:not(:disabled):active {
 .entry-globe .door.picked circle {
   fill: var(--accent);
 }
-/* The step's last row reads like the account's and the character's: back on
-   the left, on at the right edge. Those get it from `.card .row`; the door
-   step is a `section`, not a card, so it says so itself. */
-.doors-step .row.last {
+/* The last row of a step reads like the account's and the character's: back
+   on the left, on at the right edge. Those get it from `.card .row`; the line
+   and the door steps are a `section`, not a card, so it is said here. */
+.entry.auth .row.last {
   justify-content: space-between;
 }
-.doors-step .doors-list {
+/* The tabs of a step: the lines to read, and the doors no mark stands for. */
+.entry.auth .row.tabs {
   flex-wrap: wrap;
   justify-content: center;
   margin: 0.5rem 0;
@@ -510,12 +489,6 @@ button.eye:not(:disabled):active {
   }
   .entry.auth > * {
     width: 100%;
-  }
-  /* What has no box of its own keeps the gutter the main used to give it:
-     the step of the lines is borderless and padless by the rule above, and
-     its cards would otherwise stand against the edge of the screen. */
-  .entry.auth > .wide {
-    padding-inline: 0.75rem;
   }
 }
 

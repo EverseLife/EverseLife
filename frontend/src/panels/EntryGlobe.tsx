@@ -23,7 +23,7 @@ import type { Door, MapNode, RecipeBook, WorldMap } from "../api";
 import { t } from "../locale";
 import { Ground } from "./map/Ground";
 import { arc, projectAll, type Geo } from "./map/globe";
-import { paper, type Box } from "./map/paper";
+import { markShare, paper, type Box } from "./map/paper";
 import { useGlobe } from "./map/useGlobe";
 
 /** How much of the frame the disk takes at the outermost zoom. */
@@ -41,9 +41,14 @@ const RAD = Math.PI / 180;
 /** How far in the zoom may go, and one notch of it. */
 const ZOOM_MAX = 400;
 const NOTCH = 1.25;
-/** Sizes in shares of the frame: a node's dot, a door's mark, a label. */
+/** Sizes in shares of the frame: a node's dot and a label. */
 const DOT = 1 / 300;
-const MARK = 1 / 60;
+/** A door's mark, in **pixels** of the screen -- of a door with nobody behind
+ *  it; `markShare` grows it with the citizens. Not a share of the frame like
+ *  the rest: the mark is a target for a finger before it is a picture, and a
+ *  share of the frame made it three pixels across on a phone, where the globe
+ *  is a third of the size it has on a desktop. */
+const MARK_PX = 9;
 const LABEL = 1 / 36;
 /** Below this many drawn cells across the frame the ground is one flat colour. */
 const CELLS_ACROSS = 1.5;
@@ -396,7 +401,14 @@ export function EntryGlobe({
                 }}
               >
                 <title>{door.city ? `${door.name} · ${door.city}` : door.name}</title>
-                <circle cx={at.x} cy={at.y} r={span * MARK * (mine ? 1.4 : 1)} />
+                {/* The mark grows with the people printed there, by the
+                    logarithm of them (`markShare`): the chosen one a little
+                    larger again, so the hand sees what it picked. */}
+                <circle
+                  cx={at.x}
+                  cy={at.y}
+                  r={sheet.perPixel * MARK_PX * markShare(door.citizens) * (mine ? 1.3 : 1)}
+                />
               </g>
             );
           })}

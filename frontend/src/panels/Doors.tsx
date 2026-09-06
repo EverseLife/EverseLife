@@ -14,8 +14,13 @@
  * is a door, and this half shows the card of the one chosen -- what a door
  * gives and what it asks (D-184, D-281) as table rows, not in text: the
  * engine enforces it, and the person must see it before clicking, not learn
- * it from a refusal. The doors are listed by name too, for a hand that
- * cannot reach the globe.
+ * it from a refusal.
+ *
+ * On the globe and nowhere else: the row of names that used to stand here was
+ * a second way to do the one thing this screen is for, and two ways to choose
+ * a city taught neither. What the globe cannot show is the exception -- a door
+ * with no place on the sphere is not drawn anywhere, and its name is offered
+ * below rather than leaving a newcomer with no door at all.
  *
  * The rows are the whole of what is said. Three paragraphs used to stand
  * under them -- where a grant comes from, that citizenship holds nobody, that
@@ -43,6 +48,9 @@ type Props = {
 
 export function Doors({ doors, name, busy, trouble, picked, onPick, onEnter, onBack }: Props) {
   const door = doors.find((one) => one.node === picked) ?? null;
+  //: What no mark stands for: a door the globe cannot place. The globe draws
+  //: what has degrees on the sphere, and this is the rest.
+  const unplaced = doors.filter((one) => !one.place || !("lat" in one.place));
 
   return (
     <section className="doors-step">
@@ -53,25 +61,27 @@ export function Doors({ doors, name, busy, trouble, picked, onPick, onEnter, onB
         <p className="trouble">{t("ui-doors-empty-world")}</p>
       ) : (
         <>
-          {/* The list by name: the same doors as the marks, for those who
-              do not turn globes. Sorted as the server sorts, by people. */}
-          <div className="row tabs doors-list">
-            {doors.map((one) => (
-              <button
-                key={one.node}
-                className={one.node === picked ? "" : "quiet"}
-                aria-pressed={one.node === picked}
-                onClick={() => onPick(one.node)}
-                disabled={busy}
-              >
-                {/* The door's own name, the city after it: the capital has two
-                    doors, and two buttons reading the city alone would not
-                    tell them apart (the same rule the card's heading keeps). */}
-                {one.precursor ? t("ui-doors-precursor") : one.name}
-                {!one.precursor && one.city ? ` · ${one.city}` : ""}
-              </button>
-            ))}
-          </div>
+          {/* A door the globe cannot draw: no place on the sphere, so no mark
+              to click. It stands here by name, and normally there are none. */}
+          {unplaced.length > 0 && (
+            <div className="row tabs doors-list">
+              {unplaced.map((one) => (
+                <button
+                  key={one.node}
+                  className={one.node === picked ? "" : "quiet"}
+                  aria-pressed={one.node === picked}
+                  onClick={() => onPick(one.node)}
+                  disabled={busy}
+                >
+                  {/* The door's own name, the city after it: the capital has two
+                      doors, and two buttons reading the city alone would not
+                      tell them apart (the same rule the card's heading keeps). */}
+                  {one.precursor ? t("ui-doors-precursor") : one.name}
+                  {!one.precursor && one.city ? ` · ${one.city}` : ""}
+                </button>
+              ))}
+            </div>
+          )}
 
           {door === null ? (
             <p className="note center">{t("ui-doors-pick-on-globe")}</p>
