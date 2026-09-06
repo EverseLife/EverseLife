@@ -22,17 +22,23 @@
 
 import { SHAPES } from "../../glyphs";
 import { nodeGlyph } from "../../marks";
+import { placeAt, project, type Eye, type Geo } from "./globe";
+import { ringPath, wayShadow, type Field } from "./scout";
 import { SURFACE, spell, type MapNode } from "../../api";
 import { t } from "../../locale";
-import { DASH, type Link, type Point } from "./model";
+import { cityRadius, citySeen } from "./bands";
+import { DASH, SPHERE_R, type Link, type Point } from "./model";
+import type { MapStub } from "../../api";
 
 type Place = (key: string) => Point | undefined;
 
-/** The glyph of the node's kind, inside its circle. Nothing for what has no kind. */
-function Sign({ node, at, settlement, big }: {
+/** The glyph of the node's kind, inside its circle. Nothing for what has no kind.
+ *  About the node's origin: the node itself is stood by `placeAt`. */
+function Sign({ node, settlement, moored, big }: {
   node: MapNode;
-  at: Point;
   settlement: boolean;
+  /** A ship lies at this port. */
+  moored: boolean;
   big: boolean;
 }) {
   const sign = nodeGlyph({
@@ -40,13 +46,15 @@ function Sign({ node, at, settlement, big }: {
     features: node.features,
     settlement,
     port: node.port,
+    moored,
   });
   if (!sign) return null;
-  const size = big ? 14 : 12;
+  //: Small, as the node is (owner, 2026-09-06).
+  const size = big ? 10 : 8;
   return (
     <svg
-      x={at.x - size / 2}
-      y={at.y - size / 2}
+      x={-size / 2}
+      y={-size / 2}
       width={size}
       height={size}
       viewBox="0 0 16 16"
@@ -67,38 +75,76 @@ function Sign({ node, at, settlement, big }: {
 //: `Edges`, not `Roads`: the panel of roadworks next door is `map/Roads.tsx`,
 //: and two things called the same in one directory is a minute lost every time
 //: an import is written. This one draws the graph's edges, road or gangway.
-export function Edges({ edges, at, labelled }: {
+export function Edges({ edges, at, labelled, curve }: {
   edges: Link[];
   at: Place;
   /** In space an edge carries no label -- see below. */
   labelled: boolean;
+  /** On a globe an edge is a great-circle arc, cut at the horizon (D-319):
+   *  the visible part of it, or nothing where the scene is flat or the edge
+   *  has an end with no place on the sphere -- a gangway from a hull. */
+  curve?: (edge: Link) => Point[] | null;
 }) {
   return (
     <>
       {edges.map((edge) => {
+        const run = curve?.(edge) ?? null;
         const a = at(edge.a);
         const b = at(edge.b);
-        if (!a || !b) return null;
+        if (!run && (!a || !b)) return null;
         return (
           <g key={`${edge.a}|${edge.b}`} className="road">
-            <line
-              x1={a.x} y1={a.y} x2={b.x} y2={b.y}
-              className={`edge ${edge.surface}`}
-              strokeDasharray={DASH[edge.surface]}
-            />
-            {/* In space an edge is a gangway and nothing else: the only thing
-                coupled to a planet is a ship standing at its port (D-201).
-                "21 s of paved highway" would be a road's label on something
-                that is not a road, so the tie is drawn bare. */}
+            {run ? (
+              <polyline
+                points={run.map((p) => `${p.x},${p.y}`).join(" ")}
+                className={`edge ${edge.surface}`}
+                strokeDasharray={DASH[edge.surface]}
+              />
+            ) : (
+              <line
+                x1={a!.x} y1={a!.y} x2={b!.x} y2={b!.y}
+                className={`edge ${edge.surface}`}
+                strokeDasharray={DASH[edge.surface]}
+              />
+            )}
+            {/* The way's time and kind are told on hover, not written on the
+                map (owner, 2026-09-06): with honest metres the eye sees the
+                distance, and the kind is the line's own drawing. In space an
+                edge is a gangway and nothing else (D-201), and says nothing. */}
             {labelled && (
-              <text x={(a.x + b.x) / 2} y={(a.y + b.y) / 2 - 6} className="edge-label">
+              <title>
                 {spell(edge.seconds)} · {t(SURFACE[edge.surface as keyof typeof SURFACE])}
-              </text>
+              </title>
             )}
           </g>
         );
       })}
     </>
+  );
+}
+
+/** The ways out of sight (D-319 item 6): a short dashed piece of each edge
+ *  that leads into the fog, from its seen end. Drawn only where the scene
+ *  gives it a run -- on the globe; the inside has no fog. */
+export function Stubs({ stubs, curve }: {
+  stubs: MapStub[];
+  curve: (stub: MapStub) => Point[] | null;
+}) {
+  return (
+    <g className="stubs">
+      {stubs.map((stub, i) => {
+        const run = curve(stub);
+        if (!run) return null;
+        return (
+          <polyline
+            key={`${stub.from}|${i}`}
+            points={run.map((p) => `${p.x},${p.y}`).join(" ")}
+            className={`edge stub ${stub.surface}`}
+            strokeDasharray={DASH[stub.surface]}
+          />
+        );
+      })}
+    </g>
   );
 }
 
@@ -109,6 +155,8 @@ export function Nodes({
   picked,
   reachable,
   group,
+  size = () => 0,
+  far = 0,
   onPick,
   onMenu,
 }: {
@@ -121,6 +169,12 @@ export function Nodes({
   reachable: (node: MapNode) => boolean;
   /** Whether the node opens into a layer of its own. */
   group: (key: string) => boolean;
+  /** How many nodes hang under it: a closed city's circle is that many
+   *  pixels in radius, so its size is read from afar. */
+  size?: (key: string) => number;
+  /** How far out the frame is past the cities' closing (`bands.farOf`):
+   *  the circles grow with it, and the small cities fade. */
+  far?: number;
   onPick: (node: MapNode) => void;
   onMenu: (node: MapNode, spot: { x: number; y: number }) => void;
 }) {
@@ -135,18 +189,28 @@ export function Nodes({
         const mine = node.key === standingAt;
         const near = reachable(node);
         const settlement = group(node.key);
+        //: A closed city is drawn as large as it is, larger the farther out,
+        //: and a small one not at all from afar -- but one's own always.
+        if (settlement && !mine && !citySeen(size(node.key), far)) return null;
+        const spread = settlement ? cityRadius(size(node.key), far) : 0;
         const chosen = node.key === picked;
         const sphere = Boolean(node.orbit);
         const hull = node.aboard;
         return (
           <g
             key={node.key}
+            //: Stood by a matrix, and drawn about its own origin (`placeAt`):
+            //: the circles below take CSS lengths, and half a globe away from
+            //: the eye those saturate.
+            transform={placeAt(p)}
             style={
               sphere
                 ? ({ "--pc": `var(--planet-${node.planet})` } as React.CSSProperties)
                 : undefined
             }
             className={`node ${sphere ? "sphere" : ""} ${hull ? "ship" : ""} ${
+              node.faded ? "faded" : ""
+            } ${
               node.deferred ? "later" : ""
             } ${mine ? "me" : ""} ${near || settlement ? "near" : ""}${
               chosen ? " picked" : ""
@@ -164,51 +228,128 @@ export function Nodes({
             }}
           >
             {hull ? (
-              <path
-                className="hull"
-                d={`M${p.x} ${p.y - 8} L${p.x + 6} ${p.y} L${p.x} ${p.y + 8} L${
-                  p.x - 6
-                } ${p.y} Z`}
-              />
+              <path className="hull" d="M0 -8 L6 0 L0 8 L-6 0 Z" />
             ) : sphere ? (
               <>
-                <circle cx={p.x} cy={p.y} r={mine ? 13 : 11} className="corona" />
-                <circle cx={p.x} cy={p.y} r={mine ? 9 : 7} className="orb" />
+                <circle cx={0} cy={0} r={mine ? SPHERE_R + 2 : SPHERE_R} className="corona" />
+                <circle cx={0} cy={0} r={mine ? 9 : 7} className="orb" />
               </>
             ) : (
               <>
-                <circle cx={p.x} cy={p.y} r={mine ? 14 : settlement ? 12 : 10} />
+                {/* Small: the nodes of a city stand a few metres apart (D-323
+                    addendum), and a wide circle over each would cover its
+                    neighbour's. */}
+                <circle cx={0} cy={0} r={settlement ? Math.max(spread, mine ? 9 : 0) : mine ? 9 : 6} />
                 {settlement && (
-                  <circle cx={p.x} cy={p.y} r={mine ? 18 : 16} className="halo" />
+                  <circle cx={0} cy={0} r={Math.max(spread, mine ? 9 : 0) + 4} className="halo" />
                 )}
-                <Sign node={node} at={p} settlement={settlement} big={mine} />
+                <Sign
+                  node={node}
+                  settlement={settlement}
+                  moored={Boolean(node.moored)}
+                  big={mine}
+                />
               </>
             )}
-            {chosen && <circle cx={p.x} cy={p.y} r={mine ? 20 : 18} className="ring" />}
+            {chosen && (
+              <circle cx={0} cy={0} r={Math.max(spread + 6, mine ? 13 : 11)} className="ring" />
+            )}
             {/* A ship's name hangs below the hull: above it there is already a
                 planet's name, and two ships at one port would write over it
                 and over each other. */}
-            <text x={p.x} y={hull ? p.y + 21 : p.y - 20} className="node-label">
-              {node.name}
-            </text>
+            {/* A find has no name (D-321): its sign inside the circle is the
+                whole of what it is called, and an empty label is not drawn. */}
+            {node.name && (
+              <text x={0} y={hull ? 21 : -(Math.max(spread, 6) + 3)} className="node-label">
+                {node.name}
+              </text>
+            )}
             {/* Aquatica is drawn precisely because one cannot go there (D-104):
                 the map shows the unreachable and says so. */}
             {node.deferred && (
-              <text x={p.x} y={p.y + 30} className="node-door">
+              <text x={0} y={30} className="node-door">
                 {t("ui-map-node-alpha")}
               </text>
             )}
-            {/* The city's two doors (D-206): every road beyond the walls starts
-                at the gate, every ship couples to the spaceport. Unmarked, the
-                graph reads as an arbitrary tangle -- and it is not one. */}
-            {(node.exit || node.port) && (
-              <text x={p.x} y={p.y + 30} className="node-door">
-                {node.exit ? t("ui-map-node-gate") : t("ui-map-node-spaceport")}
+            {/* The spaceport is the one door left (D-206, D-319): every ship
+                couples to it, and a port unmarked reads as any other yard. */}
+            {node.port && (
+              <text x={0} y={30} className="node-door">
+                {t("ui-map-node-spaceport")}
               </text>
             )}
           </g>
         );
       })}
     </>
+  );
+}
+
+
+/** The outlines of the cities (D-323 addendum): each city's land, the
+ *  discs of its nodes joined and rounded, as a contour -- no fill, no
+ *  circle. Drawn at every scale: from afar a hairline blot beside the
+ *  city's circle, close up the city's own edge among its streets. */
+export function Outlines({
+  outlines,
+  eye,
+  radius,
+  open,
+}: {
+  outlines: ReadonlyMap<string, Geo[][]>;
+  eye: Eye;
+  radius: number;
+  /** Whether the cities are open: near, the edge is dashed among the
+   *  streets; from afar it is a line, a dash being no line at all. */
+  open: boolean;
+}) {
+  return (
+    <g className={`territory ${open ? "near" : "far"}`} aria-hidden="true">
+      {[...outlines.entries()].map(([city, loops]) => {
+        const d = loops
+          .map((loop) => {
+            const seen = loop.map((p) => project(eye, radius, p));
+            //: A city is small: on the far side whole, or seen whole.
+            if (!seen.every((p) => p.front)) return "";
+            return `M${seen.map((p) => `${p.x},${p.y}`).join("L")}Z`;
+          })
+          .join("");
+        return d ? <path key={city} className="city-edge" d={d} /> : null;
+      })}
+    </g>
+  );
+}
+
+/** The scout's aim on the ground (D-321): a small cross where the finger
+ *  tapped, stood like a node, the same size at any zoom. */
+export function Aim({ at }: { at: { x: number; y: number; front: boolean } }) {
+  if (!at.front) return null;
+  return (
+    <g className="aim" transform={placeAt(at)} aria-hidden="true">
+      <circle cx={0} cy={0} r={7} />
+      <path d="M-11 0H-4M4 0H11M0 -11V-4M0 4V11" />
+    </g>
+  );
+}
+
+/** The scout's field (D-321 item 4): the ring of the reach in green, the
+ *  land of every node and the shadow of every way cut out of it by a mask.
+ *  Where the ground is water the server still refuses: the shore is read
+ *  at the cursor, not drawn here. */
+export function ScoutField({ field, id }: { field: Field; id: string }) {
+  return (
+    <g className="scout-field" aria-hidden="true">
+      <mask id={id} maskUnits="userSpaceOnUse">
+        <path d={ringPath(field)} fill="white" fillRule="evenodd" />
+        {field.blocks.map((block, i) => (
+          <circle key={i} transform={placeAt(block.at)} r={block.r} fill="black" />
+        ))}
+        {field.ways.map((way, i) => {
+          const d = wayShadow(field, way);
+          return d ? <path key={`w${i}`} d={d} fill="black" /> : null;
+        })}
+      </mask>
+      <path d={ringPath(field)} fillRule="evenodd" mask={`url(#${id})`} />
+    </g>
   );
 }

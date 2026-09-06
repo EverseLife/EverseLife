@@ -44,7 +44,7 @@ from src.constants import Catalog, Constants, current, current_catalog
 from src.constants import registry as R
 from src.engine import account as accounts
 from src.engine import city as town
-from src.engine import events
+from src.engine import events, places
 from src.engine.world.land import LandError
 from src.engine.world.things import has_station, station_names
 from src.models.event import EventKind
@@ -218,12 +218,12 @@ async def spawn_point(session: AsyncSession) -> Node | None:
         return open_[0]
 
     #: Nothing prints anywhere: the world is either brand new or in a state
-    #: nobody designed. The oldest built-up node is the least arbitrary answer
+    #: nobody designed. The oldest surface node is the least arbitrary answer
     #: -- the world grew from it -- and it is only ever a last resort.
     nodes = (
         (
             await session.execute(
-                select(Node).where(Node.layer == Layer.CITY).order_by(Node.created_at)
+                select(Node).where(Node.layer == Layer.PLANET).order_by(Node.created_at)
             )
         )
         .scalars()
@@ -269,6 +269,13 @@ async def doors(
             {
                 "node": node.key,
                 "name": node.name,
+                #: Where the door stands (D-319): the newcomer chooses it on a
+                #: globe, and a globe needs the planet and the degrees. Not
+                #: derivable from the public map (D-225): that is a snapshot
+                #: `map.public_delay_days` old, and on a world younger than
+                #: its first snapshot it holds no surface at all.
+                "planet": node.planet.value,
+                "place": places.wire(node),
                 "city": None if city is None else city.name,
                 #: The city's word is a promise, not a contract (D-183): the
                 #: engine neither parses nor enforces it. Empty -- the card is silent.

@@ -230,12 +230,13 @@ async def open_landings(session: AsyncSession) -> list[Node]:
     where it stands in the sky, not a place to put a hull down on. A node
     aboard a ship is not ground either, however low the ship flies.
 
-    A list, and it grows with the planet: every field a scout opens on Pyroxis
-    is another destination. D-233 wants the console to answer with the
-    **planet** instead, and the node to be chosen after the course is set --
-    which is a gesture the client does not have yet. The split is here already
-    (`ports` is yards and nothing else, so the map's piers are not lied to);
-    what is left is interface work, and it is named in the roadmap as such.
+    A list, and it is the whole surface: every field the seed laid on Pyroxis
+    is a destination (D-319). D-233 wants the console to answer with the
+    **planet** and the node to be chosen after the course is set -- and D-319
+    names the gesture: the globe under a hull in orbit is the landing picker,
+    and a node without room for the hull refuses at the choice. The split is
+    here already (`ports` is yards and nothing else, so the map's piers are not
+    lied to); the picker itself is the client's wave of the globe plan.
     """
     planets = await _open_planets(session)
     if not planets:

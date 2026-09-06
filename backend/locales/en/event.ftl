@@ -13,6 +13,8 @@
 # only the ends of things: what finished, arrived, was found, was settled, was lost.
 
 event-craft-finished = batch ready
+event-explore-found = scouting reached a place
+event-explore-empty = scouting came back empty: the ground was taken meanwhile
 event-travel-arrived = arrived
 event-farm-harvested = harvest gathered
 event-farm-died = plot died
@@ -20,8 +22,6 @@ event-farm-ripened = plot ripe
 # A pest (D-299): the summary names the sign, not the trouble -- which
 # bottle answers it is known to whoever read the agronomy.
 event-farm-struck = trouble on the plot
-event-explore-found = scouting: a find
-event-explore-empty = scouting: nothing
 event-body-died = body died
 event-body-printed = body printed
 event-mining-collapsed = cave-in at the face

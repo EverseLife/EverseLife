@@ -202,22 +202,14 @@ async def test_the_connector_stays_the_only_way_in(
 ) -> None:
     """Nothing may grow a second edge out of a ship (D-201).
 
-    Exploration lays an edge from the node one leaves from, so a run from
-    aboard would quietly weld the ship to a wild node -- a second entrance past
-    the gangway inspection. The same for laying a foundation onto a hull: that
-    would be a second ship welded to the first for good.
+    Laying a foundation onto a hull would be a second ship welded to the
+    first for good.
     """
-    from src.engine import explore
-
     port = await _port(session)
     _, body = await _shipwright(session, port, foundations=2)
     vessel = await _laid(session, constants, body, port)
     body.node_id = vessel.connector_node_id
     await session.flush()
-
-    with pytest.raises(explore.ExploreError):
-        await explore.survey(session, constants, body)
-
     #: A spaceport aboard changes nothing: a ship is grown from the inside.
     connector = await session.get(Node, vessel.connector_node_id)
     await _equip(session, connector, "space_shipyard")

@@ -339,7 +339,9 @@ async def _ship_course(state: dict, db: AsyncSession, message: dict) -> dict:
         try:
             target = Planet(str(message.get("planet") or ""))
         except ValueError as exc:
-            raise Refused(key="cmd-no-such-planet") from exc
+            raise Refused(
+                key="cmd-no-such-planet", planet=str(message.get("planet") or "")
+            ) from exc
     return await ship.forecast(db, current(), current_catalog(), vessel, target)
 
 

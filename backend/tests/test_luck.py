@@ -102,12 +102,12 @@ async def test_luck_is_personal_and_by_matter(session: AsyncSession) -> None:
     stubborn = random.Random()
     stubborn.random = lambda: 0.999999
 
-    await luck.hit(session, mine, luck.EXPLORE_FIND, 50.0, dice=stubborn)
-    await luck.hit(session, mine, luck.EXPLORE_FIND, 50.0, dice=stubborn)
+    await luck.hit(session, mine, luck.SITE_WOODS, 50.0, dice=stubborn)
+    await luck.hit(session, mine, luck.SITE_WOODS, 50.0, dice=stubborn)
 
-    assert (await luck._row(session, mine, luck.EXPLORE_FIND)).misses == 2
+    assert (await luck._row(session, mine, luck.SITE_WOODS)).misses == 2
     assert (await luck._row(session, mine, luck.MINE_WOUND)).misses == 0
-    assert (await luck._row(session, theirs, luck.EXPLORE_FIND)).misses == 0
+    assert (await luck._row(session, theirs, luck.SITE_WOODS)).misses == 0
 
 
 async def test_the_deck_deals_every_card_before_repeating(session: AsyncSession) -> None:

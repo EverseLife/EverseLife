@@ -159,6 +159,7 @@ from src.engine.ship._base import (  # noqa: F401
     TooFar,
     _free_berth,
     _gangway_seconds,
+    hull_footprint,
     is_orbit,
     orbit_key,
     orbit_node_of,

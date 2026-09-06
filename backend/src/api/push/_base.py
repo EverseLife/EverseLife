@@ -58,6 +58,8 @@ TOUCHES: dict[str, tuple[str, ...]] = {
     "mining": ("mining", "inventory"),
     "travel": ("body", "node"),
     "road": ("node",),
+    #: A run ends the body's occupation and lays a way (D-321).
+    "explore": ("node", "doings"),
     #: A site laid, fed, started or ripe changes the plot and, for the
     #: bringer, the hands (D-266).
     "estate": ("node", "inventory"),
@@ -65,6 +67,8 @@ TOUCHES: dict[str, tuple[str, ...]] = {
     "transport": ("node", "inventory"),
     "craft": ("doings", "inventory", "orders"),
     "carrier": ("inventory",),
+    #: A sheet drawn changes the hands and what the map shows from them.
+    "map": ("inventory", "node"),
     "library": ("shelf",),
     "land": ("node", "deeds"),
     "deed": ("node", "deeds"),
@@ -83,7 +87,6 @@ TOUCHES: dict[str, tuple[str, ...]] = {
     #: or a payout -- the node view is where the panel reads it back.
     "automat": ("node",),
     "storage": ("node", "inventory"),
-    "explore": ("doings", "node"),
     "forage": ("doings", "inventory"),
     "customs": ("body", "money"),
     "city": ("city",),
@@ -178,7 +181,6 @@ NODE_VISIBLE_KINDS = frozenset(
         "item.dropped",
         "item.picked",
         "mining.collapsed",
-        "explore.found",
         "utility.cut_off",
         "city.founded",
         "deed.offered",
@@ -211,7 +213,7 @@ CITY_VISIBLE_KINDS = frozenset({"bank.rate_decided", "city.debt_withheld"})
 #: reputation). A teller may still add `who` for its kind.
 NAMED_PREFIXES = frozenset({"travel", "body", "city", "justice"})
 
-NAMED_KINDS = frozenset({"item.dropped", "item.picked", "mining.collapsed", "explore.found"})
+NAMED_KINDS = frozenset({"item.dropped", "item.picked", "mining.collapsed"})
 
 
 def touches_of(kind: str) -> tuple[str, ...]:

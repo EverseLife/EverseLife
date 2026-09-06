@@ -21,6 +21,7 @@
 
 import { useEffect, useRef, type PointerEvent, type RefObject, type WheelEvent } from "react";
 
+import { SKY_BOUNDS, type Bounds } from "./bands";
 import type { Camera } from "./camera";
 import { H, W, type Point } from "./model";
 
@@ -70,14 +71,12 @@ export function worldAt(
   };
 }
 
-/** The zoom the wheel gives per notch, and how far in and out it may go. */
+/** The zoom the wheel gives per notch. */
 const NOTCH = 1.15;
-const NEAREST = 4;
-const FURTHEST = 0.4;
 
-/** A scale kept within what the map may show. */
-export function clampScale(scale: number): number {
-  return Math.min(NEAREST, Math.max(FURTHEST, scale));
+/** A scale kept within what the band may show (`bands.ts`). */
+export function clampScale(scale: number, bounds: Bounds = SKY_BOUNDS): number {
+  return Math.min(bounds.nearest, Math.max(bounds.furthest, scale));
 }
 
 /**
@@ -86,9 +85,14 @@ export function clampScale(scale: number): number {
  * start rather than from the last move, so that a hundred rounded steps do
  * not drift the picture away from the fingers.
  */
-export function pinchScale(scale0: number, spread0: number, spread: number): number {
+export function pinchScale(
+  scale0: number,
+  spread0: number,
+  spread: number,
+  bounds: Bounds = SKY_BOUNDS,
+): number {
   if (spread0 <= 0) return scale0;
-  return clampScale(scale0 * (spread / spread0));
+  return clampScale(scale0 * (spread / spread0), bounds);
 }
 
 const spreadOf = (a: Point, b: Point) => Math.hypot(b.x - a.x, b.y - a.y);
@@ -112,6 +116,9 @@ export function useHand({
   svg,
   tethered,
   ready,
+  rotate,
+  onTap,
+  bounds = SKY_BOUNDS,
 }: {
   cam: Camera;
   svg: RefObject<SVGSVGElement | null>;
@@ -119,7 +126,22 @@ export function useHand({
   tethered: boolean;
   /** Whether there is an svg to listen on -- it comes and goes with the map. */
   ready: boolean;
+  /**
+   * On a globe a drag turns the sphere instead of sliding the frame (D-319,
+   * plan §2): told the ground's movement in map units since the last move,
+   * the scene moves the eye. Absent on the flat scenes -- the sky, a house.
+   */
+  rotate?: (dx: number, dy: number) => void;
+  /** A tap on the field -- a press let go where it was pressed, no pan,
+   *  no pinch -- with the world point under it: the scout's aim. */
+  onTap?: (point: Point) => void;
+  /** How far in and out this band lets the hand zoom (`bands.ts`). A
+   *  function where the band can change between a frame and the render
+   *  that follows it: the hand-over sets the scale and a notch of the wheel
+   *  in that gap must not clamp it to the band just left. */
+  bounds?: Bounds | (() => Bounds);
 }) {
+  const limits = () => (typeof bounds === "function" ? bounds() : bounds);
   //: A grab on the field is a pan; a grab on a node is only ever a click.
   const dragging = useRef<{
     moved: boolean;
@@ -133,6 +155,9 @@ export function useHand({
   //: down at all -- were it, the pair would change under the pinch when one
   //: of the first two lifted, and the frame would jump to the new pair.
   const fingers = useRef(new Map<number, Point>());
+  //: Where the one finger pressed, tethered or loose: a release within the
+  //: slop of it is a tap, whatever else the hand may or may not do.
+  const press = useRef<{ id: number; x: number; y: number; tapped: boolean } | null>(null);
   //: The pinch under way: what the scale and the fingers' spread were when
   //: the second finger came down, and where their middle was on the last move.
   const pinch = useRef<{ scale0: number; spread0: number; mid: Point } | null>(null);
@@ -189,6 +214,8 @@ export function useHand({
     grabField(e: PointerEvent) {
       if (fingers.current.size >= 2) return;
       fingers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      press.current =
+        fingers.current.size === 1 ? { id: e.pointerId, x: e.clientX, y: e.clientY, tapped: false } : null;
       if (fingers.current.size === 2) {
         //: The second finger turns a press or a pan into a pinch, and the
         //: pan is over for good: resumed after the pinch from a start point
@@ -224,14 +251,23 @@ export function useHand({
       const held = pinch.current;
       if (held && fingers.current.size >= 2) {
         const [a, b] = [...fingers.current.values()];
-        const scale = pinchScale(held.scale0, held.spread0, spreadOf(a, b));
+        const scale = pinchScale(held.scale0, held.spread0, spreadOf(a, b), limits());
         //: Tethered, a pinch is the wheel: the middle stays the middle.
         if (tethered) return cam.zoomOnMiddle(scale);
-        //: Loose, the fingers hold the world (`pinchTo`).
         const field = svg.current;
         if (!field) return;
         const mid = midOf(a, b);
-        pinchTo(cam, field.getBoundingClientRect(), held.mid, mid, scale);
+        if (rotate) {
+          //: On the globe the fingers turn the sphere as one finger does,
+          //: and the zoom keeps the middle: the origin is the eye, and a
+          //: frame panned under it would move the ground twice.
+          const k = 1 / (pixelsPer() ?? 1);
+          rotate((mid.x - held.mid.x) * k, (mid.y - held.mid.y) * k);
+          cam.zoomOnMiddle(scale);
+        } else {
+          //: Loose and flat, the fingers hold the world (`pinchTo`).
+          pinchTo(cam, field.getBoundingClientRect(), held.mid, mid, scale);
+        }
         held.mid = mid;
         return;
       }
@@ -258,12 +294,34 @@ export function useHand({
       }
       if (!drag.moved) return;
       const k = 1 / (pixelsPer() ?? 1);
+      if (rotate) {
+        //: The ground follows the hand: the eye is told how far it went since
+        //: the last move, and the frame stays where it is -- the origin moves
+        //: with the eye, so panning it would move the ground twice.
+        rotate(dx * k, dy * k);
+        drag.startX = e.clientX;
+        drag.startY = e.clientY;
+        return;
+      }
       cam.panTo(drag.panX0 - dx * k, drag.panY0 - dy * k);
     },
 
     releasePointer(e: PointerEvent) {
       //: A finger that was never written down (the third) changes nothing.
       if (!fingers.current.delete(e.pointerId)) return;
+      const pressed = press.current;
+      if (
+        pressed &&
+        pressed.id === e.pointerId &&
+        !pressed.tapped &&
+        e.type === "pointerup" &&
+        fingers.current.size === 0 &&
+        Math.hypot(e.clientX - pressed.x, e.clientY - pressed.y) <= SLOP
+      ) {
+        pressed.tapped = true;
+        onTap?.(toWorld(e));
+      }
+      if (fingers.current.size === 0) press.current = null;
       //: The pinch is over the moment either of its fingers lifts, and the
       //: one left does not go on as a pan (see `grabField`).
       pinch.current = null;
@@ -271,23 +329,27 @@ export function useHand({
     },
 
     zoom(e: WheelEvent) {
-      const scale = clampScale(cam.frame().scale * (e.deltaY < 0 ? NOTCH : 1 / NOTCH));
+      const scale = clampScale(cam.frame().scale * (e.deltaY < 0 ? NOTCH : 1 / NOTCH), limits());
       //: Tethered, the wheel changes how much is seen and nothing else: the
       //: middle stays the middle, and the follow is not taken away by it.
       if (tethered) return cam.zoomOnMiddle(scale);
       //: Loose, a wheel is the hand: it takes the frame from every autopilot.
-      const p = toWorld(e);
       cam.takeFrame();
-      cam.zoomTo(p, scale);
+      //: On the globe the middle is the eye and stays the middle, loose or
+      //: tied: the planet never leaves the centre of the frame. Turning the
+      //: sphere towards the cursor at the same time was tried and shook --
+      //: the turn lands a frame after the zoom, and the ground jumped twice
+      //: at every notch (owner, 2026-09-06).
+      if (rotate) return cam.zoomOnMiddle(scale);
+      cam.zoomTo(toWorld(e), scale);
     },
 
-    /** The loupe buttons: a notch nearer or farther about the middle -- a
-     *  button has no cursor to zoom towards. Loose, it is the hand like the
-     *  wheel and takes the frame; tethered, the middle stays the middle. */
-    zoomBy(direction: 1 | -1) {
-      const scale = clampScale(cam.frame().scale * (direction > 0 ? NOTCH : 1 / NOTCH));
+    /** The slider: a scale asked for outright, about the middle -- a thumb
+     *  has no cursor to zoom towards. Loose, it is the hand like the wheel
+     *  and takes the frame; tethered, the middle stays the middle. */
+    zoomToScale(scale: number) {
       if (!tethered) cam.takeFrame();
-      cam.zoomOnMiddle(scale);
+      cam.zoomOnMiddle(clampScale(scale, limits()));
     },
   };
 }

@@ -81,6 +81,15 @@ class EventKind(StrEnum):
     ROAD_LAID = "road.laid"
     #: Overgrown: the surface dropped a tier without maintenance.
     ROAD_DECAYED = "road.decayed"
+    #: Feet wore a trail into untrodden ground, or a trail nobody walked grew
+    #: over (D-319). Both are the edge's own doing, not a crew's.
+    ROAD_TRODDEN = "road.trodden"
+    ROAD_OVERGROWN = "road.overgrown"
+
+    # exploration (D-321): the graph of a planet grows by runs
+    EXPLORE_STARTED = "explore.started"
+    EXPLORE_FOUND = "explore.found"
+    EXPLORE_EMPTY = "explore.empty"
 
     # the planet redraws its own map (D-197, D-233)
     #: The free signal: these nodes will be shaken, and what lies in them burns.
@@ -158,6 +167,8 @@ class EventKind(StrEnum):
     CRAFT_INVENTED = "craft.invented"
     #: A knowledge carrier read, wiped, or given to a library (D-209).
     CARRIER_READ = "carrier.read"
+    #: A map sheet drawn on from the drawer's memory (D-319 item 6).
+    MAP_DRAWN = "map.drawn"
     CARRIER_WIPED = "carrier.wiped"
     LIBRARY_CONTRIBUTED = "library.contributed"
 
@@ -263,13 +274,6 @@ class EventKind(StrEnum):
     #: and somebody should ask how the body got that heavy (D-265).
     STORAGE_OVERFULL = "storage.overfull"
     ITEM_PICKED = "item.picked"
-
-    # exploration (D-152)
-    EXPLORE_STARTED = "explore.started"
-    EXPLORE_FOUND = "explore.found"
-    EXPLORE_EMPTY = "explore.empty"
-    #: The scout turned back: the run is cancelled, the find did not happen.
-    EXPLORE_CANCELLED = "explore.cancelled"
 
     # foraging (D-210): a search on empty land, and what was done with the find
     FORAGE_STARTED = "forage.started"

@@ -72,6 +72,14 @@ export type Enrollment = {
 export type Door = {
   node: string;
   name: string;
+  /** Where the door stands (D-319): the planet and the degrees, for the globe
+   *  the newcomer chooses on. A door the globe cannot draw -- one placed flat,
+   *  inside somebody's yard, or standing on another planet -- is listed by
+   *  name instead. Flat is what the server sends for a node with no degrees
+   *  (`engine/places.wire`), and saying so here is what lets the client tell
+   *  the two apart. */
+  planet: string;
+  place: { lat: number; lon: number } | { x: number; y: number } | null;
   city: string | null;
   /** The city's word to newcomers: its promise, not a contract (D-183). Empty -- silent. */
   about: string;

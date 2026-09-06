@@ -340,9 +340,6 @@ def test_city_affairs_reach_citizens_and_the_sink_follows_the_convict() -> None:
     cell = uuid.uuid4()
     push._follow(sink, _row("justice.sanction_applied", cell_node_id=str(cell)))
     assert sink.node_id == cell
-    found = uuid.uuid4()
-    push._follow(sink, _row("explore.found", node=found))
-    assert sink.node_id == found
 
 
 def test_the_cave_in_tells_the_miner_its_numbers_and_the_room_only_that_it_fell() -> None:

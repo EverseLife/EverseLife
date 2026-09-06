@@ -78,7 +78,7 @@ async def test_two_draws_of_the_same_energy_leave_one_refused(
         session, f"terra.pool.{stamp}", "Город", area_m2=1, layer=Layer.PLANET
     )
     yard = await world.create_node(
-        session, f"terra.pool.{stamp}.yard", "Двор", area_m2=200, layer=Layer.CITY, parent=city
+        session, f"terra.pool.{stamp}.yard", "Двор", area_m2=200, layer=Layer.PLANET, parent=city
     )
     pool = await energy.pool_of(session, constants, yard)
     assert pool is not None

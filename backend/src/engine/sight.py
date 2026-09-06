@@ -1,74 +1,67 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Nurlan Urazkulov
 
-"""How much of the map one sees from where one stands (D-240).
+"""How much of the map one sees from where one stands (D-240, D-319).
 
-Until now the map was the world: `/public/map` answered with every node and
-every edge there was, to anybody, with no token. That was a decision -- cities
-and highways are public so that a newcomer finds where to go (D-097) -- and it
-outlived its reason twice over. It made **exploration worth nothing**: a planet
-opened by somebody else's scout was on everybody's screen the same second, and
-a find was news rather than knowledge. And it opened planets nobody could reach:
-one clicked Aurora's sphere and read its cities without owning a ship.
+The map is not the world: it is what a body sees, what its identity
+remembers, and what is public. Three sources, two tones:
 
-So the map is a **neighbourhood**, not a world:
+* **sight** -- every node of the planet within `map.sight_km` of the body, a
+  distance on the globe and not a count of steps (D-319 п. 6): with honest
+  metres one sees far, not along the ways. Plus the one step of the graph the
+  body may actually take -- the gangway, the corridor aboard, the door -- so a
+  crew aboard sees its pier and a floor sees its stair. Drawn bright;
+* **memory** -- the places the identity has been to (`engine.memory`), shown
+  as the world knows them now, drawn dark. A snapshot of "how it was" is not
+  kept: that would be a second world beside the world (D-240's argument
+  stands for snapshots);
+* **the public** -- the cities of the planet and what stands inside their
+  walls (D-097): a newcomer must find the door. Dark too, unless in sight.
+  A city is a polity's node (`City`), not any node with children: a frozen
+  city of the Forerunners is a find, and a find is known by sight and memory.
 
-* **two steps of the graph** from the node the body stands in. Not a distance
-  and not a radius: steps, the same units everything else about movement is in
-  (D-045). Two, because one shows the ways out with nothing to choose between,
-  and three already draws the next city;
-* **one step on the planet's surface**, where a step is a whole group -- a city,
-  a camp, a field. Past that lies what one still has to walk to;
-* **the sky, always and to everybody**. A planet's place is a function of the
-  epoch and its own orbit (D-237): it is arithmetic, not intelligence, and
-  hiding it would hide the one thing that makes a passage plannable. What the
-  sky does **not** carry is any way in: the surfaces of other planets are simply
-  not in the answer, so there is nothing to expand.
+And **the sky, always and to everybody** (D-240): a planet's place is
+arithmetic over the epoch, and hiding it would hide the one thing that makes a
+passage plannable. The sky carries no way in: another planet's surface is
+simply not in the answer.
 
-What was found is **not remembered**: the fog closes behind the walker. Keeping
-a personal map of everything ever seen would be a second world beside the world,
-growing per player and never shrinking -- and the thing that makes a place worth
-remembering is that one has to remember it. That is the same reason node places
-are fixed for ever (D-237): a map worth learning has to hold still.
-
-## Ancestors travel with everything
-
-A node is drawn on the layer of its group, and the client climbs the `parent`
-chain to find it (D-045, D-097). So whatever is visible brings its whole chain
-of parents with it -- otherwise a plot would arrive with no city to stand in and
-the layer above would come out empty.
+A node that is in none of the three is not drawn and not hidden: one may
+walk to it, and on the way it comes into sight. Whatever is drawn brings its
+chain of parents -- a plot needs its city to stand in (D-045, D-097).
 """
 
 from __future__ import annotations
 
 import uuid
 from collections.abc import Iterable, Sequence
+from dataclasses import dataclass, field
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.models.world import Edge, Layer, Node
-from src.runtime import MAP_SIGHT, MAP_SIGHT_PLANET
+from src import globe
+from src.constants import Constants
+from src.constants import registry as R
+from src.engine import places
+from src.models.world import Edge, Layer, Node, Surface
+from src.units import METRES_PER_KM
 
 
-def _step_out(
-    start: Iterable[uuid.UUID], near: dict[uuid.UUID, set[uuid.UUID]], depth: int
-) -> set[uuid.UUID]:
-    """Breadth-first out of `start`, `depth` steps and no further."""
-    seen = set(start)
-    edge = list(seen)
-    for _ in range(depth):
-        if not edge:
-            break
-        further: list[uuid.UUID] = []
-        for here in edge:
-            for other in near.get(here, ()):
-                if other in seen:
-                    continue
-                seen.add(other)
-                further.append(other)
-        edge = further
-    return seen
+@dataclass(frozen=True, slots=True)
+class View:
+    """What is shown, and which of it is shown dark.
+
+    `faded` is on the wire as one flag (D-225): the client could compute the
+    sight radius itself, but not whether a node outside it is remembered or
+    public rather than absent -- and that is the whole difference between the
+    two tones.
+    """
+
+    seen: set[uuid.UUID] = field(default_factory=set)
+    faded: set[uuid.UUID] = field(default_factory=set)
+    #: The public part of the dark: cities and highways, known to all. Not
+    #: on the wire -- the map needs it to tell what is known from a map alone.
+    public: set[uuid.UUID] = field(default_factory=set)
 
 
 def _neighbourhood(edges: Sequence[Edge]) -> dict[uuid.UUID, set[uuid.UUID]]:
@@ -78,16 +71,6 @@ def _neighbourhood(edges: Sequence[Edge]) -> dict[uuid.UUID, set[uuid.UUID]]:
         near.setdefault(edge.node_a_id, set()).add(edge.node_b_id)
         near.setdefault(edge.node_b_id, set()).add(edge.node_a_id)
     return near
-
-
-def _delegate(node_id: uuid.UUID, layer: Layer, by_id: dict[uuid.UUID, Node]) -> uuid.UUID | None:
-    """The node standing for this one on that layer -- itself or an ancestor."""
-    cursor = by_id.get(node_id)
-    while cursor is not None:
-        if cursor.layer is layer:
-            return cursor.id
-        cursor = None if cursor.parent_id is None else by_id.get(cursor.parent_id)
-    return None
 
 
 def _with_parents(ids: set[uuid.UUID], by_id: dict[uuid.UUID, Node]) -> set[uuid.UUID]:
@@ -113,59 +96,112 @@ def sky(nodes: Iterable[Node]) -> set[uuid.UUID]:
     return {node.id for node in nodes if node.layer is Layer.SPACE}
 
 
+def _standpoint(standing: Node, by_id: dict[uuid.UUID, Node]) -> globe.Geo | None:
+    """Where on the globe the body stands: its node's point, or the nearest
+    ancestor's -- a room aboard or a floor has no point of its own."""
+    cursor: Node | None = standing
+    while cursor is not None:
+        point = places.geo_of(cursor)
+        if point is not None:
+            return point
+        cursor = by_id.get(cursor.parent_id) if cursor.parent_id is not None else None
+    return None
+
+
+def _public(nodes: Sequence[Node], edges: Sequence[Edge], cities: set[uuid.UUID]) -> set[uuid.UUID]:
+    """The cities, what stands inside their walls, and the highways (D-097):
+    the polities' nodes, every surface node hanging on one of them, and every
+    surface node a laid road or a paved way touches -- a road is work (D-107),
+    and work in the open is seen from afar."""
+    by_id = {node.id: node for node in nodes}
+    inside = set(cities)
+    for node in nodes:
+        if node.layer is Layer.PLANET and node.parent_id in cities:
+            inside.add(node.id)
+    for edge in edges:
+        if edge.surface in (Surface.ROAD, Surface.PAVED):
+            for end in (edge.node_a_id, edge.node_b_id):
+                node = by_id.get(end)
+                if node is not None and node.layer is Layer.PLANET:
+                    inside.add(end)
+    return inside
+
+
 def around(
-    standing: Node | None, *, nodes: Sequence[Node], edges: Sequence[Edge]
-) -> set[uuid.UUID]:
-    """Which nodes this body may be shown, by id.
+    standing: Node | None,
+    *,
+    constants: Constants,
+    nodes: Sequence[Node],
+    edges: Sequence[Edge],
+    known: Iterable[str] = (),
+    cities: Iterable[uuid.UUID] = (),
+) -> View:
+    """What this body may be shown, by id, and which of it dark.
 
     `standing` is where the body is, or None for whoever has no body to stand
     anywhere -- an anonymous reader, an identity in the cloud. They get the sky
-    and nothing else: the surface asks for a body.
+    and nothing else: the surface asks for a body. `known` are the keys the
+    identity remembers (`engine.memory.known`); `cities` the nodes of the
+    polities (`City.node_id`), which are public.
     """
     by_id = {node.id: node for node in nodes}
     seen = sky(nodes)
     if standing is None or standing.id not in by_id:
-        return seen
+        return View(seen=seen)
 
-    #: The walk one actually walks: two steps over the graph as it is, so a
-    #: gangway, a corridor aboard and a road out of the gate all count as the
-    #: one step each of them is.
-    near = _neighbourhood(edges)
-    seen |= _step_out([standing.id], near, MAP_SIGHT)
-
-    #: And one step of the planet's own map, where a step is a whole group.
-    #: Projected rather than walked: on that layer a road from a gate to a field
-    #: joins the **city** and the field (D-045, D-206), and it is that joining
-    #: the surface is drawn by.
-    surface = _delegate(standing.id, Layer.PLANET, by_id)
-    if surface is not None:
-        projected: dict[uuid.UUID, set[uuid.UUID]] = {}
-        for edge in edges:
-            one = _delegate(edge.node_a_id, Layer.PLANET, by_id)
-            other = _delegate(edge.node_b_id, Layer.PLANET, by_id)
-            if one is None or other is None or one == other:
+    bright = {standing.id}
+    #: The step into or out of an inside: a gangway, a corridor aboard, a
+    #: door. Only where a point of the globe is missing on one side -- a
+    #: room, a hull -- because the eye is a radius (D-319 п. 6), and a road
+    #: neighbour fifteen kilometres off is not in sight for being joined.
+    for other_id in _neighbourhood(edges).get(standing.id, set()):
+        other = by_id.get(other_id)
+        if other is None:
+            continue
+        if places.geo_of(standing) is None or places.geo_of(other) is None:
+            bright.add(other_id)
+    #: The eye: everything of this planet's surface within the radius.
+    point = _standpoint(standing, by_id)
+    if point is not None:
+        radius = globe.radius_m(constants, standing.planet)
+        reach = float(constants[R.MAP_SIGHT_KM]) * METRES_PER_KM
+        for node in nodes:
+            if node.planet is not standing.planet or node.layer is not Layer.PLANET:
                 continue
-            projected.setdefault(one, set()).add(other)
-            projected.setdefault(other, set()).add(one)
-        seen |= _step_out([surface], projected, MAP_SIGHT_PLANET)
+            where = places.geo_of(node)
+            if where is not None and globe.distance_m(radius, point, where) <= reach:
+                bright.add(node.id)
+    bright = _with_parents(bright, by_id)
 
-    return _with_parents(seen, by_id)
+    #: Memory and the public, on this planet, dark where the eye does not reach.
+    remembered = set(known)
+    #: Memory is of the surface: a floor or a cabin is the inside window's
+    #: (D-319 п. 9), and remembering it would drag its house or hull onto the
+    #: map dark from a memory of a room.
+    dark = {
+        node.id
+        for node in nodes
+        if node.planet is standing.planet and node.layer is Layer.PLANET and node.key in remembered
+    }
+    public = {
+        node_id
+        for node_id in _public(nodes, edges, set(cities))
+        if node_id in by_id and by_id[node_id].planet is standing.planet
+    }
+    dark = _with_parents(dark | public, by_id) - bright
+    return View(seen=seen | bright | dark, faded=dark, public=public - bright)
 
 
 async def read(session: AsyncSession) -> tuple[list[Node], list[Edge]]:
     """The whole graph, once. The filtering is arithmetic over it.
 
     **This is the map's remaining cost, and it is named rather than hidden.**
-    The route read every node and every edge before this rule too, so nothing
-    got slower by it; what changed is that the answer is now personal, so it
-    can no longer be computed once for everybody. Two tables that grow with
-    every plot, vein, hull and compartment are read per request, and the walk
-    over them is one pass per edge.
-
-    The cure, when the world is big enough to need one, is to unwind the
-    neighbourhood with queries from the body's node instead of in Python -- a
-    recursive CTE over `edge`, two levels deep. It is not done here because a
-    wrong neighbourhood is a player seeing what they must not, and the plain
+    Two tables that grow with every plot, vein, hull and compartment are read
+    per request, and the walk over them is one pass per node and per edge.
+    The cure, when the world is big enough to need one, is a bounding-box
+    query over the planet's surface (the same one exploration's aim wants) and
+    the identity's memory joined to it -- not done here because a wrong
+    neighbourhood is a player seeing what they must not, and the plain
     version is the one that can be read and believed.
     """
     nodes = list((await session.execute(select(Node))).scalars().all())

@@ -25,6 +25,8 @@ from sqlalchemy import (
     Numeric,
     UniqueConstraint,
     Uuid,
+    select,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -39,21 +41,22 @@ class Planet(StrEnum):
 
 
 class Layer(StrEnum):
-    """The map layer the node is shown on (D-045, D-097).
+    """The level of the graph the node lives on (D-045, D-319).
 
-    The world is one graph of locations; layers are a display abstraction, not
-    the world's structure. Upper-layer nodes (a planet in space, a city on a
-    planet) are group delegates: they have children, but one does not walk on
-    them -- one walks on the leaves.
+    The world is one graph of locations; levels are a display abstraction, not
+    the world's structure. Since D-319 a planet's whole surface is **one**
+    level: a house on the edge of a city and a vein in the taiga stand in the
+    same graph and are joined directly. A city is a mark of a group -- the nodes
+    whose parent is the city's own node -- and the mark is what ownership, law,
+    tax and the rings (D-089) read; on the map it says where the city ends.
     """
 
-    #: Planets and ships: what is seen from space.
+    #: Planets as bodies, and the delegates of hulls: what is seen from space.
     SPACE = "space"
-    #: Cities and large solitary locations of the planet.
+    #: Every node of a planet's surface, a city's built-up area included.
     PLANET = "planet"
-    #: City built-up area: rings around the bioprinter (D-089).
-    CITY = "city"
-    #: Sub-nodes of a location: floors of a house, rooms of a complex.
+    #: Sub-nodes: floors of a house (D-247), rooms aboard a hull (D-201). Never
+    #: on the globe -- they have no north -- but in the window of the inside.
     LOCATION = "location"
 
 
@@ -113,6 +116,17 @@ def storey_of(node: Node) -> int | None:
     return floor if floor > GROUND_FLOOR else None
 
 
+def built_up():
+    """The SQL clause for "stands in a city's built-up area" (D-319).
+
+    One surface level, so the mark is the parent: a surface node whose parent
+    is itself a surface node -- the city's own node, or a Forerunner city's --
+    is inside the walls; a node hanging straight on its planet is not.
+    """
+    delegates = select(Node.id).where(Node.layer == Layer.PLANET)
+    return (Node.layer == Layer.PLANET) & Node.parent_id.in_(delegates)
+
+
 def is_plot(node: Node) -> bool:
     """Whether this node is a plot the authority hands out in its rings (D-089).
 
@@ -124,10 +138,28 @@ def is_plot(node: Node) -> bool:
     return bool((node.properties or {}).get(PLOT))
 
 
+#: The surface by degrees (D-321): an aim reads a window of the planet round
+#: its point, and the window is a range on each. Spelled as `pg_get_indexdef`
+#: spells it, so that the schema built from the models and the migrated one
+#: compare equal (`test_migrations`); the migration writes the same text.
+INDEX_LAT = "((((properties -> 'map'::text) ->> 'lat'::text))::double precision)"
+INDEX_LON = "((((properties -> 'map'::text) ->> 'lon'::text))::double precision)"
+
+
 class Node(Base):
     __tablename__ = "node"
     __table_args__ = (
         Index("ix_node_parent", "parent_id"),
+        #: The surface by degrees (D-321): an aim reads a window of the
+        #: planet round its point, and the window is a range on each.
+        Index(
+            "ix_node_map_lat",
+            text(INDEX_LAT),
+        ),
+        Index(
+            "ix_node_map_lon",
+            text(INDEX_LON),
+        ),
         #: `world.epoch()` is `min(created_at)`, asked by every look.
         Index("ix_node_created", "created_at"),
     )
@@ -138,11 +170,12 @@ class Node(Base):
     name: Mapped[str] = mapped_column(nullable=False)
     planet: Mapped[Planet] = enum_column(Planet, "planet", nullable=False)
 
-    #: Which layer the node is shown on. One walks on leaves; a node with
-    #: children is the group's delegate on its layer.
-    layer: Mapped[Layer] = enum_column(Layer, "node_layer", nullable=False, default=Layer.CITY)
-    #: The group the node belongs to: location -> city -> planet. A display
-    #: hierarchy over the graph, not a second graph.
+    #: Which level of the graph the node lives on. A node with children is the
+    #: group's delegate: the city's own node stands for its built-up area.
+    layer: Mapped[Layer] = enum_column(Layer, "node_layer", nullable=False, default=Layer.PLANET)
+    #: The group the node belongs to: a floor -> its plot, a plot -> its city's
+    #: node, a wild node -> its planet. A hierarchy over the graph, not a
+    #: second graph -- and on the surface the one mark of "inside a city".
     parent_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("node.id"), nullable=True)
 
     #: Plot area, m2. Rolled when the node appears (D-125).
@@ -224,9 +257,17 @@ class NodePass(Base):
 
 
 class Surface(StrEnum):
-    """The edge's surface decides both time and the very possibility to drive through (D-107)."""
+    """The edge's surface decides both time and the very possibility to drive through (D-107).
 
-    #: Offroad: two to three times longer, no vehicle passes at all.
+    The two lowest rungs are nobody's work (D-319): the world lays its edges
+    untrodden, feet wear a trail into one that is walked, and a trail nobody
+    walks grows over again. Both are set by `Edge.wear`, never by a crew.
+    """
+
+    #: Untrodden ground: an edge laid with the world and not yet walked in.
+    #: The slowest there is, and no vehicle passes.
+    WILD = "wild"
+    #: A trail worn in by feet: quicker than the wild, still no vehicle.
     TRAIL = "trail"
     #: Road -- the time reference.
     ROAD = "road"
@@ -270,6 +311,12 @@ class Edge(Base):
     #: `road.decay_by_paving`; a tier lost wipes it together with the
     #: covering. NULL -- the world's own road: laid by nobody, base rate.
     paving: Mapped[str | None] = mapped_column(nullable=True)
+    #: How trodden the edge is (D-319): one per arrival over it, less
+    #: `path.fade_per_day` every day, never below nought. Past
+    #: `path.wear_threshold` the wild is a trail; under `path.fade_threshold`
+    #: a trail is wild again. A counter, so it is only ever written as
+    #: `wear = wear + 1` -- two arrivals in one second are two.
+    wear: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     created_at: Mapped[datetime] = created_column()
 
 

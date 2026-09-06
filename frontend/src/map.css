@@ -86,6 +86,41 @@
   border: 1px solid var(--hairline);
   border-radius: var(--r-pop);
 }
+/* The layer bar stands on the map bare (owner, 2026-09-06): no box, no
+   ground, no hint -- its buttons are their own frame. The sky's winder
+   keeps its box: a scrubber over stars needs a ground to be read on. */
+.map-layers {
+  background: none;
+  border: 0;
+  padding: 0;
+}
+
+/* The zoom slider (owner, 2026-09-06): a vertical range at the right edge
+   of the map in place of the two loupe buttons -- up is nearer. On a phone
+   it runs the map's whole height; on a wide screen it is shorter, centred.
+   A native range, written vertically: the browser draws it, the finger
+   knows it. */
+.map-zoom {
+  position: absolute;
+  right: 0.6rem;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 40%;
+  width: 1.6rem;
+  margin: 0;
+  writing-mode: vertical-lr;
+  direction: rtl;
+  accent-color: var(--act);
+  cursor: pointer;
+}
+@media (max-width: 56rem) {
+  .map-zoom {
+    top: 0.5rem;
+    bottom: 0.5rem;
+    height: auto;
+    transform: none;
+  }
+}
 .map-layers {
   top: 0.4rem;
   width: fit-content;
@@ -128,7 +163,8 @@
    The word and the mark change with the state as well -- tied or free, the
    pin or the loose one -- so the colour is not carrying this by itself even
    where the word is hidden. */
-.tabs button.cam-tie:not(.quiet):not(.link):not(.bare):not(:disabled) {
+.tabs button.cam-tie:not(.quiet):not(.link):not(.bare):not(:disabled),
+.tabs button.scout:not(.quiet):not(.link):not(.bare):not(:disabled) {
   box-shadow: none;
   border-color: var(--act);
 }
@@ -276,10 +312,12 @@
 }
 
 .edge-label,
+/* Small (owner, 2026-09-06): the nodes of a city stand metres apart, and a
+   name the old size covered its neighbour's. */
 .node-label,
 .node-hint {
   fill: currentColor;
-  font-size: 11px;
+  font-size: 8px;
   text-anchor: middle;
 }
 .edge-label {
@@ -321,16 +359,105 @@
 .node circle {
   fill: var(--base-900);
   stroke: currentColor;
-  stroke-width: 1.5;
+  stroke-width: 1;
 }
 .node.me circle {
   fill: currentColor;
+}
+/* Memory and the public: there, but not in sight (D-319). */
+.node.faded {
+  opacity: 0.45;
+}
+/* An edge on the globe is a polyline: the same stroke as a line. */
+polyline.edge {
+  fill: none;
+}
+/* The ground of the globe (D-319, wave 4): flat colour, no textures. The
+   sea takes the planet's own hue, deep; a lake the same hue, bright, so
+   that water inland is told from the sea at a glance; the land is the
+   palette's grey by the warmth of its row, mountains a pale grey well
+   apart from every water (owner, 2026-09-06: "mountains, lakes and the
+   ocean were one colour"); the night a wash of the darkest step. */
+/* Every cell is stroked in its own fill, a pixel wide: neighbouring cells
+   of one tone otherwise show hairline seams where their edges meet --
+   thin wedges round the pole most of all. */
+.ground path {
+  fill: var(--tone);
+  stroke: var(--tone);
+  stroke-width: 1;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+.ground .sea {
+  --tone: color-mix(in srgb, var(--pc) 22%, var(--base-900));
+  fill: var(--tone);
+}
+.ground .water {
+  --tone: color-mix(in srgb, var(--pc) 62%, var(--base-700));
+  fill: var(--tone);
+}
+.ground .land.cold {
+  --tone: var(--base-800);
+}
+.ground .land.cool {
+  --tone: color-mix(in srgb, var(--base-800) 60%, var(--base-850));
+}
+.ground .land.warm {
+  --tone: var(--base-850);
+}
+.ground .high {
+  --tone: color-mix(in srgb, var(--base-400) 40%, var(--base-700));
+}
+.ground .night {
+  --tone: var(--base-950);
+  fill: var(--tone);
+  stroke: none;
+  fill-opacity: 0.45;
+  pointer-events: none;
+}
+/* A way into the fog (D-319 п. 6): the edge's stroke, fading out. */
+.stubs .stub {
+  stroke-opacity: 0.5;
+}
+/* Where a city ends (D-323 addendum): the contour of its land, the discs
+   of its nodes joined -- a grey dashed hairline, no fill, the same width at
+   any zoom; grey and dashed so that it is never read as a road. */
+.territory .city-edge {
+  fill: none;
+  stroke: var(--base-400);
+  stroke-opacity: 0.6;
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+.territory.near .city-edge {
+  stroke-dasharray: 6 6;
+}
+/* The scout's field (D-321 item 4): where one may aim, green over the
+   ground; and the line from the node to the cursor, seen only where the
+   aim would be taken. */
+.scout-field > path {
+  fill: #58b27a;
+  fill-opacity: 0.22;
+}
+.scout-line {
+  stroke: #58b27a;
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+/* The scout's aim (D-321): a ring and a cross in the action colour. */
+.aim circle,
+.aim path {
+  fill: none;
+  stroke: var(--act);
+  stroke-width: 1.5;
 }
 .node.near {
   cursor: pointer;
 }
 .node.near circle {
-  stroke-width: 3;
+  stroke-width: 2;
 }
 .node.near .node-hint {
   text-decoration: underline;

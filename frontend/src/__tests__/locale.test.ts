@@ -82,7 +82,7 @@ storage-mismatch = «{ NAME($goods) }» в «{ NAME($chest) }» не кладу�
        *[chest] жидкость держат в таре
     }
 occupation-busy = тело занято: { $what } ({ $left })
-doing-field-what = идёт разведка
+doing-sleep-what = тело спит
 time-left = ещё { $minutes } мин
 city-needs = для города не хватает: { $lacks }
 `;
@@ -457,10 +457,10 @@ describe("refusalText", () => {
     //: own words.
     expect(
       refusalText("тело занято: идёт разведка (ещё 12 мин)", "occupation-busy", {
-        what: [{ code: "doing-field-what" }],
+        what: [{ code: "doing-sleep-what" }],
         left: [{ code: "time-left", args: { minutes: 12 } }],
       }),
-    ).toBe("тело занято: идёт разведка (ещё 12 мин)");
+    ).toBe("тело занято: тело спит (ещё 12 мин)");
   });
 
   it("strings several quoted messages the way the language strings a list", () => {

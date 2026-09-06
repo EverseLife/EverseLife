@@ -35,6 +35,7 @@ outside still writes `world.create_node`, `world.node_container`,
 
 from src.engine.world.land import (  # noqa: F401
     DEFERRED,
+    LAKE,
     NO_WATER,
     ORBIT,
     ORBIT_PERIOD,
@@ -50,6 +51,7 @@ from src.engine.world.land import (  # noqa: F401
     grant_node,
     hand_over,
     has_place,
+    is_built_up,
     orbit_of,
     public_signs,
 )

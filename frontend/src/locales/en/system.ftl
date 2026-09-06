@@ -86,7 +86,6 @@ ui-alpha-note-hurry = “Finish now” moves the term of what you have already s
 
 ## The kinds of term the alpha can pull in.
 
-ui-alpha-job-explore-survey = survey
 ui-alpha-job-travel-leg = leg
 ui-alpha-job-craft-batch = batch
 ui-alpha-job-ship-keel = keel laying

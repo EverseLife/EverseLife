@@ -27,15 +27,16 @@ import type { FoundingRole, LawBook } from "./wire/city";
 import type { RecipeBook } from "./wire/craft";
 import type { Door, Line } from "./wire/person";
 import type { Book } from "./wire/trade";
-import type { WorldMap } from "./wire/travel";
+import type { Terrain, Tile, WorldMap } from "./wire/travel";
 
-async function read<T>(path: string, token?: string): Promise<T> {
+async function read<T>(path: string, token?: string, cache?: RequestCache): Promise<T> {
   //: The token travels in the ordinary header and only where it means
   //: something. Catalogs are the same for everybody and are asked for without
   //: one; the map is not (D-240) -- what it answers with depends on where the
   //: body stands, and without a token it answers with the sky.
   const answer = await fetch(HTTP + path, {
     headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    cache,
   });
   if (!answer.ok) throw new Error(`${path}: ${answer.status}`);
   return answer.json();
@@ -57,6 +58,14 @@ export const words = (locale: string) =>
  *  may be chosen. Catalog constants belong in `/public`, not in a socket
  *  answer (D-225) -- the city sends only what it decided. */
 export const laws = () => read<LawBook>("/public/laws");
+/** A planet's relief (D-319): a constant of the world, asked for without a
+ *  token and once per planet -- the globe draws its ground from it. */
+export const terrain = (planet: string) =>
+  read<Terrain>(`/public/terrain/${encodeURIComponent(planet)}`);
+/** A tile of a planet's local relief (D-323): asked for under a close
+ *  frame, once per tile, without a token. */
+export const terrainTile = (planet: string, row: number, col: number) =>
+  read<Tile>(`/public/terrain/${encodeURIComponent(planet)}/${row}/${col}`);
 /** Doors into the world: read before identification -- a newcomer has no identity yet. */
 export const doors = () => read<{ doors: Door[] }>("/public/doors");
 /** Character lines and the number of players -- also before identification (D-187). */
@@ -72,13 +81,18 @@ export const tiers = () =>
 export const founding = () =>
   read<{ roles: FoundingRole[] }>("/public/founding");
 /**
- * The map as it looks from where you stand (D-240).
+ * The map as it looks from where you stand (D-240, D-319).
  *
- * Two steps of the graph around the body, one step of the planet's surface,
- * and the sky. Without a token -- the sky alone: the surface asks for a body.
- * So this is the one public read that takes one.
+ * With a token: what the body sees and the identity remembers, and the
+ * public. Without one -- the sky, and every planet's surface as it was
+ * `map.public_delay_days` ago (D-319 item 7): the entry globe and the
+ * landing picker read that. So this is the one public read that takes one.
  */
-export const worldMap = (token?: string) => read<WorldMap>("/public/map", token);
+//: The anonymous map is served with a public cache of minutes and an ETag
+//: (D-319 item 7); asked with `no-cache` it is revalidated every time, so a
+//: fresh snapshot is seen at once and an unchanged one costs a 304.
+export const worldMap = (token?: string) =>
+  read<WorldMap>("/public/map", token, token ? undefined : "no-cache");
 export const plants = () =>
   read<{
     plants: {
@@ -131,10 +145,13 @@ export type {
   Exit,
   InSight,
   MapEdge,
+  MapStub,
   MapNode,
   ForecastDay,
   MapRoute,
   RoadWork,
+  Terrain,
+  Tile,
   Transit,
   Vehicle,
   WorldMap,
@@ -155,7 +172,7 @@ export type {
 export type { Card, Door, Enrollment, Line, Printer, Profile } from "./wire/person";
 
 /** The body's occupations and its scales (`wire/body.ts`). */
-export type { Air, Doing, Foraging, Frost, Outlook, Sight } from "./wire/body";
+export type { Air, Doing, Foraging, Frost, Sight } from "./wire/body";
 
 /** The deed and the bill that come with a plot (`wire/land.ts`). */
 export type { DeedView, Holding } from "./wire/land";

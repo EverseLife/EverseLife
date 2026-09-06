@@ -41,10 +41,10 @@ from src.api.registry import Ctx, command
 from src.constants import current, current_catalog
 from src.engine import (
     access,
+    biome,
     death,
     energy,
     estate,
-    explore,
     farm,
     forage,
     frost,
@@ -251,6 +251,10 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
             #: here turns up and whether a bed needs water carried to it -- and
             #: the client cannot derive it from anything else sent (D-225).
             | ({world.WATER} if world.has_place(node, world.WATER) else set())
+            #: The biome of a find (D-321): a nameless node is shown by the
+            #: sign of its kind, and the kind is the biome unless a rarer sign
+            #: -- a vein, the river, the mountain -- outranks it.
+            | ({str(here)} if (here := (node.properties or {}).get(biome.BIOME)) else set())
         ),
         #: The owner's map mark, if one is nailed on (D-238): the plot window
         #: preselects it in the picker. Belted like the public map's copy.
@@ -476,10 +480,6 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
         #: by comparing two translated strings -- so the tick beside a role
         #: hung on the wording of a sentence.
         seen["foundation"] = {"missing": list(await town.missing_for_foundation(db, node))}
-    #: An ongoing exploration run: the map grows on foot, and the wait is
-    #: real (D-152).
-    run = await explore.pending(db, body)
-    seen["survey"] = None if run is None else {"returns_at": run.run_at.isoformat()}
     #: Foraging on the empty land of the place (D-210): the window, its search
     #: and its find. Empty where the land is built up or somebody else's.
     seen["forage"] = await forage.view(db, constants, current_catalog(), body, node)

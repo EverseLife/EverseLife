@@ -72,7 +72,3 @@ chronicle-rate-decided = 🏦 Key rate{ $by_council ->
        *[false] {""}
     }
 
-chronicle-explore-found = 🧭 Scouting{ $from_known ->
-        [true] { " " }from node { $from_node }
-       *[false] {""}
-    }: the map has grown — { $what }. Scout: { $who }.

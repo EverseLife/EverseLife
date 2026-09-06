@@ -63,8 +63,6 @@ ui-side-end-sleep = Проснуться
 ui-side-end-sleep-why = выносливость начислится при пробуждении
 ui-side-end-forage = Закончить
 ui-side-end-forage-why = потраченные силы не вернутся
-ui-side-end-field = Вернуться
-ui-side-end-field-why = заход прервётся, находки не будет
 ui-side-end-mine = Выйти из забоя
 ui-side-end-mine-why = добытое уйдёт в руки
 ui-side-end-plot = Приостановить
@@ -149,7 +147,6 @@ ui-side-care-none = пока ничего: агротехнику базовых
 
 ui-top-cloud = в облаке
 ui-top-travel = в пути: { $to }
-ui-top-surveying = в разведке
 ui-top-asleep = спит
 ui-top-away-asleep = { $where } · спит
 

@@ -19,7 +19,7 @@ from __future__ import annotations
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants
-from src.engine import travel, world
+from src.engine import estate, travel, world
 from src.engine.ship._base import (
     BRIDGE,
     GROUND_BRIDGE,
@@ -30,6 +30,7 @@ from src.engine.ship._base import (
     NotAboard,
     NotYours,
     ShipError,
+    hull_footprint,
     is_orbit,
 )
 from src.engine.ship.belonging import aboard_of, is_aboard
@@ -40,10 +41,12 @@ from src.models.ship import Ship
 from src.models.world import Node, Planet
 
 
-async def _will_take(session: AsyncSession, constants: Constants, port: Node, *, why: str) -> None:
-    """Whether this node will take a hull at all. Asked of every destination.
+async def _will_take(
+    session: AsyncSession, constants: Constants, ship: Ship, port: Node, *, why: str
+) -> None:
+    """Whether this node will take **this** hull. Asked of every destination.
 
-    Three questions, and a passage that skips any of them sets a ship down
+    Four questions, and a passage that skips any of them sets a ship down
     where there is nothing to set it down on:
 
     * a **yard**, or the bare ground of a planet one lands anywhere on (D-233):
@@ -51,7 +54,12 @@ async def _will_take(session: AsyncSession, constants: Constants, port: Node, *,
       is nothing to put a yard into, and a ship simply sets down;
     * not a hull: one does not moor to somebody's cabin;
     * a **lit beacon** (D-231, D-232): the yard does not couple in a frozen node
-      and does not shine without power.
+      and does not shine without power;
+    * **room on the ground** (D-319): a hull sets down on the pad's open
+      ground the way a house stands on its plot, compartment by compartment
+      (`hull_footprint`), and a pad with no room left refuses. That is what
+      gives a yard a capacity: a spaceport takes as many hulls as fit on its
+      ground, and a city grows its port by area rather than by a flag.
 
     `why` names which order is asking (`dock`, `land`, `turn-back`) -- a message
     variant rather than a sentence: the words are the locale's (D-251).
@@ -81,6 +89,17 @@ async def _will_take(session: AsyncSession, constants: Constants, port: Node, *,
         raise NoPort(key="ship-no-mooring-to-hull")
     if not await beacon_lit(session, constants, port):
         raise NoPort(key="ship-beacon-dark", port=port.name)
+    #: The pad's row is taken first, as before any spending of a plot's metres:
+    #: two descents ordered in one second would otherwise both read the last
+    #: place. Held until the order commits, so the second reads the first's
+    #: leg among the hulls on their way down.
+    await estate.hold_ground(session, port)
+    room = await estate.free_ground(session, port)
+    need = await hull_footprint(session, ship)
+    if need > room:
+        raise NoPort(
+            key="ship-no-room", port=port.name, need=round(need), room=round(max(room, 0)), why=why
+        )
 
 
 async def _landable(session: AsyncSession, constants: Constants, planet: Planet) -> bool:

@@ -19,10 +19,8 @@
 
 ## The map: layers, nodes, roads, the sky.
 
-ui-map-layer-space = space
-ui-map-layer-planet = planet
-ui-map-layer-city = city
-ui-map-layer-location = location
+ui-map-inside = Inside
+ui-map-outside = Outside
 
 ## Where a node stands: the player reads a place, not an enum.
 
@@ -36,41 +34,6 @@ ui-map-unit-minutes = min
 ui-map-unit-hours = h
 ui-map-term-hours = { $term } h
 ui-map-term-days = { $term } d
-
-## Scouting from the map: what is looked for here and what it costs.
-
-ui-map-goal-lot = a lot
-ui-map-goal-room = Precursor rooms
-ui-map-goal-site = a new place
-ui-map-goal-vein = a vein
-ui-map-goal-forest = forest
-ui-map-survey-label = scouting
-ui-map-search-away = you are out scouting · back
-ui-map-search-return = Come back now
-ui-map-search-return-rule = You can turn back at any moment: there will be no find, and the strength spent does not come back.
-ui-map-search-room = Break open the next room
-ui-map-search-room-rule = A Precursor city stood here before you: scouting does not create places, it opens the next door. A room comes with its contents at once, and the deeper from the spaceport, the richer it is. The city is finite: the more is broken open, the more often a run comes back with nothing, and then there is nothing left to open at all.
-ui-map-search-lot = Go looking for a lot
-ui-map-search-lot-rule = A lot once found stands as city land: it is bought out from the city. The scout goes out alone, is out of reach until the return, as in sleep, and stays at the find.
-ui-map-search-site = Go looking for a new place
-ui-map-search-vein = Go looking for a vein
-ui-map-search-any-ore = any rock
-ui-map-search-far = search farther
-ui-map-search-near = search nearby
-ui-map-search-reach-rule = A nearby search finds land akin to this place: warmth, rains and terrain drift from it. A far one is the lottery, with a chance at anything.
-ui-map-search-forest = Go looking for forest
-ui-map-search-forest-odds = chance { $chance }%: forest takes longer to find than the rest
-ui-map-search-forest-hint = wood is cut where there is forest
-ui-map-search-elsewhere = from here one also looks for
-ui-map-search-elsewhere-layer = { $goals } — on the “{ $layer }” layer
-ui-map-search-rule = The scout goes out alone and is out of reach until the return, as in sleep. Nobody goes into the field on empty legs: eat or sleep first. Found it — there he stays; the farther the find from the city, the longer the road to it. Forest turns up by itself as well, but ordered it takes longer. The button stands on the layer the find will fall on: a lot and a room in the built city, a place, a vein and forest on the planet's surface.
-ui-map-forecast = a run from here: { $term } · chance { $chance }% · { $price } stamina to leave
-ui-map-forecast-rare = { $goods } is rare: the chance is already { $times }× lower
-ui-map-forecast-explored = the neighbourhood is walked out: finds from here { $count }
-ui-map-forecast-crowding = crowded{ $near ->
-        [true] { " " }around { $anchor }
-       *[false] {""}
-    }: the chance is already { $times }× lower
 
 ## The column beside the map: everything about the node picked.
 
@@ -101,7 +64,6 @@ ui-map-node-offworld = This is another planet: no way there on foot, only by shi
 ui-map-node-far-walk = Not a neighbour: the route will build itself, along passable edges.
 ui-map-go = Go
 ui-map-expand = Expand
-ui-map-surveying = The scout is in the field: the body is out of reach, as in sleep.
 
 ## The node menu under the right button.
 
@@ -111,12 +73,12 @@ ui-map-menu-walking = While you walk, there is no going anywhere.
 ## Captions on the nodes themselves.
 
 ui-map-node-alpha = outside the alpha
-ui-map-node-gate = gate
 ui-map-node-spaceport = spaceport
 
 ## Roads from the node: what is laid, what has sagged and what it costs.
 
-ui-map-surface-trail = trackless
+ui-map-surface-wild = trackless
+ui-map-surface-trail = trail
 ui-map-surface-road = road
 ui-map-surface-paved = paved way
 ui-map-road-working = work under way
@@ -126,7 +88,7 @@ ui-map-road-pave = Pave for { $needs }
 ui-map-road-mend-need = patching: { $needs } roadbed
 ui-map-road-mend = Patch for { $needs }
 ui-map-road-at-hand = roadbed in hand { $hand }
-ui-map-road-rule = The surface rises a step for roadbed and time: trackless ground → road → paved way. Without upkeep a road grows over again, and no convoy goes over trackless ground at all.
+ui-map-road-rule = The surface rises a step for roadbed and time: trackless ground → trail → road → paved way. A trail is worn in by feet and grows over without walking; without upkeep a road grows over too. No convoy goes over trackless ground or a trail.
 
 ## The sky: winding time on and the layer of space.
 
@@ -142,12 +104,13 @@ ui-map-sky-rule = The planets go round the star each on its own term, and the di
 
 ui-map-cam-tied = camera follows you
 ui-map-cam-free = camera is free
-ui-map-switcher-rule = Two steps of the graph are visible around you — where you can walk and what is seen from there; the rest opens by walking. Nodes stand where they stand: a node's place is the same for every player and the same tomorrow, so they are not dragged with the mouse. Camera follows you: you are in the middle of the map, it rides after you; the wheel, the loupe buttons and a two-finger pinch only zoom in and out. Camera is free: the map is panned with the mouse or a finger and stays where it was left — it will not ride after you as you walk. Layers: space, planet, city — the same graph from different heights.
+ui-map-zoom = zoom in or out
 
 ## The map field itself.
 
 ui-map-loading = the map is loading…
-ui-map-layer-empty = There is nothing on this layer yet.
+ui-map-empty = There is nothing here yet.
+ui-map-node-drawn = from a map drawn on day { $day }: what is here now, the map does not know
 ui-map-world = world map
 
 ## The ship: the hull's card, the bridge's orders, the plan.
@@ -219,9 +182,12 @@ ui-ship-course-later = A course to another planet is set from orbit already: fir
 
 ui-ship-nowhere-to-land = There is nowhere to land here: not one spaceport with a lit beacon on this planet. A course to another planet is set on the map.
 ui-ship-land-title = Land on the planet
-ui-ship-pad-choice = spaceport to land at
-ui-ship-blind = blind landing
-ui-ship-blind-hint = there are no spaceports here: the landing node is drawn on the approach, and you land where the rock lets you
+ui-ship-pad-choice = pad to land at
+ui-ship-pad-wild = unnamed node
+ui-ship-pad-room = { $room } m² free
+ui-ship-pad-full = no room: { $room } m² free, the hull needs { $need }
+ui-ship-pads-label = the planet under the ship: pads to land at
+ui-ship-pads-hint = turn the planet and pick a pad: a mark's size is its free ground, and a hollow mark has no room for the hull
 ui-ship-land = Land
 ui-ship-land-hint = the descent goes by the planet's gravity and the hull's thrust — a little cheaper than the climb
 ui-ship-land-short = not enough thrust even to land: shed mass
@@ -504,3 +470,10 @@ ui-ship-short-land = The tanks hold { $fuel }, and the crossing with its landing
 ui-ship-course-dv = Δv to go { $need } · aboard { $have }
 ui-ship-course-short = Less Δv aboard than the crossing needs: the tanks run dry under way, and the ship goes adrift.
 ui-ship-course-failed = The sky did not answer: { $why }
+
+## Scouting: a point on the ground and sending the body (D-321).
+
+ui-map-scout = scouting
+ui-map-survey-aim = Scouting point: { $metres } m from you
+ui-map-survey = Scout
+ui-map-survey-clear = Clear the point

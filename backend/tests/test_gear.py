@@ -706,7 +706,7 @@ async def test_charging_and_the_tick_do_not_lose_each_other(
         session, f"terra.cells.{stamp}", "Город", area_m2=1, layer=Layer.PLANET
     )
     yard = await world.create_node(
-        session, f"terra.cells.{stamp}.yard", "Двор", area_m2=200, layer=Layer.CITY, parent=city
+        session, f"terra.cells.{stamp}.yard", "Двор", area_m2=200, layer=Layer.PLANET, parent=city
     )
     pool = await energy.pool_of(session, constants, yard)
     assert pool is not None

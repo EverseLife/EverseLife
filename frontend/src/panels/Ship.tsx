@@ -28,8 +28,8 @@
  * named -- class or mass. A bare "unavailable" leaves nothing to act on.
  */
 
-import { useCallback, useEffect, useState } from "react";
-import { stationsOf, worldMap, type Look, type MapNode } from "../api";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { stationsOf, worldMap, type Look, type WorldMap } from "../api";
 import { Deadline } from "../Deadline";
 import { Rule } from "../Rule";
 import { busyWith } from "../busy";
@@ -41,9 +41,10 @@ import { planetName } from "../planets";
 import { Chart } from "./ship/Chart";
 import { Course } from "./ship/Course";
 import { Drift, Passage } from "./ship/Voyage";
+import { Landing } from "./ship/Landing";
 import { Feed } from "./ship/Feed";
 import { Plan } from "./ship/Plan";
-import { autonomy, wanted, type Pad, type Target, type Vessel } from "./ship/model";
+import { autonomy, wanted, type Target, type Vessel } from "./ship/model";
 import { term } from "./map/orbits";
 
 /**
@@ -237,70 +238,6 @@ function Ascent({
   );
 }
 
-/**
- * Coming down, onto the planet the hull is already over.
- *
- * The pier is chosen here and not before the passage: with the planet already
- * below, which is the moment a crew actually knows what it is choosing between
- * and the moment a dark beacon actually matters (D-245).
- */
-function Landing({
-  vessel,
-  busy,
-  land,
-}: {
-  vessel: Vessel;
-  busy: boolean;
-  land: (port: string) => void;
-}) {
-  const home: Pad[] = vessel.landings;
-  const cost = vessel.descent;
-  const [chosen, setChosen] = useState("");
-  if (home.length === 0 || !cost) {
-    return <p className="note">{t("ui-ship-nowhere-to-land")}</p>;
-  }
-  const first = home[0];
-  const port = chosen || first.node;
-  return (
-    <p>
-      <b>{t("ui-ship-land-title")}</b> · {planetName(vessel.planet)} ·{" "}
-      {/* A hull with no thrust at all is priced at nothing, and the number is
-          left out the way the interpolation left it out -- `String(undefined)`
-          would show the player the word "undefined". */}
-      {t("ui-ship-leg-cost", {
-        hours: cost.hours?.toFixed(1) ?? "",
-        fuel: cost.fuel?.toFixed(0) ?? "",
-      })}{" "}
-      {home.length > 1 ? (
-        <select
-          value={port}
-          onChange={(e) => setChosen(e.target.value)}
-          aria-label={t("ui-ship-pad-choice")}
-        >
-          {home.map((route) => (
-            <option key={route.node} value={route.node}>
-              {route.name}
-            </option>
-          ))}
-        </select>
-      ) : first.anywhere ? (
-        <span className="note" title={t("ui-ship-blind-hint")}>
-          {t("ui-ship-blind")}
-        </span>
-      ) : (
-        <span className="note">{first.name}</span>
-      )}{" "}
-      <button
-        onClick={() => land(port)}
-        disabled={busy || !cost.reachable}
-        title={t(cost.reachable ? "ui-ship-land-hint" : "ui-ship-land-short")}
-      >
-        {t("ui-ship-land")}
-      </button>
-    </p>
-  );
-}
-
 /** The nameplate: the owner's word, and the engine makes nothing of it (D-240). */
 function Nameplate({
   vessel,
@@ -367,10 +304,14 @@ export function Ship({
   const [course, setCourse] = useState<Target | null>(null);
   //: The arc under the slider's thumb, for the chart (D-289).
   const [plan, setPlan] = useState<[number, number][] | null>(null);
-  //: The spheres for the chart. The sky is answered to everybody (D-240), so
-  //: this read works in flight, where the hull has no edges and the world map
-  //: would otherwise be able to say nothing at all about where it is.
-  const [sky, setSky] = useState<MapNode[]>([]);
+  //: The public map, read once for the console: the spheres for the chart
+  //: -- the sky is answered to everybody (D-240), so this read works in
+  //: flight, where the hull has no edges -- and the surface the landing is
+  //: picked on (`Landing`). Without a token on purpose: the anonymous map
+  //: carries every node of a planet's surface (D-319 item 7), where the
+  //: body's own map from orbit carries only what it sees and remembers.
+  const [world, setWorld] = useState<WorldMap | null>(null);
+  const sky = useMemo(() => world?.nodes.filter((node) => node.orbit) ?? [], [world]);
 
   const aboard = (look.node?.features ?? []).includes(ABOARD);
   const atPort = firstOfClass(book, stationsOf(look), SPACEPORT) !== undefined;
@@ -413,10 +354,10 @@ export function Ship({
   const orders = atConsole || ground;
   useEffect(() => {
     if (!orders) return;
-    void worldMap(session.token)
-      .then((map) => setSky(map.nodes.filter((node) => node.orbit)))
-      .catch(() => setSky([]));
-  }, [orders, session]);
+    void worldMap()
+      .then(setWorld)
+      .catch(() => setWorld(null));
+  }, [orders]);
 
   const go = (what: () => Promise<unknown>) =>
     act(async () => {
@@ -572,6 +513,9 @@ export function Ship({
                     <Landing
                       vessel={v}
                       busy={busy || deaf}
+                      book={book}
+                      clock={look.clock}
+                      world={world}
                       land={(port) => go(() => session.send("ship.land", { ship: v.ship, port }))}
                     />
                   )}

@@ -1,92 +1,122 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Nurlan Urazkulov
 
-"""explore: the words the search is spoken in -- its goals, its signs, its refusals.
+"""The floor of exploration: the lattice, the refusals, the shape of an aim (D-321).
 
-Split out of `engine/explore.py` along its sections: the run, the odds and
-the place found each grew a file of their own, and all three say `vein`,
-`лес` and "already out in the field".
+A planet is covered by a **lattice** of `map.lattice_m`: the point a scout aims
+at is pressed to the nearest cell, and the cell is the node's key. That is what
+makes a find the same for everybody (D-237) without a single row laid in
+advance -- two cities exploring towards each other find one node, not two.
+
+The lattice is laid in metres of arc: rows of latitude `map.lattice_m` apart,
+and along each row columns as wide as the row's own metres allow, so a cell
+near the pole is not a sliver. Two cells therefore never share a key, and a
+point has exactly one cell.
 """
 
 from __future__ import annotations
 
-from src.constants import Catalog
-from src.engine import ruins
+import math
+import uuid
+from dataclasses import dataclass
+
+from src import globe
+from src.constants import Constants
+from src.constants import registry as R
 from src.engine.errors import Refusal
+from src.models.world import Node, Planet
 
-#: The mark of a city plot (D-089): land, whatever else it is, so it carries
-#: soil like any other (D-246). Spelled in `models.world`, because the door
-#: reads it there too (D-199, D-282), and re-exported here so the search keeps
-#: saying it in its own words.
-from src.models.world import PLOT  # noqa: F401
-
-#: The vault operation from which the engine learns what is mined in this world at all.
-MINING_OPERATION = "mining"
-
-#: Count of finds made from this node. Lives in the node's properties:
-#: depletion is a property of the place, not the player, and needs no migration (D-156).
-FOUND_HERE = "surveyed"
-
-#: Search goals. As strings, not an enumeration: the list grows with the map,
-#: and the client names the goal with the same word as the engine.
-LOT = "lot"
-SITE = "site"
-VEIN = "vein"
-#: Woods to fell (D-191). The find is an ordinary wild node -- what makes it a
-#: forest is the same place property the felling reads (D-177).
-FOREST = "forest"
-#: A room of a Forerunner city (D-232). The one goal that **reveals** instead of
-#: creating: the city stood before anybody came, and the search opens its next
-#: door (`engine.ruins`).
-ROOM = ruins.ROOM
-GOALS = (LOT, SITE, VEIN, FOREST, ROOM)
-
-#: How far to search (D-262): "near" drifts the find's properties from the
-#: origin node, "far" is the independent roll it always was.
-NEAR = "near"
-FAR = "far"
-REACHES = (NEAR, FAR)
-
-#: A goal's own word is `explore-goal-<goal>` in the locale, not a map here.
-#: It used to be one: five Russian nouns in the accusative, welded to the one
-#: sentence that joined them, so no other language could say them and no other
-#: sentence could reuse them (D-251 wave V).
-
-#: The place property both the search and the felling operation look at.
-WOODS = "woods"
-#: Stony ground and meadow (D-196): stone and wild flax are gathered by hand,
-#: and that is the first step of the whole ladder.
-STONES = "stones"
-MEADOW = "meadow"
-
-#: Nobody's land beyond the walls. A city plot is not it.
-WILD = "wild"
+#: The cell of a point: row and column of the lattice.
+Cell = tuple[int, int]
 
 
 class ExploreError(Refusal):
     pass
 
 
+class NotFromHere(ExploreError):
+    """One explores from a node of a planet's surface: not from aboard, not from a room."""
+
+
+class TooNear(ExploreError):
+    """Closer than the biome lets one aim."""
+
+
+class TooFar(ExploreError):
+    """Farther than the biome lets one aim."""
+
+
+class NotLand(ExploreError):
+    """The aim is in the water, or past the last latitude."""
+
+
+class IntoWater(ExploreError):
+    """The straight way to the aim crosses water: from the shore one does not aim at the sea."""
+
+
+class NoRoom(ExploreError):
+    """The aim lies on ground another node already takes."""
+
+
+class CrossesWay(ExploreError):
+    """The new way would cross an existing one."""
+
+
 class AlreadyOut(ExploreError):
-    """A run is already going. One body cannot explore in two directions."""
+    """The body is already on a run."""
 
 
-class NotOut(ExploreError):
-    """The body is not exploring: nowhere to return from."""
+class AlreadyJoined(ExploreError):
+    """The aimed cell is a node the origin already has a way to: nothing to find."""
 
 
-class NoStrength(ExploreError):
-    """Not enough strength for a run. Nobody goes into the field on empty legs (D-147, D-293)."""
+class ScoutGone(ExploreError):
+    """The scout died or walked away before the run was over."""
 
 
-def mineable(catalog: Catalog) -> tuple[str, ...]:
-    """What is mined in this world at all -- the `gives` list of the "Mining" operation.
+def lattice_deg(constants: Constants, planet: Planet) -> float:
+    """The lattice step as degrees of latitude on this planet."""
+    radius = globe.radius_m(constants, planet)
+    return math.degrees(float(constants[R.MAP_LATTICE_M]) / radius)
 
-    The engine keeps no species list: add a fifth in the vault and it appears
-    both in the goal choice and in finds, without a code change (D-151).
-    """
-    operation = next(
-        (op for op in catalog.recipes.operations if (op.id or op.name) == MINING_OPERATION),
-        None,
-    )
-    return tuple(operation.gives) if operation is not None else ()
+
+def _row_lon_step(step: float, row: int) -> float:
+    return step * globe.lon_stretch(row * step)
+
+
+def cell_of(constants: Constants, planet: Planet, point: globe.Geo) -> Cell:
+    """The cell a point falls into."""
+    step = lattice_deg(constants, planet)
+    row = round(point[0] / step)
+    col = round(point[1] / _row_lon_step(step, row))
+    return row, col
+
+
+def point_of(constants: Constants, planet: Planet, cell: Cell) -> globe.Geo:
+    """Where a cell stands: its centre, the place a node found there has."""
+    step = lattice_deg(constants, planet)
+    row, col = cell
+    lat = max(-globe.LAST_LAT, min(globe.LAST_LAT, row * step))
+    lon = globe.wrap_lon(col * _row_lon_step(step, row))
+    return lat, lon
+
+
+def key_of(planet: Planet, cell: Cell) -> str:
+    """The node key of a cell: one for the world, whoever finds it."""
+    return f"{planet.value}.cell.{cell[0]}.{cell[1]}"
+
+
+@dataclass(frozen=True, slots=True)
+class Aim:
+    """A lawful aim: where the scout goes, what it costs, and what is already there."""
+
+    origin_id: uuid.UUID
+    planet: Planet
+    cell: Cell
+    point: globe.Geo
+    metres: float
+    biome: str
+    #: The node already standing in the cell, when somebody found it first.
+    existing: Node | None
+    #: The area the find takes: the room round it, or the standing node's own.
+    area: float

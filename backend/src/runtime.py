@@ -160,12 +160,14 @@ POW_PARALLELISM = 1
 POW_STARTS_PER_WINDOW = 20
 POW_WINDOW = timedelta(minutes=10)
 
-#: Where a node stands on the map (D-237). Map units, not pixels and not
-#: metres: the client fits them to its own frame. Not balance either -- a node
-#: standing a step further from its neighbour changes nothing in the world, and
-#: the distance that does cost time is the edge's own seconds.
+#: Where a room stands on the floor plan of the inside (D-237, D-319). Map
+#: units, not pixels and not metres: the client fits them to its own frame.
+#: Not balance -- a room standing a step further from its neighbour changes
+#: nothing in the world. The surface is not measured in these: a node of a
+#: planet stands at a latitude and a longitude, and its step and gap are the
+#: vault's metres (`map.city_step_m`, `map.min_gap_m`).
 #:
-#: One step from the node a new one was laid from, and never nearer than a
+#: One step from the room a new one was laid from, and never nearer than a
 #: label's width to anybody else.
 MAP_STEP = 150.0
 MAP_MIN_GAP = 96.0
@@ -183,21 +185,20 @@ MAP_RINGS = 6
 #: to fold it into. Not a number of the world at all -- it decides only which
 #: way a node leans off its anchor, and it has to be the same on every server
 #: for ever, which is the whole reason it is written down rather than rolled.
+#: How long every anonymous reader may share one answer of `/public/map`: the
+#: surface in it is days old by design (D-319 п. 7), the sky moves by the
+#: minute-long tick, and five minutes of staleness on either is invisible.
+PUBLIC_MAP_MAX_AGE_S = 300
+#: How long a browser may keep a tile of the local relief (D-323): an hour
+#: -- a constant of the seed, but a world reborn with another seed must not
+#: draw the old ground for days.
+TILE_MAX_AGE_S = 3600
 MAP_HASH_STEP = 31
 MAP_HASH_SPAN = 65_521
 #: Width of the advisory-lock key that holds one group's map while a node
 #: is being seated. Eight bytes, because Postgres takes a bigint.
 MAP_LOCK_BYTES = 8
 
-#: How far the map reaches from the body, in steps of the graph (D-240). Not
-#: balance: what a player may reach is decided by edges and their seconds, and
-#: this decides only how much of the reachable is drawn at once. Two, because
-#: one shows the ways out and nothing to choose between them, and three already
-#: draws the next city over.
-MAP_SIGHT = 2
-#: How far the planet's surface reaches. One step: past it lies what one has
-#: still to walk to, and a planet drawn whole is a planet nobody explores.
-MAP_SIGHT_PLANET = 1
 
 #: The grid a ship's rooms snap to when the owner arranges them (D-240). One
 #: cell is exactly the gap two nodes may never be nearer than, so a tidy hull

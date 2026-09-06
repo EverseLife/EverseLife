@@ -33,11 +33,11 @@ from src.engine import (
     death,
     estate,
     events,
-    explore,
     frost,
     justice,
     market,
     oxygen,
+    ruins,
     ship,
     travel,
     world,
@@ -47,7 +47,7 @@ from src.models.city import City
 from src.models.estate import Building, Deed
 from src.models.event import Event, EventKind
 from src.models.inventory import Container, ContainerKind, Item
-from src.models.world import Layer, Node, NodePass, Planet, Vein
+from src.models.world import PLOT, Layer, Node, NodePass, Planet, Vein
 from src.seed import CORE, seed
 from src.seed_surfaces import PYROXIS_FIELDS, PYROXIS_PLATEAU, pyroxis_field_key
 
@@ -57,13 +57,15 @@ def aurora_cities() -> list[str]:
 
     Asked of the scenario rather than of a list frozen in the test: the three
     cities are a layout now, and a fourth one added in the editor's «Мир» tab
-    must not break the test that says a ship can reach every one of them.
+    must not break the test that says a ship can reach every one of them. A
+    city is a node hanging straight on the planet (D-319): its pier and its
+    hall hang on it.
     """
     scenario = seed_world.load_scenario()
     return [
         spec.key
         for spec in scenario.nodes
-        if spec.planet is Planet.AURORA and spec.layer is Layer.PLANET
+        if spec.planet is Planet.AURORA and spec.parent == Planet.AURORA.value
     ]
 
 
@@ -79,6 +81,30 @@ def aurora_port(city: str) -> str:
 async def capital(session: AsyncSession) -> Node:
     """The starting world, created once for the test that asks about it."""
     return await seed(session)
+
+
+async def _plot(session: AsyncSession, key: str = "terra.capital.plot") -> Node:
+    """A city plot of one's own, for the tests of the catch-up: the seed lays
+    no free lots since D-323 -- plots are bought from the city ring by ring
+    (D-319) -- so a test that needs one makes it, as a founding would."""
+    city = await session.scalar(select(Node).where(Node.key == "terra.capital"))
+    assert city is not None
+    polity = await town.of_node(session, city)
+    assert polity is not None
+    plot = Node(
+        key=key,
+        name="Участок",
+        planet=Planet.TERRA,
+        layer=Layer.PLANET,
+        parent_id=city.id,
+        area_m2=96,
+        #: The city's own land, as an allotted plot is (D-282).
+        owner_city_id=polity.id,
+        properties={PLOT: True},
+    )
+    session.add(plot)
+    await session.flush()
+    return plot
 
 
 async def _things(session: AsyncSession) -> list[tuple[str, str, int]]:
@@ -172,8 +198,13 @@ async def test_the_capital_is_assembled_from_recipes(
         for key, thing, _ in await _things(session)
         #: A relic is in the registry of things that simply exist (D-215), like
         #: ore -- but it is the Forerunners' machinery standing where they left
-        #: it (D-232), not raw material somebody failed to spend.
-        if book.is_raw(thing) and not book.is_relic(thing) and thing not in deliberate
+        #: it (D-232), not raw material somebody failed to spend. Nor is what
+        #: lies in a room of theirs under the ice: the haul of a dig, laid with
+        #: the world since every room is open from the first day (D-319).
+        if book.is_raw(thing)
+        and not book.is_relic(thing)
+        and thing not in deliberate
+        and ".room." not in key
     ]
     assert not left, f"после сборки в узлах осталось сырьё: {left}"
 
@@ -291,25 +322,6 @@ async def test_the_capital_prints_on_the_original(
     assert printers and all(book.is_relic(name) for name in printers), printers
 
 
-async def test_the_ice_of_aurora_is_reached_from_a_pier(
-    capital: Node, session: AsyncSession, constants: Constants
-) -> None:
-    """A city of the Forerunners is opened from inside and left through its door.
-
-    The seed lays no wild node on Aurora: a ship lands at a pier, and if the
-    pier offered nothing but its own rooms the planet would end at three cities
-    (D-232). From the hall one goes deeper in; from the pier, out onto the ice.
-    """
-    port = await session.scalar(select(Node).where(Node.key == aurora_port(aurora_cities()[0])))
-    hall = await session.scalar(select(Node).where(Node.key == aurora_hall(aurora_cities()[0])))
-    assert port is not None and hall is not None
-
-    assert await explore.possible(session, hall) == (explore.ROOM,)
-    from_pier = await explore.possible(session, port)
-    assert explore.ROOM in from_pier
-    assert explore.SITE in from_pier, "с причала выходят на лёд, иначе Аврора — тупик"
-
-
 async def test_other_planets_have_somewhere_to_land(
     capital: Node, session: AsyncSession, constants: Constants
 ) -> None:
@@ -324,6 +336,8 @@ async def test_other_planets_have_somewhere_to_land(
     by_planet: dict[str, int] = {}
     for port in await ship.landings(session):
         by_planet[port.planet.value] = by_planet.get(port.planet.value, 0) + 1
+    #: The three cities of the layout and the frozen ones laid under the ice at
+    #: birth (D-319): each has a pier, dark or lit, and a dark pier is a place.
     assert by_planet["aurora"] == len(aurora_cities())
     #: The plateau and its black fields, and not a spaceport among them: on
     #: Pyroxis a ship sets down on the ground itself (D-233).
@@ -390,7 +404,7 @@ async def test_the_black_fields_carry_the_planets_own_veins(
         assert vein is not None, f"{field.key} без жилы"
         species.add(vein.resource)
         #: And the field is named by the word, not by the key it is laid with:
-        #: the same seam as the vein an explorer finds (`explore/run.py`), and
+        #: the same seam as a vein the world lays (`ground`), and
         #: a field name is persisted once and never laid again (pillar P2), so
         #: «Чёрное поле №1: pyroxite» would be permanent on a world seeded now.
         assert field.name.endswith(f": {display_name(vein.resource).lower()}"), field.name
@@ -443,15 +457,11 @@ async def test_a_plot_of_an_old_world_gets_its_soil(capital: Node, session: Asyn
     barren rock: the strips window never appeared on one, and the vault's own
     "on civic land the holder runs the estate" had nowhere to happen.
     """
-    lot = await session.scalar(select(Node).where(Node.key == "terra.capital.lot1"))
-    assert lot is not None
-    #: Back to how a world of before D-246 holds it.
-    lot.properties = {explore.PLOT: True}
-    await session.flush()
-
+    lot = await _plot(session)
+    #: As a world of before D-246 holds it: the mark alone.
     await seed(session)
 
-    again = await session.scalar(select(Node).where(Node.key == "terra.capital.lot1"))
+    again = await session.scalar(select(Node).where(Node.key == lot.key))
     assert float((again.properties or {}).get("fertility", 0)) > 0, "участку не дали почвы"
     assert "water" in (again.properties or {})
 
@@ -493,7 +503,7 @@ async def test_a_city_location_handed_out_comes_back(capital: Node, session: Asy
     )
 
     #: And a plot is not touched by the same pass: it is its holder's, door and all.
-    lot = await session.scalar(select(Node).where(Node.key == "terra.capital.lot1"))
+    lot = await _plot(session, "terra.capital.plot2")
     await world.grant_node(session, lot, holder)
     await session.flush()
     await seed(session)
@@ -513,8 +523,7 @@ async def test_a_tall_house_of_an_old_world_gets_its_floors(
     """
     from src.models.estate import Building
 
-    lot = await session.scalar(select(Node).where(Node.key == "terra.capital.lot2"))
-    assert lot is not None
+    lot = await _plot(session, "terra.capital.plot3")
     session.add(Building(node_id=lot.id, area_m2=90, footprint_m2=30, floors=3, kind="wooden"))
     await session.flush()
     assert await estate.storeys_of(session, lot) == [], "фикстура не воспроизвела старый мир"
@@ -707,3 +716,33 @@ async def test_the_seed_leaves_a_yard_around_a_rural_hearth(
     assert laid["terra.field.lay"] == 10, "очаг у реки — это очаг, а не стена поперёк луга"
     assert laid["terra.city.lay"] == 260, "в городе застройка и есть участок"
     assert await estate.free_ground(session, field) > 350
+
+
+async def test_the_seeded_cities_of_the_forerunners_are_laid_open(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """Merid, Caldar and Veyr come from the layout, and their rooms are open
+    from the first day like every other city of the Forerunners (D-319)."""
+    await seed(session)
+    for key in ("aurora.merid", "aurora.caldar", "aurora.veyr"):
+        city = await session.scalar(select(Node).where(Node.key == key))
+        assert city is not None, key
+        assert ruins.exhausted(constants, city), f"{key}: помещения не открыты"
+
+
+async def test_the_seed_leaves_an_apron_on_the_capital_port(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """A spaceport in a city is roofed over its machines and no more (D-319).
+
+    A hull sets down on the port's open ground the way a house stands on its
+    plot, and a port roofed over its whole plot would take no ship at all --
+    the capital's, the world's one lit pier, above all.
+    """
+    await seed(session)
+    port = await session.scalar(select(Node).where(Node.key == "terra.capital.port"))
+    assert port is not None
+    assert await world.has_station(session, port, ship.SPACEPORT)
+    apron = await estate.free_ground(session, port)
+    assert apron >= constants[R.SHIP_NODE_AREA], "столичному космодрому некуда принять корпус"
+    assert apron < float(port.area_m2), "верфь всё же стоит под крышей"

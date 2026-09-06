@@ -55,8 +55,9 @@ from datetime import UTC, datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.constants import current, current_catalog, display_name
-from src.engine import energy, explore, oxygen, plates, props, ruins, ship, travel, world
+from src import seed_planets, seed_world
+from src.constants import ConstantError, current, current_catalog, display_name
+from src.engine import energy, ground, oxygen, places, plates, props, ruins, ship, travel, world
 from src.models.world import Layer, Node, Planet, Surface
 
 #: The Anvil Plateau: the one stable ground of Pyroxis (10-world/04, D-197).
@@ -68,15 +69,11 @@ PYROXIS_PORT = "pyroxis.anvil.port"
 #: of them for an eruption to have somewhere to move a vein to, few enough that
 #: the first expedition can walk the lot.
 PYROXIS_FIELDS = 6
-#: How rich a field's vein is and how much is in it. The same spans exploring
-#: uses (`explore.vein_richness`, `explore.vein_stock`) would do, but the seed
-#: has no scout: these are the planet's own, and generous -- Pyroxis is a shift
-#: worth flying to (10-world/04).
+#: How rich a field's vein is and how much is in it. The world's own spans
+#: (`ground.vein_richness`, `ground.vein_stock`) would do, but these are the
+#: planet's own, and generous -- Pyroxis is a shift worth flying to (10-world/04).
 PYROXIS_VEIN_RICHNESS = 70
 PYROXIS_VEIN_STOCK = 4000
-#: A walk across the black fields: they are neighbours of the plateau and of
-#: each other, and the ground between them is no road.
-PYROXIS_STEP_SECONDS = 900
 
 #: A black field is open ground, and the whole of it is a working face.
 FIELD_AREA_M2 = 5000
@@ -130,16 +127,21 @@ async def _pyroxis(session: AsyncSession) -> None:
     marks = {ship.OPEN_LANDING: True, oxygen.AIRLESS: True}
     if any(not (sphere.properties or {}).get(key) for key in marks):
         await props.stamp(session, sphere, marks)
+    #: The plateau and the fields stand where a scout would have found them
+    #: (D-321): a cluster on the lattice round the planet's first dry point,
+    #: one reach of the black field apart -- neighbours, not a scattering.
+    spots = seed_planets.sites(current(), Planet.PYROXIS, PYROXIS_FIELDS + 1, taken=[])
+    names = seed_world.load_scenario().names
     plateau = (
         await _ensure(
             session,
             PYROXIS_PLATEAU,
-            "Плато Наковальни",
+            _named(names, "pyroxis_plateau"),
             planet=Planet.PYROXIS,
             layer=Layer.PLANET,
             parent=sphere,
             area=1,
-            properties={ANVIL: True},
+            properties={ANVIL: True} | _pin(spots, 0),
         )
     ).node
     #: And the mark is set **every** time, not only when the node is made.
@@ -166,24 +168,19 @@ async def _pyroxis(session: AsyncSession) -> None:
         laid = await _ensure(
             session,
             pyroxis_field_key(number),
-            f"Чёрное поле №{number}",
+            _named(names, "pyroxis_field").format(number=number),
             planet=Planet.PYROXIS,
             layer=Layer.PLANET,
             parent=sphere,
             area=FIELD_AREA_M2,
             anchor=plateau,
+            properties=_pin(spots, number),
         )
-        species = await explore.species_of(
+        species = await ground.species_of(
             session, current(), current_catalog(), dice, planet=Planet.PYROXIS
         )
         if laid.created:
-            await travel.connect(
-                session,
-                plateau,
-                laid.node,
-                base_seconds=PYROXIS_STEP_SECONDS,
-                surface=Surface.TRAIL,
-            )
+            await travel.connect(session, plateau, laid.node, surface=Surface.WILD)
             await world.create_vein(
                 session,
                 laid.node,
@@ -217,17 +214,29 @@ async def _pyroxis(session: AsyncSession) -> None:
                 await session.execute(select(Node).where(Node.key == pyroxis_field_key(number - 1)))
             ).scalar_one_or_none()
             if before is not None:
-                await travel.connect(
-                    session,
-                    before,
-                    laid.node,
-                    base_seconds=PYROXIS_STEP_SECONDS,
-                    surface=Surface.TRAIL,
-                )
+                await travel.connect(session, before, laid.node, surface=Surface.WILD)
+
+
+def _named(names: dict[str, str], key: str) -> str:
+    """A name the vault gives the seed (`world.yaml` `names`, D-251): the
+    world's voice is data, and a missing one is a broken build, not a
+    literal to fall back on."""
+    try:
+        return names[key]
+    except KeyError as missing:
+        raise ConstantError(f"world.names lacks {key!r}") from missing
 
 
 def pyroxis_field_key(number: int) -> str:
     return f"{PYROXIS_PLATEAU}.field.{number:02d}"
+
+
+def _pin(spots: list[seed_planets.Site], index: int) -> dict[str, object]:
+    """The pin for the index-th site, or none when the relief had no room for it."""
+    if index >= len(spots):
+        return {}
+    lat, lon = spots[index].point
+    return {places.PLACE: {places.PLACE_LAT: lat, places.PLACE_LON: lon}}
 
 
 async def _aurora(session: AsyncSession) -> None:
@@ -317,3 +326,23 @@ async def _ensure(
         properties=dict(properties or {}),
     )
     return Laid(node=made, created=True)
+
+
+async def forerunner_rooms(session: AsyncSession) -> None:
+    """Every room of the seeded cities of Aurora, open from the first day (D-319, D-321).
+
+    The cities the layout lays have a hall and a pier; their rooms were once
+    found by scouts, and nothing finds a room any more -- a complex is laid
+    whole (D-321). Idempotent: a city with its rooms open is left alone.
+    """
+    constants = current()
+    for hall_key in AURORA_HALLS:
+        pier = await session.scalar(
+            select(Node).where(Node.key == hall_key.removesuffix(".hall") + ".port")
+        )
+        if pier is None:
+            continue
+        city = await ruins.city_of(session, pier)
+        if city is None or ruins.exhausted(constants, city):
+            continue
+        await ruins.open_all(session, constants, pier, random.Random(city.key))

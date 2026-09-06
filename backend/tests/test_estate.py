@@ -129,11 +129,14 @@ async def test_a_trail_to_a_new_place_keeps_the_measurements(
     await estate.measure_cities(session)
     assert await estate.nodes_from_center(session, far, city) == 2
 
-    #: A plot found inside the walls belongs to the city it was found in
-    #: (D-206) -- otherwise the trail would be crossing a border, and those are
-    #: laid only at the gate.
+    #: A plot inside the walls hangs on the city's own node (D-319): that is
+    #: what says it is the city's, and what the measuring counts.
     fresh = await world.create_node(
-        session, f"terra.town.{uuid.uuid4().hex[:8]}.find", "Находка", area_m2=100
+        session,
+        f"terra.town.{uuid.uuid4().hex[:8]}.find",
+        "Находка",
+        area_m2=100,
+        parent=await session.get(Node, city.node_id),
     )
     fresh.owner_city_id = city.id
     await session.flush()
@@ -299,7 +302,11 @@ async def test_a_find_is_measured_without_a_printer_too(
     assert await town_.core(session, city) is None
 
     fresh = await world.create_node(
-        session, f"terra.town.{uuid.uuid4().hex[:8]}.find", "Находка", area_m2=100
+        session,
+        f"terra.town.{uuid.uuid4().hex[:8]}.find",
+        "Находка",
+        area_m2=100,
+        parent=await session.get(Node, city.node_id),
     )
     fresh.owner_city_id = city.id
     await session.flush()
@@ -485,7 +492,7 @@ def test_public_map_serves_signs_by_allowlist() -> None:
     node = Node(
         key="x",
         name="x",
-        layer=Layer.CITY,
+        layer=Layer.PLANET,
         planet=Planet.TERRA,
         area_m2=Decimal("1"),
         properties={

@@ -23,14 +23,12 @@ from src.constants import HOLDER, current, current_renames
 from src.constants import current_catalog as catalog
 from src.constants import registry as R
 from src.db.base import session_factory
-from src.engine import account, estate, market, places, sight, world
+from src.engine import account, mapshot, market, terrain, world
 from src.engine import city as town
-from src.engine import ship as vessels
-from src.engine import travel as roads
 from src.engine.errors import Refusal
 from src.models.identity import Body, BodyState, Identity
-from src.models.world import Layer, Node
-from src.runtime import MARKET_BOOK_DEPTH, MARKET_BOOK_STEPS
+from src.models.world import Node, Planet
+from src.runtime import MARKET_BOOK_DEPTH, MARKET_BOOK_STEPS, PUBLIC_MAP_MAX_AGE_S, TILE_MAX_AGE_S
 from src.settings import settings
 
 router = APIRouter(prefix="/public", tags=["reads"])
@@ -129,31 +127,9 @@ async def plants() -> dict[str, Any]:
     }
 
 
-def _passage(under_way: dict[str, Any] | None, by_id: dict[Any, str]) -> dict[str, str] | None:
-    """A ship's passage for the map: the port it is due at and the two moments.
-
-    The destination is given as a node key rather than a planet: the client
-    climbs the parent hierarchy to whatever layer it is drawing, and a key
-    keeps that one rule instead of adding a second.
-    """
-    if under_way is None:
-        return None
-    #: A drifter (D-289) is bound nowhere: its line is the coast ahead, and
-    #: the two moments are now and the hour the coast ends -- or the horizon.
-    goal = None if under_way.get("to") is None else by_id.get(under_way["to"])
-    if (
-        goal is None and under_way.get("to") is not None
-    ):  # pragma: no cover -- a node like any other
-        return None
-    return {
-        "to": goal,
-        "started_at": under_way["started_at"].isoformat(),
-        "arrives_at": under_way["arrives_at"].isoformat(),
-    }
-
-
-async def _standing(db: AsyncSession, authorization: str | None) -> Node | None:
-    """Where the asker's body stands, if the header names one at all.
+async def _standing(db: AsyncSession, authorization: str | None) -> Body | None:
+    """The asker's body, if the header names one at all -- it says where one
+    stands and whose memory the map is.
 
     A bad, expired or revoked token is **not** an error here: this route answers
     the whole internet, and the answer to "who are you" being "nobody" is a
@@ -178,123 +154,84 @@ async def _standing(db: AsyncSession, authorization: str | None) -> Node | None:
         .scalars()
         .first()
     )
-    return None if body is None else await db.get(Node, body.node_id)
+    return body
 
 
 @router.get("/map")
 async def world_map(
     response: Response, authorization: str | None = Header(default=None)
 ) -> dict[str, Any]:
-    """The map as it looks from where the asker stands (D-240).
+    """The map as it looks from where the asker stands (D-240, D-319).
 
-    **Not the world any more.** Two steps of the graph around the body, one step
-    of the planet's surface, and the sky -- which is everybody's, because a
-    planet's place is arithmetic over the epoch and hiding it would only make
-    passages unplannable. The surfaces of other planets are simply absent, so
-    there is nothing to expand: one reaches a planet by flying to it.
+    With a token: the asker's own map -- what their body sees within
+    `map.sight_km`, what their identity remembers, the cities of the planet,
+    and the sky (`mapshot.personal`). Without one: the sky as it is and the
+    public surface as it **was** `map.public_delay_days` ago -- the daily
+    snapshot (`mapshot.anonymous`). The route stays under `/public` because
+    what it gives an anonymous reader is public (D-097).
 
     The token is read from the ordinary `Authorization: Bearer` header and is
-    **optional**: without one the answer is the sky alone. The route stays under
-    `/public` because what it gives an anonymous reader is still public -- the
-    system, its corridors and the hulls in it (D-097 in that part).
+    **optional**; a bad or stale one names nobody and gets the public map,
+    not an error -- a stale tab is a distant map, not a broken one.
     """
-
-    #: The answer stopped being everybody's the day it started depending on
-    #: where the asker stands. Said out loud to whatever sits in front of this
-    #: one day: a shared cache would hand one player another player's
-    #: neighbourhood, and that is the one failure this route must not have.
-    response.headers["Cache-Control"] = "private, no-store"
-    response.headers["Vary"] = "Authorization"
-
     constants = current()
+    now = datetime.now(UTC)
+    response.headers["Vary"] = "Authorization"
     async with session_factory()() as db:
-        standing = await _standing(db, authorization)
-        every, all_edges = await sight.read(db)
-        #: A ship's rooms are **not** public (D-201). From outside a ship is one
-        #: hull: how many cabins it has, what is joined to what and where the
-        #: hold is, is exactly what somebody planning to board it would like to
-        #: know -- and the whole point of the single connector is that nothing
-        #: is seen past the gangway. The interior comes with `look`, to whoever
-        #: is standing in it.
-        inside = {
-            node.id for node in every if vessels.is_aboard(node) and node.layer is not Layer.SPACE
-        }
-        #: The neighbourhood is walked over the **whole** graph, hulls included:
-        #: standing aboard, the gangway is the step that reaches the pier, and a
-        #: walk that could not cross it would show a crew nothing at all.
-        seen = sight.around(standing, nodes=every, edges=all_edges)
-        nodes = [node for node in every if node.id in seen and node.id not in inside]
-        shown = {node.id for node in nodes}
-        edges = [edge for edge in all_edges if edge.node_a_id in shown and edge.node_b_id in shown]
-        by_id = {node.id: node.key for node in nodes}
-        #: The city's two doors are shown on the map (D-206): every road beyond
-        #: the walls starts at the gate, every ship couples to the spaceport, and
-        #: a player who cannot see that reads the graph as an arbitrary tangle.
-        ports = {node.id for node in await vessels.ports(db)}
-        #: A ship under way has no edges at all (D-201), so the graph cannot say
-        #: where it is. The passage does: from the port it left to the one it is
-        #: due at, between two moments.
-        under_way = await vessels.passages(db)
-        return {
-            "nodes": [
-                {
-                    "key": node.key,
-                    "name": node.name,
-                    #: Layers are a display abstraction: the world stays one
-                    #: graph, and the parent hierarchy groups nodes by layer (D-045, D-097).
-                    "layer": node.layer.value,
-                    "parent": by_id.get(node.parent_id),
-                    "exit": bool(node.properties.get(roads.EXIT)),
-                    "port": node.id in ports,
-                    #: The space layer paints by planet and lays nodes out by
-                    #: orbit: there a place is a function of time, not of the
-                    #: spring layout the other layers settle into.
-                    "planet": node.planet.value,
-                    #: Where the node stands, once and for everybody (D-237).
-                    #: The client draws this and settles nothing itself: a
-                    #: spring layout has no preferred orientation, so the same
-                    #: city came out turned differently on every opening and
-                    #: for every player. Empty on the space layer and for nodes
-                    #: laid before the rule -- there the client falls back to
-                    #: its own layout.
-                    "place": places.wire(node),
-                    "orbit": world.orbit_of(node),
-                    "deferred": bool(node.properties.get(world.DEFERRED)),
-                    #: A ship is a group of ordinary nodes (D-201), and only
-                    #: this mark tells them from ground: the map draws a hull
-                    #: rather than a place, and one does not walk to a hull
-                    #: across the void -- one boards it by the gangway.
-                    "aboard": vessels.is_aboard(node),
-                    "flight": _passage(under_way.get(node.id), by_id),
-                    #: Place signs ("лес", "камни"): the map draws the node's
-                    #: type glyph by them (D-238). An allowlist on purpose --
-                    #: this endpoint answers the whole internet, and `look`'s
-                    #: broader everything-true derivation belongs to whoever
-                    #: stands in the node.
-                    "features": world.public_signs(node),
-                    #: The owner's mark, if one is nailed on (D-238): the map
-                    #: draws it in place of the type glyph. Belted to the
-                    #: allowlist like the signs above.
-                    "emblem": estate.public_emblem(node),
-                }
-                for node in nodes
-            ],
-            "edges": [
-                {
-                    "a": by_id[edge.node_a_id],
-                    "b": by_id[edge.node_b_id],
-                    "surface": edge.surface.value,
-                    "seconds": round(roads.edge_seconds(constants, edge)),
-                }
-                for edge in edges
-            ],
-            #: The corridors of space. Not edges of the graph -- between planets
-            #: there are none, and one does not walk there -- but what a passage
-            #: costs: a calendar of the cheapest arc for each of the coming days
-            #: (D-271), so the map says when the window opens. Keyed by planet,
-            #: so the client ties a corridor to the bodies it already draws.
-            "routes": await vessels.corridors(db, constants, at=datetime.now(UTC)),
-        }
+        asker = await _standing(db, authorization)
+        if asker is None:
+            #: Everybody's answer, and the heaviest: every anonymous reader
+            #: may share it for a while, and name it by the snapshot served.
+            answer, old = await mapshot.anonymous(db, constants, now)
+            response.headers["Cache-Control"] = f"public, max-age={PUBLIC_MAP_MAX_AGE_S}"
+            if old is not None:
+                response.headers["ETag"] = f'"{old.id}"'
+            return answer
+        #: The answer depends on where the asker stands and what they
+        #: remember: a shared cache would hand one player another player's
+        #: map, and that is the one failure this route must not have.
+        response.headers["Cache-Control"] = "private, no-store"
+        return await mapshot.personal(db, constants, asker, now)
+
+
+@router.get("/terrain/{planet}")
+async def terrain_of(planet: str) -> dict[str, Any]:
+    """A planet's relief: the height grid, the water lines, the rivers (D-319).
+
+    Everybody's from the world's first day, and the same for everybody: the
+    shape of a planet is arithmetic over the vault, not intelligence, and it is
+    what a farmer walks a river by. No session: nothing here is anybody's.
+    """
+    try:
+        which = Planet(planet)
+    except ValueError as wrong:
+        raise Refusal(key="cmd-no-such-planet", planet=planet) from wrong
+    return terrain.sketch(current(), which)
+
+
+@router.get("/terrain/{planet}/{row}/{col}")
+async def terrain_tile(planet: str, row: int, col: int) -> Response:
+    """A tile of a planet's local relief (D-323): the heights a close frame
+    draws, the same the field reads under a scout's feet.
+
+    A constant of the vault like the sketch, cut into tiles because a
+    planet's worth of them is millions of numbers and a frame needs a few.
+    """
+    try:
+        which = Planet(planet)
+    except ValueError as wrong:
+        raise Refusal(key="cmd-no-such-planet", planet=planet) from wrong
+    got = terrain.tile_json(current(), which, row, col)
+    if got is None:
+        raise HTTPException(status_code=404, detail="no such tile")
+    return Response(
+        content=got,
+        media_type="application/json",
+        headers={
+            "Cache-Control": f"public, max-age={TILE_MAX_AGE_S}",
+            "ETag": f'"{HOLDER.current().digest}"',
+        },
+    )
 
 
 @router.get("/doors")

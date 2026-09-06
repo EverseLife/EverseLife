@@ -16,18 +16,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants
 from src.constants import registry as R
-from src.engine import city as town
 from src.engine import (
-    explore,
-    ship,
     transport,
-    world,
 )
 from src.engine.errors import Refusal, left_to_say
 from src.models.identity import Body
 from src.models.travel import Travel, TravelState
-from src.models.world import Edge, Node, Surface
-from src.units import SECONDS_PER_HOUR
+from src.models.world import Edge, Surface
+from src.units import METRES_PER_KM, SECONDS_PER_HOUR
 
 
 class TravelError(Refusal):
@@ -51,15 +47,6 @@ class EdgeInUse(TravelError):
 
     The gangway is not pulled from under a walker. Undocking waits, and that is
     the only precondition the removal of an edge has.
-    """
-
-
-class NotAnExit(TravelError):
-    """An edge across a city's boundary at a node that is not a door (D-206).
-
-    A city meets everything beyond it at the gate and at the spaceport, and
-    nowhere else. A road laid into the middle of the built-up area would be a
-    second gate made out of whatever node it happened to touch.
     """
 
 
@@ -92,6 +79,8 @@ class Exit:
 
 def surface_multiplier(constants: Constants, surface: Surface) -> float:
     """Time multiplier by surface. The road is the reference (D-107)."""
+    if surface is Surface.WILD:
+        return constants[R.ROAD_WILD_MULTIPLIER]
     if surface is Surface.TRAIL:
         return constants[R.ROAD_TRAIL_MULTIPLIER]
     if surface is Surface.PAVED:
@@ -103,58 +92,15 @@ def edge_seconds(constants: Constants, edge: Edge) -> float:
     return edge.base_seconds * surface_multiplier(constants, edge.surface)
 
 
-#: The node property "distance" (D-180): how many transits it is from civic
-#: land. Built-up area has none at all, and that is the same as zero.
-REACH = "distance"
+def walk_seconds(constants: Constants, metres: float) -> float:
+    """How long the road's reference walk over these metres takes (D-319).
 
-
-def reach_of(node: Node) -> int:
-    """The node's distance. Civic land and everything created before D-180 -- zero."""
-    return int((node.properties or {}).get(REACH, 0) or 0)
-
-
-#: The node property marking the city's gate (D-097, D-206): the one node of
-#: the built-up area a road from beyond the walls may be tied to.
-EXIT = "exit"
-
-
-async def is_exit(session: AsyncSession, node: Node) -> bool:
-    """Whether the node is one of the city's two doors (D-206).
-
-    The gate is a property of the node, the spaceport is a machine standing in
-    it: what a place is, is set by what stands in it (D-176), so a city gets a
-    port by building one and loses it with the machine.
+    The surface's multiplier (D-107) is applied on top by `edge_seconds`, so
+    this is the road's time: the wild is slower and the highway faster by their
+    own factors, and the metres are the same metres.
     """
-    if (node.properties or {}).get(EXIT):
-        return True
-
-    return await world.has_station(session, node, ship.SPACEPORT)
-
-
-async def gate_of(session: AsyncSession, node: Node) -> Node | None:
-    """The gate of the city this node stands in. Outside a city -- nothing.
-
-    This is where a road from beyond the walls is tied: exploration lays its
-    trail from here rather than from the node the scout set out from (D-206).
-    """
-
-    city = await town.of_node(session, node)
-    if city is None:
-        return None
-    return await town.gate(session, city)
-
-
-def frontier_seconds(constants: Constants, reach: int) -> float:
-    """Transit length to a node of this distance (D-180).
-
-    The first ring beyond the walls costs `travel.frontier_step`, each next one
-    `travel.frontier_growth` times more than the previous. The settled
-    surroundings are thereby closer than the unexplored, and that is the only
-    reason a near resource is hauled daily and a far one by expedition.
-    """
-    step = constants[R.TRAVEL_FRONTIER_STEP]
-    growth = constants[R.TRAVEL_FRONTIER_GROWTH]
-    return step * growth ** max(0, reach - 1)
+    pace = float(constants[R.TRAVEL_WALK_SPEED_KMH]) * METRES_PER_KM / SECONDS_PER_HOUR
+    return max(1.0, metres / pace)
 
 
 async def has_transport(session: AsyncSession, body: Body) -> bool:
@@ -191,8 +137,9 @@ class Asleep(TravelError):
     """The body sleeps. The same unavailability as the road, only voluntary."""
 
 
-class InField(TravelError):
-    """The body is exploring: it left on its own and returns on schedule or by cancel."""
+class Scouting(TravelError):
+    """A run of the scout is under way (D-321 item 7): the body stands in its
+    node, and the road would be a second deed (D-211)."""
 
 
 async def require_here(session: AsyncSession, body: Body) -> None:
@@ -201,18 +148,13 @@ async def require_here(session: AsyncSession, body: Body) -> None:
     The road must really cost time: otherwise leaving a node becomes free, and
     the geography all this was made for disappears. Sleep stands at the same
     door: a sleeper is unavailable for everything in-person (D-091) -- that is
-    how hibernation pays for recovery. Exploration stands at it too (D-152):
-    the scout leaves in person, and while in the field is not in the node.
+    how hibernation pays for recovery.
     """
     if body.sleeping_since is not None:
         raise Asleep(key="travel-asleep")
     going = await current(session, body)
     if going is not None:
         raise InTransit(key="travel-in-transit", inner={"left": [left_to_say(going.arrives_at)]})
-
-    run = await explore.pending(session, body)
-    if run is not None:
-        raise InField(key="travel-in-field", inner={"left": [left_to_say(run.run_at)]})
 
 
 class NotGoing(TravelError):

@@ -71,7 +71,3 @@ chronicle-rate-decided = 🏦 Ключевая ставка{ $by_council ->
        *[false] {""}
     }
 
-chronicle-explore-found = 🧭 Разведка{ $from_known ->
-        [true] { " " }от узла { $from_node }
-       *[false] {""}
-    }: карта приросла — { $what }. Разведчик: { $who }.

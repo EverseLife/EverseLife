@@ -32,6 +32,7 @@ from src.engine import (
     library,
     market,
     mining,
+    sheet,
     station,
     storage,
     transport,
@@ -206,6 +207,10 @@ async def _clock(db: AsyncSession, constants, node: Node) -> dict[str, Any]:
         #: Each planet counts its own day (OQ-028, D-261): the clock used to
         #: say Terra's 38 hours on every planet.
         "day_hours": climate.day_hours_of(constants, node.planet),
+        #: The planet turns (D-319): the node's own noon is its longitude's
+        #: share of the day later than the meridian's. Sent with the clock
+        #: because the clock is read where the map is not open.
+        "longitude": climate.longitude_of(node),
     }
 
 
@@ -365,6 +370,7 @@ async def _listed(
     #: The mark is shown as a name: the player must see whose work it is (D-058).
     marks = await _makers(db, items)
     cultivars = await _varieties(db, catalog, items)
+    maps = await sheet.drawn(db, [item.id for item in items if item.type_key == sheet.SHEET])
     return [
         {
             "id": str(item.id),
@@ -379,6 +385,9 @@ async def _listed(
             #: For a knowledge carrier: what is written on it, and the name the
             #: counter knows it by -- "Рецепт: Стекло" (D-209).
             "recipe": item.recipe_key,
+            #: A map drawn on, or a blank sheet (D-319 item 6): sent only for
+            #: a sheet, and the client cannot tell them apart otherwise.
+            **({"drawn": item.id in maps} if item.type_key == sheet.SHEET else {}),
             "key": market.goods_key(item),
             "food": _edible(catalog, item.type_key),
             "ingredient": catalog.recipes.is_ingredient(item.type_key),

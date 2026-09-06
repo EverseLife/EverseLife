@@ -65,8 +65,6 @@ ui-side-end-sleep = Wake
 ui-side-end-sleep-why = stamina is credited on waking
 ui-side-end-forage = Finish
 ui-side-end-forage-why = the strength spent does not come back
-ui-side-end-field = Return
-ui-side-end-field-why = the run is cut short, there will be no find
 ui-side-end-mine = Leave the face
 ui-side-end-mine-why = what was mined goes into your hands
 ui-side-end-plot = Pause
@@ -151,7 +149,6 @@ ui-side-care-none = nothing yet: the basic crops' agronomy is read and remembere
 
 ui-top-cloud = in the cloud
 ui-top-travel = on the road: { $to }
-ui-top-surveying = out scouting
 ui-top-asleep = asleep
 ui-top-away-asleep = { $where } · asleep
 

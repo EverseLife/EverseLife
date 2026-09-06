@@ -8,8 +8,7 @@ import { Refusal, useActions, useSession } from "../../actions";
 import { t } from "../../locale";
 import { cityWord } from "../../planets";
 import { Roads } from "./Roads";
-import { Search } from "./Search";
-import { LAYER_NAME, offworld, type LayerId } from "./model";
+import { LAYER_NAME, offworld } from "./model";
 import { price } from "./words";
 
 /**
@@ -31,7 +30,6 @@ export function Inspector({
   byKey,
   groups,
   walkTargets,
-  layer,
   onExpand,
   onEnter,
 }: {
@@ -40,8 +38,6 @@ export function Inspector({
   byKey: Record<string, MapNode>;
   groups: Set<string>;
   walkTargets: Record<string, { key: string; seconds: number }>;
-  /** Which map is open: the search offers what **this** layer can grow (D-237). */
-  layer: LayerId;
   onExpand: (node: MapNode) => void;
   onEnter: () => void;
 }) {
@@ -95,14 +91,11 @@ export function Inspector({
       <aside className="inspect">
         <h3>{t("ui-map-here")}</h3>
         <p className="sign">{look.node?.name}</p>
-        {!look.survey && (
-          <div className="row">
-            <button onClick={onEnter} disabled={busy}>
-              {t("ui-map-enter")}
-            </button>
-          </div>
-        )}
-        <Search look={look} busy={busy} act={act} layer={layer} />
+        <div className="row">
+          <button onClick={onEnter} disabled={busy}>
+            {t("ui-map-enter")}
+          </button>
+        </div>
         <Refusal of={acting} />
       </aside>
     );
@@ -117,7 +110,7 @@ export function Inspector({
   //: of another planet: the surface is walked, the void is not.
   const sphere = Boolean(node.orbit);
   const off = offworld(byKey, here, node);
-  const reachable = !look.survey && !sphere && !off && (group ? Boolean(step) : true);
+  const reachable = !sphere && !off && (group ? Boolean(step) : true);
 
   return (
     <aside className="inspect">
@@ -125,6 +118,10 @@ export function Inspector({
         {node.name}
         <Rule>{t("ui-map-node-rule")}</Rule>
       </h3>
+      {node.drawn !== undefined && (
+        //: A counter, not a measure: no thousands separator, as the clock does it.
+        <p className="note">{t("ui-map-node-drawn", { day: String(node.drawn) })}</p>
+      )}
       <p className="note">
         {node.aboard
           ? node.flight
@@ -210,8 +207,6 @@ export function Inspector({
           </button>
         )}
       </div>
-      {look.survey && <p className="reason">{t("ui-map-surveying")}</p>}
-
       <Roads look={look} busy={busy} act={act} only={node.name} />
       <Refusal of={acting} />
     </aside>

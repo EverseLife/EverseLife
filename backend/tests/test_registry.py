@@ -70,7 +70,7 @@ def test_every_command_the_client_sends_exists() -> None:
         text = path.read_text(encoding="utf-8")
         sent |= set(re.findall(r'\.send\(\s*"([a-z_.]+)"', text))
         sent |= set(re.findall(r'"([a-z_.]+)"\s*,?\s*\)\s*;?\s*//.*command', text))
-    sent -= {"hello", "join"}
+    sent -= {"hello", "join", "join.check"}
     missing = sorted(name for name in sent if name not in COMMANDS)
     assert missing == [], missing
 

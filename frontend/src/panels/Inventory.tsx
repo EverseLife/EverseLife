@@ -20,10 +20,9 @@
  */
 
 import { useEffect, useState } from "react";
-import type { RecipeBook } from "../api";
 import { stationsOf, type Look, type Thing } from "../api";
 import { Refusal, useActions, useBook, useNames, useSession } from "../actions";
-import { goodsName, slotName, type Names } from "../names";
+import { goodsName, slotName } from "../names";
 import { KEYS, useKept } from "../kept";
 import { t } from "../locale";
 import { mayInstall } from "../building";
@@ -32,24 +31,19 @@ import { Amount } from "../Amount";
 import { DropZone } from "../DragMove";
 import { GoodsMark } from "../Glyph";
 import { CHEST_ANY, chestOf, grip, noDrag } from "../drag";
-import { chosen, tally, trim } from "../amounts";
+import { chosen, tally } from "../amounts";
 import { labelOf, tells, weightCell } from "./inventory/rows";
+import { sections, sums } from "./inventory/sections";
 import { TERMINAL, classOf, firstOfClass, isGear, lifts } from "../classes";
 import { fill, isVessel } from "../liquids";
 import { whoIsHere, type Person } from "../people";
 import {
   GROUPINGS,
   SORTINGS,
-  arrange,
-  groupId,
-  groupKey,
-  orderGroups,
   remember,
   remembered,
-  summarize,
   type Grouping,
   type Sorting,
-  type Summary,
 } from "../arrange";
 
 type Props = { look: Look };
@@ -424,6 +418,18 @@ export function Inventory({ look }: Props) {
                               {t("ui-inventory-warm")}
                             </button>
                           )}
+                          {/* A blank map sheet (D-319 item 6): draw one's memory of
+                              places onto it. A drawn map is carried, not read. */}
+                          {thing.drawn === false && (
+                            <button
+                              role="menuitem"
+                              onClick={() => send("map.draw", { item: thing.id })}
+                              disabled={busy}
+                              title={t("ui-inventory-draw-hint")}
+                            >
+                              {t("ui-inventory-draw")}
+                            </button>
+                          )}
                           {/* A knowledge carrier (D-209): read it into the identity --
                               the carrier stays -- or wipe it back into a blank. */}
                           {thing.recipe && (
@@ -701,72 +707,4 @@ export function Inventory({ look }: Props) {
       )}
     </div>
   );
-}
-
-/**
- * The table split into sections by the chosen axis, each sorted the chosen way.
- * One section without a title when there is no grouping.
- */
-function sections(
-  things: Thing[],
-  group: Grouping,
-  sort: Sorting,
-  desc: boolean,
-  book: RecipeBook | null,
-  names: Names | null,
-): { id: string; title: string | null; rows: Thing[]; summary: Summary }[] {
-  const ordered = arrange(things, sort, desc, names);
-  if (group === "none") return [{ id: "", title: null, rows: ordered, summary: summarize([]) }];
-  const buckets = new Map<string, Thing[]>();
-  for (const thing of ordered) {
-    const key = groupKey(book, names, thing, group);
-    buckets.set(key, [...(buckets.get(key) ?? []), thing]);
-  }
-  return orderGroups([...buckets.keys()], group, things, names).map((title) => {
-    const rows = buckets.get(title) ?? [];
-    //: The title is what the header reads; the id is what the fold is stored
-    //: under (D-251). Taken off the first row, because every row of a bucket
-    //: gave the same answer -- that is what put them in one bucket.
-    const first = rows[0];
-    return {
-      id: first ? groupId(book, first, group) : title,
-      title,
-      rows,
-      summary: summarize(rows),
-    };
-  });
-}
-
-/**
- * What a folded group says about itself: how much, how good, of how many
- * stacks and how heavy.
- *
- * The count of stacks stays because it is the one thing the fold hides: two
- * lots of ore at 12 and at 13 read as one line here, and the player must see
- * that the line covers two of them before deciding to open it.
- */
-function sums(summary: Summary, stacks: number): string {
-  const said: string[] = [];
-  if (summary.goods != null) said.push(tally(summary.goods, summary.amount));
-  if (summary.quality != null)
-    said.push(t("ui-inventory-average", { quality: summary.quality.toFixed(0) }));
-  said.push(positions(stacks));
-  //: `trim`, the same spelling the rows use: one column, one rounding.
-  said.push(t("ui-inventory-mass", { mass: trim(summary.mass) }));
-  return ` · ${said.join(" · ")}`;
-}
-
-/** "1 позиция", "2 позиции", "5 позиций" -- the count decides the word.
- *
- * The choosing is the message's, not this function's: which counts take which
- * word is a fact about a language, and a language that has one form for all of
- * them -- or six -- cannot be served by a rule written in `if`s here.
- *
- * The number goes twice: as a number, which is the only thing Fluent's plural
- * rules can look at, and as the digits to print. Printing `$count` itself would
- * hand it to the locale's number format, and a thousand stacks would read
- * "1 000 позиций" where every other figure in the row reads "1000".
- */
-function positions(count: number): string {
-  return t("ui-inventory-positions", { count, shown: String(count) });
 }

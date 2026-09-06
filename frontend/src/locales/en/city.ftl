@@ -36,11 +36,12 @@ ui-intro-step-sell = Sell what you made at a terminal. Prices here are set by pe
 ui-intro-go = Begin
 ui-intro-again = To open this again — the “?” in the header, or “who you are” under “more” on a phone.
 
-## Registration in four steps (D-187)
+## Registration in five steps (D-187)
 
 ui-register-step-account = account
 ui-register-step-line = line
 ui-register-step-character = character
+ui-register-step-printer = bioprinter
 ui-register-step-city = city
 ui-register-steps-label = registration steps
 ui-register-bad-email = the email looks wrong
@@ -60,6 +61,7 @@ ui-register-again-hint = repeat the password
 ui-register-to-login = ← to login
 ui-register-next = Next →
 ui-register-line = Line
+ui-register-lines-empty = No lines at all: the world is not built yet. Try again later.
 ui-register-line-note = Who printed you. One line is playable in the alpha; the second is shown as a promise, not as a stub.
 ui-register-line-players = playing
 ui-register-line-world = world
@@ -79,19 +81,11 @@ ui-register-about-hint = looks, character, where you are from — as you like
 
 ui-doors-title = Where to print you
 ui-doors-lead = { $name }, you have no body yet — you have a choice of the machine that will assemble it. The first body is printed at once and free of charge everywhere; after that you pay for speed.
-ui-doors-search = find a city
-ui-doors-search-label = city search
-ui-doors-count = { $shown } of { $total } · sorted by people in the city
 ui-doors-empty-world = There is not a single bioprinter in the world. This state must not happen: the way into the game is never blocked.
-ui-doors-nothing-found = Nothing found — try it another way.
-ui-doors-precursor = Forerunner printer
-ui-doors-precursor-note = The everlasting machine of the real people: it asks no city's treasury and refuses no one.
-ui-doors-city-note = A city bioprinter: it runs on the city's energy and iron.
-ui-doors-city = city
-ui-doors-outside = outside a city
 ui-doors-people = people right now
 ui-doors-citizens = citizens
 ui-doors-grant = settling grant
+ui-doors-no-city = There is no city round this door: nobody to pay a settling grant, nothing to enrol into and nothing to withhold from a sale.
 ui-doors-nothing = none
 ui-doors-first-body = first body
 ui-doors-at-once = at once
@@ -99,10 +93,11 @@ ui-doors-citizenship = citizenship
 ui-doors-citizenship-at-once = at once
 ui-doors-tax = sales tax
 ui-doors-print-here = Print here
-ui-doors-grant-note = The settling grant is paid by the city out of its own treasury, not by the world out of thin air: a new resident is worth something to a city, and so cities bid for one.
-ui-doors-rules-note = The rows of the table are enforced by the engine: a city's citizenship takes hold at the moment of printing and holds you to nothing — you may leave in the first minute, as long as no loan is open; the tax is withheld from every sale. The Forerunners' printer enrols you into the city whose land it stands on: the machine belongs to nobody, the person who steps out of it does not.
-ui-doors-word-note = In quotes is the city's own word. That is a promise of living people, and the engine does not answer for it: if it is broken, it is a matter for the court.
 ui-doors-back = ← back
+
+## The globe at the entry and at the printer step (D-319, D-013)
+ui-entry-globe-label = globe of the planet
+ui-entry-globe-doors-hint = The large dots are the printers you can be printed at: the larger the dot, the more citizens the city has. Choose one and its city's card opens; drag to turn the globe.
 
 ## The state tab: economy and population (D-124, D-140, D-154)
 

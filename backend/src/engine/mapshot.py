@@ -1,0 +1,336 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (C) 2026 Nurlan Urazkulov
+
+"""The rows of the map, and the daily snapshot of the public ones (D-319 item 7).
+
+One shape for a node on the wire, whoever asks: the personal map of
+`/public/map` with a token, and the delayed public map without one. The rows
+are built here so the two cannot drift apart, and the snapshot stores them
+as they are -- the route serves a snapshot without rebuilding a thing.
+
+The snapshot is what the anonymous reader gets: the public part of every
+planet's surface as it was `map.public_delay_days` ago. Every node is in it
+-- nodes do not hide (D-319) -- and everything about them is old: which
+ways are paved, which node is a port, what stands where. The daily tick
+writes one and prunes the ones older than the one being served.
+"""
+
+from __future__ import annotations
+
+import uuid
+from datetime import datetime, timedelta
+from typing import Any
+
+from sqlalchemy import delete, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src import globe
+from src.constants import Constants
+from src.constants import registry as R
+from src.engine import biome, climate, estate, memory, places, sheet, sight, travel, world
+from src.engine import ship as vessels
+from src.models.city import City
+from src.models.identity import Body
+from src.models.ship import Ship
+from src.models.snapshot import MapSnapshot
+from src.models.world import Edge, Layer, Node
+
+
+def node_row(
+    node: Node,
+    *,
+    parent_key: str | None,
+    port: bool,
+    flight: dict[str, Any] | None = None,
+    faded: bool = False,
+    moored: bool = False,
+    drawn: int | None = None,
+    reach: tuple[float, float] | None = None,
+) -> dict[str, Any]:
+    """A node as the map draws it (D-045, D-097, D-237, D-238)."""
+    row: dict[str, Any] = {
+        "key": node.key,
+        "name": node.name,
+        #: Layers are a display abstraction: the world stays one graph, and
+        #: the parent hierarchy groups nodes by layer.
+        "layer": node.layer.value,
+        "parent": parent_key,
+        "port": port,
+        #: The space layer paints by planet and lays nodes out by orbit.
+        "planet": node.planet.value,
+        #: Where the node stands, once and for everybody (D-237). Empty on the
+        #: space layer -- there a place is a function of time.
+        "place": places.wire(node),
+        "orbit": world.orbit_of(node),
+        "deferred": bool((node.properties or {}).get(world.DEFERRED)),
+        #: A ship is a group of ordinary nodes (D-201), and only this mark
+        #: tells them from ground: one boards a hull by the gangway.
+        "aboard": vessels.is_aboard(node),
+        "flight": flight,
+        #: Place signs: the map draws the node's glyph by them (D-238). An
+        #: allowlist on purpose -- this answers the whole internet.
+        "features": world.public_signs(node),
+        #: The owner's mark, if one is nailed on (D-238).
+        "emblem": estate.public_emblem(node),
+        #: The land under the node, square metres: a city's outline is the
+        #: land of its nodes joined (D-323 addendum), and the client cannot
+        #: know a node's land otherwise (D-225). None off the ground.
+        "area": float(node.area_m2) if node.layer is Layer.PLANET else None,
+    }
+    #: Memory and the public are drawn dark (D-319 item 6); sent only when so,
+    #: so the bright majority of rows carry nothing for it.
+    if faded:
+        row["faded"] = True
+    #: A ship lies at this pier (D-319 item 10): the hull is not a point of
+    #: the map, the port wears the mark. The client cannot tell a pier from
+    #: the parking off the hull's row -- both hang under the planet -- so
+    #: the port says so itself (D-225).
+    if moored:
+        row["moored"] = True
+    #: Known from a map in the hands and from nothing else (D-319 item 6):
+    #: the day it was drawn is the map's own mark of "old".
+    if drawn is not None:
+        row["drawn"] = drawn
+    #: How near and how far one may scout from here (D-321 item 4): the
+    #: biome's reach, sent with the node the body stands in alone -- the
+    #: client draws the scout's field by it and cannot read the biome (D-225).
+    if reach is not None:
+        row["reach"] = {"min": reach[0], "max": reach[1]}
+    return row
+
+
+async def moored_at(session: AsyncSession) -> set[uuid.UUID]:
+    """The surface nodes with a ship docked at them: piers, not parkings."""
+    rows = await session.execute(
+        select(Ship.docked_node_id)
+        .join(Node, Node.id == Ship.docked_node_id)
+        .where(Node.layer == Layer.PLANET)
+    )
+    return {node_id for node_id in rows.scalars() if node_id is not None}
+
+
+def edge_row(constants: Constants, edge: Edge, by_key: dict[uuid.UUID, str]) -> dict[str, Any]:
+    return {
+        "a": by_key[edge.node_a_id],
+        "b": by_key[edge.node_b_id],
+        "surface": edge.surface.value,
+        "seconds": round(travel.edge_seconds(constants, edge)),
+    }
+
+
+def stub_rows(
+    edges: list[Edge], shown: dict[uuid.UUID, Node], hidden: dict[uuid.UUID, Node]
+) -> list[dict[str, Any]]:
+    """The edges that lead out of sight, as stubs into the fog (D-319 item 6).
+
+    An edge with one end in sight and the other on the surface beyond it is
+    drawn from the seen end a little way towards the unseen one, and no
+    farther: the row carries the way to set out, to the degree, and not how
+    far the way goes. A stub has a direction by nature (D-319 item 4), and
+    two of them towards one hidden node cross where it stands; what the fog
+    keeps is the distance, and the row carries none.
+    """
+    rows: list[dict[str, Any]] = []
+    for edge in edges:
+        if edge.node_a_id in shown and edge.node_b_id in hidden:
+            seen, unseen = shown[edge.node_a_id], hidden[edge.node_b_id]
+        elif edge.node_b_id in shown and edge.node_a_id in hidden:
+            seen, unseen = shown[edge.node_b_id], hidden[edge.node_a_id]
+        else:
+            continue
+        here, there = places.geo_of(seen), places.geo_of(unseen)
+        if here is None or there is None:
+            continue
+        rows.append(
+            {
+                "from": seen.key,
+                "bearing": round(globe.bearing(here, there)),
+                "surface": edge.surface.value,
+            }
+        )
+    return rows
+
+
+def passage_row(under_way: dict[str, Any] | None, by_key: dict[Any, str]) -> dict[str, str] | None:
+    """A ship's passage for the map: the port it is due at and the two moments.
+
+    The destination is a node key rather than a planet: the client climbs the
+    parent hierarchy to whatever layer it is drawing.
+    """
+    if under_way is None:
+        return None
+    #: A drifter (D-289) is bound nowhere: its line is the coast ahead.
+    goal = None if under_way.get("to") is None else by_key.get(under_way["to"])
+    if goal is None and under_way.get("to") is not None:  # pragma: no cover
+        return None
+    return {
+        "to": goal,
+        "started_at": under_way["started_at"].isoformat(),
+        "arrives_at": under_way["arrives_at"].isoformat(),
+    }
+
+
+async def anonymous(
+    session: AsyncSession, constants: Constants, now: datetime
+) -> tuple[dict[str, Any], MapSnapshot | None]:
+    """The map for nobody's body: the sky as it is, the surface as it was.
+
+    The sky is live -- a planet's place is arithmetic, a hull under way is a
+    passage anybody may plan around -- and the surface is the daily snapshot
+    old enough to be fair (D-319 item 7). Returns the snapshot served too, so
+    the route can name it in an `ETag`.
+    """
+    every, _ = await sight.read(session)
+    heaven = [node for node in every if node.layer is Layer.SPACE]
+    by_key = {node.id: node.key for node in every}
+    under_way = await vessels.passages(session)
+    old = await served(session, constants, now)
+    surface = old.data if old is not None else {"nodes": [], "edges": []}
+    return {
+        "nodes": [
+            node_row(
+                node,
+                parent_key=by_key.get(node.parent_id),
+                port=False,
+                flight=passage_row(under_way.get(node.id), by_key),
+            )
+            for node in heaven
+        ]
+        + list(surface["nodes"]),
+        "edges": list(surface["edges"]),
+        #: The public surface is whole: no edge of it leads out of sight.
+        "stubs": [],
+        "routes": await vessels.corridors(session, constants, at=now),
+    }, old
+
+
+async def personal(
+    session: AsyncSession, constants: Constants, asker: Body, now: datetime
+) -> dict[str, Any]:
+    """The map as the asker's body sees it and their identity remembers it."""
+    standing = await session.get(Node, asker.node_id)
+    every, all_edges = await sight.read(session)
+    by_key = {node.id: node.key for node in every}
+    under_way = await vessels.passages(session)
+    ports = {node.id for node in await vessels.ports(session)}
+    piers = await moored_at(session)
+    cities = set((await session.execute(select(City.node_id))).scalars())
+    #: A ship's rooms are **not** public (D-201): from outside a ship is one
+    #: hull. The interior comes with `look`, to whoever stands in it.
+    inside = {
+        node.id for node in every if vessels.is_aboard(node) and node.layer is not Layer.SPACE
+    }
+    #: Memory, and the maps in the hands: a sheet shows its places for as
+    #: long as it is carried, in the tone of memory, marked with its day.
+    remembered = await memory.known(session, asker.identity_id)
+    carried = await sheet.held(session, asker)
+    epoch = await world.epoch(session)
+
+    def drawn_day(node: Node) -> int | None:
+        """The day a place is known from a map alone -- not in sight, not
+        remembered, not public -- in the calendar of the node's own planet,
+        counted as the clock counts, from one."""
+        moment = carried.get(node.key)
+        if moment is None or node.key in remembered or node.id in view.public:
+            return None
+        return climate.day_index(constants, node.planet, epoch, moment) + 1
+
+    view = sight.around(
+        standing,
+        constants=constants,
+        nodes=every,
+        edges=all_edges,
+        known=remembered | set(carried),
+        cities=cities,
+    )
+    nodes = [node for node in every if node.id in view.seen and node.id not in inside]
+    shown = {node.id for node in nodes}
+    here_biome = biome.of_node(constants, standing) if standing is not None else None
+    reach = biome.reach_m(constants, here_biome) if here_biome else None
+    #: The surface beyond sight: what a stub points at. Insides are not
+    #: hidden by the fog, they are simply not the map's (D-201, item 9).
+    beyond = {node.id: node for node in _public_surface(every) if node.id not in shown}
+    return {
+        "nodes": [
+            node_row(
+                node,
+                parent_key=by_key.get(node.parent_id),
+                port=node.id in ports,
+                flight=passage_row(under_way.get(node.id), by_key),
+                faded=node.id in view.faded,
+                moored=node.id in piers,
+                drawn=drawn_day(node) if node.id in view.faded else None,
+                reach=reach if standing is not None and node.id == standing.id else None,
+            )
+            for node in nodes
+        ],
+        "edges": [
+            edge_row(constants, edge, by_key)
+            for edge in all_edges
+            if edge.node_a_id in shown and edge.node_b_id in shown
+        ],
+        "stubs": stub_rows(all_edges, {node.id: node for node in nodes}, beyond),
+        "routes": await vessels.corridors(session, constants, at=now),
+    }
+
+
+def _public_surface(nodes: list[Node]) -> list[Node]:
+    """What the snapshot carries: the surfaces, without the insides.
+
+    The rooms of a hull are not public (D-201), and the floors and rooms of
+    the land are the inside window's, not the map's (D-319 item 9).
+    """
+    return [node for node in nodes if node.layer is Layer.PLANET and not vessels.is_aboard(node)]
+
+
+async def take(session: AsyncSession, constants: Constants, now: datetime) -> MapSnapshot:
+    """Write the public map as it is now; the route will serve it when it is old enough."""
+    every, all_edges = await sight.read(session)
+    nodes = _public_surface(every)
+    shown = {node.id for node in nodes}
+    #: Keys of the whole graph, so a city's parent is its planet's sphere here
+    #: as on the personal map -- the client climbs parents to the space layer.
+    by_key = {node.id: node.key for node in every}
+    ports = {node.id for node in await vessels.ports(session)}
+    piers = await moored_at(session)
+    rows = [
+        node_row(
+            node,
+            parent_key=by_key.get(node.parent_id),
+            port=node.id in ports,
+            moored=node.id in piers,
+        )
+        for node in nodes
+    ]
+    edges = [
+        edge_row(constants, edge, by_key)
+        for edge in all_edges
+        if edge.node_a_id in shown and edge.node_b_id in shown
+    ]
+    snapshot = MapSnapshot(taken_at=now, data={"nodes": rows, "edges": edges})
+    session.add(snapshot)
+    await session.flush()
+    return snapshot
+
+
+def _served_before(constants: Constants, now: datetime) -> datetime:
+    return now - timedelta(days=float(constants[R.MAP_PUBLIC_DELAY_DAYS]))
+
+
+async def served(session: AsyncSession, constants: Constants, now: datetime) -> MapSnapshot | None:
+    """The newest snapshot that is at least `map.public_delay_days` old."""
+    return await session.scalar(
+        select(MapSnapshot)
+        .where(MapSnapshot.taken_at <= _served_before(constants, now))
+        .order_by(MapSnapshot.taken_at.desc())
+        .limit(1)
+    )
+
+
+async def prune(session: AsyncSession, constants: Constants, now: datetime) -> int:
+    """Drop every snapshot older than the one being served: nothing reads them."""
+    current = await served(session, constants, now)
+    if current is None:
+        return 0
+    gone = await session.execute(delete(MapSnapshot).where(MapSnapshot.taken_at < current.taken_at))
+    return int(gone.rowcount or 0)

@@ -120,7 +120,7 @@ async def test_the_plant_reaches_the_neighbour_and_the_heater_does_not(
         "Соседний двор",
         planet=Planet.AURORA,
         area_m2=100,
-        layer=Layer.CITY,
+        layer=Layer.PLANET,
         parent=city,
     )
     await travel.connect(session, yard, door, base_seconds=60)

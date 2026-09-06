@@ -309,8 +309,6 @@ export type Look = {
     city?: string;
     since: string;
   };
-  /** An ongoing exploration run, if any (D-152). */
-  survey?: { returns_at: string };
   /**
    * Foraging on the empty land of the place (D-210). Empty where the land is
    * built up or somebody else's -- unless a search of ours is already going here.
@@ -343,7 +341,7 @@ export type Look = {
    *  on, or the rooms of the one being stood in. Empty everywhere else. */
   ships?: InSight;
   /** The planet's clock: where the count starts and how long a day is (D-029). */
-  clock?: { planet: string; epoch?: string; day_hours: number };
+  clock?: { planet: string; epoch?: string; day_hours: number; longitude?: number };
   /** Whether a city can be founded here and what is missing for that (D-159).
    *  Empty -- the place or the person is unsuitable: foreign land, a city over
    *  the node, not a planet, or a citizenship already held elsewhere (D-281).

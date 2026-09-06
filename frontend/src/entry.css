@@ -15,13 +15,13 @@ main.entry.auth {
 .entry.auth > * {
   width: min(26rem, 100%);
 }
-/* Wide steps -- lines and doors -- do not fit into the narrow column. */
-.entry.auth > .wide,
-.entry.auth > .doors-step {
-  width: min(56rem, 100%);
-  border: none;
-  padding: 0;
-}
+/* Every step is one box in one column: the account's and the character's are
+   a `.card`, the line's and the door's a `section` whose border and padding
+   are the global rule's (`place.css`), with the read line or the chosen door
+   lying flat inside -- a card within a card would frame the same thing twice.
+   The lines used to stand side by side and needed 56rem for it; they are tabs
+   now, and beside the globe (D-319) a step spread over 56rem read as another
+   screen rather than the next step of this one. */
 .entry.auth h1 {
   margin: 0 0 0.75rem;
   font-size: 1.25rem;
@@ -304,45 +304,30 @@ button.eye:not(:disabled):active {
   border-style: dashed;
 }
 
-/* Character lines: two cards side by side; the unavailable one is muted.
+/* Character lines: a tab apiece and the one being read below them; the line
+   still in the works is muted.
 
    Every rule below is scoped to the row it belongs to. `.line` alone is not
    this screen's word: the room's talk and the Net's letters name a spoken line
    with it too, and a bare rule here reached them: the speaker's name became a
    flex item of full width and the words dropped to the line beneath it.
    `talk.css` scopes its own half; this is the other half of the same pair. */
-.lines {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(18rem, 100%), 1fr));
-  gap: 0.75rem;
-  align-items: stretch;
-  margin: 0.75rem 0;
-}
-.lines .line {
-  display: flex;
-  flex-direction: column;
-}
-.lines .line ul {
+.lines-step .line ul {
   margin: 0.35rem 0;
   padding-left: 1.1rem;
   font-size: 0.9rem;
 }
-.lines .line li {
+.lines-step .line li {
   margin: 0.2rem 0;
 }
-.lines .line table {
-  margin-top: auto;
-}
-/* A promise, not a stub (D-104): the card is muted by tone and a dashed
-   border, never by opacity -- its own hint would go under the floor. */
-.lines .line.soon,
-.lines .line.soon .note {
-  border-style: dashed;
+/* A promise, not a stub (D-104), and muted by tone rather than by opacity --
+   an opacity composites against whatever lies beneath and takes the hint under
+   the floor with it. The card lies flat in the step's box and has no border of
+   its own to dash, so the mute is the tone and the word standing where the
+   button would be (`.soon-tag`). */
+.lines-step .line.soon,
+.lines-step .line.soon .note {
   color: var(--base-400);
-}
-.lines .line.picked {
-  border-color: var(--act);
-  box-shadow: inset 0 0 0 1px var(--act);
 }
 .soon-tag {
   display: inline-block;
@@ -352,19 +337,245 @@ button.eye:not(:disabled):active {
   font-style: italic;
 }
 
-/* Doors inside registration: the same grid as before. */
-.doors-step .doors {
+/* Before the world the screen is two halves (D-319): the globe of the public
+   map on one, the way in on the other. The halves fill the root; the way in
+   scrolls on its own, the globe stays. Narrow, there is one half: the planet
+   is the background of the whole screen and the way in floats on it (the
+   phone rules at the end of this file). */
+.entry-split {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(16rem, 100%), 1fr));
-  gap: 0.75rem;
-  align-items: start;
-  margin: 0.75rem 0;
+  /* The globe's layer is laid out against this on a phone (below). */
+  position: relative;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+  /* The screen does not scroll -- the way in scrolls inside its own half --
+     and this says so rather than leaving it to hold by accident: the globe's
+     canvas is fixed and measured in client coordinates, so a page that
+     scrolled under it would leave the planet behind. */
+  overflow: hidden;
 }
-.doors-step .search {
+.entry-split > main.entry {
+  min-height: 0;
+  height: auto;
+  overflow-y: auto;
+  /* Over the canvas, and opaque: the globe's drawing is the whole window now
+     (below), and the way in is read against the page, not against a planet. */
+  position: relative;
+  z-index: 1;
+  background: var(--base-900);
+  /* `safe`, because the way in is centred in its half and a step can be
+     taller than it: a plain `center` overflows a flex box **both** ways, and
+     what goes off the top cannot be scrolled back to -- the door step lost
+     its heading and the first line of its lead, and the fourth step read as
+     a screen that begins in the middle of a sentence. `safe` centres while
+     it fits and starts from the top when it does not.
+     Twice, and the plain one first: a browser that does not know the keyword
+     drops the second declaration and would fall back to the `center` of
+     `doors.css`, which is the very defect -- and it would do it silently, on
+     exactly the old phones this is for (WebKit learned `safe` late). Top of
+     the column is not centred, but nothing of it is unreachable. */
+  justify-content: flex-start;
+  justify-content: safe center;
+}
+.entry-globe {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   justify-content: center;
+  gap: 0.5rem;
+  padding: 1rem;
+  min-height: 0;
+  min-width: 0;
 }
-.doors-step .search input {
-  width: min(20rem, 100%);
+/* Where the planet stands: an empty square in the flow, the size the globe
+   was drawn at when the canvas was a box of its own. The drawing reads it and
+   puts the planet's middle in its middle, so the planet did not move -- what
+   moved is the edge of the paper. */
+.globe-space {
+  width: min(100%, 80vh);
+  max-height: 100%;
+  aspect-ratio: 1;
+  /* An empty square that says where the planet stands: the canvas over it
+     takes the hand, and this must never intercept a drag. */
+  pointer-events: none;
+}
+/* The canvas is the window (D-319). Zoomed in, the ground used to stop at the
+   square's edge -- a seam across the screen with the page behind it -- and the
+   half the globe sits in was never filled. Fixed and behind everything: on a
+   desktop the way in is opaque and covers its own half, and on a phone it is
+   a wash the planet shows through. */
+.entry-globe svg {
+  display: block;
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  /* A finger scrolls the page; only a sideways drag turns the globe. */
+  touch-action: pan-y pinch-zoom;
+  cursor: grab;
+}
+/* The word under the globe stands on the canvas, not under it -- and lets the
+   hand through: it is a line to read, and a drag begun on it should turn the
+   globe like a drag begun anywhere else on that half. */
+.entry-globe .note {
+  position: relative;
+  z-index: 1;
+  pointer-events: none;
+}
+.entry-globe .way {
+  fill: none;
+  stroke: var(--base-400);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+.entry-globe .way.wild,
+.entry-globe .way.trail {
+  stroke-dasharray: 2 3;
+}
+.entry-globe .place circle {
+  fill: var(--base-200);
+}
+.entry-globe .place text {
+  fill: var(--base-50);
+  text-anchor: middle;
+  paint-order: stroke;
+  stroke: var(--base-900);
+  stroke-width: 0.1em;
+}
+.entry-globe .door circle {
+  fill: var(--act);
+  stroke: var(--base-50);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+  cursor: pointer;
+}
+.entry-globe .door.picked circle {
+  fill: var(--accent);
+}
+/* The mark is a control, so the keyboard must see where it stands (D-077).
+   The ring is the mark's own stroke, widened: an `outline` round an SVG group
+   is drawn about its bounding box, which on a sphere is not where the mark
+   is. */
+.entry-globe .door:focus-visible {
+  outline: none;
+}
+.entry-globe .door:focus-visible circle {
+  stroke: var(--act);
+  stroke-width: 5;
+}
+/* The last row of a step reads like the account's and the character's: back
+   on the left, on at the right edge. Those get it from `.card .row`; the line
+   and the door steps are a `section`, not a card, so it is said here. */
+.entry.auth .row.last {
+  justify-content: space-between;
+}
+/* The tabs of a step: the lines to read, and the doors no mark stands for. */
+.entry.auth .row.tabs {
+  flex-wrap: wrap;
+  justify-content: center;
+  margin: 0.5rem 0;
+}
+/* --- a phone: the globe is the screen, the way in floats on it -----------
+ *
+ * On a desktop the two halves stand side by side. A phone has one, and a band
+ * of a third of it was neither a planet nor a form: the globe was a stamp at
+ * the top and the way in was cramped under it. So the planet takes the whole
+ * background and the steps float over it -- the world first, the paperwork on
+ * top of it, which is also the order the game means (D-319, D-013).
+ */
+@media (max-width: 56rem) {
+  .entry-split {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+  }
+  /* The globe keeps no room of its own: it is the ground of the screen, and
+     the square that says where the planet stands is the screen's middle. */
+  .entry-globe {
+    position: absolute;
+    inset: 0;
+    padding: 0;
+  }
+  .entry-globe .note {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0.5rem;
+    margin: 0;
+    padding-inline: 0.75rem;
+  }
+  .entry-split > main.entry {
+    background: transparent;
+  }
+  /* What is read stands on a wash of the page, not on the ground itself: the
+     planet is a background, and a background is not a thing to read text off.
+     The steps and the lines under the cards are text as much as the cards
+     are; the logo is a white mark and keeps the sky behind it, with a shadow
+     under it for the tone of ground it happens to cross. */
+  .entry.auth > .card,
+  .entry.auth > section,
+  .entry.auth > .steps,
+  .entry.auth > p {
+    background: var(--base-900);
+    background: color-mix(in srgb, var(--base-900) 88%, transparent);
+  }
+  .entry.auth > .steps,
+  .entry.auth > p {
+    padding: 0.35rem 0.6rem;
+  }
+  .entry.auth > .brand {
+    text-shadow: 0 1px 4px var(--base-900);
+  }
+  /* Both hands turn the globe here: the screen does not scroll (`.entry-split`
+     above), so giving the browser a vertical pan gave it nothing and took the
+     latitude away -- half the sphere was unreachable by finger. */
+  .entry-globe svg {
+    touch-action: none;
+  }
+  /* The step of the doors, before one is chosen: the globe **is** the step,
+     so this half is the way back and nothing else -- no box, no wash, no
+     heading over a planet the player is reading. And the hand goes through
+     it: only in this state, because everywhere else the way in is a form to
+     scroll, and a form that lets the wheel through does not scroll. */
+  .entry.auth.bare {
+    justify-content: flex-start;
+    pointer-events: none;
+  }
+  .entry.auth.bare button {
+    pointer-events: auto;
+  }
+  .entry.auth > .doors-step.bare {
+    border: none;
+    background: none;
+    padding: 0;
+  }
+  /* Its heading still has to be read, and it is read off a planet: the wash
+     travels with the words rather than with the box that is not there. */
+  .entry.auth > .doors-step.bare h1,
+  .entry.auth > .doors-step.bare p {
+    background: var(--base-900);
+    background: color-mix(in srgb, var(--base-900) 88%, transparent);
+    padding: 0.35rem 0.6rem;
+  }
+}
+
+/* On a phone the way in takes the whole width. A step that has a box of its
+   own -- the card of the account, of the character, the door step's section --
+   carries its border and its padding with it, and a gutter outside that box is
+   width taken from the table inside: the door's rows were reading through
+   forty pixels of margin on each side of a 375px screen.
+
+   Forty rem, not the 56 of the layout above: `rem` in a media query is the
+   initial 16px whatever `:root` says, so 56rem is 896px -- a tablet, where the
+   26rem column is a column and not a shave off the edges. */
+@media (max-width: 40rem) {
+  .entry-split > main.entry {
+    padding-inline: 0;
+  }
+  .entry.auth > * {
+    width: 100%;
+  }
 }
 
 /* The account moved from a header modal to the sidebar's tab (D-238):

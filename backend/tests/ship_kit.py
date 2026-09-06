@@ -190,7 +190,9 @@ async def _port(session: AsyncSession, *, name: str = "Космодром", plan
     stamp = uuid.uuid4().hex[:8]
     await _orbit(session, planet)
     node = await world.create_node(session, f"terra.port.{stamp}", name, area_m2=400, planet=planet)
-    session.add(Building(node_id=node.id, area_m2=400))
+    #: The yard's roof and no more: the rest of the node is the apron the
+    #: hulls set down on (D-319), and a port roofed over would take none.
+    session.add(Building(node_id=node.id, area_m2=80))
     await session.flush()
     yard = await world.node_container(session, node)
     await world.grant_item(session, yard, "space_shipyard", quality=60, origin="тест")

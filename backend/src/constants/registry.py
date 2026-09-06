@@ -13,6 +13,7 @@ is already wired up and what is not yet.
 
 from __future__ import annotations
 
+from src.constants.registry_map import *  # noqa: F403 -- the map's keys are declared beside
 from src.constants.spec import (
     Bands,
     Book,
@@ -44,12 +45,26 @@ BODY_DIET_VARIETY_BONUS = Num("body.diet_variety_bonus")
 BODY_HIBERNATION_RATE = Num("body.hibernation_rate")
 BODY_HIBERNATION_HOME_K = Num("body.hibernation_home_k")
 
-# --- Map and transits (D-045, D-089, D-107, D-147) --------------------------
-TRAVEL_CITY_STEP = Span("travel.city_step")
-TRAVEL_INTRA_CITY = Span("travel.intra_city")
-#: Node distance (D-180): the first ring beyond the walls and the growth of each next.
-TRAVEL_FRONTIER_STEP = Num("travel.frontier_step")
-TRAVEL_FRONTIER_GROWTH = Num("travel.frontier_growth")
+# --- Map and transits (D-045, D-089, D-107, D-147, D-319) -------------------
+#: The surface is a sphere (D-319): a planet's radius is its share of Terra's
+#: (`PLANET_RADIUS`, D-320) times this, and every distance on it is metres.
+PLANET_TERRA_RADIUS_KM = Num("planet.terra_radius_km")
+#: The ring a node is seated at from what it was laid beside, and the gap
+#: two nodes never stand nearer than -- metres on the tangent plane. Balance
+#: since the surface is finite: they decide how much fits on a planet (D-065).
+MAP_CITY_STEP_M = Num("map.city_step_m")
+MAP_MIN_GAP_M = Num("map.min_gap_m")
+#: No node is laid nearer the pole than this latitude: "north up" is not
+#: defined there.
+MAP_CITY_LAT_MAX = Num("map.city_lat_max")
+#: A founded city's first ring of plots (D-089): the count the authority
+#: hands out, laid at the founding since nothing is found in a city (D-319).
+CITY_RING_SLOTS_BASE = Num("city.ring_slots_base")
+#: Time is distance (D-319): an edge between two surface nodes takes the
+#: metres between them at this pace, times the surface's multiplier (D-107).
+#: A city step is that too -- `travel.city_step` was seconds by decree and is
+#: the ring's metres at this pace now.
+TRAVEL_WALK_SPEED_KMH = Num("travel.walk_speed_kmh")
 TRAVEL_STAMINA_PER_HOUR = Num("travel.stamina_per_hour")
 TRANSPORT_STAMINA_K = Num("transport.stamina_k")
 # --- Transport (D-107, D-129, D-157) ----------------------------------------
@@ -70,6 +85,9 @@ ROAD_DECAY_RATE = Num("road.decay_rate")
 #: Multiplier to the decay rate by what the edge was laid from (D-252):
 #: asphalt sags at half the pace of gravel, and that is its whole point.
 ROAD_DECAY_BY_PAVING = Table("road.decay_by_paving")
+#: Below the ladder (D-319): an edge laid with the world and never walked.
+#: Slower than a trodden trail, and no vehicle passes either.
+ROAD_WILD_MULTIPLIER = Num("road.wild_multiplier")
 
 # --- Inventory (20-systems/04-items, D-146) ---------------------------------
 INVENTORY_CARRY_MASS = Num("inventory.carry_mass")
@@ -520,43 +538,19 @@ TRADE_DUTY_FREE_WINDOW = Num("trade.duty_free_window")
 #: to compute the duty from: first the market, then customs.
 TRADE_REFERENCE_PRICE_WINDOW = Num("trade.reference_price_window")
 
-# --- Exploration (D-152, run price -- D-156) --------------------------------
-#: A run in untrodden surroundings: minutes. Grows with place depletion from there.
-#: Searching "near": temperature/precipitation drift from the origin node,
-#: and terrain marks repeat it with the kinship share (D-262).
-EXPLORE_NEAR_DRIFT = Table("explore.near_drift")
-EXPLORE_ATTEMPT_MINUTES = Span("explore.attempt_minutes")
-#: Ceiling of run duration, not its length.
-EXPLORE_ATTEMPT_HOURS = Num("explore.attempt_hours")
-#: This many times longer is each next run from the same node.
-EXPLORE_EFFORT_GROWTH = Num("explore.effort_growth")
-#: The price of a full-length run; a short one costs by time in the field.
-EXPLORE_ATTEMPT_STAMINA = Num("explore.attempt_stamina")
-#: The chance in an untrodden place; falls by `find_decay` with each find from
-#: here, but not below `find_floor`: the trodden grows poorer, not locked.
-EXPLORE_FIND_CHANCE = Num("explore.find_chance")
-EXPLORE_FIND_DECAY = Num("explore.find_decay")
-EXPLORE_FIND_FLOOR = Num("explore.find_floor")
-#: Crowding of the graph (D-207): the more edges the node a find will hang on
-#: already has -- and the more its neighbours have -- the worse the search. This
-#: is what turns a city outwards instead of into a star around the bioprinter.
-EXPLORE_CROWDING_FREE = Num("explore.crowding_free")
-EXPLORE_CROWDING_NEIGHBOUR_K = Num("explore.crowding_neighbour_k")
-EXPLORE_CROWDING_DECAY = Num("explore.crowding_decay")
-EXPLORE_CROWDING_FLOOR = Num("explore.crowding_floor")
-EXPLORE_VEIN_SHARE = Num("explore.vein_share")
-#: Forest cover of the world (D-191): the share of finds carrying woods, and
-#: the same share narrows the chance when the woods are what you asked for.
-EXPLORE_FOREST_SHARE = Num("explore.forest_share")
-#: Stony and meadow places (D-196): place signs the scout hands out; since
-#: D-210 they have no mechanic of their own yet.
-EXPLORE_STONES_SHARE = Num("explore.stones_share")
-EXPLORE_MEADOW_SHARE = Num("explore.meadow_share")
+# --- Ground (D-126, D-151, D-191, D-196; laid at birth since D-319) ----------
+#: Once the scout's dice (`explore.*`), the world's now: what a place carries
+#: when it is made without a point of the field -- rooms, hand-laid nodes.
+GROUND_VEIN_SHARE = Num("ground.vein_share")
+#: Forest cover of the world (D-191): the share of places carrying woods.
+GROUND_FOREST_SHARE = Num("ground.forest_share")
+#: Stony and meadow places (D-196): signs of a place; since D-210 they have
+#: no mechanic of their own yet.
+GROUND_STONES_SHARE = Num("ground.stones_share")
+GROUND_MEADOW_SHARE = Num("ground.meadow_share")
 EXPLORE_NODE_AREA = Span("explore.node_area")
-#: The transit length to a find is set by the node's distance (D-180), not by a
-#: separate exploration quantity: `explore.distance` is abolished.
-EXPLORE_VEIN_RICHNESS = Span("explore.vein_richness")
-EXPLORE_VEIN_STOCK = Span("explore.vein_stock")
+GROUND_VEIN_RICHNESS = Span("ground.vein_richness")
+GROUND_VEIN_STOCK = Span("ground.vein_stock")
 
 # --- Foraging (D-210) -------------------------------------------------------
 #: Below this much empty land -- plot minus the building footprint -- there is
@@ -715,6 +709,9 @@ RUINS_CITY_ROOMS = Num("ruins.city_rooms")
 #: What rooms a city holds, by what the city **was**, and what lies in a room,
 #: by what the room is. Two books, and both are content: a new kind of room is
 #: a line in the vault.
+#: The area of a room, a hall or a pier of the Forerunners (D-232); apart from
+#: the found node's area, which D-321 shrank for the plain's reach.
+RUINS_ROOM_AREA = Span("ruins.room_area")
 RUINS_ROOM_TYPES = Book("ruins.room_types")
 RUINS_ROOM_FINDS = Book("ruins.room_finds")
 #: How much lies in a room, and how much richer each step deeper makes it (D-061).

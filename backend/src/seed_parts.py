@@ -284,6 +284,11 @@ async def buildings(session: AsyncSession) -> None:
     to what stands in it -- `build.slots_per_area` per machine, never below
     `build.area_min` -- and the rest of the plot stays yard: beds (D-246) and
     ground to walk over (D-210).
+
+    A **spaceport** is cut the same way inside a city too (D-319): the yard's
+    roof covers its machines, and the rest of the node is the apron the hulls
+    set down on. Roofed over its whole plot, the capital's port would take no
+    ship at all -- a hull stands on open ground the way a house does.
     """
 
     book = current_catalog().recipes
@@ -297,6 +302,8 @@ async def buildings(session: AsyncSession) -> None:
     ).all()
     furnished: dict[str, Node] = {}
     standing: dict[str, int] = {}
+    pads: set[str] = set()
+    yards = frozenset(world.station_names(ship.SPACEPORT))
     for node, thing in rows:
         try:
             recipe = book.recipe(thing)
@@ -305,12 +312,14 @@ async def buildings(session: AsyncSession) -> None:
         if recipe.kind in (ItemKind.STATION, ItemKind.FURNITURE):
             furnished[node.key] = node
             standing[node.key] = standing.get(node.key, 0) + 1
+        if thing in yards:
+            pads.add(node.key)
     constants = current()
     for key, node in furnished.items():
         if await estate.built_area(session, node) > 0:
             continue
         whole = float(node.area_m2)
-        if node.owner_city_id is None:
+        if node.owner_city_id is None or key in pads:
             #: Room for what stands here and no more. The cap is the plot
             #: itself: a machine cannot be roofed with land the node has not got.
             whole = min(

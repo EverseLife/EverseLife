@@ -53,7 +53,7 @@ DEFERRED = "deferred"
 #: unauthenticated internet silently, and what only `look` should say to
 #: whoever stands in the node stays with `look`. Deliberately narrow: the
 #: node-type glyphs the client draws, and nothing else.
-PUBLIC_SIGNS = ("precursors", "stones", "woods", "meadow", PLOT)
+PUBLIC_SIGNS = ("precursors", "stones", "woods", "meadow", "mountain", "vein", PLOT)
 
 
 def public_signs(node: Node) -> list[str]:
@@ -68,6 +68,8 @@ def public_signs(node: Node) -> list[str]:
 #: watered, so the one word that means water is named here.
 WATER = "water"
 RIVER = "river"
+#: A lake of the local relief within reach (D-323): water as a river is.
+LAKE = "lake"
 #: The same property saying there is none. A word, not an absence: a node
 #: whose water was never rolled and one rolled dry read alike to `has_place`.
 NO_WATER = "none"
@@ -85,7 +87,7 @@ def has_place(node: Node | None, mark: str) -> bool:
         return False
     held = (node.properties or {}).get(mark)
     if mark == WATER:
-        return held == RIVER
+        return held in (RIVER, LAKE)
     return bool(held)
 
 
@@ -123,6 +125,18 @@ def orbit_of(node: Node) -> dict[str, float] | None:
     }
 
 
+async def is_built_up(session: AsyncSession, node: Node) -> bool:
+    """Whether the node stands in a city's built-up area (D-319): its parent is a surface node.
+
+    The Python twin of `models.world.built_up`: a wild node hangs on its planet
+    and is nobody's; a plot, a hall or a Forerunner room hangs on a city's node.
+    """
+    if node.layer is not Layer.PLANET or node.parent_id is None:
+        return False
+    parent = await session.get(Node, node.parent_id)
+    return parent is not None and parent.layer is Layer.PLANET
+
+
 async def create_node(
     session: AsyncSession,
     key: str,
@@ -131,7 +145,7 @@ async def create_node(
     planet: Planet = Planet.TERRA,
     area_m2: float,
     properties: dict[str, Any] | None = None,
-    layer: Layer = Layer.CITY,
+    layer: Layer = Layer.PLANET,
     parent: Node | None = None,
     anchor: Node | None = None,
 ) -> Node:

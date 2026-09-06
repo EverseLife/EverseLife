@@ -12,7 +12,6 @@ the planet's clock in `test_pyroxis_clock.py`.
 
 from __future__ import annotations
 
-import random
 import uuid
 
 from sqlalchemy import select
@@ -20,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from pyroxis_kit import _surface
 from src.constants import Constants, current_catalog
-from src.engine import ship, world
+from src.engine import estate, ship, world
 from src.models.ship import Ship
 from src.models.world import Layer, Node, Planet
 
@@ -112,54 +111,25 @@ async def test_the_console_shows_the_planet_and_not_every_field_of_it(
 
     console = await profile(session, constants, current_catalog(), hulk)
     assert console["stage"] == "orbit"
-    assert len(console["landings"]) == 1, "консоль перечисляет планету, а не каждое её поле"
-    row = console["landings"][0]
-    #: And it says so, so the client knows a node picker belongs here.
+    #: Every node of the surface is a row: the globe under the hull picks
+    #: among them (D-319 item 10), and each says how much ground is free.
+    rows = {row["node"]: row for row in console["landings"]}
+    assert set(rows) == {plateau.key, *(field.key for field in fields)}
+    row = rows[plateau.key]
+    #: And it says so, so the client knows the whole surface is a pad.
     assert row["anywhere"] is True
-    assert row["node"] in {plateau.key, *(field.key for field in fields)}
-    #: A name and nothing else: what a descent costs is a fact about the planet,
-    #: and it is sent once beside the list rather than copied into every field
-    #: of it (D-225, D-245).
-    assert set(row) == {"node", "name", "anywhere"}
+    #: The node's own name and its room, nothing else: what a descent costs
+    #: is a fact about the planet, and it is sent once beside the list rather
+    #: than copied into every field of it (D-225, D-245).
+    assert set(row) == {"node", "name", "anywhere", "room"}
+    assert row["name"] == plateau.name
+    assert row["room"] == round(await estate.free_ground(session, plateau))
+    #: What the hull needs of that room, once beside the list.
+    assert console["footprint"] == round(await ship.hull_footprint(session, hulk))
     #: This hull has no engines at all, so the price is offered and unreachable
     #: rather than hidden: "не отрывается" is an answer, and a missing row is not.
     assert set(console["descent"]) == {"hours", "fuel", "needs", "reachable"}
     assert console["descent"]["reachable"] is False
-    #: The name is the planet's own, not the field the row happens to carry:
-    #: the hull comes down where the roll puts it (D-235).
-    assert row["name"] == sphere.name
-
-
-async def test_a_landing_without_a_port_falls_where_the_rock_allows(
-    session: AsyncSession, constants: Constants
-) -> None:
-    """A planet with no ports takes a ship into a node of its own choosing
-    (D-233, D-235).
-
-    There is nothing to prefer: no piers, no berths, no lit beacons. So the
-    node is rolled at the landing rather than picked in the console -- one sets
-    down where the rock allows. Seeded by the job, so a flight that failed and
-    is retried puts the hull in the same place instead of teleporting it across
-    the planet on the second attempt.
-    """
-    from src.engine.ship.flight import _somewhere_on
-
-    plateau, fields = await _surface(session, count=6)
-    ground = {plateau.id, *(field.id for field in fields)}
-
-    #: The same job always lands in the same place.
-    twice = set()
-    for _ in range(2):
-        twice.add((await _somewhere_on(session, plateau, dice=random.Random("job-1"))).id)
-    assert len(twice) == 1, "повтор рейса не должен переносить корабль"
-
-    #: And across many flights the whole surface is used, not one node.
-    where = set()
-    for attempt in range(40):
-        landed = await _somewhere_on(session, plateau, dice=random.Random(f"job-{attempt}"))
-        assert landed.id in ground, "сели мимо планеты"
-        where.add(landed.id)
-    assert len(where) > 1, "садятся всегда в один узел — это не жеребьёвка"
 
 
 async def test_ground_without_a_planet_property_takes_nobody(
@@ -172,16 +142,3 @@ async def test_ground_without_a_planet_property_takes_nobody(
     )
     assert not await ship.lands_anywhere(session, wild)
     assert wild.key not in {node.key for node in await ship.open_landings(session)}
-
-
-async def test_nothing_grows_where_the_ground_bakes(
-    session: AsyncSession, constants: Constants
-) -> None:
-    """A grove on a lava field would be a property nobody could explain
-    (D-231, D-233): the search does not offer what the planet cannot hold."""
-    from src.engine import explore
-
-    _, fields = await _surface(session, count=1)
-    offered = await explore.possible(session, fields[0])
-    assert explore.VEIN in offered and explore.SITE in offered
-    assert explore.FOREST not in offered

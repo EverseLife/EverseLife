@@ -64,7 +64,7 @@ from src.models.event import EventKind
 from src.models.identity import Body, BodyState
 from src.models.inventory import Container, ContainerKind, Item
 from src.models.ledger import AccountKind, PostingReason
-from src.models.world import Layer, Node
+from src.models.world import Layer, Node, built_up
 from src.units import (
     ENERGY_PER_TARIFF_UNIT,
     HOURS_PER_DAY,
@@ -172,16 +172,16 @@ class NotEnough(EnergyError):
 async def grid_node(session: AsyncSession, node: Node) -> Node | None:
     """The delegate node of the city on whose territory this node stands.
 
-    The city's built-up area is the planet delegate's children (D-045). The
+    The city's built-up area is its own node's children (D-045, D-319). The
     floodplain and the gully hang directly on the planet and do not belong to
     the city: there is no pool there.
     """
-    if node.parent_id is None:
+    if node.layer is not Layer.PLANET or node.parent_id is None:
         return None
     parent = await session.get(Node, node.parent_id)
     if parent is None or parent.layer is not Layer.PLANET:
         return None
-    return parent if node.layer is Layer.CITY else None
+    return parent
 
 
 async def pool_of(
@@ -757,10 +757,10 @@ async def ensure_pools(
 ) -> int:
     """Create a pool for every city that has a built-up area.
 
-    A city is a planet-layer node under which city-layer nodes stand. The pool
-    is created once and lives by time from then on.
+    A city is a surface node under which other surface nodes stand (D-319).
+    The pool is created once and lives by time from then on.
     """
-    cities = (await session.execute(select(Node).where(Node.layer == Layer.CITY))).scalars().all()
+    cities = (await session.execute(select(Node).where(built_up()))).scalars().all()
     opened = 0
     for node in cities:
         # The second call creates the pool, and it is reached only by one that

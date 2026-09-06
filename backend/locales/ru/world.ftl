@@ -278,32 +278,3 @@ death-no-iron = в принтере { NUMBER($have, minimumFractionDigits: 0, ma
 death-prison-printer = тюремный принтер печатает только заключённых: это не дверь в мир
 death-cannot-afford = печать стоит { $price } ₭, а на счету { $balance } ₭. Принтер Предтеч в столице печатает бесплатно — но двенадцать часов
 death-job-dangling = печать { $job } ссылается в никуда
-
-# --- разведка (engine/explore/) ----------------------------------------------
-
-explore-unknown-goal = неизвестная цель поиска: { $goal }
-explore-unknown-reach = поиск бывает ближним или дальним, «{ $reach }» — не про расстояние
-explore-dead-scouts = мёртвое тело не разведывает
-explore-no-such-ore = такой породы в этом мире не добывают: «{ NAME($resource) }»
-explore-body-off-node = разведка идёт из узла, а тело стоит в никуда
-explore-not-from-aboard = с борта не разведывают: под кораблём земли нет. Сойдите в порту и идите от него
-explore-lot-only-in-city = участок ищут в городе: за стенами городской застройки нет
-# Что здесь можно искать: каждая цель называет своё слово, а склеивает их
-# язык (`inner`). Раньше это была карта из пяти русских существительных в
-# винительном падеже, приваренных к одной этой фразе.
-explore-goal-lot = участок
-explore-goal-site = новое место
-explore-goal-vein = жилу
-explore-goal-forest = лес
-explore-goal-room = помещения Предтеч
-explore-wrong-goal-here = отсюда так не ищут: здесь ищут { $offers ->
-        [none] ничего
-       *[some] { $words }
-    }
-explore-city-exhausted = «{ $city }» выработан: всё, что можно было вскрыть, уже вскрыто
-explore-no-strength = на заход нужно { NUMBER($need, minimumFractionDigits: 1, maximumFractionDigits: 1) } выносливости, а есть { NUMBER($have, minimumFractionDigits: 1, maximumFractionDigits: 1) }: берут по самому долгому заходу отсюда — сначала поесть или поспать
-explore-already-out = заход уже идёт: дождитесь возвращения
-explore-run-queued = заход уже поставлен
-explore-run-dangling = заход { $job } ссылается в никуда
-explore-not-out = тело не в разведке: возвращаться неоткуда
-explore-lot-outside-city = участок ищут в городе: за стенами застройки нет

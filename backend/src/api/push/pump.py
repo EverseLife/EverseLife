@@ -519,10 +519,9 @@ def _city_of(row: Event) -> uuid.UUID | None:
 
 
 def _follow(sink: Sink, row: Event) -> None:
-    """The sink follows the body: arrival, printing, a find that moved the
-    scout, a sentence that moved the convict. In transit and in death the
-    body is nowhere."""
-    if row.kind in ("travel.arrived", "travel.cancelled", "body.printed", "explore.found"):
+    """The sink follows the body: arrival, printing, a sentence that moved
+    the convict. In transit and in death the body is nowhere."""
+    if row.kind in ("travel.arrived", "travel.cancelled", "body.printed"):
         sink.node_id = row.node_id
     elif row.kind in ("travel.started", "body.died"):
         sink.node_id = None

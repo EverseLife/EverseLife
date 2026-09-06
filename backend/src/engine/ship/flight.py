@@ -8,7 +8,6 @@ Split out of `engine/ship.py` along its sections (review 2026-08-23, wave 3).
 
 from __future__ import annotations
 
-import random
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -51,7 +50,7 @@ from src.engine.ship.physics import (
     mass,
     ratio,
 )
-from src.engine.ship.view import lands_anywhere, open_landings
+from src.engine.ship.view import lands_anywhere
 from src.models.event import EventKind
 from src.models.identity import Body
 from src.models.job import Job, JobKind, JobState
@@ -377,7 +376,7 @@ async def land(
         raise NoPort(key="ship-land-not-into-orbit", node=port.name)
     if port.planet is not here.planet:
         raise TooFar(key="ship-land-other-planet", node=port.name)
-    await _will_take(session, constants, port, why="land")
+    await _will_take(session, constants, ship, port, why="land")
 
     fall = fall_hours(constants, here.planet, thrust_ratio)
     burnt, weight = await _burn(
@@ -465,7 +464,7 @@ async def recall(
     #: down a chain is not a rescue -- but a pier with its yard carried off is
     #: not a chain, it is the answer, and the hull flies on to the port it aimed
     #: at, which was checked when it was aimed at.
-    await _will_take(session, constants, home, why="turn-back")
+    await _will_take(session, constants, ship, home, why="turn-back")
 
     #: How long it has been flying is how long it has to fly back. Counted from
     #: the job that carries the leg: it was created at the casting off, and that
@@ -548,18 +547,6 @@ async def recall(
     return job.run_at
 
 
-async def _somewhere_on(session: AsyncSession, aim: Node, *, dice: random.Random) -> Node:
-    """A node of this planet's surface, taken at random.
-
-    Everything the planet takes a landing in is equal here: there are no piers,
-    no berths and no lit beacons, so there is nothing to prefer. Falls back to
-    the node aimed at if the planet somehow offers nothing -- an arrival must
-    not be lost because a roll came up empty.
-    """
-    ground = [node for node in await open_landings(session) if node.planet is aim.planet]
-    return dice.choice(sorted(ground, key=lambda one: one.key)) if ground else aim
-
-
 @handler(JobKind.SHIP_FLIGHT)
 async def arrived(session: AsyncSession, job: Job) -> None:
     """The passage is over: the edge to the port appears, and one may walk aboard again."""
@@ -573,16 +560,12 @@ async def arrived(session: AsyncSession, job: Job) -> None:
     #: a second gangway and moor a ship that is already moored.
     if ship.docked_node_id is not None:
         return
-    #: On a planet one lands anywhere on there is no port to aim at, so the
-    #: node is **rolled here, at the landing** (D-235): one sets down where the
-    #: rock allows, not where it would be convenient. Seeded by the job, so a
-    #: retry after a failure puts the ship down in the same place rather than
-    #: teleporting it across the planet on the second attempt.
-    #: A turn-back named its pier on the button -- "Развернуться в «Плато
-    #: Наковальни»" -- and rolling a different field under it would make the
-    #: interface a liar. Only a passage aimed at a planet is rolled (D-235).
-    if await lands_anywhere(session, port) and not job.payload.get("back"):
-        port = await _somewhere_on(session, port, dice=random.Random(str(job.id)))
+    #: Where the order said, and nowhere else (D-319). A planet one lands
+    #: anywhere on used to roll the node at the landing (D-235); now the crew
+    #: picks it from orbit -- the globe under the hull is the landing picker,
+    #: and a node with no room for the hull refused at the choice -- so an
+    #: arrival that set the hull down somewhere else would land it on ground
+    #: nobody asked about and that may have no room.
     connector = await session.get(Node, ship.connector_node_id)
     if connector is None:  # pragma: no cover
         raise ShipError(key="ship-no-connector")

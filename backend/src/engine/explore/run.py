@@ -1,462 +1,431 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Nurlan Urazkulov
 
-"""explore: the run itself -- setting out, coming back, and calling it off.
+"""A run: the scout goes, the field is read, a node is born (D-321).
 
-Split out of `engine/explore.py` along its sections. A run is an ordinary
-journal job: it goes offline, survives a restart and fires exactly once. What
-it costs is `explore.odds`, what it leaves behind is `explore.site`; this file
-is the walk between them.
+The run is priced by the road: aiming at a point *d* metres away costs the
+walk of *d* metres over wild ground, in time and in stamina, and the body
+stands in its node meanwhile -- a run is an occupation (D-211) and a journal
+job. When the job fires the cell is **materialised**: the field is read at
+its centre, the node is created with the cell's key, a wild way is laid back
+to the node the scout left from and to every found node the biome's reach
+allows with a clear line, and -- by the vault's chance -- a whole complex is
+laid round it.
+
+Nothing is rolled that the field can answer. The dice that remain are seeded
+by the cell's key, so a run repeated after a failure lays the same node with
+the same veins and the same stores, and two servers lay one world.
 """
 
 from __future__ import annotations
 
+import logging
+import math
 import random
 import uuid
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.constants import Constants, current, current_catalog, display_name
+from src import globe
+from src.constants import Catalog, Constants, current, current_catalog
 from src.constants import registry as R
-from src.engine import city as town
-from src.engine import (
-    craft,
-    events,
-    food,
-    frost,
-    luck,
-    occupation,
-    props,
-    ruins,
-    transport,
-    travel,
-    world,
-)
-from src.engine import ship as vessels
-from src.engine.errors import Says
-from src.engine.explore import odds as forecast
-from src.engine.explore import site
+from src.engine import biome, events, ground, memory, occupation, places, ruins, travel, world
+from src.engine.explore import aim as aiming
 from src.engine.explore._base import (
-    FAR,
-    FOUND_HERE,
-    GOALS,
-    LOT,
-    NEAR,
-    REACHES,
-    ROOM,
-    SITE,
-    VEIN,
+    Aim,
+    AlreadyJoined,
     AlreadyOut,
+    Cell,
     ExploreError,
-    NoStrength,
-    NotOut,
-    mineable,
+    NotFromHere,
+    ScoutGone,
+    key_of,
+    point_of,
 )
 from src.engine.jobs import enqueue, handler
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState
-from src.models.job import Job, JobKind, JobState
-from src.models.world import Node, Surface
-from src.units import SECONDS_PER_MINUTE
+from src.models.job import Job, JobKind
+from src.models.world import ABOARD, Layer, Node, Planet, Surface
+from src.units import PERCENT
+
+log = logging.getLogger(__name__)
+
+#: The properties a complex writes on its nodes: the scheme's role, and a ford.
+ROLE = "role"
+FORD = aiming.FORD_MARK
+#: The sign of a vein on the node, for the map's glyph: the rows are in `vein`.
+VEIN = "vein"
+#: A find has no name: the map shows the sign of its kind (the owner, 2026-09-06).
+NAMELESS = ""
 
 
-async def pending(session: AsyncSession, body: Body) -> Job | None:
-    """This body's ongoing run, if any."""
-    return (
-        (
-            await session.execute(
-                select(Job).where(
-                    Job.kind == JobKind.EXPLORE_SURVEY.value,
-                    Job.body_id == body.id,
-                    Job.state == JobState.PENDING,
-                )
-            )
-        )
-        .scalars()
-        .first()
-    )
+def _wild_seconds(constants: Constants, metres: float) -> float:
+    return travel.walk_seconds(constants, metres) * float(constants[R.ROAD_WILD_MULTIPLIER])
 
 
 async def survey(
     session: AsyncSession,
     constants: Constants,
     body: Body,
+    target: globe.Geo,
     *,
-    goal: str = SITE,
-    resource: str | None = None,
-    reach: str = FAR,
     now: datetime | None = None,
 ) -> Job:
-    """Go exploring from this node for the named goal. The find arrives on schedule.
-
-    The scout **leaves in person**: while the run goes, the body is in the field
-    and unavailable for everything in-person -- as in sleep
-    (`travel.require_here`). One can return before the deadline with `cancel`,
-    but then the find does not happen.
-
-    Duration and chance depend on how trodden the surroundings already are
-    (D-156): the first run from here is minutes and an almost certain find, the
-    sixth is hours and a roll. Stamina is written off up front, like batch
-    materials, and without it nobody leaves at all: the legs are the price of
-    the field, exactly as they are the price of the road (D-147, D-293).
-    """
+    """Send the body to explore the point: refused by the landscape, paid by the road."""
     moment = now or datetime.now(UTC)
-    if goal not in GOALS:
-        raise ExploreError(key="explore-unknown-goal", goal=goal)
-    #: Near or far (D-262): near drifts the find's properties from this very
-    #: node, far is the independent roll it always was.
-    if reach not in REACHES:
-        raise ExploreError(key="explore-unknown-reach", reach=reach)
-    if body.state is not BodyState.ALIVE:
-        raise ExploreError(key="explore-dead-scouts")
-    if resource is not None and resource not in mineable(current_catalog()):
-        raise ExploreError(key="explore-no-such-ore", resource=resource)
     await travel.require_here(session, body)
-    #: A run is an occupation (D-211): the scout leaves in person, and a body
-    #: with a plot under the plough or a batch at the bench has no hands to
-    #: leave with.
-
-    await occupation.require_free(session, body, besides=frozenset({occupation.FIELD}))
-
+    await occupation.require_free(session, body)
     origin = await session.get(Node, body.node_id)
     if origin is None:  # pragma: no cover -- a body always stands in a node
-        raise ExploreError(key="explore-body-off-node")
-
-    #: Not from aboard a ship (D-201). A find comes with an edge from the node
-    #: one left from, and an edge out of a ship node would be a second way in
-    #: -- the connector must stay the only one, or the inspection at the
-    #: gangway is walked around. There is no land under a hull to explore anyway.
-
-    if vessels.is_aboard(origin):
-        raise ExploreError(key="explore-not-from-aboard")
-
-    #: The refusal must come at once, not on return: an impossible goal is
-    #: visible before leaving, and the player must not spend stamina on it.
-    if goal == LOT and await town.of_node(session, origin) is None:
-        raise ExploreError(key="explore-lot-only-in-city")
-    #: The goal must be one this very node offers (D-232). `possible` is what
-    #: the client draws its buttons from, and the door must agree with the
-    #: advice: a socket takes a goal from anybody, agents included, and
-    #: "search for city ground" from a room deep inside Merid would hang a
-    #: frozen city on a corridor and walk around the gate rule (D-206).
-    offers = await forecast.possible(session, origin)
-    if goal not in offers:
-        raise ExploreError(
-            key="explore-wrong-goal-here",
-            offers="some" if offers else "none",
-            #: Each goal names its own message and the edge says them, joined
-            #: by the separator of whoever is reading. Joining words here is
-            #: what made this refusal untranslatable.
-            inner={"words": [Says(f"explore-goal-{one}") for one in sorted(offers)]},
-        )
-    ruined = await ruins.city_of(session, origin)
-    if goal == ROOM and ruined is not None and ruins.exhausted(constants, ruined):
-        raise ExploreError(key="explore-city-exhausted", city=ruined.name)
-    if await pending(session, body) is not None:
-        raise AlreadyOut(key="explore-already-out")
-
-    #: Asked for by the longest run this place can give, not by the roll below
-    #: (`forecast.price`): that is the number the player was shown before
-    #: pressing, and the one threshold a second press cannot re-throw.
-    #:
-    #: The place names the price and the body multiplies it, as it multiplies
-    #: every price of work: the cold doubles it (D-231), a hot meal takes a
-    #: fifth off (D-119). The forecast shows the place's number alone -- it is
-    #: read on a door that must not write, and settling the cold writes -- so a
-    #: frozen scout is refused above what was shown, and the refusal names the
-    #: figure it actually asked for.
-    drain = food.drain_multiplier(constants, body, moment) * await frost.drain_multiplier(
-        session, constants, body
-    )
-    have = float(body.stamina)
-    ceiling = forecast.price(constants, origin) * drain
-    if ceiling > have:
-        raise NoStrength(key="explore-no-strength", need=ceiling, have=have)
-
-    minutes = forecast.minutes_of(constants, origin, random.Random())
-    #: Paid for what the run actually turned out to be, within what was asked
-    #: for at the gate: a short roll costs less than the ceiling, never more.
-    spend = forecast.stamina_for(constants, minutes) * drain
-    #: Floored like every other write-off of the body's own quantity: the
-    #: threshold above makes the difference non-negative by arithmetic, and the
-    #: floor keeps a rounding tail from writing a negative into the column.
-    body.stamina = Decimal(str(max(0.0, have - spend)))
-    await session.flush()
-
-    #: The chance is named at departure and travels in the job: while the scout
-    #: is in the field the neighbours may tread the area, but that does not change the promised
-    #: price.
-    #:
-    #: Three things multiply into it, and they answer different questions: how
-    #: trodden the surroundings are (D-156), how rare the sought species is
-    #: (D-151), and how crowded the place the find will hang on already is (D-207).
-    hangs_on = await forecast.anchor_of(session, origin, goal)
-    press = await forecast.crowding(session, constants, hangs_on)
-    aimed = forecast.aim_at(constants, current_catalog(), goal, resource)
-    odds = forecast.chance(constants, origin) * aimed * press
-    #: And a city of the Forerunners is worked out like a vein (D-232): the more
-    #: of its rooms are open, the oftener the next door leads nowhere.
-    odds *= await forecast.wear_of(session, constants, origin, goal)
-    will_return = moment + timedelta(minutes=minutes)
-    #: In the field the scout is not at the machine: the running batch
-    #: freezes and waits for the return (D-209).
-
-    await craft.freeze(session, body, now=moment)
-    event = await events.record(
+        raise NotFromHere(key="explore-not-from-here")
+    if (origin.properties or {}).get(ABOARD):
+        raise NotFromHere(key="explore-not-from-here")
+    aim = await aiming.check(session, constants, origin, target)
+    if aim.existing is not None and await travel.edge_between(session, origin, aim.existing):
+        raise AlreadyJoined(key="explore-already-joined", node=aim.existing.name)
+    seconds = _wild_seconds(constants, aim.metres)
+    await travel.pay_for_road(session, constants, body, seconds, moment=moment)
+    started = await events.record(
         session,
         EventKind.EXPLORE_STARTED,
         actor_identity_id=body.identity_id,
-        node_id=body.node_id,
-        stamina=spend,
-        goal=goal,
-        resource=resource,
-        minutes=minutes,
-        chance=odds,
-        explored=forecast.found_here(origin),
-        crowding=press,
-        returns_at=will_return.isoformat(),
+        node_id=origin.id,
+        cell=key_of(aim.planet, aim.cell),
+        metres=round(aim.metres),
     )
     job = await enqueue(
         session,
         JobKind.EXPLORE_SURVEY,
-        will_return,
+        moment + timedelta(seconds=seconds),
         payload={
             "body": str(body.id),
-            "from": str(body.node_id),
-            "goal": goal,
-            "resource": resource,
-            "reach": reach,
-            "chance": odds,
+            "origin": str(origin.id),
+            "planet": aim.planet.value,
+            "cell": list(aim.cell),
         },
-        dedup_key=f"explore.survey:{body.id}:{event.id}",
-        cause_event_id=event.id,
+        dedup_key=f"explore:{body.id}:{started.id}",
+        cause_event_id=started.id,
         body_id=body.id,
     )
-    if job is None:  # pragma: no cover -- the key is unique per event
-        raise AlreadyOut(key="explore-run-queued")
+    if job is None:  # pragma: no cover -- `require_free` refused the second run first
+        raise AlreadyOut(key="explore-already-out")
     return job
 
 
 @handler(JobKind.EXPLORE_SURVEY)
 async def returned(session: AsyncSession, job: Job) -> None:
-    """The scout returned. One roll, seeded by the job: a retry gives the same."""
+    """The scout is back: the cell becomes a node, or the ground turned out taken."""
+    constants = current()
     body = await session.get(Body, uuid.UUID(job.payload["body"]), with_for_update=True)
-    origin = await session.get(Node, uuid.UUID(job.payload["from"]))
-    if body is None or origin is None:  # pragma: no cover
+    origin = await session.get(Node, uuid.UUID(job.payload["origin"]))
+    if body is None or origin is None:  # pragma: no cover -- both outlive a run
         raise ExploreError(key="explore-run-dangling", job=str(job.id))
-
-    constants, catalog = current(), current_catalog()
-    dice = random.Random(str(job.id))
-    goal = str(job.payload.get("goal") or SITE)
-    requested = job.payload.get("resource")
-
-    #: The chance was named at departure (D-156). Old jobs do not carry it --
-    #: for them we compute by place, as it was computed at departure.
-    odds = job.payload.get("chance")
-    if odds is None:  # pragma: no cover -- runs queued before D-156
-        odds = forecast.chance(constants, origin) * forecast.aim_at(
-            constants, catalog, goal, requested
+    planet = Planet(job.payload["planet"])
+    cell: Cell = (int(job.payload["cell"][0]), int(job.payload["cell"][1]))
+    point = point_of(constants, planet, cell)
+    #: The cell is held for the transaction before it is read: two scouts back
+    #: in the same second would otherwise both find it empty, and the second
+    #: would lose its run to the unique key rather than to a refusal.
+    await _hold_cell(session, key_of(planet, cell))
+    try:
+        if body.state is not BodyState.ALIVE or body.node_id != origin.id:
+            raise ScoutGone(key="explore-scout-gone")
+        aim = await aiming.check(session, constants, origin, point)
+    except ExploreError as why:
+        #: The ground was free when the scout left and is taken now -- a
+        #: neighbour's find came first. The run is spent; the journal says why.
+        await events.record(
+            session,
+            EventKind.EXPLORE_EMPTY,
+            actor_identity_id=body.identity_id,
+            node_id=origin.id,
+            cell=key_of(planet, cell),
+            why=why.key,
         )
-    #: The chance has a memory (D-213): it grows with every empty run and
-    #: resets on a find, so the announced percent stays the mean and the
-    #: twelve-run drought stops happening.
-
-    if not await luck.hit(session, body.identity_id, luck.EXPLORE_FIND, float(odds), dice=dice):
-        await _empty(session, body, origin, goal=goal, resource=requested, now=job.run_at)
         return
-
-    #: For a vein without a named species the old share `explore.vein_share`
-    #: applies: sought "anything" -- got whatever turned up.
-    with_vein = goal == VEIN and (
-        requested is not None
-        or await luck.hit(
-            session,
-            body.identity_id,
-            luck.EXPLORE_VEIN,
-            constants[R.EXPLORE_VEIN_SHARE],
-            dice=dice,
+    if aim.existing is not None:
+        #: Found before us: the cell is one node for the world (D-237), and the
+        #: second scout brings home a way to it rather than a second node.
+        await travel.connect(session, origin, aim.existing, surface=Surface.WILD)
+        await memory.remember(
+            session, constants, body.identity_id, [aim.existing.key], at=job.run_at
         )
+        await events.record(
+            session,
+            EventKind.EXPLORE_FOUND,
+            actor_identity_id=body.identity_id,
+            node_id=aim.existing.id,
+            node=aiming.word_of(constants, aim.existing),
+            cell=aim.existing.key,
+            biome=biome.of_node(constants, aim.existing),
+            known=True,
+        )
+        return
+    node, scheme = await materialise(
+        session, constants, current_catalog(), aim, origin, who=body.identity_id
     )
-    #: Two finds reveal instead of creating (D-232): a room of a city that
-    #: stood before anybody came, and another city of the Forerunners beyond
-    #: the ice. Everything else is a place the world did not have until
-    #: somebody walked to it.
-    if goal == ROOM:
-        #: The city may have been worked out while this scout was in the field
-        #: -- somebody else took its last room. That is an **empty run**, not a
-        #: broken job: the roll simply found nothing, and the scout comes back
-        #: the way anybody comes back empty (D-232).
-        #: Under the lock, and before `open_room` takes it: two scouts coming
-        #: back at 23 rooms of 24 must both end their runs, one with the room
-        #: and one with nothing. Read without the lock, the loser would meet a
-        #: refusal thrown out of the job instead -- a retry, a backoff, and the
-        #: honest "empty" only on the second attempt.
-        city = await ruins.city_of(session, origin, lock=True)
-        if city is None or ruins.exhausted(constants, city):
-            await _empty(session, body, origin, goal=goal, resource=requested, now=job.run_at)
-            return
-        found = await ruins.open_room(session, constants, dice, origin, who=body.identity_id)
-    elif goal == SITE and await ruins.left_by_precursors(session, origin):
-        found = await ruins.lost_city(session, constants, origin, who=body.identity_id)
-    else:
-        found = await site.lay(
-            session,
-            constants,
-            dice,
-            origin,
-            goal=goal,
-            vein=with_vein,
-            #: Old jobs carry no reach and read as the far they were (D-262).
-            near=job.payload.get("reach") == NEAR,
-            who=body.identity_id,
-        )
-
-    species = None
-    if with_vein:
-        species = requested or await site.species_of(
-            session, constants, catalog, dice, planet=origin.planet, who=body.identity_id
-        )
-        richness = constants[R.EXPLORE_VEIN_RICHNESS]
-        stock = constants[R.EXPLORE_VEIN_STOCK]
-        await world.create_vein(
-            session,
-            found,
-            species,
-            richness=dice.uniform(richness.min, richness.max),
-            remaining=dice.uniform(stock.min, stock.max),
-        )
-        #: The species is a D-251 id; the node's name is what a player reads
-        #: off the map, so the word goes in, not the key -- since wave II every
-        #: explored vein was being written down as «Жила: iron_ore», and the
-        #: name is persisted, so each one stayed that way.
-        #:
-        #: Still a Russian name frozen into a row, which no language can undo:
-        #: naming a found node in the reader's own language means storing the
-        #: species and composing the name on the way out (wave IV).
-        found.name = f"Жила: {display_name(species).lower()}"
-        await session.flush()
-
-    #: A plot in the city is a step across the quarter; a find beyond the wall
-    #: is a trail, and its length is set by the find's distance (D-180): the
-    #: farther from the city, the pricier the step.
-    if goal in (LOT, ROOM):
-        #: A plot is a step across the quarter, and a room a step along a
-        #: corridor: both are inside the built-up area, and the Forerunners
-        #: laid their floors better than anybody has since.
-        step = constants[R.TRAVEL_CITY_STEP]
-        seconds = dice.uniform(step.min, step.max)
-        coverage = Surface.PAVED
-        minutes = seconds / SECONDS_PER_MINUTE
-    else:
-        seconds = travel.frontier_seconds(constants, travel.reach_of(found))
-        minutes = seconds / SECONDS_PER_MINUTE
-        #: Snow is walked, not driven (D-232), and `Surface.TRAIL` is exactly
-        #: that: two to three times longer than a road, and no vehicle passes.
-        #: It is the slowest surface the world has, and the walk to a city
-        #: found beyond the ice is the brake on colonising the planet.
-        coverage = Surface.TRAIL
-    #: A plot is found inside the built-up area and hangs on the node it was
-    #: sought from; a find beyond the walls hangs on the city's **gate** (D-206).
-    #: Otherwise a scout who set out from the trading yard would leave a trail
-    #: from it into the steppe, and the market would quietly become a second gate
-    #: -- which is exactly how the capital ended up with two ways out. The same
-    #: node the chance was measured against at departure (D-207).
-    anchor = await forecast.anchor_of(session, origin, goal)
-    await travel.connect(session, anchor, found, base_seconds=seconds, surface=coverage)
-
-    #: The surroundings became one find poorer -- for everyone who leaves from
-    #: here next (D-156). Only luck counts: an empty run depletes nothing,
-    #: otherwise bad luck would punish twice.
-    await props.bump(session, origin, FOUND_HERE)
-
-    #: Found means you stand there (D-185): the scout reached the place on foot,
-    #: and returning them to the exit node would cancel the path walked. The way
-    #: back is their decision, and they have already laid themselves a trail.
-    body.node_id = found.id
-    body.node_since = job.run_at
-    await session.flush()
-
-    #: The convoy follows, as in an ordinary transit (D-157): otherwise it would
-    #: stay standing in the exit node, and the body would be "harnessed" to a
-    #: wagon half a map away.
-
-    convoy = await transport.harnessed(session, body)
-    if convoy is not None:
-        await transport.follow(session, convoy, found)
-
+    #: The scout was there: the find is remembered like a place arrived at.
+    await memory.remember(session, constants, body.identity_id, [node.key], at=job.run_at)
     await events.record(
         session,
         EventKind.EXPLORE_FOUND,
         actor_identity_id=body.identity_id,
-        node_id=found.id,
-        from_node=origin.key,
-        #: Where the trail actually starts: from the city it is the gate rather
-        #: than the node the scout set out from (D-206).
-        tied_to=anchor.key,
-        found=found.key,
-        name=found.name,
-        goal=goal,
-        resource=species,
-        minutes=minutes,
-        explored=forecast.found_here(origin),
+        node_id=node.id,
+        node=aiming.word_of(constants, node),
+        cell=node.key,
+        biome=(node.properties or {}).get(biome.BIOME),
+        complex=scheme,
+        known=False,
     )
-    #: The scout stands in the find now, not at the machine they left: what
-    #: waited there stays frozen until they walk back (D-209). Whatever of
-    #: theirs waited **here** -- unlikely, but possible -- goes on.
-
-    await craft.wake(session, body, now=job.run_at)
 
 
-async def _empty(
+async def _hold_cell(session: AsyncSession, key: str) -> None:
+    """Take the cell for the transaction: an advisory lock on its key, cheap and
+    released with the commit (`places._hold` does the same for a planet)."""
+    await session.execute(text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": key})
+
+
+async def _sphere_of(session: AsyncSession, planet: Planet) -> Node | None:
+    return await session.scalar(
+        select(Node).where(Node.key == planet.value, Node.layer == Layer.SPACE)
+    )
+
+
+async def _found_node(
     session: AsyncSession,
-    body: Body,
+    constants: Constants,
+    catalog: Catalog,
+    dice: random.Random,
+    planet: Planet,
+    cell: Cell,
+    point: globe.Geo,
+    *,
+    sphere: Node | None,
+    area: float,
+    extra: dict | None = None,
+    vein: bool | None = None,
+    who: uuid.UUID | None,
+) -> Node:
+    """One node of the surface out of the field: properties read at the point,
+    the biome's marks and swing on it, a vein by the biome's chance.
+
+    **Nameless** (the owner, 2026-09-06): a find is known by the sign of its
+    kind on the map -- the vein, the river, the forest, the desert -- not by a
+    word; the word is the locale's, drawn by the client off the signs. What
+    the engine writes is the signs, and `vein` is one of them.
+    """
+    here = biome.classify(constants, planet, *point)
+    if here is None:  # pragma: no cover -- `aim.check` refused water already
+        raise ExploreError(key="explore-not-land")
+    if vein is None:
+        chance = float(constants[R.GROUND_VEIN_SHARE]) / PERCENT * biome.vein_k(constants, here)
+        vein = dice.random() < chance
+    properties = await ground.properties(
+        session,
+        constants,
+        dice,
+        vein=vein,
+        at=(planet, point),
+        shares=biome.marks(constants, here),
+    )
+    properties |= {
+        biome.BIOME: here,
+        biome.TEMPERATURE_SWING: biome.swing_c(constants, here),
+        places.PLACE: {places.PLACE_LAT: point[0], places.PLACE_LON: point[1]},
+    }
+    if vein:
+        properties[VEIN] = True
+    if extra:
+        properties |= extra
+    node = await world.create_node(
+        session,
+        key_of(planet, cell),
+        NAMELESS,
+        planet=planet,
+        area_m2=area,
+        layer=Layer.PLANET,
+        parent=sphere,
+        properties=properties,
+    )
+    if vein:
+        richness = constants[R.GROUND_VEIN_RICHNESS]
+        stock = constants[R.GROUND_VEIN_STOCK]
+        await world.create_vein(
+            session,
+            node,
+            await ground.species_of(session, constants, catalog, dice, planet=planet, who=who),
+            richness=dice.uniform(richness.min, richness.max),
+            remaining=dice.uniform(stock.min, stock.max),
+        )
+    await session.flush()
+    return node
+
+
+async def materialise(
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    aim: Aim,
     origin: Node,
     *,
-    goal: str,
-    resource: str | None,
-    now: datetime,
-) -> None:
-    """Came back with nothing. An empty run is normal (D-152), and it is the
-    only honest ending for a search that found no place to find one."""
-    await events.record(
-        session,
-        EventKind.EXPLORE_EMPTY,
-        actor_identity_id=body.identity_id,
-        node_id=origin.id,
-        goal=goal,
-        resource=resource,
-    )
-    #: Back at the exit node with empty hands: the frozen work goes on (D-209).
-    await craft.wake(session, body, now=now)
+    who: uuid.UUID | None,
+) -> tuple[Node, str | None]:
+    """The cell becomes a node of the world, with its ways and -- by chance -- its complex.
 
-
-async def cancel(session: AsyncSession, body: Body) -> Job:
-    """Turn back: the run is cancelled, the body is in the exit node again.
-
-    Spent stamina does not come back -- the legs are already walked -- and the
-    find will not happen: the roll was scheduled for the return time, and the
-    scout did not reach it. The body's node has not changed since departure, so
-    "return" means cancelling the job, and the body is free at once.
+    Returns the node and the name of the complex laid round it, if any.
     """
-    run = await pending(session, body)
-    if run is None:
-        raise NotOut(key="explore-not-out")
-    run.state = JobState.CANCELLED
-    run.finished_at = datetime.now(UTC)
-    await session.flush()
-
-    await events.record(
+    planet = aim.planet
+    dice = random.Random(key_of(planet, aim.cell))
+    sphere = await _sphere_of(session, planet)
+    node = await _found_node(
         session,
-        EventKind.EXPLORE_CANCELLED,
-        actor_identity_id=body.identity_id,
-        node_id=body.node_id,
-        goal=str(run.payload.get("goal") or SITE),
-        resource=run.payload.get("resource"),
+        constants,
+        catalog,
+        dice,
+        planet,
+        aim.cell,
+        aim.point,
+        sphere=sphere,
+        area=aim.area,
+        who=who,
     )
-    #: Turned back: the body is at the machine again, the frozen work goes on (D-209).
+    await travel.connect(session, origin, node, surface=Surface.WILD)
+    await knit(session, constants, node, aim.point, except_for={origin.id})
+    scheme = await _complex(session, constants, catalog, dice, node, aim.point, who=who)
+    return node, scheme
 
-    await craft.wake(session, body, now=run.finished_at)
-    return run
+
+async def knit(
+    session: AsyncSession,
+    constants: Constants,
+    node: Node,
+    point: globe.Geo,
+    *,
+    except_for: set[uuid.UUID],
+) -> None:
+    """Ways from a found node to every found neighbour within the biome's reach
+    that a straight, dry, uncrossed line joins: the graph is sewn, not grown as a thread."""
+    here = biome.of_node(constants, node)
+    if here is None:  # pragma: no cover
+        return
+    _, far = biome.reach_m(constants, here)
+    radius = globe.radius_m(constants, node.planet)
+    for other, where in await aiming._surface(session, constants, node.planet, point):
+        if other.id == node.id or other.id in except_for:
+            continue
+        if globe.distance_m(radius, where, point) > far:
+            continue
+        if aiming.crosses_water(constants, node.planet, point, where, ford=aiming._is_ford(node)):
+            continue
+        try:
+            await aiming.check(session, constants, other, point)
+        except ExploreError:
+            continue
+        await travel.connect(session, node, other, surface=Surface.WILD)
+
+
+def _schemes_for(constants: Constants, planet: Planet, here: str) -> dict[str, dict]:
+    schemes: dict[str, dict] = constants[R.COMPLEX_SCHEMES]
+    return {
+        name: scheme
+        for name, scheme in schemes.items()
+        if scheme.get("planet") == planet.value and scheme.get("biome") == here
+    }
+
+
+async def _complex(
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    dice: random.Random,
+    node: Node,
+    point: globe.Geo,
+    *,
+    who: uuid.UUID | None,
+) -> str | None:
+    """By the vault's chance, a scheme of nodes round the find (D-321, point 6).
+
+    The chance is rolled by dice of its own, seeded by the cell alone
+    (`complex_roll`): whether a cell hides a complex is a fact of the map that
+    does not depend on how many dice the node's own properties happened to
+    use, and a test can ask it before the run.
+    """
+    here = str((node.properties or {}).get(biome.BIOME) or "")
+    chance = float(constants[R.COMPLEX_CHANCE].get(node.planet.value, {}).get(here, 0)) / PERCENT
+    if chance <= 0 or complex_roll(node.key) >= chance:
+        return None
+    offered = _schemes_for(constants, node.planet, here)
+    if not offered:
+        return None
+    names = sorted(offered)
+    picked = dice.choices(names, weights=[float(offered[n].get("weight", 1)) for n in names])[0]
+    scheme = offered[picked]
+    if scheme.get("city"):
+        where = _beside(constants, node, point, 0)
+        try:
+            city_aim = await aiming.check(session, constants, node, where)
+        except ExploreError:
+            return None
+        if city_aim.existing is not None:
+            return None
+        pier = await ruins.lost_city(session, constants, node, who=who, at=where)
+        await ruins.open_all(session, constants, pier, dice)
+        return picked
+    sphere = await _sphere_of(session, node.planet)
+    for number, part in enumerate(scheme.get("nodes", [])):
+        where = _beside(constants, node, point, number)
+        cell = aiming.cell_of(constants, node.planet, where)
+        where = point_of(constants, node.planet, cell)
+        try:
+            part_aim = await aiming.check(session, constants, node, where)
+        except ExploreError:
+            #: The scheme yields to the ground: a part with no room is not laid.
+            continue
+        if part_aim.existing is not None:
+            #: Somebody's find already stands in the cell: the scheme joins it.
+            await travel.connect(session, node, part_aim.existing, surface=Surface.WILD)
+            continue
+        extra: dict = {ROLE: str(part.get("role", ""))}
+        if part.get("water"):
+            extra[world.WATER] = str(part["water"])
+        if part.get("woods"):
+            extra[ground.WOODS] = True
+        if part.get("ford"):
+            extra[FORD] = True
+        member = await _found_node(
+            session,
+            constants,
+            catalog,
+            dice,
+            node.planet,
+            cell,
+            where,
+            sphere=sphere,
+            area=part_aim.area,
+            extra=extra,
+            vein=bool(part.get("vein", False)) or None,
+            who=who,
+        )
+        await travel.connect(session, node, member, surface=Surface.WILD)
+        if part.get("finds"):
+            await ruins.stock(session, constants, dice, member, str(part["finds"]), who=who)
+    return picked
+
+
+def complex_roll(key: str) -> float:
+    """The cell's own roll for a complex, in [0, 1): the same for the world and for a test."""
+    return random.Random(f"{key}:complex").random()
+
+
+def _beside(constants: Constants, node: Node, point: globe.Geo, number: int) -> globe.Geo:
+    """Where the number-th part of a scheme stands: a fan round the find, one
+    reach out, so the parts are neighbours and not a heap."""
+    here = str((node.properties or {}).get(biome.BIOME) or "")
+    near, far = biome.reach_m(constants, here)
+    step = globe.midpoint(near, far)
+    radius = globe.radius_m(constants, node.planet)
+    angle = globe.GOLDEN_ANGLE * (number + 1)
+    return globe.offset(radius, point, step * math.cos(angle), step * math.sin(angle))

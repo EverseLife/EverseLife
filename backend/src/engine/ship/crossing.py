@@ -120,7 +120,7 @@ async def fly(
         #: not: a planet whose beacons have all gone out is a planet one may
         #: reach and never leave the orbit of (D-232) -- so the crossing is
         #: refused at this end, while there is still a choice to make.
-        await _will_take(session, constants, target, why="dock")
+        await _will_take(session, constants, ship, target, why="dock")
         if not await _landable(session, constants, target.planet):
             raise NoPort(key="ship-nowhere-to-land", node=target.name)
 

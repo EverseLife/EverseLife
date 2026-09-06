@@ -16,8 +16,18 @@ import {
   frameOn,
   type Frame,
 } from "../panels/map/camera";
+import { flatten, withCityScene } from "../panels/map/geo";
+import {
+  arc,
+  midOf,
+  placeAt,
+  project,
+  projectAll,
+  radiusUnits,
+  slerp,
+  turn,
+} from "../panels/map/globe";
 import { clampScale, lensOn, pinchScale, pinchTo, worldAt } from "../panels/map/hand";
-import { settle } from "../panels/map/layout";
 import {
   DEPTH,
   H,
@@ -32,8 +42,23 @@ import {
   type Point,
 } from "../panels/map/model";
 import { along, forecast, mooring, term, windowOpen } from "../panels/map/orbits";
+import {
+  MARK_CROWD,
+  MARK_LEAST,
+  MARK_MOST,
+  markShare,
+  paper,
+  type Box,
+} from "../panels/map/paper";
 import { long, price, spread } from "../panels/map/words";
 import { DEFAULT_LOCALE, Words, learn } from "../locale";
+
+/** The map's drawing, as text: the guard below reads it rather than runs it. */
+const SOURCES = import.meta.glob(["../panels/GraphMap.tsx", "../panels/map/*.ts*"], {
+  query: "?raw",
+  import: "default",
+  eager: true,
+}) as Record<string, string>;
 
 //: The terms below are assembled from the client's own locale (D-251), which
 //: ships with the build rather than over the wire -- so an empty bundle is
@@ -473,58 +498,6 @@ describe("offworld", () => {
   });
 });
 
-describe("settle", () => {
-  const given = new Map([
-    ["n0", { x: 0, y: 0 }],
-    ["n1", { x: 150, y: 0 }],
-  ]);
-
-  it("leaves the places the server gave exactly where they are", () => {
-    const out = settle(keys(4), chain(4), given);
-    expect(out.get("n0")).toEqual({ x: 0, y: 0 });
-    expect(out.get("n1")).toEqual({ x: 150, y: 0 });
-  });
-
-  it("gives the same answer every time: one map for every player", () => {
-    const once = settle(keys(5), chain(5), given);
-    const twice = settle(keys(5), chain(5), given);
-    for (const key of keys(5)) expect(once.get(key)).toEqual(twice.get(key));
-  });
-
-  it("does not depend on the order the nodes arrive in", () => {
-    const forward = settle(keys(5), chain(5), given);
-    const backward = settle([...keys(5)].reverse(), [...chain(5)].reverse(), given);
-    for (const key of keys(5)) {
-      expect(backward.get(key)!.x).toBeCloseTo(forward.get(key)!.x, 6);
-      expect(backward.get(key)!.y).toBeCloseTo(forward.get(key)!.y, 6);
-    }
-  });
-
-  it("leaves a node with no edges where it started instead of flinging it away", () => {
-    //: Soft walls used to push whatever was unconnected to the frame's edge --
-    //: as far from everybody as the frame allowed -- and the map lied about the
-    //: shape of the world.
-    const alone = settle(["lone"], [], new Map());
-    const point = alone.get("lone")!;
-    expect(Math.hypot(point.x, point.y)).toBeLessThan(700);
-  });
-
-  it("settles before it returns: the free nodes have actually spread", () => {
-    //: The map appears laid out rather than crawling into place, so by the time
-    //: settle returns the chain must already be a chain -- not six nodes still
-    //: sitting where they were seeded.
-    const out = settle(keys(6), chain(6), given);
-    for (let i = 1; i < 6; i++) {
-      const gap = Math.hypot(
-        out.get(`n${i}`)!.x - out.get(`n${i - 1}`)!.x,
-        out.get(`n${i}`)!.y - out.get(`n${i - 1}`)!.y,
-      );
-      expect(gap).toBeGreaterThan(60);
-      expect(gap).toBeLessThan(400);
-    }
-  });
-});
-
 describe("words", () => {
   //: The hour is the border between two units and both sides of it want their
   //: own: "60 мин" reads worse than "1 ч", and "0.7 ч" worse than "40 мин".
@@ -666,5 +639,296 @@ describe("the pinch", () => {
       expect(under(mid).x).toBeCloseTo(held.x, 6);
       expect(under(mid).y).toBeCloseTo(held.y, 6);
     }
+  });
+});
+
+describe("flatten", () => {
+  //: The globe is wave 3; until then a scene of degrees is flattened round
+  //: its first placed node by key, the same way for every viewer (D-319).
+  it("projects degrees round the first node by key, and passes rooms through", () => {
+    const nodes = [
+      node({ key: "b", layer: "planet", place: { lat: 41, lon: 25 } }),
+      node({ key: "a", layer: "planet", place: { lat: 41, lon: 24 } }),
+      node({ key: "room", layer: "location", place: { x: 7, y: -3 } }),
+      node({ key: "sky", layer: "space", place: null }),
+    ];
+    const out = flatten(nodes);
+    expect(out.get("a")).toEqual({ x: 0, y: -0 });
+    expect(out.get("room")).toEqual({ x: 7, y: -3 });
+    expect(out.has("sky")).toBe(false);
+    const east = out.get("b")!;
+    expect(east.x).toBeGreaterThan(0);
+    expect(east.y).toBe(-0);
+  });
+
+  it("is the same map for everybody: order of the input changes nothing", () => {
+    const a = node({ key: "a", layer: "planet", place: { lat: 10, lon: 10 } });
+    const b = node({ key: "b", layer: "planet", place: { lat: 12, lon: 11 } });
+    expect(flatten([a, b])).toEqual(flatten([b, a]));
+  });
+
+  it("scales a scene down to fit the frame, and never up past the city step", () => {
+    const near = flatten([
+      node({ key: "a", layer: "planet", place: { lat: 0, lon: 0 } }),
+      node({ key: "b", layer: "planet", place: { lat: 0, lon: 0.001 } }),
+    ]);
+    const far = flatten([
+      node({ key: "a", layer: "planet", place: { lat: 0, lon: 0 } }),
+      node({ key: "b", layer: "planet", place: { lat: 0, lon: 90 } }),
+    ]);
+    //: A thousandth of a degree is a hundred metres: about five hundred units.
+    expect(near.get("b")!.x).toBeCloseTo(555, 0);
+    //: A quarter of the globe is brought down to the frame, not drawn at scale.
+    expect(far.get("b")!.x).toBeLessThan(5000);
+  });
+});
+
+describe("withCityScene", () => {
+  //: The server has one surface level; the client gives a node whose parent
+  //: is itself a surface node the city scene (D-319).
+  it("marks a surface node under a surface node as the city's", () => {
+    const [town, plot, wild, room] = withCityScene([
+      node({ key: "town", layer: "planet", parent: "terra" }),
+      node({ key: "plot", layer: "planet", parent: "town" }),
+      node({ key: "wild", layer: "planet", parent: "terra" }),
+      node({ key: "room", layer: "location", parent: "plot" }),
+    ]);
+    expect(town.layer).toBe("planet");
+    expect(plot.layer).toBe("city");
+    expect(wild.layer).toBe("planet");
+    expect(room.layer).toBe("location");
+  });
+});
+
+
+describe("a printer's mark on the entry globe", () => {
+  it("grows with the citizens, and stops growing", () => {
+    //: An empty door -- the Forerunners' Printer, which has no city -- is the
+    //: smallest a mark is drawn, and it is still a mark: a target for a
+    //: finger, not a speck to be hunted.
+    expect(markShare(0)).toBe(MARK_LEAST);
+    //: More people, a larger mark, always.
+    const sizes = [0, 10, 100, 1000, 10000].map(markShare);
+    for (let i = 1; i < sizes.length; i++) expect(sizes[i]).toBeGreaterThan(sizes[i - 1]);
+    //: And never past the ceiling, however many: a city of a million and one
+    //: of three million are both simply the big one.
+    expect(markShare(MARK_CROWD)).toBeCloseTo(MARK_MOST, 12);
+    expect(markShare(1e6)).toBe(MARK_MOST);
+    expect(markShare(1e12)).toBe(MARK_MOST);
+    //: Nothing below the floor either, whatever nonsense the wire brings.
+    expect(markShare(-5)).toBe(MARK_LEAST);
+  });
+
+  it("compresses, so ten citizens and a million are drawn on one globe", () => {
+    //: The whole point of the logarithm: drawn to the count, a city of a
+    //: million would be a hundred thousand times the radius of a city of ten
+    //: -- across the ocean it stands on -- and this keeps the two within
+    //: three times each other while still telling them apart.
+    const small = markShare(10);
+    const great = markShare(1e6);
+    expect(great / small).toBeLessThan(3);
+    expect(great).toBeGreaterThan(small * 1.5);
+    //: And every order of magnitude is worth a comparable step, so the eye
+    //: reads the difference between a village and a town and not only the
+    //: extremes. Not an equal step -- the scale counts from one citizen, not
+    //: from none, and that bends the first orders -- but none of them
+    //: swallows the others.
+    const steps = [1, 10, 100, 1000].map((n) => markShare(n * 10) - markShare(n));
+    for (const step of steps) {
+      expect(step).toBeGreaterThan(0);
+      expect(step).toBeLessThan(Math.min(...steps) * 1.5);
+    }
+  });
+});
+
+describe("the entry globe's paper", () => {
+  //: The square the globe used to be drawn in, centred in the left half of a
+  //: 1200x800 window: the numbers the screen actually gives.
+  const half: Box = { x: 0, y: 0, w: 600, h: 800 };
+  const square: Box = { x: 80, y: 180, w: 440, h: 440 };
+  const canvas: Box = { x: 0, y: 0, w: 1200, h: 800 };
+  //: The picture across the square: the planet and the room round it.
+  const span = 2100;
+  /** Where a point of the picture lands on the canvas, in its own pixels. */
+  const onCanvas = (sheet: { viewBox: string }, x: number, y: number) => {
+    const [vx, vy, vw] = sheet.viewBox.split(" ").map(Number);
+    const k = canvas.w / vw;
+    return { x: (x - vx) * k, y: (y - vy) * k };
+  };
+
+  it("puts the planet where the square says, whatever the paper round it", () => {
+    const sheet = paper(square, half, canvas, span);
+    //: The middle of the picture lands on the middle of the square -- that is
+    //: the whole promise of drawing on a canvas bigger than the box.
+    const middle = onCanvas(sheet, 0, 0);
+    expect(middle.x).toBeCloseTo(square.x + square.w / 2 - canvas.x, 9);
+    expect(middle.y).toBeCloseTo(square.y + square.h / 2 - canvas.y, 9);
+    //: And a picture unit is the square's own length, so the disk keeps the
+    //: size it had: the square, not the window, sets the scale.
+    expect(sheet.perPixel).toBeCloseTo(span / 440, 12);
+    //: The sides are the canvas's, so nothing is letterboxed -- a viewBox of
+    //: another shape would centre the drawing and shrink it.
+    const [, , vw, vh] = sheet.viewBox.split(" ").map(Number);
+    expect(vw / vh).toBeCloseTo(canvas.w / canvas.h, 12);
+  });
+
+  it("draws what the box used to draw when the canvas is the box", () => {
+    //: The old canvas was the square itself, and then the paper is the old
+    //: viewBox to the digit.
+    const sheet = paper(square, square, square, span);
+    expect(sheet.viewBox).toBe(`${-span / 2} ${-span / 2} ${span} ${span}`);
+    expect(sheet.spread).toBe(1);
+  });
+
+  it("lays the ground over the half that is seen, and no further", () => {
+    const sheet = paper(square, half, canvas, span);
+    //: A square of `reach` about the planet covers every corner of the half:
+    //: no corner of what is seen is left unlaid.
+    const middleX = square.x + square.w / 2;
+    const middleY = square.y + square.h / 2;
+    for (const corner of [
+      { x: half.x, y: half.y },
+      { x: half.x + half.w, y: half.y },
+      { x: half.x, y: half.y + half.h },
+      { x: half.x + half.w, y: half.y + half.h },
+    ]) {
+      expect(Math.abs(corner.x - middleX) * sheet.perPixel).toBeLessThanOrEqual(sheet.reach + 1e-9);
+      expect(Math.abs(corner.y - middleY) * sheet.perPixel).toBeLessThanOrEqual(sheet.reach + 1e-9);
+    }
+    //: And no further than that: the canvas is twice the half wide, and the
+    //: ground is not laid behind the way in, which is opaque.
+    expect(sheet.reach).toBeLessThan((canvas.w / 2) * sheet.perPixel);
+  });
+
+  it("never reads the grid finer than the old box did", () => {
+    //: `spread` is what the fineness is divided by: the wider the paper, the
+    //: coarser the grid, so that filling a window does not multiply the work.
+    //: Never below one, because the square lies inside the half.
+    for (const box of [half, canvas, { x: -100, y: -100, w: 3000, h: 2000 }]) {
+      expect(paper(square, box, canvas, span).spread).toBeGreaterThanOrEqual(1);
+    }
+    //: The planet sits in the middle of a 600x800 half, so the furthest edge
+    //: is 400 pixels away and the paper is 800 of them across: near twice the
+    //: square's 440, and the grid is read near twice as coarse.
+    const wide = paper(square, half, canvas, span);
+    expect(wide.spread).toBeCloseTo(800 / 440, 12);
+  });
+});
+
+describe("the globe", () => {
+  //: Terra's radius in map units, as the vault gives it (D-320): the tests
+  //: below only need it large next to a city step.
+  const R = radiusUnits(6371);
+  const eye = { lat: 41, lon: 24 };
+
+  it("puts the eye's point at the origin, north up and facing", () => {
+    const centre = project(eye, R, eye);
+    expect(centre.x).toBeCloseTo(0, 9);
+    expect(centre.y).toBeCloseTo(0, 9);
+    expect(centre.front).toBe(true);
+    const north = project(eye, R, { lat: 42, lon: 24 });
+    expect(north.y).toBeLessThan(0);
+    expect(north.x).toBeCloseTo(0, 6);
+    const east = project(eye, R, { lat: 41, lon: 25 });
+    expect(east.x).toBeGreaterThan(0);
+    //: A degree of latitude is about 111 km: 111,000 m at 5 units a metre.
+    expect(-north.y).toBeCloseTo(radiusUnits(111.19), -3);
+  });
+
+  it("hides the far side of the sphere", () => {
+    const antipode = { lat: -41, lon: -156 };
+    expect(project(eye, R, antipode).front).toBe(false);
+    const placed = projectAll(eye, R, [
+      { key: "here", place: eye },
+      { key: "away", place: antipode },
+      { key: "room", place: { x: 1, y: 2 } },
+    ]);
+    expect([...placed.keys()]).toEqual(["here"]);
+  });
+
+  it("draws an edge as the visible part of its great circle", () => {
+    const a = { lat: 41, lon: 24 };
+    const b = { lat: 41, lon: 25 };
+    const run = arc(eye, R, a, b, 8);
+    expect(run).toHaveLength(9);
+    expect(run![0].x).toBeCloseTo(0, 6);
+    expect(run![0].y).toBeCloseTo(0, 6);
+    expect(midOf(run!)).toEqual(run![4]);
+    //: Over the horizon: the far half is cut off, the near half stays.
+    const beyond = arc(eye, R, a, { lat: -41, lon: -156 }, 8);
+    expect(beyond).not.toBeNull();
+    expect(beyond!.length).toBeLessThan(9);
+    //: Between two points on the far side nothing is drawn at all.
+    expect(arc(eye, R, { lat: -40, lon: -150 }, { lat: -42, lon: -160 }, 8)).toBeNull();
+  });
+
+  it("stands a mark by a matrix, so that the limb is not saturated away", () => {
+    //: The browser reads `cx`, `r` and the arguments of a `translate()` as CSS
+    //: lengths and saturates them at 2^25 device pixels. On a display scaled
+    //: by 1.5 -- Windows at 150%, and the common laptop -- that is nearer than
+    //: the limb: sixty degrees from the eye a node is already past it, and it
+    //: would be drawn short of where it stands while its name, which takes
+    //: numbers, stayed behind. A matrix is six numbers and holds.
+    const saturates = 2 ** 25 / 1.5;
+    const far = project({ lat: 0, lon: 0 }, R, { lat: 0, lon: 60 });
+    expect(far.front).toBe(true);
+    expect(Math.abs(far.x)).toBeGreaterThan(saturates);
+    const stood = placeAt(far);
+    expect(stood).not.toMatch(/translate/);
+    const numbers = stood.match(/^matrix\(([^)]+)\)$/)?.[1].split(" ").map(Number);
+    expect(numbers?.slice(0, 4)).toEqual([1, 0, 0, 1]);
+    expect(numbers?.[4]).toBe(far.x);
+    expect(numbers?.[5]).toBeCloseTo(far.y, 9);
+  });
+
+  it("gives no scene coordinate to a length: a mark is stood, not centred", () => {
+    //: The test above pins the helper; this one pins its use. Nothing else
+    //: would: there are no DOM tests here, and jsdom saturates nothing, so a
+    //: `cx={p.x}` put back tomorrow would pass every gate and be wrong only
+    //: on a real screen scaled past one. So the files that draw a surface
+    //: scene are read as text: a circle's middle there is its own origin,
+    //: and where it stands is a matrix (`placeAt`).
+    //: `map/Sky` is not among them -- the sky's places are fitted to the
+    //: frame (`useSky`), never map units -- and neither is the entry
+    //: screen's globe, which draws at a constant radius of its own.
+    const drawn = Object.entries(SOURCES).filter(([path]) =>
+      /(GraphMap\.tsx|map\/Nodes\.tsx|map\/useWalker\.ts)$/.test(path),
+    );
+    expect(drawn.length).toBe(3);
+    for (const [path, source] of drawn) {
+      source.split("\n").forEach((line, i) => {
+        const at = `${path}:${i + 1}`;
+        //: `cx={0}` is the mark's own middle; anything else is a place.
+        expect(/c[xy]=\{(?!0\})/.test(line) ? at : null).toBeNull();
+        expect(/setAttribute\("c[xy]"/.test(line) ? at : null).toBeNull();
+        //: And a place is never a `translate`: its arguments are lengths too.
+        expect(line.includes("translate(") ? at : null).toBeNull();
+      });
+    }
+  });
+
+  it("interpolates along the great circle", () => {
+    const mid = slerp({ lat: 0, lon: 0 }, { lat: 0, lon: 90 }, 0.5);
+    expect(mid.lat).toBeCloseTo(0, 6);
+    expect(mid.lon).toBeCloseTo(45, 6);
+    const same = slerp({ lat: 10, lon: 10 }, { lat: 10, lon: 10 }, 0.3);
+    expect(same.lat).toBeCloseTo(10, 9);
+    expect(same.lon).toBeCloseTo(10, 9);
+  });
+
+  it("turns with the hand, two angles, north up and short of the pole", () => {
+    //: The ground dragged east: the eye looks west.
+    const west = turn(eye, R, 1000, 0);
+    expect(west.lon).toBeLessThan(eye.lon);
+    expect(west.lat).toBe(eye.lat);
+    //: Dragged down: the eye looks north.
+    const north = turn(eye, R, 0, 1000);
+    expect(north.lat).toBeGreaterThan(eye.lat);
+    //: A drag of a hundred metres moves the eye by a hundred metres of arc.
+    const step = turn(eye, R, 0, radiusUnits(0.1));
+    expect((step.lat - eye.lat) * (Math.PI / 180) * R).toBeCloseTo(radiusUnits(0.1), 0);
+    //: And never past the last latitude.
+    expect(turn({ lat: 84, lon: 0 }, R, 0, R).lat).toBe(85);
+    expect(turn({ lat: 0, lon: 179.5 }, R, -R * 0.02, 0).lon).toBeLessThan(180);
   });
 });

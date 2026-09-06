@@ -2,7 +2,8 @@
 // Copyright (C) 2026 Nurlan Urazkulov
 
 /**
- * Where to print for the first time (D-013, D-182).
+ * Where to print for the first time (D-013, D-182), in two steps: the printer,
+ * then the city it stands in.
  *
  * The newcomer's first decision, and it is deliberately about people, not
  * numbers: there is no price or term here at all -- **the first body is
@@ -10,148 +11,205 @@
  * Forerunners' Printer take effect from the second print, and speaking of
  * them on this screen would be lying.
  *
- * The cards stand side by side so that in ten seconds the world's main
- * structure is seen: cities differ, they set the terms themselves, and nobody
- * has to be kind. The Forerunners' Printer is the last card: a fallback door
- * with neither residents nor a treasury, and it is always open.
+ * **The printer** is chosen on the globe beside this (D-319), and nowhere
+ * else: a mark on the planet is a door, and the row of names that used to
+ * stand here was a second way to do the one thing this screen is for -- two
+ * ways to choose a city taught neither. The mark itself is the control: it
+ * takes focus and answers Enter (D-077), so the globe is not a hand's
+ * privilege. What the globe cannot show is the exception: a door off its
+ * planet or without degrees on it is offered by name rather than leaving a
+ * newcomer with no door at all.
  *
- * What a door gives and what it asks (D-184, D-281) stands as table rows, not
- * in text: the engine enforces it, and the person must see it before clicking,
- * not learn it from a refusal. Two rows now instead of three -- a city door
- * makes you its citizen on the spot, and nothing holds that afterwards except
- * a loan you took yourself.
+ * **The city** is the step after it, and it is a city that is read there --
+ * its name at the head, its people, its grant, its tax as table rows, not in
+ * text: the engine enforces them, and the person must see them before
+ * clicking, not learn them from a refusal (D-184, D-281). What the machine is
+ * called and what a bioprinter does are the same at every door and are not
+ * said again here; what differs is the city, and the city's own word under
+ * the rows is its promise, not the engine's (D-183).
+ *
+ * On a phone the globe is the whole screen (D-319), and then the printer step
+ * is a heading and the way back: the choosing happens on the planet.
  */
 
-import { useMemo, useState } from "react";
 import * as api from "../api";
 import type { Door } from "../api";
 import { t } from "../locale";
+import { drawnOn } from "./EntryGlobe";
 
 type Props = {
-  doors: Door[];
+  /** Null while the doors are still being asked for -- or while that ask has
+   *  failed, which is `trouble` below. The step draws itself either way: a
+   *  step that renders nothing renders no way back either. */
+  doors: Door[] | null;
   name: string;
   busy: boolean;
   trouble?: string | null;
+  picked: string | null;
   onPick: (node: string) => void;
   onBack: () => void;
+  /** Whether the globe has the screen to itself and this half floats on it:
+   *  a phone. Then the step is its heading and the way back, and the words
+   *  that would explain it stand between the player and the planet. */
+  overGlobe?: boolean;
 };
 
-export function Doors({ doors, name, busy, trouble, onPick, onBack }: Props) {
-  //: The list comes already sorted -- populous cities first (D-187) -- and
-  //: search narrows it by city or node name. An empty search is the whole list.
-  const [query, setQuery] = useState("");
-  const visible = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return doors;
-    return doors.filter(
-      (d) =>
-        d.name.toLowerCase().includes(q) ||
-        (d.city ?? "").toLowerCase().includes(q) ||
-        (d.precursor && "предтеч".includes(q)),
-    );
-  }, [doors, query]);
+export function Doors({
+  doors,
+  name,
+  busy,
+  trouble,
+  picked,
+  onPick,
+  onBack,
+  overGlobe = false,
+}: Props) {
+  //: What no mark stands for. The globe draws one planet (`drawnOn`) and on
+  //: it what has degrees: a door with a flat place, or one standing on
+  //: another planet, has no mark to press -- and without a name here it could
+  //: not be chosen at all. The free door of the Forerunners is among the ones
+  //: this must never lose (D-028).
+  const globe = drawnOn(doors);
+  const unplaced = (doors ?? []).filter(
+    (one) => one.planet !== globe || !one.place || !("lat" in one.place),
+  );
 
   return (
-    <section className="wide doors-step">
+    <section className={`doors-step${overGlobe ? " bare" : ""}`}>
       <h1>{t("ui-doors-title")}</h1>
-      <p className="note center">{t("ui-doors-lead", { name })}</p>
-
-      <div className="row search">
-        <input
-          type="search"
-          placeholder={t("ui-doors-search")}
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          aria-label={t("ui-doors-search-label")}
-        />
-        <span className="note">
-          {t("ui-doors-count", { shown: String(visible.length), total: String(doors.length) })}
-        </span>
-      </div>
-
-      {doors.length === 0 ? (
+      {doors === null ? (
+        //: Still coming, or not coming at all: the refusal is printed below,
+        //: with the way back under it either way.
+        !trouble && <p className="note center">…</p>
+      ) : doors.length === 0 ? (
         <p className="trouble">{t("ui-doors-empty-world")}</p>
-      ) : visible.length === 0 ? (
-        <p className="note center">{t("ui-doors-nothing-found")}</p>
       ) : (
-        <div className="doors">
-          {visible.map((door) => (
-            <section key={door.node}>
-              {/* The heading says how this door differs from the one beside
-                  it. The city goes into a row of its own: a capital has two
-                  doors, and identical headings would leave them
-                  indistinguishable. */}
-              <h2>{door.precursor ? t("ui-doors-precursor") : door.name}</h2>
-              <p className="note">
-                {door.precursor ? t("ui-doors-precursor-note") : t("ui-doors-city-note")}
-              </p>
-              <table>
-                <tbody>
-                  <tr>
-                    <td>{t("ui-doors-city")}</td>
-                    <td className="num">{door.city ?? t("ui-doors-outside")}</td>
-                  </tr>
-                  <tr>
-                    <td>{t("ui-doors-people")}</td>
-                    <td className="num">{door.city ? door.population : "—"}</td>
-                  </tr>
-                  <tr>
-                    <td>{t("ui-doors-citizens")}</td>
-                    <td className="num">{door.city ? door.citizens : "—"}</td>
-                  </tr>
-                  <tr>
-                    <td>{t("ui-doors-grant")}</td>
-                    <td className="num">
-                      {door.grant > 0 ? `${api.tk(door.grant)} ₭` : t("ui-doors-nothing")}
-                    </td>
-                  </tr>
-                  <tr>
-                    <td>{t("ui-doors-first-body")}</td>
-                    <td className="num">{t("ui-doors-at-once")}</td>
-                  </tr>
-                  {/* What a door gives (D-184, D-281). Shown for city doors
-                      and only for them: citizenship is given by the city, and
-                      a door with no city around it gives nothing -- there is
-                      nothing to be enrolled in. There is no term of obligation
-                      any more: one may leave in the very first minute, as long
-                      as no loan has been taken. */}
-                  {door.city && (
-                    <>
-                      <tr>
-                        <td>{t("ui-doors-citizenship")}</td>
-                        <td className="num">{t("ui-doors-citizenship-at-once")}</td>
-                      </tr>
-                      <tr>
-                        <td>{t("ui-doors-tax")}</td>
-                        <td className="num">
-                          {door.tax > 0 ? `${door.tax}%` : t("ui-doors-nothing")}
-                        </td>
-                      </tr>
-                    </>
-                  )}
-                </tbody>
-              </table>
-              {/* The city's own word: the authorities write it, not the
-                  engine (D-183). A silent city shows numbers only -- there is
-                  nothing to invent on its behalf. */}
-              {door.about && <p className="say">«{door.about}»</p>}
-              <div className="row">
-                <button onClick={() => onPick(door.node)} disabled={busy}>
-                  {t("ui-doors-print-here")}
+        <>
+          {/* What to do is said under the planet, where the dots are
+              (`ui-entry-globe-doors-hint`): this half says whose choice it is
+              and what it is not -- no price, no term. On a phone even that
+              stands between the player and the thing they are choosing. */}
+          {!overGlobe && <p className="note center">{t("ui-doors-lead", { name })}</p>}
+          {/* A door the globe cannot draw: no place on its sphere, or another
+              planet's. It stands here by name, and normally there are none. */}
+          {unplaced.length > 0 && (
+            <div className="row tabs">
+              {unplaced.map((one) => (
+                <button
+                  key={one.node}
+                  className={one.node === picked ? "" : "quiet"}
+                  aria-pressed={one.node === picked}
+                  onClick={() => onPick(one.node)}
+                  disabled={busy}
+                >
+                  {/* The door's own name, the city after it: a city may have
+                      more than one door, and two buttons reading the city
+                      alone would not tell them apart. */}
+                  {one.name}
+                  {one.city ? ` · ${one.city}` : ""}
                 </button>
-              </div>
-            </section>
-          ))}
-        </div>
+              ))}
+            </div>
+          )}
+        </>
       )}
-
-      <p className="note">{t("ui-doors-grant-note")}</p>
-      <p className="note">{t("ui-doors-rules-note")}</p>
-      <p className="note">{t("ui-doors-word-note")}</p>
       {trouble && <p className="trouble">{trouble}</p>}
-      <div className="row">
+      <div className="row last">
         <button className="quiet" onClick={onBack} disabled={busy}>
           {t("ui-doors-back")}
+        </button>
+      </div>
+    </section>
+  );
+}
+
+/**
+ * The city of the chosen printer: what it gives and what it asks, and the
+ * button that prints a body in it.
+ *
+ * Its name is the heading -- a door is chosen by the city one comes out into,
+ * and repeating the machine's name over a table that says nothing about the
+ * machine only pushed the city a line down. A door with no city round it has
+ * no name to put there but its own.
+ *
+ * No door is singled out here, and the Forerunners' printer least of all
+ * (owner, 2026-09-06): a city has one bioprinter, cities are equal, and a
+ * client that gave the first of them a name of its own would be teaching a
+ * newcomer that the capital is the place to be printed at.
+ */
+export function Chosen({
+  door,
+  busy,
+  trouble,
+  onEnter,
+  onBack,
+}: {
+  door: Door;
+  busy: boolean;
+  trouble?: string | null;
+  onEnter: (node: string) => void;
+  onBack: () => void;
+}) {
+  return (
+    <section className="doors-step">
+      <h1>{door.city ?? door.name}</h1>
+      <section className="card flat door">
+        <table>
+          <tbody>
+            <tr>
+              <td>{t("ui-doors-people")}</td>
+              <td className="num">{door.city ? door.population : "—"}</td>
+            </tr>
+            <tr>
+              <td>{t("ui-doors-citizens")}</td>
+              <td className="num">{door.city ? door.citizens : "—"}</td>
+            </tr>
+            <tr>
+              <td>{t("ui-doors-grant")}</td>
+              <td className="num">
+                {door.grant > 0 ? `${api.tk(door.grant)} ₭` : t("ui-doors-nothing")}
+              </td>
+            </tr>
+            <tr>
+              <td>{t("ui-doors-first-body")}</td>
+              <td className="num">{t("ui-doors-at-once")}</td>
+            </tr>
+            {/* What the door gives (D-184, D-281). Shown for a city door and
+                only for it: citizenship is the city's to give, and a door
+                with no city round it has nothing to enrol one into. The term
+                is gone -- one may leave in the first minute, as long as no
+                loan is open. */}
+            {door.city && (
+              <>
+                <tr>
+                  <td>{t("ui-doors-citizenship")}</td>
+                  <td className="num">{t("ui-doors-citizenship-at-once")}</td>
+                </tr>
+                <tr>
+                  <td>{t("ui-doors-tax")}</td>
+                  <td className="num">{door.tax > 0 ? `${door.tax}%` : t("ui-doors-nothing")}</td>
+                </tr>
+              </>
+            )}
+          </tbody>
+        </table>
+        {/* No city round the door, and that is a fact of the same order as the
+            grant: no treasury to pay one, no charter to join, no tax to
+            withhold. Two dashes and three missing rows say it only to
+            somebody who knows what rows a city door has. */}
+        {!door.city && <p className="note">{t("ui-doors-no-city")}</p>}
+        {/* The city's word: the authority writes it, not the engine (D-183).
+            A silent city shows its numbers only -- there is nothing to make up
+            on its behalf. */}
+        {door.about && <p className="say">«{door.about}»</p>}
+      </section>
+      {trouble && <p className="trouble">{trouble}</p>}
+      <div className="row last">
+        <button className="quiet" onClick={onBack} disabled={busy}>
+          {t("ui-doors-back")}
+        </button>
+        <button onClick={() => onEnter(door.node)} disabled={busy}>
+          {t("ui-doors-print-here")}
         </button>
       </div>
     </section>

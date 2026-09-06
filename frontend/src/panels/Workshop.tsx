@@ -163,7 +163,7 @@ export function Workshop({ look, machine }: Omit<Props, "busy" | "act">) {
     //: `tiersKey` stands for `chosenTiers`: a fresh object every render would
     //: refire the effect endlessly, its string does not.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session, selected, qty, recipe, tiersKey, look.node?.key, look.travel, look.survey, stockKey]);
+  }, [session, selected, qty, recipe, tiersKey, look.node?.key, look.travel, stockKey]);
 
   const myMachine = (look.bench ?? []).filter((b) => b.goods === machine);
 

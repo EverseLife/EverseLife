@@ -556,3 +556,62 @@
     display: none;
   }
 }
+
+/* The globe under the hull (D-319): the pads to come down on, stood on the
+   planet's own ground in a square of the console. The ground's tones are the
+   map's (`.ground` in map.css); the marks are the entry globe's, a control
+   under the finger before a picture. */
+.landing .pads svg {
+  display: block;
+  width: min(100%, 24rem);
+  aspect-ratio: 1;
+  margin: 0.4rem 0;
+  border: 1px solid var(--base-600);
+  background: var(--base-950);
+  /* A finger is the page's first: the console scrolls, and a square the
+     width of a phone would trap it. A sideways drag turns the globe, as on
+     the entry screen; the mouse turns it outright. */
+  touch-action: pan-y pinch-zoom;
+  cursor: grab;
+}
+.landing .pads .way {
+  fill: none;
+  stroke: var(--base-400);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+.landing .pads .way.wild,
+.landing .pads .way.trail {
+  stroke-dasharray: 2 3;
+}
+.landing .pads .place {
+  fill: var(--base-200);
+}
+.landing .pads .pad circle {
+  fill: var(--act);
+  fill-opacity: 0.85;
+  stroke: var(--base-50);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+  cursor: pointer;
+}
+.landing .pads .pad.picked circle {
+  fill: var(--accent);
+  fill-opacity: 1;
+}
+/* A pad with less ground free than the hull needs: still a place, drawn
+   hollow -- the order would be refused, and the refusal says by how much. */
+.landing .pads .pad.full circle {
+  fill: none;
+  stroke: var(--base-400);
+  stroke-dasharray: 3 3;
+}
+/* The mark is a control, so the keyboard must see where it stands (D-077):
+   the ring is the mark's own stroke, widened, as on the entry globe. */
+.landing .pads .pad:focus-visible {
+  outline: none;
+}
+.landing .pads .pad:focus-visible circle {
+  stroke: var(--act);
+  stroke-width: 5;
+}

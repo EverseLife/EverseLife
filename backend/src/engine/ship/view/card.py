@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src import sky
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import world
+from src.engine import estate, world
 from src.engine.ship import course, sighting, sim
 from src.engine.ship._base import (
     ADRIFT,
@@ -26,6 +26,7 @@ from src.engine.ship._base import (
     UNDER_WAY,
     NoArc,
     ShipError,
+    hull_footprint,
     is_orbit,
     orbit_key,
     orbit_node_of,
@@ -213,20 +214,6 @@ async def profile(
         #: a whole fleet at once (D-242), so a second call here was that walk
         #: again, per hull.
         lit = await lit_ports(session, constants)
-        #: A planet one lands anywhere on is named in the list by **its own**
-        #: name, not by the node the row happens to carry: the hull comes down
-        #: where the roll puts it (D-235), and a row promising "Плато
-        #: Наковальни" would be a promise the landing does not keep.
-        spheres = {
-            node.planet: node.name
-            for node in (
-                await session.execute(
-                    select(Node).where(Node.key.in_(sorted(one.value for one in open_planets)))
-                )
-            )
-            .scalars()
-            .all()
-        }
         reachable = {port.planet for port in lit}
         orbits = {
             node.planet: node
@@ -297,12 +284,9 @@ async def profile(
             )
     if stage is IN_ORBIT and docked is not None:
         #: The pads under the hull. Every lit one of them, because this is the
-        #: moment the choice is actually made (D-245) -- and a planet one lands
-        #: **anywhere** on is one row rather than one per field (D-233): its
-        #: fields differ in nothing the console could show, and their number
-        #: grows with every scout. The node the hull comes down in is rolled at
-        #: the landing, so the row is named after the planet and not after
-        #: whichever field it happens to carry.
+        #: moment the choice is actually made (D-245), on the globe under the
+        #: hull (D-319): the console stands these rows on the planet where
+        #: the public map places them.
         #: The price of coming down is a fact about the **planet**, not about
         #: the pad: hours, fuel and reach are the same for every field of it.
         #: Sent once, beside the list, because Aurora has hundreds of piers
@@ -311,25 +295,31 @@ async def profile(
         down = priced(
             fall_hours(constants, docked.planet, thrust_ratio) if thrust_ratio > 0 else None
         )
-        named = False
+        #: Every pad of the planet below with its **room**: the free ground
+        #: the hull would set down on (`estate.free_ground`, the number the
+        #: order is measured against), so the crew picks where it fits and
+        #: not by the refusal (D-319 item 10). The client cannot tell it:
+        #: the map says a node's whole ground, not what stands on it (D-225).
+        #: On a planet one lands anywhere on (D-233) that is every node of
+        #: the surface, each its own row now that the globe picks among
+        #: them; before the picker one row stood in for the planet.
         for port in sorted(lit, key=lambda one: one.key):
             if port.planet is not docked.planet:
                 continue
-            if port.planet in open_planets:
-                if named:
-                    continue
-                named = True
             landings.append(
                 {
                     "node": port.key,
-                    "name": (
-                        spheres.get(port.planet, port.name)
-                        if port.planet in open_planets
-                        else port.name
-                    ),
+                    "name": port.name,
+                    "room": round(max(await estate.free_ground(session, port), 0)),
                     **({"anywhere": True} if port.planet in open_planets else {}),
                 }
             )
+        #: What the hull needs of a pad's ground, once beside the list: the
+        #: same for every pad (D-225), and the mark on the globe that has
+        #: less than this is drawn as full.
+        footprint = round(await hull_footprint(session, ship))
+    else:
+        footprint = None
 
     return {
         "ship": str(ship.id),
@@ -382,6 +372,7 @@ async def profile(
         #: What coming down costs from here -- one price for the whole planet
         #: (D-245). `None` anywhere but in orbit.
         "descent": down,
+        "footprint": footprint,
         #: Which pads it may come down on: names only, because the price above
         #: is the same for all of them. Chosen with the planet already below,
         #: which is when a crew knows what it is choosing between.

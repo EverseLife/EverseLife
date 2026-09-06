@@ -52,7 +52,7 @@ export type RoadWork = {
   edge: string;
   /** Where it leads. */
   to: string;
-  surface: "trail" | "road" | "paved";
+  surface: "wild" | "trail" | "road" | "paved";
   /** Surface condition 0..100: overgrows without maintenance. */
   condition: number;
   seconds: number;
@@ -70,7 +70,7 @@ export type RoadWork = {
 export type Exit = {
   key: string;
   name: string;
-  surface: "trail" | "road" | "paved";
+  surface: "wild" | "trail" | "road" | "paved";
   seconds: number;
   /** Stamina spend for the road. With a vehicle -- zero. */
   stamina: number;
@@ -97,22 +97,34 @@ export type MapNode = {
   layer: "space" | "planet" | "city" | "location";
   /** The group the node belongs to: location -> city -> planet. */
   parent: string | null;
-  /** The city gate: every road beyond the walls starts here (D-206). */
-  exit: boolean;
+  /** The land under the node, square metres (D-323 addendum): a city's
+   *  outline is the land of its nodes joined. Absent off the ground. */
+  area?: number | null;
+  /** How near and how far one may scout from here, metres (D-321 item 4):
+   *  the biome's reach, sent with the node the body stands in alone. */
+  reach?: { min: number; max: number };
   /** The spaceport: the city's second door, the one ships couple to (D-206). */
   port: boolean;
   /** Which planet the node belongs to. The space layer paints by it. */
   planet: string;
   /** Where the node stands, once and for everybody (D-237). Given by the
    *  server when the node is created and never recomputed, so the map is the
-   *  same map for every player and the same one tomorrow. Absent on the space
-   *  layer -- a planet's point comes from the clock -- and on a node laid
-   *  before the rule, where the client falls back to its own layout. */
-  place?: { x: number; y: number } | null;
+   *  same map for every player and the same one tomorrow. A surface node
+   *  stands on its planet's sphere in degrees (D-319); a floor or a room
+   *  stands on the flat plan of the inside in map units. Absent on the space
+   *  layer -- a planet's point comes from the clock. */
+  place?: { lat: number; lon: number } | { x: number; y: number } | null;
   /** A planet's place in the system: display radius, a full circle in real
    *  days and the phase at the world's epoch. Only planets have one -- on the
    *  space layer a place is a function of time, not of a settled layout. */
   orbit: { radius: number; period_days: number; phase: number } | null;
+  /** A ship lies at this pier (D-319 item 10): sent only when so. The hull
+   *  is not a point of the map, and its row cannot tell a pier from the
+   *  parking -- both hang under the planet -- so the port says it. */
+  moored?: boolean;
+  /** Known from a map in the hands and nothing else (D-319 item 6): the
+   *  day the map was drawn on -- the map's own mark of "old". */
+  drawn?: number;
   /** Drawn, but not playable yet: Aquatica is out of the alpha (D-104). */
   deferred: boolean;
   /** Part of a ship: its delegate on the space layer or a room aboard (D-201). */
@@ -135,6 +147,8 @@ export type MapNode = {
   features?: string[];
   /** The owner's nailed mark, if any (D-238): beats the place signs. */
   emblem?: string | null;
+  /** Shown dark: remembered or public, not in sight (D-319). */
+  faded?: boolean;
 };
 
 export type MapEdge = {
@@ -158,9 +172,56 @@ export type MapRoute = {
   days: ForecastDay[];
 };
 
+/** A way out of sight (D-319 п. 6): drawn from its seen end a little way
+ *  towards where it leads, and no farther. The bearing is degrees clockwise
+ *  from north; where the way ends and how far is the fog's to keep. */
+export type MapStub = {
+  from: string;
+  bearing: number;
+  surface: Exit["surface"];
+};
+
+/** A planet's relief as the globe draws it (D-319): a grid of heights, the
+ *  two levels that make sea and mountain of it, the rivers as runs of
+ *  lat/lon, the lakes as cells, and the warmth of each row -- everybody's
+ *  from the world's first day, the same for everybody. */
+export type Terrain = {
+  rows: number;
+  cols: number;
+  sea_level: number;
+  mountain_level: number;
+  grid: number[][];
+  rivers: [number, number][][];
+  lakes: [number, number][];
+  warmth: number[];
+  /** The tiling of the local relief (D-323): degrees a tile, steps a tile. */
+  tile: { deg: number; n: number };
+  /** The local noise's levels of a peak and of a basin, and whether a basin
+   *  holds water on this planet. */
+  peak_level: number;
+  basin_level: number;
+  wet: boolean;
+};
+
+/** A tile of a planet's local relief (D-323): `n + 1` rows and columns of
+ *  the local noise from the tile's south-west corner, `step` degrees apart
+ *  -- the very numbers a scout's feet read. The heights the page has from
+ *  the grid (D-225); a peak and a basin are cut from the noise against the
+ *  sketch's levels. */
+export type Tile = {
+  row: number;
+  col: number;
+  lat0: number;
+  lon0: number;
+  step: number;
+  n: number;
+  local: number[][];
+};
+
 export type WorldMap = {
   nodes: MapNode[];
   edges: MapEdge[];
+  stubs: MapStub[];
   routes: MapRoute[];
 };
 
@@ -172,6 +233,7 @@ export type InSight = { nodes: MapNode[]; edges: MapEdge[] };
 
 /** Surface in words, by message key: a module-scope map holds keys, not text. */
 export const SURFACE: Record<Exit["surface"], string> = {
+  wild: "ui-map-surface-wild",
   trail: "ui-map-surface-trail",
   road: "ui-map-surface-road",
   paved: "ui-map-surface-paved",

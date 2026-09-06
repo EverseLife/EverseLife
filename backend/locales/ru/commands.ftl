@@ -76,4 +76,8 @@ cmd-nothing-to-resume = продолжать нечего: либо ничего
 
 cmd-door-does-not-print = у двери «{ $node }» не печатают
 cmd-world-not-created = мир ещё не создан: печататься негде
-cmd-no-such-planet = нет такой планеты
+cmd-no-such-planet = нет такой планеты: { $planet }
+
+## Разведка (D-321)
+
+cmd-bad-point = в команде нет числа «{ $field }»

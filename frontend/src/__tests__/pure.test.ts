@@ -241,6 +241,16 @@ describe("marks", () => {
     //: The rarer resource outranks the woods too: a stony forest is mined.
     expect(nodeGlyph({ features: ["woods", "stones"] })).toBe("ore");
     expect(nodeGlyph({ features: ["meadow"] })).toBe("glade");
+    //: A nameless find (D-321): the vein outranks everything but the ruins,
+    //: the river the mountain, the mountain the woods, the biome the ground.
+    expect(nodeGlyph({ features: ["vein", "woods", "mountain"] })).toBe("pick");
+    expect(nodeGlyph({ features: ["water", "floodplain"] })).toBe("water");
+    expect(nodeGlyph({ features: ["mountain", "alpine", "stones"] })).toBe("ore");
+    expect(nodeGlyph({ features: ["mountain", "alpine"] })).toBe("peak");
+    expect(nodeGlyph({ features: ["desert"] })).toBe("dune");
+    expect(nodeGlyph({ features: ["marsh"] })).toBe("reed");
+    expect(nodeGlyph({ features: ["ice"] })).toBe("snow");
+    expect(nodeGlyph({ features: ["steppe"] })).toBe("glade");
     expect(nodeGlyph({ settlement: true })).toBe("state");
     expect(nodeGlyph({ port: true })).toBe("port");
     expect(nodeGlyph({})).toBeNull();

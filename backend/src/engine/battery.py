@@ -39,7 +39,7 @@ from src.models.event import EventKind
 from src.models.identity import Body, BodyState
 from src.models.inventory import Container, ContainerKind, Item
 from src.models.ledger import AccountKind, PostingReason
-from src.models.world import Layer, Node, is_aboard
+from src.models.world import Node, built_up, is_aboard
 from src.units import (
     ENERGY_PER_TARIFF_UNIT,
     PERCENT,
@@ -559,7 +559,7 @@ async def tick_offgrid(
             .join(Node, Node.id == Container.owner_id)
             .where(
                 Container.kind == ContainerKind.NODE,
-                Node.layer != Layer.CITY,
+                ~built_up(),
                 Item.installed.is_(True),
                 Item.type_key.in_(tuple(rates)),
             )

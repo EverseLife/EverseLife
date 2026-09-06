@@ -33,18 +33,25 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants
 from src.constants import registry as R
-from src.engine import estate, world
+from src.engine import estate, places, world
 from src.models.world import Node, Planet
-from src.units import DAY_PHASE_DAWN, DAY_PHASE_DUSK, LIGHT_MAX, PERCENT, SECONDS_PER_HOUR
+from src.units import (
+    DAY_PHASE_DAWN,
+    DAY_PHASE_DUSK,
+    FULL_TURN_DEGREES,
+    LIGHT_MAX,
+    PERCENT,
+    SECONDS_PER_HOUR,
+)
 
 #: The light scale's ceiling: an open clearing at noon. Matches the catalog's
 #: `requires.light` 1-3, with nought left for the night; the scale itself is
 #: representation and lives in `units.LIGHT_MAX`.
 FULL_LIGHT = LIGHT_MAX
 
-#: The place mark exploration writes for a forest (`explore._base.WOODS`,
-#: D-191). Named here like farm's WATER: importing explore for one word would
-#: put a whole subsystem on this module's import path.
+#: The place mark the world's generation writes for a forest (`ground.WOODS`,
+#: D-191). Named here like farm's WATER: importing ground for one word would
+#: put the whole roll on this module's import path.
 WOODS = "woods"
 
 #: The vault's day length per planet (OQ-028). One map here rather than four
@@ -61,8 +68,19 @@ def day_hours_of(constants: Constants, planet: Planet) -> float:
     return constants[_DAY_OF[planet]]
 
 
-def swing_of(constants: Constants, planet: Planet) -> float:
-    """The diurnal temperature swing around the node's mean (D-261)."""
+def swing_of(constants: Constants, planet: Planet, node: Node | None = None) -> float:
+    """The diurnal temperature swing around the node's mean (D-261).
+
+    A found node carries its biome's own swing (D-321, `temperature_swing`):
+    the desert is hot by day and cold by night where the forest is even. A
+    node without one -- seeded, or a room -- swings as its planet does.
+    """
+    own = (node.properties or {}).get("temperature_swing") if node is not None else None
+    if own is not None:
+        try:
+            return float(own)
+        except (TypeError, ValueError):  # pragma: no cover -- properties are engine-written
+            pass
     return float(constants[R.PLANET_TEMP_SWING].get(planet.value, 0.0))
 
 
@@ -85,23 +103,45 @@ def precipitation(node: Node) -> float:
 
 
 def day_phase(
-    constants: Constants, planet: Planet, origin: datetime | None, moment: datetime
+    constants: Constants,
+    planet: Planet,
+    origin: datetime | None,
+    moment: datetime,
+    *,
+    longitude: float = 0.0,
 ) -> float:
     """Where in the planetary day the moment falls: 0 is midnight, 0.5 noon.
 
     Counted from the world's epoch so the server and the client's clock agree
     on the hour; a world with no epoch yet has no first node and nothing to
-    farm, and reads as its own midnight.
+    farm, and reads as its own midnight. The planet turns (D-319): noon comes
+    to a place east of the meridian first, by its longitude's share of the
+    turn, so two cities on one planet do not share a dawn.
     """
     if origin is None:
         return 0.0
     day_seconds = day_hours_of(constants, planet) * SECONDS_PER_HOUR
-    return ((moment - origin).total_seconds() % day_seconds) / day_seconds
+    turned = ((moment - origin).total_seconds() % day_seconds) / day_seconds
+    return (turned + longitude / FULL_TURN_DEGREES) % 1
 
 
-def is_day(constants: Constants, planet: Planet, origin: datetime | None, moment: datetime) -> bool:
+def is_day(
+    constants: Constants,
+    planet: Planet,
+    origin: datetime | None,
+    moment: datetime,
+    *,
+    longitude: float = 0.0,
+) -> bool:
     """The lit half of the planetary day: the middle two quarters."""
-    return DAY_PHASE_DAWN <= day_phase(constants, planet, origin, moment) < DAY_PHASE_DUSK
+    phase = day_phase(constants, planet, origin, moment, longitude=longitude)
+    return DAY_PHASE_DAWN <= phase < DAY_PHASE_DUSK
+
+
+def longitude_of(node: Node) -> float:
+    """Where the node's noon is measured from: its longitude, or the meridian off the sphere."""
+    point = places.geo_of(node)
+    return 0.0 if point is None else point[1]
 
 
 def day_index(
@@ -128,8 +168,8 @@ def temperature_now(
     mean = mean_temperature(node)
     if mean is None:
         return None
-    swing = swing_of(constants, node.planet)
-    phase = day_phase(constants, node.planet, origin, moment)
+    swing = swing_of(constants, node.planet, node)
+    phase = day_phase(constants, node.planet, origin, moment, longitude=longitude_of(node))
     return mean - swing * math.cos(math.tau * phase)
 
 
@@ -158,6 +198,6 @@ async def light_now(
     moment: datetime,
 ) -> int:
     """The light this very moment: the day's level, or nought at night."""
-    if not is_day(constants, node.planet, origin, moment):
+    if not is_day(constants, node.planet, origin, moment, longitude=longitude_of(node)):
         return 0
     return await daylight(session, constants, node)

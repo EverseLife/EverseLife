@@ -13,16 +13,19 @@ Checked is what the road was introduced for at all:
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import jobs, road, transport, travel, world
+from src.models.event import Event, EventKind
 from src.models.world import Edge, Surface
 from src.units import SCALE_MAX
 
@@ -325,3 +328,103 @@ async def test_the_tie_goes_to_the_slower_sagging_kind(
 
     await _finish(session, await road.lay(session, constants, catalog, body, edge))
     assert edge.paving == "asphalt_paving", "при равной трате побеждает то, что садится медленнее"
+
+
+# --- the trail is feet's work (D-319) ----------------------------------------
+
+
+async def test_feet_wear_a_trail_into_the_wild(session: AsyncSession, constants: Constants) -> None:
+    """Arrivals over untrodden ground add up, and at the threshold it is a trail."""
+    _, _, _, edge = await _edge(session, surface=Surface.WILD)
+    threshold = int(constants[R.PATH_WEAR_THRESHOLD])
+
+    for _ in range(threshold - 1):
+        assert await road.tread(session, constants, edge.id) is False
+    assert await road.tread(session, constants, edge.id) is True
+    await session.refresh(edge)
+    assert edge.surface is Surface.TRAIL
+    assert edge.wear == threshold
+    told = (
+        (await session.execute(select(Event).where(Event.kind == EventKind.ROAD_TRODDEN)))
+        .scalars()
+        .all()
+    )
+    assert len(told) == 1, "the world says it once, at the crossing, not on every step"
+
+    #: Feet keep counting on a trail, and it does not become a trail twice.
+    assert await road.tread(session, constants, edge.id) is False
+    await session.refresh(edge)
+    assert edge.wear == threshold + 1
+
+
+async def test_a_trail_nobody_walks_grows_over(session: AsyncSession, constants: Constants) -> None:
+    """The daily tick takes wear off every edge; under the lower mark a trail is wild again."""
+    _, _, _, edge = await _edge(session, surface=Surface.TRAIL)
+    floor = int(constants[R.PATH_FADE_THRESHOLD])
+    per_day = int(constants[R.PATH_FADE_PER_DAY])
+    edge.wear = floor + per_day
+    await session.flush()
+
+    assert await road.fade(session, constants) == 0
+    await session.refresh(edge)
+    assert edge.wear == floor and edge.surface is Surface.TRAIL, "on the mark it still holds"
+
+    assert await road.fade(session, constants) == 1
+    await session.refresh(edge)
+    assert edge.surface is Surface.WILD
+    assert edge.wear == floor - per_day
+
+    #: Never below nought, and the wild stays wild.
+    for _ in range(floor):
+        await road.fade(session, constants)
+    await session.refresh(edge)
+    assert edge.wear == 0 and edge.surface is Surface.WILD
+
+
+async def test_the_two_marks_keep_an_edge_from_flickering(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """A trail walked once a day stays a trail: it drops only under the lower mark."""
+    _, _, _, edge = await _edge(session, surface=Surface.TRAIL)
+    edge.wear = int(constants[R.PATH_WEAR_THRESHOLD])
+    await session.flush()
+    for _ in range(3):
+        await road.fade(session, constants)
+        await road.tread(session, constants, edge.id)
+    await session.refresh(edge)
+    assert edge.surface is Surface.TRAIL
+
+
+async def test_a_crew_lays_a_road_on_the_wild_and_mends_nothing_there(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Work starts at the road: neither the wild nor a trail is laid or mended."""
+    assert road.next_step(Surface.WILD) is Surface.ROAD
+    assert road.next_step(Surface.TRAIL) is Surface.ROAD
+    assert road.lower_step(Surface.ROAD) is Surface.TRAIL
+    assert road.lower_step(Surface.TRAIL) is None
+    assert road.lower_step(Surface.WILD) is None
+    _, _, body, edge = await _edge(session, surface=Surface.WILD, surface_amount=1000)
+    with pytest.raises(road.RoadError):
+        await road.lay(session, constants, catalog, body, edge, mend=True)
+    assert await road.decay(session, constants) == 0, "the wild has no condition to lose"
+
+
+async def test_two_arrivals_in_one_second_are_two(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    constants: Constants,
+) -> None:
+    """The wear is a counter written as `wear = wear + 1`: two walkers arriving
+    over the same edge at once both count, whatever either session read."""
+    _, _, _, edge = await _edge(session, surface=Surface.WILD)
+    await session.commit()
+
+    async def one() -> None:
+        async with factory() as own:
+            await road.tread(own, constants, edge.id)
+            await own.commit()
+
+    await asyncio.gather(one(), one())
+    await session.refresh(edge)
+    assert edge.wear == 2

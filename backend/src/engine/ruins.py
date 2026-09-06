@@ -49,13 +49,14 @@ from __future__ import annotations
 import random
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants, current, current_catalog
 from src.constants import registry as R
-from src.engine import energy, luck, props, travel, world
+from src.engine import energy, luck, places, props, travel, world
 from src.engine.errors import Refusal
 from src.models.world import Layer, Node, Planet, Surface
 from src.units import HOURS_PER_DAY
@@ -75,7 +76,7 @@ OPENED = "revealed"
 #: What kind of room this is. Sent to the client as a place property.
 ROOM_MARK = "indoors"
 
-#: The search goal. A string, like the others (`explore.GOALS`).
+#: The room kind a Forerunner city is made of (D-232).
 ROOM = "room"
 
 #: Thing classes of the Forerunners, by class (D-215): the seed and the ruins
@@ -226,14 +227,14 @@ async def open_room(
     room_type = await luck.draw(session, who, f"{luck.RUINS_ROOM}:{kind}", types, dice=dice)
     depth = depth_of(origin) + 1
 
-    area = constants[R.EXPLORE_NODE_AREA]
+    area = constants[R.RUINS_ROOM_AREA]
     room = await world.create_node(
         session,
         f"{city.key}.room.{uuid.uuid4().hex}",
         room_type.capitalize(),
         planet=city.planet,
         area_m2=dice.uniform(area.min, area.max),
-        layer=Layer.CITY,
+        layer=Layer.PLANET,
         parent=city,
         #: Next to the corridor it opened off, as it is joined to it: one goes
         #: deeper through what is already open, and the map says so (D-237).
@@ -249,7 +250,6 @@ async def open_room(
             #: (`estate.price.nodes_from_center`) -- depth is what the scouting
             #: goes by, not a second copy of that measurement.
             DEPTH: depth,
-            travel.REACH: travel.reach_of(origin),
         },
     )
     await _fill(session, constants, dice, room, room_type, depth, who=who)
@@ -257,6 +257,40 @@ async def open_room(
     #: The city is one room poorer -- for everybody who searches it next.
     await props.bump(session, city, OPENED)
     return room
+
+
+async def open_all(
+    session: AsyncSession, constants: Constants, pier: Node, dice: random.Random
+) -> None:
+    """Every room of a city of the Forerunners, open from the first day (D-319, D-321).
+
+    Deeper and deeper off the hall: one corridor, as a digger would have
+    opened it, so the depth of a room still means what it meant.
+    """
+    city = await city_of(session, pier)
+    if city is None:  # pragma: no cover -- a pier is always a city's
+        return
+    origin = pier
+    hall = await session.scalar(select(Node).where(Node.key == f"{city.key}.hall"))
+    if hall is not None:
+        origin = hall
+    while not exhausted(constants, city):
+        origin = await open_room(session, constants, dice, origin)
+        await session.refresh(city)
+
+
+async def stock(
+    session: AsyncSession,
+    constants: Constants,
+    dice: random.Random,
+    room: Node,
+    room_type: str,
+    *,
+    who: uuid.UUID | None,
+) -> None:
+    """What lies in a room of a complex (D-321): a store's worth of `ruins.room_finds`,
+    at the pier's depth -- a complex is found from the outside, not dug into."""
+    await _fill(session, constants, dice, room, room_type, 0, who=who)
 
 
 def _any_room(constants: Constants) -> dict[str, float]:
@@ -314,6 +348,7 @@ async def lost_city(
     origin: Node,
     *,
     who: uuid.UUID | None = None,
+    at: tuple[float, float] | None = None,
 ) -> Node:
     """Find another city of the Forerunners. Returns its **pier**: that is where
     a walker arrives, and the hall is one step further in.
@@ -338,6 +373,11 @@ async def lost_city(
     kinds = sorted(constants[R.RUINS_ROOM_TYPES])
     kind = seed.choice(kinds) if kinds else ""
 
+    marks: dict[str, Any] = {PRECURSOR: True, KIND: kind}
+    if at is not None:
+        #: Laid at the world's birth where the relief put it (D-319): the pin
+        #: is written before creation, so the seat is never searched.
+        marks[places.PLACE] = {places.PLACE_LAT: at[0], places.PLACE_LON: at[1]}
     city = await world.create_node(
         session,
         f"{origin.planet.value}.lost.{number:03d}",
@@ -346,27 +386,20 @@ async def lost_city(
         area_m2=1,
         layer=Layer.PLANET,
         parent=root,
-        #: A find stands next to what it was found from, on the planet's map
-        #: (D-206, D-237): the scout walked there from somewhere.
+        #: Beside what it was laid from, unless the relief named the point.
         anchor=origin,
-        properties={
-            PRECURSOR: True,
-            KIND: kind,
-            #: The frontier recedes by a step, as with any find (D-180): the
-            #: further from what is settled, the longer the walk.
-            travel.REACH: travel.reach_of(origin) + 1,
-        },
+        properties=marks,
     )
-    area = constants[R.EXPLORE_NODE_AREA]
+    area = constants[R.RUINS_ROOM_AREA]
     port = await world.create_node(
         session,
         f"{city.key}.port",
         "Космодром",
         planet=origin.planet,
         area_m2=seed.uniform(area.min, area.max),
-        layer=Layer.CITY,
+        layer=Layer.PLANET,
         parent=city,
-        properties={PRECURSOR: True, DEPTH: 0, travel.REACH: travel.reach_of(city)},
+        properties={PRECURSOR: True, DEPTH: 0},
     )
     hall = await world.create_node(
         session,
@@ -374,27 +407,19 @@ async def lost_city(
         "Зал",
         planet=origin.planet,
         area_m2=seed.uniform(area.min, area.max),
-        layer=Layer.CITY,
+        layer=Layer.PLANET,
         parent=city,
         anchor=port,
         properties={
             PRECURSOR: True,
             DEPTH: 1,
-            travel.REACH: travel.reach_of(city),
             #: Long dead: the anchor is pushed back past the reactor's whole
             #: life, so its output is nought from the first minute anybody sees
             #: it. Nobody was waiting here.
             energy.REACTOR_SINCE: _long_dead(constants).isoformat(),
         },
     )
-    step = constants[R.TRAVEL_CITY_STEP]
-    await travel.connect(
-        session,
-        port,
-        hall,
-        base_seconds=seed.uniform(step.min, step.max),
-        surface=Surface.PAVED,
-    )
+    await travel.connect(session, port, hall, surface=Surface.PAVED)
     await grant_relic(session, port, RELIC_YARD, origin=f"наследие Предтеч: {city.name}")
     await grant_relic(session, hall, RELIC_PLANT, origin=f"наследие Предтеч: {city.name}")
     await grant_relic(session, hall, energy.REACTOR, origin=f"наследие Предтеч: {city.name}")
@@ -410,14 +435,16 @@ def _long_dead(constants: Constants) -> datetime:
 async def _lost_so_far(session: AsyncSession, planet: Planet) -> int:
     """How many cities have been found on this planet already."""
     #: The cities themselves, not their piers and halls: those carry the same
-    #: key prefix, and counting them would skip three numbers per find.
+    #: key prefix, and counting them would skip three numbers per city.
     found = await session.scalar(
         select(func.count())
         .select_from(Node)
         .where(
             Node.planet == planet.value,
-            Node.layer == Layer.PLANET,
             Node.key.like(f"{planet.value}.lost.%"),
+            #: One surface level since D-319: the pier and the hall are keyed
+            #: under the city, so they are told apart by the second dot.
+            ~Node.key.like(f"{planet.value}.lost.%.%"),
         )
     )
     return int(found or 0)

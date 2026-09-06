@@ -397,7 +397,6 @@ function Doings({ look, busy, act }: Props) {
   const ends: Record<string, { cmd: string; label: string; why: string }> = {
     sleep: { cmd: "rest.wake", label: t("ui-side-end-sleep"), why: t("ui-side-end-sleep-why") },
     forage: { cmd: "forage.stop", label: t("ui-side-end-forage"), why: t("ui-side-end-forage-why") },
-    field: { cmd: "explore.cancel", label: t("ui-side-end-field"), why: t("ui-side-end-field-why") },
     mine: { cmd: "mine.leave", label: t("ui-side-end-mine"), why: t("ui-side-end-mine-why") },
     plot: { cmd: "farm.plow_pause", label: t("ui-side-end-plot"), why: t("ui-side-end-plot-why") },
   };

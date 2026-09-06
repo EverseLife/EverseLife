@@ -125,7 +125,7 @@ TOOLS: list[dict[str, Any]] = [
                 "End this turn. Say in one or two sentences what you did and what is next. "
                 "wait_seconds: ask to be woken up no earlier than this (e.g. when a house "
                 "is built) instead of the usual cadence. While the body is away or at work on "
-                "the spot (travel, survey, a search, a batch, a repair) you are not woken up "
+                "the spot (travel, a search, a batch, a repair) you are not woken up "
                 "anyway. Sleep has no term of its own: say wait_seconds when you lie down."
             ),
             "parameters": {

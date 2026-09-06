@@ -30,7 +30,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
-from src.engine import death, energy, events, market, props, travel, world
+from src.engine import death, energy, events, market, travel, world
 from src.engine.city._base import (
     FOUNDER_POWERS,
     FOUNDER_TITLE,
@@ -40,8 +40,8 @@ from src.engine.city._base import (
     NotYours,
 )
 from src.engine.city.citizen import AlreadyCitizen, _enrol_founder, citizenship
-from src.engine.city.land import _retire_deed
-from src.engine.city.lookup import by_name, by_node, territory
+from src.engine.city.land import _retire_deed, lay_ring
+from src.engine.city.lookup import by_name, by_node
 from src.engine.city.office import _office
 from src.engine.errors import Says
 from src.engine.world import station_names
@@ -135,7 +135,6 @@ async def found(
     )
     session.add(city)
     await session.flush()
-    await _mark_gate(session, city, node)
     await _open_channel(session, city)
 
     if founder is not None:
@@ -157,25 +156,6 @@ async def found(
         name=name,
     )
     return city
-
-
-async def _mark_gate(session: AsyncSession, city: City, node: Node) -> None:
-    """A founded city gets a gate at once (D-206).
-
-    Without it the city would have no door: a road from beyond the walls could
-    be tied nowhere, and exploration from inside would refuse instead of laying
-    a trail. The node the city stands on becomes the gate -- for a city founded
-    on one node it is the only node there is, and that node **is** the whole
-    city.
-
-    A city that already has a gate keeps it: the capital's gate is a node of its
-    own, and the seed marked it long before founding.
-    """
-
-    ground = await territory(session, city)
-    if any((place.properties or {}).get(travel.EXIT) for place in ground):
-        return
-    await props.stamp(session, node, {travel.EXIT: True})
 
 
 def _violated(clash: IntegrityError) -> str | None:
@@ -411,6 +391,9 @@ async def establish(
     await world.hand_over(session, node, None)
     await _retire_deed(session, node, city)
     await session.flush()
+    #: The first ring of plots, from the first minute (D-089, D-319): a city
+    #: is founded with land to hand out, since nobody finds any.
+    await lay_ring(session, constants, city, node)
 
     await events.record(
         session,

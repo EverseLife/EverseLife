@@ -22,13 +22,12 @@ from src.engine import events, ledger, travel, world
 from src.engine.estate._base import BadName, EstateError, NotEnoughMoney, NotForSale, NotOwner
 from src.engine.estate.building import built_area, slots
 from src.engine.estate.deed import issue_deed
-from src.engine.ship import ABOARD
 from src.models.city import City, Power
 from src.models.estate import Deed
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState
 from src.models.ledger import AccountKind, PostingReason
-from src.models.world import Edge, Layer, Node, Vein, is_plot
+from src.models.world import ABOARD, Edge, Node, Vein, built_up, is_plot
 from src.runtime import LAND_ABOUT_LIMIT, LAND_NAME_LIMIT
 from src.units import (
     PERCENT,
@@ -111,7 +110,7 @@ async def note_new_place(session: AsyncSession, one: Node, other: Node) -> None:
     the graph for that would be answering a question the map has already
     answered (D-220).
 
-    Only the built-up area is counted (`city` layer): beyond the walls the land
+    Only the built-up area is counted (`built_up`): beyond the walls the land
     is nobody's and pays nothing (D-198), and a ship is a dead end of its own
     (D-201, D-202). And only from an anchor that has a distance itself -- an
     old world whose nodes were never measured is measured once, by the walk
@@ -121,7 +120,7 @@ async def note_new_place(session: AsyncSession, one: Node, other: Node) -> None:
     for anchor, fresh in ((one, other), (other, one)):
         if fresh.center_steps is not None or anchor.center_steps is None:
             continue
-        if fresh.layer is not Layer.CITY:
+        if not await world.is_built_up(session, fresh):
             continue
         if (fresh.properties or {}).get(ABOARD) or (anchor.properties or {}).get(ABOARD):
             continue
@@ -401,7 +400,7 @@ async def land_tax_of(
     #: and what the levy charges must be decided by the same rule as what the
     #: plot screen shows. Two rules that agree only while a third thing stays
     #: true is how a tax comes to be shown and never taken.
-    if node.layer is not Layer.CITY or (node.properties or {}).get(ABOARD):
+    if not await world.is_built_up(session, node) or (node.properties or {}).get(ABOARD):
         return 0
 
     city = await town.of_node(session, node)
@@ -461,7 +460,7 @@ async def levy_land_tax(
                     #: and they must stay the same two: the planet's own land
                     #: is nobody's, and a hull is not land. Written into the
                     #: query so that the nodes it does not charge are not read.
-                    Node.layer == Layer.CITY,
+                    built_up(),
                     ~Node.properties.has_key(ABOARD),
                 )
                 .distinct()
@@ -519,9 +518,6 @@ async def is_vacant(session: AsyncSession, constants: Constants, node: Node) -> 
     property, and disposing of it is the authority's business, not a price list's.
     """
     if await built_area(session, node) > 0:
-        return False
-    #: The city's transit gate is a common road, not a plot (D-176).
-    if (node.properties or {}).get(travel.EXIT):
         return False
     _, occupied = await slots(session, constants, node)
     if occupied > 0:

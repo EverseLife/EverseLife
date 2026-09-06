@@ -103,7 +103,7 @@ def _derived_keys() -> set[str]:
     from src.api.commands.world import TOLD, TOLD_OF_THE_PLACE
     from src.constants import current
     from src.constants import registry as R
-    from src.engine import explore, occupation
+    from src.engine import occupation
     from src.engine.city import founding
     from src.herald import chronicle
     from src.models.ledger import AccountKind, PostingReason
@@ -130,7 +130,6 @@ def _derived_keys() -> set[str]:
         #: What a search may look for. The word used to be a Russian noun in a
         #: map beside the goal; now the goal names a message, and a goal added
         #: without one would leave the refusal naming a key.
-        | {f"explore-goal-{goal}" for goal in explore.GOALS}
         #: The bands of the roof's sign (D-303). Their thresholds are the
         #: vault's and their words the engine's, and the band is said at the
         #: wire from whatever the vault holds -- so a band added to
