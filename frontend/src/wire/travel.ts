@@ -97,6 +97,9 @@ export type MapNode = {
   layer: "space" | "planet" | "city" | "location";
   /** The group the node belongs to: location -> city -> planet. */
   parent: string | null;
+  /** The land under the node, square metres (D-323 addendum): a city's
+   *  outline is the land of its nodes joined. Absent off the ground. */
+  area?: number | null;
   /** The spaceport: the city's second door, the one ships couple to (D-206). */
   port: boolean;
   /** Which planet the node belongs to. The space layer paints by it. */

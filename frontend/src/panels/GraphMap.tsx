@@ -46,10 +46,11 @@ import { t } from "../locale";
 import { PHONE } from "../narrow";
 import { Inspector } from "./map/Inspector";
 import { NodeMenu } from "./map/NodeMenu";
-import { Edges, Nodes, Stubs } from "./map/Nodes";
+import { Edges, Nodes, Outlines, Stubs } from "./map/Nodes";
+import { cityOutlines } from "./map/territory";
 import { useHand } from "./map/hand";
 import { flatten, withCityScene } from "./map/geo";
-import { placeAt, projectAll } from "./map/globe";
+import { placeAt, projectAll, UNITS_PER_METRE } from "./map/globe";
 import { Ground } from "./map/Ground";
 import { useArcs, useGlobe, radiusOf } from "./map/useGlobe";
 import { factsOf, useBands, useHandOver, type Sphere } from "./map/useBands";
@@ -362,6 +363,12 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
     for (const node of map?.nodes ?? []) if (node.parent) out.add(node.parent);
     return out;
   }, [map]);
+  /** The outlines of the cities, in degrees: once per map, projected as
+   *  the globe turns. */
+  const outlines = useMemo(
+    () => (radius ? cityOutlines(map?.nodes ?? [], radius / UNITS_PER_METRE) : new Map()),
+    [map, radius],
+  );
   /** How many nodes hang under each: a closed city is drawn as large as it
    *  is, so a town and the capital are told apart from afar. */
   const sizes = useMemo(() => {
@@ -630,6 +637,9 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
               unit={zoomed.descent > 0 ? undefined : zoomed.unit}
               within={zoomed.descent > 0 ? undefined : groundReach(zoomed.unit, radius)}
             />
+          )}
+          {globeScene && eye && radius && (
+            <Outlines outlines={outlines} eye={eye} radius={radius} />
           )}
           <Edges edges={shownEdges} at={at} labelled={!orbiting} curve={curve} />
           {stubCurve && <Stubs stubs={map.stubs} curve={stubCurve} />}

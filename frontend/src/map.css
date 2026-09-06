@@ -381,6 +381,16 @@ polyline.edge {
 .stubs .stub {
   stroke-opacity: 0.5;
 }
+/* Where a city ends (D-323 addendum): the contour of its land, the discs
+   of its nodes joined -- a hairline, no fill, the same width at any zoom. */
+.territory .city-edge {
+  fill: none;
+  stroke: currentColor;
+  stroke-opacity: 0.55;
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
 .node.near {
   cursor: pointer;
 }

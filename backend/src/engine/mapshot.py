@@ -71,6 +71,10 @@ def node_row(
         "features": world.public_signs(node),
         #: The owner's mark, if one is nailed on (D-238).
         "emblem": estate.public_emblem(node),
+        #: The land under the node, square metres: a city's outline is the
+        #: land of its nodes joined (D-323 addendum), and the client cannot
+        #: know a node's land otherwise (D-225). None off the ground.
+        "area": float(node.area_m2) if node.layer is Layer.PLANET else None,
     }
     #: Memory and the public are drawn dark (D-319 item 6); sent only when so,
     #: so the bright majority of rows carry nothing for it.

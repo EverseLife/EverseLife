@@ -22,7 +22,7 @@
 
 import { SHAPES } from "../../glyphs";
 import { nodeGlyph } from "../../marks";
-import { midOf, placeAt } from "./globe";
+import { midOf, placeAt, project, type Eye, type Geo } from "./globe";
 import { SURFACE, spell, type MapNode } from "../../api";
 import { t } from "../../locale";
 import { cityRadius, citySeen } from "./bands";
@@ -283,3 +283,33 @@ export function Nodes({
   );
 }
 
+
+/** The outlines of the cities (D-323 addendum): each city's land, the
+ *  discs of its nodes joined and rounded, as a contour -- no fill, no
+ *  circle. Drawn at every scale: from afar a hairline blot beside the
+ *  city's circle, close up the city's own edge among its streets. */
+export function Outlines({
+  outlines,
+  eye,
+  radius,
+}: {
+  outlines: ReadonlyMap<string, Geo[][]>;
+  eye: Eye;
+  radius: number;
+}) {
+  return (
+    <g className="territory" aria-hidden="true">
+      {[...outlines.entries()].map(([city, loops]) => {
+        const d = loops
+          .map((loop) => {
+            const seen = loop.map((p) => project(eye, radius, p));
+            //: A city is small: on the far side whole, or seen whole.
+            if (!seen.every((p) => p.front)) return "";
+            return `M${seen.map((p) => `${p.x},${p.y}`).join("L")}Z`;
+          })
+          .join("");
+        return d ? <path key={city} className="city-edge" d={d} /> : null;
+      })}
+    </g>
+  );
+}
