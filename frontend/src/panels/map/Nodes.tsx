@@ -25,6 +25,7 @@ import { nodeGlyph } from "../../marks";
 import { diskPath, midOf, placeAt } from "./globe";
 import { SURFACE, spell, type MapNode } from "../../api";
 import { t } from "../../locale";
+import { cityRadius, citySeen } from "./bands";
 import { DASH, SPHERE_R, type Link, type Point } from "./model";
 import type { MapStub } from "../../api";
 
@@ -148,11 +149,6 @@ export function Stubs({ stubs, curve }: {
   );
 }
 
-/** A closed city's radius, pixels: its count of nodes, held between what
- *  is still a city and what still fits beside its neighbours. */
-const SETTLEMENT_MIN_R = 8;
-const SETTLEMENT_MAX_R = 40;
-
 export function Nodes({
   nodes,
   at,
@@ -161,6 +157,7 @@ export function Nodes({
   reachable,
   group,
   size = () => 0,
+  far = 0,
   onPick,
   onMenu,
 }: {
@@ -174,8 +171,11 @@ export function Nodes({
   /** Whether the node opens into a layer of its own. */
   group: (key: string) => boolean;
   /** How many nodes hang under it: a closed city's circle is that many
-   *  pixels across in radius, so its size is read from afar. */
+   *  pixels in radius, so its size is read from afar. */
   size?: (key: string) => number;
+  /** How far out the frame is past the cities' closing (`bands.farOf`):
+   *  the circles grow with it, and the small cities fade. */
+  far?: number;
   onPick: (node: MapNode) => void;
   onMenu: (node: MapNode, spot: { x: number; y: number }) => void;
 }) {
@@ -190,10 +190,10 @@ export function Nodes({
         const mine = node.key === standingAt;
         const near = reachable(node);
         const settlement = group(node.key);
-        //: A city's radius is its count of nodes, within what fits a screen.
-        const spread = settlement
-          ? Math.min(SETTLEMENT_MAX_R, Math.max(SETTLEMENT_MIN_R, size(node.key)))
-          : 0;
+        //: A closed city is drawn as large as it is, larger the farther out,
+        //: and a small one not at all from afar -- but one's own always.
+        if (settlement && !mine && !citySeen(size(node.key), far)) return null;
+        const spread = settlement ? cityRadius(size(node.key), far) : 0;
         const chosen = node.key === picked;
         const sphere = Boolean(node.orbit);
         const hull = node.aboard;

@@ -21,6 +21,7 @@ import {
   STREET_SCALE,
   cityOpen,
   descentOf,
+  farOf,
   globeScale,
   groundOf,
   leavesSurface,
@@ -45,6 +46,8 @@ export type Facts = {
   ground: boolean;
   /** The drawn cell of the ground, in cells of the grid (`groundOf`). */
   unit: number;
+  /** How far out past the cities' closing, half-octaves (`farOf`). */
+  far: number;
   /** The planet under the middle of the frame at the sky's ceiling, if any. */
   over: string | null;
   /** How far down the approach the frame is: 1 at the floor, 0 at the globe. */
@@ -57,6 +60,7 @@ export const NO_FACTS: Facts = {
   ceiling: false,
   ground: false,
   unit: 1,
+  far: 0,
   over: null,
   descent: 0,
 };
@@ -82,6 +86,7 @@ export function factsOf(frame: Frame, surface: Surface, spheres: readonly Sphere
     ceiling,
     ground: ground.shown,
     unit: ground.unit,
+    far: farOf(frame.scale),
     over: ceiling ? (planetUnder(middle, spheres)?.planet ?? null) : null,
     descent: surface.console ? descentOf(frame.scale, surface.furthest, surface.globe) : 0,
   };
@@ -94,6 +99,7 @@ export function sameFacts(a: Facts, b: Facts): boolean {
     a.ceiling === b.ceiling &&
     a.ground === b.ground &&
     a.unit === b.unit &&
+    a.far === b.far &&
     a.over === b.over &&
     a.descent === b.descent
   );

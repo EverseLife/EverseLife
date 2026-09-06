@@ -655,6 +655,7 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
             reachable={reachable}
             group={(key) => groups.has(key)}
             size={(key) => sizes.get(key) ?? 0}
+            far={citiesOpen ? 0 : zoomed.far}
             onPick={click}
             onMenu={(node, spot) => {
               setPicked(node.key);

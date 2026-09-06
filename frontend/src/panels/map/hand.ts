@@ -312,21 +312,14 @@ export function useHand({
       //: middle stays the middle, and the follow is not taken away by it.
       if (tethered) return cam.zoomOnMiddle(scale);
       //: Loose, a wheel is the hand: it takes the frame from every autopilot.
-      const p = toWorld(e);
       cam.takeFrame();
-      if (rotate) {
-        //: On the globe the middle is the eye and stays the middle: the
-        //: point under the cursor is brought towards it by turning the
-        //: sphere as much as a zoom to the cursor would have slid it, and
-        //: the zoom itself keeps the middle -- the planet never leaves the
-        //: centre of the frame, in either mode of the camera.
-        const was = cam.frame().scale;
-        const mid = cam.middle();
-        const pull = 1 - was / scale;
-        rotate(-(p.x - mid.x) * pull, -(p.y - mid.y) * pull);
-        return cam.zoomOnMiddle(scale);
-      }
-      cam.zoomTo(p, scale);
+      //: On the globe the middle is the eye and stays the middle, loose or
+      //: tied: the planet never leaves the centre of the frame. Turning the
+      //: sphere towards the cursor at the same time was tried and shook --
+      //: the turn lands a frame after the zoom, and the ground jumped twice
+      //: at every notch (owner, 2026-09-06).
+      if (rotate) return cam.zoomOnMiddle(scale);
+      cam.zoomTo(toWorld(e), scale);
     },
 
     /** The loupe buttons: a notch nearer or farther about the middle -- a

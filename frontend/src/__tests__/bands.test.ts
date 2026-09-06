@@ -21,6 +21,11 @@ import {
   globeScale,
   groundOf,
   groundReach,
+  farOf,
+  cityRadius,
+  citySeen,
+  CITY_R_MAX,
+  KM_PER_NODE,
   leavesSurface,
   mapBounds,
   MAP_FURTHEST,
@@ -117,6 +122,27 @@ describe("the bands", () => {
     //: that cell serves: half of it, about the eye; a whole cell, no limit.
     expect(groundReach(1 / 8, small)).toBeCloseTo(24 * cell * (1 / 8), 6);
     expect(groundReach(1, small)).toBeUndefined();
+  });
+
+  it("draws a closed city larger the farther out, and fades the small ones", () => {
+    //: At the closing nothing is far; a doubling of the span is two half-octaves.
+    expect(farOf(CITY_SCALE)).toBe(0);
+    expect(farOf(CITY_SCALE / 2)).toBe(2);
+    expect(farOf(CITY_SCALE / 8)).toBe(6);
+    expect(farOf(1)).toBe(0);
+    //: The radius is the node count at the closing and grows with the
+    //: distance, to a ceiling.
+    expect(cityRadius(13, 0)).toBe(13);
+    expect(cityRadius(3, 0)).toBe(8);
+    expect(cityRadius(13, 2)).toBeCloseTo(13 * 1.3, 9);
+    expect(cityRadius(40, 40)).toBe(CITY_R_MAX);
+    //: A hamlet of three fades once the frame is wider than three of its
+    //: allowances; the capital is seen from the whole disk.
+    const closingKm = W / CITY_SCALE / UNITS_PER_METRE / 1000;
+    const farEnough = 2 * Math.ceil(Math.log2((4 * KM_PER_NODE) / closingKm));
+    expect(citySeen(3, 0)).toBe(true);
+    expect(citySeen(3, farEnough)).toBe(false);
+    expect(citySeen(13, farEnough)).toBe(true);
   });
 
   it("open a city at the city scale and close it a hair farther out", () => {

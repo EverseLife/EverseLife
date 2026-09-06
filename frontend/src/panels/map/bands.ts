@@ -174,6 +174,41 @@ export function openScale(radius: number | null, floor: number): number {
 /** At this scale and nearer a city opens into its nodes; farther, it is a
  *  point with a name -- the printer's (plan §2). */
 export const CITY_SCALE = 0.1;
+
+/**
+ * How far out the frame is past the cities' closing, in half-octaves: 0
+ * where the cities close, 2 at twice that span, 4 at four times. A fact of
+ * the frame rather than the scale itself, so the map redraws its cities a
+ * few times on the way out and not at every notch.
+ */
+export function farOf(scale: number): number {
+  const closing = W / CITY_SCALE;
+  const span = W / Math.max(scale, 1e-12);
+  return Math.max(0, Math.round(2 * Math.log2(span / closing)));
+}
+
+/** A closed city's radius, pixels: its count of nodes at the closing, held
+ *  between what is still a city and what fits beside its neighbours, and
+ *  larger the farther out -- from afar the cities are the map (owner,
+ *  2026-09-06: as a web map shows the great cities first). */
+export const CITY_R_MIN = 8;
+export const CITY_R_MAX = 60;
+export const CITY_GROWTH = 0.3;
+export function cityRadius(size: number, far: number): number {
+  const base = Math.min(40, Math.max(CITY_R_MIN, size));
+  return Math.min(CITY_R_MAX, base * (1 + (CITY_GROWTH * far) / 2));
+}
+
+/**
+ * Whether a closed city of `size` nodes is still drawn this far out: the
+ * frame may hold one node of it per `KM_PER_NODE` of its span, so a hamlet
+ * fades a few hundred kilometres out and the capital never does.
+ */
+export const KM_PER_NODE = 200;
+export function citySeen(size: number, far: number): boolean {
+  const spanKm = (W / CITY_SCALE / UNITS_PER_METRE / 1000) * 2 ** (far / 2);
+  return size >= Math.ceil(spanKm / KM_PER_NODE);
+}
 /** In the sky, zoomed all the way in on a planet, the surface opens: the
  *  marker within this many map units of the frame's middle. */
 export const OPEN_REACH = 60;
