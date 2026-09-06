@@ -150,15 +150,14 @@ export function kindAt(terrain: Terrain, at: Geo, bands: Warmth): Kind {
 export type GroundPaths = {
   land: Record<Tone, string>;
   high: string;
-  water: string;
 };
 
 /** How many cells of the grid make one drawn cell while the disk is
  *  smaller than the frame: a cell is then a pixel or two, and the descent
  *  redraws the ground at every step. */
 export const COARSE_STRIDE = 3;
-/** How fine the grid is read close up: half a cell, the height between
- *  cells read between them. Four times the cells of the grid. */
+/** How fine the grid is read close up: half a cell, four times the cells
+ *  of the grid, and the coast's line through them twice as supple. */
 export const FINE_UNIT = 0.5;
 
 /** The height of the field at a point, read between the four nearest
@@ -183,14 +182,117 @@ export function heightAt(terrain: Terrain, lat: number, lon: number): number {
 }
 
 /**
- * The cells of the relief as paths, as the eye sees them: land by tone,
- * mountains, and the lakes. The sea is not drawn -- it is the disk under
- * everything. A cell is drawn when any of its corners faces the eye, the
- * far corners pushed to the horizon, so the land meets the edge of the
- * disk. The drawn cell is
- * `unit` cells of the grid across: coarser than the grid on the approach
- * (`COARSE_STRIDE`), finer than it close up (`FINE_UNIT`), where the
- * height between the cells is read between them and the coast bends.
+ * The part of a cell above `level`, as a polygon: the corners above it,
+ * and where an edge crosses the level, the crossing, found by the heights
+ * at the edge's ends. A coast is then a line through the cells, not a
+ * staircase of them. A saddle -- two opposite corners above, two below --
+ * comes out as one polygon joining both; the coast is rarely that finicky.
+ */
+export function above(
+  corners: readonly Point[],
+  heights: readonly number[],
+  level: number,
+): Point[] | null {
+  const n = corners.length;
+  const out: Point[] = [];
+  let any = false;
+  for (let i = 0; i < n; i++) {
+    const a = corners[i];
+    const b = corners[(i + 1) % n];
+    const ha = heights[i];
+    const hb = heights[(i + 1) % n];
+    if (ha >= level) {
+      out.push(a);
+      any = true;
+    }
+    if ((ha >= level) !== (hb >= level)) {
+      const t = (level - ha) / (hb - ha);
+      out.push({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
+    }
+  }
+  return any && out.length >= 3 ? out : null;
+}
+
+const ring = (points: readonly Point[]): string =>
+  `M${points.map((p) => `${p.x},${p.y}`).join("L")}Z`;
+
+/** The grid with its lakes read as just under the sea: a lake is then a
+ *  hole the sea's level cuts in the land, and the disk shows through it --
+ *  the lake's tone and the sea's are one. */
+function withLakesSunk(terrain: Terrain): Terrain {
+  if (!terrain.lakes.length) return terrain;
+  const grid = terrain.grid.map((row) => row.slice());
+  for (const [r, c] of terrain.lakes) grid[r][c] = Math.min(grid[r][c], terrain.sea_level - 1e-6);
+  return { ...terrain, grid };
+}
+
+/**
+ * Where the drawn corners stand, in cells of the grid: a corner at a whole
+ * `p` is on the centre of row `p` (and `q`, of column `q`), the lattice a
+ * `unit` apart, the poles closing the rows and the ring of columns closing
+ * on its first corner. With `within` only what the frame can hold is laid:
+ * the rows within the arc the frame's corner subtends about the eye, and
+ * the columns that arc spans at the latitude nearest a pole -- every column
+ * when a pole is in the frame. The frame, not the planet, is what a
+ * redraw costs.
+ */
+function lattice(
+  rows: number,
+  cols: number,
+  eye: Eye,
+  radius: number,
+  unit: number,
+  within?: number,
+): { ps: number[]; qs: number[] } {
+  const dlat = 180 / rows;
+  const dlon = 360 / cols;
+  let latLo = -90;
+  let latHi = 90;
+  let lonLo: number | null = null;
+  let lonHi = 0;
+  if (within !== undefined) {
+    const reach = within * Math.SQRT2;
+    const ang = reach >= radius ? 90 : Math.asin(reach / radius) / RAD;
+    latLo = Math.max(-90, eye.lat - ang);
+    latHi = Math.min(90, eye.lat + ang);
+    const nearestPole = Math.max(Math.abs(latLo), Math.abs(latHi));
+    const spread = ang / Math.max(1e-9, Math.cos(nearestPole * RAD));
+    if (latLo > -90 && latHi < 90 && spread < 180) {
+      lonLo = eye.lon - spread;
+      lonHi = eye.lon + spread;
+    }
+  }
+  const pLo = Math.max(-0.5, (latLo + 90) / dlat - 0.5);
+  const pHi = Math.min(rows - 0.5, (latHi + 90) / dlat - 0.5);
+  const ps: number[] = [];
+  for (let k = Math.floor(pLo / unit); k <= Math.ceil(pHi / unit); k++) {
+    const p = Math.min(rows - 0.5, Math.max(-0.5, k * unit));
+    if (!ps.length || p > ps[ps.length - 1]) ps.push(p);
+  }
+  const qs: number[] = [];
+  if (lonLo === null) {
+    for (let k = 0; k * unit < cols; k++) qs.push(k * unit);
+    qs.push(cols);
+  } else {
+    const qLo = (lonLo + 180) / dlon - 0.5;
+    const qHi = (lonHi + 180) / dlon - 0.5;
+    for (let k = Math.floor(qLo / unit); k <= Math.ceil(qHi / unit); k++) qs.push(k * unit);
+  }
+  return { ps, qs };
+}
+
+/**
+ * The cells of the relief as paths, as the eye sees them: land by tone and
+ * mountains. The sea is not drawn -- it is the disk under everything --
+ * and a lake is a hole in the land the disk shows through. A cell is drawn
+ * when any of its corners faces the eye, the far corners pushed to the
+ * horizon, so the land meets the edge of the disk. The drawn corners stand
+ * on the grid's cell centres, `unit` cells apart (`lattice`): coarser than
+ * the grid on the approach (`COARSE_STRIDE`), finer than it close up. The
+ * height is read at the corners and the cell is cut along the sea's level
+ * and the mountains' (`above`): the coast and the tree line run through
+ * the cells as lines, and a lone cell of land or of peak is a diamond
+ * about its centre, not nothing.
  */
 export function cellPaths(
   terrain: Terrain,
@@ -201,22 +303,25 @@ export function cellPaths(
   within?: number,
 ): GroundPaths {
   const { rows, cols } = terrain;
+  const field = withLakesSunk(terrain);
   const dlat = 180 / rows;
   const dlon = 360 / cols;
-  const nr = Math.ceil(rows / unit);
-  const nc = Math.ceil(cols / unit);
-  //: One projection per drawn corner, shared by the four cells round it. A
-  //: corner facing away is pushed out to the limb along its own ray: a cell
-  //: cut by the horizon is then drawn up to the horizon, and the land
-  //: reaches the edge of the disk instead of stopping a cell short of it.
-  const corners: (Point | null)[] = new Array((nr + 1) * (nc + 1));
-  const front: boolean[] = new Array((nr + 1) * (nc + 1));
-  for (let i = 0; i <= nr; i++) {
-    const lat = -90 + Math.min(rows, i * unit) * dlat;
-    for (let j = 0; j <= nc; j++) {
-      const seen = project(eye, radius, { lat, lon: -180 + Math.min(cols, j * unit) * dlon });
-      const k = i * (nc + 1) + j;
+  const { ps, qs } = lattice(rows, cols, eye, radius, unit, within);
+  const nc = qs.length;
+  //: One projection and one height per drawn corner, shared by the four
+  //: cells round it. A corner facing away is pushed out to the limb along
+  //: its own ray: a cell cut by the horizon is then drawn up to the horizon.
+  const corners: (Point | null)[] = new Array(ps.length * nc);
+  const front: boolean[] = new Array(ps.length * nc);
+  const heights: number[] = new Array(ps.length * nc);
+  for (let i = 0; i < ps.length; i++) {
+    const lat = -90 + (ps[i] + 0.5) * dlat;
+    for (let j = 0; j < nc; j++) {
+      const lon = -180 + (qs[j] + 0.5) * dlon;
+      const seen = project(eye, radius, { lat, lon });
+      const k = i * nc + j;
       front[k] = seen.front;
+      heights[k] = heightAt(field, lat, lon);
       if (seen.front) corners[k] = { x: seen.x, y: seen.y };
       else {
         const away = Math.hypot(seen.x, seen.y);
@@ -224,23 +329,15 @@ export function cellPaths(
       }
     }
   }
-  const out: Record<string, string[]> = { cold: [], cool: [], warm: [], high: [], water: [] };
-  const lakes = new Set(terrain.lakes.map(([r, c]) => r * cols + c));
-  for (let i = 0; i < nr; i++) {
-    const lat = -90 + Math.min(rows, (i + 0.5) * unit) * dlat;
-    const r = Math.min(rows - 1, Math.floor((i + 0.5) * unit));
+  const out: Record<string, string[]> = { cold: [], cool: [], warm: [], high: [] };
+  for (let i = 0; i + 1 < ps.length; i++) {
+    //: The row's tone is the climate's at the cell's middle.
+    const r = Math.min(rows - 1, Math.max(0, Math.round((ps[i] + ps[i + 1]) / 2)));
     const tone = toneOf(terrain.warmth[r], bands);
-    for (let j = 0; j < nc; j++) {
-      const lon = -180 + Math.min(cols, (j + 0.5) * unit) * dlon;
-      const c = Math.min(cols - 1, Math.floor((j + 0.5) * unit)) % cols;
-      //: Between the cells the height is read between them; on the grid or
-      //: coarser it is the cell's own -- the same number either way there.
-      const height = unit < 1 ? heightAt(terrain, lat, lon) : terrain.grid[r][c];
-      const lake = lakes.has(r * cols + c);
-      if (height < terrain.sea_level && !lake) continue;
-      const ka = i * (nc + 1) + j;
+    for (let j = 0; j + 1 < nc; j++) {
+      const ka = i * nc + j;
       const kb = ka + 1;
-      const ke = (i + 1) * (nc + 1) + j;
+      const ke = (i + 1) * nc + j;
       const kd = ke + 1;
       //: A cell with no corner facing the eye is behind the sphere.
       if (!front[ka] && !front[kb] && !front[kd] && !front[ke]) continue;
@@ -249,17 +346,21 @@ export function cellPaths(
       const d = corners[kd];
       const e = corners[ke];
       if (!a || !b || !d || !e) continue;
-      //: Outside a frame of `within` about the eye a cell is not drawn:
-      //: close up the frame holds a corner of the disk, not the disk.
+      //: Outside the frame of `within` about the eye a cell is not laid:
+      //: the lattice is cut by the arc, this by the square within it.
       if (within !== undefined && outside(within, a, b, d, e)) continue;
-      const kind = lake ? "water" : height >= terrain.mountain_level ? "high" : tone;
-      out[kind].push(`M${a.x},${a.y}L${b.x},${b.y}L${d.x},${d.y}L${e.x},${e.y}Z`);
+      const quad = [a, b, d, e];
+      const hs = [heights[ka], heights[kb], heights[kd], heights[ke]];
+      const land = above(quad, hs, terrain.sea_level);
+      if (!land) continue;
+      out[tone].push(ring(land));
+      const high = above(quad, hs, terrain.mountain_level);
+      if (high) out.high.push(ring(high));
     }
   }
   return {
     land: { cold: out.cold.join(""), cool: out.cool.join(""), warm: out.warm.join("") },
     high: out.high.join(""),
-    water: out.water.join(""),
   };
 }
 

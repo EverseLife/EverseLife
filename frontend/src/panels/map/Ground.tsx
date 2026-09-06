@@ -11,11 +11,11 @@
  * arithmetic; this file is the fetch and the SVG.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 
 import * as api from "../../api";
 import type { Look, RecipeBook, Terrain } from "../../api";
-import type { Eye } from "./globe";
+import { diskPath, type Eye } from "./globe";
 import {
   COARSE_STRIDE,
   FINE_UNIT,
@@ -71,6 +71,7 @@ export function Ground({
   coarse,
   fine = false,
   within,
+  unit: chosen,
 }: {
   planet: string;
   eye: Eye;
@@ -85,12 +86,16 @@ export function Ground({
   /** Whether the disk is smaller than the frame -- on the approach -- and
    *  the ground is read every third cell, the rivers not at all. */
   coarse: boolean;
-  /** Whether the frame is close enough for the grid's cells to show as
-   *  steps: then the ground is read between the cells, and the coast bends. */
+  /** Whether the frame is close enough for the coast's line to show its
+   *  corners: then the grid is read at half a cell (`FINE_UNIT`). */
   fine?: boolean;
   /** Half the frame's width in map units, when the frame is a square about
    *  the eye: cells beyond it are not laid. */
   within?: number;
+  /** The drawn cell in cells of the grid, when the caller decides it by its
+   *  zoom rather than by `coarse`/`fine`: finer the closer, so the cells in
+   *  the frame stay about as many. */
+  unit?: number;
 }) {
   const terrain = useTerrain(planet);
   /** The land's tones: the climate's two bounds, from the vault (D-065).
@@ -106,7 +111,7 @@ export function Ground({
   const dayHours =
     clock?.planet === planet ? clock.day_hours : Number(book?.constants?.[`time.day_${planet}`] ?? 0);
   const sun = subsolar(clock?.epoch ?? null, dayHours, Date.now());
-  const unit = coarse ? COARSE_STRIDE : fine ? FINE_UNIT : 1;
+  const unit = chosen ?? (coarse ? COARSE_STRIDE : fine ? FINE_UNIT : 1);
   const paths = useMemo(
     () =>
       terrain && bands && detailed ? cellPaths(terrain, eye, radius, bands, unit, within) : null,
@@ -118,17 +123,24 @@ export function Ground({
   );
   const under = terrain && bands && !detailed ? kindAt(terrain, eye, bands) : null;
   const night = useMemo(() => (sun ? nightPath(eye, radius, sun) : null), [eye, radius, sun]);
+  //: The clip's id is this instance's own: a second ground on the page --
+  //: the entry screen's beside the map's -- must not share it.
+  const clip = `ground-${useId().replace(/[^A-Za-z0-9_-]/g, "")}`;
   if (!bands) return null;
+  //: The disk clips the ground: a cell cut by the horizon is drawn out to
+  //: the limb along its corners' rays, and what that pushes past the circle
+  //: is not the planet.
+  //: A path, not a circle: see `diskPath`.
+  const disk = diskPath(radius);
   return (
     <g className="ground" style={{ "--pc": `var(--planet-${planet})` } as React.CSSProperties}>
-      <circle className="sea" cx={0} cy={0} r={radius} />
+      <clipPath id={clip}>
+        <path d={disk} />
+      </clipPath>
+      <path className="sea" d={disk} />
+      <g clipPath={`url(#${clip})`}>
       {under && under !== "sea" && (
-        <circle
-          className={under === "high" || under === "water" ? under : `land ${under}`}
-          cx={0}
-          cy={0}
-          r={radius}
-        />
+        <path className={under === "high" || under === "water" ? under : `land ${under}`} d={disk} />
       )}
       {paths && (
         <>
@@ -136,7 +148,6 @@ export function Ground({
           <path className="land cool" d={paths.land.cool} />
           <path className="land warm" d={paths.land.warm} />
           <path className="high" d={paths.high} />
-          <path className="water" d={paths.water} />
           {rivers.map((run, i) => (
             <polyline
               key={i}
@@ -146,6 +157,7 @@ export function Ground({
           ))}
         </>
       )}
+      </g>
       {night && <path className="night" d={night} />}
     </g>
   );

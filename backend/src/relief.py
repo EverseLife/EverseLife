@@ -56,6 +56,11 @@ PERSISTENCE = 0.5
 LATTICE = 3.0
 #: The mix of large and small: a planet is a few continents and many bays.
 ROUGHNESS = 2.0
+#: How far apart two rivers' sources keep, in degrees of arc. By arc, not by
+#: cells: a polar row is a hundred and eighty cells round one point, and a
+#: cap of high ground there would seat a river on every third of them -- a
+#: fan of rivers out of the pole, all within a step of each other.
+SOURCE_SPACING_DEG = 5.0
 
 
 def _hash3(seed: int, x: np.ndarray, y: np.ndarray, z: np.ndarray) -> np.ndarray:
@@ -317,25 +322,23 @@ def build(seed: int, *, sea_share: float, mountain_share: float, rivers: int) ->
     lakes: set[tuple[int, int]] = set()
     if rivers > 0 and land.size:
         #: Sources: the highest land cells, one river each, taken in height
-        #: order and never twice from one source. Spread apart so a range does
-        #: not send every river down the same valley.
+        #: order and never twice from one source. Spread apart by arc so a
+        #: range does not send every river down the same valley.
         order = np.argsort(grid, axis=None)[::-1]
-        taken: set[tuple[int, int]] = set()
+        taken: list[tuple[float, float]] = []
         for flat in order:
             if len(lines) >= rivers:
                 break
             row, col = divmod(int(flat), GRID_COLS)
             if grid[row, col] < sea_level:
                 continue
-            if any(
-                abs(row - r) <= 2 and min(abs(col - c), GRID_COLS - abs(col - c)) <= 2
-                for r, c in taken
-            ):
+            here = _centre(row, col)
+            if any(_arc_deg(here, there) < SOURCE_SPACING_DEG for there in taken):
                 continue
             path, reached_sea = _trace_river(grid, sea_level, (row, col))
             if len(path) < 2:
                 continue
-            taken.add((row, col))
+            taken.append(here)
             if not reached_sea:
                 lakes.add(path[-1])
             lines.append(tuple(_centre(r, c) for r, c in path))
@@ -347,6 +350,16 @@ def build(seed: int, *, sea_share: float, mountain_share: float, rivers: int) ->
         rivers=tuple(lines),
         lakes=frozenset(lakes),
     )
+
+
+def _arc_deg(a: tuple[float, float], b: tuple[float, float]) -> float:
+    """The angle between two (lat, lon) points of the sphere, in degrees."""
+    phi_a, lam_a = math.radians(a[0]), math.radians(a[1])
+    phi_b, lam_b = math.radians(b[0]), math.radians(b[1])
+    cos = math.sin(phi_a) * math.sin(phi_b) + math.cos(phi_a) * math.cos(phi_b) * math.cos(
+        lam_a - lam_b
+    )
+    return math.degrees(math.acos(max(-1.0, min(1.0, cos))))
 
 
 def _centre(row: int, col: int) -> tuple[float, float]:

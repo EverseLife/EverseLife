@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import type { Terrain } from "../api";
 import { project, radiusUnits } from "../panels/map/globe";
 import {
+  above,
   cellPaths,
   heightAt,
   nightPath,
@@ -21,7 +22,9 @@ const EPOCH = "2026-01-01T00:00:00Z";
 const HOURS = 38;
 const MS = 3_600_000;
 
-/** A small world: 4 rows by 8 columns, the northern half land, a peak, a lake. */
+/** A small world: 4 rows by 8 columns, the northern half land, a massif
+ *  two cells square (a peak of one cell is below the tree line at its own
+ *  corners, where the height is read between the cells), a lake. */
 const world: Terrain = {
   rows: 4,
   cols: 8,
@@ -30,8 +33,8 @@ const world: Terrain = {
   grid: [
     [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1],
     [0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2],
-    [0.6, 0.6, 0.95, 0.6, 0.6, 0.6, 0.6, 0.6],
-    [0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7, 0.7],
+    [0.6, 0.6, 0.95, 0.95, 0.6, 0.6, 0.6, 0.6],
+    [0.7, 0.7, 0.95, 0.95, 0.7, 0.7, 0.7, 0.7],
   ],
   rivers: [
     [
@@ -43,6 +46,18 @@ const world: Terrain = {
   lakes: [[3, 0]],
   warmth: [-10, 10, 25, 5],
 };
+
+/** How many cells a set of ground paths holds. */
+const cells = (p: { land: Record<string, string>; high: string }) =>
+  [p.land.cold, p.land.cool, p.land.warm, p.high].join("").split("M").length - 1;
+
+/** Every point of a set of ground paths. */
+const pointsOf = (p: { land: Record<string, string>; high: string }) =>
+  [p.land.cold, p.land.cool, p.land.warm, p.high]
+    .join("")
+    .split(/[MLZ]/)
+    .filter(Boolean)
+    .map((pair) => pair.split(",").map(Number));
 
 describe("the sun", () => {
   it("stands over the meridian at the epoch's noon and moves west with the hours", () => {
@@ -90,7 +105,7 @@ describe("the land", () => {
     expect(toneOf(20, bands)).toBe("warm");
   });
 
-  it("draws land, mountains and lakes over the sea, each as its own path", () => {
+  it("draws land and mountains over the sea, and a lake as a hole in the land", () => {
     const eye = { lat: 45, lon: -60 };
     const paths = cellPaths(world, eye, R, { cold: 0, cool: 15 });
     const cells = (d: string) => (d.match(/M/g) ?? []).length;
@@ -98,34 +113,59 @@ describe("the land", () => {
     expect(cells(paths.land.cold)).toBe(0);
     expect(cells(paths.land.warm)).toBeGreaterThan(0);
     expect(cells(paths.land.cool)).toBeGreaterThan(0);
-    expect(cells(paths.high)).toBe(1);
-    expect(cells(paths.water)).toBe(1);
+    //: The massif: the cell between its four centres whole, and a piece of
+    //: each of the eight cells round it, cut at the tree line.
+    expect(cells(paths.high)).toBe(9);
+    //: The lake is not a path of its own: the land round it is cut by the
+    //: sea's level, and the disk shows through.
+    const unflooded = cellPaths({ ...world, lakes: [] }, eye, R, { cold: 0, cool: 15 });
+    expect(paths.land.cool).not.toBe(unflooded.land.cool);
+    expect(paths.land.cool.length).toBeGreaterThan(unflooded.land.cool.length);
     //: The far side is not drawn: from over the equator the cells on the
     //: other side of the sphere have no corner facing the eye.
     const half = cellPaths(world, { lat: 0, lon: -60 }, R, { cold: 0, cool: 15 });
-    expect(cells(half.land.warm) + cells(half.high)).toBeLessThan(8);
+    const above = cellPaths(world, { lat: 85, lon: -60 }, R, { cold: 0, cool: 15 });
+    expect(cells(half.land.warm)).toBeLessThan(cells(above.land.warm));
   });
 
   it("reads the grid every so many cells on the approach, fewer cells drawn", () => {
     const eye = { lat: 45, lon: -60 };
     const fine = cellPaths(world, eye, R, { cold: 0, cool: 15 });
     const coarse = cellPaths(world, eye, R, { cold: 0, cool: 15 }, 2);
-    const cells = (p: { land: Record<string, string>; high: string; water: string }) =>
-      [p.land.cold, p.land.cool, p.land.warm, p.high, p.water].join("").split("M").length - 1;
     expect(cells(coarse)).toBeLessThan(cells(fine));
     expect(cells(coarse)).toBeGreaterThan(0);
   });
 
+  it("keeps a lone cell of land: a diamond about its centre, not nothing", () => {
+    //: One island in the cold sea row, seen from right over it.
+    const grid = world.grid.map((row) => row.slice());
+    grid[0][4] = 0.6;
+    const isle = cellPaths({ ...world, grid }, { lat: -67.5, lon: 22.5 }, R, { cold: 0, cool: 15 });
+    //: Four cells share the island's centre as a corner, each with a
+    //: triangle of it -- over what the far land rows show at the limb.
+    const none = cellPaths(world, { lat: -67.5, lon: 22.5 }, R, { cold: 0, cool: 15 });
+    expect(cells(isle) - cells(none)).toBe(4);
+  });
+
+  it("lays only the frame's part of the sphere when told how wide the frame is", () => {
+    const eye = { lat: 45, lon: -60 };
+    const whole = cellPaths(world, eye, R, { cold: 0, cool: 15 }, 0.25);
+    const framed = cellPaths(world, eye, R, { cold: 0, cool: 15 }, 0.25, R / 8);
+    expect(cells(framed)).toBeGreaterThan(0);
+    expect(cells(framed)).toBeLessThan(cells(whole) / 4);
+    //: Every point laid lies within the frame or one cell past it -- a
+    //: cell of this small world is a quarter of 45 degrees across.
+    const cell = R * ((45 * 0.25 * Math.PI) / 180) * Math.SQRT2;
+    const far = Math.max(...pointsOf(framed).map(([x, y]) => Math.max(Math.abs(x), Math.abs(y))));
+    expect(far).toBeLessThan(R / 8 + cell);
+  });
+
   it("draws the land up to the horizon, its far corners pushed to the limb", () => {
-    //: The whole northern half is land: seen from over the pole, the disk
-    //: is land to its very edge -- some corner of every cell reaches R.
-    const paths = cellPaths(world, { lat: 85, lon: 0 }, R, { cold: 0, cool: 15 });
-    const points = [paths.land.cold, paths.land.cool, paths.land.warm, paths.high]
-      .join("")
-      .split(/[MLZ]/)
-      .filter(Boolean)
-      .map((pair) => pair.split(",").map(Number));
-    const farthest = Math.max(...points.map(([x, y]) => Math.hypot(x, y)));
+    //: A world of land alone: seen from over the pole, the disk is land to
+    //: its very edge -- some corner of a cell cut by the horizon reaches R.
+    const dry: Terrain = { ...world, grid: world.grid.map((row) => row.map(() => 0.7)), lakes: [] };
+    const paths = cellPaths(dry, { lat: 85, lon: 0 }, R, { cold: 0, cool: 15 });
+    const farthest = Math.max(...pointsOf(paths).map(([x, y]) => Math.hypot(x, y)));
     expect(farthest).toBeCloseTo(R, 0);
     expect(farthest).toBeLessThanOrEqual(R + 1e-6);
   });
@@ -136,11 +176,34 @@ describe("the land", () => {
     //: On a cell's centre the field is the cell's own.
     expect(heightAt(world, 22.5, -180 + 22.5)).toBeCloseTo(0.6, 6);
     const eye = { lat: 45, lon: -60 };
-    const cells = (p: { land: Record<string, string>; high: string; water: string }) =>
-      [p.land.cold, p.land.cool, p.land.warm, p.high, p.water].join("").split("M").length - 1;
     const plain = cellPaths(world, eye, R, { cold: 0, cool: 15 });
     const fine = cellPaths(world, eye, R, { cold: 0, cool: 15 }, 0.5);
     expect(cells(fine)).toBeGreaterThan(cells(plain) * 2);
+  });
+
+  it("cuts a cell along the level, the cut where the heights cross it", () => {
+    const quad = [
+      { x: 0, y: 0 },
+      { x: 1, y: 0 },
+      { x: 1, y: 1 },
+      { x: 0, y: 1 },
+    ];
+    //: The top two corners above, the bottom two below: the cut runs
+    //: three quarters of the way down the sides.
+    expect(above(quad, [1, 1, 0, 0], 0.25)).toEqual([
+      { x: 0, y: 0 },
+      { x: 1, y: 0 },
+      { x: 1, y: 0.75 },
+      { x: 0, y: 0.75 },
+    ]);
+    //: All below: nothing; all above: the cell itself.
+    expect(above(quad, [0, 0, 0, 0], 0.25)).toBe(null);
+    expect(above(quad, [1, 1, 1, 1], 0.25)).toEqual(quad);
+    //: A saddle -- two opposite corners above -- is one loop of six points.
+    const saddle = above(quad, [1, 0, 1, 0], 0.5);
+    expect(saddle?.length).toBe(6);
+    expect(saddle?.[0]).toEqual({ x: 0, y: 0 });
+    expect(saddle?.[1]).toEqual({ x: 0.5, y: 0 });
   });
 
   it("runs a river as one polyline where it faces the eye and cuts it at the horizon", () => {
@@ -152,7 +215,9 @@ describe("the land", () => {
   it("lays a cell where the projection lays its corners", () => {
     const eye = { lat: 45, lon: -60 };
     const paths = cellPaths(world, eye, R, { cold: 0, cool: 15 });
-    const corner = project(eye, R, { lat: 45, lon: -90 });
+    //: A corner stands on a cell's centre; this one is land, and land
+    //: corners are kept as they are by the cut.
+    const corner = project(eye, R, { lat: 22.5, lon: -67.5 });
     const laid = paths.land.warm
       .split(/[ML]/)
       .filter(Boolean)

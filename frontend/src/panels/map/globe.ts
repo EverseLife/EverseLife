@@ -50,6 +50,20 @@ export function radiusUnits(radiusKm: number): number {
 }
 
 /**
+ * A full circle about the origin as a path, for the disk and its clip.
+ *
+ * Not a `<circle>`: the browser reads `r`, `cx` and `cy` as CSS lengths and
+ * saturates them at 2^25 device pixels, and a planet's radius in map units
+ * (`UNITS_PER_METRE` of a planet) passes that on any display scaled past
+ * one -- the sea came out two thirds of the ground and the clip cut the
+ * land with it. A path's coordinates are numbers, not lengths, and go
+ * as far as the ground does.
+ */
+export function diskPath(radius: number): string {
+  return `M${-radius} 0A${radius} ${radius} 0 1 0 ${radius} 0A${radius} ${radius} 0 1 0 ${-radius} 0Z`;
+}
+
+/**
  * A point of the sphere as seen from the eye: where it lands on the frame,
  * and whether it faces the eye at all.
  */

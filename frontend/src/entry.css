@@ -386,7 +386,9 @@ button.eye:not(:disabled):active {
   /* A finger scrolls the page; only a sideways drag turns the globe. */
   touch-action: pan-y pinch-zoom;
   cursor: grab;
-  overflow: visible;
+  /* Zoomed in, the frame is a window on the disk: what lies outside it
+     must not spill over the page. */
+  overflow: hidden;
 }
 .entry-globe .way {
   fill: none;

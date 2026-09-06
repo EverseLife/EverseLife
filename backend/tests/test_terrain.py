@@ -64,6 +64,24 @@ def test_a_river_runs_downhill_and_ends_in_water() -> None:
         assert field.is_sea(*end) or field.cell(*end) in field.lakes, "река кончается водой"
 
 
+def test_river_sources_keep_apart_by_arc_even_at_the_pole() -> None:
+    """Two rivers do not rise within a few degrees of each other -- measured on
+    the sphere, where a polar row of cells is one point, not a hundred and
+    eighty sources."""
+    for seed in range(SEED, SEED + 6):
+        field = relief.build(seed, sea_share=0.6, mountain_share=0.15, rivers=24)
+        sources = [river[0] for river in field.rivers]
+        for i, a in enumerate(sources):
+            for b in sources[i + 1 :]:
+                assert relief._arc_deg(a, b) >= relief.SOURCE_SPACING_DEG, (seed, a, b)
+        #: The complaint itself: a polar cap is a few rivers, not a fan of
+        #: twenty -- the last five degrees round a pole hold six sources
+        #: five degrees apart at most.
+        for cap in (1, -1):
+            polar = [a for a in sources if cap * a[0] >= 85.0]
+            assert len(polar) <= 6, (seed, cap, polar)
+
+
 def test_the_river_mark_is_a_fact_of_the_map(constants: Constants) -> None:
     """Within the reach of a river a node has river water; far from every river it has none."""
     field = terrain.field_of(constants, Planet.TERRA)

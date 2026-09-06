@@ -27,6 +27,12 @@ import { useGlobe } from "./map/useGlobe";
 
 /** How much of the frame the disk takes at the outermost zoom. */
 const FRAME = 1.05;
+/** The radius the globe is drawn at, in the picture's own units -- not the
+ *  map's. A planet in map units is tens of millions, and the browser reads
+ *  a circle's centre as a length and saturates it at 2^25 device pixels
+ *  (see `diskPath`): a dot near the limb would slide inward on any display
+ *  scaled past one. The hand's drags are turned back to map units. */
+const DISK = 1000;
 /** How fast the globe turns by itself, degrees of longitude a second: a
  *  slow turn on the login screen, stopped by the hand and on the door step. */
 const SPIN_DEG_PER_S = 2;
@@ -38,14 +44,20 @@ const NOTCH = 1.25;
 const DOT = 1 / 300;
 const MARK = 1 / 60;
 const LABEL = 1 / 36;
-/** Below this many cells across the frame the ground is one flat colour. */
+/** Below this many drawn cells across the frame the ground is one flat colour. */
 const CELLS_ACROSS = 1.5;
+/** The finest reading of the grid: an eighth of a cell, a quarter of a
+ *  degree. Finer than that the relief has nothing more to say. */
+const FINEST_UNIT = 1 / 8;
+/** How often the turning globe is redrawn, a second: at two degrees a
+ *  second the ground moves an eighth of a degree between redraws -- under
+ *  a cell's width at any zoom -- and a redraw is the whole frame's ground. */
+const SPIN_FPS = 15;
 /** From this zoom on the plain nodes are drawn, and from this one the
  *  cities' names: farther out they are a smudge, not a map. */
 const NODES_ZOOM = 2;
 const LABELS_ZOOM = 4;
-/** From this zoom on the ground is read between the grid's cells. */
-const FINE_ZOOM = 2;
+
 /** The relief's cell, degrees. */
 const CELL_DEG = 2;
 const EQUATOR: Geo = { lat: 0, lon: 0 };
@@ -141,14 +153,17 @@ export function EntryGlobe({
     let raf = 0;
     let last = performance.now();
     const step = (t: number) => {
-      const dt = Math.min(100, t - last);
-      last = t;
-      if (!drag.current) {
-        //: `rotate` takes the ground's movement in map units: to turn the
-        //: eye east the ground goes west, by the arc of the turn at the
-        //: eye's latitude.
-        const stretch = Math.max(Math.cos(eye.lat * RAD), 1e-3);
-        rotate(-SPIN_DEG_PER_S * (dt / 1000) * RAD * radius * stretch, 0);
+      //: Not every frame: the turn is gathered until a redraw is worth it.
+      if (t - last >= 1000 / SPIN_FPS) {
+        const dt = Math.min(200, t - last);
+        last = t;
+        if (!drag.current) {
+          //: `rotate` takes the ground's movement in map units: to turn the
+          //: eye east the ground goes west, by the arc of the turn at the
+          //: eye's latitude.
+          const stretch = Math.max(Math.cos(eye.lat * RAD), 1e-3);
+          rotate(-SPIN_DEG_PER_S * (dt / 1000) * RAD * radius * stretch, 0);
+        }
       }
       raf = requestAnimationFrame(step);
     };
@@ -160,14 +175,20 @@ export function EntryGlobe({
   if (!shown || !eye || !radius) {
     return <div className="entry-globe" aria-hidden="true" />;
   }
-  const span = (2 * radius * FRAME) / zoom;
-  const unitsPerPixel = () => span / (svg.current?.clientWidth || 1);
-  const cellUnits = radius * ((CELL_DEG * Math.PI) / 180);
+  const span = (2 * DISK * FRAME) / zoom;
+  //: A pixel of the hand in map units: the eye turns by the planet's
+  //: measure, not the picture's.
+  const unitsPerPixel = () => (span * (radius / DISK)) / (svg.current?.clientWidth || 1);
+  //: The closer, the finer the grid is read, so that the cells in the frame
+  //: stay about as many as at the outermost zoom -- and the frame, not the
+  //: planet, is what a redraw costs.
+  const unit = Math.max(FINEST_UNIT, Math.min(1, 1 / zoom));
+  const cellUnits = DISK * CELL_DEG * RAD * unit;
   const detailed = span > CELLS_ACROSS * cellUnits;
-  const placed = projectAll(eye, radius, surface);
+  const placed = projectAll(eye, DISK, surface);
   const marks = projectAll(
     eye,
-    radius,
+    DISK,
     onPlanet.map((door) => ({ key: door.node, place: door.place })),
   );
   const byKey = new Map(surface.map((node) => [node.key, node]));
@@ -206,12 +227,12 @@ export function EntryGlobe({
         <Ground
           planet={shown}
           eye={eye}
-          radius={radius}
+          radius={DISK}
           book={book}
           clock={undefined}
           detailed={detailed}
           coarse={false}
-          fine={zoom >= FINE_ZOOM}
+          unit={unit}
           within={span / 2}
         />
         <g className="ways">
@@ -219,7 +240,7 @@ export function EntryGlobe({
             const a = byKey.get(edge.a)?.place;
             const b = byKey.get(edge.b)?.place;
             if (!a || !b || !("lat" in a) || !("lat" in b)) return null;
-            const run = arc(eye, radius, a, b);
+            const run = arc(eye, DISK, a, b);
             if (!run) return null;
             return (
               <polyline
