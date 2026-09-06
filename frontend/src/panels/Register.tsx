@@ -17,6 +17,7 @@ import * as api from "../api";
 import type { Door, Enrollment, Line } from "../api";
 import { t } from "../locale";
 import { Logo } from "../Logo";
+import { useNarrow } from "../narrow";
 import { Doors } from "./Doors";
 import { Secret } from "./Secret";
 
@@ -47,7 +48,7 @@ type Props = {
   onDoors: (doors: Door[] | null) => void;
   /** The door chosen on the globe or in the list -- the screen's, not the step's. */
   picked: string | null;
-  onPick: (node: string) => void;
+  onPick: (node: string | null) => void;
   onBack: () => void;
 };
 
@@ -62,6 +63,10 @@ export function Register({
   onBack,
 }: Props) {
   const [step, setStep] = useState<Step>(0);
+  //: On a phone the globe is the background of the whole screen (D-319), and
+  //: at the step of the doors it is the step itself: the way in gets out of
+  //: its way until a door is chosen on the planet.
+  const narrow = useNarrow();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [again, setAgain] = useState("");
@@ -155,16 +160,22 @@ export function Register({
   };
 
   const error = local ?? trouble;
+  const overGlobe = narrow && step === 3;
+  //: Nothing but the globe and the way back: no mark of the game's own over
+  //: a planet the player is looking at to choose from.
+  const bare = overGlobe && !picked;
   //: The line under the tabs: the one being read, else the first playable one
   //: -- the alpha has one, and opening on a promise would read as the offer.
   const shown =
     lines?.find((l) => l.id === reading) ?? lines?.find((l) => l.playable) ?? lines?.[0] ?? null;
 
   return (
-    <main className="entry auth">
-      <div className="brand">
-        <Logo height={72} />
-      </div>
+    <main className={`entry auth${bare ? " bare" : ""}`}>
+      {!bare && (
+        <div className="brand">
+          <Logo height={72} />
+        </div>
+      )}
 
       <ol className="steps" aria-label={t("ui-register-steps-label")}>
         {STEPS.map((label, i) => (
@@ -372,6 +383,7 @@ export function Register({
         ) : (
           <Doors
             doors={doors}
+            overGlobe={overGlobe}
             name={name}
             busy={busy}
             trouble={error}

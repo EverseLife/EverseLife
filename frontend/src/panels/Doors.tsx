@@ -16,6 +16,13 @@
  * engine enforces it, and the person must see it before clicking, not learn
  * it from a refusal.
  *
+ * On a phone the globe is the whole screen (D-319), and then this half waits
+ * its turn: until a door is chosen there is nothing here but the way back, and
+ * the choosing happens on the planet. Choose one and the card comes up over
+ * the globe; the way back is then the way to the globe again, not to the step
+ * before -- on a screen where the planet **is** the step, "back" means "back
+ * to the planet".
+ *
  * On the globe and nowhere else: the row of names that used to stand here was
  * a second way to do the one thing this screen is for, and two ways to choose
  * a city taught neither. The mark itself is the control -- it takes focus and
@@ -44,12 +51,26 @@ type Props = {
   busy: boolean;
   trouble?: string | null;
   picked: string | null;
-  onPick: (node: string) => void;
+  /** Null unchooses: on a phone that is what the way back does. */
+  onPick: (node: string | null) => void;
   onEnter: (node: string) => void;
   onBack: () => void;
+  /** Whether the globe has the screen to itself and this half floats on it:
+   *  a phone. Then an unchosen door means no card and no words at all. */
+  overGlobe?: boolean;
 };
 
-export function Doors({ doors, name, busy, trouble, picked, onPick, onEnter, onBack }: Props) {
+export function Doors({
+  doors,
+  name,
+  busy,
+  trouble,
+  picked,
+  onPick,
+  onEnter,
+  onBack,
+  overGlobe = false,
+}: Props) {
   const door = doors.find((one) => one.node === picked) ?? null;
   //: What no mark stands for. The globe draws one planet (`drawnOn`) and on
   //: it what has degrees: a door with a flat place, or one standing on
@@ -60,6 +81,45 @@ export function Doors({ doors, name, busy, trouble, picked, onPick, onEnter, onB
   const unplaced = doors.filter(
     (one) => one.planet !== globe || !one.place || !("lat" in one.place),
   );
+  //: A door the globe cannot draw: no place on its sphere, or another
+  //: planet's. It stands by name, and normally there are none.
+  const names =
+    unplaced.length === 0 ? null : (
+      <div className="row tabs">
+        {unplaced.map((one) => (
+          <button
+            key={one.node}
+            className={one.node === picked ? "" : "quiet"}
+            aria-pressed={one.node === picked}
+            onClick={() => onPick(one.node)}
+            disabled={busy}
+          >
+            {/* The door's own name, the city after it: the capital has two
+                doors, and two buttons reading the city alone would not tell
+                them apart (the same rule the card's heading keeps). */}
+            {one.precursor ? t("ui-doors-precursor") : one.name}
+            {!one.precursor && one.city ? ` · ${one.city}` : ""}
+          </button>
+        ))}
+      </div>
+    );
+
+  //: The globe has the screen, and nothing is chosen on it yet: the way back
+  //: is the whole of this half. The hint under the planet says what to do,
+  //: and a heading over an empty box would only take the sky away from it.
+  if (overGlobe && door === null) {
+    return (
+      <section className="doors-step bare">
+        {names}
+        {trouble && <p className="trouble">{trouble}</p>}
+        <div className="row last">
+          <button className="quiet" onClick={onBack} disabled={busy}>
+            {t("ui-doors-back")}
+          </button>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="doors-step">
@@ -70,27 +130,7 @@ export function Doors({ doors, name, busy, trouble, picked, onPick, onEnter, onB
         <p className="trouble">{t("ui-doors-empty-world")}</p>
       ) : (
         <>
-          {/* A door the globe cannot draw: no place on its sphere, or another
-              planet's. It stands here by name, and normally there are none. */}
-          {unplaced.length > 0 && (
-            <div className="row tabs">
-              {unplaced.map((one) => (
-                <button
-                  key={one.node}
-                  className={one.node === picked ? "" : "quiet"}
-                  aria-pressed={one.node === picked}
-                  onClick={() => onPick(one.node)}
-                  disabled={busy}
-                >
-                  {/* The door's own name, the city after it: the capital has two
-                      doors, and two buttons reading the city alone would not
-                      tell them apart (the same rule the card's heading keeps). */}
-                  {one.precursor ? t("ui-doors-precursor") : one.name}
-                  {!one.precursor && one.city ? ` · ${one.city}` : ""}
-                </button>
-              ))}
-            </div>
-          )}
+          {names}
 
           {door === null ? (
             <p className="note center">{t("ui-doors-pick-on-globe")}</p>
@@ -165,7 +205,13 @@ export function Doors({ doors, name, busy, trouble, picked, onPick, onEnter, onB
           Printing is the way on -- it stood inside the door's card, a step
           down and to the left of where the hand had learnt to look. */}
       <div className="row last">
-        <button className="quiet" onClick={onBack} disabled={busy}>
+        <button
+          className="quiet"
+          //: Over the globe the way back is the way to the globe: the planet
+          //: is the step, and stepping off the card returns to choosing.
+          onClick={() => (overGlobe ? onPick(null) : onBack())}
+          disabled={busy}
+        >
           {t("ui-doors-back")}
         </button>
         {door && (
