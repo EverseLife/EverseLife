@@ -11,8 +11,10 @@
  * and no corner: the blot has the shape the city grew into.
  *
  * The blot is a field over the city's own flat plane -- metres about its
- * middle -- summing every node's disc as a metaball, `(r / d)^2`; where the
- * field is one lies the edge. The field is rastered, its contour traced
+ * middle -- summing every node's disc as a metaball, `(r / d)^4`; where the
+ * field is one lies the edge. The fourth power, not the square: it falls
+ * off fast, so the edge lies close to the discs' own -- the land of the
+ * nodes, not a swell round it -- and two neighbours still join. The field is rastered, its contour traced
  * (marching squares), the trace smoothed (Chaikin) and given back in
  * degrees, so the globe projects it like any way. Pure arithmetic, once
  * per map.
@@ -24,14 +26,20 @@ import type { Geo } from "./globe";
 const RAD = Math.PI / 180;
 /** A node's land when the wire says nothing: the smallest node's (D-321). */
 const FALLBACK_AREA_M2 = 60;
-/** How far past its disc a node's land reaches to meet its neighbours', as
- *  a share of the city's typical spacing between nodes: enough to close
- *  the gaps of one spread, not enough to swallow an outlying field. */
-const BRIDGE_SHARE = 0.75;
-/** A lone node's reach past its disc, metres. */
-const LONE_BRIDGE_M = 12;
+/**
+ * The least a node's land reaches, as a share of the city's typical spacing
+ * between nodes: two discs of this radius at that spacing just merge in
+ * the field (they do at 0.42 of the spacing; half of it leaves room for the raster), so the gaps of one spread
+ * close and an outlying field stays its own. A node whose own land reaches
+ * farther keeps its own reach: in a city whose nodes stand metres apart
+ * the land itself does the joining, and the outline hugs the nodes
+ * (owner, 2026-09-06) instead of standing a bridge's width off them.
+ */
+const REACH_SHARE = 0.5;
+/** The least a lone node's land reaches, metres. */
+const LONE_REACH_M = 6;
 /** The raster: cells across the city's spacing, and the cap on cells a side. */
-const CELLS_PER_STEP = 4;
+const CELLS_PER_STEP = 8;
 const MAX_CELLS = 160;
 /** How many times the traced edge is rounded. */
 const SMOOTHING = 2;
@@ -77,17 +85,17 @@ export function outlineOf(members: readonly MapNode[], radiusM: number): Geo[][]
   });
   const centres = places.map(toLocal);
   const spacing = typicalSpacing(centres);
-  const bridge = centres.length > 1 ? spacing * BRIDGE_SHARE : LONE_BRIDGE_M;
+  const least = centres.length > 1 ? spacing * REACH_SHARE : LONE_REACH_M;
   const discs: Disc[] = members.map((node, i) => ({
     ...centres[i],
-    r: Math.sqrt(Math.max(1, node.area ?? FALLBACK_AREA_M2) / Math.PI) + bridge,
+    r: Math.max(least, Math.sqrt(Math.max(1, node.area ?? FALLBACK_AREA_M2) / Math.PI)),
   }));
   return traceField(discs, spacing).map((loop) => loop.map(toGeo));
 }
 
 /** The median distance from a node to its nearest neighbour. */
 function typicalSpacing(points: readonly { x: number; y: number }[]): number {
-  if (points.length < 2) return LONE_BRIDGE_M;
+  if (points.length < 2) return LONE_REACH_M;
   const nearest = points.map((p, i) => {
     let best = Infinity;
     points.forEach((q, j) => {
@@ -104,7 +112,7 @@ function fieldAt(discs: readonly Disc[], x: number, y: number): number {
   let sum = 0;
   for (const d of discs) {
     const dd = (x - d.x) ** 2 + (y - d.y) ** 2;
-    sum += dd > 0 ? (d.r * d.r) / dd : Infinity;
+    sum += dd > 0 ? (d.r * d.r * d.r * d.r) / (dd * dd) : Infinity;
   }
   return sum;
 }
@@ -130,31 +138,46 @@ function traceField(discs: readonly Disc[], spacing: number): { x: number; y: nu
   return outerLoops(joinLoops(segments), cell).map((loop) => smooth(loop, SMOOTHING));
 }
 
-/** The signed area of a loop: its sign tells an outer edge from a hole. */
-function signedArea(loop: readonly { x: number; y: number }[]): number {
+/** The area a loop encloses. */
+function areaOf(loop: readonly { x: number; y: number }[]): number {
   let sum = 0;
   for (let i = 0; i < loop.length; i++) {
     const a = loop[i];
     const b = loop[(i + 1) % loop.length];
     sum += a.x * b.y - b.x * a.y;
   }
-  return sum / 2;
+  return Math.abs(sum) / 2;
+}
+
+/** Whether a point lies within a loop (even-odd). */
+function within(loop: readonly { x: number; y: number }[], p: { x: number; y: number }): boolean {
+  let hit = false;
+  for (let i = 0, j = loop.length - 1; i < loop.length; j = i++) {
+    const a = loop[i];
+    const b = loop[j];
+    if (a.y > p.y !== b.y > p.y && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x) hit = !hit;
+  }
+  return hit;
 }
 
 /**
- * The outer edges alone: a hole inside the blot is a loop wound the other
- * way, and the city has no holes (owner, 2026-09-06); a speck smaller than
- * a raster cell is the field grazing the level, not land.
+ * The outer edges alone: a hole inside the blot is a loop lying within a
+ * larger one, and the city has no holes (owner, 2026-09-06); a speck
+ * smaller than a raster cell is the field grazing the level, not land.
+ * By containment, not by winding: the trace joins segments in whichever
+ * direction it finds them first.
  */
 function outerLoops(
   loops: { x: number; y: number }[][],
   cell: number,
 ): { x: number; y: number }[][] {
-  if (!loops.length) return loops;
-  const areas = loops.map(signedArea);
-  const largest = areas.reduce((best, a, i) => (Math.abs(a) > Math.abs(areas[best]) ? i : best), 0);
-  const outward = Math.sign(areas[largest]);
-  return loops.filter((_, i) => Math.sign(areas[i]) === outward && Math.abs(areas[i]) > cell * cell);
+  const kept: { x: number; y: number }[][] = [];
+  for (const loop of [...loops].sort((a, b) => areaOf(b) - areaOf(a))) {
+    if (areaOf(loop) <= cell * cell) continue;
+    if (kept.some((outer) => within(outer, loop[0]))) continue;
+    kept.push(loop);
+  }
+  return kept;
 }
 
 type Seg = [{ x: number; y: number }, { x: number; y: number }];

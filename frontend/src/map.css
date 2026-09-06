@@ -312,10 +312,12 @@
 }
 
 .edge-label,
+/* Small (owner, 2026-09-06): the nodes of a city stand metres apart, and a
+   name the old size covered its neighbour's. */
 .node-label,
 .node-hint {
   fill: currentColor;
-  font-size: 11px;
+  font-size: 8px;
   text-anchor: middle;
 }
 .edge-label {
@@ -357,7 +359,7 @@
 .node circle {
   fill: var(--base-900);
   stroke: currentColor;
-  stroke-width: 1.5;
+  stroke-width: 1;
 }
 .node.me circle {
   fill: currentColor;
@@ -442,7 +444,7 @@ polyline.edge {
   cursor: pointer;
 }
 .node.near circle {
-  stroke-width: 3;
+  stroke-width: 2;
 }
 .node.near .node-hint {
   text-decoration: underline;
