@@ -201,6 +201,8 @@ async def _dispatch(state: dict[str, Any], message: dict[str, Any]) -> dict[str,
         #: New player -- before identification: nobody to identify yet.
         if command == "join":
             return await _join(state, db, message)
+        if command == "join.check":
+            return await _join_check(db, message)
 
         identity_id = state.get("identity_id")
         if identity_id is None:
@@ -283,6 +285,20 @@ def _listen(state: dict, message: dict, identity: Identity, body: Body | None) -
     #: Turned on by the socket loop after the answer is queued: the client
     #: must hear who it is before it hears what happened.
     state["listen"] = True
+
+
+async def _join_check(db: AsyncSession, message: dict) -> dict:
+    """Whether the email is free to register with: the first step's question.
+
+    Asked before the four steps are walked, so that a taken address is
+    refused where it is typed and not at the door. Reads only -- one select
+    and no write, outside the `readonly` guard because it runs before the
+    registry; the same refusal `join` would give, so the two cannot disagree.
+    """
+    email = accounts.normalize_email(message.get("email"))
+    if await accounts.by_email(db, email) is not None:
+        raise Refused(key="cmd-email-taken")
+    return {"free": True}
 
 
 async def _join(state: dict, db: AsyncSession, message: dict) -> dict:

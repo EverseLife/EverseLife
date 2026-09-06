@@ -29,13 +29,14 @@ import type { Door, Line } from "./wire/person";
 import type { Book } from "./wire/trade";
 import type { Terrain, WorldMap } from "./wire/travel";
 
-async function read<T>(path: string, token?: string): Promise<T> {
+async function read<T>(path: string, token?: string, cache?: RequestCache): Promise<T> {
   //: The token travels in the ordinary header and only where it means
   //: something. Catalogs are the same for everybody and are asked for without
   //: one; the map is not (D-240) -- what it answers with depends on where the
   //: body stands, and without a token it answers with the sky.
   const answer = await fetch(HTTP + path, {
     headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    cache,
   });
   if (!answer.ok) throw new Error(`${path}: ${answer.status}`);
   return answer.json();
@@ -82,7 +83,11 @@ export const founding = () =>
  * and the sky. Without a token -- the sky alone: the surface asks for a body.
  * So this is the one public read that takes one.
  */
-export const worldMap = (token?: string) => read<WorldMap>("/public/map", token);
+//: The anonymous map is served with a public cache of minutes and an ETag
+//: (D-319 item 7); asked with `no-cache` it is revalidated every time, so a
+//: fresh snapshot is seen at once and an unchanged one costs a 304.
+export const worldMap = (token?: string) =>
+  read<WorldMap>("/public/map", token, token ? undefined : "no-cache");
 export const plants = () =>
   read<{
     plants: {

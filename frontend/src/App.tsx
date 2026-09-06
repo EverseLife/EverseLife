@@ -41,7 +41,9 @@ import { Intro } from "./panels/Intro";
 import { Login } from "./panels/Login";
 import { Printer } from "./panels/Printer";
 import { Profile } from "./panels/Profile";
+import type { Door } from "./api";
 import { Register } from "./panels/Register";
+import { EntryGlobe } from "./panels/EntryGlobe";
 import { Sidebar } from "./panels/Sidebar";
 import { Summary, markSeen, useDigest } from "./panels/Summary";
 import { Stand } from "./panels/Stand";
@@ -128,6 +130,11 @@ export default function App() {
   //: The screen before login: login or registration (D-187). The last login's
   //: token is tried silently: while it is checked, the login screen does not flicker.
   const [screen, setScreen] = useState<"login" | "register">("login");
+  //: The doors the globe shows at the last step of registration, and the
+  //: one chosen on it: the screen's, because the globe and the form are two
+  //: halves of one screen.
+  const [entryDoors, setEntryDoors] = useState<Door[] | null>(null);
+  const [picked, setPicked] = useState<string | null>(null);
   const [resuming, setResuming] = useState(() => Boolean(Session.remembered()));
   const resumed = useRef(false);
   //: Somebody's card, asked for by right-clicking a name anywhere (D-222).
@@ -201,14 +208,16 @@ export default function App() {
   }, [refresh]);
 
   const act = useCallback(
-    async (what: () => Promise<unknown>) => {
+    async (what: () => Promise<unknown>): Promise<boolean> => {
       setTrouble(null);
       setBusy(true);
       try {
         await what();
         await settle();
+        return true;
       } catch (error) {
         setTrouble(error instanceof Error ? error.message : String(error));
+        return false;
       } finally {
         setBusy(false);
       }
@@ -488,31 +497,41 @@ export default function App() {
     );
   }
 
-  if (!look && screen === "register") {
-    return (
-      <Register
-        busy={busy}
-        trouble={trouble}
-        onSubmit={join}
-        onBack={() => {
-          setTrouble(null);
-          setScreen("login");
-        }}
-      />
-    );
-  }
-
+  //: Before the world the screen is two halves (D-319): the globe of the
+  //: public map on one, the way in on the other. At the last step of
+  //: registration the globe shows the doors, and the half beside it the
+  //: card of the one chosen.
   if (!look) {
     return (
-      <Login
-        busy={busy}
-        trouble={trouble}
-        onLogin={enter}
-        onRegister={() => {
-          setTrouble(null);
-          setScreen("register");
-        }}
-      />
+      <div className="entry-split">
+        <EntryGlobe doors={screen === "register" ? entryDoors : null} picked={picked} onPick={setPicked} />
+        {screen === "register" ? (
+          <Register
+            busy={busy}
+            trouble={trouble}
+            onSubmit={join}
+            onCheck={(email) => act(() => session.current.check(email))}
+            onDoors={setEntryDoors}
+            picked={picked}
+            onPick={setPicked}
+            onBack={() => {
+              setTrouble(null);
+              setPicked(null);
+              setScreen("login");
+            }}
+          />
+        ) : (
+          <Login
+            busy={busy}
+            trouble={trouble}
+            onLogin={enter}
+            onRegister={() => {
+              setTrouble(null);
+              setScreen("register");
+            }}
+          />
+        )}
+      </div>
     );
   }
 

@@ -39,11 +39,28 @@ const AGE = { min: 16, max: 120 };
 type Props = {
   busy: boolean;
   trouble: string | null;
-  onSubmit: (application: Enrollment) => Promise<void>;
+  onSubmit: (application: Enrollment) => Promise<unknown>;
+  /** Whether the email is free: asked at the first step, refused there
+   *  rather than at the door, four steps later. Resolves to whether it is. */
+  onCheck: (email: string) => Promise<boolean>;
+  /** The doors, once read: the globe beside the form draws them (D-319). */
+  onDoors: (doors: Door[] | null) => void;
+  /** The door chosen on the globe or in the list -- the screen's, not the step's. */
+  picked: string | null;
+  onPick: (node: string) => void;
   onBack: () => void;
 };
 
-export function Register({ busy, trouble, onSubmit, onBack }: Props) {
+export function Register({
+  busy,
+  trouble,
+  onSubmit,
+  onCheck,
+  onDoors,
+  picked,
+  onPick,
+  onBack,
+}: Props) {
   const [step, setStep] = useState<Step>(0);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -69,6 +86,11 @@ export function Register({ busy, trouble, onSubmit, onBack }: Props) {
       api.doors().then((r) => setDoors(r.doors)).catch((e) => setLocal(String(e)));
     }
   }, [step, lines, doors]);
+  //: The globe beside the form shows the doors while this is the step of
+  //: choosing one, and nothing of them before or after.
+  useEffect(() => {
+    onDoors(step === 3 ? doors : null);
+  }, [step, doors, onDoors]);
 
   const go = (to: Step) => {
     setLocal(null);
@@ -83,7 +105,12 @@ export function Register({ busy, trouble, onSubmit, onBack }: Props) {
       return setLocal(t("ui-register-short-password", { min: PASSWORD_MIN }));
     }
     if (password !== again) return setLocal(t("ui-register-password-mismatch"));
-    go(1);
+    setLocal(null);
+    //: The server says whether the address is free before the other three
+    //: steps are walked: a taken one is refused here, in its own words.
+    void onCheck(address).then((free) => {
+      if (free) go(1);
+    });
   };
 
   const character = (e: FormEvent) => {
@@ -322,7 +349,9 @@ export function Register({ busy, trouble, onSubmit, onBack }: Props) {
             name={name}
             busy={busy}
             trouble={error}
-            onPick={finish}
+            picked={picked}
+            onPick={onPick}
+            onEnter={finish}
             onBack={() => go(2)}
           />
         ))}

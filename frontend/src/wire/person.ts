@@ -72,6 +72,10 @@ export type Enrollment = {
 export type Door = {
   node: string;
   name: string;
+  /** Where the door stands (D-319): the planet and the degrees, for the globe
+   *  the newcomer chooses on. A door without a place is listed, not drawn. */
+  planet: string;
+  place: { lat: number; lon: number } | null;
   city: string | null;
   /** The city's word to newcomers: its promise, not a contract (D-183). Empty -- silent. */
   about: string;

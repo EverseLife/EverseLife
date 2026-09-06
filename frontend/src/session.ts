@@ -267,6 +267,14 @@ export class Session {
     return this.greet("join", { ...application });
   }
 
+  /** Whether an email is free to register with: asked at the first step,
+   *  so that a taken address is refused where it is typed, not at the door.
+   *  Refused with the same words `join` would use. */
+  async check(email: string): Promise<void> {
+    if (this.socket?.readyState !== WebSocket.OPEN) await this.connect();
+    await this.send("join.check", { email });
+  }
+
   /** Logout: the token is revoked and forgotten, the socket closed. */
   async logout(): Promise<void> {
     try {

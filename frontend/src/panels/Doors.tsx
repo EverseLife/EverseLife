@@ -10,19 +10,14 @@
  * Forerunners' Printer take effect from the second print, and speaking of
  * them on this screen would be lying.
  *
- * The cards stand side by side so that in ten seconds the world's main
- * structure is seen: cities differ, they set the terms themselves, and nobody
- * has to be kind. The Forerunners' Printer is the last card: a fallback door
- * with neither residents nor a treasury, and it is always open.
- *
- * What a door gives and what it asks (D-184, D-281) stands as table rows, not
- * in text: the engine enforces it, and the person must see it before clicking,
- * not learn it from a refusal. Two rows now instead of three -- a city door
- * makes you its citizen on the spot, and nothing holds that afterwards except
- * a loan you took yourself.
+ * The door is chosen on the globe beside this (D-319): a mark on the planet
+ * is a door, and this half shows the card of the one chosen -- what a door
+ * gives and what it asks (D-184, D-281) as table rows, not in text: the
+ * engine enforces it, and the person must see it before clicking, not learn
+ * it from a refusal. The doors are listed by name too, for a hand that
+ * cannot reach the globe.
  */
 
-import { useMemo, useState } from "react";
 import * as api from "../api";
 import type { Door } from "../api";
 import { t } from "../locale";
@@ -32,51 +27,48 @@ type Props = {
   name: string;
   busy: boolean;
   trouble?: string | null;
+  picked: string | null;
   onPick: (node: string) => void;
+  onEnter: (node: string) => void;
   onBack: () => void;
 };
 
-export function Doors({ doors, name, busy, trouble, onPick, onBack }: Props) {
-  //: The list comes already sorted -- populous cities first (D-187) -- and
-  //: search narrows it by city or node name. An empty search is the whole list.
-  const [query, setQuery] = useState("");
-  const visible = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return doors;
-    return doors.filter(
-      (d) =>
-        d.name.toLowerCase().includes(q) ||
-        (d.city ?? "").toLowerCase().includes(q) ||
-        (d.precursor && "предтеч".includes(q)),
-    );
-  }, [doors, query]);
+export function Doors({ doors, name, busy, trouble, picked, onPick, onEnter, onBack }: Props) {
+  const door = doors.find((one) => one.node === picked) ?? null;
 
   return (
-    <section className="wide doors-step">
+    <section className="doors-step">
       <h1>{t("ui-doors-title")}</h1>
       <p className="note center">{t("ui-doors-lead", { name })}</p>
 
-      <div className="row search">
-        <input
-          type="search"
-          placeholder={t("ui-doors-search")}
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          aria-label={t("ui-doors-search-label")}
-        />
-        <span className="note">
-          {t("ui-doors-count", { shown: String(visible.length), total: String(doors.length) })}
-        </span>
-      </div>
-
       {doors.length === 0 ? (
         <p className="trouble">{t("ui-doors-empty-world")}</p>
-      ) : visible.length === 0 ? (
-        <p className="note center">{t("ui-doors-nothing-found")}</p>
       ) : (
-        <div className="doors">
-          {visible.map((door) => (
-            <section key={door.node}>
+        <>
+          {/* The list by name: the same doors as the marks, for those who
+              do not turn globes. Sorted as the server sorts, by people. */}
+          <div className="row tabs doors-list">
+            {doors.map((one) => (
+              <button
+                key={one.node}
+                className={one.node === picked ? "" : "quiet"}
+                aria-pressed={one.node === picked}
+                onClick={() => onPick(one.node)}
+                disabled={busy}
+              >
+                {/* The door's own name, the city after it: the capital has two
+                    doors, and two buttons reading the city alone would not
+                    tell them apart (the same rule the card's heading keeps). */}
+                {one.precursor ? t("ui-doors-precursor") : one.name}
+                {!one.precursor && one.city ? ` · ${one.city}` : ""}
+              </button>
+            ))}
+          </div>
+
+          {door === null ? (
+            <p className="note center">{t("ui-doors-pick-on-globe")}</p>
+          ) : (
+            <section className="card door">
               {/* В заголовке — чем эта дверь отличается от соседней. Город
                   вынесен в строку: у столицы дверей две, и одинаковые
                   заголовки не давали бы их различить. */}
@@ -133,13 +125,13 @@ export function Doors({ doors, name, busy, trouble, onPick, onBack }: Props) {
                   город показывает только числа — сочинять за него нечего. */}
               {door.about && <p className="say">«{door.about}»</p>}
               <div className="row">
-                <button onClick={() => onPick(door.node)} disabled={busy}>
+                <button onClick={() => onEnter(door.node)} disabled={busy}>
                   {t("ui-doors-print-here")}
                 </button>
               </div>
             </section>
-          ))}
-        </div>
+          )}
+        </>
       )}
 
       <p className="note">{t("ui-doors-grant-note")}</p>

@@ -352,20 +352,83 @@ button.eye:not(:disabled):active {
   font-style: italic;
 }
 
-/* Doors inside registration: the same grid as before. */
-.doors-step .doors {
+/* Before the world the screen is two halves (D-319): the globe of the public
+   map on one, the way in on the other. The globe is a square as tall as the
+   half allows; narrow, the halves stack and the globe takes the top. */
+.entry-split {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(16rem, 100%), 1fr));
-  gap: 0.75rem;
-  align-items: start;
-  margin: 0.75rem 0;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  min-height: 100vh;
 }
-.doors-step .search {
+.entry-split > main.entry {
+  min-height: 0;
+}
+.entry-globe {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   justify-content: center;
+  gap: 0.5rem;
+  padding: 1rem;
+  min-height: 0;
 }
-.doors-step .search input {
-  width: min(20rem, 100%);
+.entry-globe svg {
+  display: block;
+  width: min(100%, 85vh);
+  aspect-ratio: 1;
+  touch-action: none;
+  cursor: grab;
+  overflow: visible;
 }
+.entry-globe .way {
+  fill: none;
+  stroke: var(--base-400);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+.entry-globe .way.wild,
+.entry-globe .way.trail {
+  stroke-dasharray: 2 3;
+}
+.entry-globe .place circle {
+  fill: var(--base-200);
+}
+.entry-globe .place text {
+  fill: var(--base-50);
+  text-anchor: middle;
+  paint-order: stroke;
+  stroke: var(--base-900);
+  stroke-width: 0.1em;
+}
+.entry-globe .door circle {
+  fill: var(--act);
+  stroke: var(--base-50);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+  cursor: pointer;
+}
+.entry-globe .door.picked circle {
+  fill: var(--accent);
+}
+.doors-step .doors-list {
+  flex-wrap: wrap;
+  justify-content: center;
+  margin: 0.5rem 0;
+}
+.doors-step .card.door {
+  width: min(28rem, 100%);
+  margin-inline: auto;
+}
+@media (max-width: 56rem) {
+  .entry-split {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .entry-globe svg {
+    width: min(100%, 45vh);
+  }
+}
+
 
 /* The account moved from a header modal to the sidebar's tab (D-238):
    its panel styles live in `hud.css` with the rest of the redesign. */

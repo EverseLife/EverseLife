@@ -330,6 +330,9 @@ async def test_city_word_written_by_authority_seen_by_newcomer(
     doors = await world.doors(session, constants, catalog)
     said = {door["node"]: door["about"] for door in doors}
     assert said[core.key] == "Шахта, кузня и работа с первого дня."
+    #: A door stands somewhere: the newcomer picks it on the globe (D-319).
+    mine = next(door for door in doors if door["node"] == core.key)
+    assert mine["planet"] == core.planet.value and "place" in mine
 
 
 async def test_city_word_not_given_to_stranger(session: AsyncSession, catalog: Catalog) -> None:
