@@ -38,6 +38,7 @@ export function useWalker({
   where,
   reprScene,
   cam,
+  turn,
   myRepr,
 }: {
   ongoing: Transit | null;
@@ -45,6 +46,9 @@ export function useWalker({
   where: RefObject<(key: string) => Point | undefined>;
   reprScene: (key: string) => string | null;
   cam: Camera;
+  /** On the globe the camera follows by turning the eye, not by sliding
+   *  the frame: the dot is told to whoever centres it. */
+  turn?: (dot: Point) => void;
   /** Where the body stands, as the scene draws it. */
   myRepr: string | null;
 }) {
@@ -69,7 +73,8 @@ export function useWalker({
         mark.setAttribute("transform", placeAt(dot));
         //: The dot names where it is; the camera decides whether to chase it
         //: -- it does, unless the hand has taken the frame for this journey.
-        cam.toDot(dot);
+        if (turn) turn(dot);
+        else cam.toDot(dot);
       }
       raf = requestAnimationFrame(step);
     };
@@ -88,6 +93,7 @@ export function useWalker({
     ongoing?.arrives_at,
     reprScene,
     cam,
+    turn,
   ]);
 
   //: Where the dot is drawn at this render; the frames move it from there.

@@ -22,6 +22,8 @@ import {
   groundOf,
   groundReach,
   leavesSurface,
+  mapBounds,
+  MAP_FURTHEST,
   openScale,
   tilted,
   planetUnder,
@@ -34,7 +36,8 @@ import { H, SPHERE_R, W } from "../panels/map/model";
 import { edgesOf, visibleOf } from "../panels/map/useScene";
 import { dotOn } from "../panels/map/useWalker";
 import { nodeGlyph } from "../marks";
-import { LAST_LAT } from "../panels/map/globe";
+import { LAST_LAT, between } from "../panels/map/globe";
+import { factsOf } from "../panels/map/useBands";
 import { ZOOM_PACE, createCamera, zoomStep } from "../panels/map/camera";
 
 //: The vault's `map.approach_km` as of D-319.
@@ -56,6 +59,40 @@ const node = (over: Partial<MapNode>): MapNode =>
   }) as MapNode;
 
 describe("the bands", () => {
+  it("stop the map tab at the disk: no floor, no descent, no sky beyond", () => {
+    //: The console keeps the approach floor and the sky under it; the map
+    //: tab's surface ends a little past the disk filling the frame.
+    const small = radiusUnits(319);
+    const globe = globeScale(small);
+    const map = mapBounds(globe, small);
+    expect(map.furthest).toBeCloseTo(globe * MAP_FURTHEST, 12);
+    expect(map.furthest).toBeGreaterThan(SURFACE.furthest);
+    //: At the map's own floor nothing is a fact: the frame is clamped there
+    //: by the hand's bounds, and the sky never opens.
+    const frame = { x: -W / (2 * map.furthest), y: -H / (2 * map.furthest), scale: map.furthest };
+    const onMap = factsOf(frame, { ...map, globe, radius: small, console: false }, []);
+    expect(onMap.floor).toBe(false);
+    expect(onMap.descent).toBe(0);
+    //: The same frame on the console, at the console's floor, is the sky's.
+    const deep = { ...frame, scale: SURFACE.furthest * 0.9 };
+    const onConsole = factsOf(deep, { ...SURFACE, globe, radius: small, console: true }, []);
+    expect(onConsole.floor).toBe(true);
+    expect(onConsole.descent).toBe(1);
+    //: Flat scenes keep the old floor: nothing to fall through either way.
+    expect(mapBounds(globeScale(null), null).furthest).toBe(surfaceBounds(NaN).furthest);
+  });
+
+  it("turn the eye the shortest way round and ease it at both ends", () => {
+    //: Across the seam: from 170 east to 170 west is twenty degrees east,
+    //: not three hundred and forty west.
+    expect(between({ lat: 0, lon: 170 }, { lat: 10, lon: -170 }, 1)).toEqual({ lat: 10, lon: 190 });
+    expect(between({ lat: 0, lon: -170 }, { lat: 0, lon: 170 }, 0.5).lon).toBeCloseTo(-180, 9);
+    //: Eased: halfway in time is halfway in angle, a tenth in time is less.
+    expect(between({ lat: 0, lon: 0 }, { lat: 40, lon: 0 }, 0.5).lat).toBeCloseTo(20, 9);
+    expect(between({ lat: 0, lon: 0 }, { lat: 40, lon: 0 }, 0.1).lat).toBeLessThan(4);
+    expect(between({ lat: 0, lon: 0 }, { lat: 40, lon: 0 }, 0)).toEqual({ lat: 0, lon: 0 });
+  });
+
   it("draw the ground by the planet's cell, finer the nearer, flat only inside a cell", () => {
     //: A planet a twentieth of Earth (D-322): the disk fills the frame at
     //: the globe scale, and the ground is cells there -- on a scale pinned

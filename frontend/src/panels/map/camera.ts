@@ -225,6 +225,8 @@ export function createCamera({
   return {
     frame: () => frame,
     viewBox: () => viewBoxOf(frame),
+    /** The world point in the middle of the frame. */
+    middle: () => middleOf(frame),
     aimAt,
     cut,
 

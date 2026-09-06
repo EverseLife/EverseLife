@@ -448,6 +448,18 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
     //: Within one scene, while the walk is being followed, the frame already
     //: has its aim: the dot.
     if (cam.following()) return;
+    //: On the globe the body comes to the middle by the globe turning under
+    //: the eye, and the frame stays on the eye: a frame slid to the body's
+    //: projection would leave the planet off centre, and the hand -- which
+    //: turns, and does not slide -- could never bring it back.
+    if (globeScene) {
+      const stand = visibleRef.current.find((node) => node.key === myRepr)?.place;
+      if (stand && "lat" in stand) {
+        globe.aimAt(stand);
+        cam.aimAt({ x: 0, y: 0 });
+        return;
+      }
+    }
     cam.aimAt(middle);
     //: Every reason the frame may move by itself: you moved, the scene
     //: changed, the tether was tied back on, or the map has just landed and
@@ -474,11 +486,27 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
     cam.follow(journey !== null);
   }, [journey, cam, tethered]);
 
+  //: Followed on the globe, the dot is kept in the middle by turning the
+  //: eye -- only once it has strayed half a pixel, so a walk seen from afar
+  //: does not redraw the whole ground at every frame for nothing.
+  const rotate = globe.rotate;
+  const turn = useMemo(
+    () =>
+      globeScene && rotate
+        ? (dot: Point) => {
+            if (!cam.following()) return;
+            if (Math.hypot(dot.x, dot.y) * cam.frame().scale < 0.5) return;
+            rotate(-dot.x, -dot.y);
+          }
+        : undefined,
+    [globeScene, rotate, cam],
+  );
   const { walkerRef, walker, standingAt } = useWalker({
     ongoing,
     where,
     reprScene,
     cam,
+    turn,
     myRepr,
   });
 

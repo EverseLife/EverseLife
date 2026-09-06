@@ -24,6 +24,7 @@ import {
   globeScale,
   groundOf,
   leavesSurface,
+  mapBounds,
   openScale,
   planetUnder,
   reachesSurface,
@@ -60,9 +61,11 @@ export const NO_FACTS: Facts = {
   descent: 0,
 };
 
-/** The surface's bounds, the scale its globe fills the frame at, and the
- *  planet's radius in map units the ground's cell is read from. */
-export type Surface = Bounds & { globe: number; radius: number | null };
+/** The surface's bounds, the scale its globe fills the frame at, the
+ *  planet's radius in map units the ground's cell is read from, and whether
+ *  the sky lies beyond the floor -- on the ship's console it does, on the
+ *  map tab the floor is the disk and there is nothing beyond. */
+export type Surface = Bounds & { globe: number; radius: number | null; console: boolean };
 
 export type Sphere = { key: string; planet: string; at: Point };
 
@@ -73,12 +76,14 @@ export function factsOf(frame: Frame, surface: Surface, spheres: readonly Sphere
   const ground = groundOf(frame.scale, surface.radius);
   return {
     cities: cityOpen(frame.scale),
-    floor: leavesSurface(frame.scale, surface.furthest),
+    //: The floor is a fact only where the sky lies under it; the descent
+    //: tilts the eye only on the way down from the sky.
+    floor: surface.console && leavesSurface(frame.scale, surface.furthest),
     ceiling,
     ground: ground.shown,
     unit: ground.unit,
     over: ceiling ? (planetUnder(middle, spheres)?.planet ?? null) : null,
-    descent: descentOf(frame.scale, surface.furthest, surface.globe),
+    descent: surface.console ? descentOf(frame.scale, surface.furthest, surface.globe) : 0,
   };
 }
 
@@ -101,6 +106,9 @@ export function useBands({
   radius,
 }: {
   book: RecipeBook | null;
+  /** Where the map opens: the ship's console opens on space, and only the
+   *  console has the sky at all -- the map tab's surface has no floor to
+   *  fall through (owner, 2026-09-06). */
   initialLayer: string;
   /** Whether where one stands has an inside to show. */
   hasSubnodes: boolean;
@@ -125,14 +133,18 @@ export function useBands({
   };
   //: The surface's bounds come from the vault's height (`map.approach_km`)
   //: through the book; read through a ref by the camera, which is made once.
-  const surface = useMemo<Surface>(
-    () => ({
-      ...surfaceBounds(Number(book?.constants?.["map.approach_km"])),
-      globe: globeScale(radius),
+  const onConsole = initialLayer === "space";
+  const surface = useMemo<Surface>(() => {
+    const globe = globeScale(radius);
+    return {
+      ...(onConsole
+        ? surfaceBounds(Number(book?.constants?.["map.approach_km"]))
+        : mapBounds(globe, radius)),
+      globe,
       radius,
-    }),
-    [book, radius],
-  );
+      console: onConsole,
+    };
+  }, [book, radius, onConsole]);
   const surfaceRef = useRef(surface);
   surfaceRef.current = surface;
   const [zoomed, setZoomed] = useState<Facts>(NO_FACTS);
@@ -142,8 +154,9 @@ export function useBands({
 }
 
 /**
- * The hand-over between bands: zoomed out to the floor of the surface the
- * map is the sky; zoomed all the way in on a planet's marker -- or panned
+ * The hand-over between bands, on the ship's console -- the map tab has no
+ * sky, and its floor is never a fact: zoomed out to the floor of the surface
+ * the map is the sky; zoomed all the way in on a planet's marker -- or panned
  * onto one at the ceiling -- the surface opens where the true disk is the
  * marker's size, and the descent from there tilts it from the pole to where
  * one stands (plan §2 "Камера"). The two coordinate systems still do not

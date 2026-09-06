@@ -49,6 +49,22 @@ export function radiusUnits(radiusKm: number): number {
   return radiusKm * 1000 * UNITS_PER_METRE;
 }
 
+/** How long the aimed turn of the eye takes, milliseconds. */
+export const TURN_MS = 450;
+
+/**
+ * The eye `share` of the way from one place to another, the shortest way
+ * round in longitude and eased at both ends, so the turn neither jerks off
+ * nor lands with a bump.
+ */
+export function between(from: Geo, to: Geo, share: number): Eye {
+  const t = Math.min(1, Math.max(0, share));
+  const ease = t * t * (3 - 2 * t);
+  let dlon = ((to.lon - from.lon + 540) % 360) - 180;
+  if (dlon <= -180) dlon += 360;
+  return { lat: from.lat + (to.lat - from.lat) * ease, lon: from.lon + dlon * ease };
+}
+
 /**
  * A full circle about the origin as a path, for the disk and its clip.
  *

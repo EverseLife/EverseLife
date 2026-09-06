@@ -314,6 +314,18 @@ export function useHand({
       //: Loose, a wheel is the hand: it takes the frame from every autopilot.
       const p = toWorld(e);
       cam.takeFrame();
+      if (rotate) {
+        //: On the globe the middle is the eye and stays the middle: the
+        //: point under the cursor is brought towards it by turning the
+        //: sphere as much as a zoom to the cursor would have slid it, and
+        //: the zoom itself keeps the middle -- the planet never leaves the
+        //: centre of the frame, in either mode of the camera.
+        const was = cam.frame().scale;
+        const mid = cam.middle();
+        const pull = 1 - was / scale;
+        rotate(-(p.x - mid.x) * pull, -(p.y - mid.y) * pull);
+        return cam.zoomOnMiddle(scale);
+      }
       cam.zoomTo(p, scale);
     },
 

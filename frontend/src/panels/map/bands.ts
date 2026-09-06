@@ -109,6 +109,23 @@ export function surfaceBounds(approachKm: number): Bounds {
   return { nearest: SURFACE_NEAREST, furthest: surfaceFloor(approachKm) };
 }
 
+/** How far out the map tab zooms, as a share of the scale the globe fills
+ *  the frame at: the disk a little over half the frame's height, and no
+ *  farther -- the map has no sky (owner, 2026-09-06). */
+export const MAP_FURTHEST = 0.5;
+
+/**
+ * The surface's bounds on the map tab: the planet is the whole of it. The
+ * sky is the ship's console's alone, for finding one's way between the
+ * worlds; from the ground the map stops at the disk, so that the stitch
+ * between two drawings of one planet is never seen. Without a radius the
+ * scene is flat, and it keeps the old floor.
+ */
+export function mapBounds(globe: number, radius: number | null): Bounds {
+  if (!radius) return { nearest: SURFACE_NEAREST, furthest: UNBOOKED_FLOOR };
+  return { nearest: SURFACE_NEAREST, furthest: globe * MAP_FURTHEST };
+}
+
 /**
  * The approach (D-319, wave 5, plan §2 "Камера"): between the floor of the
  * surface and the scale the globe fills the frame at, the descent -- 1 at

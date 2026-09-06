@@ -15,7 +15,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { MapNode, MapStub, RecipeBook } from "../../api";
 import { tilted } from "./bands";
-import { STUB_M, ahead, arc, radiusUnits, turn, type Eye, type Geo } from "./globe";
+import { ahead, arc, between, radiusUnits, STUB_M, turn, TURN_MS, type Eye, type Geo } from "./globe";
 import type { Link, Point } from "./model";
 
 /** The planet's radius in map units: the vault's (`planet.radius` on
@@ -59,6 +59,9 @@ export function useGlobe({
   descentRef.current = descent;
   //: The drags since the last frame, and the frame booked to spend them.
   const pending = useRef({ dx: 0, dy: 0, raf: 0 });
+  //: A turn under way towards a place, and its frame: the tether's re-aim
+  //: turns the globe over time, so the player watches it come round.
+  const turning = useRef(0);
   const flush = useCallback(() => {
     const held = pending.current;
     held.raf = 0;
@@ -81,6 +84,9 @@ export function useGlobe({
   }, [radius]);
   const rotate = useCallback(
     (dx: number, dy: number) => {
+      //: The hand outranks the aimed turn, as it outranks every autopilot.
+      if (turning.current) cancelAnimationFrame(turning.current);
+      turning.current = 0;
       const held = pending.current;
       held.dx += dx;
       held.dy += dy;
@@ -95,13 +101,42 @@ export function useGlobe({
     [],
   );
   /** Put the eye over a place: the origin of the frame moves there. */
-  const lookAt = useCallback((place: Geo) => setEye({ lat: place.lat, lon: place.lon }), []);
+  const lookAt = useCallback((place: Geo) => {
+    if (turning.current) cancelAnimationFrame(turning.current);
+    turning.current = 0;
+    setEye({ lat: place.lat, lon: place.lon });
+  }, []);
+  /**
+   * Turn the eye to a place over `TURN_MS`, the shortest way round, eased at
+   * both ends: the camera tied back on brings the body to the middle by
+   * turning the globe, not by sliding it -- the frame stays on the eye. A
+   * turn already under way is replaced; the hand's own turn ends it.
+   */
+  const aimAt = useCallback((place: Geo) => {
+    if (turning.current) cancelAnimationFrame(turning.current);
+    const from = eyeRef.current;
+    if (!from) return lookAt(place);
+    const t0 = performance.now();
+    const step = (t: number) => {
+      const share = Math.min(1, (t - t0) / TURN_MS);
+      setEye(between(from, place, share));
+      turning.current = share < 1 ? requestAnimationFrame(step) : 0;
+    };
+    turning.current = requestAnimationFrame(step);
+  }, [lookAt]);
+  useEffect(
+    () => () => {
+      if (turning.current) cancelAnimationFrame(turning.current);
+    },
+    [],
+  );
 
   return {
     globeScene,
     radius,
     eye,
     lookAt,
+    aimAt,
     /** The hand's turn, only once there is an eye to turn: before that a
      *  drag falls through to the frame, so a loose camera is never stuck. */
     rotate: globeScene && eye ? rotate : undefined,
