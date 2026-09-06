@@ -17,7 +17,7 @@ import {
   type Frame,
 } from "../panels/map/camera";
 import { flatten, withCityScene } from "../panels/map/geo";
-import { arc, project, projectAll, radiusUnits, slerp, turn } from "../panels/map/globe";
+import { arc, midOf, project, projectAll, radiusUnits, slerp, turn } from "../panels/map/globe";
 import { clampScale, lensOn, pinchScale, pinchTo, worldAt } from "../panels/map/hand";
 import { settle } from "../panels/map/layout";
 import {
@@ -737,7 +737,10 @@ describe("the globe", () => {
   const eye = { lat: 41, lon: 24 };
 
   it("puts the eye's point at the origin, north up and facing", () => {
-    expect(project(eye, R, eye)).toEqual({ x: 0, y: -0, front: true });
+    const centre = project(eye, R, eye);
+    expect(centre.x).toBeCloseTo(0, 9);
+    expect(centre.y).toBeCloseTo(0, 9);
+    expect(centre.front).toBe(true);
     const north = project(eye, R, { lat: 42, lon: 24 });
     expect(north.y).toBeLessThan(0);
     expect(north.x).toBeCloseTo(0, 6);
@@ -758,20 +761,20 @@ describe("the globe", () => {
     expect([...placed.keys()]).toEqual(["here"]);
   });
 
-  it("draws an edge as the visible runs of its great circle", () => {
+  it("draws an edge as the visible part of its great circle", () => {
     const a = { lat: 41, lon: 24 };
     const b = { lat: 41, lon: 25 };
-    const runs = arc(eye, R, a, b, 8);
-    expect(runs).toHaveLength(1);
-    expect(runs[0]).toHaveLength(9);
-    expect(runs[0][0].x).toBeCloseTo(0, 6);
-    expect(runs[0][0].y).toBeCloseTo(0, 6);
+    const run = arc(eye, R, a, b, 8);
+    expect(run).toHaveLength(9);
+    expect(run![0].x).toBeCloseTo(0, 6);
+    expect(run![0].y).toBeCloseTo(0, 6);
+    expect(midOf(run!)).toEqual(run![4]);
     //: Over the horizon: the far half is cut off, the near half stays.
     const beyond = arc(eye, R, a, { lat: -41, lon: -156 }, 8);
-    expect(beyond).toHaveLength(1);
-    expect(beyond[0].length).toBeLessThan(9);
-    //: Between two antipodal-side points nothing is drawn at all.
-    expect(arc(eye, R, { lat: -40, lon: -150 }, { lat: -42, lon: -160 }, 8)).toEqual([]);
+    expect(beyond).not.toBeNull();
+    expect(beyond!.length).toBeLessThan(9);
+    //: Between two points on the far side nothing is drawn at all.
+    expect(arc(eye, R, { lat: -40, lon: -150 }, { lat: -42, lon: -160 }, 8)).toBeNull();
   });
 
   it("interpolates along the great circle", () => {

@@ -2,27 +2,28 @@
 // Copyright (C) 2026 Nurlan Urazkulov
 
 /**
- * Degrees onto the flat map, until the globe (D-319, wave 3 of the plan).
+ * Degrees onto the flat map where there is no globe to draw them on.
  *
- * A surface node stands on its planet's sphere in degrees; the map still
- * draws a flat frame in map units. Until the globe replaces the frame, a scene
- * is flattened here: an equirectangular projection round the scene's own
- * reference -- the first placed node by key, so every viewer flattens the
- * same scene the same way -- scaled so that the scene fits the frame. The
- * scale is per scene, never per node: a city keeps its streets, a planet its
- * cities, and neither is the other's business.
+ * The globe (`globe.ts`, D-319 wave 3) draws a surface scene whenever the
+ * planet's radius is known. This is the fallback for a scene the book has
+ * no radius for -- a planet the vault does not name -- flattened by an
+ * equirectangular projection round the scene's own reference: the first
+ * placed node by key, so every viewer flattens the same scene the same way,
+ * scaled so that the scene fits the frame.
  *
- * Floors and rooms carry flat places already and pass through untouched.
+ * Floors and rooms carry flat places already and pass through untouched,
+ * globe or no globe: the inside window is flat by design (plan §2).
  */
 
 import type { MapNode } from "../../api";
+import { UNITS_PER_METRE } from "./globe";
 import { H, W, type Point } from "./model";
 
 /** Map units a scene may span before its scale is brought down to fit. */
 const SPAN = Math.max(W, H) * 1.6;
 /** Map units per degree at the equator when nothing forces a smaller scale:
- *  about five units a metre, the flat map's own density at a city step. */
-const UNITS_PER_DEGREE = 111_000 * 5;
+ *  a degree of the meridian in metres at the globe's own density. */
+const UNITS_PER_DEGREE = 111_000 * UNITS_PER_METRE;
 
 function onSphere(place: MapNode["place"]): place is { lat: number; lon: number } {
   return place != null && "lat" in place;

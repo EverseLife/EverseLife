@@ -86,24 +86,24 @@ export function slerp(a: Geo, b: Geo, share: number): Geo {
 }
 
 /**
- * The visible runs of the great-circle arc between two points: one polyline
- * where the whole arc faces the eye, none where none of it does, and pieces
- * where it dips over the horizon.
+ * The visible part of the great-circle arc between two points, as a polyline:
+ * the whole arc where it faces the eye, nothing where none of it does, and
+ * the near piece where it dips over the horizon. One piece at most -- the
+ * horizon is a great circle too, and two great circles cross once on a side.
  */
-export function arc(eye: Eye, radius: number, a: Geo, b: Geo, steps = ARC_STEPS): Point[][] {
-  const runs: Point[][] = [];
-  let run: Point[] = [];
+export function arc(eye: Eye, radius: number, a: Geo, b: Geo, steps = ARC_STEPS): Point[] | null {
+  const run: Point[] = [];
   for (let i = 0; i <= steps; i++) {
     const here = project(eye, radius, slerp(a, b, i / steps));
-    if (here.front) {
-      run.push({ x: here.x, y: here.y });
-    } else if (run.length) {
-      runs.push(run);
-      run = [];
-    }
+    if (here.front) run.push({ x: here.x, y: here.y });
+    else if (run.length) break;
   }
-  if (run.length) runs.push(run);
-  return runs.filter((piece) => piece.length >= 2);
+  return run.length >= 2 ? run : null;
+}
+
+/** Where a label sits on a polyline: its middle point. */
+export function midOf(run: readonly Point[]): Point {
+  return run[run.length >> 1];
 }
 
 /**
@@ -118,7 +118,8 @@ export function turn(eye: Eye, radius: number, dx: number, dy: number): Eye {
   return { lat, lon: ((lon + 180) % 360 + 360) % 360 - 180 };
 }
 
-/** Every placed node of a scene as the eye sees it; what faces away is left out. */
+/** Every placed node of a scene as the eye sees it; what faces away is left out,
+ *  and a node without a place on the sphere is not this function's business. */
 export function projectAll(
   eye: Eye,
   radius: number,

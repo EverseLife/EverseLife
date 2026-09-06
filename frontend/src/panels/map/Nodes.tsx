@@ -22,6 +22,7 @@
 
 import { SHAPES } from "../../glyphs";
 import { nodeGlyph } from "../../marks";
+import { midOf } from "./globe";
 import { SURFACE, spell, type MapNode } from "../../api";
 import { t } from "../../locale";
 import { DASH, type Link, type Point } from "./model";
@@ -73,43 +74,35 @@ export function Edges({ edges, at, labelled, curve }: {
   /** In space an edge carries no label -- see below. */
   labelled: boolean;
   /** On a globe an edge is a great-circle arc, cut at the horizon (D-319):
-   *  the runs of it that face the eye, or nothing where the scene is flat. */
-  curve?: (edge: Link) => Point[][] | null;
+   *  the visible part of it, or nothing where the scene is flat or the edge
+   *  has an end with no place on the sphere -- a gangway from a hull. */
+  curve?: (edge: Link) => Point[] | null;
 }) {
   return (
     <>
       {edges.map((edge) => {
+        const run = curve?.(edge) ?? null;
         const a = at(edge.a);
         const b = at(edge.b);
-        const runs = curve?.(edge) ?? null;
-        if (!runs && (!a || !b)) return null;
-        //: The label sits on the middle of what is drawn: an arc's midpoint,
-        //: or the chord's where the edge is a line.
-        const mid = runs && runs.length
-          ? runs[Math.floor(runs.length / 2)][Math.floor(runs[Math.floor(runs.length / 2)].length / 2)]
-          : a && b
-            ? { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
-            : null;
-        if (!mid) return null;
+        if (!run && (!a || !b)) return null;
+        //: The label sits on the middle of what is drawn: the arc's, or the
+        //: chord's where the edge is a line.
+        const mid = run ? midOf(run) : { x: (a!.x + b!.x) / 2, y: (a!.y + b!.y) / 2 };
         return (
           <g key={`${edge.a}|${edge.b}`} className="road">
-            {runs ? (
-              runs.map((run, i) => (
-                <polyline
-                  key={i}
-                  points={run.map((p) => `${p.x},${p.y}`).join(" ")}
-                  className={`edge ${edge.surface}`}
-                  strokeDasharray={DASH[edge.surface]}
-                  fill="none"
-                />
-              ))
-            ) : a && b ? (
-              <line
-                x1={a.x} y1={a.y} x2={b.x} y2={b.y}
+            {run ? (
+              <polyline
+                points={run.map((p) => `${p.x},${p.y}`).join(" ")}
                 className={`edge ${edge.surface}`}
                 strokeDasharray={DASH[edge.surface]}
               />
-            ) : null}
+            ) : (
+              <line
+                x1={a!.x} y1={a!.y} x2={b!.x} y2={b!.y}
+                className={`edge ${edge.surface}`}
+                strokeDasharray={DASH[edge.surface]}
+              />
+            )}
             {/* In space an edge is a gangway and nothing else: the only thing
                 coupled to a planet is a ship standing at its port (D-201).
                 "21 s of paved highway" would be a road's label on something

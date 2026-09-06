@@ -62,7 +62,8 @@ import { NodeMenu } from "./map/NodeMenu";
 import { Edges, Nodes } from "./map/Nodes";
 import { useHand } from "./map/hand";
 import { flatten, withCityScene } from "./map/geo";
-import { arc, projectAll, radiusUnits, turn, type Eye } from "./map/globe";
+import { arc, projectAll } from "./map/globe";
+import { useGlobe } from "./map/useGlobe";
 import { settle } from "./map/layout";
 import { SkyBackdrop, SkyClock } from "./map/Sky";
 import { Switcher } from "./map/Switcher";
@@ -356,30 +357,26 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
    */
   /**
    * The globe (D-319, wave 3): a surface scene is the planet seen from above
-   * one point of it -- the eye -- and the hand turns it. The planet's radius
-   * is the vault's (`planet.radius` on `planet.terra_radius_km`); until the
-   * book has arrived the scene is flattened round its first node as before.
+   * one point of it -- the eye -- and the hand turns it (`map/useGlobe`).
    */
-  const book = useBook();
-  const radius = useMemo(() => {
-    if (!book?.constants || !sphereShown) return null;
-    const values = book.constants as Record<string, any>;
-    const share = Number(values["planet.radius"]?.[sphereShown]);
-    const terra = Number(values["planet.terra_radius_km"]);
-    if (!Number.isFinite(share) || !Number.isFinite(terra) || share <= 0 || terra <= 0) return null;
-    return radiusUnits(share * terra);
-  }, [book, sphereShown]);
-  const globeScene = !orbiting && currentLayer !== "location" && radius !== null;
-  //: Where the eye stands: set on every new scene to where the body is, and
-  //: turned by the hand from there. Nowhere until the map has a place.
-  const [eye, setEye] = useState<Eye | null>(null);
+  const globe = useGlobe({
+    book: useBook(),
+    planet: sphereShown,
+    active: !orbiting && currentLayer !== "location",
+  });
+  const { globeScene, radius, eye } = globe;
   const ground = useMemo(() => {
     //: The sky is nobody's ground: there every point comes from the clock, and
     //: settling springs whose result is thrown away is pure work.
     if (orbiting) return new Map<string, Point>();
     const given = globeScene && eye && radius ? projectAll(eye, radius, visible) : flatten(visible);
+    //: What the eye does not see is not settled either: a node behind the
+    //: sphere must not be seated beside the body by the springs.
+    const shown = visible.filter(
+      (node) => !(node.place && "lat" in node.place) || given.has(node.key),
+    );
     return settle(
-      visible.map((node) => node.key),
+      shown.map((node) => node.key),
       shownEdges,
       given,
     );
@@ -387,7 +384,7 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
   /** An edge on the globe: the runs of its arc that face the eye. */
   const curve = useMemo(() => {
     if (!globeScene || !eye || !radius) return undefined;
-    return (edge: Link): Point[][] | null => {
+    return (edge: Link): Point[] | null => {
       const a = byKey[edge.a]?.place;
       const b = byKey[edge.b]?.place;
       if (!a || !b || !("lat" in a) || !("lat" in b)) return null;
@@ -430,10 +427,7 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
     svg: svgRef,
     tethered,
     ready: Boolean(map) && visible.length > 0,
-    rotate:
-      globeScene && radius
-        ? (dx, dy) => setEye((was) => (was ? turn(was, radius, dx, dy) : was))
-        : undefined,
+    rotate: globe.rotate,
   });
 
   // --- node behaviour -------------------------------------------------------
@@ -502,9 +496,14 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
     //: On a globe the eye goes to where the body stands whenever the scene is
     //: new: the origin of the frame is the eye, so the middle is the origin.
     if (cut && globeScene) {
-      const stand = byKey[myRepr ?? ""]?.place ?? visibleRef.current[0]?.place;
+      //: Where the body stands, if this scene shows it; somebody else's city
+      //: opened from outside has no node of yours, and then the scene's first
+      //: place -- a window with no centre would be an empty field.
+      const shown = visibleRef.current;
+      const stand = shown.find((node) => node.key === myRepr)?.place
+        ?? shown.find((node) => node.place && "lat" in node.place)?.place;
       if (stand && "lat" in stand) {
-        setEye({ lat: stand.lat, lon: stand.lon });
+        globe.lookAt(stand);
         cam.cut({ x: 0, y: 0 });
         return;
       }
