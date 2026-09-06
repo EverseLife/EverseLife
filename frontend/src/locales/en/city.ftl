@@ -95,9 +95,6 @@ ui-doors-citizenship = citizenship
 ui-doors-citizenship-at-once = at once
 ui-doors-tax = sales tax
 ui-doors-print-here = Print here
-ui-doors-grant-note = The settling grant is paid by the city out of its own treasury, not by the world out of thin air: a new resident is worth something to a city, and so cities bid for one.
-ui-doors-rules-note = The rows of the table are enforced by the engine: a city's citizenship takes hold at the moment of printing and holds you to nothing — you may leave in the first minute, as long as no loan is open; the tax is withheld from every sale. The Forerunners' printer enrols you into the city whose land it stands on: the machine belongs to nobody, the person who steps out of it does not.
-ui-doors-word-note = In quotes is the city's own word. That is a promise of living people, and the engine does not answer for it: if it is broken, it is a matter for the court.
 ui-doors-back = ← back
 ui-doors-pick-on-globe = Choose a printer — a large dot on the globe, or a name above: the card of the chosen one appears here.
 

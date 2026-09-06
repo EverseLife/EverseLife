@@ -19,7 +19,10 @@ main.entry.auth {
    narrow column. Every other step keeps it -- the door step included: beside
    the globe (D-319) it is a heading, a name or two and one card, and spread
    over 56rem it read as another screen rather than the fourth step of this
-   one. */
+   one. In the column it is one box like the account's and the character's:
+   the border and the padding are the `section`'s own (`place.css`), and the
+   chosen door lies flat inside it -- a card within a card would frame the
+   same thing twice. */
 .entry.auth > .wide {
   width: min(56rem, 100%);
   border: none;
@@ -369,6 +372,13 @@ button.eye:not(:disabled):active {
   min-height: 0;
   height: auto;
   overflow-y: auto;
+  /* `safe`, because the way in is centred in its half and a step can be
+     taller than it: a plain `center` overflows a flex box **both** ways, and
+     what goes off the top cannot be scrolled back to -- the door step lost
+     its heading and the first line of its lead, and the fourth step read as
+     a screen that begins in the middle of a sentence. `safe` centres while
+     it fits and starts from the top when it does not. */
+  justify-content: safe center;
 }
 .entry-globe {
   position: relative;
@@ -428,17 +438,22 @@ button.eye:not(:disabled):active {
   justify-content: center;
   margin: 0.5rem 0;
 }
-/* The chosen door's card is the step's own box, the way the account and the
-   character steps are a `.card`: the heading and the notes stand outside it,
-   as they do on the step of the lines. */
-.doors-step .card.door {
-  width: 100%;
-  box-sizing: border-box;
-}
 @media (max-width: 56rem) {
   .entry-split {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(0, 34vh) minmax(0, 1fr);
+  }
+  /* On a phone the way in takes the whole width: the box has a border and a
+     padding of its own, and a gutter outside it is width taken from the
+     table inside -- on a 375px screen the door's rows were reading through
+     forty pixels of margin on each side. */
+  .entry-split > main.entry {
+    padding-inline: 0;
+  }
+  /* And the column is the screen itself: 26rem is 364 of a phone's 375, so
+     the cap only shaved a hairline off each side and centred what was left. */
+  .entry.auth > * {
+    width: 100%;
   }
   .entry-globe {
     padding: 0.5rem;

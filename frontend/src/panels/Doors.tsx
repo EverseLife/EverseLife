@@ -68,7 +68,7 @@ export function Doors({ doors, name, busy, trouble, picked, onPick, onEnter, onB
           {door === null ? (
             <p className="note center">{t("ui-doors-pick-on-globe")}</p>
           ) : (
-            <section className="card door">
+            <section className="card flat door">
               {/* В заголовке — чем эта дверь отличается от соседней. Город
                   вынесен в строку: у столицы дверей две, и одинаковые
                   заголовки не давали бы их различить. */}
@@ -134,9 +134,6 @@ export function Doors({ doors, name, busy, trouble, picked, onPick, onEnter, onB
         </>
       )}
 
-      <p className="note">{t("ui-doors-grant-note")}</p>
-      <p className="note">{t("ui-doors-rules-note")}</p>
-      <p className="note">{t("ui-doors-word-note")}</p>
       {trouble && <p className="trouble">{trouble}</p>}
       <div className="row">
         <button className="quiet" onClick={onBack} disabled={busy}>
