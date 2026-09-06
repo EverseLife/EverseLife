@@ -46,9 +46,9 @@ const MARK = 1 / 60;
 const LABEL = 1 / 36;
 /** Below this many drawn cells across the frame the ground is one flat colour. */
 const CELLS_ACROSS = 1.5;
-/** The finest reading of the grid: an eighth of a cell, a quarter of a
- *  degree. Finer than that the relief has nothing more to say. */
-const FINEST_UNIT = 1 / 8;
+/** The finest reading of the ground: a thirty-second of a grid cell, where
+ *  the tiles of the local relief are read (D-323, `Ground`). */
+const FINEST_UNIT = 1 / 32;
 /** How often the turning globe is redrawn, a second: at two degrees a
  *  second the ground moves an eighth of a degree between redraws -- under
  *  a cell's width at any zoom -- and a redraw is the whole frame's ground. */
@@ -288,6 +288,10 @@ export function EntryGlobe({
                 //: mark was dead to the hand, and only the list of names
                 //: beside it worked.
                 onPointerDown={(e) => {
+                  //: The primary button only: a right click opens a menu the
+                  //: browser draws, and choosing a door under it would be a
+                  //: choice nobody asked for.
+                  if (e.button !== 0) return;
                   e.stopPropagation();
                   onPick(door.node);
                 }}

@@ -16,6 +16,14 @@
  * engine enforces it, and the person must see it before clicking, not learn
  * it from a refusal. The doors are listed by name too, for a hand that
  * cannot reach the globe.
+ *
+ * The rows are the whole of what is said. Three paragraphs used to stand
+ * under them -- where a grant comes from, that citizenship holds nobody, that
+ * the city's word is the city's and not the engine's -- and they were three
+ * screens of reading in front of one click, on the one screen where nobody
+ * has yet seen the game. What the engine enforces is in the rows; what the
+ * city promises is in its own quotes, and D-183 leaves it that way on
+ * purpose.
  */
 
 import * as api from "../api";
@@ -68,6 +76,9 @@ export function Doors({ doors, name, busy, trouble, picked, onPick, onEnter, onB
           {door === null ? (
             <p className="note center">{t("ui-doors-pick-on-globe")}</p>
           ) : (
+            // `door` names the card for the eye and for a console, not for a
+            // rule: the step's own section is the box, and the card lies flat
+            // in it (`entry.css`).
             <section className="card flat door">
               {/* В заголовке — чем эта дверь отличается от соседней. Город
                   вынесен в строку: у столицы дверей две, и одинаковые

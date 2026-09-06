@@ -377,7 +377,13 @@ button.eye:not(:disabled):active {
      what goes off the top cannot be scrolled back to -- the door step lost
      its heading and the first line of its lead, and the fourth step read as
      a screen that begins in the middle of a sentence. `safe` centres while
-     it fits and starts from the top when it does not. */
+     it fits and starts from the top when it does not.
+     Twice, and the plain one first: a browser that does not know the keyword
+     drops the second declaration and would fall back to the `center` of
+     `doors.css`, which is the very defect -- and it would do it silently, on
+     exactly the old phones this is for (WebKit learned `safe` late). Top of
+     the column is not centred, but nothing of it is unreachable. */
+  justify-content: flex-start;
   justify-content: safe center;
 }
 .entry-globe {
@@ -443,18 +449,6 @@ button.eye:not(:disabled):active {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(0, 34vh) minmax(0, 1fr);
   }
-  /* On a phone the way in takes the whole width: the box has a border and a
-     padding of its own, and a gutter outside it is width taken from the
-     table inside -- on a 375px screen the door's rows were reading through
-     forty pixels of margin on each side. */
-  .entry-split > main.entry {
-    padding-inline: 0;
-  }
-  /* And the column is the screen itself: 26rem is 364 of a phone's 375, so
-     the cap only shaved a hairline off each side and centred what was left. */
-  .entry.auth > * {
-    width: 100%;
-  }
   .entry-globe {
     padding: 0.5rem;
   }
@@ -462,6 +456,30 @@ button.eye:not(:disabled):active {
     width: auto;
     height: 100%;
     max-width: 100%;
+  }
+}
+
+/* On a phone the way in takes the whole width. A step that has a box of its
+   own -- the card of the account, of the character, the door step's section --
+   carries its border and its padding with it, and a gutter outside that box is
+   width taken from the table inside: the door's rows were reading through
+   forty pixels of margin on each side of a 375px screen.
+
+   Forty rem, not the 56 of the layout above: `rem` in a media query is the
+   initial 16px whatever `:root` says, so 56rem is 896px -- a tablet, where the
+   26rem column is a column and not a shave off the edges. */
+@media (max-width: 40rem) {
+  .entry-split > main.entry {
+    padding-inline: 0;
+  }
+  .entry.auth > * {
+    width: 100%;
+  }
+  /* What has no box of its own keeps the gutter the main used to give it:
+     the step of the lines is borderless and padless by the rule above, and
+     its cards would otherwise stand against the edge of the screen. */
+  .entry.auth > .wide {
+    padding-inline: 0.75rem;
   }
 }
 
