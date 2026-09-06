@@ -45,6 +45,9 @@ MAP_SIGHT_KM = Num("map.sight_km")
 #: bootstrap like every other, though the server itself does not read it.
 MAP_APPROACH_KM = Num("map.approach_km")
 MAP_MEMORY_PLACES = Num("map.memory_places")
+#: The map as a thing (D-319 item 6): what drawing one's memory onto a sheet
+#: costs in stamina -- a copy's price, its own key.
+MAP_DRAW_STAMINA = Num("map.draw_stamina")
 MAP_PUBLIC_DELAY_DAYS = Num("map.public_delay_days")
 #: The share of the free radius a find fills (D-321): a long leap lands on
 #: wide ground, and the exclusion round a node is its own circle.
@@ -82,6 +85,7 @@ __all__ = [
     "MAP_LATTICE_M",
     "MAP_SIGHT_KM",
     "MAP_MEMORY_PLACES",
+    "MAP_DRAW_STAMINA",
     "MAP_PUBLIC_DELAY_DAYS",
     "EXPLORE_FILL_SHARE",
     "EXPLORE_WINDOW_KM",

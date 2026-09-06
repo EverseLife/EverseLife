@@ -15,7 +15,7 @@ from __future__ import annotations
 import math
 import uuid
 
-from sqlalchemy import func, select
+from sqlalchemy import exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants, current, current_catalog
@@ -33,11 +33,13 @@ from src.engine.market._base import (
     split_key,
     tier_of,
 )
+from src.engine.sheet import SHEET
 from src.engine.world import body_container, node_container, station_names
 from src.models.event import EventKind
 from src.models.identity import Body
 from src.models.inventory import Container, ContainerKind, Item
 from src.models.market import Order, OrderSide, OrderState
+from src.models.sheet import MapSheet
 from src.models.world import Node
 from src.units import AMOUNT_SCALE, amount_float
 
@@ -307,6 +309,11 @@ async def _stacks(
         #: A bare "Рецепт" on the counter is a blank one -- a written carrier
         #: is always named together with what is on it.
         stmt = stmt.where(Item.recipe_key.is_(None))
+    elif kind == SHEET:
+        #: A drawn map is not laid out (D-319 addendum, D-132): what is on
+        #: it is somebody's memory, and it passes from hand to hand on trust.
+        #: The counter sells blank sheets, and only those.
+        stmt = stmt.where(~exists().where(MapSheet.item_id == Item.id))
     #: The stacks themselves are locked: `_move` splits and re-parents them,
     #: and two trades off one stack must see each other's decrement.
     rows = (

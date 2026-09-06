@@ -424,6 +424,18 @@ export function Inventory({ look }: Props) {
                               {t("ui-inventory-warm")}
                             </button>
                           )}
+                          {/* A blank map sheet (D-319 item 6): draw one's memory of
+                              places onto it. A drawn map is carried, not read. */}
+                          {thing.drawn === false && (
+                            <button
+                              role="menuitem"
+                              onClick={() => send("map.draw", { item: thing.id })}
+                              disabled={busy}
+                              title={t("ui-inventory-draw-hint")}
+                            >
+                              {t("ui-inventory-draw")}
+                            </button>
+                          )}
                           {/* A knowledge carrier (D-209): read it into the identity --
                               the carrier stays -- or wipe it back into a blank. */}
                           {thing.recipe && (

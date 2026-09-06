@@ -70,6 +70,7 @@ from src.models.net import (
 )
 from src.models.plant import Nursery, Variety
 from src.models.rig import Rig
+from src.models.sheet import MapSheet
 from src.models.ship import Ship
 from src.models.snapshot import MapSnapshot
 from src.models.travel import Harness, Travel, TravelState
@@ -81,6 +82,7 @@ from src.models.world import Edge, Node, Planet, Surface, Vein
 ddl.attach(Base.metadata)
 
 __all__ = [
+    "MapSheet",
     "MapSnapshot",
     "Account",
     "Automat",

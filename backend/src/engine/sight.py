@@ -59,6 +59,9 @@ class View:
 
     seen: set[uuid.UUID] = field(default_factory=set)
     faded: set[uuid.UUID] = field(default_factory=set)
+    #: The public part of the dark: cities and highways, known to all. Not
+    #: on the wire -- the map needs it to tell what is known from a map alone.
+    public: set[uuid.UUID] = field(default_factory=set)
 
 
 def _neighbourhood(edges: Sequence[Edge]) -> dict[uuid.UUID, set[uuid.UUID]]:
@@ -180,13 +183,13 @@ def around(
         for node in nodes
         if node.planet is standing.planet and node.layer is Layer.PLANET and node.key in remembered
     }
-    dark |= {
+    public = {
         node_id
         for node_id in _public(nodes, edges, set(cities))
         if node_id in by_id and by_id[node_id].planet is standing.planet
     }
-    dark = _with_parents(dark, by_id) - bright
-    return View(seen=seen | bright | dark, faded=dark)
+    dark = _with_parents(dark | public, by_id) - bright
+    return View(seen=seen | bright | dark, faded=dark, public=public - bright)
 
 
 async def read(session: AsyncSession) -> tuple[list[Node], list[Edge]]:

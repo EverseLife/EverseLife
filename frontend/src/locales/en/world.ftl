@@ -110,6 +110,7 @@ ui-map-switcher-rule = You see what is within sight, what you remember and what 
 
 ui-map-loading = the map is loading…
 ui-map-empty = There is nothing here yet.
+ui-map-node-drawn = from a map drawn on day { $day }: what is here now, the map does not know
 ui-map-world = world map
 
 ## The ship: the hull's card, the bridge's orders, the plan.

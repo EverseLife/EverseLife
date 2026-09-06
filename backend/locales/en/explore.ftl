@@ -3,6 +3,13 @@
 #
 # Exploration (D-321): the landscape says where and how far, not the dice.
 
+## The map as a thing (D-319 item 6): memory forgets, a map keeps
+map-sheet-dead-draws = a dead body draws nothing
+map-sheet-not-a-sheet = this is not a map sheet: one draws on a blank sheet
+map-sheet-drawn = the sheet is drawn on already: a map keeps its places for as long as it lasts
+map-sheet-empty = there are no places in memory: nothing to draw
+map-sheet-no-strength = drawing takes { NUMBER($need, maximumFractionDigits: 0) } stamina, and there is { NUMBER($have, minimumFractionDigits: 1, maximumFractionDigits: 1) }: memory is free, the work is not
+
 explore-not-from-here = one scouts from a planet's ground: not from aboard and not from a room
 explore-too-near = too close: the point is { $metres } m away, and from here one scouts no nearer than { $near } m
 explore-too-far = too far: the point is { $metres } m away, and from here one scouts no farther than { $far } m

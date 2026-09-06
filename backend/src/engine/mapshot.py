@@ -27,7 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src import globe
 from src.constants import Constants
 from src.constants import registry as R
-from src.engine import estate, memory, places, sight, travel, world
+from src.engine import climate, estate, memory, places, sheet, sight, travel, world
 from src.engine import ship as vessels
 from src.models.city import City
 from src.models.identity import Body
@@ -44,6 +44,7 @@ def node_row(
     flight: dict[str, Any] | None = None,
     faded: bool = False,
     moored: bool = False,
+    drawn: int | None = None,
 ) -> dict[str, Any]:
     """A node as the map draws it (D-045, D-097, D-237, D-238)."""
     row: dict[str, Any] = {
@@ -81,6 +82,10 @@ def node_row(
     #: the port says so itself (D-225).
     if moored:
         row["moored"] = True
+    #: Known from a map in the hands and from nothing else (D-319 item 6):
+    #: the day it was drawn is the map's own mark of "old".
+    if drawn is not None:
+        row["drawn"] = drawn
     return row
 
 
@@ -205,12 +210,27 @@ async def personal(
     inside = {
         node.id for node in every if vessels.is_aboard(node) and node.layer is not Layer.SPACE
     }
+    #: Memory, and the maps in the hands: a sheet shows its places for as
+    #: long as it is carried, in the tone of memory, marked with its day.
+    remembered = await memory.known(session, asker.identity_id)
+    carried = await sheet.held(session, asker)
+    epoch = await world.epoch(session)
+
+    def drawn_day(node: Node) -> int | None:
+        """The day a place is known from a map alone -- not in sight, not
+        remembered, not public -- in the calendar of the node's own planet,
+        counted as the clock counts, from one."""
+        moment = carried.get(node.key)
+        if moment is None or node.key in remembered or node.id in view.public:
+            return None
+        return climate.day_index(constants, node.planet, epoch, moment) + 1
+
     view = sight.around(
         standing,
         constants=constants,
         nodes=every,
         edges=all_edges,
-        known=await memory.known(session, asker.identity_id),
+        known=remembered | set(carried),
         cities=cities,
     )
     nodes = [node for node in every if node.id in view.seen and node.id not in inside]
@@ -227,6 +247,7 @@ async def personal(
                 flight=passage_row(under_way.get(node.id), by_key),
                 faded=node.id in view.faded,
                 moored=node.id in piers,
+                drawn=drawn_day(node) if node.id in view.faded else None,
             )
             for node in nodes
         ],

@@ -118,6 +118,10 @@ export function Inspector({
         {node.name}
         <Rule>{t("ui-map-node-rule")}</Rule>
       </h3>
+      {node.drawn !== undefined && (
+        //: A counter, not a measure: no thousands separator, as the clock does it.
+        <p className="note">{t("ui-map-node-drawn", { day: String(node.drawn) })}</p>
+      )}
       <p className="note">
         {node.aboard
           ? node.flight

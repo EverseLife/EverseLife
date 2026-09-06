@@ -67,6 +67,8 @@ TOUCHES: dict[str, tuple[str, ...]] = {
     "transport": ("node", "inventory"),
     "craft": ("doings", "inventory", "orders"),
     "carrier": ("inventory",),
+    #: A sheet drawn changes the hands and what the map shows from them.
+    "map": ("inventory", "node"),
     "library": ("shelf",),
     "land": ("node", "deeds"),
     "deed": ("node", "deeds"),

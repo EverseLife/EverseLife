@@ -116,6 +116,9 @@ export type MapNode = {
    *  is not a point of the map, and its row cannot tell a pier from the
    *  parking -- both hang under the planet -- so the port says it. */
   moored?: boolean;
+  /** Known from a map in the hands and nothing else (D-319 item 6): the
+   *  day the map was drawn on -- the map's own mark of "old". */
+  drawn?: number;
   /** Drawn, but not playable yet: Aquatica is out of the alpha (D-104). */
   deferred: boolean;
   /** Part of a ship: its delegate on the space layer or a room aboard (D-201). */

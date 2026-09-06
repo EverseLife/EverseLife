@@ -16,6 +16,7 @@ from src.api.commands import (  # noqa: F401
     finance,
     lines,
     look,
+    map,
     market,
     mining,
     net,

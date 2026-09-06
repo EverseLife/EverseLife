@@ -167,6 +167,8 @@ class EventKind(StrEnum):
     CRAFT_INVENTED = "craft.invented"
     #: A knowledge carrier read, wiped, or given to a library (D-209).
     CARRIER_READ = "carrier.read"
+    #: A map sheet drawn on from the drawer's memory (D-319 item 6).
+    MAP_DRAWN = "map.drawn"
     CARRIER_WIPED = "carrier.wiped"
     LIBRARY_CONTRIBUTED = "library.contributed"
 

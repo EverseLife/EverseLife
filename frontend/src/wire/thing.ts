@@ -33,6 +33,8 @@ export function varietyText(names: Names | null, ref?: VarietyRef): string | nul
 }
 
 export type Thing = {
+  /** A map sheet (D-319 item 6): drawn on, or still blank. Only on a sheet. */
+  drawn?: boolean;
   id: string;
   goods: string;
   amount: number;
