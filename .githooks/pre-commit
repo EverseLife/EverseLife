@@ -138,9 +138,12 @@ fi
 # machine, because the cure for a collision is itself a commit -- and it locks
 # the innocent first, since whoever merges first is not the one who must
 # re-parent. Two sessions stood in exactly that deadlock within an hour of the
-# first version, the author of the check among them. So the script exits 0 in
-# this mode by construction, not by the hook ignoring it; the hard stop lives
-# in `pre-merge-commit`, where the damage is actually done.
+# first version, the author of the check among them. So the script exits 0
+# over what it *finds* in this mode, by construction. The `|| true` is not
+# redundant with that: a check that cannot read what it was asked to read says
+# so and exits 1, and being unable to look is no reason to stop a commit
+# either. The hard stop lives in `pre-merge-commit`, where the damage is
+# actually done.
 if [ -f backend/tools/check_migration_parents.py ]; then
     "$py" backend/tools/check_migration_parents.py || true
 fi
