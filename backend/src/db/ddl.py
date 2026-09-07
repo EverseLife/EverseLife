@@ -110,29 +110,27 @@ FOR EACH ROW EXECUTE FUNCTION forbid_rewrite()
 #: one catches what no month covers; the months themselves are created ahead
 #: by `engine.journal.ensure_partitions` (wave 4).
 #:
-#: Deliberately **not** in `RULES`: the initial migration replays that whole
-#: set (see `statements()`), and there `event` is still a plain table -- a
-#: partition of it is an error, and a fresh database would never migrate.
-#: A schema built from the models gets it from `attach()`, where `event` is
-#: partitioned from birth; a migrated one, from the migration that
-#: partitions the journal (`d4b8e6c15a72`).
+#: It rides in `RULES` beside the triggers, and that is new. While the chain
+#: began with a plain `event` this line could not be in the set the first
+#: revision replays (see `statements()`): a partition of an unpartitioned
+#: table is an error, and a fresh database would never migrate. The squashed
+#: baseline creates `event` partitioned from birth, as the models always did,
+#: so the exception went with the chain and both schemas now take the
+#: partition from the same place.
 DEFAULT_PARTITION = """
 CREATE TABLE IF NOT EXISTS event_default PARTITION OF event DEFAULT
 """
 
 
-#: The journal's counter belongs to the journal's column. A schema built from
-#: the models would otherwise leave it standing on its own -- SQLAlchemy
-#: declares the sequence, not the ownership -- while a migrated one has it
-#: owned (`BIGSERIAL` in the first revision, an explicit `OWNED BY` in the one
-#: that partitions the journal). Two consequences follow from ownership, and
-#: both must be the same in either schema: `TRUNCATE ... RESTART IDENTITY`
-#: resets the counter, and dropping the table takes the sequence with it.
-#: Idempotent: re-declaring the same owner changes nothing, so the initial
-#: migration replays it over its own `BIGSERIAL` without effect. It needs no
-#: migration of its own either, though `statements()` asks that of a rule added
-#: later: every database already at head got the ownership from
-#: `d4b8e6c15a72`, which re-owns the sequence to the partitioned table.
+#: The journal's counter belongs to the journal's column, and neither schema
+#: arrives at that on its own. `BIGSERIAL` would have given both halves at
+#: once, but the key is `(id, at)` -- a partition's key must be in the primary
+#: key -- and a composite key takes no autoincrement: the models declare a bare
+#: `Sequence`, the baseline creates one by hand, and neither says who owns it.
+#: Two consequences follow from ownership, and both must be the same in either
+#: schema: `TRUNCATE ... RESTART IDENTITY` resets the counter, and dropping the
+#: table takes the sequence with it. Idempotent: re-declaring the same owner
+#: changes nothing.
 JOURNAL_SEQUENCE_OWNED = """
 ALTER SEQUENCE event_id_seq OWNED BY event.id
 """
@@ -181,6 +179,7 @@ RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
         "event",
         (
             JOURNAL_SEQUENCE_OWNED,
+            DEFAULT_PARTITION,
             *_append_only("event"),
             ANNOUNCE_FUNCTION,
             ANNOUNCE_TRIGGER,
@@ -198,22 +197,24 @@ def attach(metadata: MetaData) -> None:
             raise RuntimeError(f"нет таблицы {table_name}: правило некуда вешать")
         for sql in statements:
             event.listen(table, "after_create", DDL(sql).execute_if(dialect="postgresql"))
-    #: The journal's default partition rides with the table only here: a
-    #: schema built from the models has `event` partitioned from the start.
-    journal = metadata.tables.get("event")
-    if journal is not None:  # pragma: no branch
-        event.listen(
-            journal, "after_create", DDL(DEFAULT_PARTITION).execute_if(dialect="postgresql")
-        )
 
 
 def statements() -> tuple[str, ...]:
     """The same SQL for a migration -- no second copy exists.
 
-    The initial migration takes the whole set from here, so a rule added to
-    `RULES` later lands in a fresh database already at that first revision.
-    Its own migration -- the one that brings the rule to a database migrated
-    earlier -- must therefore survive meeting the rule in place: drop it first
-    or declare it with `OR REPLACE`.
+    The baseline takes the whole set from here, so a rule added to `RULES`
+    later lands in a fresh database already at that first revision. Its own
+    migration -- the one that brings the rule to a database migrated earlier --
+    must therefore survive meeting the rule in place: drop it first or declare
+    it with `OR REPLACE`.
+
+    That advice is about functions and triggers, and the set is no longer only
+    those: `DEFAULT_PARTITION` is a `CREATE TABLE ... PARTITION OF`, so the
+    group now assumes an `event` that is partitioned. `IF NOT EXISTS` keeps a
+    replay harmless where the table is the same one, but a migration that
+    rebuilds `event` and replays its group (`dict(RULES)["event"]`, the way the
+    revision that first partitioned the journal did) attaches the default to
+    whichever table then bears the name -- which is what it wants, and is worth
+    knowing before it is not.
     """
     return tuple(sql for _, group in RULES for sql in group)
