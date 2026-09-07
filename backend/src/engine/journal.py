@@ -54,6 +54,23 @@ def partition_ddl(month: datetime) -> str:
     )
 
 
+def opening_partitions(now: datetime) -> tuple[str, ...]:
+    """This month and `MONTHS_AHEAD` more, as DDL.
+
+    A function of its own because of the second caller. The daily tick keeps
+    the months ahead; the baseline migration lays the first ones, so that the
+    journal `seed` writes before any tick does not land in `event_default` --
+    out of which Postgres will not carve a month afterwards, and
+    `ensure_partitions` walks past that rather than failing daily over it.
+
+    Public for the same reason. `migrations/env.py` loads every version file,
+    so a migration reaching for `_month_start` would tie `upgrade`, `stamp`
+    and `history` alike to a private name: rename it and every alembic command
+    breaks at import, not the one revision that asked.
+    """
+    return tuple(partition_ddl(_month_start(now, plus)) for plus in range(MONTHS_AHEAD + 1))
+
+
 async def ensure_partitions(session: AsyncSession, now: datetime | None = None) -> int:
     """Create the partitions for this month and `MONTHS_AHEAD` more. Returns
     how many were created; `IF NOT EXISTS` makes a repeat harmless.
@@ -66,8 +83,7 @@ async def ensure_partitions(session: AsyncSession, now: datetime | None = None) 
     """
     moment = now or datetime.now(UTC)
     count = 0
-    for plus in range(MONTHS_AHEAD + 1):
-        stmt = partition_ddl(_month_start(moment, plus))
+    for stmt in opening_partitions(moment):
         try:
             await session.execute(text(stmt))
             count += 1

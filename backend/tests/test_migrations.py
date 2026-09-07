@@ -193,7 +193,9 @@ async def _not_at_head(connection: AsyncConnection) -> str | None:
     return _wrong_revision({row[0] for row in rows})
 
 
-def _wrong_revision(standing: set[str]) -> str | None:
+def _wrong_revision(
+    standing: set[str], chain: tuple[dict[str, str], dict[str, tuple[str, ...]]] | None = None
+) -> str | None:
     """The judgement itself, apart from the database it was read from.
 
     Split out so every branch below can be checked without arranging a
@@ -201,10 +203,18 @@ def _wrong_revision(standing: set[str]) -> str | None:
     are exactly the states nobody sets up on purpose, and the first two
     versions of these messages were wrong about both.
 
+    The chain is an argument for the same reason, learned when the squash to a
+    single baseline left the tree with no revision below the head: two of those
+    branches speak about a database standing *under* the head, and a test that
+    reaches into the tree for one can only ask what the tree happens to hold
+    today. Written-out shapes are what
+    `test_a_merge_is_counted_as_applied_through_both_its_parents` already uses,
+    and for the same reason.
+
     Anything returned here is a fact about the database in front of us, never
     about the models: the point of the gate is that the two are not confused.
     """
-    revisions, parents = _chain()
+    revisions, parents = chain if chain is not None else _chain()
     heads = _heads(revisions, parents)
     if len(heads) != 1:
         #: Nothing could have upgraded to a head that is not one. Which two
@@ -219,14 +229,21 @@ def _wrong_revision(standing: set[str]) -> str | None:
     if not standing:
         return f"база {MIGRATED_URL} опущена до нуля: `alembic_version` пуста. {OWN_DATABASE}"
 
-    #: A revision this tree never wrote: a neighbour's branch, or one that was
-    #: merged away. Nothing here can say what such a database is missing, and
-    #: it is certainly not evidence about these models.
+    #: A revision this tree never wrote: a neighbour's branch, one that was
+    #: merged away, or one the squash to a baseline took with it. Nothing here
+    #: can say what such a database is missing, and it is certainly not
+    #: evidence about these models. The second sentence is there because the
+    #: squash puts *every* older database in this state at once, and the
+    #: obvious next move -- `alembic upgrade head` -- fails on it too: without
+    #: being told, a reader reads "чужая ветка" as somebody else's problem and
+    #: watches two checks skip for good.
     strangers = sorted(standing - set(revisions))
     if strangers:
         return (
             f"база {MIGRATED_URL} стоит на ревизии, которой в этом дереве нет "
-            f"({', '.join(strangers)}): это чужая ветка, а не расхождение схемы с моделями"
+            f"({', '.join(strangers)}): это чужая ветка, а не расхождение схемы с моделями. "
+            "Если ревизия исчезла со склейкой цепочки в одну базовую, догнать такую базу "
+            "нечем — её заводят заново (README, «Если на существующей базе...»)"
         )
 
     #: At the head *and* somewhere else: a database with two heads of its own.
@@ -401,91 +418,6 @@ async def test_the_autogenerate_command_wants_nothing(
     )
 
 
-def test_a_law_choice_keeps_its_meaning_across_the_rename() -> None:
-    """The words a city had become the key the engine acted on, not the key
-    that looks like them.
-
-    `build_permit` and `body_print` were free text read by substring, and the
-    two read the **empty** value differently: an unset permit opened the ring,
-    an unset printer paid for nobody. The migration carries that difference,
-    so no city changes behaviour by being migrated -- which is the only thing
-    a rename of stored values owes anybody.
-    """
-    import importlib.util
-
-    spec = importlib.util.spec_from_file_location(
-        "law_choices",
-        Path(__file__).resolve().parents[1]
-        / "migrations"
-        / "versions"
-        / "b4e91c07af52_law_choices_are_keys.py",
-    )
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-
-    #: Left column: what the cities hold. Right: what the old reader did.
-    assert module._permit("") == "everyone", "an unset permit opened the ring"
-    assert module._print("") == "nobody", "an unset printer paid for nobody"
-    for said in ("никто", "Никто и никогда", "нет", "-"):
-        assert module._permit(said) == "nobody", said
-    for said in ("гражданам", "Гражданам города", "ГРАЖДАНЕ"):
-        assert module._permit(said) == "citizens", said
-        assert module._print(said) == "citizens", said
-    for said in ("всем", "кому угодно", "да"):
-        assert module._permit(said) == "everyone", said
-        assert module._print(said) == "everyone", said
-    #: A value already a key survives a second run untouched.
-    for said in ("nobody", "citizens", "everyone"):
-        assert module._permit(said) in {"nobody", "citizens", "everyone"}
-
-
-async def test_a_law_choice_is_rewritten_in_the_rows_themselves(
-    session: AsyncSession, catalog
-) -> None:
-    """And the walk over the table does it, not only the mapping beside it.
-
-    The clean-database run the house rule asks for proves the migration
-    *applies*; it cannot prove it rewrites anything, because a fresh database
-    has no cities. This puts two of them there with the words they used to
-    hold and reads the keys back out.
-    """
-    import importlib.util
-
-    from city_kit import _capital
-
-    spec = importlib.util.spec_from_file_location(
-        "law_choices_rows",
-        Path(__file__).resolve().parents[1]
-        / "migrations"
-        / "versions"
-        / "b4e91c07af52_law_choices_are_keys.py",
-    )
-    assert spec and spec.loader
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-
-    city, _ = await _capital(session, catalog)
-    city.laws = {"build_permit": "граждане", "body_print": "всем", "tax_trade": "7"}
-    await session.commit()
-
-    #: `op.get_bind()` wants an alembic context; the walk itself only wants a
-    #: connection, so it is handed one straight.
-    await session.run_sync(
-        lambda sync: module._rewrite(
-            {"build_permit": module._permit, "body_print": module._print},
-            bind=sync.connection(),
-        )
-    )
-    await session.commit()
-    await session.refresh(city)
-
-    assert city.laws["build_permit"] == "citizens"
-    assert city.laws["body_print"] == "everyone"
-    #: A law that is not a choice is not touched at all.
-    assert city.laws["tax_trade"] == "7"
-
-
 async def test_database_rules_in_place(migrated: AsyncConnection) -> None:
     """The balance and immutability triggers must be in the upgraded database."""
     rows = await migrated.execute(text("SELECT tgname FROM pg_trigger WHERE NOT tgisinternal"))
@@ -497,6 +429,26 @@ async def test_database_rules_in_place(migrated: AsyncConnection) -> None:
         "event_append_only",
         "ledger_transaction_append_only",
     } <= names
+
+
+async def test_a_migrated_database_is_born_with_its_months(migrated: AsyncConnection) -> None:
+    """The baseline lays the first partitions, and not only `event_default`.
+
+    Nothing else can lay them in time. `seed` writes its journal before any
+    tick runs, so a database born with the default alone takes those rows into
+    it -- and Postgres will not afterwards carve a month out of a default that
+    already holds rows for it. `journal.ensure_partitions` logs that refusal
+    and walks on, deliberately, so the month never arrives at all: the first
+    weeks of the world stay in the default for good while every test stays
+    green. Nothing else looks at this -- `test_journal` exercises
+    `ensure_partitions` against a `create_all` schema, which has no months by
+    design -- so the loop at the end of the baseline is pinned here.
+    """
+    rows = await migrated.execute(
+        text("SELECT relname FROM pg_class WHERE relname ~ '^event_[0-9]{6}$'")
+    )
+    months = sorted(row[0] for row in rows)
+    assert months, "у мигрированной базы нет ни одной месячной партиции журнала"
 
 
 #: Which column a sequence belongs to, if any. Ownership is not a detail: it
@@ -584,17 +536,22 @@ def test_a_database_is_told_what_is_wrong_with_it_and_not_something_else() -> No
     assert stranger is not None and "чужая ветка" in stranger, stranger
     assert "Не накатано" not in stranger, stranger
 
+    #: The last two states need a revision *below* the head, and the tree has
+    #: held none since the squash. Written out rather than taken from the
+    #: files, so the check keeps asking the same question however many
+    #: migrations happen to lie there.
+    written = ({"root": "root.py", "next": "next.py"}, {"root": (), "next": ("root",)})
+
     #: The head *and* another revision of this tree: nothing is missing from
     #: such a database, so "отставшая" would be a lie about it.
-    parent = parents[head][0]
-    two_headed = _wrong_revision({head, parent})
+    two_headed = _wrong_revision({"next", "root"}, written)
     assert two_headed is not None and "несколько голов" in two_headed, two_headed
     assert "отставшая" not in two_headed, two_headed
 
     #: And a database genuinely behind is counted, not merely named.
-    behind = _wrong_revision({parent})
+    behind = _wrong_revision({"root"}, written)
     assert behind is not None and "Не накатано миграций: 1" in behind, behind
-    assert revisions[head] in behind, behind
+    assert "next.py" in behind, behind
     #: With the way out, and the way out is a database of one's own.
     assert "EVERSELIFE_MIGRATED_DATABASE_URL" in behind, behind
 
