@@ -10,6 +10,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { MapNode, WorldMap } from "../api";
+import { arcDeg } from "../panels/map/globe";
 import { aimOf, growthOf, padsOn, spreadOf } from "../panels/ship/pads";
 
 const node = (key: string, over: Partial<MapNode> = {}): MapNode =>
@@ -79,20 +80,32 @@ describe("the pads on the globe", () => {
     expect(aimOf([], "plateau")).toBeNull();
   });
 
-  it("opens the frame round the marks, and never narrower than the least arc", () => {
+  it("opens the frame round every mark from where it looks, never narrower than the least arc", () => {
     const marks = padsOn(world, "pyroxis", [
       { node: "field", name: "", anywhere: true },
       { node: "plateau", name: "Плато", anywhere: true },
     ]);
-    //: A degree of longitude at 5 degrees of latitude, and the margin.
-    expect(spreadOf(marks, 0.05, 1.6)).toBeCloseTo(Math.cos((5 * Math.PI) / 180) * 1.6, 3);
+    //: A degree of longitude at 5 degrees of latitude, reaching to both sides
+    //: of the aim -- hence the doubling -- and the margin.
+    const at = aimOf(marks, "field");
+    expect(spreadOf(marks, at, 0.05, 1.6)).toBeCloseTo(2 * Math.cos((5 * Math.PI) / 180) * 1.6, 3);
+    //: Aimed at one end -- and the aim is the chosen pad, which is the first
+    //: of them -- every other mark is still inside the frame. Measured from
+    //: the middle, because that is where the eye is: the width used to be the
+    //: widest arc between two marks, and the far one fell off the picture.
+    for (const chosen of ["field", "plateau"]) {
+      const eye = aimOf(marks, chosen);
+      const half = spreadOf(marks, eye, 0.05, 1.6) / 2;
+      for (const mark of marks) expect(arcDeg(eye!, mark.place)).toBeLessThan(half);
+    }
     //: Two piers metres apart open at the least arc, not as one dot.
     const piers = padsOn(world, "terra", [
       { node: "port_a", name: "A" },
       { node: "port_b", name: "B" },
     ]);
-    expect(spreadOf(piers, 0.05, 1.6)).toBe(0.05);
-    expect(spreadOf([], 0.05, 1.6)).toBe(0.05);
+    expect(spreadOf(piers, aimOf(piers, "port_a"), 0.05, 1.6)).toBe(0.05);
+    //: Nothing to look at: the least arc, and no arithmetic on a missing eye.
+    expect(spreadOf([], null, 0.05, 1.6)).toBe(0.05);
   });
 
   it("grows a mark by the root of its room over the least, up to a ceiling", () => {

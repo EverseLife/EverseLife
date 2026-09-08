@@ -22,7 +22,7 @@ import { useMemo } from "react";
 
 import type { MapNode, WorldMap } from "../../api";
 import type { Band } from "./bands";
-import { delegateAmong, type LayerId, type Link } from "./model";
+import { delegateAmong, settlementsOf, type LayerId, type Link } from "./model";
 
 /**
  * The nodes a scene draws: those of its layers, an inside only its own
@@ -48,16 +48,27 @@ export function visibleOf(
   here = "",
 ): MapNode[] {
   const open = layers.includes("city");
-  const settlements = new Set<string>();
-  for (const node of nodes) if (node.layer === "city" && node.parent) settlements.add(node.parent);
+  //: A city is a node with others hanging under it (`model.settlementsOf`).
+  //: This used to read the `"city"` layer, which since D-319 means nothing:
+  //: the world has three layers and no `"city"` node comes over the wire at
+  //: all. The set came out empty always, and with it the map: with the cities
+  //: closed it drew **no** city -- only the node underfoot -- and with them
+  //: open it drew an extra abstract city node over the city's own streets.
+  const settlements = settlementsOf(nodes);
   return nodes.filter((node) => {
+    //: The node underfoot always, and **before** the layer. With the cities
+    //: closed only `planet` is drawn, and a member of a city wears the `city`
+    //: layer (`geo.withCityScene`), so somebody standing in a city was
+    //: filtered out before "this is me" was ever asked: the map from afar
+    //: stayed empty and one lost oneself on it.
+    if (node.key === here) return true;
     if (!layers.includes(node.layer)) return false;
     if (node.layer === "location") return node.parent === locationBase;
     if (node.layer === "space") return !(node.aboard && !node.flight);
     if (sphereShown && node.planet !== sphereShown) return false;
     if (node.layer !== "planet") return true;
     const settlement = settlements.has(node.key);
-    return open ? !settlement : settlement || node.key === here;
+    return open ? !settlement : settlement;
   });
 }
 
@@ -79,7 +90,12 @@ export function edgesOf(
     const id = [pa, pb].sort().join("|");
     const known = seen.get(id);
     if (!known || edge.seconds < known.seconds) {
-      seen.set(id, { a: pa, b: pb, surface: edge.surface, seconds: edge.seconds });
+      seen.set(id, {
+        a: pa,
+        b: pb,
+        surface: edge.surface,
+        seconds: edge.seconds,
+      });
     }
   }
   return [...seen.values()];
@@ -119,21 +135,46 @@ export function useScene({
   const layerKey = shownLayers.join("|");
   //: The scene's word where the old code asked for a layer: the sky, the
   //: inside, or the surface with or without its cities.
-  const currentLayer: LayerId = orbiting ? "space" : inside ? "location" : open ? "city" : "planet";
+  const currentLayer: LayerId = orbiting
+    ? "space"
+    : inside
+      ? "location"
+      : open
+        ? "city"
+        : "planet";
 
   /** The node's delegate in this scene: itself, its city, or its hull. */
   const reprScene = useMemo(
-    () => (key: string): string | null => delegateAmong(byKey, key, layerKey.split("|")),
+    () =>
+      (key: string): string | null =>
+        delegateAmong(
+          byKey,
+          key,
+          layerKey.split("|"),
+          settlementsOf(Object.values(byKey)),
+        ),
     [byKey, layerKey],
   );
 
   const visible = useMemo(
-    () => visibleOf(map?.nodes ?? [], layerKey.split("|"), locationBase, sphereShown, here),
+    () =>
+      visibleOf(
+        map?.nodes ?? [],
+        layerKey.split("|"),
+        locationBase,
+        sphereShown,
+        here,
+      ),
     [map, layerKey, locationBase, sphereShown, here],
   );
 
   const shownEdges = useMemo(
-    () => edgesOf(map?.edges ?? [], new Set(visible.map((node) => node.key)), reprScene),
+    () =>
+      edgesOf(
+        map?.edges ?? [],
+        new Set(visible.map((node) => node.key)),
+        reprScene,
+      ),
     [map, visible, reprScene],
   );
 

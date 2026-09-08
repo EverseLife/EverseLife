@@ -55,11 +55,16 @@ class System:
     corona: float
     #: Farther than this is out of the system: nobody reaches a hull there.
     edge: float
-    #: The parking circle round a planet (D-289): where a moored hull runs.
-    park: float
+    #: The parking circle round a planet (D-289), in radii of that planet's
+    #: own drawn body (D-324): `park_of` turns it into units. One flat number
+    #: of units for the whole system stopped working the day the worlds became
+    #: honest sizes -- Pyroxis is drawn eleven Terra radii across, and a circle
+    #: of a flat one and a half units round it runs underground.
+    park_radii: float
     #: The window the autopilot puts a hull on the circle in: this close, this
-    #: nearly at the circle's speed.
-    capture_radius: float
+    #: nearly at the circle's speed. In radii of the body arrived at, like the
+    #: circle itself (D-324) -- `capture_of` turns it into units.
+    capture_radii: float
     capture_speed: float
     #: The ejection window, radians (D-316).
     eject_window: float
@@ -125,6 +130,31 @@ def shape_of(constants: Constants, key: str) -> tuple[float, float]:
     return mass, radius
 
 
+def circle_of(constants: Constants, planet: str) -> astro.Orbit:
+    """Where a world circles the star: radius, year and the phase it started at.
+
+    The **year is the tuned number** (D-271): it decides how fast the sky
+    turns and how often two worlds meet. The **radius follows from it** by
+    Kepler's third law against Terra's pair, and is not a number anybody sets
+    -- the star's pull is read off the orbits (`ship.course.mu_of`), so a
+    radius that broke the law would price one and the same passage differently
+    by the planet it began at. Writing both by hand is how that law gets
+    broken, and until 2026-09-08 both were written by hand in the seed.
+    """
+    periods = constants[R.ORBIT_PERIOD_DAYS]
+    terra_days = float(periods.get(TERRA_KEY, 1.0))
+    period = float(periods.get(planet, terra_days))
+    if period <= 0.0:
+        raise ConstantError(f"orbit.period_days: {planet} is not a year ({period})")
+    radius = float(constants[R.ORBIT_TERRA_RADIUS]) * (period / terra_days) ** (2.0 / 3.0)
+    phase = float(constants[R.ORBIT_PHASE].get(planet, 0.0))
+    return (radius, period, phase)
+
+
+#: The world the others are measured against: its year is the map's own.
+TERRA_KEY = "terra"
+
+
 def _body_of(
     constants: Constants,
     planet: Planet,
@@ -153,8 +183,8 @@ def system_of(constants: Constants, orbits: dict[Planet, astro.Orbit]) -> System
             bodies=(),
             corona=float(constants[R.ORBIT_CORONA_RADIUS]),
             edge=float(constants[R.ORBIT_SYSTEM_RADIUS]),
-            park=float(constants[R.ORBIT_PARK_RADIUS]),
-            capture_radius=float(constants[R.ORBIT_CAPTURE_RADIUS]),
+            park_radii=float(constants[R.ORBIT_PARK_RADII]),
+            capture_radii=float(constants[R.ORBIT_CAPTURE_RADII]),
             capture_speed=float(constants[R.ORBIT_CAPTURE_SPEED]),
             eject_window=float(constants[R.ORBIT_EJECT_WINDOW]),
             approach=float(constants[R.ORBIT_APPROACH_RADII]),
@@ -179,8 +209,8 @@ def system_of(constants: Constants, orbits: dict[Planet, astro.Orbit]) -> System
         bodies=bodies,
         corona=float(constants[R.ORBIT_CORONA_RADIUS]),
         edge=float(constants[R.ORBIT_SYSTEM_RADIUS]),
-        park=float(constants[R.ORBIT_PARK_RADIUS]),
-        capture_radius=float(constants[R.ORBIT_CAPTURE_RADIUS]),
+        park_radii=float(constants[R.ORBIT_PARK_RADII]),
+        capture_radii=float(constants[R.ORBIT_CAPTURE_RADII]),
         capture_speed=float(constants[R.ORBIT_CAPTURE_SPEED]),
         eject_window=float(constants[R.ORBIT_EJECT_WINDOW]),
         approach=float(constants[R.ORBIT_APPROACH_RADII]),
@@ -286,6 +316,27 @@ def star_circle(system: System, r: np.ndarray | tuple[float, float]) -> np.ndarr
     return around * float(np.sqrt(system.mu / radius))
 
 
+def park_of(system: System, body: Body) -> float:
+    """The circle a hull parks on round this world, map units (D-324).
+
+    So many of the body's own radii, not so many units of the system: the two
+    were the same number while every world was drawn Terra's size, and parted
+    the moment they were not. Read wherever the circle is asked about, so a
+    hull cannot be aimed at one circle and captured on another.
+    """
+    return system.park_radii * body.radius
+
+
+def capture_of(system: System, body: Body) -> float:
+    """The window a hull is taken onto this world's circle in, map units.
+
+    Kept beside `park_of` and read the same way: both are measured in the
+    body's own radii, and a hull aimed at one circle must not be caught by a
+    window drawn round another.
+    """
+    return system.capture_radii * body.radius
+
+
 def circle_rate(body: Body, radius: float) -> float:
     """How fast the parking circle turns, radians a day."""
     return circle_speed(body, radius) / radius
@@ -296,8 +347,9 @@ def parking(system: System, body: Body, t: float, phase: float) -> tuple[Rows, R
     planet), as a heliocentric state at `t`: the planet's place and speed plus
     the circle's. One row."""
     r_p, v_p = place(body, t)
-    speed = circle_speed(body, system.park)
-    r = r_p + system.park * np.array([[np.cos(phase), np.sin(phase)]])
+    park = park_of(system, body)
+    speed = circle_speed(body, park)
+    r = r_p + park * np.array([[np.cos(phase), np.sin(phase)]])
     v = v_p + speed * np.array([[-np.sin(phase), np.cos(phase)]])
     return r, v
 

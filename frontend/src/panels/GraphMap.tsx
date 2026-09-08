@@ -46,27 +46,32 @@ import { t } from "../locale";
 import { PHONE } from "../narrow";
 import { Inspector } from "./map/Inspector";
 import { NodeMenu } from "./map/NodeMenu";
-import { Aim, Edges, Nodes, Outlines, ScoutField, Stubs } from "./map/Nodes";
-import { tilesHeld, useTerrain } from "./map/Ground";
-import { fieldOf, scoutable, type Way } from "./map/scout";
-import { kindAt, type Warmth } from "./map/relief";
-import { worldAt } from "./map/hand";
-import { Survey } from "./map/Survey";
+import { Edges, Nodes, Outlines, Stubs } from "./map/Nodes";
+import { ScoutLayer, ScoutPanel, ScoutRun } from "./map/ScoutLayer";
 import { cityOutlines } from "./map/territory";
 import { useHand } from "./map/hand";
-import { flatten, withCityScene } from "./map/geo";
-import { placeAt, projectAll, UNITS_PER_METRE, arcDeg, geoUnder, project, type Geo } from "./map/globe";
+import { flatten, oneEach, withCityScene } from "./map/geo";
+import { placeAt, projectAll, UNITS_PER_METRE } from "./map/globe";
+import { firstOnGlobe, needsTurn } from "./map/follow";
 import { Ground } from "./map/Ground";
 import { useArcs, useGlobe, radiusOf } from "./map/useGlobe";
 import { factsOf, useBands, useHandOver, type Sphere } from "./map/useBands";
 import { SkyBackdrop, SkyClock } from "./map/Sky";
 import { Switcher, Zoom, notchOf, scaleOf } from "./map/Switcher";
 import { useScene } from "./map/useScene";
+import { useScout } from "./map/useScout";
 import { useWalker } from "./map/useWalker";
 import { useSky } from "./map/useSky";
-import { STREET_SCALE, boundsOf, groundReach, tilted } from "./map/bands";
+import {
+  STREET_SCALE,
+  boundsOf,
+  groundReach,
+  nodeRadius,
+  tilted,
+} from "./map/bands";
 import {
   delegate,
+  drawnAt,
   journeyOf,
   offworld,
   sceneKey,
@@ -97,7 +102,6 @@ import { STAR, horizon } from "./map/orbits";
  * would not come back with it either: `cityFocus` is cleared on every move.
  * A pointer relative to the body is not a setting.
  */
-const RAD = Math.PI / 180;
 const CAMERA = "everselife.map.tethered";
 
 /**
@@ -117,7 +121,11 @@ type Props = {
   initialLayer?: LayerId;
 };
 
-export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "act">) {
+export function GraphMap({
+  look,
+  onEnter,
+  initialLayer,
+}: Omit<Props, "busy" | "act">) {
   //: The map itself performs nothing: it draws, pans and picks. Every action --
   //: setting off, laying a road -- belongs to the
   //: inspector beside it, which keeps its own waiting and its own refusal.
@@ -132,7 +140,9 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
   //: node and the set of exits from it, so those are the reasons to reread.
   const exits = (look.exits ?? []).map((path) => path.key).join("|");
   useEffect(() => {
-    void api.worldMap(session.token).then(setWorld);
+    //: Shared with the ship's console, which wants the same map from the same
+    //: stand: one walk of the graph, not one per window (`standingMap`).
+    void api.standingMap(session.token, `${here}|${exits}`).then(setWorld);
     //: The token is read inside and is the session's own for its whole life:
     //: it is not a reason to reread the map, and the reasons are listed here.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -150,7 +160,9 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
   const map = useMemo<WorldMap | null>(() => {
     const seen = look.ships;
     if (!world) return world;
-    const nodes = [...world.nodes, ...(seen?.nodes ?? [])];
+    //: The sighted rows last, so a hull the map has as a point of the sky is
+    //: the pier's point here (`oneEach`).
+    const nodes = oneEach([...world.nodes, ...(seen?.nodes ?? [])]);
     return {
       ...world,
       nodes: withCityScene(nodes),
@@ -168,7 +180,9 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
 
   /** The node's delegate on the layer: climb the parents up to a node of this layer. */
   const repr = useMemo(
-    () => (key: string, layer: LayerId): string | null => delegate(byKey, key, layer),
+    () =>
+      (key: string, layer: LayerId): string | null =>
+        delegate(byKey, key, layer),
     [byKey],
   );
 
@@ -178,7 +192,11 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
   //: A right-click menu on a node. A left click picks -- which is what makes a
   //: click predictable -- and this is the shortcut for whoever already knows
   //: where they are going and does not want the column in between.
-  const [menu, setMenu] = useState<{ key: string; x: number; y: number } | null>(null);
+  const [menu, setMenu] = useState<{
+    key: string;
+    x: number;
+    y: number;
+  } | null>(null);
   /**
    * Whether the camera is tied to the body (D-238).
    *
@@ -201,7 +219,6 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
     setMenu(null);
   }, [here]);
 
-
   const locationBase =
     byKey[here]?.layer === "location" ? (byKey[here]?.parent ?? here) : here;
   const hasSubnodes = useMemo(
@@ -212,11 +229,15 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
     [map, locationBase],
   );
 
-  const mySphere = byKey[repr(here, "space") ?? ""]?.planet ?? byKey[here]?.planet ?? null;
+  const mySphere =
+    byKey[repr(here, "space") ?? ""]?.planet ?? byKey[here]?.planet ?? null;
   const sphereShown = planetFocus ?? mySphere;
   //: The band of scale the map is in (D-319, wave 4) and what the last frame
   //: decided -- `map/useBands`. Not remembered past the panel -- see `CAMERA`.
-  const sphereRadius = useMemo(() => radiusOf(book, sphereShown), [book, sphereShown]);
+  const sphereRadius = useMemo(
+    () => radiusOf(book, sphereShown),
+    [book, sphereShown],
+  );
   const { band, bandRef, enter, surface, surfaceRef, zoomed, tell } = useBands({
     book,
     initialLayer: initialLayer ?? "planet",
@@ -235,7 +256,15 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
     sphereShown,
     here,
   });
-  const { orbiting, inside, citiesOpen, reprScene, myRepr, visible, shownEdges } = scene;
+  const {
+    orbiting,
+    inside,
+    citiesOpen,
+    reprScene,
+    myRepr,
+    visible,
+    shownEdges,
+  } = scene;
 
   // --- where everything stands ----------------------------------------------
 
@@ -271,7 +300,8 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
         tell(factsOf(f, surfaceRef.current, spheres.current()));
       },
       scale: window.matchMedia(PHONE).matches ? PHONE_SCALE : 1,
-      still: () => window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+      still: () =>
+        window.matchMedia("(prefers-reduced-motion: reduce)").matches,
     });
   }
   const cam = camera.current;
@@ -306,11 +336,23 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
   const ground = useMemo(() => {
     //: The sky is nobody's ground: there every point comes from the clock.
     if (orbiting) return new Map<string, Point>();
+    //: A closed city goes in standing on its bioprinter (`model.drawnAt`):
+    //: the swap is made before the projection, so the circle, the roads, the
+    //: name and the camera's aim all read one point and cannot part.
+    const laid = drawnAt(byKey, visible);
     //: Every place is the server's (D-237): what has none, or faces away
     //: from the eye, is not drawn -- nothing is made up for it (wave 6).
-    return globeScene && eye && radius ? projectAll(eye, radius, visible) : flatten(visible);
-  }, [visible, orbiting, globeScene, eye, radius]);
-  const { curve, stubCurve } = useArcs({ globeScene, eye, radius, byKey, reprScene });
+    return globeScene && eye && radius
+      ? projectAll(eye, radius, laid)
+      : flatten(laid);
+  }, [visible, byKey, orbiting, globeScene, eye, radius]);
+  const { curve, stubCurve } = useArcs({
+    globeScene,
+    eye,
+    radius,
+    byKey,
+    reprScene,
+  });
 
   useEffect(() => {
     if (!menu) return;
@@ -339,7 +381,11 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
   spheres.current = () =>
     (map?.nodes ?? [])
       .filter((node) => node.orbit)
-      .map((node) => ({ key: node.key, planet: node.planet, at: sky.places.current.get(node.key) }))
+      .map((node) => ({
+        key: node.key,
+        planet: node.planet,
+        at: sky.places.current.get(node.key),
+      }))
       .filter((s): s is Sphere => Boolean(s.at));
 
   // --- mouse: pan, zoom, pick -----------------------------------------------
@@ -347,74 +393,33 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
   //: What a hand may do to the frame lives in `map/hand`: the rule differs by
   //: whether the camera is tied to the body, and it is one rule in one place
   //: rather than a check repeated at every handler.
-  //: The scout's aim (D-321): a tap on the ground names a point of the
-  //: globe, the panel below says how far and offers the run.
-  const [aim, setAim] = useState<Geo | null>(null);
-  const [scouting, setScouting] = useState(false);
-  const stand = byKey[here]?.place;
-  const standing = stand && "lat" in stand ? (stand as Geo) : null;
-  const onGround = Boolean(globeScene && !orbiting && !inside && standing);
-  //: The scout's field (D-321 item 4): the ring of the reach about the node
-  //: one stands in, less every node's land and every way's shadow. Drawn
-  //: while scouting is armed; the cursor's line and the tap are judged by
-  //: it, with the ground under the point read for water.
-  const reach = byKey[here]?.reach;
-  const terrain = useTerrain(sphereShown);
-  const bands = useMemo<Warmth | null>(() => {
-    const bounds = book?.constants?.["biome.bounds"] as Record<string, unknown> | undefined;
-    const cold = Number(bounds?.cold_c);
-    const cool = Number(bounds?.cool_c);
-    return Number.isFinite(cold) && Number.isFinite(cool) ? { cold, cool } : null;
-  }, [book]);
-  const field = useMemo(() => {
-    if (!scouting || !onGround || !reach) return null;
-    const origin = ground.get(here);
-    if (!origin) return null;
-    const placed = visible
-      .filter((node) => node.place && "lat" in node.place && ground.get(node.key))
-      .map((node) => ({ key: node.key, at: ground.get(node.key)!, area: node.area }));
-    const ways: Way[] = [];
-    for (const edge of shownEdges) {
-      const a = ground.get(edge.a);
-      const b = ground.get(edge.b);
-      if (a && b) ways.push([a, b]);
-    }
-    return fieldOf(origin, reach, placed, ways, here);
-  }, [scouting, onGround, reach, ground, visible, shownEdges, here]);
-  const isLand = (point: Point): boolean => {
-    if (!terrain || !bands || !eye || !radius) return true;
-    const geo = geoUnder(eye, radius, point);
-    if (!geo) return false;
-    const kind = kindAt(terrain, geo, bands, tilesHeld(sphereShown));
-    return kind !== "sea" && kind !== "water";
-  };
-  const mayAim = (point: Point): boolean => (field ? scoutable(field, point, isLand(point)) : true);
-  const lineRef = useRef<SVGLineElement | null>(null);
-  const followCursor = (e: React.PointerEvent<SVGSVGElement>) => {
-    const line = lineRef.current;
-    if (!line || !field) return;
-    const point = worldAt(e.currentTarget.getBoundingClientRect(), cam.frame(), e);
-    const ok = mayAim(point);
-    line.setAttribute("x1", String(field.origin.x));
-    line.setAttribute("y1", String(field.origin.y));
-    line.setAttribute("x2", String(point.x));
-    line.setAttribute("y2", String(point.y));
-    line.setAttribute("visibility", ok ? "visible" : "hidden");
-  };
-  const { grabField, movePointer, releasePointer, zoom, zoomToScale } = useHand({
-    cam,
-    svg: svgRef,
-    tethered,
-    ready: Boolean(map) && visible.length > 0,
-    rotate: globe.rotate,
-    onTap: (point) => {
-      //: Only with the scout's aim armed, on the ground of one's own planet,
-      //: and only within the field: a tap elsewhere is a tap on nothing.
-      if (!scouting || !onGround || !eye || !radius || !mayAim(point)) return;
-      setAim(geoUnder(eye, radius, point));
-    },
-    bounds: () => boundsOf(bandRef.current, surfaceRef.current),
+  //: The scout's aim (D-321): where one may look and where the finger has
+  //: pointed. All of it is `map/useScout` -- the ring, the water under the
+  //: cursor and the line to it are one question, and the map has enough of
+  //: its own.
+  const scout = useScout({
+    book,
+    byKey,
+    here,
+    ground,
+    edges: shownEdges,
+    planet: sphereShown,
+    eye,
+    radius,
+    sphere: Boolean(globeScene && !orbiting && !inside),
+    frame: cam.frame,
   });
+  const { grabField, movePointer, releasePointer, zoom, zoomToScale } = useHand(
+    {
+      cam,
+      svg: svgRef,
+      tethered,
+      ready: Boolean(map) && visible.length > 0,
+      rotate: globe.rotate,
+      onTap: scout.tap,
+      bounds: () => boundsOf(bandRef.current, surfaceRef.current),
+    },
+  );
 
   // --- node behaviour -------------------------------------------------------
 
@@ -438,9 +443,20 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
   }, [map]);
   /** The outlines of the cities, in degrees: once per map, projected as
    *  the globe turns. */
+  //: The shown planet's cities and no others. The public map carries every
+  //: planet's surface, and an outline is projected by the eye and radius of
+  //: the one under it -- so Aurora's towns, drawn by Terra's globe, landed
+  //: as blots on Terra. The nodes are already filtered this way (`visible`);
+  //: their outlines were not.
   const outlines = useMemo(
-    () => (radius ? cityOutlines(map?.nodes ?? [], radius / UNITS_PER_METRE) : new Map()),
-    [map, radius],
+    () =>
+      radius && sphereShown
+        ? cityOutlines(
+            (map?.nodes ?? []).filter((node) => node.planet === sphereShown),
+            radius / UNITS_PER_METRE,
+          )
+        : new Map(),
+    [map, radius, sphereShown],
   );
   /** How many nodes hang under each: a closed city is drawn as large as it
    *  is, so a town and the capital are told apart from afar. */
@@ -484,6 +500,13 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
   groundRef.current = ground;
   const visibleRef = useRef(visible);
   visibleRef.current = visible;
+  //: Every node the map knows, not only the drawn ones: a body inside a
+  //: closed city is not itself in the scene, and the tether has to find a
+  //: place to turn to anyway.
+  const byKeyRef = useRef(byKey);
+  byKeyRef.current = byKey;
+  const hereRef = useRef(here);
+  hereRef.current = here;
   const drawn = Boolean(map);
   useEffect(() => {
     const laid = groundRef.current;
@@ -501,9 +524,13 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
       //: opened from outside has no node of yours, and then the scene's first
       //: place -- a window with no centre would be an empty field.
       const shown = visibleRef.current;
-      const stand = shown.find((node) => node.key === myRepr)?.place
-        ?? shown.find((node) => node.place && "lat" in node.place)?.place;
-      if (stand && "lat" in stand) {
+      const stand = firstOnGlobe([
+        shown.find((node) => node.key === myRepr)?.place,
+        byKeyRef.current[myRepr ?? ""]?.place,
+        byKeyRef.current[hereRef.current]?.place,
+        shown.find((node) => node.place && "lat" in node.place)?.place,
+      ]);
+      if (stand) {
         globe.lookAt(stand);
         cam.cut({ x: 0, y: 0 });
         return;
@@ -529,8 +556,20 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
     //: projection would leave the planet off centre, and the hand -- which
     //: turns, and does not slide -- could never bring it back.
     if (globeScene) {
-      const stand = visibleRef.current.find((node) => node.key === myRepr)?.place;
-      if (stand && "lat" in stand) {
+      //: Where to turn to, in the order the question is really asked: the
+      //: node the scene shows for the body, then that node wherever the map
+      //: has it, then the body's own node. The first alone left the globe
+      //: still whenever the body's representative was not among the drawn --
+      //: a closed city too small to draw, a scene that shows the city and not
+      //: the flat -- and the tether then slid a frame whose origin is the
+      //: eye, which is no movement at all (owner, 2026-09-08: «планета не
+      //: всегда прокручивается до игрока»).
+      const stand = firstOnGlobe([
+        visibleRef.current.find((node) => node.key === myRepr)?.place,
+        byKeyRef.current[myRepr ?? ""]?.place,
+        byKeyRef.current[hereRef.current]?.place,
+      ]);
+      if (stand) {
         globe.aimAt(stand);
         cam.aimAt({ x: 0, y: 0 });
         return;
@@ -565,18 +604,45 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
   //: Followed on the globe, the dot is kept in the middle by turning the
   //: eye -- only once it has strayed half a pixel, so a walk seen from afar
   //: does not redraw the whole ground at every frame for nothing.
+  //:
+  //: **One correction per eye.** The walker's loop runs every frame and reads
+  //: the dot through `where`, which projects with the eye of the last
+  //: **render**; a turn asked for is a `setEye`, and React lands it a frame or
+  //: two later. Until it does, every frame sees the same stray and asks for
+  //: the same correction again -- and `rotate` sums what it is given, so the
+  //: eye overshot by as many frames as the render took and came back the next
+  //: time round. That beat was the shake the owner saw while walking
+  //: (2026-09-08). Remembering which eye was corrected for makes the second
+  //: ask a no-op without slowing the first.
   const rotate = globe.rotate;
+  const eyeShown = useRef(globe.eye);
+  eyeShown.current = globe.eye;
+  const corrected = useRef<typeof globe.eye>(null);
   const turn = useMemo(
     () =>
       globeScene && rotate
         ? (dot: Point) => {
             if (!cam.following()) return;
-            if (Math.hypot(dot.x, dot.y) * cam.frame().scale < 0.5) return;
+            const eye = eyeShown.current;
+            if (
+              !needsTurn({
+                dot,
+                scale: cam.frame().scale,
+                eye,
+                corrected: corrected.current,
+              })
+            ) {
+              return;
+            }
+            corrected.current = eye;
             rotate(-dot.x, -dot.y);
           }
         : undefined,
     [globeScene, rotate, cam],
   );
+  //: A run of the scout under way (D-327): the body is out on the way, so
+  //: the node it left stops wearing the mark and the run draws its own.
+  const run = look.scouting ?? null;
   const { walkerRef, walker, standingAt } = useWalker({
     ongoing,
     where,
@@ -584,9 +650,10 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
     cam,
     turn,
     myRepr,
+    scouting: run !== null,
   });
 
-  const { descend } = useHandOver({
+  const { descend, enterBand } = useHandOver({
     band,
     zoomed,
     enter,
@@ -594,7 +661,7 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
     book,
     mySphere,
     setPlanetFocus,
-    floor: surface.furthest,
+    surface,
   });
   if (!map) {
     return (
@@ -605,7 +672,6 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
   }
 
   const at = (key: string) => where.current(key);
-
 
   /**
    * Whether a step leads to the node -- the map's judgement, drawn by `Nodes`.
@@ -635,7 +701,19 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
       descend(node.planet);
       return;
     }
-    if (band === "surface" && groups.has(node.key) && node.place && "lat" in node.place) {
+    //: Before the city: one's own hull is a group too -- its rooms hang
+    //: under it -- and the city's branch would answer a click on the door
+    //: with a zoom, which is not a way in.
+    if (band === "surface" && hasSubnodes && node.key === locationBase) {
+      enterBand("inside");
+      return;
+    }
+    if (
+      band === "surface" &&
+      groups.has(node.key) &&
+      node.place &&
+      "lat" in node.place
+    ) {
       //: A city opens by coming near: the eye goes over it and the frame
       //: zooms to the scale its streets are drawn at.
       globe.lookAt(node.place);
@@ -643,7 +721,6 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
       cam.zoomOnMiddle(Math.max(cam.frame().scale, STREET_SCALE));
       return;
     }
-    if (band === "surface" && hasSubnodes && node.key === locationBase) enter("inside");
   };
 
   const click = (node: MapNode) => {
@@ -662,159 +739,180 @@ export function GraphMap({ look, onEnter, initialLayer }: Omit<Props, "busy" | "
           height it can get, and what used to be three strips beneath it is now
           one column that speaks about the node you picked. */}
       <div className="map-face">
-      <div className="map-field">
-      <Switcher
-        inside={hasSubnodes ? inside : null}
-        onInside={(on) => enter(on ? "inside" : "surface")}
-        tethered={tethered}
-        onTether={tether}
-        scouting={onGround ? scouting : null}
-        onScout={(on) => {
-          setScouting(on);
-          if (!on) setAim(null);
-        }}
-      />
-      <Zoom
-        slider={zoomRef}
-        onZoom={(notch) => zoomToScale(scaleOf(notch, boundsOf(bandRef.current, surfaceRef.current)))}
-      />
-
-      {visible.length === 0 ? (
-        <p className="note">{t("ui-map-empty")}</p>
-      ) : (
-        <svg
-          ref={svgRef}
-          viewBox={vb}
-          role="img"
-          aria-label={t("ui-map-world")}
-          className={tethered ? "tethered" : undefined}
-          onPointerDown={grabField}
-          onPointerMove={(e) => {
-            movePointer(e);
-            followCursor(e);
-          }}
-          onPointerUp={releasePointer}
-          onPointerLeave={releasePointer}
-          onPointerCancel={releasePointer}
-          onWheel={zoom}
-        >
-          {orbiting && (
-            <SkyBackdrop
-              map={map}
-              visible={visible}
-              at={at}
-              repr={repr}
-              fit={fit}
-              day={sky.day}
-            />
-          )}
-
-          {globeScene && eye && radius && sphereShown && (
-            <Ground
-              planet={sphereShown}
-              eye={eye}
-              radius={radius}
-              book={book}
-              clock={look.clock}
-              detailed={zoomed.ground}
-              coarse={zoomed.descent > 0}
-              unit={zoomed.descent > 0 ? undefined : zoomed.unit}
-              within={zoomed.descent > 0 ? undefined : groundReach(zoomed.unit, radius)}
-            />
-          )}
-          {globeScene && eye && radius && (
-            <Outlines outlines={outlines} eye={eye} radius={radius} open={citiesOpen} />
-          )}
-          {field && <ScoutField field={field} id={`scout-${here.replace(/[^A-Za-z0-9_-]/g, "")}`} />}
-          {field && <line ref={lineRef} className="scout-line" visibility="hidden" />}
-          {globeScene && eye && radius && aim && (
-            <Aim at={project(eye, radius, aim)} />
-          )}
-          <Edges edges={shownEdges} at={at} labelled={!orbiting} curve={curve} />
-          {stubCurve && <Stubs stubs={map.stubs} curve={stubCurve} />}
-          <Nodes
-            nodes={visible}
-            at={at}
-            standingAt={standingAt}
-            picked={picked}
-            reachable={reachable}
-            group={(key) => groups.has(key)}
-            size={(key) => sizes.get(key) ?? 0}
-            far={citiesOpen ? 0 : zoomed.far}
-            onPick={click}
-            onMenu={(node, spot) => {
-              setPicked(node.key);
-              setMenu({ key: node.key, ...spot });
-            }}
+        <div className="map-field">
+          <Switcher
+            inside={hasSubnodes ? inside : null}
+            onInside={(on) => enterBand(on ? "inside" : "surface")}
+            tethered={tethered}
+            onTether={tether}
+            //: While a run lasts there is nothing to aim at: a second survey
+            //: is refused (`explore-already-out`), and an armed field would
+            //: promise what will not happen.
+            scouting={scout.onGround && !run ? scout.scouting : null}
+            onScout={scout.arm}
+          />
+          <Zoom
+            slider={zoomRef}
+            onZoom={(notch) =>
+              zoomToScale(
+                scaleOf(notch, boundsOf(bandRef.current, surfaceRef.current)),
+              )
+            }
           />
 
-          {/* The first frame is drawn from the reckoning; after it the dot is
-              led by rAF, outside React. */}
-          {/* Stood by a matrix like every node (`placeAt`): a road on the far
-              side of the globe runs past what a `cx` can hold. */}
-          {walker && (
-            <g ref={walkerRef} transform={placeAt(walker)}>
-              <circle cx={0} cy={0} r={5} className="walker" />
-            </g>
-          )}
-        </svg>
-      )}
+          {visible.length === 0 ? (
+            <p className="note">{t("ui-map-empty")}</p>
+          ) : (
+            <svg
+              ref={svgRef}
+              viewBox={vb}
+              role="img"
+              aria-label={t("ui-map-world")}
+              className={tethered ? "tethered" : undefined}
+              onPointerDown={grabField}
+              onPointerMove={(e) => {
+                movePointer(e);
+                scout.followCursor(e);
+              }}
+              onPointerUp={releasePointer}
+              onPointerLeave={releasePointer}
+              onPointerCancel={releasePointer}
+              onWheel={zoom}
+            >
+              {orbiting && (
+                <SkyBackdrop
+                  map={map}
+                  visible={visible}
+                  at={at}
+                  repr={repr}
+                  fit={fit}
+                  day={sky.day}
+                />
+              )}
 
-      {/* The winder belongs to the sky it winds, so it floats on it -- opposite
+              {globeScene && eye && radius && sphereShown && (
+                <Ground
+                  planet={sphereShown}
+                  eye={eye}
+                  radius={radius}
+                  book={book}
+                  clock={look.clock}
+                  detailed={zoomed.ground}
+                  coarse={zoomed.descent > 0}
+                  unit={zoomed.descent > 0 ? undefined : zoomed.unit}
+                  within={
+                    zoomed.descent > 0
+                      ? undefined
+                      : groundReach(zoomed.unit, radius)
+                  }
+                />
+              )}
+              {globeScene && eye && radius && (
+                <Outlines
+                  outlines={outlines}
+                  eye={eye}
+                  radius={radius}
+                  open={citiesOpen}
+                />
+              )}
+              {!run && (
+                <ScoutLayer
+                  scout={scout}
+                  here={here}
+                  globe={globeScene}
+                  eye={eye}
+                  radius={radius}
+                />
+              )}
+              {run && globeScene && (
+                <ScoutRun
+                  run={run}
+                  from={at(reprScene(run.from_key) ?? "")}
+                  eye={eye}
+                  radius={radius}
+                />
+              )}
+              <Edges
+                edges={shownEdges}
+                at={at}
+                labelled={!orbiting}
+                curve={curve}
+              />
+              {stubCurve && <Stubs stubs={map.stubs} curve={stubCurve} />}
+              <Nodes
+                nodes={visible}
+                at={at}
+                standingAt={standingAt}
+                picked={picked}
+                reachable={reachable}
+                group={(key) => groups.has(key)}
+                //: The city the player is in: its point is drawn however
+                //: small it is. Asked through the delegate, because one does
+                //: not stand on a city but in its market or its forge.
+                home={here ? reprScene(here) : null}
+                here={here || null}
+                closed={!citiesOpen}
+                radius={nodeRadius(book)}
+                globe={globeScene ? radius : null}
+                size={(key) => sizes.get(key) ?? 0}
+                far={citiesOpen ? 0 : zoomed.far}
+                onPick={click}
+                onMenu={(node, spot) => {
+                  setPicked(node.key);
+                  setMenu({ key: node.key, ...spot });
+                }}
+              />
+
+              {/* The first frame is drawn from the reckoning; after it the dot is
+              led by rAF, outside React. */}
+              {/* Stood by a matrix like every node (`placeAt`): a road on the far
+              side of the globe runs past what a `cx` can hold. */}
+              {walker && (
+                <g ref={walkerRef} transform={placeAt(walker)}>
+                  <circle cx={0} cy={0} r={5} className="walker" />
+                </g>
+              )}
+            </svg>
+          )}
+
+          {/* The winder belongs to the sky it winds, so it floats on it -- opposite
           the switcher, along the bottom edge, where a scrubber is looked for.
           In flow it stole a line of the map's height on the one layer whose
           whole subject is where the bodies stand at a given hour. */}
-      {orbiting && <SkyClock sky={sky} />}
-      </div>
+          {orbiting && <SkyClock sky={sky} />}
+        </div>
 
-      {menu && (
-        <NodeMenu
-          at={menu}
-          node={byKey[menu.key]}
+        {menu && (
+          <NodeMenu
+            at={menu}
+            node={byKey[menu.key]}
+            look={look}
+            step={walkTargets[menu.key]}
+            group={groups.has(menu.key)}
+            offworld={Boolean(
+              byKey[menu.key] && offworld(byKey, here, byKey[menu.key]),
+            )}
+            onExpand={() => {
+              const it = byKey[menu.key];
+              if (it) expand(it);
+              setMenu(null);
+            }}
+            onDone={() => setMenu(null)}
+          />
+        )}
+
+        {!run && (
+          <ScoutPanel scout={scout} busy={busy} trouble={trouble} act={act} />
+        )}
+        <Inspector
           look={look}
-          step={walkTargets[menu.key]}
-          group={groups.has(menu.key)}
-          offworld={Boolean(byKey[menu.key] && offworld(byKey, here, byKey[menu.key]))}
-          onExpand={() => {
-            const it = byKey[menu.key];
-            if (it) expand(it);
-            setMenu(null);
-          }}
-          onDone={() => setMenu(null)}
+          picked={picked}
+          byKey={byKey}
+          groups={groups}
+          walkTargets={walkTargets}
+          onExpand={expand}
+          onEnter={onEnter}
         />
-      )}
-
-      {aim && standing && radius && (
-        <Survey
-          metres={(arcDeg(standing, aim) * RAD * radius) / UNITS_PER_METRE}
-          busy={busy}
-          trouble={trouble}
-          onGo={() => {
-            //: The aim is cleared only when the run is on: a refusal keeps
-            //: the point and its words on the panel.
-            let sent = false;
-            void act(async () => {
-              await session.send("explore.survey", { lat: aim.lat, lon: aim.lon });
-              sent = true;
-            }).then(() => {
-              if (sent) {
-                setAim(null);
-                setScouting(false);
-              }
-            });
-          }}
-          onClear={() => setAim(null)}
-        />
-      )}
-      <Inspector
-        look={look}
-        picked={picked}
-        byKey={byKey}
-        groups={groups}
-        walkTargets={walkTargets}
-        onExpand={expand}
-        onEnter={onEnter}
-      />
       </div>
     </section>
   );

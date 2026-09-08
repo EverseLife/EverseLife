@@ -39,6 +39,13 @@ export type Leg = Price & {
  *  besides is the route's `reserve`, sent once. */
 export type ArcPrice = {
   hours: number;
+  /**
+   * The wait for the ejection window before the arc begins (D-316). Part of
+   * the passage, not of the burn -- and part of what the reader is told: the
+   * slider says the whole passage (`whole`), so the chart's label must say
+   * the same number or one screen offers two answers for one arc.
+   */
+  wait: number;
   dv: number;
   fuel: number;
 };
@@ -90,6 +97,10 @@ export type Engine = {
 export type Air = {
   /** What stands on the life support's line (D-288): the oxygen the crew dies by. */
   units: number;
+  /** And what stands aboard that no line reaches (D-288). The difference the
+   *  bridge owes a crew: no air at all is a bottle to find, air off the line
+   *  is a line to draw. */
+  off_line: number;
   /** Whether the hull is breathing its own air at all: in port under a sky
    *  that has some, nothing is spent and the rate is zero. */
   sealed: boolean;
@@ -311,6 +322,19 @@ export type Sighting = {
 
 /** The hull this one flies as one with (D-289, wave 3). */
 export type Held = { ship: string; name: string };
+
+/**
+ * The whole passage an arc means, hours: the wait for the ejection window and
+ * then the arc itself (D-316).
+ *
+ * Every reading of an arc goes through this. The reader is told the passage,
+ * not the arc alone -- the wait is time aboard too, and the order promises
+ * it -- and one screen showing both the chart's label and the slider must
+ * show one number for one arc.
+ */
+export function whole(one: { hours: number; wait: number }): number {
+  return one.hours + one.wait;
+}
 
 /**
  * The slider's range: from the first arc the engines deliver to the cheapest

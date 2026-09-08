@@ -114,8 +114,8 @@ export function pinchZoom(zoom0: number, spread0: number, spread: number): numbe
  * be told apart (D-245). A fixed pixel gap is a lie the zoom cannot correct --
  * one looks nearer and nearer at a moored hull and it never leaves its planet,
  * because the gap was never a distance. It is a distance now
- * (`orbit.park_radius`), in the same map units as everything else, and it opens
- * up with the zoom like everything else.
+ * (`orbit.park_radii` of the world's own body, D-324), in the same map units
+ * as everything else, and it opens up with the zoom like everything else.
  */
 export type Scope = {
   at: Point;

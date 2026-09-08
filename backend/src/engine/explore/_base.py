@@ -74,6 +74,18 @@ class ScoutGone(ExploreError):
     """The scout died or walked away before the run was over."""
 
 
+class NotOut(ExploreError):
+    """There is no run to turn back from."""
+
+
+class Shut(ExploreError):
+    """The cell already holds a place whose door is shut to this body."""
+
+
+class Harnessed(ExploreError):
+    """One goes into the wild on one's own feet: a cart does not cross it."""
+
+
 def lattice_deg(constants: Constants, planet: Planet) -> float:
     """The lattice step as degrees of latitude on this planet."""
     radius = globe.radius_m(constants, planet)

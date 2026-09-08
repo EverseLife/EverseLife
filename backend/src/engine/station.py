@@ -250,7 +250,11 @@ async def place(session: AsyncSession, catalog: Catalog, body: Body, item: Item)
     #: not both count it free (CLAUDE.md, the remainder rule).
     await session.execute(select(Node.id).where(Node.id == node.id).with_for_update())
     constants = current()
-    in_total, occupied = await estate.slots(session, constants, node)
+    #: The floor's own places, not the node's: a relic standing in the yard
+    #: (D-232, D-244) is not in the way of a machine put up indoors, and the
+    #: window says the same count (`estate.space`).
+    in_total, _ = await estate.slots(session, constants, node)
+    occupied = await estate.indoor_slots(session, node)
     if in_total <= 0:
         raise estate.NoBuilding(key="station-no-building")
     if occupied >= in_total:

@@ -37,7 +37,12 @@ import { Refusal, useActions, useBook, useNames, useSession } from "../actions";
 import { t } from "../locale";
 import { goodsKeyName, goodsName, plantName, tierName } from "../names";
 import { inputsOf, stationOf } from "../recipes";
-import { folded as foldedPane, onSidebarTab, pendingSidebarTab, rememberFolded } from "../hud";
+import {
+  folded as foldedPane,
+  onSidebarTab,
+  pendingSidebarTab,
+  rememberFolded,
+} from "../hud";
 import { oneOf, useKept } from "../kept";
 import { onThread } from "../people";
 
@@ -71,14 +76,44 @@ const TABS = [
   { id: "me", label: "ui-side-tab-me", icon: "me", of: "ui-side-tab-me-of" },
   //: Goods left "персонаж" for a tab of their own: the inventory is a table
   //: with a menu per row, and it does not share a screen with anything.
-  { id: "goods", label: "ui-side-tab-goods", icon: "goods", of: "ui-side-tab-goods-of" },
-  { id: "work", label: "ui-side-tab-work", icon: "work", of: "ui-side-tab-work-of" },
-  { id: "money", label: "ui-side-tab-money", icon: "money", of: "ui-side-tab-money-of" },
-  { id: "knows", label: "ui-side-tab-knows", icon: "knows", of: "ui-side-tab-knows-of" },
-  { id: "estate", label: "ui-side-tab-estate", icon: "estate", of: "ui-side-tab-estate-of" },
+  {
+    id: "goods",
+    label: "ui-side-tab-goods",
+    icon: "goods",
+    of: "ui-side-tab-goods-of",
+  },
+  {
+    id: "work",
+    label: "ui-side-tab-work",
+    icon: "work",
+    of: "ui-side-tab-work-of",
+  },
+  {
+    id: "money",
+    label: "ui-side-tab-money",
+    icon: "money",
+    of: "ui-side-tab-money-of",
+  },
+  {
+    id: "knows",
+    label: "ui-side-tab-knows",
+    icon: "knows",
+    of: "ui-side-tab-knows-of",
+  },
+  {
+    id: "estate",
+    label: "ui-side-tab-estate",
+    icon: "estate",
+    of: "ui-side-tab-estate-of",
+  },
   //: The Net (D-222): correspondence and channels. Remote by nature -- this
   //: is the one kind of talk that works from the road.
-  { id: "net", label: "ui-side-tab-net", icon: "net", of: "ui-side-tab-net-of" },
+  {
+    id: "net",
+    label: "ui-side-tab-net",
+    icon: "net",
+    of: "ui-side-tab-net-of",
+  },
 ] as const;
 //: The state tab: figures for whoever governs. Shown only to office holders;
 //: the same summary is visible in person in the node with the administration.
@@ -108,9 +143,19 @@ type Tab =
 //: Every tab the rail can ever show, the office and the alpha included: which
 //: of them a particular player may open is decided by `current` below, not by
 //: what storage happens to hold.
-const TAB_WIRE = oneOf<Tab>([...TABS.map((item) => item.id), STATE_TAB.id, ALPHA_TAB.id]);
+const TAB_WIRE = oneOf<Tab>([
+  ...TABS.map((item) => item.id),
+  STATE_TAB.id,
+  ALPHA_TAB.id,
+]);
 
-export function Sidebar({ look, onLogout }: { look: Look; onLogout: () => void }) {
+export function Sidebar({
+  look,
+  onLogout,
+}: {
+  look: Look;
+  onLogout: () => void;
+}) {
   const session = useSession();
   //: This panel's own waiting and its own refusal: one action here
   //: must not grey out the chat, the map and somebody else's orders.
@@ -158,7 +203,9 @@ export function Sidebar({ look, onLogout }: { look: Look; onLogout: () => void }
   //: mount, and consumed either way so a stale one never reapplies later.
   useEffect(() => {
     const known = (name: string) =>
-      TABS.some((item) => item.id === name) || name === STATE_TAB.id || name === ALPHA_TAB.id;
+      TABS.some((item) => item.id === name) ||
+      name === STATE_TAB.id ||
+      name === ALPHA_TAB.id;
     const asked = pendingSidebarTab();
     if (asked && known(asked)) open(asked as Tab);
     return onSidebarTab((name) => {
@@ -182,12 +229,15 @@ export function Sidebar({ look, onLogout }: { look: Look; onLogout: () => void }
   //: A counter means "there is something here to look at", so only what can be
   //: waited on is counted: works under way, and money somebody else owes or holds.
   const counts: Partial<Record<Tab, number>> = {
-    work: look.batches.length + (look.doings ?? []).filter((d) => d.kind !== "craft").length,
+    work:
+      look.batches.length +
+      (look.doings ?? []).filter((d) => d.kind !== "craft").length,
     money: look.orders.length + look.reservations.length,
     //: Worn gear left the list of things for its own block (D-305) and is
     //: still in this tab: the counter says "there is something here", and the
     //: pack on the back is something.
-    goods: look.inventory.length + Object.keys(look.carry?.equipped ?? {}).length,
+    goods:
+      look.inventory.length + Object.keys(look.carry?.equipped ?? {}).length,
     //: A poll waiting for one's answer counts the same as an unread letter:
     //: both are "there is something here", and the vote has a deadline the
     //: letter does not (D-161).
@@ -200,7 +250,10 @@ export function Sidebar({ look, onLogout }: { look: Look; onLogout: () => void }
   const running = useMemo(() => {
     const spans: { until: string; since: string }[] = [];
     if (look.travel?.arrives_at && look.travel.started_at) {
-      spans.push({ until: look.travel.arrives_at, since: look.travel.started_at });
+      spans.push({
+        until: look.travel.arrives_at,
+        since: look.travel.started_at,
+      });
     }
     for (const job of look.batches) {
       if (job.state === "running" && job.ready_at && job.started_at) {
@@ -258,7 +311,9 @@ export function Sidebar({ look, onLogout }: { look: Look; onLogout: () => void }
           moved rather than dropped). */}
       <nav className="rail" aria-label={t("ui-side-rail")}>
         {TABS.map(mark)}
-        {(official || admin) && <span className="rail-line" aria-hidden="true" />}
+        {(official || admin) && (
+          <span className="rail-line" aria-hidden="true" />
+        )}
         {official && mark(STATE_TAB)}
         {admin && mark(ALPHA_TAB)}
         {/* The fold, at the foot of the rail: the panel goes, the marks stay,
@@ -278,7 +333,9 @@ export function Sidebar({ look, onLogout }: { look: Look; onLogout: () => void }
 
       <div className="side-body" id="side-body">
         <Refusal of={acting} />
-        <h3 className="side-title">{t(tabs.find((item) => item.id === current)!.label)}</h3>
+        <h3 className="side-title">
+          {t(tabs.find((item) => item.id === current)!.label)}
+        </h3>
 
         {current === "me" &&
           (look.profile ? (
@@ -308,9 +365,7 @@ export function Sidebar({ look, onLogout }: { look: Look; onLogout: () => void }
         )}
         {/* Estate is the bills for daily life, the net and the securities:
             property, not money. */}
-        {current === "estate" && (
-          <Holdings look={look} busy={busy} act={act} />
-        )}
+        {current === "estate" && <Holdings look={look} busy={busy} act={act} />}
         {current === "net" && (
           <Net
             unread={look.net_unread ?? 0}
@@ -356,7 +411,10 @@ function Slept({ since }: { since: string }) {
   //: The figures go in as strings: they are read beside other raw ones, and
   //: the locale's number format would space out a four-digit count of minutes.
   if (minutes < 1) return <b>{t("ui-side-slept-under-minute")}</b>;
-  if (minutes < 60) return <b>{t("ui-side-slept-minutes", { n: String(Math.floor(minutes)) })}</b>;
+  if (minutes < 60)
+    return (
+      <b>{t("ui-side-slept-minutes", { n: String(Math.floor(minutes)) })}</b>
+    );
   return <b>{t("ui-side-slept-hours", { n: (minutes / 60).toFixed(1) })}</b>;
 }
 
@@ -395,10 +453,34 @@ function Doings({ look, busy, act }: Props) {
   //: The stack of end-it buttons: every occupation has a command of its own,
   //: and it is missing only where there is nothing to break off.
   const ends: Record<string, { cmd: string; label: string; why: string }> = {
-    sleep: { cmd: "rest.wake", label: t("ui-side-end-sleep"), why: t("ui-side-end-sleep-why") },
-    forage: { cmd: "forage.stop", label: t("ui-side-end-forage"), why: t("ui-side-end-forage-why") },
-    mine: { cmd: "mine.leave", label: t("ui-side-end-mine"), why: t("ui-side-end-mine-why") },
-    plot: { cmd: "farm.plow_pause", label: t("ui-side-end-plot"), why: t("ui-side-end-plot-why") },
+    sleep: {
+      cmd: "rest.wake",
+      label: t("ui-side-end-sleep"),
+      why: t("ui-side-end-sleep-why"),
+    },
+    forage: {
+      cmd: "forage.stop",
+      label: t("ui-side-end-forage"),
+      why: t("ui-side-end-forage-why"),
+    },
+    //: A run is turned back from, not stopped where it is: there is no half of
+    //: a way in this world, so the scout walks back to where they set out
+    //: (D-327, the road's own rule from D-194).
+    survey: {
+      cmd: "explore.stop",
+      label: t("ui-side-end-survey"),
+      why: t("ui-side-end-survey-why"),
+    },
+    mine: {
+      cmd: "mine.leave",
+      label: t("ui-side-end-mine"),
+      why: t("ui-side-end-mine-why"),
+    },
+    plot: {
+      cmd: "farm.plow_pause",
+      label: t("ui-side-end-plot"),
+      why: t("ui-side-end-plot-why"),
+    },
   };
   const empty = look.batches.length === 0 && doings.length === 0;
   const title = (job: Batch) =>
@@ -430,7 +512,9 @@ function Doings({ look, busy, act }: Props) {
   //: the separator is the message's now, so a language may punctuate its own way.
   const aside = (job: Batch) => {
     const rest = left(job);
-    return rest ? t("ui-side-batch-aside", { why: why(job), left: rest }) : why(job);
+    return rest
+      ? t("ui-side-batch-aside", { why: why(job), left: rest })
+      : why(job);
   };
   const anyRunning = look.batches.some((job) => job.state === "running");
   return (
@@ -441,7 +525,9 @@ function Doings({ look, busy, act }: Props) {
       </h3>
       {look.travel && (
         <Doing
-          what={t("ui-side-travel", { to: look.travel.final ?? look.travel.to })}
+          what={t("ui-side-travel", {
+            to: look.travel.final ?? look.travel.to,
+          })}
           until={look.travel.arrives_at}
           since={look.travel.started_at}
           aside={look.travel.final ? t("ui-side-travel-next") : undefined}
@@ -481,7 +567,8 @@ function Doings({ look, busy, act }: Props) {
                   {/* Two messages rather than one: the counter between them is a
                       live component, and folding it into an argument would cost
                       the emphasis the duration is drawn with. */}
-                  {t("ui-side-sleeping-for")} <Slept since={look.body.sleeping_since} />{" "}
+                  {t("ui-side-sleeping-for")}{" "}
+                  <Slept since={look.body.sleeping_since} />{" "}
                   {t("ui-side-sleeping-credited")}
                 </span>
               )}
@@ -538,7 +625,8 @@ function Doings({ look, busy, act }: Props) {
             {t("ui-side-sleep", { bed: String(Boolean(bed_)) })}
           </button>
           <span className="note">
-            {cannotSleep ?? t("ui-side-sleep-note", { bed: String(Boolean(bed_)) })}
+            {cannotSleep ??
+              t("ui-side-sleep-note", { bed: String(Boolean(bed_)) })}
           </span>
         </div>
       )}
@@ -632,14 +720,19 @@ function Knowledge({ look }: { look: Look }) {
                 {goodsName(names, name)}
                 {discovered.has(name) && (
                   <span className="note" title={t("ui-side-recipe-discovered")}>
-                    {" "}✦
+                    {" "}
+                    ✦
                   </span>
                 )}
                 <button
                   className="bare peek"
-                  aria-label={t("ui-side-recipe-details", { recipe: goodsName(names, name) })}
+                  aria-label={t("ui-side-recipe-details", {
+                    recipe: goodsName(names, name),
+                  })}
                   aria-expanded={shown === name}
-                  title={t("ui-side-recipe-details", { recipe: goodsName(names, name) })}
+                  title={t("ui-side-recipe-details", {
+                    recipe: goodsName(names, name),
+                  })}
                   onClick={() => setShown(shown === name ? null : name)}
                 >
                   <Glyph name="eye" />
@@ -649,7 +742,9 @@ function Knowledge({ look }: { look: Look }) {
                 <div className="note recipe-peek">
                   <div>
                     {station
-                      ? t("ui-side-recipe-station", { station: goodsName(names, station) })
+                      ? t("ui-side-recipe-station", {
+                          station: goodsName(names, station),
+                        })
                       : t("ui-side-recipe-by-hand")}
                   </div>
                   {inputs.length > 0 && (
@@ -661,7 +756,8 @@ function Knowledge({ look }: { look: Look }) {
                             //: `amounts` is keyed by the recipe's raw input
                             //: names -- so the raw name is asked too.
                             const amount =
-                              recipe.amounts?.[input] ?? recipe.amounts?.[recipe.inputs[at]];
+                              recipe.amounts?.[input] ??
+                              recipe.amounts?.[recipe.inputs[at]];
                             //: The quantity is a detail after the separator
                             //: (D-258): the name stays in the nominative.
                             return amount
@@ -680,7 +776,11 @@ function Knowledge({ look }: { look: Look }) {
                   {/* The plaque (D-064, D-259): the first discoverer's name,
                       bound to the recipe forever. Founding recipes have none. */}
                   {look.pioneers?.[name] && (
-                    <div>{t("ui-side-recipe-pioneer", { name: look.pioneers[name] })}</div>
+                    <div>
+                      {t("ui-side-recipe-pioneer", {
+                        name: look.pioneers[name],
+                      })}
+                    </div>
                   )}
                 </div>
               )}
@@ -715,6 +815,3 @@ function Knowledge({ look }: { look: Look }) {
     </div>
   );
 }
-
-
-

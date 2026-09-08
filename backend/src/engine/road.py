@@ -55,7 +55,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants, current
 from src.constants import registry as R
-from src.engine import events, occupation, stock, travel, works, world
+from src.engine import biome, events, occupation, stock, travel, works, world
 from src.engine.errors import Refusal
 from src.engine.jobs import enqueue, handler
 from src.models.event import EventKind
@@ -417,7 +417,20 @@ async def view(session: AsyncSession, constants: Constants, body: Body) -> list[
         result.append(
             {
                 "edge": str(edge.id),
-                "to": other.name,
+                #: The neighbour by key as well as by name: a name is not an
+                #: identifier (D-251) and a domed city has fifteen rooms called
+                #: «Квартира», so a column that picked the road by the name
+                #: showed every one of them -- and a found node, which has no
+                #: name at all (D-321), matched nothing and showed the lot.
+                "node": other.key,
+                #: The name comes with the road and is not left to the client to
+                #: look up (D-225 asks whether it could): this answer is read on
+                #: its own, by a window that has not been given the map and may
+                #: be drawn before the map has arrived at all. A road whose
+                #: neighbour had no name yet would read as a road to nowhere --
+                #: and a find has no name at all, so it is spoken of by its
+                #: biome, in the word the refusals use (D-321).
+                "to": biome.word_of(constants, other),
                 "surface": edge.surface.value,
                 "condition": float(edge.condition),
                 "seconds": round(travel.edge_seconds(constants, edge)),

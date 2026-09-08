@@ -466,22 +466,22 @@ async def recall(
     #: at, which was checked when it was aimed at.
     await _will_take(session, constants, ship, home, why="turn-back")
 
-    #: How long it has been flying is how long it has to fly back. Counted from
-    #: the job that carries the leg: it was created at the casting off, and that
-    #: is the one honest moment there is.
+    #: How long it has been flying is how long it has to fly back, and nothing
+    #: else -- D-242's own words, "новых чисел нет". Counted from the job that
+    #: carries the leg: it was created at the casting off, and that is the one
+    #: honest moment there is.
     #:
-    #: **Never less than a landing, though**, when what it turns back to is
-    #: ground. Turned round in the first minute a hull has gone nowhere, and the
-    #: arithmetic alone would put it back on the pad at once and for nothing --
-    #: which is a way to skip the descent every landing costs (D-245). However
-    #: close it still has to come down, and coming down is a leg like any other.
-    #: Turning back into an **orbit** has no such floor: an orbit is where the
-    #: hull already was, and nothing has been skipped by going back to it.
-    thrust_ratio = await ratio(session, constants, catalog, ship)
-    down = fall_hours(constants, home.planet, thrust_ratio)
-    floor = 0.0 if is_orbit(home) else down
+    #: There used to be a floor here, a whole landing's worth, against
+    #: "отстыковаться, нацелиться куда угодно, развернуться" -- being down
+    #: again before the gauge moved (D-242, the review clarification). D-289
+    #: took that path away: a crossing under the sky is not turned back at all
+    #: any more (`ship-course-not-turned` above), so the only leg that turns
+    #: back to ground is the climb, and a climb turned back in its first
+    #: seconds is a hull that never left the pad. The floor was charging two
+    #: and a half hours of descent for ten seconds of climb, which is not a
+    #: rule anybody could read off the world.
     flown = max(0.0, (moment - running.created_at).total_seconds() / SECONDS_PER_HOUR)
-    gone = max(flown, floor)
+    gone = flown
     #: A crossing paid for speed, not for hours (D-271), and the way home is a
     #: second arc that costs what the first did: the same delta-v, however far
     #: along it the helm went over. Legs to and from the ground carry no

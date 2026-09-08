@@ -4,12 +4,14 @@
 import { spell, type Look, type MapNode } from "../../api";
 import { Deadline } from "../../Deadline";
 import { Rule } from "../../Rule";
-import { Refusal, useActions, useSession } from "../../actions";
+import { Refusal, useActions, useBook, useSession } from "../../actions";
 import { t } from "../../locale";
 import { cityWord } from "../../planets";
 import { Roads } from "./Roads";
 import { LAYER_NAME, offworld } from "./model";
-import { price } from "./words";
+import { metresBetween } from "./scout";
+import { radiusOf } from "./useGlobe";
+import { nameWord, nodeWord, price } from "./words";
 
 /**
  * The column beside the map: everything about the node you picked.
@@ -23,6 +25,12 @@ import { price } from "./words";
  * Where you stand, the column offers entering and exploring. Anywhere else --
  * the road there, what it costs the body, and what the surface between here and
  * there is worth laying.
+ *
+ * Two things take the column over while they last, because while they last
+ * nothing else can be done: a walk, and a scout's run (D-327). Both say the
+ * same three things -- where to, how long is left, and the one button that
+ * ends it -- and both hide "Вы здесь", which would otherwise name a node the
+ * body is on its way out of.
  */
 export function Inspector({
   look,
@@ -44,6 +52,10 @@ export function Inspector({
   const session = useSession();
   const acting = useActions();
   const { busy, act } = acting;
+  //: The vault's word for a biome (D-321): a found node has no name, and the
+  //: column says its kind instead -- the same word the world's refusals use.
+  const book = useBook();
+  const biomes = book?.constants?.["biome.names"];
   const here = look.node?.key ?? "";
   const ongoing = look.travel ?? null;
 
@@ -55,10 +67,10 @@ export function Inspector({
           {t("ui-map-ongoing")}
           <Rule>{t("ui-map-ongoing-rule")}</Rule>
         </h3>
-        <p className="sign">{ongoing.final ?? ongoing.to}</p>
+        <p className="sign">{nameWord(ongoing.final ?? ongoing.to)}</p>
         <p className="note">
           {ongoing.final
-            ? t("ui-map-ongoing-leg", { to: ongoing.to })
+            ? t("ui-map-ongoing-leg", { to: nameWord(ongoing.to) })
             : t("ui-map-ongoing-direct")}
           {(ongoing.legs_left ?? 0) > 1 &&
             ` · ${t("ui-map-ongoing-left", { count: String(ongoing.legs_left! - 1) })}`}
@@ -82,15 +94,54 @@ export function Inspector({
     );
   }
 
+  //: A run of the scout takes the column the same way (D-327): the far end is
+  //: a place with no node yet, so it is said in metres rather than by name.
+  const run = look.scouting ?? null;
+  if (run) {
+    const stand = byKey[here]?.place;
+    const from = stand && "lat" in stand ? stand : null;
+    const globe = radiusOf(book, byKey[here]?.planet ?? null);
+    const metres = from && globe ? metresBetween(from, run.place, globe) : null;
+    return (
+      <aside className="inspect">
+        <h3>
+          {t("ui-map-scouting")}
+          <Rule>{t("ui-map-scouting-rule")}</Rule>
+        </h3>
+        <p className="sign">
+          {metres === null
+            ? t("ui-map-scouting-away")
+            : t("ui-map-scouting-far", { metres: Math.round(metres) })}
+        </p>
+        <Deadline
+          until={run.arrives_at}
+          since={run.started_at}
+          label={t("ui-map-scouting-label")}
+        />
+        <div className="row">
+          <button
+            className="quiet"
+            onClick={() => act(() => session.send("explore.stop"))}
+            disabled={busy}
+          >
+            {t("ui-map-scouting-stop")}
+          </button>
+        </div>
+        <Refusal of={acting} />
+      </aside>
+    );
+  }
+
   const node = picked ? byKey[picked] : null;
-  const mine = !node || node.key === here || walkTargets[node.key]?.key === here;
+  const mine =
+    !node || node.key === here || walkTargets[node.key]?.key === here;
 
   //: Standing here: the way in, and the way out into the unknown.
   if (!node || mine) {
     return (
       <aside className="inspect">
         <h3>{t("ui-map-here")}</h3>
-        <p className="sign">{look.node?.name}</p>
+        <p className="sign">{look.node ? nodeWord(look.node, biomes) : ""}</p>
         <div className="row">
           <button onClick={onEnter} disabled={busy}>
             {t("ui-map-enter")}
@@ -115,12 +166,14 @@ export function Inspector({
   return (
     <aside className="inspect">
       <h3>
-        {node.name}
+        {nodeWord(node, biomes)}
         <Rule>{t("ui-map-node-rule")}</Rule>
       </h3>
       {node.drawn !== undefined && (
         //: A counter, not a measure: no thousands separator, as the clock does it.
-        <p className="note">{t("ui-map-node-drawn", { day: String(node.drawn) })}</p>
+        <p className="note">
+          {t("ui-map-node-drawn", { day: String(node.drawn) })}
+        </p>
       )}
       <p className="note">
         {node.aboard
@@ -132,7 +185,9 @@ export function Inspector({
             : LAYER_NAME[node.layer]
               ? t(LAYER_NAME[node.layer])
               : node.layer}
-        {group && !node.aboard && !off ? ` · ${t("ui-map-node-expandable")}` : ""}
+        {group && !node.aboard && !off
+          ? ` · ${t("ui-map-node-expandable")}`
+          : ""}
         {off && !sphere ? ` · ${t("ui-map-node-far")}` : ""}
       </p>
       {/* A passage is a term like any other, and it is shown the way every
@@ -202,14 +257,17 @@ export function Inspector({
             at all, and a button that opened an empty layer would promise a
             look nobody has -- one gets there by flying. */}
         {group && !node.aboard && !off && (
-          <button className="quiet" onClick={() => onExpand(node)} disabled={busy}>
+          <button
+            className="quiet"
+            onClick={() => onExpand(node)}
+            disabled={busy}
+          >
             {t("ui-map-expand")}
           </button>
         )}
       </div>
-      <Roads look={look} busy={busy} act={act} only={node.name} />
+      <Roads look={look} busy={busy} act={act} only={node.key} />
       <Refusal of={acting} />
     </aside>
   );
 }
-

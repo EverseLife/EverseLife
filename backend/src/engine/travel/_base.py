@@ -138,8 +138,12 @@ class Asleep(TravelError):
 
 
 class Scouting(TravelError):
-    """A run of the scout is under way (D-321 item 7): the body stands in its
-    node, and the road would be a second deed (D-211)."""
+    """A run of the scout is under way: the road would be a second deed (D-211).
+
+    The body does stand in its node for the whole run -- the map draws it on
+    the way, the engine keeps it home (D-327) -- and this refusal is what makes
+    that true: without it a scout could walk off and the two would part.
+    """
 
 
 async def require_here(session: AsyncSession, body: Body) -> None:

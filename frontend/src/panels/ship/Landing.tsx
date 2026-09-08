@@ -16,11 +16,14 @@
  * on the choice, not after the descent. The list beside the globe names the
  * same pads for the keyboard (D-077); the two read one choice.
  *
- * The surface is the public map's, handed down by the console: from orbit
- * the eye sees no node of the ground (`map.sight_km`), and what the world
- * knows of a planet's surface is what a crew chooses by -- a few days old
- * (D-319 item 7), and a pad does not move. A pad younger than the snapshot
- * is in the list and not yet on the globe.
+ * The surface is the console's map: the public snapshot, which is what the
+ * world knows of a planet a few days ago (D-319 item 7) -- from orbit the eye
+ * sees no node of the ground (`map.sight_km`) -- with the crew's own map laid
+ * over it (owner, 2026-09-08). A pad does not move, so the two cannot
+ * disagree about where one is; what they disagree about is whether it is
+ * there at all, and the crew's own answer is the newer. Without that a world
+ * younger than the snapshot's delay -- every world for its first days -- had
+ * no globe here, only the list beside it.
  */
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -185,8 +188,13 @@ function Pads({
   //: Aimed once -- a pick from the list must not spin the planet the hand
   //: has just turned; the mark picked is shown by its colour.
   const aimed = useRef(false);
+  //: The frame is measured from the same point it looks at, or the mark it
+  //: opens on lands on the edge of a frame sized for somebody else's.
   const [zoom, setZoom] = useState(() =>
-    Math.min(ZOOM_MAX, Math.max(1, (2 * FRAME) / (spreadOf(marks, LEAST_DEG, MARGIN) * RAD))),
+    Math.min(
+      ZOOM_MAX,
+      Math.max(1, (2 * FRAME) / (spreadOf(marks, aimOf(marks, picked), LEAST_DEG, MARGIN) * RAD)),
+    ),
   );
   useEffect(() => {
     if (aimed.current) return;

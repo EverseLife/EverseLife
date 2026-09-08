@@ -4,13 +4,23 @@
 """A run: the scout goes, the field is read, a node is born (D-321).
 
 The run is priced by the road: aiming at a point *d* metres away costs the
-walk of *d* metres over wild ground, in time and in stamina, and the body
-stands in its node meanwhile -- a run is an occupation (D-211) and a journal
-job. When the job fires the cell is **materialised**: the field is read at
-its centre, the node is created with the cell's key, a wild way is laid back
-to the node the scout left from and to every found node the biome's reach
-allows with a clear line, and -- by the vault's chance -- a whole complex is
-laid round it.
+walk of *d* metres over wild ground, in time and in stamina -- **one way**,
+because the scout walks there and stays (D-327). A run is an occupation
+(D-211) and a journal job. When the job fires the cell is **materialised**:
+the field is read at its centre, the node is created with the cell's key, a
+wild way is laid back to the node the scout left from -- and only there
+(D-326) -- and, by the vault's chance, a whole complex is laid round it. Then
+the body takes the find as the node it stands in, the way an arrival does.
+
+A run can be turned back from (`stop`), and turning back returns the scout to
+where they set out: there is no half of a way in this world (D-194).
+
+The body stays in its origin node for the whole run all the same -- the map
+draws the scout on the way, but `node_id` does not move until the job fires
+(D-327 says so out loud). Real absence (D-107) wants a transit row with an end
+that is not in the graph yet, and that is a piece of work, not a line. What
+holds the two together meanwhile is that a scout cannot walk off: `travel.depart`
+refuses a run under way (`travel-scouting`).
 
 Nothing is rolled that the field can answer. The dice that remain are seeded
 by the cell's key, so a run repeated after a failure lays the same node with
@@ -31,7 +41,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src import globe
 from src.constants import Catalog, Constants, current, current_catalog
 from src.constants import registry as R
-from src.engine import biome, events, ground, memory, occupation, places, ruins, travel, world
+from src.engine import (
+    biome,
+    chat,
+    craft,
+    customs,
+    events,
+    ground,
+    memory,
+    occupation,
+    places,
+    ruins,
+    transport,
+    travel,
+    world,
+)
 from src.engine.explore import aim as aiming
 from src.engine.explore._base import (
     Aim,
@@ -39,7 +63,9 @@ from src.engine.explore._base import (
     AlreadyOut,
     Cell,
     ExploreError,
+    Harnessed,
     NotFromHere,
+    NotOut,
     ScoutGone,
     key_of,
     point_of,
@@ -47,7 +73,7 @@ from src.engine.explore._base import (
 from src.engine.jobs import enqueue, handler
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState
-from src.models.job import Job, JobKind
+from src.models.job import Job, JobKind, JobState
 from src.models.world import ABOARD, Layer, Node, Planet, Surface
 from src.units import PERCENT
 
@@ -83,9 +109,34 @@ async def survey(
         raise NotFromHere(key="explore-not-from-here")
     if (origin.properties or {}).get(ABOARD):
         raise NotFromHere(key="explore-not-from-here")
-    aim = await aiming.check(session, constants, origin, target)
+    #: On one's own feet, and that is not a taste: a run goes over wild ground
+    #: by definition, and neither the wild nor a trail carries a cart (D-157,
+    #: `transport.passable`). D-185 had the convoy come along behind, from the
+    #: days before that rule; leaving it would also make the run **free** --
+    #: `transport.stamina_k` is nought, because a cart carries instead of legs
+    #: -- and a run that costs nothing is not a walk at all (D-321 item 7).
+    if await transport.harnessed(session, body) is not None:
+        raise Harnessed(key="explore-harnessed")
+    aim = await aiming.check(session, constants, origin, target, body=body)
     if aim.existing is not None and await travel.edge_between(session, origin, aim.existing):
         raise AlreadyJoined(key="explore-already-joined", node=aim.existing.name)
+    #: The border is settled **before** setting out, exactly as a leg settles
+    #: it (D-123, `travel.depart`): a duty that cannot be paid must refuse the
+    #: run in words, not turn up when the scout is already outside the walls.
+    #: Both sides are known here -- the far one is the node already standing in
+    #: the cell, or, for a find still to be made, nobody's land in no city.
+    from src.engine.city import lookup as town  # noqa: PLC0415 -- lazy: city reaches back here
+
+    await customs.between(
+        session,
+        constants,
+        current_catalog(),
+        body,
+        origin,
+        await town.of_node(session, origin),
+        None if aim.existing is None else await town.of_node(session, aim.existing),
+        now=moment,
+    )
     seconds = _wild_seconds(constants, aim.metres)
     await travel.pay_for_road(session, constants, body, seconds, moment=moment)
     started = await events.record(
@@ -105,6 +156,12 @@ async def survey(
             "origin": str(origin.id),
             "planet": aim.planet.value,
             "cell": list(aim.cell),
+            #: When the walk began. The client draws the scout moving along
+            #: the way to the find (D-327), and a share of the way needs both
+            #: ends of the clock: `run_at` is the far one. Written down rather
+            #: than read off the row's `created_at`, so that the share is
+            #: measured against the very moment the price was reckoned from.
+            "started": moment.isoformat(),
         },
         dedup_key=f"explore:{body.id}:{started.id}",
         cause_event_id=started.id,
@@ -133,7 +190,7 @@ async def returned(session: AsyncSession, job: Job) -> None:
     try:
         if body.state is not BodyState.ALIVE or body.node_id != origin.id:
             raise ScoutGone(key="explore-scout-gone")
-        aim = await aiming.check(session, constants, origin, point)
+        aim = await aiming.check(session, constants, origin, point, body=body)
     except ExploreError as why:
         #: The ground was free when the scout left and is taken now -- a
         #: neighbour's find came first. The run is spent; the journal says why.
@@ -153,6 +210,10 @@ async def returned(session: AsyncSession, job: Job) -> None:
         await memory.remember(
             session, constants, body.identity_id, [aim.existing.key], at=job.run_at
         )
+        #: Walked there all the same, and the walk ends where it went (D-327):
+        #: the cell had a node already, so what the run bought is the way and
+        #: the standing, not a find.
+        await _stand_on(session, constants, body, aim.existing, origin=origin, at=job.run_at)
         await events.record(
             session,
             EventKind.EXPLORE_FOUND,
@@ -169,6 +230,7 @@ async def returned(session: AsyncSession, job: Job) -> None:
     )
     #: The scout was there: the find is remembered like a place arrived at.
     await memory.remember(session, constants, body.identity_id, [node.key], at=job.run_at)
+    await _stand_on(session, constants, body, node, origin=origin, at=job.run_at)
     await events.record(
         session,
         EventKind.EXPLORE_FOUND,
@@ -180,6 +242,134 @@ async def returned(session: AsyncSession, job: Job) -> None:
         complex=scheme,
         known=False,
     )
+
+
+async def _stand_on(
+    session: AsyncSession,
+    constants: Constants,
+    body: Body,
+    node: Node,
+    *,
+    origin: Node,
+    at: datetime,
+) -> None:
+    """The run ends with the scout standing on the find (D-327).
+
+    A run was always priced as the walk **one way** -- `_wild_seconds` of the
+    distance, no return leg in it (D-321 item 7) -- and until 2026-09-08 the
+    body paid that and stayed where it set out from, as though the walk had
+    been there and back for the price of half. The owner asked for the honest
+    end: "после окончания разведки игрок должен оказаться на точке которую он
+    разведал". So the find is where the scout is.
+
+    This is an arrival, and it does what `travel.arrive` does for a leg -- no
+    more. The reserve is settled **before** the new node is taken, or the hours
+    on the road would be counted by the warmth of the place walked to (D-231);
+    the way just laid is trodden by the feet that laid it (D-319); a work
+    frozen at the find wakes (D-209). What it does not do is a convoy: a scout
+    goes into the wild on their own feet, and `pay_for_road` already priced
+    the run without one.
+    """
+    #: Lazy for the same reason as in `travel.walk`: `frost` and `road` both
+    #: import travel, which imports this package's neighbours in turn.
+    from src.engine import frost, road  # noqa: PLC0415 -- lazy: breaks the cycles
+
+    await frost.settle(session, constants, current_catalog(), body, now=at)
+    #: Left the node -- left the conversation: the circle does not follow
+    #: (D-043), and a scout a kilometre out was still talking in the workshop.
+    await chat.leave_groups(session, body.identity_id)
+    edge = await travel.edge_between(session, origin, node)
+    body.node_id = node.id
+    #: Chat horizon: before arriving the body heard nothing here (D-043).
+    body.node_since = at
+    await session.flush()
+    if edge is not None:
+        await road.tread(session, constants, edge.id, node_id=node.id)
+    await craft.wake(session, body, now=at)
+
+
+async def leg_of(session: AsyncSession, constants: Constants, body: Body) -> dict | None:
+    """The run under way as the map draws it: where from, where to, and when (D-327).
+
+    The scout walks to a point that is **not a node yet**, so this leg cannot
+    be said the way a road is -- with two keys. Its far end is a place, and
+    nothing already on the wire lets the client work it out (D-225): the cell
+    is the engine's lattice, and after a reload the client does not even know
+    what was aimed at.
+
+    Where the scout is right now is not sent and must not be: that is the two
+    stamps and a straight line, and the client draws it frame by frame (D-226).
+    """
+    job = await session.scalar(
+        select(Job)
+        .where(
+            Job.body_id == body.id,
+            Job.kind == JobKind.EXPLORE_SURVEY.value,
+            Job.state.in_((JobState.PENDING, JobState.RUNNING)),
+        )
+        .limit(1)
+    )
+    if job is None:
+        return None
+    origin = await session.get(Node, uuid.UUID(job.payload["origin"]))
+    lat, lon = point_of(constants, Planet(job.payload["planet"]), tuple(job.payload["cell"]))
+    return {
+        "from_key": "" if origin is None else origin.key,
+        "place": {"lat": lat, "lon": lon},
+        #: A run begun before the stamp was written down (D-327) still draws:
+        #: the row's own birthday is the same moment to within the transaction.
+        "started_at": str(job.payload.get("started") or job.created_at.isoformat()),
+        "arrives_at": job.run_at.isoformat(),
+    }
+
+
+async def stop(session: AsyncSession, body: Body, *, now: datetime | None = None) -> Job:
+    """Turn back from a run: the scout stays where they set out from (D-327).
+
+    The road's rule, word for word (`travel.turn_back`, D-194): there is no
+    half of a way in this world -- a node is the unit of place -- so cancelling
+    returns rather than stops midway. What was spent is not returned: the
+    stamina went up front and the hours have passed.
+
+    The cell is not touched. It was never held: two scouts may aim at one cell
+    and the second brings home a way rather than a second node (D-321 item 3),
+    so a run given up leaves nothing behind to release.
+
+    The row is taken `FOR UPDATE SKIP LOCKED`, and that settles the one race
+    here: a turn-back sent in the very second the job fires. A locked row is a
+    run the worker is **already running** (`jobs._claim` holds it for the whole
+    of the handler's transaction), and there is nothing left to turn back from,
+    so skipping it is the right answer and not merely the cheap one. Waiting
+    for the lock instead would be worse than slow: this command already holds
+    the body's row (`_alive`) and the handler takes the body's row after the
+    job's, so the two would meet head to head and one would die of a deadlock
+    rather than of a refusal. The other order needs nothing: the worker's claim
+    skips a locked row, and by the time it looks again the state is `cancelled`.
+    """
+    moment = now or datetime.now(UTC)
+    job = await session.scalar(
+        select(Job)
+        .where(
+            Job.body_id == body.id,
+            Job.kind == JobKind.EXPLORE_SURVEY.value,
+            Job.state.in_((JobState.PENDING, JobState.RUNNING)),
+        )
+        .with_for_update(skip_locked=True)
+        .limit(1)
+    )
+    if job is None:
+        raise NotOut(key="explore-not-out")
+    job.state = JobState.CANCELLED
+    job.finished_at = moment
+    await session.flush()
+    await events.record(
+        session,
+        EventKind.EXPLORE_STOPPED,
+        actor_identity_id=body.identity_id,
+        node_id=body.node_id,
+        cell=key_of(Planet(job.payload["planet"]), tuple(job.payload["cell"])),
+    )
+    return job
 
 
 async def _hold_cell(session: AsyncSession, key: str) -> None:
@@ -292,39 +482,15 @@ async def materialise(
         area=aim.area,
         who=who,
     )
+    #: One way, and it is the one the scout walked (D-326). The find used to be
+    #: sewn to every neighbour within reach as well -- `knit`, D-321's "the
+    #: graph is sewn, not grown as a thread" -- and two points scouted apart
+    #: joined themselves with a road nobody had made. A road is somebody's
+    #: labour, like the node itself: the scout spends time and a place appears,
+    #: and a way appears the same way or not at all.
     await travel.connect(session, origin, node, surface=Surface.WILD)
-    await knit(session, constants, node, aim.point, except_for={origin.id})
     scheme = await _complex(session, constants, catalog, dice, node, aim.point, who=who)
     return node, scheme
-
-
-async def knit(
-    session: AsyncSession,
-    constants: Constants,
-    node: Node,
-    point: globe.Geo,
-    *,
-    except_for: set[uuid.UUID],
-) -> None:
-    """Ways from a found node to every found neighbour within the biome's reach
-    that a straight, dry, uncrossed line joins: the graph is sewn, not grown as a thread."""
-    here = biome.of_node(constants, node)
-    if here is None:  # pragma: no cover
-        return
-    _, far = biome.reach_m(constants, here)
-    radius = globe.radius_m(constants, node.planet)
-    for other, where in await aiming._surface(session, constants, node.planet, point):
-        if other.id == node.id or other.id in except_for:
-            continue
-        if globe.distance_m(radius, where, point) > far:
-            continue
-        if aiming.crosses_water(constants, node.planet, point, where, ford=aiming._is_ford(node)):
-            continue
-        try:
-            await aiming.check(session, constants, other, point)
-        except ExploreError:
-            continue
-        await travel.connect(session, node, other, surface=Surface.WILD)
 
 
 def _schemes_for(constants: Constants, planet: Planet, here: str) -> dict[str, dict]:

@@ -139,7 +139,8 @@ export const SHAPES: Record<GlyphName, string> = {
   //: A rocket over the pad: the spaceport.
   port: "M8 1.8c1.6 1.4 2.4 3.2 2.4 5.4L8 9.4 5.6 7.2c0-2.2.8-4 2.4-5.4zM5.6 7.6L4.2 10M10.4 7.6l1.4 2.4M8 9.4v1.8M4.5 13.4h7",
   //: A ship at the pier (D-319 item 10): the port's rocket lying on its
-  //: pad -- the hull is not a point of the map, the port wears it.
+  //: pad. This is what a stranger sees; whoever stands at the pier or aboard
+  //: gets the hull's own point beside it.
   moored: "M2.6 9.4h10.8l-1.6 3.2H4.2zM4.6 9.4c0-2.2.8-4 2.4-5.4h2c1.6 1.4 2.4 3.2 2.4 5.4M8 4v5.4M2.6 6.2l2 3.2M13.4 6.2l-2 3.2",
   //: A mountain: two peaks, the nearer one higher (D-321).
   peak: "M1.8 13.2L6.2 4.4l2.6 4.6 1.8-2.8 3.6 7z",

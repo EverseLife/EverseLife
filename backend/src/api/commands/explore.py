@@ -42,6 +42,17 @@ async def _explore_survey(state: dict, db: AsyncSession, message: dict) -> dict:
     job = await explore.survey(db, current(), body, point)
     return {
         "job": str(job.id),
-        "returns_at": job.run_at.isoformat(),
+        #: When the scout gets **there**: a run is the walk one way, and it
+        #: ends standing on the find (D-327). The key used to be `returns_at`,
+        #: from the days the scout came back for free.
+        "arrives_at": job.run_at.isoformat(),
         "cell": job.payload["cell"],
     }
+
+
+@command("explore.stop")
+async def _explore_stop(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Turn back from a run: the scout stays where they set out from (D-327)."""
+    body = await _alive(state, db)
+    await explore.stop(db, body)
+    return {"stopped": True}

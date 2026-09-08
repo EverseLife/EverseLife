@@ -86,6 +86,7 @@ from src.engine.estate.building import (  # noqa: F401  # noqa: F401
     height_of,
     hold_ground,
     hulls_footprint,
+    indoor_slots,
     kinds,
     lay_site,
     marked_ground,

@@ -258,8 +258,21 @@ async def yard_mass(session: AsyncSession, node: Node) -> float:
 
 
 def _equipment(catalog, type_key: str) -> bool:
-    """Machines and furniture pay for their place by slots, not by weight."""
+    """Machines and furniture pay for their place by slots, not by weight.
 
+    A relic of the Forerunners is machinery too, and it is asked about first:
+    it has **no recipe at all** by construction (D-232, it is a material of
+    the world rather than something anybody builds), so the recipe book throws
+    on it and it used to fall through into the cargo. There it paid by weight,
+    and eight tonnes of bioprinter over `build.floor_per_m2` is four hundred
+    square metres on a plot of a hundred and twenty: the land window read
+    «занято 400 из 120», `storage` left no free ground, and nothing could be
+    put down on the node every dead player is printed at. `world.stands`
+    already answered this question the other way (`book.is_relic` -> it is put
+    up); this is the same question, asked in the same words.
+    """
+    if catalog.recipes.is_relic(type_key):
+        return True
     try:
         return catalog.recipes.recipe(type_key).kind in (
             ItemKind.STATION,
@@ -267,6 +280,21 @@ def _equipment(catalog, type_key: str) -> bool:
         )
     except Exception:  # noqa: BLE001 -- raw material has no recipe, and that is normal
         return False
+
+
+def _takes_a_place(catalog, type_key: str) -> bool:
+    """Whether a thing that has been put up occupies a slot (D-278).
+
+    Equipment does; so does a vessel standing on a hull's lines (D-288), which
+    holds a liquid and is stored rather than carried.
+    """
+    if _equipment(catalog, type_key):
+        return True
+    try:
+        recipe = catalog.recipes.recipe(type_key)
+    except Exception:  # noqa: BLE001 -- raw material at the machine has no recipe
+        return False
+    return recipe.holds == storage.LIQUID and bool(recipe.store)
 
 
 async def space(session: AsyncSession, constants: Constants, node: Node) -> dict[str, float]:
@@ -283,8 +311,9 @@ async def space(session: AsyncSession, constants: Constants, node: Node) -> dict
     reading a roofless node sees an honest empty floor rather than a missing
     one.
     """
-    total_slots, taken_slots = await slots(session, constants, node)
     roofed = await storey_area(session, node)
+    total_slots = int(roofed // constants[R.BUILD_SLOTS_PER_AREA])
+    taken_slots = await indoor_slots(session, node)
     lying = await floor_mass(session, node)
     by_cargo = lying / constants[R.BUILD_FLOOR_PER_M2]
     by_equipment = taken_slots * constants[R.BUILD_SLOTS_PER_AREA]
@@ -348,23 +377,44 @@ async def slots(session: AsyncSession, constants: Constants, node: Node) -> tupl
     area = await storey_area(session, node)
     in_total = int(area // constants[R.BUILD_SLOTS_PER_AREA])
 
-    book = current_catalog().recipes
+    catalog = current_catalog()
     things = await world.node_things(session, node)
     occupied = 0
     for thing in things:
-        try:
-            recipe = book.recipe(thing.type_key)
-        except Exception:  # noqa: BLE001 -- raw material at the machine has no recipe
-            continue
         #: Only what was put up takes a place (D-278): a machine lying on the
-        #: floor is cargo and pays by weight. A vessel put up takes one too
-        #: (D-288): it stands on the hull's lines the way furniture stands.
-        stands = recipe.kind in (ItemKind.STATION, ItemKind.FURNITURE) or (
-            recipe.holds == storage.LIQUID and bool(recipe.store)
-        )
-        if stands and thing.installed:
+        #: floor is cargo and pays by weight. The same question the heaps are
+        #: split by (`_takes_a_place`), so that a thing cannot be equipment to
+        #: one of them and cargo to the other -- which is exactly what a relic
+        #: was.
+        if thing.installed and _takes_a_place(catalog, thing.type_key):
             occupied += 1
     return in_total, occupied
+
+
+async def indoor_slots(session: AsyncSession, node: Node) -> int:
+    """Places taken **on the floor**: what stands indoors (D-244).
+
+    A floor is charged for what stands on a floor, and the same two ways of
+    being outdoors that keep a sack out of the house (`split`) keep a machine
+    out of it: put on the ground on purpose, or standing on a plot with no
+    building at all. `slots` above answers the wider question -- what stands
+    in the node however it stands -- and that is what the sale and the
+    demolition ask.
+
+    The difference is a relic: it stands where it was found (D-232), the seed
+    found several on bare ground with the capital's printer among them, and a
+    house built on that plot afterwards would otherwise be charged for a thing
+    standing in its yard -- «занято 10 из 0» on the bare plot, and ten metres
+    short indoors once the walls went up.
+    """
+    catalog = current_catalog()
+    if await storey_area(session, node) <= 0:
+        return 0
+    return sum(
+        1
+        for thing in await world.node_things(session, node)
+        if thing.installed and _takes_a_place(catalog, thing.type_key) and not thing.outdoors
+    )
 
 
 async def planned_footprint(session: AsyncSession, node: Node) -> float:

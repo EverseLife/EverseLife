@@ -5,10 +5,11 @@
 
 The scout aims at the globe and the landscape answers: too near, too far, into
 the water, no room, across a way. A lawful aim costs the walk of its metres
-over wild ground, and when the run is over the cell is a node -- the same node
-for everybody, read off the field, sewn to its neighbours, and by the vault's
+over wild ground -- one way, because the scout walks there and stays (D-327).
+When the run is over the cell is a node: the same node for everybody, read off
+the field, joined by the one way that was walked (D-326), and by the vault's
 chance the middle of a complex. What is checked here is every one of those
-rules, and the race two scouts run for one cell.
+rules, the turning back, and the race two scouts run for one cell.
 """
 
 from __future__ import annotations
@@ -23,10 +24,24 @@ from sqlalchemy import func, select, text
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from conftest import _slow
 from src import globe, seed_planets
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import biome, explore, jobs, occupation, places, ruins, terrain, travel, world
+from src.engine import (
+    access,
+    biome,
+    explore,
+    jobs,
+    occupation,
+    places,
+    ruins,
+    terrain,
+    transport,
+    travel,
+    world,
+)
+from src.engine.explore import run as explore_run
 from src.models.event import Event, EventKind
 from src.models.identity import Body, BodyState
 from src.models.inventory import Container, ContainerKind, Item
@@ -155,9 +170,17 @@ async def test_the_landscape_refuses_too_near_too_far_and_the_water(
 
 
 def _shoreline(constants: Constants) -> tuple[globe.Geo, globe.Geo]:
-    """A dry point a few metres inland of the sea's edge and a wet one a few
-    metres out: the edge is bisected along a row between a dry centre and a
-    wet one, because the height is interpolated between cells."""
+    """A dry point just inland of the sea's edge and a wet one a lawful step
+    out: the edge is bisected along a row between a dry centre and a wet one,
+    because the height is interpolated between cells.
+
+    The step out is the middle of the **land point's own** reach band, not a
+    fixed handful of metres: an aim is measured before it is looked at, so a
+    wet point nearer than `biome.reach_m` is refused for being too near and
+    the test never reaches the question it is asking. Fixed metres held only
+    while the shoreline the scan finds first happened to sit in a biome that
+    reaches that near, and D-324 moved every shoreline.
+    """
     field = terrain.field_of(constants, Planet.TERRA)
     radius = globe.radius_m(constants, Planet.TERRA)
     lat_max = constants[R.MAP_CITY_LAT_MAX]
@@ -175,8 +198,12 @@ def _shoreline(constants: Constants) -> tuple[globe.Geo, globe.Geo]:
                     dry = mid
             edge = (dry + wet) / 2
             land = globe.offset(radius, (lat, edge), -6.0, 0.0)
-            water = globe.offset(radius, (lat, edge), 8.0, 0.0)
-            if not field.is_water(*land) and field.is_water(*water):
+            if field.is_water(*land):
+                continue
+            here = biome.classify(constants, Planet.TERRA, *land)
+            near, far = biome.reach_m(constants, here)
+            water = globe.offset(radius, land, (near + far) / 2, 0.0)
+            if field.is_water(*water):
                 return land, water
     raise AssertionError("no shoreline on Terra")
 
@@ -309,6 +336,74 @@ async def test_the_run_reads_the_field_and_sews_the_node_on(
         assert again.existing is not None and again.existing.id == camp_id
         assert scout is not None
     assert await _count(factory, Node) >= 2
+
+
+async def test_a_find_gets_one_way_and_it_is_the_one_walked(
+    factory: async_sessionmaker[AsyncSession], constants: Constants, catalog: Catalog
+) -> None:
+    """A road is somebody's labour, and so is a node (D-326).
+
+    A find used to be sewn to every neighbour within reach -- `knit`, D-321's
+    "the graph is sewn, not grown as a thread". Nobody laid those roads: the
+    player spent time on a **node**, and the ways between finds came free, so
+    two points scouted apart turned out joined. Now a find has one way, and it
+    is the one that was walked to it.
+
+    The test checks itself: first it makes sure a neighbour **is** within reach
+    of the find -- that there would have been something to sew.
+    """
+    async with factory() as session, session.begin():
+        _, camp, scout = await _camp(session, constants)
+        here = places.geo_of(camp)
+        assert here is not None
+        _, far = _reach(constants, camp)
+        job = await explore.survey(
+            session, constants, scout, _step(constants, Planet.TERRA, here, far * 0.8, bearing=0.3)
+        )
+        cell, term, camp_id = tuple(job.payload["cell"]), job.run_at, camp.id
+        #: The neighbour is placed on purpose and **before** the run is over:
+        #: within reach of the find to be, which is exactly the case `knit`
+        #: sewed. Without it the test would check nothing.
+        where = explore.point_of(constants, Planet.TERRA, cell)
+        neighbour = await world.create_node(
+            session,
+            f"terra.neighbour.{uuid.uuid4().hex[:6]}",
+            "Сосед",
+            planet=Planet.TERRA,
+            area_m2=60,
+            parent=await session.get(Node, camp.parent_id),
+            properties=_pin(_step(constants, Planet.TERRA, where, far * 0.5, bearing=1.9)),
+        )
+        neighbour_id = neighbour.id
+    assert await jobs.run_one(factory, now=term) is not None
+
+    async with factory() as session:
+        node = await session.scalar(
+            select(Node).where(Node.key == explore.key_of(Planet.TERRA, cell))
+        )
+        assert node is not None
+        point = places.geo_of(node)
+        assert point is not None
+        radius = globe.radius_m(constants, Planet.TERRA)
+        _, reach = _reach(constants, node)
+        near = [
+            other
+            for other in (await session.scalars(select(Node).where(Node.planet == Planet.TERRA)))
+            if other.id not in (node.id, camp_id)
+            and places.geo_of(other) is not None
+            and globe.distance_m(radius, places.geo_of(other), point) <= reach
+        ]
+        assert neighbour_id in {one.id for one in near}, (
+            "the neighbour stands within reach -- there was something to sew"
+        )
+
+        edges = list(
+            await session.scalars(
+                select(Edge).where((Edge.node_a_id == node.id) | (Edge.node_b_id == node.id))
+            )
+        )
+        ends = {edge.node_a_id for edge in edges} | {edge.node_b_id for edge in edges}
+        assert ends == {node.id, camp_id}, "one way, and it is the one walked (D-326)"
 
 
 async def _count(factory: async_sessionmaker[AsyncSession], model) -> int:
@@ -481,7 +576,11 @@ async def test_a_body_scouts_again_after_a_run_is_over(
     factory: async_sessionmaker[AsyncSession], constants: Constants, catalog: Catalog
 ) -> None:
     """The second run of a life is not refused: the job's dedup key names the
-    run, not the body (the review of D-321)."""
+    run, not the body (the review of D-321).
+
+    And it is set out on **from the find**: a run ends standing where it went
+    (D-327), so the second one is aimed from there, not from the camp.
+    """
     async with factory() as session, session.begin():
         _, camp, scout = await _camp(session, constants)
         here = places.geo_of(camp)
@@ -490,19 +589,21 @@ async def test_a_body_scouts_again_after_a_run_is_over(
         job = await explore.survey(
             session, constants, scout, _step(constants, Planet.TERRA, here, far * 0.8, bearing=0.0)
         )
-        term, scout_id = job.run_at, scout.id
+        term, scout_id, camp_id = job.run_at, scout.id, camp.id
     assert await jobs.run_one(factory, now=term) is not None
     async with factory() as session, session.begin():
         scout = await session.get(Body, scout_id)
         assert scout is not None
         scout.stamina = constants[R.BODY_STAMINA_MAX]
-        camp = await session.get(Node, scout.node_id)
-        here = places.geo_of(camp)
-        #: Aiming at the node the camp is already joined to is refused before it is paid.
         first = await session.scalar(select(Node).where(Node.key.like("terra.cell.%")))
         assert first is not None
+        assert scout.node_id == first.id, "a run ends on the find (D-185, D-327)"
+        here = places.geo_of(first)
+        #: Aiming back at the camp, to which the find already has a way, is
+        #: refused before it is paid.
+        camp = await session.get(Node, camp_id)
         with pytest.raises(explore.AlreadyJoined):
-            await explore.survey(session, constants, scout, places.geo_of(first))
+            await explore.survey(session, constants, scout, places.geo_of(camp))
         again = await explore.survey(
             session, constants, scout, _step(constants, Planet.TERRA, here, far * 0.8, bearing=2.0)
         )
@@ -704,3 +805,276 @@ async def test_the_aim_reads_the_surface_by_its_index(session: AsyncSession) -> 
     )
     plan = "\n".join(row[0] for row in (await session.execute(text(f"EXPLAIN {window}"))).all())
     assert "ix_node_map_lat" in plan, plan
+
+
+async def test_the_run_ends_standing_on_the_find(
+    factory: async_sessionmaker[AsyncSession], constants: Constants, catalog: Catalog
+) -> None:
+    """A run is a walk out, and it ends where it went (D-185, D-327).
+
+    The price is the walk **one way** -- `_wild_seconds` of the distance, with
+    no return leg in it -- and D-185 settled long ago that the scout stays on
+    the find. The rewrite for the globe (D-321 item 7) lost that quietly, and
+    until 2026-09-09 the body paid a one-way price and came home for free.
+    """
+    async with factory() as session, session.begin():
+        _, camp, scout = await _camp(session, constants)
+        here = places.geo_of(camp)
+        assert here is not None
+        _, far = _reach(constants, camp)
+        job = await explore.survey(
+            session, constants, scout, _step(constants, Planet.TERRA, here, far * 0.8, bearing=0.4)
+        )
+        cell, term, scout_id, camp_id = tuple(job.payload["cell"]), job.run_at, scout.id, camp.id
+        assert scout.node_id == camp_id
+    assert await jobs.run_one(factory, now=term) is not None
+
+    async with factory() as session:
+        node = await session.scalar(
+            select(Node).where(Node.key == explore.key_of(Planet.TERRA, cell))
+        )
+        scout = await session.get(Body, scout_id)
+        assert node is not None and scout is not None
+        assert scout.node_id == node.id, "the scout stands on the find"
+        #: Arrived, not merely appeared: the hearing horizon starts here (D-043).
+        assert scout.node_since == term
+
+
+async def test_the_loser_of_the_race_ends_on_the_node_somebody_else_laid(
+    factory: async_sessionmaker[AsyncSession], constants: Constants, catalog: Catalog
+) -> None:
+    """Walked there all the same: the cell was taken, the feet went the same metres.
+
+    The second scout of a cell gets no node -- they get a way (D-321 item 3) --
+    and afterwards they stand where they would have stood had they been first.
+    """
+    async with factory() as session, session.begin():
+        sphere, camp, scout = await _camp(session, constants)
+        here = places.geo_of(camp)
+        assert here is not None
+        _, far = _reach(constants, camp)
+        target = _step(constants, Planet.TERRA, here, far * 0.8, bearing=0.0)
+        job = await explore.survey(session, constants, scout, target)
+        term, scout_id = job.run_at, scout.id
+        #: The cell is taken before the term is up -- by somebody else's find,
+        #: as in the race.
+        aim = await explore.check(session, constants, camp, target)
+        taken, _ = await explore.materialise(session, constants, catalog, aim, camp, who=None)
+        taken_id = taken.id
+        #: The way that other find laid is removed: with it the run would come
+        #: to an already joined node and would earn no way of its own.
+        await session.execute(
+            Edge.__table__.delete().where(
+                (Edge.node_a_id == taken_id) | (Edge.node_b_id == taken_id)
+            )
+        )
+    assert await jobs.run_one(factory, now=term) is not None
+
+    async with factory() as session:
+        scout = await session.get(Body, scout_id)
+        assert scout is not None
+        assert scout.node_id == taken_id, "the second walked to the same point, and stands on it"
+
+
+async def test_turning_back_leaves_the_scout_where_they_set_out(
+    factory: async_sessionmaker[AsyncSession], constants: Constants, catalog: Catalog
+) -> None:
+    """Turning back: there is no half of a way in this world (D-152, D-194).
+
+    It returns rather than stopping midway -- a node is the unit of place. What
+    was spent is not returned: the stamina went up front, the hours have passed.
+    """
+    async with factory() as session, session.begin():
+        _, camp, scout = await _camp(session, constants)
+        here = places.geo_of(camp)
+        assert here is not None
+        _, far = _reach(constants, camp)
+        job = await explore.survey(
+            session, constants, scout, _step(constants, Planet.TERRA, here, far * 0.8, bearing=1.0)
+        )
+        cell, term, job_id = tuple(job.payload["cell"]), job.run_at, job.id
+        left = float(scout.stamina)
+        await explore.stop(session, scout)
+        assert float(scout.stamina) == left, "the stamina went up front and does not come back"
+        assert scout.node_id == camp.id
+        camp_id = camp.id
+
+    #: The job is dropped, and its term no longer fires anything.
+    assert await jobs.run_one(factory, now=term) is None
+    async with factory() as session:
+        job = await session.get(Job, job_id)
+        assert job is not None and job.state is JobState.CANCELLED
+        laid = await session.scalar(
+            select(func.count())
+            .select_from(Node)
+            .where(Node.key == explore.key_of(Planet.TERRA, cell))
+        )
+        assert laid == 0, "whoever turns back finds nothing"
+        stopped = await session.scalar(
+            select(Event).where(Event.kind == EventKind.EXPLORE_STOPPED.value)
+        )
+        assert stopped is not None and stopped.node_id == camp_id
+
+
+async def test_turning_back_from_nothing_is_refused(
+    factory: async_sessionmaker[AsyncSession], constants: Constants, catalog: Catalog
+) -> None:
+    """Nothing to turn back from: a refusal in words, not a silent "done"."""
+    async with factory() as session, session.begin():
+        _, _, scout = await _camp(session, constants)
+        with pytest.raises(explore.NotOut):
+            await explore.stop(session, scout)
+
+
+async def test_the_run_says_where_it_goes_and_by_when(
+    factory: async_sessionmaker[AsyncSession], constants: Constants, catalog: Catalog
+) -> None:
+    """The map is told the run: where from, where to, and by which two stamps.
+
+    The far end is a **place**, not a key: the node does not exist yet. Nothing
+    already sent lets the client work it out (D-225), so it travels; where the
+    scout is right now does not -- that is the two stamps and a straight line,
+    counted on the client (D-226).
+    """
+    async with factory() as session, session.begin():
+        _, camp, scout = await _camp(session, constants)
+        here = places.geo_of(camp)
+        assert here is not None
+        _, far = _reach(constants, camp)
+        assert await explore.leg_of(session, constants, scout) is None
+        job = await explore.survey(
+            session, constants, scout, _step(constants, Planet.TERRA, here, far * 0.8, bearing=2.5)
+        )
+        leg = await explore.leg_of(session, constants, scout)
+        assert leg is not None
+        assert leg["from_key"] == camp.key
+        assert leg["arrives_at"] == job.run_at.isoformat()
+        #: The point is the cell's centre: exactly where the find will stand.
+        lat, lon = explore.point_of(constants, Planet.TERRA, tuple(job.payload["cell"]))
+        assert leg["place"] == {"lat": lat, "lon": lon}
+        #: The start and the term are one clock's two ends: the share is between.
+        assert datetime.fromisoformat(leg["started_at"]) < job.run_at
+
+
+async def test_the_turn_back_and_the_run_do_not_both_land(
+    factory: async_sessionmaker[AsyncSession],
+    constants: Constants,
+    catalog: Catalog,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The race: a turn-back sent in the very second the job fires.
+
+    Exactly one of the two must win, and the job's row lock is what settles it.
+    The worker holds that row for the whole of its transaction (`jobs._claim`),
+    so the turn-back finds it locked, skips it and refuses -- rather than
+    cancelling a run that has already found something. The other order needs
+    nothing: the worker's claim skips a locked row and reads `cancelled` next
+    time round.
+
+    The window is widened on purpose (`_slow`): on a local database the two
+    sides otherwise miss each other and the race does not reproduce.
+    """
+    async with factory() as session, session.begin():
+        _, camp, scout = await _camp(session, constants)
+        here = places.geo_of(camp)
+        assert here is not None
+        _, far = _reach(constants, camp)
+        job = await explore.survey(
+            session, constants, scout, _step(constants, Planet.TERRA, here, far * 0.8, bearing=1.4)
+        )
+        cell, term, scout_id, camp_id = tuple(job.payload["cell"]), job.run_at, scout.id, camp.id
+
+    #: The find is held between reading the field and writing the node -- the
+    #: very window the turn-back arrives in.
+    _slow(monkeypatch, explore_run, "materialise", delay=0.3)
+
+    async def turn_back() -> str:
+        await asyncio.sleep(0.1)
+        async with factory() as session, session.begin():
+            body = await session.get(Body, scout_id, with_for_update=True)
+            assert body is not None
+            try:
+                await explore.stop(session, body)
+            except explore.NotOut:
+                return "refused"
+            return "stopped"
+
+    ran, said = await asyncio.gather(jobs.run_one(factory, now=term), turn_back())
+
+    async with factory() as session:
+        found = await session.scalar(
+            select(Node).where(Node.key == explore.key_of(Planet.TERRA, cell))
+        )
+        body = await session.get(Body, scout_id)
+        assert body is not None
+        if said == "refused":
+            #: The job won: the find is there, and the scout stands on it.
+            assert ran is not None and found is not None
+            assert body.node_id == found.id
+        else:
+            #: The turn-back won: no node, and the scout is where they set out.
+            assert found is None
+            assert body.node_id == camp_id
+
+
+async def test_a_cart_does_not_go_into_the_wild(
+    factory: async_sessionmaker[AsyncSession], constants: Constants, catalog: Catalog
+) -> None:
+    """Harnessed, one does not scout: a cart crosses neither wild nor trail (D-157).
+
+    D-185 had the convoy follow the scout to the find, and that was written
+    before the surfaces decided what a cart may cross. Left alone it also made
+    the run free: `transport.stamina_k` is nought, because a cart carries
+    instead of legs -- so a harnessed run cost no strength at all, against
+    D-321 item 7's "as much stamina as the walk".
+    """
+    async with factory() as session, session.begin():
+        _, camp, scout = await _camp(session, constants)
+        here = places.geo_of(camp)
+        assert here is not None
+        _, far = _reach(constants, camp)
+        yard = await world.node_container(session, camp)
+        cart = await world.grant_item(session, yard, "cart", amount=1, origin="test")
+        await transport.harness(session, constants, catalog, scout, cart)
+        with pytest.raises(explore.Harnessed):
+            await explore.survey(
+                session,
+                constants,
+                scout,
+                _step(constants, Planet.TERRA, here, far * 0.8, bearing=0.2),
+            )
+
+
+async def test_a_shut_place_is_not_aimed_at(
+    factory: async_sessionmaker[AsyncSession], constants: Constants, catalog: Catalog
+) -> None:
+    """A cell somebody has shut is a cell one may not aim at (D-199, D-327).
+
+    A run ends standing where it went, so its far end has the same door a road
+    has (`travel.depart` asks `access.require_entry`). Without this the survey
+    command was a way into a fenced place -- one `may_enter` refuses to
+    everybody not on the list -- and the map from inside it came with it.
+    """
+    async with factory() as session, session.begin():
+        sphere, camp, scout = await _camp(session, constants)
+        here = places.geo_of(camp)
+        assert here is not None
+        _, far = _reach(constants, camp)
+        target = _step(constants, Planet.TERRA, here, far * 0.8, bearing=2.9)
+        theirs = await world.create_identity(session, "Somebody")
+        cell = explore.cell_of(constants, Planet.TERRA, target)
+        yard = await world.create_node(
+            session,
+            "terra.yard",
+            "Yard",
+            planet=Planet.TERRA,
+            area_m2=60,
+            parent=sphere,
+            properties=_pin(explore.point_of(constants, Planet.TERRA, cell)),
+        )
+        yard.owner_identity_id = theirs.id
+        yard.gated = True
+        await session.flush()
+        assert not await access.may_enter(session, yard, scout.identity_id)
+        with pytest.raises(explore.Shut):
+            await explore.survey(session, constants, scout, target)

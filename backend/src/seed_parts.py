@@ -23,7 +23,7 @@ from typing import NamedTuple
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src import seed_world
+from src import seed_world, sky
 from src.constants import current, current_catalog
 from src.constants import registry as R
 from src.constants.catalog import ItemKind
@@ -84,35 +84,6 @@ class Orbit(NamedTuple):
     #: fifth planet somebody adds.
     genitive: str
     planet: Planet
-    #: Radius in the map's own units. **Keplerian** since D-271: the periods
-    #: are the tuned numbers (they set how often the windows open), and the
-    #: radii follow from them by the third law -- `r^3 / T^2` is the same for
-    #: every planet, Terra's 136 at 28 days being the measure. The star's pull
-    #: is read off the orbits (`course.mu_of`), so a radius that broke the law
-    #: would price every passage differently by the planet it left from;
-    #: `tests/test_seed` pins the agreement.
-    radius: float
-    #: A full circle, in real days. This is not astronomy: the number decides
-    #: how fast the sky turns. Terra's month is the measure -- some twelve
-    #: degrees a day, so between two evenings the map looks different while
-    #: inside one sitting it stands still.
-    #:
-    #: **The spread matters more than any single value.** What a player waits
-    #: for is not a lap but a **conjunction**, and two planets meet every
-    #: `Ta*Tb / |Ta-Tb|` days -- so periods lying close together mean meetings
-    #: once a season, however briskly each planet runs. Hence the inner planets
-    #: are fast and the outer ones slow, the way a real system is arranged.
-    #:
-    #: Two floors bound the spread from below. A pair can never meet more often
-    #: than the **inner** planet's own year, whatever the outer one does. And a
-    #: passage must stay a small share of the target's year, or aiming at a
-    #: planet turns into chasing it, and half a day of delay costs a fivefold
-    #: flight. Pyroxis is the tight one: it is the fastest, and every passage to
-    #: it is measured against its short year.
-    period_days: float
-    #: Where the planet stood at the world's epoch, radians. Spread by hand:
-    #: a system that starts in a line looks like a bug.
-    phase: float
     #: Drawn, but not playable yet (D-104).
     deferred: bool = False
     #: The planet's climate (D-231): «мерзлота», «пекло» -- or nothing, where
@@ -124,11 +95,17 @@ class Orbit(NamedTuple):
 #: The system, from the star outwards. Aquatica is here **because** it is out
 #: of the alpha: what cannot be reached is shown and marked, so that a player
 #: sees from the first day where the road does not go yet (50-interface/05).
+#:
+#: **Where each world circles is not here**: the year and the phase are the
+#: vault's (`orbit.period_days`, `orbit.phase`) and the radius follows from
+#: the year by Kepler -- `sky.circle_of`. They were written out here until
+#: 2026-09-08, which put three balance numbers in code against D-065 and let
+#: a radius be typed that the third law does not allow.
 SYSTEM = (
-    Orbit("pyroxis", "Пироксис", "Пироксиса", Planet.PYROXIS, 72.95, 11, 0.80, climate=frost.HEAT),
-    Orbit("terra", "Терра", "Терры", Planet.TERRA, 136.0, 28, 2.10),
-    Orbit("aquatica", "Акватика", "Акватики", Planet.AQUATICA, 250.51, 70, 4.00, deferred=True),
-    Orbit("aurora", "Аврора", "Авроры", Planet.AURORA, 378.52, 130, 2.28, climate=frost.FROST),
+    Orbit("pyroxis", "Пироксис", "Пироксиса", Planet.PYROXIS, climate=frost.HEAT),
+    Orbit("terra", "Терра", "Терры", Planet.TERRA),
+    Orbit("aquatica", "Акватика", "Акватики", Planet.AQUATICA, deferred=True),
+    Orbit("aurora", "Аврора", "Авроры", Planet.AURORA, climate=frost.FROST),
 )
 
 
@@ -150,12 +127,14 @@ async def system(session: AsyncSession) -> Node:
     Idempotent, and that is what makes it a catch-up too: an existing planet
     keeps everything it carries and only learns its orbit.
     """
+    constants = current()
     for circle in SYSTEM:
+        radius, period, phase = sky.circle_of(constants, circle.key)
         marks: dict[str, object] = {
             world.ORBIT: {
-                world.ORBIT_RADIUS: circle.radius,
-                world.ORBIT_PERIOD: circle.period_days,
-                world.ORBIT_PHASE: circle.phase,
+                world.ORBIT_RADIUS: radius,
+                world.ORBIT_PERIOD: period,
+                world.ORBIT_PHASE: phase,
             },
         }
         if circle.deferred:

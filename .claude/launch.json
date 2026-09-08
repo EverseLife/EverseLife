@@ -40,6 +40,15 @@
       "port": 8000
     },
     {
+      "name": "backend-worker",
+      "runtimeExecutable": "powershell",
+      "runtimeArgs": [
+        "-Command",
+        "$env:EVERSELIFE_VAULT_BUILD='C:/Users/nurla/PycharmProjects/everselife-vault/build'; & 'C:/Users/nurla/PycharmProjects/everselife/backend/.venv/Scripts/python.exe' -m src.worker"
+      ],
+      "cwd": "backend"
+    },
+    {
       "name": "backend-check",
       "runtimeExecutable": ".venv/Scripts/python.exe",
       "runtimeArgs": [
@@ -82,6 +91,46 @@
         "--no-browser"
       ],
       "port": 8766
+    },
+    {
+      "name": "backend-globe",
+      "runtimeExecutable": "powershell",
+      "runtimeArgs": [
+        "-Command",
+        "$env:EVERSELIFE_DATABASE_URL='postgresql+asyncpg://everselife:everselife@localhost/everselife_play'; $env:EVERSELIFE_VAULT_BUILD='C:/Users/nurla/PycharmProjects/everselife-vault/build'; & 'C:/Users/nurla/PycharmProjects/everselife/backend/.venv/Scripts/python.exe' -m uvicorn src.api.app:app --port 8002"
+      ],
+      "cwd": "backend",
+      "port": 8002
+    },
+    {
+      "name": "frontend-globe",
+      "runtimeExecutable": "powershell",
+      "runtimeArgs": [
+        "-Command",
+        "$env:VITE_API='http://localhost:8002'; npm run dev -- --port 5177 --strictPort"
+      ],
+      "cwd": "frontend",
+      "port": 5177
+    },
+    {
+      "name": "backend-zoom",
+      "runtimeExecutable": "powershell",
+      "runtimeArgs": [
+        "-Command",
+        "$env:EVERSELIFE_DATABASE_URL='postgresql+asyncpg://everselife:everselife@localhost/everselife_zoom'; $env:EVERSELIFE_VAULT_BUILD='C:/Users/nurla/PycharmProjects/everselife-vault/build'; & 'C:/Users/nurla/PycharmProjects/everselife/backend/.venv/Scripts/python.exe' -m uvicorn src.api.app:app --port 8003"
+      ],
+      "cwd": "backend",
+      "port": 8003
+    },
+    {
+      "name": "frontend-zoom",
+      "runtimeExecutable": "powershell",
+      "runtimeArgs": [
+        "-Command",
+        "$env:VITE_API='http://localhost:8003'; npm run dev -- --port 5178 --strictPort"
+      ],
+      "cwd": "frontend",
+      "port": 5178
     }
   ]
 }

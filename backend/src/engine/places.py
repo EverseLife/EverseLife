@@ -129,11 +129,52 @@ def geo_of(node: Node) -> globe.Geo | None:
     return _geo(node.properties)
 
 
+def beside(constants: Constants, anchor: Node, key: str) -> globe.Geo | None:
+    """A point one gap from a node, in a direction of `key`'s own.
+
+    The one place that steps off the rings this module lays without searching
+    for a free seat (`_geo_seat`). It is for what is **not** a node of the
+    world and never will be: a hull moored at a pier, which the map has to
+    draw somewhere and which sails away again (`ship.view.sight`). A view may
+    not reserve anything -- it answers a question -- so this walks out by the
+    gap and takes what it finds, and a hull may end up beside a node's mark.
+    That is the price of not writing, and it is paid here rather than in the
+    view, so that the module which owns the gap owns its one exception too.
+
+    Exactly **one** gap out, whoever asks: `map.min_gap_m` is the floor on how
+    near two things stand, and walking out by multiples of it would carry the
+    tenth hull across a city thirty metres wide. What differs between two of
+    them is the direction, read off the key the way a node's lean is
+    (`_direction`) -- stable for ever (D-007), so the same hull is drawn in
+    the same spot for everybody, and two hulls at one pier do not coincide
+    even where they share a berth.
+
+    None where the anchor is not on a sphere at all: the sky, or an inside.
+    """
+    at = _geo(anchor.properties)
+    if at is None:
+        return None
+    gap = float(constants[R.MAP_MIN_GAP_M])
+    turn = _direction(key)
+    radius = globe.radius_m(constants, anchor.planet)
+    return globe.offset(radius, at, gap * math.cos(turn), gap * math.sin(turn))
+
+
+def wire_geo(point: globe.Geo) -> dict[str, float]:
+    """A point on the sphere as the client is told it.
+
+    The one spelling of a place on the wire, so that a node which has one and
+    a view which lends one (a hull at its pier, `ship.view.sight`) cannot
+    drift apart in the keys they use.
+    """
+    return {"lat": point[0], "lon": point[1]}
+
+
 def wire(node: Node) -> dict[str, float] | None:
     """The place as the client is told it. The data key is the world's, this one is the code's."""
     on_sphere = geo_of(node)
     if on_sphere is not None:
-        return {"lat": on_sphere[0], "lon": on_sphere[1]}
+        return wire_geo(on_sphere)
     flat = place_of(node)
     return None if flat is None else {"x": flat[0], "y": flat[1]}
 

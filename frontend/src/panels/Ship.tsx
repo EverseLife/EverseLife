@@ -29,7 +29,8 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { stationsOf, worldMap, type Look, type WorldMap } from "../api";
+import { standingMap, stationsOf, worldMap, type Look, type WorldMap } from "../api";
+import { oneEach } from "./map/geo";
 import { Deadline } from "../Deadline";
 import { Rule } from "../Rule";
 import { busyWith } from "../busy";
@@ -58,6 +59,10 @@ const SPACEPORT = "shipyard";
 const ABOARD = "aboard";
 /** The console's class: the ship is commanded from it (D-230). */
 const BRIDGE = "bridge";
+/** The ground console's class (D-242). Named here to say what to put up when
+ *  the one standing here is somebody else's -- by its key, so the word the
+ *  player reads is the vault's own and follows a rename (D-251). */
+const GROUND_BRIDGE = "ground_bridge";
 /**
  * The occupation a keel being laid is (D-211, `engine.occupation`).
  *
@@ -233,9 +238,54 @@ function Ascent({
           })}
         </p>
       )}
+      {/* The warning D-288 asks the bridge for: not only the death, but the
+          plumbing that leads to it. A hull whose life support stands on an
+          empty line seals on lifting off and the crew suffocates on the way
+          up -- which is what happened the first time this was flown. The
+          engine does not refuse it, and should not: a hull may be flown empty
+          on purpose, and since D-289 what the tanks lack is the console's
+          warning rather than the helm's refusal. So it is named before the
+          order, beside the fuel, which is named the same way.
+
+          Only with somebody aboard -- an empty hull has no breath to lose --
+          and only where there is a system at all: a hull without one is
+          already told so on the line above, and a second line about that
+          system's line would be a machine nobody has.
+
+          Not gated on `air.sealed`, and worded for that: at the pier under a
+          sky with air in it the hatch is open and the crew breathes fine, so
+          the warning says what is aboard and what the shut hatch would mean.
+          Gating it would hide it exactly where it is worth reading -- before
+          the order, with the hatch still open. */}
+      {vessel.crew > 0 && vessel.life_support && vessel.air.units <= 0 && (
+        <p className="reason">
+          {/* Two words for two troubles (D-288), chosen here rather than by a
+              variant inside one message: a bottle to find is not a line to
+              draw. The figure goes in spelled out, as every count in this
+              window does -- handed to Fluent as a number it would come back
+              with a thousands separator the card beside it does not use. */}
+          {vessel.air.off_line > 0
+            ? t("ui-ship-airless-stowed", { off: spelt(vessel.air.off_line) })
+            : t("ui-ship-airless-none")}
+        </p>
+      )}
       <p className="note">{t("ui-ship-course-later")}</p>
     </>
   );
+}
+
+/**
+ * A count as this window writes one: whole units once there are many of them,
+ * a tenth of one while there are few.
+ *
+ * The server rounds a reserve to the tenth it keeps it in, and a bare
+ * `toFixed(0)` turned four tenths of a bottle into «0» -- under a sentence
+ * that had just said there was some, and told the reader to draw a line to
+ * it. The figure and the sentence must agree about whether anything is there.
+ */
+const SPELT_TENTHS_TO = 10;
+function spelt(amount: number): string {
+  return amount < SPELT_TENTHS_TO ? amount.toFixed(1) : amount.toFixed(0);
 }
 
 /** The nameplate: the owner's word, and the engine makes nothing of it (D-240). */
@@ -304,12 +354,14 @@ export function Ship({
   const [course, setCourse] = useState<Target | null>(null);
   //: The arc under the slider's thumb, for the chart (D-289).
   const [plan, setPlan] = useState<[number, number][] | null>(null);
-  //: The public map, read once for the console: the spheres for the chart
-  //: -- the sky is answered to everybody (D-240), so this read works in
-  //: flight, where the hull has no edges -- and the surface the landing is
-  //: picked on (`Landing`). Without a token on purpose: the anonymous map
-  //: carries every node of a planet's surface (D-319 item 7), where the
-  //: body's own map from orbit carries only what it sees and remembers.
+  //: The map read once for the console: the spheres for the chart -- the sky
+  //: is answered to everybody (D-240), so this read works in flight, where
+  //: the hull has no edges -- and the surface the landing is picked on
+  //: (`Landing`). Two reads laid over each other: the anonymous snapshot
+  //: (D-319 item 7), which carries every node of a planet's surface but is
+  //: `map.public_delay_days` behind, and the body's own map, which carries
+  //: only what it sees and remembers but is of this minute. Why both, and
+  //: what it costs, is at the read below.
   const [world, setWorld] = useState<WorldMap | null>(null);
   const sky = useMemo(() => world?.nodes.filter((node) => node.orbit) ?? [], [world]);
 
@@ -352,12 +404,40 @@ export function Ship({
   //: Whether this window gives orders at all: the bridge aboard, or the ground
   //: console. The ship's own card gives none and asks for no chart.
   const orders = atConsole || ground;
+  //: What the personal map is read from, said the same way the map window
+  //: says it: the node stood in and the exits out of it. The same stand is
+  //: the same map, and the two windows then share one read.
+  const stand = `${look.node?.key ?? ""}|${(look.exits ?? []).map((path) => path.key).join("|")}`;
   useEffect(() => {
     if (!orders) return;
-    void worldMap()
-      .then(setWorld)
-      .catch(() => setWorld(null));
-  }, [orders]);
+    //: Both maps, the crew's own laid over the public one (owner,
+    //: 2026-09-08). The public snapshot is what the **world** knows, and
+    //: choosing a pier by it is what D-319 item 7 asked for -- but it is
+    //: served `map.public_delay_days` late, so a world younger than that
+    //: delay has no public map at all, and its first crews met a globe with
+    //: nothing on it. What one's own map knows fills that in: a pier one has
+    //: seen or remembers is drawn even where the snapshot has not caught up.
+    //: Either half may fail on its own and the other still draws a globe --
+    //: caught apart for that reason, and not once around both.
+    let live = true;
+    void Promise.all([
+      worldMap().catch(() => null),
+      //: The map the window beside this one already read from this stand.
+      standingMap(session.token, stand).catch(() => null),
+    ]).then(([open, own]) => {
+      if (!live) return;
+      setWorld(
+        open || own
+          ? { ...(open ?? own!), nodes: oneEach([...(open?.nodes ?? []), ...(own?.nodes ?? [])]) }
+          : null,
+      );
+    });
+    //: A stand left while its answer was still coming must not paint the
+    //: globe of the stand before it.
+    return () => {
+      live = false;
+    };
+  }, [orders, session.token, stand]);
 
   const go = (what: () => Promise<unknown>) =>
     act(async () => {
@@ -409,6 +489,14 @@ export function Ship({
         //: (D-242). Said once, above, and every order greyed out with it --
         //: a refusal collected after the click says the same thing too late.
         const deaf = ground && !v.bridge;
+        //: And a console one may not work at answers nothing either: orders
+        //: are given from one's own (`ship.command`, the `may_build` right --
+        //: the same flag the floor's window is worded by). Said here for the
+        //: same reason as `deaf`: the chart, the slider and «Лететь» stood
+        //: lit over a pult that refused every one of them, and the reason
+        //: arrived only after the click.
+        const borrowed = ground && look.floor?.mine === false;
+        const mute = deaf || borrowed;
         return (
         <div key={v.ship}>
           <p className="sign">
@@ -466,6 +554,16 @@ export function Ship({
               {deaf && (
                 <p className="reason">{t("ui-ship-deaf")}</p>
               )}
+              {borrowed && (
+                <p className="reason">
+                  {t("ui-ship-console-borrowed", {
+                    console: goodsName(
+                      names,
+                      firstOfClass(book, stationsOf(look), GROUND_BRIDGE) ?? "",
+                    ),
+                  })}
+                </p>
+              )}
               <Chart
                 vessel={v}
                 planets={sky}
@@ -480,7 +578,7 @@ export function Ship({
               {v.stage === "port" ? (
                 <Ascent
                   vessel={v}
-                  busy={busy || deaf}
+                  busy={busy || mute}
                   ascend={() => go(() => session.send("ship.ascend", { ship: v.ship }))}
                 />
               ) : v.stage === "lost" ? (
@@ -489,7 +587,7 @@ export function Ship({
                 <Passage
                   v={v}
                   busy={busy}
-                  deaf={deaf}
+                  mute={mute}
                   recall={() => go(() => session.send("ship.recall", { ship: v.ship }))}
                   cancel={() => go(() => session.send("ship.cancel", { ship: v.ship }))}
                   orbit={() => go(() => session.send("ship.orbit", { ship: v.ship }))}
@@ -502,7 +600,7 @@ export function Ship({
                   {v.stage === "adrift" ? (
                     <Drift
                       v={v}
-                      busy={busy || deaf}
+                      busy={busy || mute}
                       dock={(other) =>
                         go(() => session.send("ship.dock", { ship: v.ship, ship_target: other }))
                       }
@@ -512,7 +610,7 @@ export function Ship({
                   ) : (
                     <Landing
                       vessel={v}
-                      busy={busy || deaf}
+                      busy={busy || mute}
                       book={book}
                       clock={look.clock}
                       world={world}
@@ -522,7 +620,7 @@ export function Ship({
                   <Course
                     vessel={v}
                     target={course}
-                    busy={busy || deaf}
+                    busy={busy || mute}
                     fly={(to, hours) =>
                       go(() =>
                         session.send(
@@ -547,7 +645,7 @@ export function Ship({
               {v.yours && (
                 <Feed
                   vessel={v}
-                  busy={busy || deaf}
+                  busy={busy || mute}
                   plumb={(machine, port, vessels) =>
                     go(() => session.send("line.set", { ship: v.ship, machine, port, vessels }))
                   }

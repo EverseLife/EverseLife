@@ -349,9 +349,39 @@ async def cross(
     decide for the person what to drop, it only does not let through.
     """
 
+    return await between(
+        session,
+        constants,
+        catalog,
+        body,
+        from_node,
+        await town.of_node(session, from_node),
+        await town.of_node(session, to_node),
+        now=now,
+    )
+
+
+async def between(
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    body: Body,
+    from_node: Node,
+    origin: City | None,
+    dest: City | None,
+    *,
+    now: datetime | None = None,
+) -> list[Charge]:
+    """The same crossing, told by cities rather than by the node one lands on.
+
+    A scout's run has no node at the far end to ask (D-327): the find is not
+    laid until the run is over. Which city it will belong to is known long
+    before the node is, and it is none -- a find is ownerless land outside
+    every city -- so the run is settled through this door instead. `from_node`
+    is still wanted, but only to say in the journal where the crossing was
+    counted from.
+    """
     moment = now or datetime.now(UTC)
-    origin = await town.of_node(session, from_node)
-    dest = await town.of_node(session, to_node)
     if (origin is None and dest is None) or (
         origin is not None and dest is not None and origin.id == dest.id
     ):

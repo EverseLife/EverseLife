@@ -19,6 +19,7 @@ import type { RecipeBook } from "../../api";
 import {
   SKY_BOUNDS,
   STREET_SCALE,
+  boundsOf,
   cityOpen,
   descentOf,
   farOf,
@@ -178,7 +179,7 @@ export function useHandOver({
   book,
   mySphere,
   setPlanetFocus,
-  floor,
+  surface,
 }: {
   band: Band;
   zoomed: Facts;
@@ -187,9 +188,29 @@ export function useHandOver({
   book: RecipeBook | null;
   mySphere: string | null;
   setPlanetFocus: (planet: string | null) => void;
-  /** The surface's floor: where the disk is opened just above. */
-  floor: number;
+  /** The surface's bounds, whose `furthest` is the floor the disk opens just
+   *  above and whose pair the door clamps a frame into. */
+  surface: Surface;
 }) {
+  const floor = surface.furthest;
+  /**
+   * Through the door, and into the heights the band is drawn at.
+   *
+   * The bands share no scale: a frame that holds a continent holds a cabin as
+   * a speck. The wheel's hand-over below sets the scale on the way between
+   * the sky and the surface; the door had nobody to set it, so «Внутрь» from
+   * a frame a thousand kilometres wide opened the inside empty -- one node
+   * drawn under a pixel, with a door to close and nothing else in the field.
+   * A scale already within the band is left alone: passing a door must not
+   * jerk a frame that was fine.
+   */
+  const enterBand = (next: Band) => {
+    enter(next);
+    const bounds = boundsOf(next, surface);
+    const held = cam.frame().scale;
+    const within = Math.min(bounds.nearest, Math.max(bounds.furthest, held));
+    if (within !== held) cam.zoomOnMiddle(within);
+  };
   /** Open a planet's surface from the sky, the true disk the marker's size. */
   const open = (planet: string) => {
     setPlanetFocus(planet);
@@ -214,5 +235,5 @@ export function useHandOver({
     open(planet);
     cam.zoomToward(STREET_SCALE);
   };
-  return { descend };
+  return { descend, enterBand };
 }

@@ -51,7 +51,10 @@ export type Point = { x: number; y: number };
 /** An edge as the map draws it: two keys of **this** layer and what lies between. */
 export type Link = { a: string; b: string; surface: string; seconds: number };
 
-export const DASH: Record<string, string | undefined> = { wild: "1 7", trail: "4 6" };
+export const DASH: Record<string, string | undefined> = {
+  wild: "1 7",
+  trail: "4 6",
+};
 
 /**
  * The identity of a journey: where it ends, by key, or nothing when one
@@ -112,19 +115,84 @@ export function delegate(
 }
 
 /**
+ * The nodes as they are **drawn**: a city carries its bioprinter's place.
+ *
+ * A city is drawn on the node it grew from (D-319) -- the door a newcomer is
+ * printed at (D-032). Its own coordinates are the anchor the layout hung the
+ * city on, and standing the point there put it beside the printer, not on it.
+ * Which node that is comes from the server (`core`): the map carries no
+ * machines and could not tell (D-225).
+ *
+ * The swap happens **here**, on the way into the projection, and not in the
+ * lookup that reads a drawn point afterwards. Looked up, a closed city asked
+ * for the place of a node the scene was not drawing -- with the cities closed
+ * the printer is not in the scene, only the city is -- and got nothing, so
+ * the city vanished from the map instead of moving onto it.
+ *
+ * With the cities open a city's own point is not drawn at all
+ * (`useScene.visibleOf`), so this changes nothing there.
+ */
+export function drawnAt(
+  byKey: Record<string, MapNode>,
+  nodes: readonly MapNode[],
+): MapNode[] {
+  return nodes.map((node) => {
+    const core = node.core ? byKey[node.core] : undefined;
+    return core?.place ? { ...node, place: core.place } : node;
+  });
+}
+
+/**
+ * The cities of a map: the nodes others hang under.
+ *
+ * One reading for the scene and for the delegates. The wire has no city layer
+ * -- the world's are the sky, the surface and the inside (D-319) -- and the
+ * client puts one on for itself in `geo.withCityScene`; this reads that.
+ */
+export function settlementsOf(nodes: readonly MapNode[]): Set<string> {
+  //: What is read here is already worked out: the `"city"` layer is put on
+  //: by the client itself (`geo.withCityScene`), on a surface node whose
+  //: parent stands on the surface too. Repeating that rule here would be a
+  //: second reading of one thing, and the two would part at the first edit.
+  const out = new Set<string>();
+  for (const node of nodes)
+    if (node.layer === "city" && node.parent) out.add(node.parent);
+  return out;
+}
+
+/**
  * The node's delegate among several layers: the nearest ancestor, itself
  * included, that is drawn in a scene showing these layers. On the surface
  * with the cities open that is the node itself or its city; with the cities
  * closed, the city alone -- and a wild node, which has no city, is its own.
+ *
+ * `settlements` is what a closed city is climbed to. Without it a member of
+ * a city delegated to **itself** once the `"city"` layer went (D-319), so
+ * with the cities closed the roads were drawn between nodes the scene was no
+ * longer drawing -- and vanished.
  */
 export function delegateAmong(
   byKey: Record<string, MapNode>,
   key: string,
   layers: readonly string[],
+  settlements: ReadonlySet<string> = new Set(),
 ): string | null {
+  const closed = !layers.includes("city");
   let cursor: MapNode | undefined = byKey[key];
   while (cursor) {
-    if (layers.includes(cursor.layer)) return cursor.key;
+    if (layers.includes(cursor.layer)) {
+      const up: MapNode | undefined = cursor.parent
+        ? byKey[cursor.parent]
+        : undefined;
+      //: A closed city answers for its own: the climb goes on while the
+      //: parent is a city. A planet never is one -- it is in the sky, not on
+      //: the surface.
+      if (closed && up && up.layer === "planet" && settlements.has(up.key)) {
+        cursor = up;
+        continue;
+      }
+      return cursor.key;
+    }
     cursor = cursor.parent ? byKey[cursor.parent] : undefined;
   }
   return null;

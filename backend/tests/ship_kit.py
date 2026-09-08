@@ -16,9 +16,8 @@ import numpy as np
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src import seed_parts, sky
+from src import sky
 from src.constants import Catalog, Constants, current
-from src.constants import registry as R
 from src.engine import ship, storage, travel, world
 from src.engine.ship import fate, hold, lines, sim
 from src.models.estate import Building
@@ -38,16 +37,20 @@ TANK = "fuel_tank"
 
 CONSOLE = "ship_console"
 
-#: The seed's system, as `world.orbit_of` reads it: Keplerian, so that every
-#: planet gives the same pull of the star (D-271).
-ORBITS = {
-    circle.planet: {
-        world.ORBIT_RADIUS: circle.radius,
-        world.ORBIT_PERIOD: circle.period_days,
-        world.ORBIT_PHASE: circle.phase,
+
+def orbit_marks(planet: Planet) -> dict:
+    """The seed's orbit for one world, as `world.orbit_of` reads it.
+
+    The vault's own since 2026-09-08 (`sky.circle_of`): a year from
+    `orbit.period_days`, a radius from it by Kepler. Asked for rather than
+    laid out at import, because a constant set has to be loaded first.
+    """
+    radius, period, phase = sky.circle_of(current(), planet.value)
+    return {
+        world.ORBIT_RADIUS: radius,
+        world.ORBIT_PERIOD: period,
+        world.ORBIT_PHASE: phase,
     }
-    for circle in seed_parts.SYSTEM
-}
 
 
 async def _orbit(session: AsyncSession, planet: Planet = Planet.TERRA) -> Node:
@@ -66,7 +69,7 @@ async def _orbit(session: AsyncSession, planet: Planet = Planet.TERRA) -> Node:
         layer=Layer.SPACE,
         #: The seed's orbit (D-271): a passage is a Lambert arc between two
         #: orbits, and a planet without one is a planet nothing crosses to.
-        properties={world.ORBIT: ORBITS[planet]},
+        properties={world.ORBIT: orbit_marks(planet)},
     )
     key = ship.orbit_key(planet)
     return (await select_node(session, key)) or await world.create_node(
@@ -405,7 +408,7 @@ async def _plunging(
     terra = world.body(Planet.TERRA.value)
     t = await ship.sky_days(session, now)
     p, vp = sky.place(terra, t)
-    gap = float(constants[R.ORBIT_PARK_RADIUS])
+    gap = sky.park_of(world, terra)
     here = (float(p[0, 0]) + gap, float(p[0, 1]))
     #: Straight at the centre at the circle's own speed: the ground in hours.
     falling = (float(vp[0, 0]) - float(np.sqrt(terra.mu / gap)), float(vp[0, 1]))

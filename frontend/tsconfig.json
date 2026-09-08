@@ -1,4 +1,9 @@
 {
+  // This file lists no sources of its own: it is the solution, and the two
+  // projects below are what actually hold them. So `tsc --noEmit` here checks
+  // *nothing* and exits zero -- a green answer to a question nobody asked.
+  // The typecheck is `npm run typecheck` (`tsc -b`), which is what the build
+  // and CI run.
   "files": [],
   "references": [
     { "path": "./tsconfig.app.json" },

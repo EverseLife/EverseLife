@@ -230,8 +230,9 @@ async def test_turning_back_costs_the_way_already_flown(
     #: an object that has not seen the row since the insert.
     await session.refresh(flight)
 
-    #: Half a day out. The way back is half a day, to the pier it left. Well
-    #: past the landing floor, so what is pinned here is the rule itself.
+    #: Half a day out. The way back is half a day, to the pier it left: the
+    #: rule is the whole of it -- as long back as forth, and no floor under
+    #: that (D-242, D-245, 2026-09-08).
     gone = timedelta(hours=12)
     moment = flight.created_at + gone
     before = await ship.fuel_aboard(session, constants, catalog, vessel)
@@ -320,15 +321,20 @@ async def test_a_turn_back_to_a_pier_without_a_yard_is_refused(
         )
 
 
-async def test_a_turn_back_never_costs_less_than_a_landing(
+async def test_a_climb_turned_back_at_once_costs_what_it_flew_and_no_more(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Turned round in the first minute, a hull has gone nowhere -- and still
-    has to come down.
+    """An order taken back in the first seconds is an order taken back.
 
-    Without a floor the arithmetic put it back on the pier at once and for
-    nothing, which is a way to skip the hours every descent costs (D-245): lift,
-    turn back, and be down again before the gauge has moved.
+    D-242 says it plainly -- "обратный путь длится столько же, сколько уже
+    пройдено... новых чисел нет" -- and the implementation had grown one: a
+    whole landing's worth, floored under every turn-back to ground. It was put
+    there against "отстыковаться, нацелиться куда угодно, развернуться", and
+    D-289 took that away: a crossing under the sky is not turned back at all
+    now, so the only leg that turns back to ground is a climb, and a climb
+    turned back at once is a hull that never left the pad. Ten seconds of
+    climb was answering "two and a half hours home", which is not a rule
+    anybody could read off the world.
     """
     home = await _port(session, name="Космодром столицы")
     _, owner = await _shipwright(session, home)
@@ -341,16 +347,20 @@ async def test_a_turn_back_never_costs_less_than_a_landing(
     flight = await ship.ascend(session, constants, catalog, owner, vessel)
     await session.refresh(flight)
 
-    before = await ship.fuel_aboard(session, constants, catalog, vessel)
-    #: Turned round the same second it set out.
-    arrives = await ship.recall(session, constants, catalog, owner, vessel, now=flight.created_at)
-
-    thrust_ratio = await ship.ratio(session, constants, catalog, vessel)
-    landing = ship.fall_hours(constants, Planet.TERRA, thrust_ratio)
-    assert arrives - flight.created_at == pytest.approx(
-        timedelta(hours=landing), abs=timedelta(seconds=1)
-    ), "разворот в ту же секунду всё равно длится посадку"
-    assert await ship.fuel_aboard(session, constants, catalog, vessel) < before, "и стоит топлива"
+    #: Ten seconds up, ten seconds back.
+    gone = timedelta(seconds=10)
+    arrives = await ship.recall(
+        session, constants, catalog, owner, vessel, now=flight.created_at + gone
+    )
+    assert arrives - flight.created_at == pytest.approx(2 * gone, abs=timedelta(seconds=1)), (
+        "разворот длится столько, сколько уже пройдено, и ни часом больше"
+    )
+    #: And it is not free of the world either: the leg that was is dropped, and
+    #: the hull is going home rather than up.
+    await session.refresh(flight)
+    assert flight.state is JobState.CANCELLED
+    back = await _passage_of(session, vessel)
+    assert back is not None and back.payload["back"] is True
 
 
 async def test_somebody_elses_ground_console_is_refused(

@@ -90,6 +90,7 @@ class EventKind(StrEnum):
     EXPLORE_STARTED = "explore.started"
     EXPLORE_FOUND = "explore.found"
     EXPLORE_EMPTY = "explore.empty"
+    EXPLORE_STOPPED = "explore.stopped"
 
     # the planet redraws its own map (D-197, D-233)
     #: The free signal: these nodes will be shaken, and what lies in them burns.

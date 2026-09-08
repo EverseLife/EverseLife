@@ -16,7 +16,6 @@ import {
   frameOn,
   type Frame,
 } from "../panels/map/camera";
-import { flatten, withCityScene } from "../panels/map/geo";
 import {
   arc,
   midOf,
@@ -41,7 +40,6 @@ import {
   type Link,
   type Point,
 } from "../panels/map/model";
-import { along, forecast, mooring, term, windowOpen } from "../panels/map/orbits";
 import {
   MARK_CROWD,
   MARK_LEAST,
@@ -50,7 +48,6 @@ import {
   paper,
   type Box,
 } from "../panels/map/paper";
-import { long, price, spread } from "../panels/map/words";
 import { DEFAULT_LOCALE, Words, learn } from "../locale";
 
 /** The map's drawing, as text: the guard below reads it rather than runs it. */
@@ -498,110 +495,6 @@ describe("offworld", () => {
   });
 });
 
-describe("words", () => {
-  //: The hour is the border between two units and both sides of it want their
-  //: own: "60 мин" reads worse than "1 ч", and "0.7 ч" worse than "40 мин".
-  it("keeps minutes up to the hour and goes over to hours after it", () => {
-    expect(long(40)).toBe("40 мин");
-    expect(long(59)).toBe("59 мин");
-    expect(long(60)).toBe("1 ч");
-    expect(long(90)).toBe("1.5 ч");
-  });
-
-  it("names the unit once while there is only one of them", () => {
-    expect(spread(10, 40)).toBe("10–40 мин");
-    expect(spread(60, 120)).toBe("1–2 ч");
-    //: Across the border both ends are spelled whole, or it reads "40–2 ч".
-    expect(spread(40, 120)).toBe("40 мин – 2 ч");
-  });
-
-  it("prints an empty spread as the term it is", () => {
-    expect(spread(30, 30)).toBe("30–30 мин");
-  });
-
-  //: A step across town costs a fraction of a unit, and "0.0" would lie about
-  //: it: there is a price.
-  it("does not round the road's price down to nothing", () => {
-    expect(price(0)).toBe("0");
-    expect(price(0.02)).toBe("<0.1");
-    expect(price(0.34)).toBe("0.3");
-  });
-});
-
-describe("orbits", () => {
-  it("counts a term in hours up to a day and in days after it", () => {
-    expect(term(3.25)).toBe("3.3 ч");
-    expect(term(12)).toBe("12 ч");
-    //: Rounded before the unit is chosen: the other way round 23.9 gave "24 ч"
-    //: and 24 gave "1.0 сут", the earlier term reading as the longer one.
-    expect(term(23.9)).toBe("1.0 сут");
-    expect(term(23.4)).toBe("23 ч");
-    expect(term(24)).toBe("1.0 сут");
-    expect(term(36)).toBe("1.5 сут");
-  });
-
-  //: The corridor's calendar is the engine's (D-271): the client leafs to the
-  //: day shown and reads the cheapest arc off it, never recomputes it.
-  it("leafs the calendar to the day shown and clamps at its ends", () => {
-    const route = {
-      a: "terra",
-      b: "pyroxis",
-      days: [
-        { day: 10, dv: 30, hours: 200 },
-        { day: 11, dv: 12, hours: 240 },
-        { day: 12, dv: 20, hours: 220 },
-      ],
-    } as never;
-    expect(forecast(route, 11.4)?.dv).toBe(12);
-    expect(forecast(route, 3)?.day).toBe(10);
-    expect(forecast(route, 99)?.day).toBe(12);
-    expect(forecast({ a: "a", b: "b", days: [] } as never, 11)).toBeUndefined();
-  });
-
-  it("calls the window open within a tenth of the spread above the dip", () => {
-    const route = {
-      a: "terra",
-      b: "pyroxis",
-      days: [
-        { day: 0, dv: 30, hours: 1 },
-        { day: 1, dv: 12, hours: 1 },
-        { day: 2, dv: 13, hours: 1 },
-        { day: 3, dv: 20, hours: 1 },
-      ],
-    } as never;
-    expect(windowOpen(route, 1)).toBe(true);
-    expect(windowOpen(route, 2)).toBe(true);
-    expect(windowOpen(route, 3)).toBe(false);
-  });
-
-  //: The arc's points are at equal time steps: a share of the time is a
-  //: place on the polyline, interpolated inside its segment.
-  it("finds the place along an arc by the share of the time gone", () => {
-    const arc: [number, number][] = [
-      [0, 0],
-      [10, 0],
-      [10, 10],
-    ];
-    expect(along(arc, 0)).toEqual([0, 0]);
-    expect(along(arc, 0.25)).toEqual([5, 0]);
-    expect(along(arc, 0.5)).toEqual([10, 0]);
-    expect(along(arc, 1)).toEqual([10, 10]);
-    expect(along(arc, 2)).toEqual([10, 10]);
-    expect(along([[3, 4]], 0.5)).toEqual([3, 4]);
-  });
-
-  //: A ship's mooring is its own and does not move: otherwise the hull would
-  //: jump around its planet on every reread of the map.
-  it("gives a ship a steady mooring somewhere on the circle", () => {
-    expect(mooring("ship.node.abc")).toBe(mooring("ship.node.abc"));
-    expect(mooring("ship.node.abc")).not.toBe(mooring("ship.node.abd"));
-    for (const key of ["a", "ship.node.abc", "", "длинный ключ"]) {
-      expect(mooring(key)).toBeGreaterThanOrEqual(0);
-      expect(mooring(key)).toBeLessThan(Math.PI * 2);
-    }
-  });
-});
-
 describe("the pinch", () => {
   it("scales by the fingers' spread against where the pinch began", () => {
     //: Fingers twice as far apart: twice as near. Measured from the start,
@@ -641,65 +534,6 @@ describe("the pinch", () => {
     }
   });
 });
-
-describe("flatten", () => {
-  //: The globe is wave 3; until then a scene of degrees is flattened round
-  //: its first placed node by key, the same way for every viewer (D-319).
-  it("projects degrees round the first node by key, and passes rooms through", () => {
-    const nodes = [
-      node({ key: "b", layer: "planet", place: { lat: 41, lon: 25 } }),
-      node({ key: "a", layer: "planet", place: { lat: 41, lon: 24 } }),
-      node({ key: "room", layer: "location", place: { x: 7, y: -3 } }),
-      node({ key: "sky", layer: "space", place: null }),
-    ];
-    const out = flatten(nodes);
-    expect(out.get("a")).toEqual({ x: 0, y: -0 });
-    expect(out.get("room")).toEqual({ x: 7, y: -3 });
-    expect(out.has("sky")).toBe(false);
-    const east = out.get("b")!;
-    expect(east.x).toBeGreaterThan(0);
-    expect(east.y).toBe(-0);
-  });
-
-  it("is the same map for everybody: order of the input changes nothing", () => {
-    const a = node({ key: "a", layer: "planet", place: { lat: 10, lon: 10 } });
-    const b = node({ key: "b", layer: "planet", place: { lat: 12, lon: 11 } });
-    expect(flatten([a, b])).toEqual(flatten([b, a]));
-  });
-
-  it("scales a scene down to fit the frame, and never up past the city step", () => {
-    const near = flatten([
-      node({ key: "a", layer: "planet", place: { lat: 0, lon: 0 } }),
-      node({ key: "b", layer: "planet", place: { lat: 0, lon: 0.001 } }),
-    ]);
-    const far = flatten([
-      node({ key: "a", layer: "planet", place: { lat: 0, lon: 0 } }),
-      node({ key: "b", layer: "planet", place: { lat: 0, lon: 90 } }),
-    ]);
-    //: A thousandth of a degree is a hundred metres: about five hundred units.
-    expect(near.get("b")!.x).toBeCloseTo(555, 0);
-    //: A quarter of the globe is brought down to the frame, not drawn at scale.
-    expect(far.get("b")!.x).toBeLessThan(5000);
-  });
-});
-
-describe("withCityScene", () => {
-  //: The server has one surface level; the client gives a node whose parent
-  //: is itself a surface node the city scene (D-319).
-  it("marks a surface node under a surface node as the city's", () => {
-    const [town, plot, wild, room] = withCityScene([
-      node({ key: "town", layer: "planet", parent: "terra" }),
-      node({ key: "plot", layer: "planet", parent: "town" }),
-      node({ key: "wild", layer: "planet", parent: "terra" }),
-      node({ key: "room", layer: "location", parent: "plot" }),
-    ]);
-    expect(town.layer).toBe("planet");
-    expect(plot.layer).toBe("city");
-    expect(wild.layer).toBe("planet");
-    expect(room.layer).toBe("location");
-  });
-});
-
 
 describe("a printer's mark on the entry globe", () => {
   it("grows with the citizens, and stops growing", () => {

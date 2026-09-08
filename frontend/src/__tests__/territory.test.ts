@@ -44,10 +44,19 @@ describe("a city's outline", () => {
     expect(inside(loops[0], { lat: 0, lon: 200 * DEG })).toBe(false);
   });
 
-  it("leaves an outlying node its own blot, and rounds the edges", () => {
+  it("reaches an outlying node with an isthmus instead of leaving it a blot of its own", () => {
+    //: A city is one place: a mine half a kilometre out is a part of it, not
+    //: a second city with a circle round it. Its own land does not reach that
+    //: far, so the shortest tree that joins the nodes is bridged.
     const members = [at("a", 0, 0), at("b", 0, 60 * DEG), at("far", 0, 600 * DEG)];
     const loops = outlineOf(members, R_M);
-    expect(loops).toHaveLength(2);
+    expect(loops).toHaveLength(1);
+    for (const m of members) {
+      expect(inside(loops[0], m.place as { lat: number; lon: number })).toBe(true);
+    }
+    //: The bridge is a neck, not a swelling: a hundred metres off the line
+    //: between them is outside.
+    expect(inside(loops[0], { lat: 100 * DEG, lon: 300 * DEG })).toBe(false);
     //: Rounded: no two neighbouring edges meet at a right angle or sharper.
     for (const loop of loops) {
       for (let i = 0; i < loop.length; i++) {
@@ -60,6 +69,52 @@ describe("a city's outline", () => {
         expect(cos).toBeLessThan(0.2);
       }
     }
+  });
+
+  it("joins whatever the city is spread into, in one loop", () => {
+    //: Two clusters and a lone node between them: nothing here merges by its
+    //: own land, and the answer is still one blot with all of them inside.
+    const members = [
+      at("a1", 0, 0),
+      at("a2", 0, 50 * DEG),
+      at("mid", 400 * DEG, 900 * DEG),
+      at("b1", 0, 1800 * DEG),
+      at("b2", 50 * DEG, 1850 * DEG),
+    ];
+    const loops = outlineOf(members, R_M);
+    expect(loops).toHaveLength(1);
+    for (const m of members) {
+      expect(inside(loops[0], m.place as { lat: number; lon: number })).toBe(true);
+    }
+  });
+
+  it("gives each city its own blot, and bridges neither into the other", () => {
+    //: One blot per city, not one per planet: the rule is that a city is
+    //: whole, not that everything near is one town. The two are listed
+    //: alternating, so a tree laid over the wrong set would show at once.
+    const town = (key: string, city: string, lon: number) =>
+      node({ key, parent: city, place: { lat: 0, lon: lon * DEG }, area: 100 });
+    const nodes = [
+      node({ key: "terra", layer: "space", parent: null }),
+      node({ key: "a", parent: "terra", place: { lat: 0, lon: 0 } }),
+      node({ key: "b", parent: "terra", place: { lat: 0, lon: 600 * DEG } }),
+      town("a1", "a", 0),
+      town("b1", "b", 600),
+      town("a2", "a", 60),
+      town("b2", "b", 660),
+      town("a3", "a", 120),
+      town("b3", "b", 720),
+    ];
+    const outlines = cityOutlines(nodes, R_M);
+    expect([...outlines.keys()].sort()).toEqual(["a", "b"]);
+    expect(outlines.get("a")).toHaveLength(1);
+    expect(outlines.get("b")).toHaveLength(1);
+    //: Each holds its own and neither holds the other's: half a kilometre of
+    //: ground between them belongs to nobody.
+    expect(inside(outlines.get("a")![0], { lat: 0, lon: 60 * DEG })).toBe(true);
+    expect(inside(outlines.get("b")![0], { lat: 0, lon: 60 * DEG })).toBe(false);
+    expect(inside(outlines.get("b")![0], { lat: 0, lon: 660 * DEG })).toBe(true);
+    expect(inside(outlines.get("a")![0], { lat: 0, lon: 660 * DEG })).toBe(false);
   });
 
   it("outlines the cities among a map's nodes and nothing else", () => {

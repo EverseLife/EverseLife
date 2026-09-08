@@ -85,14 +85,46 @@ export const founding = () =>
  *
  * With a token: what the body sees and the identity remembers, and the
  * public. Without one -- the sky, and every planet's surface as it was
- * `map.public_delay_days` ago (D-319 item 7): the entry globe and the
- * landing picker read that. So this is the one public read that takes one.
+ * `map.public_delay_days` ago (D-319 item 7): the entry globe reads that,
+ * and the landing picker asks both and lays one over the other (owner,
+ * 2026-09-08). So this is the one public read that takes one.
  */
 //: The anonymous map is served with a public cache of minutes and an ETag
 //: (D-319 item 7); asked with `no-cache` it is revalidated every time, so a
 //: fresh snapshot is seen at once and an unchanged one costs a 304.
 export const worldMap = (token?: string) =>
   read<WorldMap>("/public/map", token, token ? undefined : "no-cache");
+
+//: The one personal map the windows share, held between them by the stand it
+//: was read from.
+let standing: { key: string; map: Promise<WorldMap> } | null = null;
+
+/**
+ * The personal map, read once per stand rather than once per window.
+ *
+ * The anonymous half is a snapshot behind an ETag and costs a 304; the
+ * personal one is not cached at all and is a walk of the whole node and edge
+ * tables per call (`engine/sight.py` names that cost out loud). Two windows
+ * wanting it -- the map and the ship's console -- were two walks, and neither
+ * had a reason to disagree with the other: what the body sees changes when
+ * the body moves, not when a panel opens.
+ *
+ * `at` is that reason, and the caller states it: the node stood in and the
+ * exits out of it. A different `at` is a different map and is read again; the
+ * same `at` twice is one read. A read that fails is not kept, so the next
+ * window tries rather than inheriting the failure.
+ */
+export function standingMap(token: string, at: string): Promise<WorldMap> {
+  const key = `${token} ${at}`;
+  if (standing?.key !== key) {
+    const map = worldMap(token);
+    standing = { key, map };
+    void map.catch(() => {
+      if (standing?.map === map) standing = null;
+    });
+  }
+  return standing.map;
+}
 export const plants = () =>
   read<{
     plants: {
@@ -152,6 +184,7 @@ export type {
   RoadWork,
   Terrain,
   Tile,
+  Scouting,
   Transit,
   Vehicle,
   WorldMap,

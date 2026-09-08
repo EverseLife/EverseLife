@@ -43,6 +43,8 @@ export const BERTH = 26;
 export const MARGIN = 60;
 
 export const HOURS_PER_DAY = 24;
+/** Up to this many of a unit the term keeps a tenth; past it, whole ones. */
+const TENTHS_TO = 10;
 //: How close to the calendar's dip still counts as "the window is open": a
 //: tenth of the way up from the cheapest day to the dearest. Near enough that
 //: waiting buys almost nothing.
@@ -116,5 +118,11 @@ export function term(hours: number): string {
   //: format it by the language -- "1,5" for "1.5" -- and the term would stop
   //: matching the numbers set beside it in the code.
   if (shown < HOURS_PER_DAY) return t("ui-map-term-hours", { term: String(shown) });
-  return t("ui-map-term-days", { term: (shown / HOURS_PER_DAY).toFixed(1) });
+  //: And a tenth of a day only while the days can be counted on the fingers:
+  //: a ship's tank is years of one crew's breathing, and "2083.3 сут" is a
+  //: number, not a reading. The same step the hours take above.
+  const days = shown / HOURS_PER_DAY;
+  return t("ui-map-term-days", {
+    term: days < TENTHS_TO ? days.toFixed(1) : String(Math.round(days)),
+  });
 }

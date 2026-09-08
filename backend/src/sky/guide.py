@@ -29,8 +29,10 @@ from src.sky._base import (
     Star,
     System,
     Target,
+    capture_of,
     circle_rate,
     circle_speed,
+    park_of,
     place_any,
     star_circle,
 )
@@ -62,7 +64,7 @@ class Helm:
     captured: bool
 
 
-def brake_days(system: System, dv: float, a_max: float) -> float:
+def brake_days(system: System, dv: float, a_max: float, body: Body | None = None) -> float:
     """How much later than the impulsive plan a hull of this thrust arrives:
     the fall to the circle, and the braking on it.
 
@@ -80,9 +82,12 @@ def brake_days(system: System, dv: float, a_max: float) -> float:
     if a_max <= 0:
         return 0.0
     speed = max(dv, STILL)
+    #: The circle fallen to is the target world's own (D-324); a hull met in
+    #: the deep has none, and then there is only the braking.
+    park = park_of(system, body) if body is not None else 0.0
     fall = max(
         BRAKE_MARGIN / 2.0 * speed / a_max,
-        (system.approach - 1.0) * system.park / speed,
+        (system.approach - 1.0) * park / speed,
     )
     return fall + speed / (2.0 * a_max * BRAKE_SHARE)
 
@@ -129,18 +134,15 @@ def steer(
         #: profile asks for speed toward the target and never for more than
         #: the way left can shed. The order's hour stays the console's word.
         return _meet(system, target, t, r, v, rel, v_rel, a_max=a_max, dt=dt)
-    if gap <= max(system.approach * system.park, system.park + BRAKE_MARGIN * brake):
+    park = park_of(system, target)
+    if gap <= max(system.approach * park, park + BRAKE_MARGIN * brake):
         return _capture(system, target, rel, v_rel, a_max=a_max, dt=dt)
     tof = arrive - t
     if tof <= dt:
         #: The hour has come and the target is not here: a new arc at about
         #: the speed the hull has -- not a sprint -- and the same question
         #: next step.
-        own = (
-            circle_speed(target, system.park)
-            if isinstance(target, Body)
-            else float(np.hypot(*vp[0]))
-        )
+        own = circle_speed(target, park) if isinstance(target, Body) else float(np.hypot(*vp[0]))
         tof = max(system.late_leg, gap / max(speed, own, STILL))
     goal = place_any(target, t + tof)[0][0]
     wanted = _lambert_velocity(system.mu, r, (float(goal[0]), float(goal[1])), tof, v)
@@ -225,7 +227,7 @@ def _wait_days(
     ahead = turn if onward else -turn
     if ahead < 0.0:
         ahead += 2.0 * math.pi
-    rate = abs(circle_rate(leaving, system.park))
+    rate = abs(circle_rate(leaving, park_of(system, leaving)))
     return ahead / rate if rate > 0.0 else 0.0
 
 
@@ -237,7 +239,14 @@ def _holding(system: System, target: Target, t: float, r: tuple[float, float]) -
     the target's circle is the whole point of the arrival, and the same rule
     there would forbid it.
     """
-    hold = system.approach * system.park
+
+    #: Each world holds out to its own circle since D-324, and the circles
+    #: are no longer one size: the hold is asked of the body, not of the
+    #: system, so a hull four units from Terra is in its hold while the same
+    #: four units from Pyroxis are still deep inside its.
+    def hold_of(body: Body) -> float:
+        return system.approach * park_of(system, body)
+
     #: The world the hull is going to, or -- for a hull as the target -- the
     #: world that hull is itself in the hold of: coming down toward either is
     #: the arrival, and the same rule there would forbid it.
@@ -246,22 +255,22 @@ def _holding(system: System, target: Target, t: float, r: tuple[float, float]) -
         goal = target.key
     elif isinstance(target, Drifter):
         theirs = place_any(target, t)[0][0]
-        near = hold
+        near: float | None = None
         for body in system.bodies:
             p, _ = place_any(body, t)
             gap = float(np.hypot(theirs[0] - p[0, 0], theirs[1] - p[0, 1]))
-            if gap < near:
+            if gap < hold_of(body) and (near is None or gap < near):
                 goal, near = body.key, gap
     else:
         return None
     found: Body | None = None
-    nearest = hold
+    nearest: float | None = None
     for body in system.bodies:
         if body.key == goal:
             continue
         p, _ = place_any(body, t)
         gap = float(np.hypot(r[0] - p[0, 0], r[1] - p[0, 1]))
-        if gap < nearest:
+        if gap < hold_of(body) and (nearest is None or gap < nearest):
             found, nearest = body, gap
     return found
 
@@ -323,10 +332,11 @@ def _capture(
     capture radius and within the capture speed of it, the hull is on it.
     """
     gap = float(np.hypot(*rel))
-    park = system.park
+    park = park_of(system, target)
+    window = capture_of(system, target)
     around = np.array([-rel[1], rel[0]]) / max(gap, 1e-9)
     if (
-        gap <= system.capture_radius
+        gap <= window
         and float(np.hypot(*(around * circle_speed(target, park) - v_rel))) <= system.capture_speed
     ):
         return Helm(thrust=(0.0, 0.0), phase=CAPTURE, captured=True)
@@ -339,7 +349,7 @@ def _capture(
     #: Above the radius it never arrives: the hull matches the circle's speed
     #: where it is and turns there for ever. Both ends of that band have been
     #: measured as orders that never close.
-    if coming > 0.0 and gap > park and park < low <= system.capture_radius:
+    if coming > 0.0 and gap > park and park < low <= window:
         #: Coast while the speed is still one the way left can shed: `v² = 2ad`
         #: over what remains to the circle, at the profile's share of the
         #: thrust, plus the circle's own speed, which is not shed at all. The
@@ -354,7 +364,7 @@ def _capture(
         )
         if float(np.hypot(*v_rel)) <= allowed:
             return Helm(thrust=(0.0, 0.0), phase=CAPTURE, captured=False)
-    if gap > system.capture_radius:
+    if gap > window:
         #: Too high to be moored from, and not falling into the window on its
         #: own: come down, at the speed the way left can still shed. Matching
         #: the circle's speed up here would leave the hull turning at this
@@ -364,7 +374,7 @@ def _capture(
         )
     else:
         #: In the window: match the circle the mooring is measured against --
-        #: the one at `orbit.park_radius`, not the one through where the hull
+        #: the one at `orbit.park_radii`, not the one through where the hull
         #: happens to be, which is a stable orbit at the wrong radius.
         wanted = around * circle_speed(target, park)
     need = wanted - v_rel

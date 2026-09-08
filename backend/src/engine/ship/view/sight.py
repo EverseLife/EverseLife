@@ -52,6 +52,28 @@ async def in_sight(
     return await _from_pier(session, constants, node)
 
 
+def berthed_place(constants: Constants, port: Node, ship: Ship) -> dict[str, float] | None:
+    """Where a moored hull stands on the map: beside its pier, a gap out.
+
+    A hull has no place of its own on the surface. Its own node is the
+    interior's -- flat `x, y` in the ship's own window (`places`) -- and the
+    pier level had no point for it at all, so the map drew nothing: the
+    gangway led to a node that was nowhere, one could not walk aboard, and
+    from aboard one could not find oneself. The pier lends the hull a point
+    instead (`places.beside`): a gap from the port's own mark, in a direction
+    the hull's own id decides, so that two hulls at one pier do not coincide
+    -- not even on a world one lands anywhere on, where every one of them is
+    berth one (D-233).
+
+    Not a place in the sense of D-237 -- nothing is written, nothing is
+    reserved, and a hull that casts off takes it with it. None where the pier
+    is not ground at all: a hull "moored" to an orbital node hangs in the sky,
+    and the sky draws it from the clock (D-289).
+    """
+    spot = places.beside(constants, port, str(ship.id))
+    return None if spot is None else places.wire_geo(spot)
+
+
 async def _from_pier(
     session: AsyncSession, constants: Constants, port: Node
 ) -> dict[str, list[dict[str, object]]] | None:
@@ -84,6 +106,11 @@ async def _from_pier(
                 "name": ship.name,
                 "layer": port.layer.value,
                 "parent": None if city is None else city.key,
+                #: The pier's own point, one berth out (`berthed_place`). The
+                #: client draws by the place and by nothing else since D-319:
+                #: without this the hull was on the wire and not on the map,
+                #: and the gangway in `exits` had nothing to click.
+                "place": berthed_place(constants, port, ship),
                 "exit": False,
                 "port": False,
                 "planet": connector.planet.value,
@@ -122,8 +149,13 @@ async def _from_aboard(
     #: The gangway too, when there is one: from inside the way out is a fact of
     #: the graph like any other, and without it the interior hangs on nothing.
     port = None if ship.docked_node_id is None else await session.get(Node, ship.docked_node_id)
+    city = None
     if port is not None:
         keys[port.id] = port.key
+        #: The city the pier stands in, so the hull hangs under it the way the
+        #: pier does -- that is what makes it a point of the city's scene.
+        if port.parent_id is not None:
+            city = await session.get(Node, port.parent_id)
 
     ways = (
         (
@@ -159,7 +191,8 @@ async def _from_aboard(
                 "flight": None,
             }
             for room in rooms
-        ],
+        ]
+        + _moored_hull(constants, ship, delegate, port, city),
         "edges": [
             {
                 "a": keys[edge.node_a_id],
@@ -171,3 +204,44 @@ async def _from_aboard(
             if edge.node_a_id in keys and edge.node_b_id in keys
         ],
     }
+
+
+def _moored_hull(
+    constants: Constants,
+    ship: Ship,
+    delegate: Node | None,
+    port: Node | None,
+    city: Node | None,
+) -> list[dict[str, object]]:
+    """The hull itself, on the pier's level, for the crew standing in it.
+
+    A room aboard stands on the ship's own flat map and hangs under the ship's
+    delegate, which hangs under the planet -- so on the surface a crew stood in
+    a node with no place and under no city, and the map could not draw them at
+    all: no "you are here", nothing for the camera to follow, and the frame
+    opened over whatever city came first. This is the hull as the pier sees it
+    (`_from_pier`), sent to those aboard as well, so that the delegate their
+    rooms already hang under is a point of the surface with the port beside it.
+
+    Only while moored: a hull in flight or in orbit is the sky's, and the sky
+    draws it from the clock (D-289).
+    """
+    place = None if port is None else berthed_place(constants, port, ship)
+    if delegate is None or port is None or place is None:
+        return []
+    return [
+        {
+            "key": delegate.key,
+            "name": ship.name,
+            "layer": port.layer.value,
+            "parent": None if city is None else city.key,
+            "place": place,
+            "exit": False,
+            "port": False,
+            "planet": delegate.planet.value,
+            "orbit": None,
+            "deferred": False,
+            "aboard": True,
+            "flight": None,
+        }
+    ]

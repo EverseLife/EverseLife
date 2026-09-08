@@ -44,7 +44,14 @@ ui-map-ongoing-direct = a direct crossing
 ui-map-ongoing-left = { $count } more nodes ahead
 ui-map-transit-label = crossing
 ui-map-turn-back = Turn back
+ui-map-scouting = Scouting
+ui-map-scouting-rule = The scout walks to the point you named and, when the term is up, stands on it: a run is a walk one way. While it lasts the body is not here. It can be called off at any moment — you return where you set out from, and what was spent does not come back.
+ui-map-scouting-far = { $metres } m to the point
+ui-map-scouting-away = the point is on another planet
+ui-map-scouting-label = scouting
+ui-map-scouting-stop = Call off the scouting
 ui-map-here = You are here
+ui-map-node-unnamed = Unnamed node
 ui-map-enter = Enter
 ui-map-node-rule = You can walk to any node on the map: the route builds itself by time with coverage in mind, every leg is a job of its own, and arriving leads on into the next. There is no going as the crow flies: no edge, no way. The map shows two steps around you — a far node opens once you come nearer to it.
 ui-map-node-ship-flight = ship · on a passage
@@ -162,6 +169,7 @@ ui-ship-berthed = at the “{ $port }” shipyard, berth { $berth }
 ui-ship-on-voyage = on a passage to “{ $name }”
 ui-ship-adrift = adrift
 ui-ship-deaf = It cannot be commanded. There is no “Ship control console” aboard.
+ui-ship-console-borrowed = The console is somebody else's: orders are given from your own. Put one in your building: “{ $console }”.
 ui-ship-no-bridge = Casting off and a passage are ordered from the control console: stand in the compartment it is in. Without a console aboard the ship flies nowhere.
 
 ## The climb: the hull's only move on the ground.
@@ -175,8 +183,10 @@ ui-ship-thrust-short = not enough thrust to lift off: shed mass or add an engine
 ui-ship-ratio-short = Not enough thrust to weight: the ship does not lift off.
 ui-ship-dry-climb = The tanks hold { $fuel }, and the climb needs { $need }: the ship does not leave the pad.
 ui-ship-dry-ascent = The tanks hold { $fuel }, and the climb with the descent back needs { $need }: the ship climbs, but stays in orbit until fuel reaches it.
-ui-ship-reserve = On top of the climb, the descent back takes another { $kept }.
+ui-ship-reserve = On top of the climb, the descent back takes another { $kept } units of fuel.
 ui-ship-course-later = A course to another planet is set from orbit already: first the climb, then the crossing, then the choice of spaceport above the planet.
+ui-ship-airless-none = There is no oxygen on the life support's line, and not one installed vessel holds any. With no air outside the hull the crew has nothing to breathe. Put an oxygen tank up in a compartment and draw a line to it — the “{ ui-ship-feed }” section.
+ui-ship-airless-stowed = There is no oxygen on the life support's line. Aboard, off the line: { $off } u. With no air outside the hull the crew has nothing to breathe. Draw the line to that vessel — the “{ ui-ship-feed }” section.
 
 ## The descent: the mooring is chosen above the planet.
 

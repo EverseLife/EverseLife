@@ -25,15 +25,16 @@ import type { Vessel } from "./model";
 export function Passage({
   v,
   busy,
-  deaf,
+  mute,
   recall,
   cancel,
   orbit,
 }: {
   v: Vessel;
   busy: boolean;
-  /** No console aboard: the hull hears nothing from the ground (D-242). */
-  deaf: boolean;
+  /** Nothing this console says would be heard: no bridge aboard to hear it
+   *  (D-242), or a pult one may not work at (`ship.command`). */
+  mute: boolean;
   recall: () => void;
   /** The two orders of a crossing under the sky (D-289, 2026-09-04): the
    *  autopilot off, or the hull put onto the circle round the star. */
@@ -73,12 +74,12 @@ export function Passage({
           course is cancelled -- the autopilot off, the hull coasting from
           where it is -- or the hull is put onto the circle round the star. */}
       {v.course && (
-        <button className="quiet" onClick={cancel} disabled={busy || deaf}>
+        <button className="quiet" onClick={cancel} disabled={busy || mute}>
           {t("ui-ship-cancel-course")}
         </button>
       )}
       {v.course && !v.flight.star && (
-        <button className="quiet" onClick={orbit} disabled={busy || deaf}>
+        <button className="quiet" onClick={orbit} disabled={busy || mute}>
           {t("ui-ship-star-orbit")}
         </button>
       )}
@@ -86,7 +87,7 @@ export function Passage({
       {/* The tabled legs -- the climb and the descent -- still turn back to the
           pier they left (D-245); a turn-back is not turned back (D-242). */}
       {!v.course && !v.flight.back && (
-        <button className="quiet" onClick={recall} disabled={busy || deaf || !v.left}>
+        <button className="quiet" onClick={recall} disabled={busy || mute || !v.left}>
           {t("ui-ship-recall", { known: String(Boolean(v.left)), port: v.left ?? "" })}
         </button>
       )}

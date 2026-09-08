@@ -45,6 +45,7 @@ from src.engine import (
     death,
     energy,
     estate,
+    explore,
     farm,
     forage,
     frost,
@@ -208,7 +209,9 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
         goal = await db.get(Node, ongoing.to_node_id)
         origin = await db.get(Node, ongoing.from_node_id)
         seen["travel"] = {
-            "to": goal.name if goal else "?",
+            #: A find has no name (D-321), and "walking to «»" is not a
+            #: sentence: the leg says the kind, in the word the refusals use.
+            "to": biome.word_of(constants, goal) if goal else "?",
             "to_key": goal.key if goal else "",
             "from_key": origin.key if origin else "",
             "started_at": ongoing.started_at.isoformat(),
@@ -218,7 +221,7 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
         #: the traveller must understand where they are going and for how long.
         if ongoing.plan:
             final = await db.get(Node, uuid.UUID(ongoing.plan[-1]))
-            seen["travel"]["final"] = final.name if final else "?"
+            seen["travel"]["final"] = biome.word_of(constants, final) if final else "?"
             seen["travel"]["final_key"] = final.key if final else ""
             seen["travel"]["legs_left"] = len(ongoing.plan)
 
@@ -253,8 +256,9 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
             | ({world.WATER} if world.has_place(node, world.WATER) else set())
             #: The biome of a find (D-321): a nameless node is shown by the
             #: sign of its kind, and the kind is the biome unless a rarer sign
-            #: -- a vein, the river, the mountain -- outranks it.
-            | ({str(here)} if (here := (node.properties or {}).get(biome.BIOME)) else set())
+            #: -- a vein, the river, the mountain -- outranks it. The same
+            #: call the map's rows use, so one node wears one sign in both.
+            | set(biome.signs(node))
         ),
         #: The owner's map mark, if one is nailed on (D-238): the plot window
         #: preselects it in the picker. Belted like the public map's copy.
@@ -352,7 +356,10 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
     #: Building and capacity: a machine takes area (D-106), and the player must
     #: see how many places are left before carrying a machine across town.
     #: An empty plot with nothing under way sends no block at all.
-    total_seats, taken_seats = await estate.slots(db, constants, node)
+    total_seats, _ = await estate.slots(db, constants, node)
+    #: What stands **on the floor**: the same count the gate refuses by
+    #: (`station.put_up`), so the window and the refusal agree (D-244).
+    taken_seats = await estate.indoor_slots(db, node)
     houses = await estate.buildings_of(db, node)
     sites = await estate.under_construction(db, node)
     #: A site's owner by name (D-266): the window compares it with the name
@@ -521,6 +528,16 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
         }
         for doing in await occupation.all_of(db, body)
     ]
+
+    #: The run of the scout, so the map can draw it (D-327): the body walks to
+    #: a point that is not a node yet, and the leg's far end is therefore a
+    #: place, not a key. Nothing already sent lets the client work it out
+    #: (D-225) -- after a reload it does not even know what was aimed at.
+    #:
+    #: Asked only of a body that **is** on a run: the list above has just said
+    #: so, and every other `look` pays nothing for the question.
+    if any(doing["kind"] == occupation.SURVEY for doing in seen["doings"]):
+        seen["scouting"] = await explore.leg_of(db, constants, body)
 
     #: Local clock of the planet: a Terran day is `time.day_terra` hours long
     #: (D-029), and the world has been running since its first node appeared.

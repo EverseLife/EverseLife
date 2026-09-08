@@ -76,6 +76,29 @@ async def test_no_route_is_closed_by_the_class_of_the_engine(
     aurora = next(route for route in summary["routes"] if route["node"] == far.key)
     assert aurora["reachable"], "класс больше не запирает маршрут"
     assert aurora["cheap"]["hours"] > 0 and aurora["cheap"]["fuel"] > 0
+    #: And the wait for the window with it (D-316): the slider prices the whole
+    #: passage, and the chart's label is drawn from these very numbers. Without
+    #: the wait one screen showed «быстро 15 ч» over a slider whose fast end
+    #: was a day and a third -- two answers for one arc, and the shorter of
+    #: them could not be ordered.
+    offered = await ship.forecast(session, constants, catalog, vessel, Planet.AURORA)
+    for end in ("cheap", "fast"):
+        arc = aurora[end]
+        #: Both ends exist on a flightworthy hull: the fast one is the first
+        #: arc the engines deliver, and this one has thrust and fuel to spare.
+        assert arc is not None, f"{end}: конец ползунка есть"
+        assert "wait" in arc, f"{end}: ожидание окна названо"
+        same = next(
+            (
+                one
+                for one in offered["samples"]
+                if one["hours"] == pytest.approx(arc["hours"])
+                and one["dv"] == pytest.approx(arc["dv"])
+            ),
+            None,
+        )
+        assert same is not None, f"{end}: та же дуга есть на ползунке"
+        assert arc["wait"] == pytest.approx(same["wait"]), f"{end}: и то же ожидание"
     assert await ship.fly(session, constants, catalog, owner, vessel, far) is not None
 
 
@@ -202,16 +225,23 @@ async def test_the_slider_has_two_ends_and_the_order_names_one(
     arrives = await ship.fly(
         session, constants, catalog, owner, vessel, far, hours=fast["hours"], now=moment
     )
-    #: The promised hour is the slider's plus the braking at this thrust:
-    #: the plan's burns are instants, the engines' are not.
-    assert timedelta(hours=fast["hours"]) <= arrives - moment < timedelta(hours=fast["hours"] + 24)
+    #: The promised hour is the slider's, plus the wait for the ejection window
+    #: (D-316) and the braking at this thrust: the plan's burns are instants,
+    #: the engines' are not. The wait is the sample's own -- how long it is
+    #: depends on where the hull stands on its circle, and a test that assumed
+    #: it away passed or failed by the hour it was run at.
+    promised = timedelta(hours=fast["hours"] + fast["wait"])
+    assert promised <= arrives - moment < promised + timedelta(hours=24)
     assert await ship.fuel_aboard(session, constants, catalog, vessel) == before, (
         "заказ не жжёт топлива: жгут двигатели по ходу"
     )
     assert vessel.course["hours"] == pytest.approx(fast["hours"])
     assert len(vessel.course["trace"]) >= 2, "дуга записана в курс, и карта её рисует"
-    #: An hour under way: the departure burn has started, and it is paid for.
-    await ship.helm.tick_sky(session, constants, catalog, now=moment + timedelta(hours=1))
+    #: An hour under way -- past the window, not past the order: the departure
+    #: burn has started, and it is paid for.
+    await ship.helm.tick_sky(
+        session, constants, catalog, now=moment + timedelta(hours=fast["wait"] + 1)
+    )
     assert await ship.fuel_aboard(session, constants, catalog, vessel) < before, (
         "час пути — и баки легче"
     )
@@ -220,7 +250,15 @@ async def test_the_slider_has_two_ends_and_the_order_names_one(
 async def _under_way(
     session: AsyncSession, constants: Constants, catalog: Catalog, *, hours: float = 2
 ) -> tuple[Ship, Body, datetime]:
-    """A hull `hours` into a crossing to Aurora, and the hour it is at."""
+    """A hull `hours` into a crossing to Aurora, and the hour it is at.
+
+    `hours` of **flying**, not of waiting: an order stands until the ejection
+    window comes round (D-316), and how long that is depends on where the hull
+    sits on its circle when the order is given. A helper that counted from the
+    order would put a hull "two hours out" that had not left the parking
+    circle -- and every test built on it would answer by the phase of the day
+    it was run on.
+    """
     here = await _port(session)
     await _port(session, name="Порт Авроры", planet=Planet.AURORA)
     far = await _orbit(session, Planet.AURORA)
@@ -235,7 +273,7 @@ async def _under_way(
     moment = datetime.now(UTC)
     fast = await _fast_sample(session, constants, catalog, vessel, Planet.AURORA)
     await ship.fly(session, constants, catalog, owner, vessel, far, hours=fast["hours"], now=moment)
-    later = moment + timedelta(hours=hours)
+    later = moment + timedelta(hours=fast["wait"] + hours)
     await ship.helm.tick_sky(session, constants, catalog, now=later)
     assert vessel.course is not None
     return vessel, owner, later

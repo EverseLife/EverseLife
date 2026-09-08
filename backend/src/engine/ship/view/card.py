@@ -128,6 +128,12 @@ async def profile(
         )
         return {
             "hours": round(sample.hours, ROUND_HOURS),
+            #: The wait for the ejection window, as the slider sends it
+            #: (`ship.course`): the chart's label named the arc's own hours
+            #: and the slider named the whole passage, so one screen said
+            #: "быстро 15 ч" over a slider whose fast end was 1.3 days -- two
+            #: readings of one arc, and the shorter one could not be ordered.
+            "wait": round(sample.wait, ROUND_HOURS),
             "dv": round(sample.dv, ROUND_DV),
             "fuel": round(burn, ROUND_MASS),
         }

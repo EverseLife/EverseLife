@@ -18,16 +18,21 @@ import { tilted } from "./bands";
 import { ahead, arc, between, radiusUnits, STUB_M, turn, TURN_MS, type Eye, type Geo } from "./globe";
 import type { Link, Point } from "./model";
 
-/** The planet's radius in map units: the vault's (`planet.radius` on
- *  `planet.terra_radius_km`, D-320), read from the book -- no number of the
- *  client's own. Null until the book has come, or for no planet. */
+/** The radius of the land one walks, in map units: the vault's own
+ *  (`planet.land_area_share` on `planet.earth_radius_km`, D-324), read from
+ *  the book -- no number of the client's own.
+ *
+ *  Not `planet.radius`: since D-324 that is the body in the **sky**, and the
+ *  two are different sizes on purpose. The land is a share of the Earth's
+ *  surface picked for crowding, and a sphere of that area has this radius.
+ *  Null until the book has come, or for no planet. */
 export function radiusOf(book: RecipeBook | null, planet: string | null): number | null {
   if (!book?.constants || !planet) return null;
-  const shares = book.constants["planet.radius"] as Record<string, number> | undefined;
+  const shares = book.constants["planet.land_area_share"] as Record<string, number> | undefined;
   const share = Number(shares?.[planet]);
-  const terra = Number(book.constants["planet.terra_radius_km"]);
-  if (!Number.isFinite(share) || !Number.isFinite(terra) || share <= 0 || terra <= 0) return null;
-  return radiusUnits(share * terra);
+  const earth = Number(book.constants["planet.earth_radius_km"]);
+  if (!Number.isFinite(share) || !Number.isFinite(earth) || share <= 0 || earth <= 0) return null;
+  return radiusUnits(Math.sqrt(share) * earth);
 }
 
 export function useGlobe({

@@ -5,8 +5,10 @@
  * The pads a hull in orbit may come down on, as the globe of the console
  * shows them (D-319 item 10, D-245): the rows the server offers -- the lit
  * spaceports, or on a planet one lands anywhere on (D-233) every node of
- * its surface -- stood where the public map places them, each with the
- * ground it has free. The choice is made over the planet, seeing where each
+ * its surface -- stood where the map places them, each with the ground it
+ * has free. Which map is the caller's business: the console hands in the
+ * public snapshot with the crew's own map laid over it (D-319, addendum of
+ * 2026-09-08). The choice is made over the planet, seeing where each
  * node stands and whether the hull fits; the engine says no to a node with
  * no room for it.
  *
@@ -28,7 +30,7 @@ export type PadMark = {
   room: number | null;
 };
 
-/** The placed nodes of a planet's surface in the public map. */
+/** The placed nodes of a planet's surface in the map handed in. */
 export function surfaceOf(world: WorldMap | null, planet: string): MapNode[] {
   if (!world) return [];
   return world.nodes.filter(
@@ -37,10 +39,10 @@ export function surfaceOf(world: WorldMap | null, planet: string): MapNode[] {
 }
 
 /**
- * The marks on the globe: the offered pads by their place in the public
- * map. A pad the map cannot place -- flat, or younger than the snapshot --
- * is not drawn; the list beside the globe still names it, so nothing is
- * lost by being undrawable.
+ * The marks on the globe: the offered pads by their place in the map. A pad
+ * the map cannot place -- flat, or younger than the snapshot and never seen
+ * by this body -- is not drawn; the list beside the globe still names it, so
+ * nothing is lost by being undrawable.
  */
 export function padsOn(world: WorldMap | null, planet: string, offered: readonly Pad[]): PadMark[] {
   const placed = new Map(surfaceOf(world, planet).map((node) => [node.key, node]));
@@ -59,18 +61,29 @@ export function padsOn(world: WorldMap | null, planet: string, offered: readonly
 }
 
 /**
- * How wide the first frame is, in degrees of arc across: the marks and a
- * margin round them, so a city's three piers do not open as one dot on a
- * whole disk, and one pier does not open as a field of bare ground.
+ * How wide the first frame is, in degrees of arc across: every mark inside it
+ * with a margin round them, so a city's three piers do not open as one dot on
+ * a whole disk, and one pier does not open as a field of bare ground.
+ *
+ * Measured **from where the frame looks** (`aimOf`) and doubled, because the
+ * eye is the middle of the frame and not the middle of the marks. The width
+ * used to be the widest arc between two marks, which is only enough while the
+ * aim sits between them: aimed at one end -- and the aim is the chosen pad,
+ * which is the first of them -- the far mark stood a whole spread from the
+ * middle in a frame 0.8 of a spread wide, and fell off it. Aurora's three
+ * spaceports opened as two, and the third could be reached only by finding
+ * the wheel.
  */
-export function spreadOf(marks: readonly PadMark[], least: number, margin: number): number {
-  let widest = 0;
-  for (let i = 0; i < marks.length; i++) {
-    for (let j = i + 1; j < marks.length; j++) {
-      widest = Math.max(widest, arcDeg(marks[i].place, marks[j].place));
-    }
-  }
-  return Math.max(least, widest * margin);
+export function spreadOf(
+  marks: readonly PadMark[],
+  at: Geo | null,
+  least: number,
+  margin: number,
+): number {
+  if (!at) return least;
+  let reach = 0;
+  for (const mark of marks) reach = Math.max(reach, arcDeg(at, mark.place));
+  return Math.max(least, 2 * reach * margin);
 }
 
 /** Where the first frame looks: the chosen mark, else the first. */

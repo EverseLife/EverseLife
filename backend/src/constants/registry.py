@@ -46,9 +46,15 @@ BODY_HIBERNATION_RATE = Num("body.hibernation_rate")
 BODY_HIBERNATION_HOME_K = Num("body.hibernation_home_k")
 
 # --- Map and transits (D-045, D-089, D-107, D-147, D-319) -------------------
-#: The surface is a sphere (D-319): a planet's radius is its share of Terra's
-#: (`PLANET_RADIUS`, D-320) times this, and every distance on it is metres.
-PLANET_TERRA_RADIUS_KM = Num("planet.terra_radius_km")
+#: The yardstick both of a planet's sizes are measured against (D-324): the
+#: radius of the Earth. The body in the sky is `PLANET_RADIUS` of it; the
+#: land underfoot is this times the root of `PLANET_LAND_AREA_SHARE`.
+PLANET_EARTH_RADIUS_KM = Num("planet.earth_radius_km")
+#: How much land a world has, as a share of the Earth's surface (D-324). A
+#: game convention and nothing else: a world of honest area could not be
+#: peopled by every human alive, and the game is about crowding. The surface
+#: is a sphere (D-319), so the radius one walks on is the root of this.
+PLANET_LAND_AREA_SHARE = Table("planet.land_area_share")
 #: The ring a node is seated at from what it was laid beside, and the gap
 #: two nodes never stand nearer than -- metres on the tangent plane. Balance
 #: since the surface is finite: they decide how much fits on a planet (D-065).
@@ -623,8 +629,10 @@ SHIP_DESCENT_HOURS = Num("ship.descent_hours")
 #: shape, and it could not stay true: `g = M / R^2` ties the three, and the
 #: vault set all three by hand (OQ-138).
 PLANET_MASS = Table("planet.mass")
-#: A share, not a length: on the map it becomes ground through
-#: `ORBIT_BODY_RADIUS`, and that is the only place it has a size in units.
+#: A share of the Earth's radius, not a length, and the **sky** body alone
+#: since D-324: on the map it becomes ground through `ORBIT_BODY_RADIUS`, and
+#: that is the only place it has a size in units. The land one walks is
+#: `PLANET_LAND_AREA_SHARE` and has nothing to do with this number.
 PLANET_RADIUS = Table("planet.radius")
 #: Fuel for a crossing between worlds, per ton of hull and per unit of delta-v
 #: (D-271): a passage pays for speed, not for hours -- the legs to and from
@@ -659,15 +667,30 @@ ORBIT_BODY_RADIUS = Num("orbit.body_radius")
 #: the tick's integrator and of the planner's; the window a hull is put on
 #: the circle in; the edge of the system, the horizon of the forecast and
 #: how often a coasting hull's stamp is moved along.
+#: The system's own layout (D-271), in the vault since 2026-09-08: how long
+#: each world's year is and where it stood at the epoch. The **radii are not
+#: here** -- the periods are the tuned numbers and a radius follows from one
+#: by Kepler's third law against `ORBIT_TERRA_RADIUS`, so a radius that broke
+#: the law cannot be written at all. The star's pull is read off the orbits,
+#: and a broken law would price one passage differently by where it began.
+ORBIT_PERIOD_DAYS = Table("orbit.period_days")
+ORBIT_PHASE = Table("orbit.phase")
+ORBIT_TERRA_RADIUS = Num("orbit.terra_radius")
 ORBIT_PLANET_MU = Num("orbit.planet_mu")
-ORBIT_PARK_RADIUS = Num("orbit.park_radius")
+#: The parking circle, in radii of the body it is round (D-324): one number
+#: for the whole system put Pyroxis' circle inside Pyroxis once the worlds
+#: became honest sizes.
+ORBIT_PARK_RADII = Num("orbit.park_radii")
 ORBIT_STEP_MINUTES = Num("orbit.step_minutes")
 ORBIT_PLAN_STEP_MINUTES = Num("orbit.plan_step_minutes")
 #: The ejection window: the helm holds the departure burn until the parking
 #: circle has turned the hull within this of the excess its arc leaves with
 #: (D-316).
 ORBIT_EJECT_WINDOW = Num("orbit.eject_window")
-ORBIT_CAPTURE_RADIUS = Num("orbit.capture_radius")
+#: The window a hull is put on the circle in, in radii of the body it is
+#: arriving at (D-324): flat units would have put the window inside a
+#: world drawn larger than it, where no hull can ever be.
+ORBIT_CAPTURE_RADII = Num("orbit.capture_radii")
 ORBIT_CAPTURE_SPEED = Num("orbit.capture_speed")
 ORBIT_SYSTEM_RADIUS = Num("orbit.system_radius")
 ORBIT_FORECAST_DAYS = Num("orbit.forecast_days")

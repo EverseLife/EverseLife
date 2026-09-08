@@ -68,6 +68,23 @@ export function flatten(nodes: readonly MapNode[]): Map<string, Point> {
  * those nodes are given the `city` scene here, on the client's copy, and the
  * rest of the panel never learns that the layer stopped being the server's.
  */
+/**
+ * One row per key, the later winning.
+ *
+ * The map and `look` overlap on purpose: a hull is on the public map as a
+ * point of the sky and arrives again from `look.ships` as a point of its
+ * pier, and both rows are true of different scenes. Two rows of one key are
+ * not: whatever counts nodes counts it twice -- a city grew a size for every
+ * stranger's hull moored in it -- and whatever looks one up gets whichever
+ * the spread happened to put last. The near sight is the later of the two and
+ * the more particular, so it is the one that stands.
+ */
+export function oneEach(nodes: MapNode[]): MapNode[] {
+  const held = new Map<string, MapNode>();
+  for (const node of nodes) held.set(node.key, node);
+  return [...held.values()];
+}
+
 export function withCityScene(nodes: MapNode[]): MapNode[] {
   const surface = new Set(nodes.filter((node) => node.layer === "planet").map((node) => node.key));
   return nodes.map((node) =>

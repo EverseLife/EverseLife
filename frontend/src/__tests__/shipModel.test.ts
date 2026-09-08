@@ -36,6 +36,7 @@ describe("wanted", () => {
 describe("autonomy", () => {
   const air = (over: Partial<Air> = {}): Air => ({
     units: 120,
+    off_line: 0,
     sealed: true,
     per_hour: -10,
     at: "2026-08-29T00:00:00+00:00",

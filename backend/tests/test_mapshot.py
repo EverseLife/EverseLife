@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ship_kit import _laid, _port, _shipwright
 from src.constants import Constants
 from src.constants import registry as R
-from src.engine import mapshot, memory, travel, world
+from src.engine import biome, mapshot, memory, travel, world
 from src.models.identity import Body
 from src.models.snapshot import MapSnapshot
 from src.models.world import ABOARD, Layer, Node, Planet, Surface
@@ -45,6 +45,30 @@ async def _world(session: AsyncSession) -> tuple[Node, Node, Node]:
         properties={ABOARD: True},
     )
     return terra, city, plot
+
+
+async def test_a_city_names_the_node_it_grew_from(
+    session: AsyncSession, constants: Constants, catalog
+) -> None:
+    """From afar a city is its bioprinter's point (D-319), and only the server can say which.
+
+    The map does not know where the machines stand, and the client cannot work
+    the core out from what it is given (D-225): "the oldest printer, the
+    prison's aside" is knowledge of its own
+    чтение движка (`city.lookup.core`). Поэтому ключ едет на строке города —
+    той самой, которую карта рисует, когда город свёрнут.
+    """
+    from estate_kit import _city
+
+    city, core, _near, _far = await _city(session, catalog)
+    taken = await mapshot.take(session, constants, datetime.now(UTC))
+    rows = {row["key"]: row for row in taken.data["nodes"]}
+    delegate = await session.get(Node, city.node_id)
+    assert delegate is not None
+    assert rows[delegate.key]["core"] == core.key, "a city stands on its own printer"
+    #: And a city alone: an ordinary node has no use for the field, and a
+    #: spare key in the answer is what D-225 forbids.
+    assert "core" not in rows[core.key]
 
 
 async def test_the_snapshot_carries_the_surface_and_not_the_insides(
@@ -161,3 +185,33 @@ async def test_the_map_tells_the_reach_of_the_node_one_stands_in(
     here = rows[core.key]
     assert 0 < here["reach"]["min"] < here["reach"]["max"]
     assert all("reach" not in row for key, row in rows.items() if key != core.key)
+
+
+async def test_the_map_names_a_find_by_its_biome_the_way_the_world_does(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """A found node has no name (D-321) and wears its kind instead.
+
+    The kind is the biome, and the biome is the one place sign kept as a word
+    rather than a flag -- so it falls out of the flag allowlist and has to be
+    sent by hand. It was not, and the column called the node «Безымянный
+    узел» while the world's own refusals called it «Ледяное поле»: one node,
+    two words. The row carries the sign now, and the client reads the word off
+    `biome.names` -- the same table `biome.word_of` reads.
+    """
+    terra, city, plot = await _world(session)
+    find = await world.create_node(
+        session,
+        "terra.cell.1.1",
+        "",
+        area_m2=100,
+        planet=Planet.TERRA,
+        parent=terra,
+        properties={"biome": "forest", "map": {"lat": 41.0, "lon": 24.0}},
+    )
+
+    row = mapshot.node_row(find, parent_key=terra.key, port=False)
+    assert row["name"] == "", "имени у находки нет и не появляется"
+    assert "forest" in row["features"], "а вид её на проводе есть"
+    #: And that is the word the world says about the very same node.
+    assert biome.word_of(constants, find) == constants[R.BIOME_NAMES]["forest"]

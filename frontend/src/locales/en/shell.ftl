@@ -65,6 +65,8 @@ ui-side-end-sleep = Wake
 ui-side-end-sleep-why = stamina is credited on waking
 ui-side-end-forage = Finish
 ui-side-end-forage-why = the strength spent does not come back
+ui-side-end-survey = Turn back
+ui-side-end-survey-why = the scout returns to where they set out from; the time and the strength spent do not come back
 ui-side-end-mine = Leave the face
 ui-side-end-mine-why = what was mined goes into your hands
 ui-side-end-plot = Pause
@@ -202,14 +204,14 @@ ui-top-transfer-more = statement and loan are in “finance”
 ui-top-clock = { $hands } · day { $day }
 ui-top-clock-title = local time: { $stamp }
 
-## Air: the store in units, the hours out of the rate it drains (D-233).
+## Air: the store in units, the term out of the rate it drains (D-233).
 
 ui-top-air-no-suit = no spacesuit
 ui-top-air-no-suit-title = nothing to breathe: it is the spacesuit that joins a tank to the body, and without it there is no air, however many tanks lie in the bag
 ui-top-air-out = nothing to breathe
 ui-top-air-out-title = the oxygen has run out: the next tick is death
 ui-top-air-units = { $n } u.
-ui-top-air-hours = { $n } h ↓
+ui-top-air-left = { $term } ↓
 ui-top-air-title = { $aboard ->
         [true] the ship's air: life support drives it out of water and energy, and the crew breathes
        *[false] oxygen from a tank through the spacesuit: outside it drains five times faster

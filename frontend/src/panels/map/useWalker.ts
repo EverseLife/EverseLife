@@ -19,9 +19,15 @@ import type { Camera } from "./camera";
 import { placeAt } from "./globe";
 import type { Point } from "./model";
 
-/** Where the dot is now along the leg. */
+/**
+ * Where the dot is now along the leg.
+ *
+ * The leg is asked for two stamps and nothing else, so that a run of the
+ * scout is counted by the very same clock as a walk (D-327): it has the same
+ * two, and its far end is a place rather than a node.
+ */
 export function dotOn(
-  ongoing: Transit,
+  ongoing: { started_at: string; arrives_at: string },
   from: Point | undefined,
   to: Point | undefined,
   nowMs: number,
@@ -30,7 +36,10 @@ export function dotOn(
   const t0 = new Date(ongoing.started_at).getTime();
   const t1 = new Date(ongoing.arrives_at).getTime();
   const share = Math.min(1, Math.max(0, (nowMs - t0) / Math.max(1, t1 - t0)));
-  return { x: from.x + (to.x - from.x) * share, y: from.y + (to.y - from.y) * share };
+  return {
+    x: from.x + (to.x - from.x) * share,
+    y: from.y + (to.y - from.y) * share,
+  };
 }
 
 export function useWalker({
@@ -40,6 +49,7 @@ export function useWalker({
   cam,
   turn,
   myRepr,
+  scouting = false,
 }: {
   ongoing: Transit | null;
   /** Where a node is drawn in the scene, as of now. */
@@ -51,6 +61,10 @@ export function useWalker({
   turn?: (dot: Point) => void;
   /** Where the body stands, as the scene draws it. */
   myRepr: string | null;
+  /** Whether a run of the scout is under way (D-327). The body is out on it,
+   *  and the node it set out from must stop wearing the mark -- the scout is
+   *  drawn on the way instead (`ScoutRun`). */
+  scouting?: boolean;
 }) {
   //: A group, not the circle itself: the dot is stood by a matrix, because
   //: a `cx` half a globe from the eye saturates (`globe.placeAt`).
@@ -113,11 +127,14 @@ export function useWalker({
    * walked out of must stop wearing them -- but only where the dot on the
    * road says where they are instead. On a layer that draws neither end of
    * the leg there is no dot, and a map that says nothing at all is worse than
-   * one that says where the walk began. A scout in the field (D-152) keeps
-   * the mark for the same reason: they went **from** the node, they come back
-   * to it, and no dot is drawn for them.
+   * one that says where the walk began.
+   *
+   * A run of the scout is the same absence and was not, until 2026-09-08: the
+   * scout "in the field" (D-152) kept the mark on the node they had left,
+   * because there was nothing else to draw them with. Now there is -- the run
+   * has its own way and its own dot (D-327) -- so the mark goes with it.
    */
-  const standingAt = walker ? null : myRepr;
+  const standingAt = walker || scouting ? null : myRepr;
 
   return { walkerRef, walker, standingAt };
 }

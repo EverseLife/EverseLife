@@ -46,6 +46,7 @@ def node_row(
     moored: bool = False,
     drawn: int | None = None,
     reach: tuple[float, float] | None = None,
+    core: str | None = None,
 ) -> dict[str, Any]:
     """A node as the map draws it (D-045, D-097, D-237, D-238)."""
     row: dict[str, Any] = {
@@ -67,9 +68,14 @@ def node_row(
         #: tells them from ground: one boards a hull by the gangway.
         "aboard": vessels.is_aboard(node),
         "flight": flight,
-        #: Place signs: the map draws the node's glyph by them (D-238). An
-        #: allowlist on purpose -- this answers the whole internet.
-        "features": world.public_signs(node),
+        #: Place signs: the map draws the node's glyph by them (D-238), and a
+        #: found node -- which has no name (D-321) -- is called by them in the
+        #: column as well. An allowlist on purpose: this answers the whole
+        #: internet. The biome rides with them because it is the one sign kept
+        #: as a word rather than a flag, exactly as `look` sends it; the
+        #: relief is public from the world's birth (D-319 item 3), so it hides
+        #: from nobody.
+        "features": world.public_signs(node) + biome.signs(node),
         #: The owner's mark, if one is nailed on (D-238).
         "emblem": estate.public_emblem(node),
         #: The land under the node, square metres: a city's outline is the
@@ -96,7 +102,32 @@ def node_row(
     #: client draws the scout's field by it and cannot read the biome (D-225).
     if reach is not None:
         row["reach"] = {"min": reach[0], "max": reach[1]}
+    #: The node a city grew from -- its bioprinter (D-319: from afar a city is
+    #: the printer's point). Sent on the city's own row, because that is the
+    #: row the map draws when the city is closed, and the client cannot work
+    #: it out (D-225): which node holds the machine is not on the map at all,
+    #: and "the oldest printer that is not the prison's" is the engine's own
+    #: reading of what a centre is (`city.lookup.core`).
+    if core is not None:
+        row["core"] = core
     return row
+
+
+async def city_cores(session: AsyncSession) -> dict[uuid.UUID, str]:
+    """Each city's node id to the key of the node it grew from.
+
+    One reading for both maps, the public and the personal: two would part,
+    and then a city would stand in one place for a newcomer and in another
+    for whoever lives there.
+    """
+    from src.engine.city import lookup  # noqa: PLC0415 -- lazy: city -> ... -> mapshot
+
+    out: dict[uuid.UUID, str] = {}
+    for city in (await session.execute(select(City))).scalars():
+        core = await lookup.core(session, city)
+        if core is not None:
+            out[city.node_id] = core.key
+    return out
 
 
 async def moored_at(session: AsyncSession) -> set[uuid.UUID]:
@@ -250,6 +281,7 @@ async def personal(
     #: The surface beyond sight: what a stub points at. Insides are not
     #: hidden by the fog, they are simply not the map's (D-201, item 9).
     beyond = {node.id: node for node in _public_surface(every) if node.id not in shown}
+    cores = await city_cores(session)
     return {
         "nodes": [
             node_row(
@@ -261,6 +293,7 @@ async def personal(
                 moored=node.id in piers,
                 drawn=drawn_day(node) if node.id in view.faded else None,
                 reach=reach if standing is not None and node.id == standing.id else None,
+                core=cores.get(node.id),
             )
             for node in nodes
         ],
@@ -293,12 +326,14 @@ async def take(session: AsyncSession, constants: Constants, now: datetime) -> Ma
     by_key = {node.id: node.key for node in every}
     ports = {node.id for node in await vessels.ports(session)}
     piers = await moored_at(session)
+    cores = await city_cores(session)
     rows = [
         node_row(
             node,
             parent_key=by_key.get(node.parent_id),
             port=node.id in ports,
             moored=node.id in piers,
+            core=cores.get(node.id),
         )
         for node in nodes
     ]

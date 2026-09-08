@@ -9,8 +9,9 @@ rule modules hold no numbers of their own (D-065). The radius alone is the
 vault's, and it is read here from the registry.
 
 A node of a planet's surface stands at a latitude and a longitude, in degrees,
-on a sphere whose radius is the planet's share of Terra (`planet.radius`, D-320)
-times Terra's own radius in kilometres (`planet.terra_radius_km`). Everything
+on a sphere whose radius comes from how much **land** the vault gives the world
+(`planet.land_area_share` on `planet.earth_radius_km`, D-324) -- not from the
+body it is in the sky, which is a different size on purpose. Everything
 here is arithmetic over those two numbers: no session, no clock, no rounding
 into map units -- the client fits degrees into whatever frame it draws.
 
@@ -50,9 +51,17 @@ COS_FLOOR = 1e-9
 
 
 def radius_m(constants: Constants, planet: Planet) -> float:
-    """The planet's radius in metres: its share of Terra times Terra's own."""
-    share = float(constants[R.PLANET_RADIUS].get(planet.value, 1.0))
-    return share * float(constants[R.PLANET_TERRA_RADIUS_KM]) * METRES_PER_KM
+    """The radius of the land one walks, in metres (D-324).
+
+    Not the body in the sky: a world has two sizes now, and this is the one
+    the map, the walk and the scout mean. It comes from how much **land** the
+    vault gives the world -- a share of the Earth's surface, chosen for
+    crowding and not for physics -- and a sphere of that area has this radius.
+    A world the vault forgot gets the Earth's own land: absurdly large, and
+    therefore noticed rather than quietly wrong.
+    """
+    share = float(constants[R.PLANET_LAND_AREA_SHARE].get(planet.value, 1.0))
+    return math.sqrt(share) * float(constants[R.PLANET_EARTH_RADIUS_KM]) * METRES_PER_KM
 
 
 def distance_m(radius: float, one: Geo, other: Geo) -> float:

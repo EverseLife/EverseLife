@@ -7,6 +7,7 @@ import { Hint } from "../../Hint";
 import { useSession } from "../../actions";
 import { busyWith } from "../../busy";
 import { t } from "../../locale";
+import { bulk, nameWord } from "./words";
 
 /** Roads from this node: what is laid, what sagged and what it costs (D-158).
  *
@@ -24,7 +25,9 @@ export function Roads({
   look: Look;
   busy: boolean;
   act: (what: () => Promise<unknown>) => Promise<void>;
-  /** Show the road to this neighbour alone: the column speaks about one node. */
+  /** Show the road to this neighbour alone, by key: the column speaks about
+   *  one node, and a name would pick the wrong one -- or, for a nameless
+   *  find, all of them. */
   only?: string;
 }) {
   const session = useSession();
@@ -44,7 +47,7 @@ export function Roads({
   //: after the click says the same thing one step too late.
   const occupied = busyWith(look);
 
-  const shown = only ? roads.filter((path) => path.to === only) : roads;
+  const shown = only ? roads.filter((path) => path.node === only) : roads;
   if (shown.length === 0) return null;
   const work_ = (edge: string, mend: boolean) =>
     act(() => session.send("road.lay", { edge, mend }));
@@ -53,7 +56,7 @@ export function Roads({
     <div className="row roads">
       {shown.map((path) => (
         <span key={path.edge} className="note">
-          {path.to}: {t(SURFACE[path.surface])}
+          {nameWord(path.to)}: {t(SURFACE[path.surface])}
           {paved(path.surface) && ` ${path.condition.toFixed(0)}%`}
           {path.working ? (
             ` · ${t("ui-map-road-working")}`
@@ -70,13 +73,13 @@ export function Roads({
                   title={
                     occupied ??
                     t("ui-map-road-need", {
-                      needs: path.needs.toFixed(0),
-                      hand: path.at_hand.toFixed(0),
+                      needs: bulk(path.needs),
+                      hand: bulk(path.at_hand),
                     })
                   }
                 >
                   {t(paved(path.surface) ? "ui-map-road-pave" : "ui-map-road-lay", {
-                    needs: path.needs.toFixed(0),
+                    needs: bulk(path.needs),
                   })}
                 </button>
               )}
@@ -86,14 +89,14 @@ export function Roads({
                   onClick={() => work_(path.edge, true)}
                   disabled={busy || path.at_hand < path.mend_needs || occupied !== null}
                   title={
-                    occupied ?? t("ui-map-road-mend-need", { needs: path.mend_needs.toFixed(0) })
+                    occupied ?? t("ui-map-road-mend-need", { needs: bulk(path.mend_needs) })
                   }
                 >
-                  {t("ui-map-road-mend", { needs: path.mend_needs.toFixed(0) })}
+                  {t("ui-map-road-mend", { needs: bulk(path.mend_needs) })}
                 </button>
               )}
               {path.at_hand < Math.min(path.needs ?? Infinity, path.mend_needs ?? Infinity) && (
-                <> · {t("ui-map-road-at-hand", { hand: path.at_hand.toFixed(0) })}</>
+                <> · {t("ui-map-road-at-hand", { hand: bulk(path.at_hand) })}</>
               )}
             </>
           )}

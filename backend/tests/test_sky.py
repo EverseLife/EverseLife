@@ -18,28 +18,61 @@ Pinned is what the simulation stands on:
 
 from __future__ import annotations
 
+from typing import NamedTuple
+
 import numpy as np
 import pytest
 
-from src import seed_parts, sky
+from src import sky
 from src.constants import Constants
 from src.constants import registry as R
 from src.models.world import Planet
 from src.sky import _base, field, forecast, guide, plan
 from src.units import HOURS_PER_DAY, MINUTES_PER_HOUR, TRACE_POINTS
 
-#: The seed's system with the vault's starting numbers, built by hand: the
-#: arithmetic is tested against the vault's shape, not the vault's build. The
-#: two numbers a world has are shares of Terra's (D-320) -- mass, which the
-#: sky turns into a pull, and radius, which the map's scale turns into ground.
-MASS = {"terra": 1.0, "pyroxis": 1.3, "aurora": 0.8, "aquatica": 1.1}
-SHARE = {"terra": 1.0, "pyroxis": 1.0, "aurora": 1.13, "aquatica": 1.09}
-PLANET_MU = 150.0
-BODY_RADIUS = 0.5
+
+class Circle(NamedTuple):
+    """One world's orbit as the sky reads it: where, how long, and from where."""
+
+    key: str
+    radius: float
+    period_days: float
+    phase: float
+
+
+#: The seed's system with the vault's own numbers, written out by hand: the
+#: arithmetic is tested against the vault's shape, not against its build, and
+#: a build read here would make every one of these tests a test of the build.
+#: The two numbers a world has are shares of the **Earth's** (D-320, D-324) --
+#: mass, which the sky turns into a pull, and radius, which the map's scale
+#: turns into ground; the land one walks is neither and is not the sky's.
+#:
+#: **Kept equal to the vault by a test of their own** (below). They were not,
+#: and that is how a world where Pyroxis weighs three hundred Earths was flown
+#: here as one where it weighs one and a third: every test in this file passed
+#: against a system that no longer existed, the parking circle's among them.
+MASS = {"terra": 1.0, "pyroxis": 317.8, "aurora": 1.5, "aquatica": 0.5}
+SHARE = {"terra": 1.0, "pyroxis": 10.973, "aurora": 1.393, "aquatica": 0.838}
+PLANET_MU = 24.0
+BODY_RADIUS = 0.08
+
+#: Where each world circles, written out for the same reason the masses are:
+#: this file tests the arithmetic against the vault's **shape**, and a build
+#: read here would make every test a test of the build. The radius is not a
+#: number the vault keeps -- it follows the year by Kepler (`sky.circle_of`) --
+#: and these four triples are checked against it below.
+ORBITS = (
+    Circle("pyroxis", 72.95, 11.0, 0.80),
+    Circle("terra", 136.0, 28.0, 2.10),
+    Circle("aquatica", 250.51, 70.0, 4.00),
+    Circle("aurora", 378.50, 130.0, 2.28),
+)
 
 
 def _system(*, bodies: bool = True) -> sky.System:
-    circles = {one.key: (one.radius, one.period_days, one.phase) for one in seed_parts.SYSTEM}
+    #: The vault's own layout since 2026-09-08 (`sky.circle_of`): the year is
+    #: the tuned number and the radius follows it by Kepler.
+    circles = {one.key: (one.radius, one.period_days, one.phase) for one in ORBITS}
     mu = _base.astro.mu_of(circles["terra"])
     return sky.System(
         mu=mu,
@@ -53,8 +86,13 @@ def _system(*, bodies: bool = True) -> sky.System:
         else (),
         corona=35.0,
         edge=800.0,
-        park=1.5,
-        capture_radius=3.0,
+        #: Three of each body's own radii (D-324). Terra's is `BODY_RADIUS`
+        #: times a share of one, so its circle is the same 1.5 units these
+        #: tests were written against.
+        park_radii=3.0,
+        #: Twelve of each body's own radii: four times the circle, which is
+        #: the room the weakest legal hull needs to brake into it (D-324).
+        capture_radii=12.0,
         capture_speed=2.0,
         eject_window=0.15,
         approach=4.0,
@@ -82,8 +120,11 @@ def test_a_world_is_built_from_the_two_numbers_the_vault_gives_it() -> None:
             R.ORBIT_BODY_RADIUS.key: BODY_RADIUS,
             R.ORBIT_CORONA_RADIUS.key: 35.0,
             R.ORBIT_SYSTEM_RADIUS.key: 800.0,
-            R.ORBIT_PARK_RADIUS.key: 1.5,
-            R.ORBIT_CAPTURE_RADIUS.key: 3.0,
+            #: Three of the body's own radii -- with `BODY_RADIUS` at a half
+            #: and Terra's share at one, the same 1.5 units these tests were
+            #: written against (D-324).
+            R.ORBIT_PARK_RADII.key: 3.0,
+            R.ORBIT_CAPTURE_RADII.key: 12.0,
             R.ORBIT_CAPTURE_SPEED.key: 2.0,
             R.ORBIT_EJECT_WINDOW.key: 0.15,
             R.ORBIT_APPROACH_RADII.key: 4.0,
@@ -95,20 +136,20 @@ def test_a_world_is_built_from_the_two_numbers_the_vault_gives_it() -> None:
         source="тест",
     )
     orbits = {
-        Planet(one.planet.value if hasattr(one.planet, "value") else one.planet): (
-            float(one.radius),
-            float(one.period_days),
-            float(one.phase),
-        )
-        for one in seed_parts.SYSTEM
+        Planet(one.key): (float(one.radius), float(one.period_days), float(one.phase))
+        for one in ORBITS
     }
     world = sky.system_of(constants, orbits)
     for body in world.bodies:
         assert body.mu == pytest.approx(PLANET_MU * MASS[body.key])
         assert body.radius == pytest.approx(BODY_RADIUS * SHARE[body.key])
     #: And the ground stays well inside the circle a hull moors on, or mooring
-    #: would be landing (D-289).
-    assert max(one.radius for one in world.bodies) < world.park
+    #: would be landing (D-289). Asked of each world in turn since D-324: the
+    #: circle is so many radii of its **own** body, and the bodies are no
+    #: longer one size -- one flat number of units compared against the
+    #: largest of them was the check that let Pyroxis' circle sink into it.
+    for one in world.bodies:
+        assert one.radius < sky.park_of(world, one)
 
 
 def test_the_integrator_keeps_a_circle_a_circle() -> None:
@@ -132,14 +173,15 @@ def test_a_parking_circle_comes_back_after_a_lap() -> None:
     on both cancels, which is what makes the circle analytic (D-289)."""
     system = _system()
     terra = system.body("terra")
-    lap = 2 * np.pi / sky.circle_rate(terra, system.park)
+    park = sky.park_of(system, terra)
+    lap = 2 * np.pi / sky.circle_rate(terra, park)
     r0, v0 = sky.parking(system, terra, 0.0, 0.3)
     r, _ = field.advance(system, np.array([0.0]), np.array([lap]), r0, v0, dt_max=0.05)
     p0, _ = _base.place(terra, 0.0)
     p1, _ = _base.place(terra, lap)
     before = r0 - p0
     after = r - p1
-    assert float(np.hypot(*(after - before)[0])) < 0.05 * system.park
+    assert float(np.hypot(*(after - before)[0])) < 0.05 * park
 
 
 def test_the_preview_ends_every_arc_where_the_planet_will_be() -> None:
@@ -208,8 +250,15 @@ def test_the_helm_captures_a_hull_that_arrives_near_its_planet() -> None:
     terra = system.body("terra")
     t = 5.0
     p, vp = _base.place(terra, t)
-    r = (float(p[0, 0]) + 3.5, float(p[0, 1]))
-    v = (float(vp[0, 0]), float(vp[0, 1]) + 1.0)
+    #: Just outside the window the mooring watches, said as a share of it
+    #: rather than in units: the window is so many radii of the world (D-324),
+    #: and a hull placed at a flat 3.5 units was a hair outside it while the
+    #: circles were Terra-sized and seven windows away once they were not.
+    r = (float(p[0, 0]) + sky.capture_of(system, terra) * 1.2, float(p[0, 1]))
+    #: Across the way it is going, at about a tenth of the circle's speed:
+    #: a hull that has come to the planet, not one falling straight in.
+    circle = sky.circle_speed(terra, sky.park_of(system, terra))
+    v = (float(vp[0, 0]), float(vp[0, 1]) + circle / 10)
     dt = 1 / 24 / 60
     captured = False
     for _ in range(24 * 60):
@@ -394,7 +443,7 @@ def test_the_arrival_stops_on_the_circle_however_weak_the_hull() -> None:
     early enough that a hull of the least legal thrust still stops on it.
 
     The mooring is measured against the circle's own speed at
-    `orbit.park_radius`, so a hull that sails past and settles on whatever
+    `orbit.park_radii`, so a hull that sails past and settles on whatever
     ring it reaches is never recognised as arrived: the order would stand for
     ever. Letting the fall run merely while it clears the ground is not
     enough -- the ground is a third of the circle's radius, and a hull near
@@ -413,6 +462,37 @@ def test_the_arrival_stops_on_the_circle_however_weak_the_hull() -> None:
             #: -- the circle's speed at `park` -- stops matching, and the hull
             #: circles for ever. Anywhere inside the capture radius above it
             #: is the arrival as D-289 defines it.
-            assert system.park - 0.05 <= where <= system.capture_radius, (
+            park = sky.park_of(system, system.body(dst))
+            assert park - 0.05 <= where <= sky.capture_of(system, system.body(dst)), (
                 f"{src}->{dst} при тяговооружённости {ratio}: борт не провалился под круг"
             )
+
+
+def test_the_numbers_here_are_the_vaults_own(constants: Constants) -> None:
+    """The hand-written system above is the vault's, and stays it.
+
+    Every other test in this file flies that system. When it and the vault
+    part company the whole file quietly becomes a test of a world nobody
+    lives in -- which is exactly what happened to D-324: the masses changed,
+    the fixture did not, and the parking circle went on coming back after a
+    lap in a system where Pyroxis weighed one and a third Earths.
+
+    The build is read **here and nowhere else** in this file, so the
+    arithmetic stays tested against the vault's shape rather than against its
+    numbers, and the numbers are checked once, out loud.
+    """
+    assert {key: float(value) for key, value in constants[R.PLANET_MASS].items()} == MASS
+    assert {key: float(value) for key, value in constants[R.PLANET_RADIUS].items()} == SHARE
+    assert float(constants[R.ORBIT_PLANET_MU]) == PLANET_MU
+    assert float(constants[R.ORBIT_BODY_RADIUS]) == BODY_RADIUS
+    assert _system().park_radii == float(constants[R.ORBIT_PARK_RADII])
+    assert _system().capture_radii == float(constants[R.ORBIT_CAPTURE_RADII])
+    #: And where the worlds circle, radius included -- which is the one number
+    #: here that the vault does not keep: it follows the year by Kepler, and a
+    #: triple written out by hand is exactly where that law gets broken.
+    for one in ORBITS:
+        radius, period, phase = sky.circle_of(constants, one.key)
+        #: The radius to a hundredth, as it is written above: the literal is a
+        #: reader's number, and Kepler's own has fifteen digits after it.
+        assert one.radius == pytest.approx(radius, rel=1e-4), one.key
+        assert (one.period_days, one.phase) == (period, phase), one.key

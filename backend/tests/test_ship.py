@@ -17,14 +17,16 @@ import uuid
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from ship_kit import ENGINE, _equip, _laid, _port, _shipwright
+from ship_kit import ENGINE, _equip, _laid, _orbit, _port, _shipwright
+from src import globe
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import gear, jobs, occupation, rest, ship, storage, travel, world
+from src.engine import gear, jobs, occupation, places, rest, ship, storage, travel, world
+from src.engine.ship._base import FOUNDATION
 from src.models.estate import Building
 from src.models.identity import Body
 from src.models.job import JobState
-from src.models.world import Node
+from src.models.world import Node, Planet
 
 # --- the ship is nodes of the graph -----------------------------------------
 
@@ -51,6 +53,40 @@ async def test_foundation_gives_a_node_with_an_edge_to_the_port(
     assert [way.node_id for way in ways] == [connector.id], "к порту пристыкован борт"
     #: One walks aboard: an ordinary transit along an ordinary edge.
     assert await travel.depart(session, constants, body, connector) is not None
+
+
+async def test_a_second_kind_of_foundation_is_data_and_lays_the_same_node(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Any member of the class lays a node -- a second foundation needs no code (D-325).
+
+    The rule is D-215's: behaviour binds to a class, never to an item name.
+    It is worth a test of its own because the vault leaned on it — Pyroxis has
+    no heat-shield tiles, so a hull there is made of pyroxite, and the way the
+    ladder closed that dead end was a **second recipe** of the same class
+    rather than a class in the ingredients (which the engine does not close).
+    If this rule ever narrows to the first member, that closure goes back to
+    being a dead end and nothing else says so.
+
+    Named through `of_class` rather than by the pyroxite key: what is asserted
+    is that **every** member lays a node, so the day a third one is written it
+    is covered without touching this test.
+    """
+    members = catalog.recipes.of_class(FOUNDATION)
+    assert len(members) > 1, "класс основы держит больше одного члена — иначе правило спит"
+
+    for member in members:
+        port = await _port(session)
+        identity = await world.create_identity(session, f"Корабел-{member}")
+        body = await world.print_body(session, identity, port)
+        pocket = await world.body_container(session, body)
+        await world.grant_item(session, pocket, member, origin="тест")
+
+        vessel = await _laid(session, constants, body, port, name=f"Заря-{member}")
+        assert len(await ship.nodes_of(session, vessel)) == 1, member
+        #: And written off: a foundation is a consumable, whichever member
+        #: of the class it happens to be.
+        assert not await ship._foundation_at_hand(session, body), f"«{member}» ушла в закладку"
 
 
 async def test_foundation_is_written_off_and_a_bare_intention_refused(
@@ -373,3 +409,116 @@ async def test_passage_stretches_by_mass_and_has_a_ceiling(constants: Constants)
     #: However much thrust is hung on, the ceiling holds.
     floor = table * constants[R.SHIP_ROUTE_MIN_SHARE] / 100
     assert ship.passage_hours(constants, table, reference * 100) == pytest.approx(floor)
+
+
+async def test_a_moored_hull_stands_beside_its_pier_on_the_map(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """The hull a crew boards has a place, and it is next to the port's own.
+
+    The client draws by the place and by nothing else (D-319): a hull sent
+    without one was on the wire and not on the map, so the gangway in `exits`
+    had nothing to click and nobody could walk aboard. The place is the pier's,
+    stepped out by the berth -- near enough to read as that port's, far enough
+    not to sit under the port's own mark.
+    """
+    port = await _port(session)
+    _, body = await _shipwright(session, port)
+    vessel = await _laid(session, constants, body, port)
+
+    seen = await ship.in_sight(session, constants, port)
+    assert seen is not None, "с причала виден пришвартованный корпус"
+    hull = next(one for one in seen["nodes"] if one["name"] == vessel.name)
+    place = hull["place"]
+    assert place is not None and "lat" in place, "у корпуса есть место на сфере"
+
+    pier = places.geo_of(port)
+    assert pier is not None
+    apart = globe.distance_m(
+        globe.radius_m(constants, port.planet), pier, (place["lat"], place["lon"])
+    )
+    #: Beside the pier, not under its mark and not across the city: the rule
+    #: for how far is `places.beside`, and this is only what the map needs of
+    #: it -- a point of its own, within a step of the pier's.
+    assert 0 < apart <= float(constants[R.MAP_CITY_STEP_M])
+
+    #: And a second hull at the same pier gets a point of its own: on a world
+    #: one lands anywhere on both are berth one (D-233), so what tells them
+    #: apart is the hull, not the berth.
+    _, mate = await _shipwright(session, port)
+    other = await _laid(session, constants, mate, port, name="Вечер")
+    seen = await ship.in_sight(session, constants, port)
+    assert seen is not None
+    points = {(one["place"]["lat"], one["place"]["lon"]) for one in seen["nodes"] if one["place"]}
+    assert len(points) == 2, "два корпуса — две точки"
+    assert other.name != vessel.name
+
+
+async def test_a_crew_aboard_a_moored_hull_is_on_the_surface_map(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """From aboard, the hull is a point of the pier's city -- so the crew is.
+
+    A room aboard stands on the ship's own flat map and hangs under the ship's
+    delegate, which hangs under the planet. Without the hull itself on the
+    pier's level the client could climb from the room to nothing: no "you are
+    here" on the surface, no place for the camera to open at, and a frame that
+    opened over whatever city came first -- half a world from the pier the
+    ship had actually landed at.
+    """
+    port = await _port(session)
+    #: A pier stands in a city, as every seeded one does: that is what makes
+    #: the hull a member of the city's scene rather than a point beside it.
+    town = await world.create_node(
+        session, f"terra.town.{uuid.uuid4().hex[:8]}", "Городок", area_m2=1, planet=Planet.TERRA
+    )
+    port.parent_id = town.id
+    await session.flush()
+    _, body = await _shipwright(session, port)
+    vessel = await _laid(session, constants, body, port)
+    connector = await session.get(Node, vessel.connector_node_id)
+    body.node_id = connector.id
+    await session.flush()
+
+    seen = await ship.in_sight(session, constants, connector)
+    assert seen is not None
+    delegate = await session.get(Node, vessel.node_id)
+    hull = next((one for one in seen["nodes"] if one["key"] == delegate.key), None)
+    assert hull is not None, "корпус виден с борта как точка поверхности"
+    assert hull["layer"] == port.layer.value, "на слое причала, не в небе"
+    assert hull["parent"] == town.key, "под городом причала"
+    assert hull["place"] is not None and "lat" in hull["place"]
+
+    #: The rooms hang under it, so the climb from where one stands ends here.
+    room = next(one for one in seen["nodes"] if one["key"] == connector.key)
+    assert room["parent"] == delegate.key
+
+
+async def test_a_hull_off_its_pier_lends_no_place(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """In the sky the hull is the sky's: the pier lends nothing to a ship that
+    has cast off, and the crew aboard sees its rooms and no surface point.
+
+    Both ways of being off the ground are the same here. A hull under way has
+    no pier at all; a hull on its parking circle is moored to the **orbital**
+    node (`flight.arrived`), which is the sky and has no ground under it -- so
+    a point beside it would be a point on a planet the hull is not standing
+    on, and the sky already draws the hull from the clock (D-289).
+    """
+    port = await _port(session)
+    _, body = await _shipwright(session, port)
+    vessel = await _laid(session, constants, body, port)
+    connector = await session.get(Node, vessel.connector_node_id)
+    delegate = await session.get(Node, vessel.node_id)
+
+    orbit = await _orbit(session)
+    for pier in (None, orbit.id):
+        vessel.docked_node_id = pier
+        await session.flush()
+        assert await ship.in_sight(session, constants, port) is None, "у причала никого"
+        seen = await ship.in_sight(session, constants, connector)
+        assert seen is not None
+        assert all(one["key"] != delegate.key for one in seen["nodes"]), (
+            "корпуса на поверхности нет"
+        )

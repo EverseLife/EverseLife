@@ -57,7 +57,10 @@ const RAD = Math.PI / 180;
  * flat long before the coast could be seen. Powers of two, so the fact
  * flips a few times on the way down and not at every frame.
  */
-export function groundOf(scale: number, radius: number | null): { unit: number; shown: boolean } {
+export function groundOf(
+  scale: number,
+  radius: number | null,
+): { unit: number; shown: boolean } {
   if (!radius || !(scale > 0)) return { unit: 1, shown: false };
   const span = W / scale;
   const cell = radius * CELL_DEG * RAD;
@@ -78,7 +81,10 @@ export function groundOf(scale: number, radius: number | null): { unit: number; 
  * the land short of the edge on the way out. A whole cell has no limit:
  * the frame then holds the disk, or most of it.
  */
-export function groundReach(unit: number, radius: number | null): number | undefined {
+export function groundReach(
+  unit: number,
+  radius: number | null,
+): number | undefined {
   if (!radius || unit >= 1) return undefined;
   return HALVE_BELOW * radius * CELL_DEG * RAD * unit;
 }
@@ -168,12 +174,69 @@ export function tilted(eye: Eye, descent: number): Eye {
 export const ABOVE_FLOOR = 1.2;
 export function openScale(radius: number | null, floor: number): number {
   if (!radius) return STREET_SCALE;
-  return Math.max(floor * ABOVE_FLOOR, (SPHERE_R * SKY_BOUNDS.nearest) / radius);
+  return Math.max(
+    floor * ABOVE_FLOOR,
+    (SPHERE_R * SKY_BOUNDS.nearest) / radius,
+  );
 }
 
 /** At this scale and nearer a city opens into its nodes; farther, it is a
  *  point with a name -- the printer's (plan §2). */
-export const CITY_SCALE = 0.8;
+export const CITY_SCALE = 0.25;
+
+/**
+ * How far apart two nodes stand, counted in the radius of the circle each is
+ * drawn as: **five**, and the circle is sized from that rather than the other
+ * way round (owner, 2026-09-08).
+ *
+ * The engine seats a node no nearer than `map.min_gap_m` to anybody else, and
+ * that gap is the map's floor: get the circle bigger than a fifth of it and
+ * neighbours start covering one another. The two numbers used to be chosen
+ * apart -- six units against six metres -- and held only by arithmetic
+ * nobody checked: `6 m x UNITS_PER_METRE / 6 units` came to exactly five, and
+ * a hand lowering the gap or widening the circle would have crowded the map
+ * with nothing to say so. Derived, the promise cannot come untrue: a tighter
+ * gap draws smaller circles.
+ */
+export const GAP_RADII = 5;
+//: What the circle may not shrink below or grow past whatever the vault says:
+//: three units is still a dot one can aim at, nine is the widest that reads
+//: as a node rather than as a city.
+export const NODE_R_MIN = 3;
+export const NODE_R_MAX = 9;
+//: Until the book arrives -- the value today's gap comes to, so the first
+//: frame is not drawn in some other size and then re-drawn.
+export const NODE_R = 6;
+
+/**
+ * The radius a node is drawn with, map units: the seating gap over
+ * `GAP_RADII`. `map.min_gap_m` comes with the constants the client already
+ * reads (D-209), so nothing new travels for this.
+ */
+export function nodeRadius(
+  book: { constants?: Record<string, unknown> | null } | null,
+): number {
+  const gap = Number(book?.constants?.["map.min_gap_m"]);
+  if (!Number.isFinite(gap) || gap <= 0) return NODE_R;
+  return Math.min(
+    NODE_R_MAX,
+    Math.max(NODE_R_MIN, (gap * UNITS_PER_METRE) / GAP_RADII),
+  );
+}
+
+/**
+ * The scale the frame stands at this far out, near enough: the closing scale
+ * halved every octave, and `far` counts half-octaves.
+ *
+ * Not the frame's own scale on purpose. What is drawn about a closed city --
+ * its circle, its name -- is wanted at a size in **pixels**, and the map's
+ * own units are pixels only at scale one; dividing by the true scale would
+ * redraw every city at every notch of the zoom. `far` flips a few times on
+ * the way out, and this is the scale it flipped at.
+ */
+export function scaleAt(far: number): number {
+  return CITY_SCALE * 2 ** (-far / 2);
+}
 
 /**
  * How far out the frame is past the cities' closing, in half-octaves: 0
@@ -187,16 +250,69 @@ export function farOf(scale: number): number {
   return Math.max(0, Math.round(2 * Math.log2(span / closing)));
 }
 
-/** A closed city's radius, pixels: its count of nodes at the closing, held
- *  between what is still a city and what fits beside its neighbours, and
- *  larger the farther out -- from afar the cities are the map (owner,
+/** A closed city's radius **in pixels**: its count of nodes at the closing,
+ *  held between what is still a city and what fits beside its neighbours,
+ *  and larger the farther out -- from afar the cities are the map (owner,
  *  2026-09-06: as a web map shows the great cities first). */
-export const CITY_R_MIN = 6;
-export const CITY_R_MAX = 80;
+export const CITY_R_MIN = 14;
+export const CITY_R_MAX = 120;
 export const CITY_GROWTH = 0.6;
-export function cityRadius(size: number, far: number): number {
+export function cityPixels(size: number, far: number): number {
   const base = Math.min(40, Math.max(CITY_R_MIN, size));
   return Math.min(CITY_R_MAX, base * (1 + (CITY_GROWTH * far) / 2));
+}
+
+/**
+ * A closed city's radius in **map units**, which is what the drawing takes.
+ *
+ * The units of this map are pixels only at scale one, and a closed city is
+ * looked at from a long way outside it: drawn in units the circle shrank with
+ * the zoom until the capital was a speck of a pixel, growing by `CITY_GROWTH`
+ * against a scale halving every octave (owner, 2026-09-08: «абстрактный узел
+ * города слишком маленький»). Divided by the scale of its band, it holds its
+ * size on the glass and the growth means what it says.
+ */
+export function cityRadius(
+  size: number,
+  far: number,
+  globe: number | null = null,
+): number {
+  const units = cityPixels(size, far) / scaleAt(far);
+  //: And no larger than a share of the planet itself. The pixel ceiling
+  //: `CITY_R_MAX` keeps the circle within reason on a screen, but on the globe
+  //: a screen is a whole world: from afar the capital grew over half the
+  //: planet (owner, 2026-09-08). A city is a place on a planet, and it must
+  //: look like one.
+  return globe && globe > 0 ? Math.min(units, globe * CITY_OF_GLOBE) : units;
+}
+
+//: What share of the planet's radius a city's circle never passes. An eighth
+//: is a little more than a continent would take on Earth: the city is seen
+//: from afar and stays a point on the sphere rather than a blot over it.
+export const CITY_OF_GLOBE = 0.125;
+
+/**
+ * The mark of the node one stands in, **map units**, when the cities are
+ * closed.
+ *
+ * Everything else on a closed map is a city, drawn at a size in pixels; the
+ * node underfoot is an ordinary node and its six units shrank to nothing a
+ * notch out (owner, 2026-09-08: «при зуме издали мы продолжаем показывать
+ * узел, в котором находится игрок»). Keeping it is only half the promise —
+ * it has to be **seen**.
+ */
+export const HERE_R_PX = 7;
+export function hereRadius(far: number): number {
+  return HERE_R_PX / scaleAt(far);
+}
+
+/** How tall a closed city's name is drawn, map units: the same pixels at
+ *  every distance, for the same reason as the circle. A name that shrinks
+ *  with the zoom is a name nobody can read from where cities are all there
+ *  is. */
+export const CITY_LABEL_PX = 13;
+export function cityLabelEm(far: number): number {
+  return CITY_LABEL_PX / scaleAt(far);
 }
 
 /**
@@ -250,4 +366,3 @@ export function planetUnder(
   }
   return best;
 }
-

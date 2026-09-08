@@ -139,7 +139,7 @@ async def test_the_way_between_worlds_goes_orbit_to_orbit(
 def test_a_heavy_world_costs_more_to_leave(constants: Constants) -> None:
     """Gravity is the first number by which planets differ (D-245).
 
-    Pyroxis is dense and heavy: leaving it is dearest, and that is a reason of
+    Pyroxis is a giant and heavy: leaving it is dearest, and that is a reason of
     its own why a watch there goes at the limit. Aurora is light. And coming
     down is always shorter than going up -- the weight one climbed against is
     on the ship's side.

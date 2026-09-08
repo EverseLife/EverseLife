@@ -28,6 +28,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.constants import Catalog, Constants
@@ -35,6 +36,7 @@ from src.constants import registry as R
 from src.engine import gear, oxygen, ship, storage, travel, world
 from src.engine.ship import lines
 from src.models.estate import Building
+from src.models.event import Event, EventKind
 from src.models.identity import Body, BodyState
 from src.models.inventory import Item
 from src.models.ship import Ship
@@ -725,3 +727,88 @@ async def test_a_canister_packed_into_a_chest_is_stowed_cargo(
     can.installed = True
     await session.flush()
     assert await oxygen.reserve(session, constants, catalog, vessel) == pytest.approx(9, abs=0.01)
+
+
+async def test_the_gauge_tells_a_dry_hull_from_an_unplumbed_one(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The bridge is owed the difference (D-288).
+
+    A hull that casts off with a full bottle nobody drew a line to suffocates
+    exactly as one with no bottle at all -- and the two are not the same
+    trouble: the first is a line to draw, the second is a bottle to find. So
+    the reading names both what the line reaches and what stands aboard past
+    it, and the console can say which of the two it is looking at.
+    """
+    await _sphere(session, Planet.TERRA, airless=False)
+    port = await _port(session)
+    vessel, _, connector = await _hull(session, constants, port)
+    system = await _system(session, connector)
+    #: One canister put up and plumbed, one put up and forgotten, one lying.
+    lined = await _in_canister(session, connector, AIR, 4)
+    spare = await _in_canister(session, connector, AIR, 9)
+    await _in_canister(session, connector, AIR, 5, installed=False)
+    await _plumb(session, system, lined)
+
+    reading = await oxygen.gauge(session, constants, catalog, vessel, crew=1)
+    assert reading["units"] == pytest.approx(4, abs=0.01), "дышат только линией"
+    assert reading["off_line"] == pytest.approx(9, abs=0.01), (
+        "стоящее мимо линии названо, лежащее — груз и в счёт не идёт"
+    )
+
+    #: Plumbed as well, it stops being a warning and becomes reserve.
+    await _plumb(session, system, lined, spare)
+    plumbed = await oxygen.gauge(session, constants, catalog, vessel, crew=1)
+    assert plumbed["units"] == pytest.approx(13, abs=0.01)
+    assert plumbed["off_line"] == pytest.approx(0, abs=0.01)
+
+    #: And a hull with no system at all breathes nothing, yet still knows
+    #: what stands in it: that is the "put a system in" case, not "draw a line".
+    await session.delete(system)
+    await session.flush()
+    bare = await oxygen.gauge(session, constants, catalog, vessel, crew=1)
+    assert bare["units"] == pytest.approx(0, abs=0.01)
+    assert bare["off_line"] == pytest.approx(13, abs=0.01)
+
+
+async def test_the_journal_and_the_bridge_count_the_same_oxygen_off_the_line(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """D-288 names **one** quantity, so there is one of it.
+
+    The journal's `SHIP_AIRLESS` and the console's gauge used to answer it
+    apart: the event counted every vessel in the rooms, standing or lying,
+    while the gauge counted the standing alone. A crew read one number in the
+    journal and another on the bridge about the same hull -- and only the
+    narrow one is what the decision says ("сколько кислорода стоит мимо
+    линии") and what one can act on: a line is drawn to a vessel that stands,
+    and a canister on the floor is luggage until it is put up.
+    """
+    await _sphere(session, Planet.TERRA, airless=False)
+    port = await _port(session)
+    vessel, body, connector = await _hull(session, constants, port)
+    #: A system aboard with nothing plumbed to it, one canister up and
+    #: forgotten, one lying: this is the "draw a line" trouble, not the
+    #: "put a system in" one.
+    await _system(session, connector)
+    await _in_canister(session, connector, AIR, 6)
+    await _in_canister(session, connector, AIR, 4, installed=False)
+
+    reading = await oxygen.gauge(session, constants, catalog, vessel, crew=1)
+    assert reading["off_line"] == pytest.approx(6, abs=0.01), "лежащее не в счёт"
+
+    vessel.docked_node_id = None
+    vessel.air_at = datetime.now(UTC) - timedelta(hours=2)
+    await session.flush()
+    await oxygen.tick_ships(session, constants, catalog)
+
+    told = (
+        (await session.execute(select(Event).where(Event.kind == EventKind.SHIP_AIRLESS)))
+        .scalars()
+        .all()
+    )
+    assert len(told) == 1
+    assert told[0].payload["off_line"] == pytest.approx(reading["off_line"], abs=0.01), (
+        "журнал и рубка говорят о борте одно число"
+    )
+    assert body.choking_since is not None, "и дышать всё равно нечем"

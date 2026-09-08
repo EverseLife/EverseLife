@@ -48,7 +48,7 @@ import { t } from "../../locale";
 import { planetName } from "../../planets";
 import { along, mooring, term } from "../map/orbits";
 import { Bezel, Screen } from "./Glass";
-import { sameTarget, type Route, type Target, type Vessel } from "./model";
+import { sameTarget, whole, type Route, type Target, type Vessel } from "./model";
 import {
   CENTER,
   H,
@@ -83,7 +83,12 @@ const MS_PER_DAY = 86_400_000;
  * never left its planet however near one looked: a fixed pixel gap is not a
  * distance, and the zoom has nothing to open up.
  */
-const PARK = "orbit.park_radius";
+const PARK = "orbit.park_radii";
+/** The scale a world's share of the Earth's radius is drawn at, and the
+ *  shares themselves: the parking circle is so many radii of the body it is
+ *  round (D-324), and the bodies stopped being one size. */
+const BODY = "orbit.body_radius";
+const SHARES = "planet.radius";
 /** Below this the parking circle is a smudge on the dot, and is not drawn. */
 const PARK_SEEN = 3;
 /** How far the heading vector reaches, and where it starts off the hull. */
@@ -244,7 +249,15 @@ export function Chart({
   //: far a hull sees another. Catalog, so it rides with the book (D-225).
   const book = useBook();
   const sight = Number(book?.constants?.[SIGHT] ?? 0);
-  const park = Number(book?.constants?.[PARK] ?? 0);
+  //: The circle this hull's own world holds it on, map units: so many radii
+  //: (`orbit.park_radii`) of that world's drawn body (D-324). One flat number
+  //: of units for every planet drew Pyroxis' circle inside Pyroxis.
+  const shares = book?.constants?.[SHARES] as Record<string, number> | undefined;
+  //: A world's drawn body in map units: the scale of the sky times that
+  //: world's own share of the Earth's radius (D-320, D-324).
+  const bodyOf = (planet: string) =>
+    Number(book?.constants?.[BODY] ?? 0) * Number(shares?.[planet] ?? 1);
+  const park = Number(book?.constants?.[PARK] ?? 0) * bodyOf(vessel.planet);
   //: The gradients and the pattern of the glass are named after the hull: two
   //: consoles on one screen would otherwise share one `id` and one of them
   //: would draw the other's.
@@ -481,7 +494,20 @@ export function Chart({
                   })})`}
                 />
               ) : (
-                <circle cx={spot.x} cy={spot.y} r={mine ? 9 : 7} fill="currentColor" />
+                //: A marker while the world is far, its own body once it is
+                //: near. The two are the same picture at the moment the disc
+                //: outgrows the dot, so nothing jumps -- and from D-324 the
+                //: worlds are no longer one size, so a parking circle drawn to
+                //: scale round an identical dot would read as a mistake rather
+                //: than as a giant. The circle is that world's own near-planet
+                //: orbit and depends on nothing but the world (owner,
+                //: 2026-09-08); the drawing says so.
+                <circle
+                  cx={spot.x}
+                  cy={spot.y}
+                  r={Math.max(mine ? 9 : 7, span(scope, bodyOf(one.planet)))}
+                  fill="currentColor"
+                />
               )}
               <text x={label.x} y={label.name} textAnchor={label.anchor}>
                 {planetName(one.planet)}
@@ -497,7 +523,7 @@ export function Chart({
                     {route.cheap == null
                       ? "—"
                       : t("ui-ship-chart-cheap", {
-                          term: term(route.cheap.hours),
+                          term: term(whole(route.cheap)),
                           fuel: route.cheap.fuel.toFixed(0),
                         })}
                   </text>
@@ -510,7 +536,7 @@ export function Chart({
                     {route.fast == null
                       ? ""
                       : t("ui-ship-chart-fast", {
-                          term: term(route.fast.hours),
+                          term: term(whole(route.fast)),
                           fuel: route.fast.fuel.toFixed(0),
                         })}
                   </text>

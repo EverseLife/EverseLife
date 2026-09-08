@@ -50,7 +50,9 @@ export type Convoy = {
 /** A road as work on an edge (D-107, D-158). */
 export type RoadWork = {
   edge: string;
-  /** Where it leads. */
+  /** Where it leads, by key: what the column picks its one road by. */
+  node: string;
+  /** Where it leads, in words. Not an identifier: a city has many «Квартира». */
   to: string;
   surface: "wild" | "trail" | "road" | "paved";
   /** Surface condition 0..100: overgrows without maintenance. */
@@ -89,6 +91,24 @@ export type Transit = {
   legs_left?: number;
 };
 
+/**
+ * A run of the scout under way (D-327): the way out to the find.
+ *
+ * Not a `Transit`, and it cannot be one: the far end is a **place**, because
+ * the node it will become does not exist yet. The client cannot work any of
+ * this out for itself either -- after a reload it does not even know what was
+ * aimed at -- so it travels (D-225). Where the scout is right now does not:
+ * that is the two stamps and a straight line, counted frame by frame (D-226).
+ */
+export type Scouting = {
+  /** The node the run set out from, and the one it returns to if given up. */
+  from_key: string;
+  /** The centre of the cell being opened -- where the find will stand. */
+  place: { lat: number; lon: number };
+  started_at: string;
+  arrives_at: string;
+};
+
 /** The world map: nodes and edges. Cities and highways are public (D-097). */
 export type MapNode = {
   key: string;
@@ -118,9 +138,11 @@ export type MapNode = {
    *  days and the phase at the world's epoch. Only planets have one -- on the
    *  space layer a place is a function of time, not of a settled layout. */
   orbit: { radius: number; period_days: number; phase: number } | null;
-  /** A ship lies at this pier (D-319 item 10): sent only when so. The hull
-   *  is not a point of the map, and its row cannot tell a pier from the
-   *  parking -- both hang under the planet -- so the port says it. */
+  /** A ship lies at this pier (D-319 item 10): sent only when so. To
+   *  everybody else a moored hull is the port wearing a mark -- the hull's
+   *  own point comes only to whoever stands at that pier or aboard -- and a
+   *  pier's row cannot tell itself from the parking, both hanging under the
+   *  planet, so the port says which it is. */
   moored?: boolean;
   /** Known from a map in the hands and nothing else (D-319 item 6): the
    *  day the map was drawn on -- the map's own mark of "old". */
@@ -149,6 +171,12 @@ export type MapNode = {
   emblem?: string | null;
   /** Shown dark: remembered or public, not in sight (D-319). */
   faded?: boolean;
+  /** The node the city grew from -- its bioprinter. Sent on a **city's** row
+   *  alone: from afar a city is drawn as that node's point (D-319), and the
+   *  client cannot work out which node holds the machine (D-225) -- the map
+   *  carries no machines, and "the oldest printer that is not the prison's"
+   *  is the engine's own reading of a centre (`city.lookup.core`). */
+  core?: string | null;
 };
 
 export type MapEdge = {

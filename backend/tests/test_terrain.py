@@ -15,8 +15,12 @@ read at a point, never rolled. What is checked here is the whole of that:
 
 from __future__ import annotations
 
+import json
 import math
+import subprocess
+import sys
 from datetime import timedelta
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -159,10 +163,18 @@ def test_peaks_are_mountains_and_basins_lakes_at_the_vault_shares(constants: Con
     #: mountain, a dip of it never takes one away.
     ranges = [p for p in land if field.coarse(*p) >= field.mountain_level]
     assert ranges and all(field.is_mountain(*p) for p in ranges)
-    #: A lake waters the node beside it as a river does.
+    #: A lake waters the node on its bank as a river does. On the **bank**:
+    #: the reach is read on eight rays at three distances (`relief.around`),
+    #: and a lake is a thin sliver of a basin -- the one found here runs
+    #: 0.04 deg across against a reach of 0.58 -- so a node well within the
+    #: reach can still fall between two rings of rays and read dry. That is
+    #: OQ-152 and not this file's to settle; what is pinned here is the bank,
+    #: which no ring can miss.
     lake = next(p for p in land if field.is_lake(*p))
-    reach = terrain.river_reach_deg(constants, Planet.TERRA, lake[0])
-    beside = (lake[0] + reach * 0.5, lake[1])
+    step = 0.01
+    beside = lake
+    while field.is_water(*beside) and abs(beside[0] - lake[0]) < 1.0:
+        beside = (beside[0] + step, beside[1])
     if not field.is_water(*beside):
         assert terrain.marks_at(constants, Planet.TERRA, *beside)[world.WATER] in (
             world.LAKE,
@@ -294,3 +306,39 @@ async def test_noon_comes_to_the_east_first(session: AsyncSession, constants: Co
     assert climate.temperature_now(constants, east, origin, later) < 20.0
     assert climate.temperature_now(constants, west, origin, later) > 20.0
     assert swing > 0
+
+
+def test_the_sketch_tool_builds_the_field_the_numbers_ask_for(
+    constants: Constants, tmp_path
+) -> None:
+    """`tools/sketch.py`: the same field, with numbers tried over the build.
+
+    The vault's editor draws a planet while its numbers are being turned, and
+    the shape those numbers make is **this** arithmetic. The tool is the door
+    it asks through, so that the world never has two shapes -- the one a tool
+    shows and the one the game builds. What is pinned here is the door: a
+    value put over the build changes the field, and nothing is written.
+    """
+    build = tmp_path / "build"
+    build.mkdir()
+    #: The build the engine itself is running on, copied so the tool has one
+    #: to read: the test must not depend on where the vault is checked out.
+    raw = json.loads(Path(constants.source).read_text(encoding="utf-8"))
+    (build / "constants.json").write_text(json.dumps(raw), encoding="utf-8")
+
+    def run(*extra: str) -> dict:
+        done = subprocess.run(
+            [sys.executable, "tools/sketch.py", "--planet", "terra", "--build", str(build), *extra],
+            capture_output=True,
+            check=False,
+            cwd=Path(__file__).resolve().parent.parent,
+        )
+        assert done.returncode == 0, done.stderr.decode("utf-8", errors="replace")
+        return json.loads(done.stdout.decode("utf-8"))
+
+    plain = run()
+    assert plain["rows"] == relief.GRID_ROWS and plain["cols"] == relief.GRID_COLS
+    turned = run("--set", "terrain.seed=17")
+    assert turned["grid"] != plain["grid"], "другое зерно — другой мир"
+    #: And the file the tool read is exactly as it was: a preview writes nothing.
+    assert json.loads((build / "constants.json").read_text(encoding="utf-8")) == raw

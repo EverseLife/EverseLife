@@ -33,6 +33,7 @@ import { Glyph } from "../Glyph";
 import { askSidebarTab } from "../hud";
 import { t } from "../locale";
 import { Logo } from "../Logo";
+import { term } from "./map/orbits";
 import { usePopover } from "../popover";
 import { VIEWS, type View } from "../views";
 import { leftNow, reserveNow } from "../warmth";
@@ -425,11 +426,15 @@ function Breath({ air }: { air: Air }) {
       <b className="num">
         {hours == null
           ? t("ui-top-air-units", { n: units.toFixed(0) })
-          : t("ui-top-air-hours", { n: hours.toFixed(1) })}
+          //: The same term the ship's card prints (`ui-ship-air-burn`): one
+          //: unit and one rounding, or the same reserve read "30.0 ч" in the
+          //: bar and "1.3 сут" in the window a click away.
+          : t("ui-top-air-left", { term: term(hours) })}
       </b>
     </span>
   );
 }
+
 
 /**
  * The heat reserve, counted by the client (D-226, D-231).

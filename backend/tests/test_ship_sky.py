@@ -66,7 +66,14 @@ async def _loss_jobs(session: AsyncSession) -> list[Job]:
 async def _under_way(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> tuple[Ship, Body, Node, datetime, dict]:
-    """A hull in Terra's orbit, ordered to Aurora on the fast end of the slider."""
+    """A hull in Terra's orbit, under way to Aurora on the fast end of the slider.
+
+    The moment handed back is the one the **arc** begins at, not the one the
+    order was given at: an order waits for the ejection window (D-316), and
+    how long it waits depends on where the hull stands on its circle. A test
+    that ticked an hour from the order was ticking an hour of waiting as often
+    as an hour of burning, by the phase of the day it ran on.
+    """
     home = await _port(session, name="Космодром столицы")
     await _port(session, name="Космодром Мерида", planet=Planet.AURORA)
     aurora = await _orbit(session, Planet.AURORA)
@@ -83,7 +90,11 @@ async def _under_way(
     await ship.fly(
         session, constants, catalog, owner, vessel, aurora, hours=fast["hours"], now=moment
     )
-    return vessel, owner, aurora, moment, fast
+    #: Named, not ticked: the sky is left exactly where the order left it --
+    #: some of these tests are about the first tick there ever is -- and a
+    #: caller that asks for an hour of the arc gets the wait swept up in the
+    #: same step, which burns nothing (a hull waiting spends no fuel).
+    return vessel, owner, aurora, moment + timedelta(hours=fast["wait"]), fast
 
 
 async def test_a_hull_that_runs_dry_goes_adrift_and_is_fetched_by_fuel(
@@ -262,7 +273,7 @@ async def test_a_moored_hull_runs_on_its_circle_and_costs_the_tick_nothing(
 
     world = await sim.system(session, constants)
     terra = world.body(Planet.TERRA.value)
-    park = float(constants[R.ORBIT_PARK_RADIUS])
+    park = sky.park_of(world, terra)
     for hours in (0, 7, 100):
         at = vessel.sky_at + timedelta(hours=hours)
         found = await sim.state_at(session, constants, vessel, now=at)
@@ -292,6 +303,18 @@ async def test_two_ticks_on_one_hull_burn_once(
     async with factory() as session, session.begin():
         vessel, _, _, moment, _ = await _under_way(session, constants, catalog)
         ship_id = vessel.id
+
+    #: Through the ejection window first (D-316), and only then the hour that
+    #: is measured. A single step spanning the wait as well carries the whole
+    #: departure impulse, which is more delta-v than an hour of thrust -- and
+    #: an hour of thrust is the bound below. What the two workers race over
+    #: has to be an hour of the arc, not the arc's beginning.
+    async with factory() as session, session.begin():
+        await helm.tick_sky(session, constants, catalog, now=moment)
+
+    async with factory() as session:
+        vessel = await session.get(Ship, ship_id)
+        assert vessel is not None and vessel.sky_at == moment
         before = await ship.fuel_aboard(session, constants, catalog, vessel)
         weight = await ship.mass(session, constants, catalog, vessel)
         klass = await ship.engine_class(session, constants, vessel)

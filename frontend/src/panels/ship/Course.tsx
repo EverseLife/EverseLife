@@ -18,14 +18,7 @@ import { useEdition, useSession } from "../../actions";
 import { refusalText, t } from "../../locale";
 import { planetName } from "../../planets";
 import { term } from "../map/orbits";
-import { range, type CourseAnswer, type Sample, type Target, type Vessel } from "./model";
-
-/** The whole passage a point of the slider means, hours: the wait for the
- *  ejection window and then the arc (D-316). The reader is told this and not
- *  the arc alone -- the wait is time aboard too, and the order promises it. */
-function whole(one: Sample): number {
-  return one.hours + one.wait;
-}
+import { range, whole, type CourseAnswer, type Sample, type Target, type Vessel } from "./model";
 
 export function Course({
   vessel,

@@ -79,6 +79,34 @@ async def reserve(
     return sum(amount_float(stack.amount) for stack in stacks)
 
 
+async def off_line(
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    ship: Ship,
+    *,
+    things: list[Item] | None = None,
+) -> float:
+    """Oxygen aboard that the crew cannot breathe: standing in the hull's own
+    vessels, and in none the life support drinks from (D-288).
+
+    The warning the bridge owes a crew, not a second reserve. A hull that
+    casts off with a full bottle nobody drew a line to suffocates exactly as
+    one with no bottle at all, and the two are worth telling apart: the first
+    is a line to draw, the second is a bottle to find. Counted over the
+    **installed** vessels alone, because that is the difference -- a cylinder
+    lying in a hold is luggage either way (`breathable_stacks`).
+    """
+    hold = things if things is not None else await lines.hold_of(session, ship)
+    stood = await lines.hull_vessels(session, catalog, ship, things=hold)
+    aboard = await lines.stacks_in(session, stood, lines.air_port().liquids)
+    reached = {
+        stack.id
+        for stack in await breathable_stacks(session, constants, catalog, ship, things=hold)
+    }
+    return sum(amount_float(stack.amount) for stack in aboard if stack.id not in reached)
+
+
 def hull_draw(constants: Constants, crew: int) -> float:
     """What a crew of this size breathes an hour aboard."""
     return crew * constants[R.OXYGEN_CREW_DRAW]

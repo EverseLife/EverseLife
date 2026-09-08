@@ -59,7 +59,7 @@ describe("project", () => {
 
   it("opens up the gap between a moored hull and its planet", () => {
     //: What the fixed pixel offset could never do. A hull on the circle stands
-    //: `orbit.park_radius` off its planet, in map units like everything else,
+    //: `orbit.park_radii` of its planet's body off it, in map units like the rest,
     //: so looking nearer walks the two apart -- and at rest they are the same
     //: point, which is the truth about a parking orbit seen from the system.
     const planet = { x: 10, y: -4 };

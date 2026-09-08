@@ -132,7 +132,9 @@ async def state_at(
             #: without spheres. No circle to be on.
             return None
         t0 = await sky_days(session, ship.sky_at)
-        phase = float(ship.park_phase or 0.0) + sky.circle_rate(body, world.park) * (t - t0)
+        phase = float(ship.park_phase or 0.0) + sky.circle_rate(body, sky.park_of(world, body)) * (
+            t - t0
+        )
         r, v = sky.parking(world, body, t, phase)
         return _row(r), _row(v), t
     r0, v0 = _state_of(ship)
@@ -527,7 +529,12 @@ async def depart(
             + timedelta(days=wait, hours=hours)
             + timedelta(
                 days=sky.brake_days(
-                    world, plan.dv_in, thrust_ratio * float(constants[R.ORBIT_THRUST_SCALE])
+                    world,
+                    plan.dv_in,
+                    thrust_ratio * float(constants[R.ORBIT_THRUST_SCALE]),
+                    #: The circle fallen to is the target world's own (D-324);
+                    #: a hull met in the deep has none to fall to.
+                    goal if isinstance(goal, sky.Body) else None,
                 )
             )
         ),

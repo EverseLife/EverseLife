@@ -34,7 +34,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src import globe
 from src.constants import Constants
 from src.constants import registry as R
-from src.engine import biome, places, terrain
+from src.engine import access, biome, places, terrain
+from src.engine.biome import word_of
 from src.engine.explore._base import (
     Aim,
     CrossesWay,
@@ -42,11 +43,13 @@ from src.engine.explore._base import (
     NoRoom,
     NotFromHere,
     NotLand,
+    Shut,
     TooFar,
     TooNear,
     cell_of,
     point_of,
 )
+from src.models.identity import Body
 from src.models.world import Edge, Layer, Node, Planet
 from src.units import METRES_PER_KM
 
@@ -72,14 +75,6 @@ def area_for(constants: Constants, free_m: float) -> float | None:
     if radius < radius_of(span.min):
         return None
     return min(span.max, math.pi * radius * radius)
-
-
-def word_of(constants: Constants, node: Node) -> str:
-    """How a node is spoken of: by its name, or -- a nameless find -- by its biome."""
-    if node.name:
-        return node.name
-    here = biome.of_node(constants, node)
-    return biome.name(constants, here) if here else node.key
 
 
 def crosses_water(
@@ -212,9 +207,23 @@ async def _far_ends(
 
 
 async def check(
-    session: AsyncSession, constants: Constants, origin: Node, target: globe.Geo
+    session: AsyncSession,
+    constants: Constants,
+    origin: Node,
+    target: globe.Geo,
+    *,
+    body: Body | None = None,
 ) -> Aim:
-    """A lawful aim from `origin` at `target`, or the refusal that stands in the way."""
+    """A lawful aim from `origin` at `target`, or the refusal that stands in the way.
+
+    `body` is who is aiming, and it is asked about one thing only: the door at
+    the far end. A run ends standing where it went (D-185, D-327), so the cell
+    a body may not enter is a cell it may not aim at -- otherwise a survey
+    would put it inside somebody's shut place, which no road may do (D-199).
+    Asked here rather than in `survey` because the same question must be put
+    again when the run is over: the world moves while the scout walks, and a
+    door shut in the meantime must stop the arrival as surely as the aim.
+    """
     origin_point = places.geo_of(origin)
     if origin.layer is not Layer.PLANET or origin_point is None:
         raise NotFromHere(key="explore-not-from-here")
@@ -243,6 +252,12 @@ async def check(
     existing = next(
         (node for node, where in placed if cell_of(constants, planet, where) == cell), None
     )
+    if (
+        existing is not None
+        and body is not None
+        and not await access.may_enter(session, existing, body.identity_id)
+    ):
+        raise Shut(key="explore-shut", node=word_of(constants, existing))
     area = float(existing.area_m2) if existing is not None else None
     if existing is None:
         #: The room there is: the distance to the nearest standing node's

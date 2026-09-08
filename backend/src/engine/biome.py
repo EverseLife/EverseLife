@@ -112,8 +112,38 @@ def of_node(constants: Constants, node: Node) -> str | None:
     return classify(constants, node.planet, *point)
 
 
+def signs(node: Node) -> list[str]:
+    """The node's biome as a place sign, or nothing.
+
+    The one sign kept as a word rather than a flag, so it does not come out of
+    the flag allowlist (`world.public_signs`) and has to be added by hand
+    wherever signs are sent -- `look` and the map both. Written only on a
+    found node (D-321): a seeded one reads its biome off the field, and the
+    map does not ask the field per node.
+    """
+    written = (node.properties or {}).get(BIOME)
+    return [str(written)] if written else []
+
+
 def name(constants: Constants, biome: str) -> str:
     return str(constants[R.BIOME_NAMES][biome])
+
+
+def word_of(constants: Constants, node: Node) -> str:
+    """How a node is spoken of: by its name, or -- a nameless find -- by its
+    biome (D-321).
+
+    A find has no name and is not given one: on the map its kind is the sign
+    it wears. But a refusal, a heading and a leg of a walk are sentences, and
+    a sentence with a hole in it is a defect -- so they say the kind in words.
+    Lives here rather than in `explore` because everything that speaks of a
+    node needs it, and two copies of it would let the world and the window
+    call one node by two different words.
+    """
+    if node.name:
+        return node.name
+    here = of_node(constants, node)
+    return name(constants, here) if here else node.key
 
 
 def reach_m(constants: Constants, biome: str) -> tuple[float, float]:

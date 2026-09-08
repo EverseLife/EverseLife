@@ -37,7 +37,14 @@ import type { Printer, Profile } from "./person";
 import type { RecipeBook } from "./craft";
 import type { Bench, Carry, Storage, Thing, VarietyRef } from "./thing";
 import type { Order, Reservation } from "./trade";
-import type { Convoy, Exit, InSight, Transit, Vehicle } from "./travel";
+import type {
+  Convoy,
+  Exit,
+  InSight,
+  Scouting,
+  Transit,
+  Vehicle,
+} from "./travel";
 
 /**
  * The slow parts of the player's state (D-226, 08-session-protocol, step 2):
@@ -47,7 +54,12 @@ import type { Convoy, Exit, InSight, Transit, Vehicle } from "./travel";
  */
 /** A remembered care text (D-296): the crop, the cultivar if it is one, and
  *  the words -- said by the server in the reader's language. */
-export type CareNote = { key: string; culture: string; variety?: VarietyRef; text: string };
+export type CareNote = {
+  key: string;
+  culture: string;
+  variety?: VarietyRef;
+  text: string;
+};
 
 export type Parts = {
   knowledge: {
@@ -103,7 +115,10 @@ export type LiveLook = Omit<
 
 /** The panels' view: the live part with the slow parts folded back in. */
 export function compose(live: LiveLook, parts: Parts): Look {
-  const node = live.node && parts.shelf.length ? { ...live.node, shelf: parts.shelf } : live.node;
+  const node =
+    live.node && parts.shelf.length
+      ? { ...live.node, shelf: parts.shelf }
+      : live.node;
   return {
     ...live,
     node,
@@ -341,7 +356,12 @@ export type Look = {
    *  on, or the rooms of the one being stood in. Empty everywhere else. */
   ships?: InSight;
   /** The planet's clock: where the count starts and how long a day is (D-029). */
-  clock?: { planet: string; epoch?: string; day_hours: number; longitude?: number };
+  clock?: {
+    planet: string;
+    epoch?: string;
+    day_hours: number;
+    longitude?: number;
+  };
   /** Whether a city can be founded here and what is missing for that (D-159).
    *  Empty -- the place or the person is unsuitable: foreign land, a city over
    *  the node, not a planet, or a citizenship already held elsewhere (D-281).
@@ -405,6 +425,9 @@ export type Look = {
   veins?: { id: string; resource: string; richness: number }[];
   exits?: Exit[];
   travel?: Transit;
+  /** A run of the scout under way (D-327): the map draws the way out and the
+   *  scout along it. Absent unless one is on. */
+  scouting?: Scouting | null;
   /** An open face survives the player leaving: on return the session is in place. */
   mining?: Sight;
 };
@@ -417,12 +440,22 @@ export type Look = {
  * the four keys about the floor and none of the ones about the house (D-247),
  * and a window reading `ground` or `sites` there wants nought, not `undefined`.
  */
-export function houseOf(node: Look["node"]): Required<
-  Pick<NonNullable<NonNullable<Look["node"]>["building"]>,
-    "area" | "ground" | "floors" | "decay" | "slots" | "used" | "sites">
+export function houseOf(
+  node: Look["node"],
+): Required<
+  Pick<
+    NonNullable<NonNullable<Look["node"]>["building"]>,
+    "area" | "ground" | "floors" | "decay" | "slots" | "used" | "sites"
+  >
 > & { kind?: string; condition?: number } {
   return {
-    area: 0, ground: 0, floors: 0, decay: 0, slots: 0, used: 0, sites: [],
+    area: 0,
+    ground: 0,
+    floors: 0,
+    decay: 0,
+    slots: 0,
+    used: 0,
+    sites: [],
     ...(node?.building ?? {}),
   };
 }
@@ -442,7 +475,8 @@ export function stationsOf(
   names?: Names | null,
 ): string[] {
   const kinds = new Set<string>();
-  for (const thing of [...(look.bench ?? []), ...(look.furniture ?? [])]) kinds.add(thing.goods);
+  for (const thing of [...(look.bench ?? []), ...(look.furniture ?? [])])
+    kinds.add(thing.goods);
   const word = (id: string) => names?.goods?.[id] ?? id;
   return [...kinds].sort((a, b) => compare(word(a), word(b)));
 }
@@ -450,11 +484,19 @@ export function stationsOf(
 /** What this place will not give up off its floor: fuel where a fuel plant
  *  stands, because that heap is the plant's tank and not a store (D-189).
  *  Only off the floor -- a chest beside the plant is not its bunker. */
-function barredHere(look: Pick<Look, "bench">, book: RecipeBook | null): Set<string> {
+function barredHere(
+  look: Pick<Look, "bench">,
+  book: RecipeBook | null,
+): Set<string> {
   if (!book) return new Set();
   const plants = new Set(membersOf(book, FUEL_PLANT));
-  if (!(look.bench ?? []).some((one) => plants.has(one.goods))) return new Set();
-  return new Set(Object.keys((book.constants?.[FUEL_ENERGY] as Record<string, number>) ?? {}));
+  if (!(look.bench ?? []).some((one) => plants.has(one.goods)))
+    return new Set();
+  return new Set(
+    Object.keys(
+      (book.constants?.[FUEL_ENERGY] as Record<string, number>) ?? {},
+    ),
+  );
 }
 
 /**
@@ -481,7 +523,10 @@ function barredHere(look: Pick<Look, "bench">, book: RecipeBook | null): Set<str
  * nobody's recipe input and are not subtracted here.
  */
 export function reachOf(
-  look: Pick<Look, "inventory" | "convoy" | "storages" | "floor" | "ground" | "bench">,
+  look: Pick<
+    Look,
+    "inventory" | "convoy" | "storages" | "floor" | "ground" | "bench"
+  >,
   book: RecipeBook | null = null,
 ): Thing[] {
   const ours = look.floor?.mine === true;
@@ -492,7 +537,9 @@ export function reachOf(
     ...look.inventory,
     ...(look.convoy?.cargo ?? []),
     ...(ours
-      ? (look.storages ?? []).filter((chest) => chest.mine).flatMap((chest) => chest.content)
+      ? (look.storages ?? [])
+          .filter((chest) => chest.mine)
+          .flatMap((chest) => chest.content)
       : []),
     ...loose(look.floor?.things),
     ...loose(look.ground?.things),

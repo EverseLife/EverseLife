@@ -446,6 +446,15 @@ polyline.edge {
   vector-effect: non-scaling-stroke;
   pointer-events: none;
 }
+/* A run under way (D-327): the way out to the find, dashed because it is not
+   a road yet -- it becomes one when the scout gets there. */
+.scout-run .run-way {
+  stroke: var(--act);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 5;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
 /* The scout's aim (D-321): a ring and a cross in the action colour. */
 .aim circle,
 .aim path {

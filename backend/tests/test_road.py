@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import jobs, road, transport, travel, world
+from src.engine import biome, jobs, road, transport, travel, world
 from src.models.event import Event, EventKind
 from src.models.world import Edge, Surface
 from src.units import SCALE_MAX
@@ -428,3 +428,33 @@ async def test_two_arrivals_in_one_second_are_two(
     await asyncio.gather(one(), one())
     await session.refresh(edge)
     assert edge.wear == 2
+
+
+async def test_the_column_picks_its_road_by_key_not_by_name(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """Every road names its neighbour by key as well as in words.
+
+    The map's column shows the one road to the node it speaks about, and it
+    used to pick it by the name. A name is not an identifier (D-251): a domed
+    city has fifteen rooms called «Квартира», and a found node has no name at
+    all (D-321) -- so the column showed either the wrong road or every road
+    from here.
+    """
+    here, there, body, _ = await _edge(session)
+    #: A second neighbour wearing the first one's name, and a nameless find.
+    twin = await world.create_node(session, f"terra.rdc.{uuid.uuid4().hex[:8]}", "Там", area_m2=100)
+    await travel.connect(session, here, twin, base_seconds=600, surface=Surface.TRAIL)
+    find = await world.create_node(session, f"terra.rdd.{uuid.uuid4().hex[:8]}", "", area_m2=100)
+    await travel.connect(session, here, find, base_seconds=600, surface=Surface.WILD)
+
+    roads = await road.view(session, constants, body)
+    by_key = {path["node"]: path for path in roads}
+    assert {there.key, twin.key, find.key} <= set(by_key), "каждая дорога названа ключом"
+    #: The two namesakes are two rows, told apart by the key and by nothing else.
+    assert by_key[there.key]["to"] == by_key[twin.key]["to"] == "Там"
+    #: A find has no name of its own and is spoken of by its biome (D-321) --
+    #: the word the refusals use, not an empty string and not «Безымянный
+    #: узел». What tells it from the namesakes is still only its key.
+    assert by_key[find.key]["to"] == biome.word_of(constants, find)
+    assert by_key[find.key]["to"] not in {"", "Там"}, "и слово у находки своё"

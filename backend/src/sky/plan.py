@@ -37,6 +37,7 @@ from src.sky._base import (
     Target,
     circle_speed,
     norms,
+    park_of,
     place,
     place_any,
     star_circle,
@@ -178,10 +179,14 @@ def preview(
                 else leg.dv_out
             )
             dv_out = (
-                escape_dv(leaving, system.park, excess_out) if leaving is not None else leg.dv_out
+                escape_dv(leaving, park_of(system, leaving), excess_out)
+                if leaving is not None
+                else leg.dv_out
             )
             dv_in = (
-                escape_dv(target, system.park, leg.dv_in) if isinstance(target, Body) else leg.dv_in
+                escape_dv(target, park_of(system, target), leg.dv_in)
+                if isinstance(target, Body)
+                else leg.dv_in
             )
             if best is None or dv_out + dv_in < best[0]:
                 best = (dv_out + dv_in, dv_out, dv_in, leg)

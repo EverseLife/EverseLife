@@ -27,7 +27,7 @@ from src.constants import registry as R
 from src.engine import estate, goods, world
 from src.models.inventory import Item
 from src.models.job import JobState
-from src.models.world import Layer
+from src.models.world import Layer, Planet
 from src.units import SCALE_MAX
 
 # --- building (D-106, D-125) -------------------------------------------------
@@ -618,3 +618,73 @@ async def test_house_at_nothing_collapses_with_what_it_sheltered(
     assert await estate.built_area(session, plot) == 0
     left = (await session.execute(select(Item).where(Item.container_id == yard.id))).scalars().all()
     assert left == [], "двор уходит вместе с крышей, которой над ним больше нет"
+
+
+async def test_a_relic_stands_on_the_ground_it_was_found_on(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A relic of the Forerunners is machinery, and machinery does not lie about.
+
+    It has no recipe by construction (D-232) -- it is a material of the world,
+    not something anybody builds -- and the recipe book therefore throws on it.
+    The heaps fell through that throw and counted the thing as cargo, by
+    weight: eight tonnes of bioprinter over `build.floor_per_m2` is four
+    hundred square metres, and the seed stands it on a plot of a hundred and
+    twenty. The land window read «занято 400 из 120» and `storage` left no
+    free ground at all -- on the node every dead player is printed at, and at
+    three spaceports of Aurora besides.
+
+    And it takes no place of a building that is not there: a relic stands
+    where it was found, which is often bare ground (D-278, D-247).
+    """
+    node = await world.create_node(
+        session, f"terra.relic.{uuid.uuid4().hex[:8]}", "Ядро", area_m2=120, planet=Planet.TERRA
+    )
+    yard = await world.node_container(session, node)
+    await world.grant_item(session, yard, world.BIOPRINTER, quality=60, origin="тест")
+
+    ground = await estate.yard(session, constants, node)
+    assert ground["area"] == pytest.approx(120), "участок целый: реликвия не здание"
+    assert ground["used"] == 0 and ground["free"] == pytest.approx(120), (
+        "реликвия стоит, а не лежит: земля свободна"
+    )
+    #: It does stand, and the world knows it: `slots` answers what stands in
+    #: the node -- which is what the sale and the demolition ask about (a plot
+    #: with a machine on it is not an empty plot) -- while the floor's own
+    #: window charges nothing for it, there being no floor.
+    total, taken = await estate.slots(session, constants, node)
+    assert (total, taken) == (0, 1)
+    floor = await estate.space(session, constants, node)
+    assert floor["area"] == 0 and floor["used"] == 0, "пола нет — и занято на нём ничего"
+    assert not await estate.is_vacant(session, constants, node), (
+        "участок с машиной на нём не пустой участок"
+    )
+
+
+async def test_a_relic_in_the_yard_is_charged_to_the_yard_and_not_to_the_floor(
+    session: AsyncSession, constants: Constants, catalog: Catalog, own_plot
+) -> None:
+    """A floor is charged for what stands on a floor (D-244).
+
+    The plot the relic was found on may grow a house afterwards -- the seed
+    stands relics on plots inside cities -- and the relic does not move for it:
+    it stands where it was found (D-232), in the yard. Charging its place to
+    the storey's twenty metres was the same defect as charging it to a plot
+    with no house, only harder to see: the window showed a place taken indoors
+    that nothing indoors occupies, and the gate that puts a machine up refused
+    one place early.
+    """
+    plot, _, _ = await _house(session, constants, own_plot, area=20, plot_area=200)
+    yard = await world.node_container(session, plot)
+    relic = await world.grant_item(session, yard, world.BIOPRINTER, quality=60, origin="тест")
+    #: Put on the ground on purpose: that is what standing in the yard is.
+    relic.outdoors = True
+    await session.flush()
+
+    floor = await estate.space(session, constants, plot)
+    assert floor["area"] == pytest.approx(20), "дом стоит"
+    assert floor["used"] == 0 and floor["slots_used"] == 0, "во дворе — не на полу"
+    #: And the wider question still counts it: a plot with a machine on it is
+    #: not an empty plot, whichever surface the machine stands on.
+    _, taken = await estate.slots(session, constants, plot)
+    assert taken == 1

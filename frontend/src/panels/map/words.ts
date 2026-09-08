@@ -41,3 +41,44 @@ export function price(stamina: number): string {
   if (stamina <= 0) return "0";
   return stamina < 0.1 ? "<0.1" : stamina.toFixed(1);
 }
+
+/** A price in материал, whole units. Rounded down to nothing it read as free:
+ *  «Подсыпать за 0» on a road worn by a hair offered work for no price, and a
+ *  button that asks for nothing is a button nobody believes. Under a unit the
+ *  number is not the answer -- that it is less than one is. */
+export function bulk(amount: number): string {
+  if (amount <= 0) return "0";
+  return amount < 1 ? "<1" : amount.toFixed(0);
+}
+
+/** What to call a node where a name is expected and only the name is at
+ *  hand. A found node has none (D-321) -- its sign on the map is the whole of
+ *  what it is called, and an empty label there is right. A heading, a menu
+ *  and a leg of a walk are not labels: empty, they read as a breakage, so
+ *  they say what the thing is. Where the node itself is at hand, `nodeWord`
+ *  says the better word. */
+export function nameWord(name: string | null | undefined): string {
+  return name || t("ui-map-node-unnamed");
+}
+
+/** What to call a node, the node being at hand: its own name, or -- a found
+ *  one, which has none -- its biome, in the vault's word for it
+ *  (`biome.names`, D-321: "слово о найденном узле в отказах и сводке").
+ *
+ *  The same word the world uses: the engine writes it into the refusal that
+ *  turns a scout away and into the leg of a walk (`biome.word_of`), so the
+ *  column and the world do not call one node two things. The table comes off
+ *  `/public/constants` and may not have arrived yet -- then the general word
+ *  stands in, as it does for a node whose kind the map was not told. */
+export function nodeWord(
+  face: { name?: string | null; features?: readonly string[] | null },
+  names: unknown,
+): string {
+  if (face.name) return face.name;
+  const table = (names ?? {}) as Record<string, unknown>;
+  for (const sign of face.features ?? []) {
+    const word = table[sign];
+    if (typeof word === "string" && word) return word;
+  }
+  return t("ui-map-node-unnamed");
+}

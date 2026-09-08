@@ -13,7 +13,7 @@ from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import ship as vessels
 from src.engine.oxygen._base import free_air, sealed
-from src.engine.oxygen.supply import carried, hull_draw, reserve, suited
+from src.engine.oxygen.supply import carried, hull_draw, off_line, reserve, suited
 from src.models.identity import Body
 from src.models.inventory import Item
 from src.models.ship import Ship
@@ -51,6 +51,14 @@ async def gauge(
     drawn = hull_draw(constants, crew) if shut else 0.0
     return {
         "units": round(air, ROUND_MASS),
+        #: And what stands aboard that no line reaches (D-288): the console
+        #: owes the difference between "there is none" and "there is some,
+        #: and nobody plumbed it". Not derivable from anything else sent --
+        #: the hull's vessels and its lines are the plumbing window's, and
+        #: the card is read without it (D-225).
+        "off_line": round(
+            await off_line(session, constants, catalog, ship, things=things), ROUND_MASS
+        ),
         #: Whether the hull is breathing its own air at all: in port under a sky
         #: that has some, the hatch may as well be open and nothing is spent.
         "sealed": shut,
