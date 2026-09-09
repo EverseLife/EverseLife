@@ -204,19 +204,31 @@ class Field:
 
     def tile(self, row: int, col: int) -> np.ndarray:
         """The height share on the client's lattice of a tile (D-323): `TILE_N + 1`
-        a side from the tile's south-west corner, lakes sunk under zero."""
+        a side from the tile's south-west corner, lakes sunk under zero. The
+        same bilinear reading as `height_at`, over the whole lattice at once."""
         lat0, lon0 = relief.tile_origin(row, col)
         steps = np.arange(relief.TILE_N + 1) * (relief.TILE_DEG / relief.TILE_N)
-        out = np.empty((relief.TILE_N + 1, relief.TILE_N + 1))
-        for i, dlat in enumerate(steps):
-            lat = min(90.0, lat0 + dlat)
-            for j, dlon in enumerate(steps):
-                lon = ((lon0 + dlon + 180.0) % 360.0) - 180.0
-                value = self.height_at(lat, lon)
-                if self.is_lake(lat, lon):
-                    value = min(value, LAKE_SINK)
-                out[i, j] = value
-        return out
+        lat = np.minimum(90.0, lat0 + steps)[:, None]
+        lon = (((lon0 + steps + 180.0) % 360.0) - 180.0)[None, :]
+        fr = np.clip((lat + 90.0) / (180.0 / self.rows) - 0.5, 0.0, self.rows - 1.0)
+        fc = ((lon + 180.0) / (360.0 / self.cols) - 0.5) % self.cols
+        r0 = np.floor(fr).astype(int)
+        r1 = np.minimum(self.rows - 1, r0 + 1)
+        c0 = np.floor(fc).astype(int)
+        c1 = (c0 + 1) % self.cols
+        t = fr - r0
+        u = fc - c0
+        h = self.height
+        out = (
+            h[r0, c0] * (1 - t) * (1 - u)
+            + h[r0, c1] * (1 - t) * u
+            + h[r1, c0] * t * (1 - u)
+            + h[r1, c1] * t * u
+        )
+        cell_r = np.clip(((lat + 90.0) / (180.0 / self.rows)).astype(int), 0, self.rows - 1)
+        cell_c = ((lon + 180.0) / (360.0 / self.cols)).astype(int) % self.cols
+        lake = self.water[cell_r, cell_c] == LAKE
+        return np.where(lake, np.minimum(out, LAKE_SINK), out)
 
 
 # --- loading ----------------------------------------------------------------
