@@ -93,6 +93,11 @@ class Field:
     def cols(self) -> int:
         return int(self.height.shape[1])
 
+    def grid_latitudes(self) -> list[float]:
+        """The latitude at the middle of each row of the sketch's grid, south to north."""
+        rows = int(self.grid.shape[0])
+        return [-90.0 + (row + 0.5) * (180.0 / rows) for row in range(rows)]
+
     @property
     def wet(self) -> bool:
         return bool((self.water == SEA).any() or (self.water == LAKE).any())

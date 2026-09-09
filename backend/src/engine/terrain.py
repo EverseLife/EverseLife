@@ -233,8 +233,5 @@ def _sketched(constants: Constants, planet: Planet, field: fields.Field) -> dict
         "wet": field.wet,
         #: The climate field as the globe tints it (plan, "Climate field"):
         #: the sea-level mean of each row of the grid, warm to cold.
-        "warmth": [
-            round(by_latitude(constants, -90.0 + (row + 0.5) * (180.0 / rows)))
-            for row in range(rows)
-        ],
+        "warmth": [round(by_latitude(constants, lat)) for lat in field.grid_latitudes()],
     }
