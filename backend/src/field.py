@@ -47,6 +47,8 @@ SKETCH_ROWS = 128
 #: A lake in a tile reads this far under the sea's level: the client cuts
 #: water where the tile is at or under zero.
 LAKE_SINK = -0.01
+#: The water raster's classes by code, as the passport names them.
+WATER_NAMES = ("land", "sea", "lake", "river")
 #: A byte-scaled share: 255 is one.
 BYTE = 255.0
 #: A byte raster's word for "no class": the biome raster's water (plan wave 5).

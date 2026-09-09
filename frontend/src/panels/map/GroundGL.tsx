@@ -37,17 +37,16 @@ import {
   useState,
 } from "react";
 
-import * as api from "../../api";
-import type { RasterKind, RasterPassport } from "../../api";
+import type { RasterPassport } from "../../api";
 import { useTerrain } from "./Ground";
 import type { Eye } from "./globe";
+import { rastersOf, type Rasters } from "./rasters";
 import {
   FRAGMENT,
   PALETTE_SLOTS,
   VERTEX,
   deepOf,
   formCodes,
-  heightsOf,
   mipChain,
   paletteOf,
   sunDirection,
@@ -57,21 +56,6 @@ import {
 export type GroundGLHandle = { draw: () => void };
 /** How the GPU ground is doing: on its way, drawing, or given up. */
 export type GroundGLState = "loading" | "ready" | "failed";
-
-/** The three rasters of a planet, asked for once for the life of the page. */
-const RASTERS = new Map<string, Promise<Record<RasterKind, ArrayBuffer>>>();
-
-function rastersOf(planet: string): Promise<Record<RasterKind, ArrayBuffer>> {
-  let asked = RASTERS.get(planet);
-  if (!asked) {
-    asked = Promise.all(
-      (["height", "biome", "form"] as const).map((kind) => api.terrainRaster(planet, kind)),
-    ).then(([height, biome, form]) => ({ height, biome, form }));
-    asked.catch(() => RASTERS.delete(planet));
-    RASTERS.set(planet, asked);
-  }
-  return asked;
-}
 
 type Textures = {
   height: WebGLTexture;
@@ -167,16 +151,12 @@ function tearDown(program: Program | null, canvas: HTMLCanvasElement): void {
 /** The rasters as textures: the height a half-float red with its own mip
  *  chain and linear filtering; the classes unsigned bytes, read nearest --
  *  a class, not a mean of two (plan §9.3). */
-function upload(
-  gl: WebGL2RenderingContext,
-  passport: RasterPassport,
-  rasters: Record<RasterKind, ArrayBuffer>,
-): Textures {
+function upload(gl: WebGL2RenderingContext, passport: RasterPassport, rasters: Rasters): Textures {
   const { rows, cols } = passport;
   const height = gl.createTexture();
   if (!height) throw new Error("no texture");
   gl.bindTexture(gl.TEXTURE_2D, height);
-  const heights = heightsOf(rasters.height);
+  const heights = rasters.height;
   const chain = mipChain(heights, cols, rows);
   chain.forEach((level, index) => {
     gl.texImage2D(gl.TEXTURE_2D, index, gl.R16F, level.cols, level.rows, 0, gl.RED, gl.FLOAT, level.data);
@@ -186,11 +166,11 @@ function upload(
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-  const classes = (bytes: ArrayBuffer): WebGLTexture => {
+  const classes = (bytes: Uint8Array): WebGLTexture => {
     const texture = gl.createTexture();
     if (!texture) throw new Error("no texture");
     gl.bindTexture(gl.TEXTURE_2D, texture);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8UI, cols, rows, 0, gl.RED_INTEGER, gl.UNSIGNED_BYTE, new Uint8Array(bytes));
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8UI, cols, rows, 0, gl.RED_INTEGER, gl.UNSIGNED_BYTE, bytes);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
@@ -228,6 +208,7 @@ function sync(program: Program, planet: string, palette: Palette, highFrom: numb
   const codes = formCodes(passport);
   gl.uniform3ui(at("u_water_forms"), ...codes.water);
   gl.uniform4ui(at("u_cliff_forms"), ...codes.cliff);
+  gl.uniform1i(at("u_shore"), codes.shore);
   const bind = (unit: number, texture: WebGLTexture) => {
     gl.activeTexture(gl.TEXTURE0 + unit);
     gl.bindTexture(gl.TEXTURE_2D, texture);

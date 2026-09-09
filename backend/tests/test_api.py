@@ -94,7 +94,7 @@ def test_the_picture_rasters_are_public_bytes_with_an_etag(client) -> None:
     constants' digest, and the sketch says what they are."""
     passport = client.get("/public/terrain/terra").json()["raster"]
     n = passport["rows"] * passport["cols"]
-    for kind, width in (("height", 2), ("biome", 1), ("form", 1)):
+    for kind, width in (("height", 2), ("biome", 1), ("form", 1), ("water", 1)):
         answer = client.get(f"/public/terrain/terra/raster/{kind}")
         assert answer.status_code == 200
         assert answer.headers["content-type"] == "application/octet-stream"

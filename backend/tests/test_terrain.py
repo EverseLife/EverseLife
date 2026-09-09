@@ -381,10 +381,15 @@ def test_the_rasters_are_the_field_thinned_and_named(constants: Constants) -> No
     height = np.frombuffer(rasters.raster_bytes(constants, Planet.TERRA, "height"), dtype="<i2")
     assert height.size == n
     assert height.min() < 0 < height.max() <= field.relief_m, "море ниже нуля, суша до размаха"
-    assert int(height[0]) == round(float(field.height[0, 0]) * field.relief_m)
-    for kind in ("biome", "form"):
+    sea = field.height[::stride, ::stride].reshape(-1) < 0
+    assert (height[sea] < 0).all(), "the sea stays under zero, shallow cells too"
+    land = ~sea
+    assert (height[land] >= 0).all()
+    for kind in ("biome", "form", "water"):
         got = np.frombuffer(rasters.raster_bytes(constants, Planet.TERRA, kind), dtype=np.uint8)
         assert got.size == n
+    water = np.frombuffer(rasters.raster_bytes(constants, Planet.TERRA, "water"), dtype=np.uint8)
+    assert passport["water"][fields.RIVER] == "river" and (water == fields.RIVER).any()
     assert rasters.raster_bytes(constants, Planet.TERRA, "rivers") is None
     #: Written once: the second ask is the same bytes object.
     assert rasters.raster_bytes(constants, Planet.TERRA, "height") is rasters.raster_bytes(

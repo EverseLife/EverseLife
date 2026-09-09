@@ -100,9 +100,11 @@ describe("formCodes and the sun", () => {
       relief_m: 3000,
       biomes: [],
       forms: ["sea", "lake", "plain", "cliff", "canyon"],
+      water: ["land", "sea", "lake", "river"],
     });
     expect(codes.water).toEqual([0, 1, NO_BIOME]);
     expect(codes.cliff).toEqual([3, NO_BIOME, 4, NO_BIOME]);
+    expect(codes.shore).toBe(-1);
   });
   it("lights from the north-west, forty-five degrees up", () => {
     const [east, north, up] = sunDirection();

@@ -240,8 +240,8 @@ export type Terrain = {
 /** What `/public/terrain/{planet}/raster/{kind}` answers with: `rows` by
  *  `cols` cells, row 0 the south, each `step_m` metres at the equator;
  *  `height` a signed sixteen-bit metre, `biome` a byte into `biomes`
- *  (255 on water), `form` a byte into `forms`. */
-export type RasterKind = "height" | "biome" | "form";
+ *  (255 on water), `form` a byte into `forms`, `water` a byte into `water`. */
+export type RasterKind = "height" | "biome" | "form" | "water";
 export type RasterPassport = {
   rows: number;
   cols: number;
@@ -249,6 +249,8 @@ export type RasterPassport = {
   relief_m: number;
   biomes: string[];
   forms: string[];
+  /** The water raster's classes by code: land, sea, lake, river. */
+  water: string[];
 };
 
 /** A tile of a planet's local relief (D-323): `n + 1` rows and columns of

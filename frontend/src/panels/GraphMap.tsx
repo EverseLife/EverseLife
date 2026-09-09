@@ -55,6 +55,7 @@ import { placeAt, projectAll, UNITS_PER_METRE } from "./map/globe";
 import { firstOnGlobe, needsTurn } from "./map/follow";
 import { Ground } from "./map/Ground";
 import { GroundGL, type GroundGLHandle, type GroundGLState } from "./map/GroundGL";
+import { Lines } from "./map/Lines";
 import { supportsShadedGround } from "./map/shade";
 import { useArcs, useGlobe, radiusOf } from "./map/useGlobe";
 import { factsOf, useBands, useHandOver, type Sphere } from "./map/useBands";
@@ -818,6 +819,14 @@ export function GraphMap({
                       ? undefined
                       : groundReach(zoomed.unit, radius)
                   }
+                />
+              )}
+              {globeScene && eye && radius && sphereShown && zoomed.descent === 0 && shaded && shading === "ready" && (
+                <Lines
+                  planet={sphereShown}
+                  eye={eye}
+                  radius={radius}
+                  within={groundReach(zoomed.unit, radius)}
                 />
               )}
               {globeScene && eye && radius && (

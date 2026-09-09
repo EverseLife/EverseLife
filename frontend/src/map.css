@@ -73,6 +73,55 @@
 .map-field > svg {
   position: relative;
 }
+/* The lines of the relief (landscape plan wave 6): contours, the coast by
+   the form of its land, the hachures of the cliffs, the rivers. Vector on
+   purpose -- thin and sharp at any zoom (plan §9.5) -- and a pixel wide
+   whatever the frame, like every line of the map. */
+.relief-lines path {
+  fill: none;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+.relief-lines .contour {
+  stroke: var(--base-400);
+  stroke-opacity: 0.35;
+  stroke-width: 0.6;
+}
+.relief-lines .contour.index {
+  stroke-opacity: 0.55;
+  stroke-width: 1;
+}
+.relief-lines .coast {
+  stroke: var(--base-200);
+  stroke-opacity: 0.55;
+  stroke-width: 0.8;
+}
+.relief-lines .coast.beach {
+  stroke: var(--base-50);
+  stroke-opacity: 0.5;
+  stroke-width: 1;
+}
+.relief-lines .coast.rock {
+  stroke: var(--base-950);
+  stroke-opacity: 0.8;
+  stroke-width: 1.6;
+}
+.relief-lines .coast.lake {
+  stroke: var(--base-200);
+  stroke-opacity: 0.4;
+  stroke-width: 0.6;
+}
+.relief-lines .hachure {
+  stroke: var(--base-950);
+  stroke-opacity: 0.7;
+  stroke-width: 0.8;
+}
+.relief-lines .river {
+  stroke: color-mix(in srgb, var(--pc) 70%, var(--base-200));
+  stroke-opacity: 0.85;
+  stroke-width: 1.2;
+}
 /* The warmth as a layer over the GPU ground (plan §9.5): the three tones of
    the climate, translucent, where the colour underneath is the biome's. */
 .ground.warmth .land {

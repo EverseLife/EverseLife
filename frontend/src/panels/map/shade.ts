@@ -60,6 +60,7 @@ uniform float u_step;
 uniform float u_relief;
 uniform float u_deep;
 uniform float u_high_from;
+uniform int u_shore;
 uniform vec3 u_light;
 uniform vec3 u_biomes[${PALETTE_SLOTS}];
 uniform vec3 u_sea_shallow;
@@ -112,15 +113,22 @@ void main() {
   uint b = texture(u_biome, uv).r;
   uint f = texture(u_form, uv).r;
   vec3 col;
-  if (b == ${NO_BIOME}u) {
-    if (f == u_water_forms.y) {
+  //: The sea is where the height, read between the cells, is under zero:
+  //: the same zero the vector coast is drawn on, so the water's edge and
+  //: its line agree to the pixel. A lake stands on land above zero and is
+  //: told by its form, cell by cell.
+  if (h < 0.0 || (b == ${NO_BIOME}u && f == u_water_forms.y)) {
+    if (h >= 0.0) {
       col = u_lake;
     } else {
       col = mix(u_sea_shallow, u_sea_deep, clamp(-h / u_deep, 0.0, 1.0));
     }
     col *= 0.85 + 0.15 * shade;
   } else {
-    col = u_biomes[min(int(b), ${PALETTE_SLOTS - 1})];
+    //: A sea cell whose height, read between the cells, has come up over
+    //: zero is the shore's last strip: it takes the coast's colour.
+    int code = b == ${NO_BIOME}u ? u_shore : int(b);
+    col = u_biomes[code < 0 ? ${PALETTE_SLOTS - 1} : min(code, ${PALETTE_SLOTS - 1})];
     float share = clamp(h / u_relief, 0.0, 1.0);
     col = mix(col, u_high, 0.6 * smoothstep(u_high_from, 1.0, share));
     bool cliff = f == u_cliff_forms.x || f == u_cliff_forms.y || f == u_cliff_forms.z || f == u_cliff_forms.w;
@@ -231,7 +239,13 @@ export function paletteOf(
  *  table; a form the table lacks is a code no cell carries. The river's
  *  code is named but not painted: a river is a line of the vector layer
  *  (plan §9.2, wave 6), not a cell of colour. */
-export function formCodes(passport: RasterPassport): { water: [number, number, number]; cliff: [number, number, number, number] } {
+export function formCodes(passport: RasterPassport): {
+  water: [number, number, number];
+  cliff: [number, number, number, number];
+  /** The biome the shore's last strip is painted as: the coast's; -1 where
+   *  the table has no coast, and the shader paints the missing magenta. */
+  shore: number;
+} {
   const code = (name: string): number => {
     const at = passport.forms.indexOf(name);
     return at < 0 ? NO_BIOME : at;
@@ -239,6 +253,7 @@ export function formCodes(passport: RasterPassport): { water: [number, number, n
   return {
     water: [code("sea"), code("lake"), code("river")],
     cliff: [code("cliff"), code("coast_cliff"), code("canyon"), code("scree")],
+    shore: passport.biomes.indexOf("coast"),
   };
 }
 

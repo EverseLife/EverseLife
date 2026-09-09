@@ -248,7 +248,7 @@ def _sketched(constants: Constants, planet: Planet, field: fields.Field) -> dict
 
 #: The rasters the client draws by (plan §9.3), thinned to
 #: `runtime.RASTER_ROWS_MAX` rows at most.
-RASTER_KINDS = ("height", "biome", "form")
+RASTER_KINDS = ("height", "biome", "form", "water")
 
 
 def raster_stride(rows: int) -> int:
@@ -272,4 +272,7 @@ def raster_passport(constants: Constants, field: fields.Field) -> dict:
         #: a raster and the book it was cut against cannot be read apart.
         "biomes": list(constants[R.BIOME_NAMES]),
         "forms": list(field.forms),
+        #: `water` a byte a cell into this list: the rivers are cells of it,
+        #: not a landform, and the vector layer threads them by it (wave 6).
+        "water": list(fields.WATER_NAMES),
     }
