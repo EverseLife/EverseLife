@@ -148,6 +148,7 @@ export function Ground({
   fine = false,
   within,
   unit: chosen,
+  mode = "svg",
 }: {
   planet: string;
   eye: Eye;
@@ -172,6 +173,12 @@ export function Ground({
    *  zoom rather than by `coarse`/`fine`: finer the closer, so the cells in
    *  the frame stay about as many. */
   unit?: number;
+  /** What this SVG ground is beside the GPU's (landscape plan wave 5):
+   *  `svg` -- the whole ground, the path without WebGL2; `under` -- the GPU
+   *  draws the land and the sea, this draws the night alone; `warmth` --
+   *  the three tones of the climate over the GPU's colour, the layer one
+   *  switches on to see the cold (plan §9.5). */
+  mode?: "svg" | "under" | "warmth";
 }) {
   const terrain = useTerrain(planet);
   /** The land's tones: the climate's two lines, off the vault's zonal table
@@ -184,32 +191,39 @@ export function Ground({
   const sun = subsolar(clock?.epoch ?? null, dayHours, Date.now());
   const unit = chosen ?? (coarse ? COARSE_STRIDE : fine ? FINE_UNIT : 1);
   const tiles = useTiles(planet, terrain, eye, radius, unit, within);
+  const drawn = mode !== "under";
   const paths = useMemo(
     () =>
-      terrain && bands && detailed
+      terrain && bands && detailed && drawn
         ? cellPaths(terrain, eye, radius, bands, unit, within, tiles)
         : null,
-    [terrain, eye, radius, bands, detailed, unit, within, tiles],
+    [terrain, eye, radius, bands, detailed, drawn, unit, within, tiles],
   );
-  const under = terrain && bands && !detailed ? kindAt(terrain, eye, bands, tiles) : null;
+  const under = terrain && bands && !detailed && drawn ? kindAt(terrain, eye, bands, tiles) : null;
   const night = useMemo(() => (sun ? nightPath(eye, radius, sun) : null), [eye, radius, sun]);
   //: The clip's id is this instance's own: a second ground on the page --
   //: the entry screen's beside the map's -- must not share it.
   const clip = `ground-${useId().replace(/[^A-Za-z0-9_-]/g, "")}`;
-  if (!bands) return null;
+  if (!bands && mode === "svg") return null;
+  //: Over the GPU's ground only the land's tones are laid: the water and the
+  //: heights are drawn under, in colour.
+  const tones = mode === "warmth";
   //: The disk clips the ground: a cell cut by the horizon is drawn out to
   //: the limb along its corners' rays, and what that pushes past the circle
   //: is not the planet.
   //: A path, not a circle: see `diskPath`.
   const disk = diskPath(radius);
   return (
-    <g className="ground" style={{ "--pc": `var(--planet-${planet})` } as React.CSSProperties}>
+    <g
+      className={tones ? "ground warmth" : "ground"}
+      style={{ "--pc": `var(--planet-${planet})` } as React.CSSProperties}
+    >
       <clipPath id={clip}>
         <path d={disk} />
       </clipPath>
-      <path className="sea" d={disk} />
+      {mode === "svg" && <path className="sea" d={disk} />}
       <g clipPath={`url(#${clip})`}>
-      {under && under !== "sea" && (
+      {under && under !== "sea" && (under === "high" || under === "water" ? !tones : true) && (
         <path className={under === "high" || under === "water" ? under : `land ${under}`} d={disk} />
       )}
       {paths && (
@@ -217,8 +231,8 @@ export function Ground({
           <path className="land cold" d={paths.land.cold} />
           <path className="land cool" d={paths.land.cool} />
           <path className="land warm" d={paths.land.warm} />
-          <path className="water" d={paths.water} />
-          <path className="high" d={paths.high} />
+          {!tones && <path className="water" d={paths.water} />}
+          {!tones && <path className="high" d={paths.high} />}
         </>
       )}
       </g>

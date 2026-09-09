@@ -23,6 +23,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 
 from src import (
     field,
@@ -33,6 +34,7 @@ from src.api.routes import public
 from src.constants import HOLDER, Catalog, bootstrap, current_catalog
 from src.engine import tick  # noqa: F401 -- registers job handlers
 from src.engine.jobs import require_handlers
+from src.runtime import RASTER_GZIP_MIN_BYTES
 from src.settings import settings
 
 log = logging.getLogger(__name__)
@@ -95,6 +97,11 @@ def create_app() -> FastAPI:
         allow_methods=["GET"],
         allow_headers=["*"],
     )
+
+    #: The picture's rasters (landscape plan wave 5) are megabytes of bytes
+    #: that squeeze to a third, and the sketch's grid is a page of numbers:
+    #: whatever is bigger than a packet leaves compressed.
+    app.add_middleware(GZipMiddleware, minimum_size=RASTER_GZIP_MIN_BYTES)
 
     app.include_router(public.router)
     #: The only surface where the player acts. It has no HTTP methods.

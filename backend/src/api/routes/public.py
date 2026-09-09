@@ -23,7 +23,7 @@ from src.constants import HOLDER, current, current_renames
 from src.constants import current_catalog as catalog
 from src.constants import registry as R
 from src.db.base import session_factory
-from src.engine import account, mapshot, market, terrain, world
+from src.engine import account, mapshot, market, rasters, terrain, world
 from src.engine import city as town
 from src.engine.errors import Refusal
 from src.models.identity import Body, BodyState, Identity
@@ -207,6 +207,31 @@ async def terrain_of(planet: str) -> dict[str, Any]:
     except ValueError as wrong:
         raise Refusal(key="cmd-no-such-planet", planet=planet) from wrong
     return terrain.sketch(current(), which)
+
+
+@router.get("/terrain/{planet}/raster/{kind}")
+async def terrain_raster(planet: str, kind: str) -> Response:
+    """A raster of a planet's picture (landscape plan wave 5): the height,
+    the biome or the landform, as the sketch's `raster` passport describes
+    them. Bytes, not JSON: a texture the shader reads whole.
+
+    Before the tile route on purpose: `raster` is not a row number.
+    """
+    try:
+        which = Planet(planet)
+    except ValueError as wrong:
+        raise Refusal(key="cmd-no-such-planet", planet=planet) from wrong
+    got = rasters.raster_bytes(current(), which, kind)
+    if got is None:
+        raise HTTPException(status_code=404, detail="no such raster")
+    return Response(
+        content=got,
+        media_type="application/octet-stream",
+        headers={
+            "Cache-Control": f"public, max-age={TILE_MAX_AGE_S}",
+            "ETag": f'"{HOLDER.current().digest}"',
+        },
+    )
 
 
 @router.get("/terrain/{planet}/{row}/{col}")

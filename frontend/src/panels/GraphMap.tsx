@@ -54,6 +54,8 @@ import { flatten, oneEach, withCityScene } from "./map/geo";
 import { placeAt, projectAll, UNITS_PER_METRE } from "./map/globe";
 import { firstOnGlobe, needsTurn } from "./map/follow";
 import { Ground } from "./map/Ground";
+import { GroundGL, type GroundGLHandle, type GroundGLState } from "./map/GroundGL";
+import { supportsShadedGround } from "./map/shade";
 import { useArcs, useGlobe, radiusOf } from "./map/useGlobe";
 import { factsOf, useBands, useHandOver, type Sphere } from "./map/useBands";
 import { SkyBackdrop, SkyClock } from "./map/Sky";
@@ -270,6 +272,19 @@ export function GraphMap({
 
   const svgRef = useRef<SVGSVGElement | null>(null);
   const zoomRef = useRef<HTMLInputElement | null>(null);
+  //: The ground the GPU draws under the svg (landscape plan wave 5): asked
+  //: to redraw with every frame the camera paints, off React like the
+  //: viewBox. Without WebGL2 the svg ground stands whole, as before.
+  const shadedRef = useRef<GroundGLHandle | null>(null);
+  const shadeable = useMemo(supportsShadedGround, []);
+  //: How the GPU ground is doing: the SVG ground draws the land until the
+  //: textures are up, and for good once the GPU has given up -- a player
+  //: must not see an empty disk where the globe used to be.
+  const [shading, setShading] = useState<GroundGLState>("loading");
+  const shaded = shadeable && shading !== "failed";
+  //: The warmth as a layer (plan §9.5): the colour is the biome's, and the
+  //: three tones of the climate are laid over it only when asked.
+  const [warmth, setWarmth] = useState(false);
 
   /**
    * The camera (`map/camera`): outside React, painted straight onto the
@@ -289,6 +304,7 @@ export function GraphMap({
     camera.current = createCamera({
       onFrame: (f) => {
         svgRef.current?.setAttribute("viewBox", viewBoxOf(f));
+        shadedRef.current?.draw();
         //: The slider rides with the frame, off React like the viewBox.
         if (zoomRef.current) {
           zoomRef.current.value = String(
@@ -740,29 +756,23 @@ export function GraphMap({
           one column that speaks about the node you picked. */}
       <div className="map-face">
         <div className="map-field">
-          <Switcher
-            inside={hasSubnodes ? inside : null}
-            onInside={(on) => enterBand(on ? "inside" : "surface")}
-            tethered={tethered}
-            onTether={tether}
-            //: While a run lasts there is nothing to aim at: a second survey
-            //: is refused (`explore-already-out`), and an armed field would
-            //: promise what will not happen.
-            scouting={scout.onGround && !run ? scout.scouting : null}
-            onScout={scout.arm}
-          />
-          <Zoom
-            slider={zoomRef}
-            onZoom={(notch) =>
-              zoomToScale(
-                scaleOf(notch, boundsOf(bandRef.current, surfaceRef.current)),
-              )
-            }
-          />
-
+          {/* The bar and the slider stand after the svg in the DOM: positioned
+              siblings paint in DOM order, and the svg is positioned now so
+              that it paints over the GPU's canvas before it. */}
           {visible.length === 0 ? (
             <p className="note">{t("ui-map-empty")}</p>
           ) : (
+            <>
+            {shaded && globeScene && eye && radius && sphereShown && (
+              <GroundGL
+                ref={shadedRef}
+                planet={sphereShown}
+                eye={eye}
+                radius={radius}
+                svg={svgRef}
+                onState={setShading}
+              />
+            )}
             <svg
               ref={svgRef}
               viewBox={vb}
@@ -797,6 +807,9 @@ export function GraphMap({
                   radius={radius}
                   book={book}
                   clock={look.clock}
+                  mode={
+                    shaded && shading === "ready" ? (warmth ? "warmth" : "under") : "svg"
+                  }
                   detailed={zoomed.ground}
                   coarse={zoomed.descent > 0}
                   unit={zoomed.descent > 0 ? undefined : zoomed.unit}
@@ -873,7 +886,29 @@ export function GraphMap({
                 </g>
               )}
             </svg>
+            </>
           )}
+          <Switcher
+            inside={hasSubnodes ? inside : null}
+            onInside={(on) => enterBand(on ? "inside" : "surface")}
+            tethered={tethered}
+            onTether={tether}
+            //: While a run lasts there is nothing to aim at: a second survey
+            //: is refused (`explore-already-out`), and an armed field would
+            //: promise what will not happen.
+            scouting={scout.onGround && !run ? scout.scouting : null}
+            onScout={scout.arm}
+            warmth={shaded && globeScene ? warmth : null}
+            onWarmth={setWarmth}
+          />
+          <Zoom
+            slider={zoomRef}
+            onZoom={(notch) =>
+              zoomToScale(
+                scaleOf(notch, boundsOf(bandRef.current, surfaceRef.current)),
+              )
+            }
+          />
 
           {/* The winder belongs to the sky it winds, so it floats on it -- opposite
           the switcher, along the bottom edge, where a scrubber is looked for.

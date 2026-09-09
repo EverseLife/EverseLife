@@ -41,6 +41,44 @@
   flex-direction: column;
   min-height: 0;
 }
+/* The ground drawn by the GPU (landscape plan wave 5): a canvas the size of
+   the field under the svg, which is positioned so that it paints over it --
+   in DOM order, no `z-index`, for the reason `.sky` gives below. The bar
+   and the slider come after the svg in the DOM for the same reason. The
+   tones the shader reads for the water and the heights are the SVG
+   ground's own expressions (below), spelt once here for both paths -- on
+   the probe they are read through, because `var(--pc)` inside them is
+   substituted where they are declared, and the probe is where `--pc` is
+   set. */
+.map-field > .ground-probe {
+  --gl-sea-deep: color-mix(in srgb, var(--pc) 22%, var(--base-900));
+  --gl-sea-shallow: color-mix(in srgb, var(--pc) 34%, var(--base-850));
+  --gl-lake: color-mix(in srgb, var(--pc) 62%, var(--base-700));
+  --gl-high: color-mix(in srgb, var(--base-400) 40%, var(--base-700));
+}
+.map-field > .ground-gl {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.map-field > .ground-probe {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.map-field > svg {
+  position: relative;
+}
+/* The warmth as a layer over the GPU ground (plan §9.5): the three tones of
+   the climate, translucent, where the colour underneath is the biome's. */
+.ground.warmth .land {
+  fill-opacity: 0.45;
+  stroke: none;
+}
 /* The svg carries an intrinsic ratio from its viewBox, and inside a grid cell
    that ratio wins over stretching -- the map kept sizing itself to 880:540 and
    left the rest of the cell empty. Told to fill the height, it fills it. */
@@ -69,8 +107,10 @@
 .map-layers,
 .map-field > .sky {
   position: absolute;
-  /* No `z-index`. Being positioned is enough to paint over the map, which is a
-     static sibling -- and a `z-index` here would make each bar a stacking
+  /* No `z-index`. Being positioned is enough to paint over the map: the svg
+     is positioned too since the GPU ground (landscape plan wave 5), and
+     positioned siblings paint in DOM order, the bar coming after the svg
+     -- and a `z-index` here would make each bar a stacking
      context, trapping the hint's popup (fixed, z-index 20) at the bar's own
      level, under the node menu and the strip of talk. The one layer that must
      float over everything would have ended up under two of them. */
@@ -372,7 +412,9 @@
 polyline.edge {
   fill: none;
 }
-/* The ground of the globe (D-319, wave 4): flat colour, no textures. The
+/* The SVG ground of the globe (D-319, wave 4) -- the whole ground where
+   there is no WebGL2, the night and the climate layer where there is
+   (landscape plan wave 5): flat colour, no textures. The
    sea takes the planet's own hue, deep; a lake the same hue, bright, so
    that water inland is told from the sea at a glance; the land is the
    palette's grey by the warmth of its row, mountains a pale grey well

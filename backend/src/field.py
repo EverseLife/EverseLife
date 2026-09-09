@@ -49,6 +49,8 @@ SKETCH_ROWS = 128
 LAKE_SINK = -0.01
 #: A byte-scaled share: 255 is one.
 BYTE = 255.0
+#: A byte raster's word for "no class": the biome raster's water (plan wave 5).
+NO_CLASS = 255
 #: How far off zero a sketch cell is held on the side its land majority says,
 #: when its mean height would put it on the other: a coast cell reads as the
 #: raster does, not as its average.

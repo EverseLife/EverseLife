@@ -25,6 +25,9 @@ cells, which is the node's alone. Nothing here is a number of its own.
 
 from __future__ import annotations
 
+import numpy as np
+
+from src import field as fields
 from src.constants import Constants
 from src.constants import registry as R
 from src.engine import places, terrain
@@ -124,6 +127,92 @@ def classify(constants: Constants, planet: Planet, lat: float, lon: float) -> st
     ):
         return MARSH
     return zonal(constants, temperature, rain)
+
+
+#: The biome raster's word for water, which has no biome.
+NONE = fields.NO_CLASS
+
+
+def codes(constants: Constants) -> list[str]:
+    """The biome raster's codes: the order of `biome.names`."""
+    return list(constants[R.BIOME_NAMES])
+
+
+def raster(constants: Constants, planet: Planet) -> np.ndarray:
+    """The whole field sorted at once, for the picture (landscape plan wave 5):
+    a byte a cell, the index into `codes`, `NONE` on water.
+
+    The same layers in the same order as `classify`, laid over the arrays
+    instead of read at a point -- so the raster at a cell's centre is the
+    classifier's word there, and a test holds the two to it. The shader
+    draws by this; nothing of the game is judged by it.
+    """
+    field = terrain.field_of(constants, planet)
+    code = {name: index for index, name in enumerate(codes(constants))}
+    out = np.full(field.height.shape, NONE, dtype=np.uint8)
+    #: A river cell is land to the classifier (`is_water` is the sea and the lakes).
+    todo = (field.water != fields.SEA) & (field.water != fields.LAKE)
+
+    def claim(mask: np.ndarray, name: str) -> None:
+        taken = todo & mask
+        out[taken] = code[name]
+        todo[taken] = False
+
+    if planet in OF_PLANET:
+        claim(todo.copy(), OF_PLANET[planet])
+        return out
+    #: Float64 like the point reading: a cell exactly on the mountain line
+    #: must fall the same side of it here and there.
+    height = field.height.astype(np.float64)
+    claim(field.ice, ICE)
+    claim(height >= field.mountain_level, ALPINE)
+    azonal = constants[R.BIOME_AZONAL]
+    for index, form in enumerate(field.forms):
+        if form in azonal:
+            claim(field.form == index, azonal[form])
+    river_m = field.river_m.astype(np.float64)
+    claim(
+        (river_m < field.river_cap_m)
+        & (river_m <= float(constants[R.TERRAIN_RIVER_REACH_KM]) * METRES_PER_KM),
+        FLOODPLAIN,
+    )
+    sea_m = field.sea_m.astype(np.float64)
+    claim(
+        (sea_m < field.sea_cap_m) & (sea_m <= _bound(constants, "coast_km") * METRES_PER_KM), COAST
+    )
+    rain_range = constants[R.SITE_RAIN_RANGE]
+    rain = rain_range.min + (rain_range.max - rain_range.min) * (
+        field.rain.astype(np.float64) / fields.BYTE
+    )
+    relief = np.clip(height, 0.0, 1.0)
+    claim((rain > _bound(constants, "wet")) & (relief < _bound(constants, "marsh_relief")), MARSH)
+    zonal_codes = _zonal_raster(constants, field.temperature_c.astype(np.float64), rain, code)
+    out[todo] = zonal_codes[todo]
+    #: Land without a class would be drawn as water; the point reading
+    #: raises for it, and so does this, rather than paint a quiet sea.
+    if (out[todo] == NONE).any():
+        raise ValueError("biome.zonal leaves land without a class")
+    return out
+
+
+def _zonal_raster(
+    constants: Constants, temperature: np.ndarray, rain: np.ndarray, code: dict[str, int]
+) -> np.ndarray:
+    """`zonal` over arrays: the same rectangles, the same edge rule, the
+    same push to the plane's edge."""
+    rows = list(constants[R.BIOME_ZONAL].values())
+    top_t = max(float(row["temp"][1]) for row in rows)
+    top_r = max(float(row["rain"][1]) for row in rows)
+    t = np.clip(temperature, min(float(row["temp"][0]) for row in rows), top_t)
+    r = np.clip(rain, min(float(row["rain"][0]) for row in rows), top_r)
+    out = np.full(t.shape, NONE, dtype=np.uint8)
+    for row in rows:
+        (t0, t1), (r0, r1) = (float(v) for v in row["temp"]), (float(v) for v in row["rain"])
+        in_t = ((t >= t0) & (t < t1)) | ((t == top_t) & (t1 == top_t))
+        in_r = ((r >= r0) & (r < r1)) | ((r == top_r) & (r1 == top_r))
+        take = in_t & in_r & (out == NONE)
+        out[take] = code[str(row["biome"])]
+    return out
 
 
 def of_node(constants: Constants, node: Node) -> str | None:

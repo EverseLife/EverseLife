@@ -337,3 +337,56 @@ def test_the_field_has_metres(constants: Constants) -> None:
     assert all(0.0 <= h <= rise for h in heights)
     for k in range(1, len(land)):
         assert (heights[k - 1] <= heights[k]) == (shares[k - 1] <= shares[k])
+
+
+# --- the picture's rasters (landscape plan wave 5) -----------------------------
+
+
+def test_the_biome_raster_is_the_classifier_at_every_cell_centre(constants: Constants) -> None:
+    """The shader draws by the raster and the find is sorted by the point:
+    one rule, two readings, held together here (plan §9.1)."""
+    from src.engine import biome
+
+    field = terrain.field_of(constants, Planet.TERRA)
+    raster = biome.raster(constants, Planet.TERRA)
+    names = biome.codes(constants)
+    assert raster.shape == field.height.shape and raster.dtype == np.uint8
+    rows, cols = raster.shape
+    for row in range(0, rows, 23):
+        for col in range(0, cols, 41):
+            point = field.centre(row, col)
+            word = biome.classify(constants, Planet.TERRA, *point)
+            code = int(raster[row, col])
+            assert (word is None and code == biome.NONE) or (
+                code < len(names) and names[code] == word
+            ), f"клетка {row},{col}: растр говорит {code}, классификатор {word}"
+    assert biome.raster(constants, Planet.AURORA).max() < len(names)
+    icy = np.unique(biome.raster(constants, Planet.AURORA))
+    assert set(icy.tolist()) <= {names.index(biome.ICE), biome.NONE}, "Аврора — один лёд"
+
+
+def test_the_rasters_are_the_field_thinned_and_named(constants: Constants) -> None:
+    from src.engine import rasters
+
+    field = terrain.field_of(constants, Planet.TERRA)
+    passport = terrain.sketch(constants, Planet.TERRA)["raster"]
+    stride = terrain.raster_stride(field.rows)
+    assert passport["rows"] == len(range(0, field.rows, stride)) <= terrain.RASTER_ROWS_MAX
+    assert passport["cols"] == len(range(0, field.cols, stride))
+    assert passport["step_m"] == field.step_m * stride and passport["relief_m"] == field.relief_m
+    assert passport["forms"] == list(field.forms) and passport["biomes"] == list(
+        constants[R.BIOME_NAMES]
+    )
+    n = passport["rows"] * passport["cols"]
+    height = np.frombuffer(rasters.raster_bytes(constants, Planet.TERRA, "height"), dtype="<i2")
+    assert height.size == n
+    assert height.min() < 0 < height.max() <= field.relief_m, "море ниже нуля, суша до размаха"
+    assert int(height[0]) == round(float(field.height[0, 0]) * field.relief_m)
+    for kind in ("biome", "form"):
+        got = np.frombuffer(rasters.raster_bytes(constants, Planet.TERRA, kind), dtype=np.uint8)
+        assert got.size == n
+    assert rasters.raster_bytes(constants, Planet.TERRA, "rivers") is None
+    #: Written once: the second ask is the same bytes object.
+    assert rasters.raster_bytes(constants, Planet.TERRA, "height") is rasters.raster_bytes(
+        constants, Planet.TERRA, "height"
+    )

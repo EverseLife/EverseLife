@@ -111,6 +111,7 @@ ui-map-sky-rule = The planets go round the star each on its own term, and the di
 
 ui-map-cam-tied = camera follows you
 ui-map-cam-free = camera is free
+ui-map-climate = climate
 ui-map-zoom = zoom in or out
 
 ## The map field itself.

@@ -264,6 +264,33 @@
   --l-planet-pyroxis: #A8481C; --l-planet-aquatica: #1B6E52;
 }
 
+/* The ground's colours by biome (landscape plan wave 5, §9.5): the
+   colour of the land is its biome and nothing else -- the tone is the
+   relief's, the warmth a layer one switches on. Read by the shader off
+   the page (`map/shade.ts`), so the light theme keeps its own set:
+   `light-dark()` follows the `color-scheme` the blocks below set. Muted
+   on purpose: a map, not a poster -- nodes, roads and names must stay the
+   loudest thing on it. Not `--d-`/`--l-` tokens: the contrast check reads
+   palettes by that shape, and these are not a palette of steps. */
+:root {
+  --biome-tundra: light-dark(#a7ada4, #7f857c);
+  --biome-taiga: light-dark(#5f8a6b, #3c5f4a);
+  --biome-steppe: light-dark(#c6bd7a, #8f8a52);
+  --biome-woodland: light-dark(#8fa864, #5f7a44);
+  --biome-forest: light-dark(#5d9256, #3b6a3c);
+  --biome-semidesert: light-dark(#d1b87e, #9a875a);
+  --biome-desert: light-dark(#e3cd8d, #b5a066);
+  --biome-savanna: light-dark(#c2b45c, #8f8544);
+  --biome-rainforest: light-dark(#3f8049, #2a5d36);
+  --biome-coast: light-dark(#a9b8a0, #7c8a76);
+  --biome-floodplain: light-dark(#86b26e, #5c8250);
+  --biome-marsh: light-dark(#7a9a86, #536e5f);
+  --biome-foothills: light-dark(#aea77c, #7d7858);
+  --biome-alpine: light-dark(#b8b8b2, #8c8c88);
+  --biome-ice: light-dark(#eef2f6, #d6dde6);
+  --biome-cinder: light-dark(#6a6360, #3d3937);
+}
+
 /* ===================================================================
    Choosing the set. Dark is the design's home, light is mandatory
    (brief section 3). The system decides by default, and `data-light`

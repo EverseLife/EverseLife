@@ -232,6 +232,23 @@ export type Terrain = {
   peak_level: number;
   basin_level: number;
   wet: boolean;
+  /** The rasters the shader draws by (landscape plan wave 5): their shape
+   *  and what their bytes mean. Absent on a build older than the wave. */
+  raster?: RasterPassport;
+};
+
+/** What `/public/terrain/{planet}/raster/{kind}` answers with: `rows` by
+ *  `cols` cells, row 0 the south, each `step_m` metres at the equator;
+ *  `height` a signed sixteen-bit metre, `biome` a byte into `biomes`
+ *  (255 on water), `form` a byte into `forms`. */
+export type RasterKind = "height" | "biome" | "form";
+export type RasterPassport = {
+  rows: number;
+  cols: number;
+  step_m: number;
+  relief_m: number;
+  biomes: string[];
+  forms: string[];
 };
 
 /** A tile of a planet's local relief (D-323): `n + 1` rows and columns of

@@ -27,7 +27,7 @@ import type { FoundingRole, LawBook } from "./wire/city";
 import type { RecipeBook } from "./wire/craft";
 import type { Door, Line } from "./wire/person";
 import type { Book } from "./wire/trade";
-import type { Terrain, Tile, WorldMap } from "./wire/travel";
+import type { RasterKind, Terrain, Tile, WorldMap } from "./wire/travel";
 
 async function read<T>(path: string, token?: string, cache?: RequestCache): Promise<T> {
   //: The token travels in the ordinary header and only where it means
@@ -66,6 +66,14 @@ export const terrain = (planet: string) =>
  *  frame, once per tile, without a token. */
 export const terrainTile = (planet: string, row: number, col: number) =>
   read<Tile>(`/public/terrain/${encodeURIComponent(planet)}/${row}/${col}`);
+/** A raster of a planet's picture (landscape plan wave 5): bytes the shader
+ *  reads as a texture, described by the sketch's `raster` passport. */
+export async function terrainRaster(planet: string, kind: RasterKind): Promise<ArrayBuffer> {
+  const path = `/public/terrain/${encodeURIComponent(planet)}/raster/${kind}`;
+  const answer = await fetch(HTTP + path);
+  if (!answer.ok) throw new Error(`${path}: ${answer.status}`);
+  return answer.arrayBuffer();
+}
 /** Doors into the world: read before identification -- a newcomer has no identity yet. */
 export const doors = () => read<{ doors: Door[] }>("/public/doors");
 /** Character lines and the number of players -- also before identification (D-187). */
@@ -182,6 +190,8 @@ export type {
   ForecastDay,
   MapRoute,
   RoadWork,
+  RasterKind,
+  RasterPassport,
   Terrain,
   Tile,
   Scouting,

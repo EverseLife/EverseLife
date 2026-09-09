@@ -36,6 +36,7 @@ from src.constants import Constants
 from src.constants import registry as R
 from src.engine import ground, world
 from src.models.world import Planet
+from src.runtime import RASTER_ROWS_MAX
 from src.units import METRES_PER_KM, PERCENT
 
 #: A mountain's mark on the node: the client draws it, the ground reads it.
@@ -239,4 +240,36 @@ def _sketched(constants: Constants, planet: Planet, field: fields.Field) -> dict
         #: The climate field as the globe tints it (plan, "Climate field"):
         #: the sea-level mean of each row of the grid, warm to cold.
         "warmth": field.grid_warmth(),
+        #: The rasters the shader draws by (plan wave 5, §9.3): their shape
+        #: and what their bytes mean, so the client asks for them by kind.
+        "raster": raster_passport(constants, field),
+    }
+
+
+#: The rasters the client draws by (plan §9.3), thinned to
+#: `runtime.RASTER_ROWS_MAX` rows at most.
+RASTER_KINDS = ("height", "biome", "form")
+
+
+def raster_stride(rows: int) -> int:
+    """Every n-th cell, so that the raster has `RASTER_ROWS_MAX` rows at most."""
+    return max(1, math.ceil(rows / RASTER_ROWS_MAX))
+
+
+def raster_passport(constants: Constants, field: fields.Field) -> dict:
+    """What the rasters are: rows, cols, the metres a cell spans at the
+    equator, the rise a height is a share of, and the code tables."""
+    stride = raster_stride(field.rows)
+    return {
+        "rows": len(range(0, field.rows, stride)),
+        "cols": len(range(0, field.cols, stride)),
+        "step_m": field.step_m * stride,
+        "relief_m": field.relief_m,
+        #: `biome` is a byte a cell into this list, 255 on water; `form`
+        #: into the field's own table; `height` a signed metre, sixteen bits.
+        #: The list repeats the order of `biome.names` on `/public/constants`
+        #: on purpose: it is the contract of the bytes, kept beside them, so
+        #: a raster and the book it was cut against cannot be read apart.
+        "biomes": list(constants[R.BIOME_NAMES]),
+        "forms": list(field.forms),
     }
