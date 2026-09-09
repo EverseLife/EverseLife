@@ -345,24 +345,39 @@ def test_the_sketch_tool_builds_the_field_the_numbers_ask_for(
 
 
 def test_the_field_has_metres(constants: Constants) -> None:
-    """A height in metres is the field's share of the rise times the vault's
-    rise (landscape plan, wave 1): the sea reads zero, the highest land reads
-    the whole `terrain.relief_m`, and nothing stands above it."""
+    """A height in metres (landscape plan, wave 1): the sea reads zero, a
+    lake reads the land under it like the climate does, and up the same
+    slope the metres rise with the share -- on a field built for the test,
+    so the vault's seed does not decide what passes."""
     rise = float(constants[R.TERRAIN_RELIEF_M])
     assert rise > 0
     field = terrain.field_of(constants, Planet.TERRA)
     rows, cols = field.grid.shape
-    highest = 0.0
-    seen_sea = False
-    for row in range(0, rows, 3):
-        for col in range(0, cols, 3):
+    sea = lake = None
+    for row in range(rows):
+        for col in range(cols):
             lat, lon = field.centre(row, col)
-            height = terrain.height_m(constants, Planet.TERRA, lat, lon)
-            assert 0.0 <= height <= rise
-            if field.is_water(lat, lon):
-                seen_sea = True
-                assert height == 0.0, "вода стоит на уровне моря"
-            else:
-                assert height == pytest.approx(field.relief(lat, lon) * rise)
-            highest = max(highest, height)
-    assert seen_sea and highest > rise / 2, "суша поднимается к своему размаху"
+            if sea is None and field.is_sea(lat, lon):
+                sea = (lat, lon)
+            if lake is None and (row, col) in field.lakes:
+                lake = (lat, lon)
+    assert sea is not None, "на Терре есть море"
+    assert terrain.height_m(constants, Planet.TERRA, *sea) == 0.0, "море стоит на нуле"
+    if lake is not None:
+        assert terrain.height_m(constants, Planet.TERRA, *lake) == pytest.approx(
+            field.relief(*lake) * rise
+        ), "озеро стоит на своей земле, как в климате"
+        assert terrain.height_m(constants, Planet.TERRA, *lake) > 0.0
+    #: Monotone: the reading in metres orders the land as the share does.
+    land = [
+        field.centre(row, col)
+        for row in range(0, rows, 5)
+        for col in range(0, cols, 5)
+        if not field.is_water(*field.centre(row, col))
+    ]
+    assert land, "на Терре есть суша"
+    heights = [terrain.height_m(constants, Planet.TERRA, *point) for point in land]
+    shares = [field.relief(*point) for point in land]
+    assert all(0.0 <= h <= rise for h in heights)
+    for k in range(1, len(land)):
+        assert (heights[k - 1] <= heights[k]) == (shares[k - 1] <= shares[k])

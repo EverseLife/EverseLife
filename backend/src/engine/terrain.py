@@ -157,12 +157,18 @@ def height_m(constants: Constants, planet: Planet, lat: float, lon: float) -> fl
     """How high above the sea a point stands, in metres (landscape plan, wave 1).
 
     The field reads a share of the land's rise (`Field.relief`, 0..1); the
-    vault says how many metres that rise is (`terrain.relief_m`). Sea and
-    lake read zero. This is the one place the share becomes a height, so a
+    vault says how many metres that rise is (`terrain.relief_m`). The sea
+    reads zero; a lake reads the land under it, as the climate does
+    (`climate_at`), so a mountain lake is as high and as cold on every
+    reading. This is the one place the share becomes a height, so a
     contour, a horizon and a slope all measure the same mountain.
+
+    Until the field of the landscape plan lands, the share's ceiling is the
+    noise's, which the land does not quite reach: `terrain.relief_m` is the
+    top of the scale, and the highest summit stands a little under it.
     """
     field = field_of(constants, planet)
-    if field.is_water(lat, lon):
+    if field.is_sea(lat, lon):
         return 0.0
     return field.relief(lat, lon) * float(constants[R.TERRAIN_RELIEF_M])
 
