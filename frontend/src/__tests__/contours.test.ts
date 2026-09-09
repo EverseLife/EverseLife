@@ -64,7 +64,16 @@ function meshOf(rows: number, cols: number): Lattice {
   //: On a mesh drawn by hand a point reads its own cell and nothing else:
   //: the mesh *is* the cells, and there is nothing between them. On a
   //: planet the two differ, and that reading is `healpix.test.ts`.
-  return { rows, cols, at, between: (raster, lat, lon) => raster[at(lat, lon)] };
+  const between = (raster: ArrayLike<number>, lat: number, lon: number) => raster[at(lat, lon)];
+  return {
+    rows,
+    cols,
+    at,
+    between,
+    row: (raster, lat, lon0, step, many, out, seat) => {
+      for (let j = 0; j < many; j++) out[seat + j] = between(raster, lat, lon0 + j * step);
+    },
+  };
 }
 
 /** A small planet: `rows` by `2 * rows` cells, the heights given by a

@@ -153,6 +153,18 @@ export function wholeWindow(lattice: Lattice): Window {
   return { r0: 0, r1: lattice.rows - 1, c0: 0, count: lattice.cols, stride: 1 };
 }
 
+/** The samples of the whole planet, made once and kept.
+ *
+ *  Two readers want them -- the coast with its rivers and the boundaries of
+ *  the provinces -- and laying out a million samples is most of a second
+ *  each time. They are the same million for both. */
+const WHOLE = new Map<Lattice, Samples>();
+export function wholeSamples(lattice: Lattice): Samples {
+  let held = WHOLE.get(lattice);
+  if (!held) WHOLE.set(lattice, (held = samplesOf(lattice, wholeWindow(lattice))));
+  return held;
+}
+
 /** The samples of a window: a grid `nr` by `nc` of readings, and the place
  *  of a sample by its fractional indices. */
 export type Samples = {
@@ -217,12 +229,11 @@ export function samplesOf(lattice: Lattice, win: Window): Samples {
     let held = read.get(raster);
     if (held) return held;
     held = new Float32Array(nr * nc);
+    const step = (stride * 360) / cols;
+    const lon0 = ((c0 + 0.5) * 360) / cols - 180;
     for (let i = 0; i < nr; i++) {
       const lat = -90 + (r0 + i * stride + 0.5) * (180 / rows);
-      for (let j = 0; j < nc; j++) {
-        const lon = ((((c0 + j * stride + 0.5) * (360 / cols)) % 360) + 360) % 360 - 180;
-        held[i * nc + j] = lattice.between(raster, lat, lon);
-      }
+      lattice.row(raster, lat, lon0, step, nc, held, i * nc);
     }
     read.set(raster, held);
     return held;
@@ -372,7 +383,15 @@ function quadLines(
 
 /** The contours of a window: the level lines of the height at `interval`
  *  metres from the first above the sea to the highest sampled, each
- *  marked whether it is an index contour. */
+ *  marked whether it is an index contour.
+ *
+ *  The whole ladder is drawn in **one** walk of the window. Level by level
+ *  it was one walk each -- the same forty thousand quads read eight or ten
+ *  times over, and nine of every ten of those readings only to learn that
+ *  the quad is nowhere near the level. A quad knows its own lowest and
+ *  highest corner, and that says which rungs of the ladder can possibly
+ *  cross it: usually none, sometimes one. The map moves under the hand
+ *  because of this, so it is worth the extra dozen lines. */
 export function contours(
   rasters: Rasters,
   samples: Samples,
@@ -380,21 +399,45 @@ export function contours(
 ): { level: number; index: boolean; segments: Segment[] }[] {
   if (!Number.isFinite(interval) || interval <= 0) return [];
   const read = samples.between(rasters.height);
-  const value = (i: number, j: number) => read[i * samples.nc + j];
+  const { nr, nc, geo } = samples;
   let top = 0;
-  for (let i = 0; i < samples.nr; i++) {
-    for (let j = 0; j < samples.nc; j++) top = Math.max(top, value(i, j));
+  for (let k = 0; k < read.length; k++) if (read[k] > top) top = read[k];
+  const rungs = Math.max(0, Math.ceil(top / interval) - 1);
+  if (!rungs) return [];
+  const held: Segment[][] = Array.from({ length: rungs }, () => []);
+  for (let i = 0; i < nr - 1; i++) {
+    for (let j = 0; j < nc - 1; j++) {
+      const v00 = read[i * nc + j];
+      const v01 = read[i * nc + j + 1];
+      const v11 = read[(i + 1) * nc + j + 1];
+      const v10 = read[(i + 1) * nc + j];
+      const lo = Math.min(v00, v01, v11, v10);
+      const hi = Math.max(v00, v01, v11, v10);
+      //: The rungs this quad can possibly cross, and no others: rung `r`
+      //: stands at `(r + 1) * interval`. A rung wide of the mark on either
+      //: side, because the exact word belongs to the test just below and a
+      //: float must not be trusted to sit on a whole multiple.
+      const first = Math.max(0, Math.floor(lo / interval) - 1);
+      const last = Math.min(rungs - 1, Math.floor(hi / interval));
+      for (let rung = first; rung <= last; rung++) {
+        const level = (rung + 1) * interval;
+        if (lo >= level || hi < level) continue;
+        const at = (di: number, dj: number): Geo => geo(i + di, j + dj);
+        for (const segment of quadLines(v00, v01, v11, v10, level, at)) {
+          held[rung].push(segment);
+        }
+      }
+    }
   }
   const out: { level: number; index: boolean; segments: Segment[] }[] = [];
-  //: Strictly under the summit: a contour at the summit's own height is a point.
-  for (let level = interval; level < top; level += interval) {
-    const segments = isolines(samples, value, level);
-    if (segments.length) {
-      out.push({ level, index: Math.round(level / interval) % INDEX_EVERY === 0, segments });
-    }
+  for (let rung = 0; rung < rungs; rung++) {
+    if (!held[rung].length) continue;
+    const level = (rung + 1) * interval;
+    out.push({ level, index: (rung + 1) % INDEX_EVERY === 0, segments: held[rung] });
   }
   return out;
 }
+
 
 /** How a stretch of coast is drawn: a rock wall, a beach, or plain shore. */
 export type Shore = "rock" | "beach" | "shore";
@@ -654,7 +697,7 @@ export function provinceLines(
   passport: RasterPassport,
   lattice: Lattice = latticeOf(passport),
 ): ProvinceLines {
-  const samples = samplesOf(lattice, wholeWindow(lattice));
+  const samples = wholeSamples(lattice);
   return {
     edges: binned(provinceEdges(rasters, samples), true),
     marks: provinceMarks(rasters, samples),
@@ -782,7 +825,7 @@ export function planetLines(
   passport: RasterPassport,
   lattice: Lattice = latticeOf(passport),
 ): PlanetLines {
-  const samples = samplesOf(lattice, wholeWindow(lattice));
+  const samples = wholeSamples(lattice);
   const { shores, lakes } = coast(rasters, samples, passport.forms);
   return {
     shores: { rock: binned(shores.rock), beach: binned(shores.beach), shore: binned(shores.shore) },

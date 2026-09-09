@@ -97,9 +97,33 @@ export type Lattice = {
   /** A quantity read between the cells around the point, for what they keep
    *  as a number -- the height above all, whose level line is the coast. */
   between: (raster: ArrayLike<number>, lat: number, lon: number) => number;
+  /** The same reading for a whole row of one latitude at once, written into
+   *  `out` from `at`. Which two rings a point falls between depends on the
+   *  latitude alone, so a row settles them once instead of once a sample --
+   *  and a row is a thousand samples. */
+  row: (
+    raster: ArrayLike<number>,
+    lat: number,
+    lon0: number,
+    step: number,
+    many: number,
+    out: Float32Array,
+    at: number,
+  ) => void;
 };
 
+/** One lattice per fineness: it carries a table of a million entries, and
+ *  what is keyed by it (`contours.wholeSamples`) wants a stable key. */
+const LATTICES = new Map<number, Lattice>();
 export function latticeOf(passport: RasterPassport): Lattice {
+  const held = LATTICES.get(passport.nside);
+  if (held) return held;
+  const made = madeLattice(passport);
+  LATTICES.set(passport.nside, made);
+  return made;
+}
+
+function madeLattice(passport: RasterPassport): Lattice {
   const nside = passport.nside;
   const rings = ringsOf(passport);
   //: The rings hold cells of the grid, the rasters hold texels of the
@@ -112,6 +136,8 @@ export function latticeOf(passport: RasterPassport): Lattice {
     cols: 2 * BANDS_PER_NSIDE * nside,
     at: (lat, lon) => seats[ang2pix(nside, lat, lon)],
     between: (raster, lat, lon) => rings.between((cell) => raster[seats[cell]], lat, lon),
+    row: (raster, lat, lon0, step, many, out, at) =>
+      rings.row(raster, seats, lat, lon0, step, many, out, at),
   };
 }
 
@@ -228,5 +254,68 @@ export class Rings {
       out += weight * ((1 - across) * read(table[row + one]) + across * read(table[row + two]));
     }
     return out;
+  }
+
+  /**
+   * A whole row of one latitude, read between the cells and written out.
+   *
+   * The two rings a point falls between, and how it stands between them,
+   * are the latitude's business alone; only the place along each ring
+   * moves with the longitude. Settled once for the row, the reading of a
+   * sample is two lookups and two multiplies -- and the vector layer reads
+   * a million of them for a planet and forty thousand for every turn of
+   * the eye, so the difference is the map moving under the hand or not.
+   */
+  row(
+    raster: ArrayLike<number>,
+    seats: Int32Array,
+    latDeg: number,
+    lon0: number,
+    step: number,
+    many: number,
+    out: Float32Array,
+    at: number,
+  ): void {
+    const n = this.nside;
+    const table = this.table;
+    const wide = this.wide;
+    const fraction = Math.max(1, Math.min(this.count, ringOf(n, latDeg)));
+    const low = Math.min(Math.floor(fraction), this.count - 1);
+    const down = fraction - low;
+    //: The two rings, each with its own length, its own half-step shift and
+    //: its own share of the answer.
+    const rows = [(low - 1) * wide, low * wide];
+    const weights = [1 - down, down];
+    const scales = [0, 0];
+    const shifts = [0, 0];
+    const lengths = [0, 0];
+    for (let k = 0; k < 2; k++) {
+      const ring = low + k;
+      const quarter = ring < n ? ring : ring > 3 * n ? 4 * n - ring : n;
+      const shifted = ring < n || ring > 3 * n ? 0 : (ring - n) & 1;
+      scales[k] = (2 * quarter) / Math.PI;
+      shifts[k] = shifted / 2 - 0.5;
+      lengths[k] = 4 * quarter;
+    }
+    for (let j = 0; j < many; j++) {
+      let phi = ((lon0 + j * step) * RAD) % TAU;
+      if (phi < 0) phi += TAU;
+      let sum = 0;
+      for (let k = 0; k < 2; k++) {
+        const weight = weights[k];
+        if (weight === 0) continue;
+        const along = phi * scales[k] + shifts[k];
+        const first = Math.floor(along);
+        const across = along - first;
+        const len = lengths[k];
+        const row = rows[k];
+        const one = ((first % len) + len) % len;
+        const two = one + 1 === len ? 0 : one + 1;
+        const a = raster[seats[table[row + one]]];
+        const b = raster[seats[table[row + two]]];
+        sum += weight * (a + (b - a) * across);
+      }
+      out[at + j] = sum;
+    }
   }
 }
