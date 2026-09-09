@@ -21,6 +21,8 @@ export type Rasters = {
   water: Uint8Array;
   rock: Uint8Array;
   province: Uint8Array;
+  flow: Uint8Array;
+  lake: Uint8Array;
 };
 
 const RASTERS = new Map<string, Promise<Rasters>>();
@@ -32,16 +34,18 @@ export function rastersOf(planet: string): Promise<Rasters> {
   if (!asked) {
     asked = Promise.all(
       (
-        ["height", "biome", "form", "water", "rock", "province"] as const satisfies
+        ["height", "biome", "form", "water", "rock", "province", "flow", "lake"] as const satisfies
           readonly RasterKind[]
       ).map((kind) => api.terrainRaster(planet, kind)),
-    ).then(([height, biome, form, water, rock, province]) => ({
+    ).then(([height, biome, form, water, rock, province, flow, lake]) => ({
       height: heightsOf(height),
       biome: new Uint8Array(biome),
       form: new Uint8Array(form),
       water: new Uint8Array(water),
       rock: new Uint8Array(rock),
       province: new Uint8Array(province),
+      flow: new Uint8Array(flow),
+      lake: new Uint8Array(lake),
     }));
     asked.catch(() => RASTERS.delete(planet));
     RASTERS.set(planet, asked);

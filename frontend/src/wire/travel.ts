@@ -251,7 +251,9 @@ export type RasterKind =
   | "form"
   | "water"
   | "rock"
-  | "province";
+  | "province"
+  | "flow"
+  | "lake";
 export type RasterPassport = {
   rows: number;
   cols: number;
@@ -264,6 +266,11 @@ export type RasterPassport = {
   /** The provinces by the code of the province raster (0 is none, k is the
    *  k-th of this list): the map draws their boundary and their name. */
   provinces?: string[];
+  /** What a full byte of the flow raster stands for on a log scale: how
+   *  much land drains through the river a cell belongs to. The map draws a
+   *  river of its own width by it -- a brook a thread, the continent's
+   *  river two hundred metres across (wave 6's debt). */
+  flow_max_km2?: number;
 };
 
 /** A tile of a planet's local relief (D-323): `n + 1` rows and columns of

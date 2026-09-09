@@ -16,8 +16,11 @@ land, aim and find stay the server's, off the field itself (plan §9.1).
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 
+from src import field as fields
 from src.constants import Constants
 from src.engine import biome, terrain
 from src.models.world import Planet
@@ -56,6 +59,30 @@ def _encode(constants: Constants, planet: Planet, field, kind: str) -> bytes:
         return np.ascontiguousarray(field.hardness[::stride, ::stride]).astype(np.uint8).tobytes()
     if kind == "province":
         return np.ascontiguousarray(field.province[::stride, ::stride]).astype(np.uint8).tobytes()
+    if kind == "river":
+        #: How far the nearest fresh water lies, a metre a step. A byte
+        #: reaches further than the widest river is (`flow_bank`), and past
+        #: that the picture has no use for the number.
+        byte = np.iinfo(np.uint8)
+        metres = field.river_m[::stride, ::stride]
+        return np.ascontiguousarray(np.clip(metres, byte.min, byte.max)).astype(np.uint8).tobytes()
+    if kind == "lake":
+        #: A lake as a quantity rather than as a class, so the picture can
+        #: cut its shore between the cells as it cuts the sea's by the
+        #: height. Read as a class it was a lake of whole five-hundred-metre
+        #: cells -- blue rectangles with right angles, which is not a lake.
+        byte = np.iinfo(np.uint8)
+        wet = (field.water[::stride, ::stride] == fields.LAKE) * byte.max
+        return np.ascontiguousarray(wet).astype(np.uint8).tobytes()
+    if kind == "flow":
+        #: The catchment on a log scale, because a river's catchment runs
+        #: from twenty square kilometres to four thousand and the eye reads
+        #: the small ones as often as the great.
+        byte = np.iinfo(np.uint8)
+        top = float(field.river_flow_km2.max())
+        share = np.log1p(field.river_flow_km2) / math.log1p(top) if top > 0 else field.height * 0
+        scaled = np.clip(share * byte.max, byte.min, byte.max)
+        return np.ascontiguousarray(scaled[::stride, ::stride]).astype(np.uint8).tobytes()
     return np.ascontiguousarray(field.form[::stride, ::stride]).astype(np.uint8).tobytes()
 
 

@@ -248,7 +248,7 @@ def _sketched(constants: Constants, planet: Planet, field: fields.Field) -> dict
 
 #: The rasters the client draws by (plan §9.3), thinned to
 #: `runtime.RASTER_ROWS_MAX` rows at most.
-RASTER_KINDS = ("height", "biome", "form", "water", "rock", "province")
+RASTER_KINDS = ("height", "biome", "form", "water", "rock", "province", "river", "flow", "lake")
 
 
 def raster_stride(rows: int) -> int:
@@ -278,6 +278,14 @@ def raster_passport(constants: Constants, field: fields.Field) -> dict:
         #: `rock` needs no table: it is the hardness of the ground as a
         #: byte, and the shader reads it as a number between nought and one
         #: off an `R8` texture, which is the same thing (wave 8).
+        #: `river` is how far the nearest fresh water lies, a metre a step,
+        #: and `flow` how much land drains through the river it belongs to,
+        #: on a log scale to `flow_max_km2`. Between them the picture draws a
+        #: river of an honest width that widens downstream (landscape plan
+        #: wave 6's debt, closed 2026-09-09): a river is ground, not a line
+        #: laid over it, and a thread of 500-metre cells was the line.
+        "river_reach_m": fields.BYTE,
+        "flow_max_km2": float(field.river_flow_km2.max()),
         #: `province` is a byte a cell: 0 no province, k the k-th of this
         #: list. The map traces the boundary between differing codes and
         #: writes the name in the middle of what it encloses (wave 8); the

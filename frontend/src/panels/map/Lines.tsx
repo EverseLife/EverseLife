@@ -36,6 +36,7 @@ import {
   type PlanetLines,
   type Segment,
 } from "./contours";
+import { UNITS_PER_METRE } from "./globe";
 import { useRasters } from "./rasters";
 
 /** The lines a planet's own rasters give, read once for the life of the
@@ -96,7 +97,14 @@ export function Lines({
       beach: under(own.shores.beach),
       shore: under(own.shores.shore),
       lakes: under(own.lakes),
-      rivers: under(own.rivers),
+      //: A river is drawn at the width it is (`riverWidthM`), in units of
+      //: the ground rather than of the glass: it is a part of the country,
+      //: not a line laid over it (owner, 2026-09-09), so it grows under the
+      //: zoom as the ground does and a brook stays a brook.
+      rivers: own.rivers.map((band) => ({
+        width: band.widthM * UNITS_PER_METRE,
+        path: under(band.bins),
+      })),
     };
   }, [own, frame, eye, radius, within]);
   if (!drawn) return null;
@@ -108,7 +116,11 @@ export function Lines({
     >
       {drawn.contours && <path className="contour" d={drawn.contours} />}
       {drawn.index && <path className="contour index" d={drawn.index} />}
-      {drawn.rivers && <path className="river" d={drawn.rivers} />}
+      {drawn.rivers.map(({ width, path }) =>
+        path ? (
+          <path key={width} className="river" d={path} strokeWidth={width} />
+        ) : null,
+      )}
       {drawn.lakes && <path className="coast lake" d={drawn.lakes} />}
       {drawn.shore && <path className="coast shore" d={drawn.shore} />}
       {drawn.beach && <path className="coast beach" d={drawn.beach} />}

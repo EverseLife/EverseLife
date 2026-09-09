@@ -90,6 +90,13 @@ class Field:
     form: np.ndarray  # uint8, codes of `forms`
     hardness: np.ndarray  # uint8, 255 = 1.0
     river_m: np.ndarray  # to the nearest river or lake, metres, uint16, capped
+    #: How much land drains through the river a cell could be the bank of,
+    #: km2 -- the catchment of the biggest river among its neighbours, and
+    #: nought where there is none. A river's width is read off it (landscape
+    #: plan §9.2: a river is ground and widens downstream), and the width
+    #: never reaches past a neighbour, so a neighbour is as far as this has
+    #: to look.
+    river_flow_km2: np.ndarray  # float32, 0 away from every river
     sea_m: np.ndarray  # to the nearest sea, metres, uint16, capped
     temperature_c: np.ndarray  # int8
     rain: np.ndarray  # uint8, 255 = 1.0
@@ -384,6 +391,7 @@ def _loaded(directory: str, planet: str, mountain_share: float, expected: tuple)
         form = z["form"].astype(np.uint8)
         hardness = z["hardness"].astype(np.uint8)
         river_m = z["river_m"].astype(np.uint16)
+        flow_km2 = _flow_beside(z["water"].astype(np.uint8), z["area_km2"].astype(np.float32))
         sea_m = z["sea_m"].astype(np.uint16)
         temperature = z["temperature_c"].astype(np.int8)
         rain = z["rain"].astype(np.uint8)
@@ -415,6 +423,7 @@ def _loaded(directory: str, planet: str, mountain_share: float, expected: tuple)
         form=form,
         hardness=hardness,
         river_m=river_m,
+        river_flow_km2=flow_km2,
         sea_m=sea_m,
         temperature_c=temperature,
         rain=rain,
@@ -433,6 +442,24 @@ def _loaded(directory: str, planet: str, mountain_share: float, expected: tuple)
         grid=grid,
         lakes=lakes,
     )
+
+
+def _flow_beside(water: np.ndarray, area_km2: np.ndarray) -> np.ndarray:
+    """How much land drains through the river nearest each cell, km2.
+
+    The catchment of the biggest river among a cell and its eight
+    neighbours, and nought where none of them is a river. A neighbour is as
+    far as this looks because it is as far as it is used: the picture draws
+    a river no wider than a hundred metres or so and the grid is five
+    hundred, so a bank never reaches past the next cell. The whole raster is
+    made once, when the field is read, and costs a walk over nine shifts.
+    """
+    on = np.where(water == RIVER, area_km2, 0.0).astype(np.float32)
+    best = on
+    for down in (-1, 0, 1):
+        for right in (-1, 0, 1):
+            best = np.maximum(best, np.roll(np.roll(on, down, axis=0), right, axis=1))
+    return best
 
 
 def _sketch_grid(

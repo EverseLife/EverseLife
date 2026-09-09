@@ -193,6 +193,28 @@ export function samplesOf(passport: { rows: number; cols: number }, win: Window)
 /** A line as two ends, degrees. */
 export type Segment = [Geo, Geo];
 
+/** A reach of a river: where it runs and how much land drains through it,
+ *  km2 -- which is how wide it is drawn (`riverWidthM`). */
+export type River = { at: Segment; flow: number };
+
+/** A byte of a scaled raster at its full: 255 stands for one. */
+const BYTE = 255;
+
+/** How wide a river carrying this much land runs, metres.
+ *
+ *  `a·A^b` with the exponent at a half: the hydraulic geometry every river
+ *  on Earth obeys. On Terra a brook of twenty square kilometres comes out
+ *  thirteen metres across and the greatest river, draining four and a half
+ *  thousand, two hundred -- which is what a river of that catchment looks
+ *  like. Picture, not balance (D-065): what a river is worth to the game is
+ *  its crossing and its water, and how wide it is drawn changes no rule --
+ *  the same reason the contour ladder's numbers live in code (wave 6). */
+export const RIVER_WIDTH_A = 3;
+export const RIVER_WIDTH_B = 0.5;
+export function riverWidthM(catchmentKm2: number): number {
+  return catchmentKm2 > 0 ? RIVER_WIDTH_A * Math.pow(catchmentKm2, RIVER_WIDTH_B) : 0;
+}
+
 /**
  * Marching squares: the segments of the level line `level` of a value read
  * at every sample. The saddle is split by the mean of the four corners.
@@ -204,76 +226,108 @@ export function isolines(
   value: (i: number, j: number) => number,
   level: number,
   each?: (i: number, j: number) => void,
+  fine = 1,
 ): Segment[] {
   const out: Segment[] = [];
   const { nr, nc, geo } = samples;
-  const cut = (a: number, b: number) => {
-    const span = b - a;
-    return span === 0 ? 0.5 : Math.max(0, Math.min(1, (level - a) / span));
-  };
-  const put = (i: number, j: number, ...segments: Segment[]) => {
-    for (const segment of segments) {
-      out.push(segment);
-      each?.(i, j);
-    }
-  };
   for (let i = 0; i < nr - 1; i++) {
     for (let j = 0; j < nc - 1; j++) {
       const v00 = value(i, j);
       const v01 = value(i, j + 1);
       const v11 = value(i + 1, j + 1);
       const v10 = value(i + 1, j);
-      const bits = (v00 >= level ? 1 : 0) | (v01 >= level ? 2 : 0) | (v11 >= level ? 4 : 0) | (v10 >= level ? 8 : 0);
-      if (bits === 0 || bits === 15) continue;
-      //: The four edge crossings: top (i, j..j+1), right (i..i+1, j+1),
-      //: bottom (i+1, j..j+1), left (i..i+1, j).
-      const top = () => geo(i, j + cut(v00, v01));
-      const right = () => geo(i + cut(v01, v11), j + 1);
-      const bottom = () => geo(i + 1, j + cut(v10, v11));
-      const left = () => geo(i + cut(v00, v10), j);
-      switch (bits) {
-        case 1:
-        case 14:
-          put(i, j, [left(), top()]);
-          break;
-        case 2:
-        case 13:
-          put(i, j, [top(), right()]);
-          break;
-        case 3:
-        case 12:
-          put(i, j, [left(), right()]);
-          break;
-        case 4:
-        case 11:
-          put(i, j, [right(), bottom()]);
-          break;
-        case 6:
-        case 9:
-          put(i, j, [top(), bottom()]);
-          break;
-        case 7:
-        case 8:
-          put(i, j, [left(), bottom()]);
-          break;
-        case 5:
-        case 10: {
-          //: Two high corners on a diagonal (5: top-left and bottom-right).
-          //: With the middle high too, the high corners join through it and
-          //: the line cuts off the two low corners; with the middle low, the
-          //: high corners are cut off each on its own.
-          const middle = (v00 + v01 + v11 + v10) / 4 >= level;
-          if ((bits === 5) === middle) {
-            put(i, j, [top(), right()], [left(), bottom()]);
-          } else {
-            put(i, j, [left(), top()], [right(), bottom()]);
+      const lo = Math.min(v00, v01, v11, v10);
+      const hi = Math.max(v00, v01, v11, v10);
+      if (lo >= level || hi < level) continue;
+      //: A quad the line crosses may be read more finely than the raster
+      //: is: the four corners are all the shader has of it too, and inside
+      //: them it reads the same bilinear surface. One chord across the
+      //: whole cell is that surface's rope bridge -- on a cell five hundred
+      //: metres wide and a frame three metres to the pixel, the rope hangs
+      //: tens of metres away from the ground it stands for, and the coast's
+      //: line ran over the water the shader had drawn. Cut only here, where
+      //: the line actually is: the rest of the planet costs nothing.
+      for (let a = 0; a < fine; a++) {
+        for (let b = 0; b < fine; b++) {
+          const corner = (di: number, dj: number) =>
+            mix(v00, v01, v11, v10, (a + di) / fine, (b + dj) / fine);
+          const at = (di: number, dj: number): Geo =>
+            geo(i + (a + di) / fine, j + (b + dj) / fine);
+          for (const segment of quadLines(
+            corner(0, 0), corner(0, 1), corner(1, 1), corner(1, 0), level, at,
+          )) {
+            out.push(segment);
+            each?.(i, j);
           }
-          break;
         }
       }
     }
   }
   return out;
+}
+
+/** The value inside a quad, between its four corners: the very surface the
+ *  shader samples when it reads the height texture with linear filtering. */
+function mix(
+  v00: number, v01: number, v11: number, v10: number, di: number, dj: number,
+): number {
+  const top = v00 + (v01 - v00) * dj;
+  const bottom = v10 + (v11 - v10) * dj;
+  return top + (bottom - top) * di;
+}
+
+/**
+ * The pieces of the level line inside one quad, by the sixteen cases of
+ * marching squares. `at(di, dj)` places a point of the quad, both a share
+ * of the way across it.
+ */
+function quadLines(
+  v00: number, v01: number, v11: number, v10: number,
+  level: number,
+  at: (di: number, dj: number) => Geo,
+): Segment[] {
+  const bits =
+    (v00 >= level ? 1 : 0) | (v01 >= level ? 2 : 0) | (v11 >= level ? 4 : 0) | (v10 >= level ? 8 : 0);
+  if (bits === 0 || bits === 15) return [];
+  const cut = (a: number, b: number) => {
+    const span = b - a;
+    return span === 0 ? 0.5 : Math.max(0, Math.min(1, (level - a) / span));
+  };
+  //: The four edge crossings: top, right, bottom, left of the quad.
+  const top = () => at(0, cut(v00, v01));
+  const right = () => at(cut(v01, v11), 1);
+  const bottom = () => at(1, cut(v10, v11));
+  const left = () => at(cut(v00, v10), 0);
+  switch (bits) {
+    case 1:
+    case 14:
+      return [[left(), top()]];
+    case 2:
+    case 13:
+      return [[top(), right()]];
+    case 3:
+    case 12:
+      return [[left(), right()]];
+    case 4:
+    case 11:
+      return [[right(), bottom()]];
+    case 6:
+    case 9:
+      return [[top(), bottom()]];
+    case 7:
+    case 8:
+      return [[left(), bottom()]];
+    default: {
+      //: Two high corners on a diagonal (5: top-left and bottom-right).
+      //: With the middle high too, the high corners join through it and
+      //: the line cuts off the two low corners; with the middle low, the
+      //: high corners are cut off each on its own.
+      const middle = (v00 + v01 + v11 + v10) / 4 >= level;
+      return (bits === 5) === middle
+        ? [[top(), right()], [left(), bottom()]]
+        : [[left(), top()], [right(), bottom()]];
+    }
+  }
 }
 
 /** The contours of a window: the level lines of the height at `interval`
@@ -304,6 +358,15 @@ export function contours(
 /** How a stretch of coast is drawn: a rock wall, a beach, or plain shore. */
 export type Shore = "rock" | "beach" | "shore";
 
+/** Into how many pieces a cell the coast crosses is cut. The shader draws
+ *  the water by the same zero of the same bilinear surface, and one chord a
+ *  cell was visibly not that surface: on a frame of two kilometres the line
+ *  ran tens of metres from the colour's edge, sometimes over the water
+ *  (owner, 2026-09-09). Four is where the two stop disagreeing by more than
+ *  a pixel on the frames that draw them; only the cells the line crosses
+ *  are cut, so the walk over the planet costs what it did. */
+export const COAST_FINE = 4;
+
 /** The coast: the height's zero, each stretch styled by the land it
  *  touches -- a sea cliff or a cliff is rock, a beach a beach. The lake
  *  shores come separately: the form raster says where a lake is. */
@@ -330,7 +393,7 @@ export function coast(
     return style;
   };
   const styles: Shore[] = [];
-  const segments = isolines(samples, height, 0, (i, j) => styles.push(styleOf(i, j)));
+  const segments = isolines(samples, height, 0, (i, j) => styles.push(styleOf(i, j)), COAST_FINE);
   segments.forEach((segment, k) => shores[styles[k]].push(segment));
   const lakes =
     lake < 0
@@ -384,20 +447,34 @@ export function hachures(
 /** The rivers: every river cell of the water raster joined to its river
  *  neighbours to the east and the south (each pair once), so the cells
  *  read as threads. */
-export function rivers(rasters: Rasters, samples: Samples, water: readonly string[]): Segment[] {
+export function rivers(
+  rasters: Rasters,
+  samples: Samples,
+  water: readonly string[],
+  topKm2 = 0,
+): River[] {
   const river = water.indexOf("river");
   if (river < 0) return [];
-  const out: Segment[] = [];
+  const out: River[] = [];
   const { nr, nc } = samples;
   const is = (i: number, j: number) => rasters.water[samples.index(i, j)] === river;
+  //: How much land drains through the cell, off the flow raster: a byte on
+  //: a log scale to the greatest catchment of the planet (`flow_max_km2`).
+  const drains = (i: number, j: number) =>
+    topKm2 > 0
+      ? Math.expm1((rasters.flow[samples.index(i, j)] / BYTE) * Math.log1p(topKm2))
+      : 0;
   for (let i = 0; i < nr; i++) {
     for (let j = 0; j < nc - 1; j++) {
       if (!is(i, j)) continue;
       const here = samples.geo(i, j);
+      const flow = drains(i, j);
       const joins: [number, number][] = [[i, j + 1], [i + 1, j], [i + 1, j + 1], [i + 1, j - 1]];
       for (const [ni, nj] of joins) {
         if (ni >= nr || nj < 0 || nj >= nc - 1) continue;
-        if (is(ni, nj)) out.push([here, samples.geo(ni, nj)]);
+        //: A reach carries what the smaller of its two ends does: a river
+        //: does not widen because it happens to run beside a bigger one.
+        if (is(ni, nj)) out.push({ at: [here, samples.geo(ni, nj)], flow: Math.min(flow, drains(ni, nj)) });
       }
     }
   }
@@ -481,12 +558,39 @@ export type ProvinceMark = { code: number; at: Geo };
 
 /** The lines of a planet that do not depend on the frame: the coast by
  *  the form of its land, the lakes' shores and the rivers, read once cell
- *  by cell and binned. */
+ *  by cell and binned. The rivers are kept in bands of width rather than as
+ *  one heap: a stroke has one thickness, and a river that widens downstream
+ *  is drawn as a few strokes, each of the width its reaches share. */
 export type PlanetLines = {
   shores: Record<Shore, Bins>;
   lakes: Bins;
-  rivers: Bins;
+  rivers: { widthM: number; bins: Bins }[];
 };
+
+/** Into how many widths the rivers of a planet are sorted. Five: fewer and
+ *  a brook is drawn as a river, more and the map pays for strokes no eye
+ *  can tell apart. */
+export const RIVER_BANDS = 5;
+
+/** The reaches sorted into bands by width, widest last so the great rivers
+ *  are drawn over the brooks that feed them. */
+export function riverBands(reaches: readonly River[]): { widthM: number; bins: Bins }[] {
+  const widest = reaches.reduce((top, one) => Math.max(top, riverWidthM(one.flow)), 0);
+  if (!(widest > 0)) return [];
+  const bands: Segment[][] = Array.from({ length: RIVER_BANDS }, () => []);
+  for (const reach of reaches) {
+    //: By the square root of the width, so the narrow bands -- where most
+    //: of a river system's length lies -- are not all one.
+    const share = Math.sqrt(riverWidthM(reach.flow) / widest);
+    bands[Math.min(RIVER_BANDS - 1, Math.floor(share * RIVER_BANDS))].push(reach.at);
+  }
+  return bands
+    .map((segments, band) => ({
+      widthM: widest * ((band + 1) / RIVER_BANDS) ** 2,
+      bins: binned(segments),
+    }))
+    .filter((band) => band.bins.size > 0);
+}
 
 /** A planet's provinces as the map draws them: the boundaries binned, and
  *  a place for every name. Read once per planet, like the coast -- and
@@ -624,7 +728,7 @@ export function planetLines(rasters: Rasters, passport: RasterPassport): PlanetL
   return {
     shores: { rock: binned(shores.rock), beach: binned(shores.beach), shore: binned(shores.shore) },
     lakes: binned(lakes),
-    rivers: binned(rivers(rasters, samples, passport.water)),
+    rivers: riverBands(rivers(rasters, samples, passport.water, passport.flow_max_km2 ?? 0)),
   };
 }
 

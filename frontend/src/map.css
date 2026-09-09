@@ -117,10 +117,24 @@
   stroke-opacity: 0.7;
   stroke-width: 0.8;
 }
+/* A river is ground, not a line over it (owner, 2026-09-09): it is drawn
+   in the water's own colour, at the width the land that drains through it
+   gives it (`contours.riverWidthM`), and that width is in **map units** --
+   metres of the country -- so it grows under the zoom like everything else
+   on the ground. Hence no `vector-effect` here, unlike every other line of
+   this layer: a river that kept its thickness on the glass would be the
+   line laid over the map that this stopped being. Round ends and joins, so
+   a chain of reaches reads as one channel. */
 .relief-lines .river {
-  stroke: color-mix(in srgb, var(--pc) 70%, var(--base-200));
-  stroke-opacity: 0.85;
-  stroke-width: 1.2;
+  /* The water's own tone, spelt here rather than borrowed: `--gl-lake` is
+     declared on the palette's probe, where `--pc` is set, and a `var()` that
+     resolves to nothing leaves `stroke` at its initial `none` -- which is
+     how the rivers vanished from the map entirely. */
+  stroke: color-mix(in srgb, var(--pc) 62%, var(--base-700));
+  stroke-opacity: 0.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: none;
 }
 /* The provinces on the far frames (plan §9.7, wave 8): a hairline between
    two named lands and the name in the middle of what it encloses. Quieter

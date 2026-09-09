@@ -14,6 +14,7 @@ import {
   BIN_DEG,
   binKey,
   CLOSE_FRAME_M,
+  COAST_FINE,
   closeFrame,
   CONTOUR_LADDER,
   SAMPLE_BUDGET,
@@ -58,6 +59,8 @@ function planet(
     water: new Uint8Array(rows * cols),
     rock: new Uint8Array(rows * cols),
     province: new Uint8Array(rows * cols),
+    flow: new Uint8Array(rows * cols),
+    lake: new Uint8Array(rows * cols),
   };
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
@@ -66,10 +69,16 @@ function planet(
       const named = form ? form(r, c) : height(r, c) < 0 ? "sea" : "plain";
       rasters.form[r * cols + c] = FORMS.indexOf(named === "river" ? "plain" : named);
       rasters.water[r * cols + c] = WATER.indexOf(named === "river" ? "river" : named === "sea" ? "sea" : named === "lake" ? "lake" : "land");
+      //: A river cell drains something: half a byte of the log scale, so a
+      //: test planet's rivers have a width to be drawn at.
+      rasters.flow[r * cols + c] = named === "river" ? 128 : 0;
       rasters.province[r * cols + c] = province ? province(r, c) : 0;
     }
   }
-  const passport = { rows, cols, step_m: 500, relief_m: 3000, biomes: [], forms: FORMS, water: WATER };
+  const passport = {
+    rows, cols, step_m: 500, relief_m: 3000, biomes: [], forms: FORMS, water: WATER,
+    flow_max_km2: 4000,
+  };
   return { rasters, passport };
 }
 
@@ -91,8 +100,11 @@ describe("windowAbout", () => {
     expect(samples.nc).toBe(passport.cols + 1);
     const { shores } = coast(rasters, samples, FORMS);
     const all = [...shores.rock, ...shores.beach, ...shores.shore];
-    //: Two coasts, one north and one south of the ring, each `cols` segments.
-    expect(all).toHaveLength(2 * passport.cols);
+    //: Two coasts, one north and one south of the ring, each `cols` cells
+    //: long -- and every crossed cell is cut into `COAST_FINE` pieces, so
+    //: the line follows the same curve inside a cell that the shader's
+    //: water does.
+    expect(all).toHaveLength(2 * passport.cols * COAST_FINE);
     const lons = all.map(([a]) => a.lon);
     expect(Math.min(...lons)).toBeLessThan(-160);
     expect(Math.max(...lons)).toBeGreaterThan(160);
@@ -183,8 +195,9 @@ describe("coast", () => {
     expect(shores.rock.length).toBeGreaterThan(0);
     expect(shores.beach.length).toBeGreaterThan(0);
     //: The planet closes on itself: the land's last column meets the sea's
-    //: first across the date line, plain shore there, one stretch a row.
-    expect(shores.shore).toHaveLength(rows - 1);
+    //: first across the date line, plain shore there, one row's worth of
+    //: stretches a row (`COAST_FINE` pieces to the cell).
+    expect(shores.shore).toHaveLength((rows - 1) * COAST_FINE);
     for (const [a, b] of shores.shore) for (const p of [a, b]) expect(Math.abs(p.lon)).toBeGreaterThan(160);
     expect(lakes).toEqual([]);
     //: Every stretch stands on the zero, cut between the sea column's centre
@@ -259,16 +272,19 @@ describe("the ladder and the window's eye", () => {
     expect(near.hachures.length).toBeGreaterThan(0);
     expect(near.contours.length).toBeGreaterThan(0);
     const own = planetLines(rasters, passport);
-    const all = [...own.rivers.values()].flat().length;
+    //: The rivers come in bands of width, and every band is a river.
+    expect(own.rivers.length).toBeGreaterThan(0);
+    for (const band of own.rivers) expect(band.widthM).toBeGreaterThan(0);
+    const bins = own.rivers[own.rivers.length - 1].bins;
+    const all = [...bins.values()].flat().length;
     expect(all).toBeGreaterThan(0);
     //: From the planet frame, the hemisphere under the eye and not the one
     //: behind it: those segments would project only to be thrown away for
     //: facing away, and on the planet's disk they are half of everything.
-    const front = underFrame(own.rivers, { lat: 0, lon: 0 }, 1e6, undefined).length;
+    const front = underFrame(bins, { lat: 0, lon: 0 }, 1e6, undefined).length;
     expect(front).toBeGreaterThan(0);
-    expect(front).toBeLessThan(all);
     //: Between the two eyes, nothing of the planet is lost.
-    const back = underFrame(own.rivers, { lat: 0, lon: 180 }, 1e6, undefined).length;
+    const back = underFrame(bins, { lat: 0, lon: 180 }, 1e6, undefined).length;
     expect(front + back).toBeGreaterThanOrEqual(all);
   });
   it("bins the segments by their first end and hands a frame the bins under it", () => {

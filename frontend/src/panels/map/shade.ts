@@ -45,109 +45,128 @@ export const EXAGGERATION = 2;
 
 /** The grain of the ground (landscape plan wave 8, §9.5): the texture that
  *  says what one is standing on -- stone, sand, ice, turf -- laid over the
- *  hillshade on the near frames.
+ *  hillshade.
  *
  *  It decides nothing, and it is not the facet drawn (§9.2: "зерно от
  *  шейдера ничего не решает... ему разрешено быть просто красивым"). The
  *  face a find wears is the engine's (`engine/facet.py`), off the field's
  *  own numbers; what the eye sees here is the same ground's character read
- *  off the landform and the rock -- so the two agree in kind without the
- *  shader recomputing a choice it must not make.
+ *  off the landform and the rock.
  *
- *  A grain cell is metres of the surface, not of the screen: it holds still
- *  under a drag and grows under a zoom, as the ground does. How many metres
- *  is the frame's business (`grainMetres`) -- one size cannot serve a frame
- *  four hundred metres across and one four kilometres across, and a texture
- *  read at the wrong size is either four blobs or grey noise. */
-/** What a grain cell measures at its finest and its coarsest, metres: the
- *  stone under a boot, and the patch a facet is (`biome.facet_axes.wave_m`
- *  is 200 m) -- past that it would be a landform, and the shape of the
- *  ground is the hillshade's to tell. */
-export const GRAIN_MIN_M = 2;
-export const GRAIN_MAX_M = 200;
-/** How wide a grain cell is drawn, in device pixels: fewer and the texture
- *  is noise, more and it is a handful of blobs. Pixels rather than a share
- *  of the frame, because the frame the ladder speaks of (`frameMetres`) is
- *  how far the ground layer reaches, not how much of it the eye sees --
- *  what a metre measures on screen is `u_units`, and nothing else. */
-export const GRAIN_PX = 28;
-/** From what frame width the grain shows at all, and where it is whole.
- *  It fades in exactly where the vector lines begin (`CLOSE_FRAME_M`): the
- *  same step of the ladder, so one frame does not gain a texture while
- *  another gains its lines. On the planet's disk a texture of forty metres
- *  is a screen of noise, and there is none. */
-export const GRAIN_FROM_M = CLOSE_FRAME_M;
-export const GRAIN_FULL_M = 4_000;
+ *  **A cell is eight metres of ground and stays eight metres at every
+ *  zoom.** It followed the pixel once, stepping by octaves so as to stay
+ *  the same size on the glass, and that was wrong for a reason no measure
+ *  would have caught: the ground then changes when the hand zooms, and a
+ *  map whose country is rearranged by looking closer is not a map (owner,
+ *  2026-09-09). What the zoom may change is only whether the grain can be
+ *  seen at all -- and that it must, or a texture finer than a pixel turns
+ *  into a shimmer of noise. */
+export const GRAIN_M = 32;
+/** How many octaves of it there are, each half the last, and how much
+ *  quieter each finer one is. Five from thirty-two metres reach down to
+ *  two: the ground is one fixed texture with detail at many sizes, as real
+ *  ground is, so coming closer **uncovers** the fine detail instead of
+ *  rearranging the coarse -- which is the whole of what the owner asked
+ *  for. An octave is drawn only where its own cell is worth pixels, so
+ *  none of them is ever aliasing. */
+export const GRAIN_OCTAVES = 5;
+export const GRAIN_FALL = 0.6;
+
+/** What the octaves add up to when every one of them shows: the sum the
+ *  grain is divided by, so its loudest is the same wherever one stands. */
+export function grainWhole(): number {
+  let whole = 0;
+  let amp = 1;
+  for (let o = 0; o < GRAIN_OCTAVES; o++) {
+    whole += amp;
+    amp *= GRAIN_FALL;
+  }
+  return whole;
+}
 /** How much of the tone the grain may take at its strongest. */
-export const GRAIN_DEPTH = 0.22;
-/** How many grain cells the lattice repeats in. The lattice counts to the
- *  planet's radius -- some hundred and sixty thousand cells across Terra --
- *  and a hash of numbers that large loses its chaos to the float's seven
- *  digits. Wrapped, the texture repeats every twenty kilometres: four times
- *  the widest frame that draws it, so no eye sees the seam. */
+export const GRAIN_DEPTH = 0.15;
+/** Over what width of a grain cell, in device pixels, the grain comes in:
+ *  nothing under the first, whole from the second. Below a pixel a texture
+ *  is not a texture but aliasing, and above a couple it is itself. */
+export const GRAIN_SEEN_PX = 1.5;
+export const GRAIN_FULL_PX = 4;
+
+/** How strong the grain is where a cell of it is this many pixels wide. */
+export function grainStrength(cellPx: number): number {
+  if (!Number.isFinite(cellPx)) return 0;
+  const span = GRAIN_FULL_PX - GRAIN_SEEN_PX;
+  return Math.min(1, Math.max(0, (cellPx - GRAIN_SEEN_PX) / span));
+}
+
+/** How far the biome is read astray of the pixel, in cells of the raster,
+ *  and over what length of ground that wander waves. Both are metres of the
+ *  ground and neither follows the frame, for the reason the grain's size
+ *  does not: the edge between two biomes is one definite line of the
+ *  country, and a line that is redrawn when the hand zooms reads as the
+ *  country itself changing.
+ *
+ *  The numbers are set against what they hide: the staircase of a raster
+ *  cell, five hundred metres of it. A wander of three fifths of a cell,
+ *  waving every three hundred metres, turns that staircase into a line the
+ *  ground could have drawn; much less and the steps show through. */
+export const EDGE_CELLS = 0.6;
+export const EDGE_M = 300;
+/** And the same two pixel widths for it: a wander finer than a pixel is
+ *  not a rough edge but salt and pepper, because neighbouring pixels then
+ *  read the wander at points too far apart to be alike. */
+export const EDGE_SEEN_PX = 2;
+export const EDGE_FULL_PX = 6;
+
+/** How much of the wander is drawn where its own wave is this many pixels. */
+export function edgeStrength(wavePx: number): number {
+  if (!Number.isFinite(wavePx)) return 0;
+  return Math.min(1, Math.max(0, (wavePx - EDGE_SEEN_PX) / (EDGE_FULL_PX - EDGE_SEEN_PX)));
+}
+
+/** How many cells a lattice repeats in. A lattice that counted to the
+ *  planet's radius would be five figures long before it reached the ground,
+ *  and the ground would get what the float had left -- which it did: a star
+ *  of rays stood in the middle of the map, where the figures ran out first.
+ *  Wrapped, and counted from the eye rather than from the planet's centre,
+ *  a lattice coordinate is a few hundred and every figure of it is ground.
+ *  The seam repeats every 512 cells, which no frame that draws is wide
+ *  enough to reach. */
 export const GRAIN_WRAP = 512;
+
+/** Where the eye itself stands in a lattice of cells this big, wrapped into
+ *  the first period. Reckoned here, where a number carries sixteen figures,
+ *  and handed to the shader, where it would carry seven: this is the whole
+ *  of the trick that keeps the grain steady under the eye. */
+export function latticeAt(
+  lat: number,
+  lon: number,
+  radiusM: number,
+  cellM: number,
+): [number, number, number] {
+  const scale = radiusM / cellM;
+  const up: [number, number, number] = [
+    Math.cos(lat) * Math.cos(lon),
+    Math.cos(lat) * Math.sin(lon),
+    Math.sin(lat),
+  ];
+  return up.map((one) => {
+    const at = one * scale;
+    return at - Math.floor(at / GRAIN_WRAP) * GRAIN_WRAP;
+  }) as [number, number, number];
+}
 /** What the value noise is multiplied by to fill -1..1: a blend of eight
  *  uniform draws heaps about its middle, and untouched it swings a tenth of
  *  the way -- a texture nobody would see. Measured, not guessed: the spread
  *  of the blend is about a seventh of the range. */
 export const NOISE_GAIN = 3;
-/** How far the biome may be read astray of the pixel, in cells of the
- *  raster, and over what length of ground that wander itself waves. Under a
- *  cell, so no biome moves anywhere -- the edge between two of them stops
- *  being a straight staircase and becomes a line the ground could have
- *  drawn. */
-export const EDGE_CELLS = 0.8;
-export const EDGE_M = 300;
-/** And never further than this share of what is on screen. A cell is five
- *  hundred metres, so eight tenths of one is four hundred: on the node's
- *  frame, which is two hundred metres across, that would not roughen an
- *  edge -- it would read the biome of somewhere else for every pixel at
- *  once, and the whole ground would come out the colour of a neighbour the
- *  inspector does not name. */
-export const EDGE_SHARE = 0.05;
-/** And nothing at all until a cell is this many pixels wide: under that the
- *  class changes inside a pixel and there is no staircase to break. */
-export const EDGE_SEEN_PX = 3;
-
-/**
- * How far the biome is read astray on this frame, in cells of the raster.
- *
- * The roughening is for one thing only -- a cell edge that is a **line on
- * screen** -- and it fades out at both ends of that. Far out a cell is
- * under a pixel and there is nothing to break; near in a cell is wider than
- * the frame and there is no edge on screen at all. It rides its own ramp
- * rather than the grain's, because the frames where a staircase shows worst
- * are the ones where the grain has barely come on.
- */
-export function edgeCells(frameM: number, stepM: number, framePx: number): number {
-  if (!(frameM > 0) || !(stepM > 0) || !(framePx > 0)) return 0;
-  const cellPx = (stepM * framePx) / frameM;
-  const seen = Math.min(1, Math.max(0, (cellPx - 1) / (EDGE_SEEN_PX - 1)));
-  return seen * Math.min(EDGE_CELLS, (frameM * EDGE_SHARE) / stepM);
-}
-
-/** How strong the grain is at a frame of this width, 0..1. */
-export function grainStrength(frameM: number): number {
-  if (!Number.isFinite(frameM)) return 0;
-  return Math.min(1, Math.max(0, (GRAIN_FROM_M - frameM) / (GRAIN_FROM_M - GRAIN_FULL_M)));
-}
-
-/**
- * How many metres a grain cell measures when a device pixel measures this
- * many: about `GRAIN_PX` pixels of it, rounded to a power of two and held
- * between the boot and the facet's patch.
- *
- * Powers of two so that the texture does not breathe: a size that followed
- * the zoom smoothly would crawl over the ground all the way in, and one
- * that steps at octaves stands still through most of a zoom and re-reads
- * itself at a stroke, which the eye takes for coming closer.
- */
-export function grainMetres(metresPerPixel: number): number {
-  if (!Number.isFinite(metresPerPixel) || metresPerPixel <= 0) return GRAIN_MAX_M;
-  const octave = Math.pow(2, Math.round(Math.log2(metresPerPixel * GRAIN_PX)));
-  return Math.min(GRAIN_MAX_M, Math.max(GRAIN_MIN_M, octave));
-}
-
+/** How near the pole the cosine of the latitude is allowed to get before it
+ *  is held: a thousandth, below which a column of the raster is centimetres
+ *  of ground and nothing read across it means anything. */
+export const COS_FLOOR = 0.001;
+/** And how far east the hillshade may reach for its slope, as a share of
+ *  the planet's turn: at the pole itself the honest step would be the whole
+ *  circle, and a tenth of it is already the width of the cap. */
+export const POLE_SPAN = 0.1;
 export const FRAGMENT = `#version 300 es
 precision highp float;
 precision highp int;
@@ -158,6 +177,7 @@ uniform sampler2D u_height;
 uniform usampler2D u_biome;
 uniform usampler2D u_form;
 uniform sampler2D u_rock;
+uniform sampler2D u_wet;
 uniform vec2 u_size;
 uniform vec2 u_origin;
 uniform float u_units;
@@ -181,8 +201,9 @@ uniform uvec4 u_stone_forms;
 uniform uvec2 u_sand_forms;
 uniform uvec3 u_ice_forms;
 uniform float u_grain;
-uniform float u_grain_m;
 uniform float u_edge;
+uniform vec3 u_grain_at;
+uniform vec3 u_edge_at;
 
 out vec4 o_color;
 
@@ -192,7 +213,16 @@ const float EXAGGERATION = ${EXAGGERATION.toFixed(1)};
 const float GRAIN_DEPTH = ${GRAIN_DEPTH.toFixed(2)};
 const float GRAIN_WRAP = ${GRAIN_WRAP.toFixed(1)};
 const float NOISE_GAIN = ${NOISE_GAIN.toFixed(1)};
+const float GRAIN_M = ${GRAIN_M.toFixed(1)};
+const int GRAIN_OCTAVES = ${GRAIN_OCTAVES};
+const float GRAIN_FALL = ${GRAIN_FALL.toFixed(2)};
+const float GRAIN_WHOLE = ${grainWhole().toFixed(4)};
+const float GRAIN_SEEN_PX = ${GRAIN_SEEN_PX.toFixed(2)};
+const float GRAIN_FULL_PX = ${GRAIN_FULL_PX.toFixed(2)};
 const float EDGE_M = ${EDGE_M.toFixed(1)};
+const float EDGE_CELLS = ${EDGE_CELLS.toFixed(2)};
+const float COS_FLOOR = ${COS_FLOOR};
+const float POLE_SPAN = ${POLE_SPAN};
 const float UNITS_PER_METRE = ${UNITS_PER_METRE.toFixed(1)};
 
 float heightAt(vec2 uv) { return texture(u_height, uv).r; }
@@ -229,29 +259,55 @@ float wave(vec3 p) {
 //: coarsely, sand lies in waves across the wind, ice cracks in thin dark
 //: lines, and everything that grows mottles softly. The hardness sharpens
 //: whatever it is -- hard ground breaks into grains, soft ground smears.
-float grainOf(vec3 sphere, uint form, float rock) {
-  vec3 p = sphere * (u_radius / UNITS_PER_METRE / u_grain_m);
+//:
+//: apart is how far the pixel stands from the eye, on the unit ball; the
+//: eye's own place in the lattice comes as u_grain_at, already wrapped to
+//: GRAIN_WRAP by the frame. So the lattice coordinate is a number of a
+//: few hundred rather than of five figures, and every figure of it is the
+//: ground. The octaves are whole doublings for the same reason: a wrap of
+//: the eye's place then lands on a wrap of every octave, and the texture
+//: does not jump when the eye crosses one.
+//: The ground's texture at every size it has, added up: each octave half
+//: the last and a little quieter, and each drawn only so far as its own
+//: cell is worth pixels. Divided by what they all come to, so the loudest
+//: is the same at every zoom -- what the zoom changes is which octaves are
+//: there to be seen, never the shape of the ones already visible.
+float fractal(vec3 p, float metre_px) {
+  float sum = 0.0;
+  float amp = 1.0;
+  float step = 1.0;
+  for (int o = 0; o < GRAIN_OCTAVES; o++) {
+    float cell_px = (GRAIN_M / step) / metre_px;
+    float seen = clamp((cell_px - GRAIN_SEEN_PX) / (GRAIN_FULL_PX - GRAIN_SEEN_PX), 0.0, 1.0);
+    if (seen > 0.0) sum += amp * seen * wave(p * step);
+    amp *= GRAIN_FALL;
+    step *= 2.0;
+  }
+  return sum / GRAIN_WHOLE;
+}
+
+float grainOf(vec3 apart, uint form, float rock) {
+  float metre_px = u_units / UNITS_PER_METRE;
+  vec3 p = u_grain_at + apart * (u_radius / UNITS_PER_METRE / GRAIN_M);
   bool stone = form == u_stone_forms.x || form == u_stone_forms.y
     || form == u_stone_forms.z || form == u_stone_forms.w;
   bool sand = form == u_sand_forms.x || form == u_sand_forms.y;
   bool ice = form == u_ice_forms.x || form == u_ice_forms.y || form == u_ice_forms.z;
   float grain;
   if (sand) {
-    //: The lattice squeezed along one way, so the noise runs in ridges
+    //: The lattice squeezed along one way, so the ground runs in ridges
     //: across it, as dunes lie across the wind.
-    vec3 lie = vec3(p.x, p.y * 0.18, p.z);
-    grain = 0.7 * wave(lie) + 0.3 * wave(lie * 2.7);
+    grain = fractal(vec3(p.x, p.y * 0.25, p.z), metre_px);
   } else if (ice) {
-    //: A ridge of the noise, thin and dark: a crack, not a speckle. It
+    //: A ridge of the ground, thin and dark: a crack, not a speckle. It
     //: goes one way only -- ice is white and cracks are lines in it.
-    float ridge = 1.0 - abs(wave(p * 0.7));
-    grain = -pow(ridge, 6.0);
+    grain = -pow(1.0 - abs(fractal(p, metre_px)), 6.0);
   } else if (stone) {
-    //: Grains of rock: fine and hard-edged, two sizes at once.
-    grain = 0.6 * wave(p * 1.6) + 0.4 * wave(p * 4.3);
+    //: Grains of rock: the same ground, harder-edged.
+    grain = clamp(fractal(p, metre_px) * 1.5, -1.0, 1.0);
   } else {
-    //: Turf, field, forest floor: a soft mottle at twice the size.
-    grain = 0.7 * wave(p * 0.8) + 0.3 * wave(p * 2.1);
+    //: Turf, field, forest floor.
+    grain = fractal(p, metre_px);
   }
   return grain * (0.7 + 0.6 * rock);
 }
@@ -265,23 +321,48 @@ void main() {
   float edge = max(fwidth(rho), 1e-6);
   if (rho > 1.0 + edge) discard;
   float rc = min(rho, 1.0);
-  float c = asin(rc);
-  float sc = sin(c);
-  float cc = cos(c);
+  //: The angle from the eye is never taken: what the projection wants is
+  //: its sine and its cosine, and both are the radius itself. The sine of
+  //: the arc IS rho -- that is what an orthographic projection is -- and
+  //: the cosine is the root of one less its square. Asked for through asin
+  //: and sin instead, the pair came back with an error of an absolute size
+  //: about a value of a vanishing one, which is a relative error of tens of
+  //: per cent at the middle of the frame; the grain's lattice multiplied it
+  //: by the planet's radius over its cell, and a star of rays stood over
+  //: the eye. Not an approximation -- the shorter road is the exact one.
+  float cc = sqrt(max(0.0, 1.0 - rc * rc));
   float lat0 = u_eye.x;
   float lon0 = u_eye.y;
-  float lat = lat0;
-  float lon = lon0;
-  if (rc > 0.0) {
-    lat = asin(clamp(cc * sin(lat0) + Y * sc * cos(lat0) / rc, -1.0, 1.0));
-    lon = lon0 + atan(X * sc, rc * cc * cos(lat0) - Y * sc * sin(lat0));
-  }
+  float lat = asin(clamp(cc * sin(lat0) + Y * cos(lat0), -1.0, 1.0));
+  float lon = lon0 + atan(X, cc * cos(lat0) - Y * sin(lat0));
   vec2 uv = vec2(fract(lon / TAU + 0.5), clamp(lat / PI + 0.5, 0.0, 1.0));
+  //: The eye's own frame: which way is up, east and north where it stands.
+  vec3 up = vec3(cos(lat0) * cos(lon0), cos(lat0) * sin(lon0), sin(lat0));
+  vec3 east = vec3(-sin(lon0), cos(lon0), 0.0);
+  vec3 north = vec3(-sin(lat0) * cos(lon0), -sin(lat0) * sin(lon0), cos(lat0));
+  //: How far this pixel's point stands from the eye's own, on the unit
+  //: ball. A difference from the start rather than a place and a
+  //: subtraction: the drop of the chord, cos - 1, is taken as
+  //: -rho^2 / (1 + cos), which keeps its figures where the plain
+  //: difference would have lost them all. The eye's own place never enters
+  //: the fragment at all: what the lattices need of it is a small number
+  //: the frame hands over ready-made (u_grain_at, u_edge_at).
+  vec3 apart = up * (-rc * rc / (1.0 + cc)) + east * X + north * Y;
 
-  vec2 du = vec2(1.0 / u_cells.x, 0.0);
+  //: A step east of the same length of ground as the step north. On a grid
+  //: of latitude and longitude a column is cos(lat) as wide as a row is
+  //: tall: at eighty-eight degrees one column is a metre of ground against
+  //: five hundred for one row, and a slope taken across it is not a slope
+  //: but the noise of the interpolation -- which is what stood at the pole
+  //: as a fan of streaks radiating from it. Stepping as many columns as it
+  //: takes to cover the same ground makes the two derivatives comparable
+  //: and the fan goes. Held to a tenth of the planet's turn, so the step
+  //: stays a step and does not reach round the world at the pole itself.
+  float squeeze = min(1.0 / max(cos(lat), COS_FLOOR), u_cells.x * POLE_SPAN);
+  vec2 du = vec2(squeeze / u_cells.x, 0.0);
   vec2 dv = vec2(0.0, 1.0 / u_cells.y);
   float h = heightAt(uv);
-  float dx = u_step * max(cos(lat), 0.05);
+  float dx = u_step * squeeze * max(cos(lat), COS_FLOOR);
   float dy = u_step;
   float slopeX = (heightAt(uv + du) - heightAt(uv - du)) / (2.0 * dx);
   float slopeY = (heightAt(uv + dv) - heightAt(uv - dv)) / (2.0 * dy);
@@ -290,7 +371,6 @@ void main() {
 
   uint b = texture(u_biome, uv).r;
   uint f = texture(u_form, uv).r;
-  vec3 sphere = vec3(cos(lat) * cos(lon), cos(lat) * sin(lon), sin(lat));
   //: The colour's edge, roughened (wave 8). A biome is a class of a cell
   //: five hundred metres wide, and on a near frame its edge is a straight
   //: staircase across the ground -- the one thing on the map that says
@@ -304,8 +384,17 @@ void main() {
   //: strayed onto the water would paint a shore where there is none, and
   //: the water's own edge is the height's, cut to the pixel by the coast.
   if (u_edge > 0.0 && b != ${NO_BIOME}u) {
-    vec3 j = sphere * (u_radius / UNITS_PER_METRE / EDGE_M);
-    vec2 astray = vec2(wave(j), wave(j + vec3(11.3, 7.1, 3.9))) * u_edge;
+    vec3 j = u_edge_at + apart * (u_radius / UNITS_PER_METRE / EDGE_M);
+    //: Two ways to wander, and they must not be one way twice. Read off the
+    //: one lattice a step apart, the two came out of the same ridges and
+    //: the edge wandered along a diagonal, holding the right angles of the
+    //: raster it was meant to hide. Turned into its own lattice and taken
+    //: at two sizes each, they are two motions and the edge is a line.
+    vec3 k = vec3(j.z, j.x, j.y) * 1.7 + vec3(19.7, 5.3, 31.1);
+    vec2 astray = vec2(
+      0.65 * wave(j) + 0.35 * wave(j * 2.0),
+      0.65 * wave(k) + 0.35 * wave(k * 2.0)
+    ) * (EDGE_CELLS * u_edge);
     vec2 juv = vec2(fract(uv.x + astray.x / u_cells.x), clamp(uv.y + astray.y / u_cells.y, 0.0, 1.0));
     uint near = texture(u_biome, juv).r;
     if (near != ${NO_BIOME}u) b = near;
@@ -315,7 +404,11 @@ void main() {
   //: the same zero the vector coast is drawn on, so the water's edge and
   //: its line agree to the pixel. A lake stands on land above zero and is
   //: told by its form, cell by cell.
-  if (h < 0.0 || (b == ${NO_BIOME}u && f == u_water_forms.y)) {
+  //: A lake is cut where its own share passes a half, read between the
+  //: cells: as a class it was whole five-hundred-metre cells, and a lake
+  //: of blue rectangles with right angles is not a lake (owner,
+  //: 2026-09-10). The sea is the height's own zero, as it was.
+  if (h < 0.0 || texture(u_wet, uv).r > 0.5) {
     if (h >= 0.0) {
       col = u_lake;
     } else {
@@ -336,7 +429,7 @@ void main() {
     //: it is made of, while the hillshade goes on saying what shape it is.
     if (u_grain > 0.0) {
       float rock = texture(u_rock, uv).r;
-      tone *= 1.0 + GRAIN_DEPTH * u_grain * grainOf(sphere, f, rock);
+      tone *= 1.0 + GRAIN_DEPTH * u_grain * grainOf(apart, f, rock);
     }
     col *= tone;
   }

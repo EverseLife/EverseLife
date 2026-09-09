@@ -777,7 +777,6 @@ export function GraphMap({
                 planet={sphereShown}
                 eye={eye}
                 radius={radius}
-                within={zoomed.descent > 0 ? undefined : groundReach(zoomed.unit, radius)}
                 svg={svgRef}
                 onState={setShading}
               />
