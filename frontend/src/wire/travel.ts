@@ -172,6 +172,10 @@ export type MapNode = {
   /** The province the node lies in (landscape plan, wave 3): an id named
    *  through `/public/renames`. Absent on a node without one. */
   province?: string;
+  /** The face the node's ground wears (landscape plan, wave 7): the facet's
+   *  id, named through `/public/renames` like the province. It is what a
+   *  found node is called -- «Опушка» rather than a sixth «Берег». */
+  facet?: string;
   /** Shown dark: remembered or public, not in sight (D-319). */
   faded?: boolean;
   /** The node the city grew from -- its bioprinter. Sent on a **city's** row

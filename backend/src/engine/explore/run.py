@@ -47,6 +47,7 @@ from src.engine import (
     craft,
     customs,
     events,
+    facet,
     ground,
     memory,
     occupation,
@@ -118,7 +119,7 @@ async def survey(
     #: -- and a run that costs nothing is not a walk at all (D-321 item 7).
     if await transport.harnessed(session, body) is not None:
         raise Harnessed(key="explore-harnessed")
-    aim = await aiming.check(session, constants, origin, target, body=body)
+    aim = await aiming.check(session, constants, current_catalog(), origin, target, body=body)
     if aim.existing is not None and await travel.edge_between(session, origin, aim.existing):
         raise AlreadyJoined(key="explore-already-joined", node=aim.existing.name)
     #: The border is settled **before** setting out, exactly as a leg settles
@@ -191,7 +192,7 @@ async def returned(session: AsyncSession, job: Job) -> None:
     try:
         if body.state is not BodyState.ALIVE or body.node_id != origin.id:
             raise ScoutGone(key="explore-scout-gone")
-        aim = await aiming.check(session, constants, origin, point, body=body)
+        aim = await aiming.check(session, constants, current_catalog(), origin, point, body=body)
     except ExploreError as why:
         #: The ground was free when the scout left and is taken now -- a
         #: neighbour's find came first. The run is spent; the journal says why.
@@ -412,13 +413,17 @@ async def _found_node(
     if here is None:  # pragma: no cover -- `aim.check` refused water already
         raise ExploreError(key="explore-not-land")
     field = terrain.field_of(constants, planet)
+    #: The face this ground wears (landscape plan, wave 7): read once here and
+    #: written on the node, so the thicket a find was made in stays a thicket.
+    face = facet.at(constants, catalog, planet, *point, here=here)
     if vein is None:
-        #: The biome's chance, times the province's (landscape plan, wave 3):
-        #: an ore ridge gives colour every second pit, a rotten lowland never.
+        #: The biome's chance, times the facet's and the province's (waves 3
+        #: and 7): an ore ridge gives colour every second pit, a rotten lowland
+        #: never, and a boulder field oftener than the meadow beside it.
         chance = (
             float(constants[R.GROUND_VEIN_SHARE])
             / PERCENT
-            * biome.vein_k(constants, here)
+            * facet.vein_k(constants, here, face)
             * field.province_vein_k_at(*point)
         )
         vein = dice.random() < chance
@@ -428,13 +433,15 @@ async def _found_node(
         dice,
         vein=vein,
         at=(planet, point),
-        shares=biome.marks(constants, here),
+        shares=facet.marks(constants, here, face),
     )
     properties |= {
         biome.BIOME: here,
-        biome.TEMPERATURE_SWING: biome.swing_c(constants, here),
+        biome.TEMPERATURE_SWING: facet.swing_c(constants, here, face),
         places.PLACE: {places.PLACE_LAT: point[0], places.PLACE_LON: point[1]},
     }
+    if face is not None:
+        properties[facet.FACET] = face.id
     #: The province, stamped once like the biome (D-237): the field's word
     #: at the point, and only where the planet has provinces at all.
     province = field.province_at(*point)
@@ -544,9 +551,9 @@ async def _complex(
     picked = dice.choices(names, weights=[float(offered[n].get("weight", 1)) for n in names])[0]
     scheme = offered[picked]
     if scheme.get("city"):
-        where = _beside(constants, node, point, 0)
+        where = _beside(constants, catalog, node, point, 0)
         try:
-            city_aim = await aiming.check(session, constants, node, where)
+            city_aim = await aiming.check(session, constants, catalog, node, where)
         except ExploreError:
             return None
         if city_aim.existing is not None:
@@ -556,11 +563,11 @@ async def _complex(
         return picked
     sphere = await _sphere_of(session, node.planet)
     for number, part in enumerate(scheme.get("nodes", [])):
-        where = _beside(constants, node, point, number)
+        where = _beside(constants, catalog, node, point, number)
         cell = aiming.cell_of(constants, node.planet, where)
         where = point_of(constants, node.planet, cell)
         try:
-            part_aim = await aiming.check(session, constants, node, where)
+            part_aim = await aiming.check(session, constants, catalog, node, where)
         except ExploreError:
             #: The scheme yields to the ground: a part with no room is not laid.
             continue
@@ -600,11 +607,13 @@ def complex_roll(key: str) -> float:
     return random.Random(f"{key}:complex").random()
 
 
-def _beside(constants: Constants, node: Node, point: globe.Geo, number: int) -> globe.Geo:
+def _beside(
+    constants: Constants, catalog: Catalog, node: Node, point: globe.Geo, number: int
+) -> globe.Geo:
     """Where the number-th part of a scheme stands: a fan round the find, one
     reach out, so the parts are neighbours and not a heap."""
     here = str((node.properties or {}).get(biome.BIOME) or "")
-    near, far = biome.reach_m(constants, here)
+    near, far = facet.reach_m(constants, here, facet.of_node(constants, catalog, node))
     step = globe.midpoint(near, far)
     radius = globe.radius_m(constants, node.planet)
     angle = globe.GOLDEN_ANGLE * (number + 1)

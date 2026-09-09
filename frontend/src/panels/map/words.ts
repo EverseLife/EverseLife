@@ -10,6 +10,7 @@
  */
 
 import { t } from "../../locale";
+import type { Names } from "../../names";
 
 const MINUTES_PER_HOUR = 60;
 
@@ -62,19 +63,30 @@ export function nameWord(name: string | null | undefined): string {
 }
 
 /** What to call a node, the node being at hand: its own name, or -- a found
- *  one, which has none -- its biome, in the vault's word for it
- *  (`biome.names`, D-321: "слово о найденном узле в отказах и сводке").
+ *  one, which has none -- the face its ground wears, and failing that its
+ *  biome, in the vault's word for either (landscape plan wave 7; D-321:
+ *  "слово о найденном узле в отказах и сводке").
  *
- *  The same word the world uses: the engine writes it into the refusal that
- *  turns a scout away and into the leg of a walk (`biome.word_of`), so the
- *  column and the world do not call one node two things. The table comes off
- *  `/public/constants` and may not have arrived yet -- then the general word
- *  stands in, as it does for a node whose kind the map was not told. */
+ *  The facet first because that is the point of it: six finds on one shore
+ *  were six «Берега», and they are a beach, a spit, a rock shelf. The word
+ *  comes off `/public/renames` in the reader's language; the biome's off
+ *  `/public/constants`. Either table may not have arrived yet -- then the
+ *  general word stands in, as it does for a node whose kind was not told.
+ *
+ *  The refusals of the world still say the biome (`biome.word_of`): the
+ *  engine hands out no facet words until the words of a node move into the
+ *  locales (OQ-162), and a refusal that named the facet would be a word the
+ *  server cannot say in the reader's language. */
 export function nodeWord(
-  face: { name?: string | null; features?: readonly string[] | null },
+  face: { name?: string | null; features?: readonly string[] | null; facet?: string | null },
   names: unknown,
+  renames?: Names | null,
 ): string {
   if (face.name) return face.name;
+  if (face.facet) {
+    const word = renames?.facets?.[face.facet];
+    if (word) return word;
+  }
   const table = (names ?? {}) as Record<string, unknown>;
   for (const sign of face.features ?? []) {
     const word = table[sign];

@@ -52,6 +52,12 @@ runs:
         if [ -f .vault-source/build/renames.json ]; then
           cp .vault-source/build/renames.json vault/
         fi
+        # The faces of the ground (facets.json, landscape plan wave 7): the
+        # engine reads them at startup. Guarded like the key table above, for
+        # the window before the vault's half of the pair lands.
+        if [ -f .vault-source/build/facets.json ]; then
+          cp .vault-source/build/facets.json vault/
+        fi
         # The planets' fields (landscape plan, wave 2): rasters and passports
         # the engine reads through src/field.py. Kept in the vault's history
         # like the rest of build/; a build without them cannot stand.

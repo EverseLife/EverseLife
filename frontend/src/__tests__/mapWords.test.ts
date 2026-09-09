@@ -81,6 +81,28 @@ describe("words", () => {
     expect(nodeWord({ name: null, features: ["vein", "desert"] }, names)).toBe("Пустыня");
   });
 
+  it("names a find by the face its ground wears, before its biome", () => {
+    const names = { forest: "Лес", desert: "Пустыня", coast: "Берег" };
+    const renames = { facets: { forest_edge: "Опушка" } };
+    //: The facet is what a find is called: six finds on one shore were six
+    //: «Берега» (landscape plan wave 7).
+    expect(
+      nodeWord({ name: "", features: ["coast"], facet: "forest_edge" }, names, renames),
+    ).toBe("Опушка");
+    //: A name of its own still beats it.
+    expect(
+      nodeWord({ name: "Рынок", features: ["forest"], facet: "forest_edge" }, names, renames),
+    ).toBe("Рынок");
+    //: The table may not have come, or may not know this face: then the
+    //: biome's word stands, as before the facets.
+    expect(nodeWord({ name: "", features: ["forest"], facet: "forest_edge" }, names, null)).toBe(
+      "Лес",
+    );
+    expect(
+      nodeWord({ name: "", features: ["forest"], facet: "no_such" }, names, renames),
+    ).toBe("Лес");
+  });
+
   it("falls back to the general word when the kind is unknown or untold", () => {
     expect(nodeWord({ name: "", features: ["vein"] }, { forest: "Лес" })).toBe("Безымянный узел");
     expect(nodeWord({ name: "", features: ["forest"] }, undefined)).toBe("Безымянный узел");

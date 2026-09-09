@@ -36,6 +36,10 @@ REPO = Path(__file__).resolve().parent.parent
 # snapshot it describes.
 SNAPSHOT = (
     "constants.json",
+    #: The faces of the ground (landscape plan wave 7): the engine reads the
+    #: rows at startup like the plants, so a snapshot without them does not
+    #: boot at all.
+    "facets.json",
     "laws.json",
     "plants.json",
     "recipes.json",

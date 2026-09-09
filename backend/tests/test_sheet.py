@@ -21,7 +21,7 @@ from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src import globe
-from src.constants import Constants, current
+from src.constants import Catalog, Constants, current
 from src.constants import registry as R
 from src.engine import climate, mapshot, memory, places, sheet, travel, world
 from src.engine.market import counter
@@ -74,7 +74,7 @@ async def _forget(session: AsyncSession, body: Body) -> None:
 
 
 async def test_a_sheet_is_drawn_from_memory_and_shows_its_places_from_the_pocket(
-    session: AsyncSession, constants: Constants
+    session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
     _, home, far = await _world(session, constants)
     body = await _drawer(session, home)
@@ -96,7 +96,7 @@ async def test_a_sheet_is_drawn_from_memory_and_shows_its_places_from_the_pocket
     #: place dark, marked with the day it was drawn -- in the planet's own
     #: calendar, counted from one as the clock counts.
     await _forget(session, body)
-    answer = await mapshot.personal(session, constants, body, now)
+    answer = await mapshot.personal(session, constants, catalog, body, now)
     rows = {row["key"]: row for row in answer["nodes"]}
     epoch = await world.epoch(session)
     day = climate.day_index(constants, Planet.TERRA, epoch, now) + 1
@@ -107,7 +107,7 @@ async def test_a_sheet_is_drawn_from_memory_and_shows_its_places_from_the_pocket
 
 
 async def test_a_map_does_not_age_what_is_remembered_or_public(
-    session: AsyncSession, constants: Constants
+    session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
     """The mark of the day is for what is known from the map alone."""
     _, home, far = await _world(session, constants)
@@ -117,20 +117,20 @@ async def test_a_map_does_not_age_what_is_remembered_or_public(
     blank = await _blank(session, body)
     await sheet.draw(session, constants, body, blank, now=now)
     #: Remembered as well: memory speaks, the map keeps quiet.
-    answer = await mapshot.personal(session, constants, body, now)
+    answer = await mapshot.personal(session, constants, catalog, body, now)
     rows = {row["key"]: row for row in answer["nodes"]}
     assert "drawn" not in rows[far.key]
     #: Public as well (a city): known to all, not "from a map".
     await _forget(session, body)
     session.add(City(node_id=far.id, name="Far"))
     await session.flush()
-    answer = await mapshot.personal(session, constants, body, now)
+    answer = await mapshot.personal(session, constants, catalog, body, now)
     rows = {row["key"]: row for row in answer["nodes"]}
     assert rows[far.key]["faded"] is True and "drawn" not in rows[far.key]
 
 
 async def test_the_places_go_with_the_sheet_and_the_holder_sees_them(
-    session: AsyncSession, constants: Constants
+    session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
     _, home, far = await _world(session, constants)
     body = await _drawer(session, home)
@@ -143,9 +143,13 @@ async def test_the_places_go_with_the_sheet_and_the_holder_sees_them(
     #: In another's hands the map shows its places to them, not to the drawer.
     blank.container_id = (await world.body_container(session, other)).id
     await session.flush()
-    mine = {row["key"] for row in (await mapshot.personal(session, constants, body, now))["nodes"]}
+    mine = {
+        row["key"]
+        for row in (await mapshot.personal(session, constants, catalog, body, now))["nodes"]
+    }
     theirs = {
-        row["key"] for row in (await mapshot.personal(session, constants, other, now))["nodes"]
+        row["key"]
+        for row in (await mapshot.personal(session, constants, catalog, other, now))["nodes"]
     }
     assert far.key not in mine and far.key in theirs
     #: Destroyed, the drawing goes with the sheet.

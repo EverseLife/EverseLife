@@ -80,9 +80,11 @@ def _value_noise(seed: int, px: np.ndarray, py: np.ndarray, pz: np.ndarray) -> n
     return out
 
 
-def heights(seed: int, lat: np.ndarray, lon: np.ndarray) -> np.ndarray:
-    """The noise in [0, 1] at these points of the sphere, degrees in, fractal noise out."""
-    return _fractal(seed, lat, lon, LATTICE, OCTAVES)
+def heights(seed: int, lat: np.ndarray, lon: np.ndarray, lattice: float = LATTICE) -> np.ndarray:
+    """The noise in [0, 1] at these points of the sphere, degrees in, fractal
+    noise out. The lattice is how many cells of the first octave go round the
+    planet: the land's own by default, finer for the facets' mosaic (wave 7)."""
+    return _fractal(seed, lat, lon, lattice, OCTAVES)
 
 
 def _fractal(
@@ -109,9 +111,30 @@ def _fractal(
     return total / norm
 
 
-def noise_at(seed: int, lat: float, lon: float) -> float:
+def grain_at(seed: int, lat: float, lon: float, cells: float) -> float:
+    """One flat draw per patch of the sphere, in [0, 1): the point's cell of a
+    lattice of `cells` cells to the radius, hashed.
+
+    Flat on purpose (landscape plan wave 7): the fractal noise above is a sum
+    of octaves and comes out bell-shaped -- half its readings sit between 0.4
+    and 0.6 -- so dividing anything by its value gives the middle of a table
+    the lion's share. A hash of the cell is uniform, and a facet is a patch of
+    ground rather than a gradient, so the patch is what it should be drawn on.
+    """
+    phi, lam = math.radians(lat), math.radians(lon)
+    x = math.cos(phi) * math.cos(lam) * cells
+    y = math.cos(phi) * math.sin(lam) * cells
+    z = math.sin(phi) * cells
+    return _hash3(
+        seed, np.array([math.floor(x)]), np.array([math.floor(y)]), np.array([math.floor(z)])
+    )[0]
+
+
+def noise_at(seed: int, lat: float, lon: float, lattice: float = LATTICE) -> float:
     """One reading of the fractal noise at a point, in [0, 1]."""
-    return float(heights(seed, np.array([lat], dtype=float), np.array([lon], dtype=float))[0])
+    return float(
+        heights(seed, np.array([lat], dtype=float), np.array([lon], dtype=float), lattice)[0]
+    )
 
 
 def around(lat: float, lon: float, reach_deg: float) -> list[tuple[float, float]]:

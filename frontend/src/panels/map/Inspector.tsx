@@ -143,7 +143,7 @@ export function Inspector({
     return (
       <aside className="inspect">
         <h3>{t("ui-map-here")}</h3>
-        <p className="sign">{look.node ? nodeWord(look.node, biomes) : ""}</p>
+        <p className="sign">{look.node ? nodeWord(look.node, biomes, names) : ""}</p>
         {look.node && provinceWord(look.node, names) && (
           <p className="sign">{provinceWord(look.node, names)}</p>
         )}
@@ -171,7 +171,7 @@ export function Inspector({
   return (
     <aside className="inspect">
       <h3>
-        {nodeWord(node, biomes)}
+        {nodeWord(node, biomes, names)}
         <Rule>{t("ui-map-node-rule")}</Rule>
       </h3>
       {provinceWord(node, names) && <p className="sign">{provinceWord(node, names)}</p>}

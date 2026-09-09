@@ -174,6 +174,9 @@ export type Look = {
     features: string[];
     /** The owner's map mark, if one is nailed on (D-238). */
     emblem?: string | null;
+    /** The face the node's ground wears (landscape plan, wave 7): the
+     *  facet's id, named through `/public/renames`. */
+    facet?: string;
     /** The province the node lies in (landscape plan, wave 3): an id named
      *  through `/public/renames`. Absent on a node without one. */
     province?: string;

@@ -65,6 +65,9 @@ def sites(
         return []
     radius = globe.radius_m(constants, planet)
     here = biome.classify(constants, planet, *centre) or biome.OF_PLANET.get(planet, biome.STEPPE)
+    #: The biome's band, not the facet's (landscape plan, wave 7): at the
+    #: world's birth nothing stands anywhere yet, and this is the spacing of
+    #: the first sites, not a reach the scout will be held to.
     near, far = biome.reach_m(constants, here)
     step = globe.midpoint(near, far)
     chosen = [Site(number=1, point=point_of(constants, planet, cell_of(constants, planet, centre)))]

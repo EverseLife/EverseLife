@@ -247,6 +247,12 @@ class Field:
             return math.inf
         return math.degrees(metres / self.radius_m)
 
+    def river_distance_m(self, lat: float, lon: float) -> float:
+        """How far the nearest fresh water runs, metres -- infinite beyond the
+        raster's reach, as `sea_distance_m` is."""
+        metres = float(self.river_m[self.cell(lat, lon)])
+        return math.inf if metres >= self.river_cap_m else metres
+
     def river_crossed(self, a: tuple[float, float], b: tuple[float, float]) -> bool:
         """Whether the straight way from `a` to `b` steps on a river cell."""
         phi = math.radians(a[0])

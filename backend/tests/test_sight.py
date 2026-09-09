@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src import globe
 from src.api.routes.public import _standing
-from src.constants import Constants
+from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import account as accounts
 from src.engine import mapshot, places, sight, travel, world
@@ -200,7 +200,7 @@ async def test_a_token_names_the_body_and_rubbish_names_nobody(session: AsyncSes
 
 
 async def test_an_edge_out_of_sight_is_a_stub_that_tells_the_way_and_not_the_end(
-    session: AsyncSession, constants: Constants
+    session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
     """The map draws a way into the fog from its seen end (D-319 п. 6): the
     bearing to set out on, and neither how far nor where it ends."""
@@ -215,7 +215,7 @@ async def test_an_edge_out_of_sight_is_a_stub_that_tells_the_way_and_not_the_end
     await travel.connect(session, near, east, base_seconds=600, surface=Surface.TRAIL)
     identity = await world.create_identity(session, f"Walker-{uuid.uuid4().hex[:6]}")
     body = await world.print_body(session, identity, home)
-    answer = await mapshot.personal(session, constants, body, datetime.now(UTC))
+    answer = await mapshot.personal(session, constants, catalog, body, datetime.now(UTC))
     assert {row["key"] for row in answer["nodes"]} >= {home.key, near.key}
     assert north.key not in {row["key"] for row in answer["nodes"]}
     assert [(e["a"], e["b"]) for e in answer["edges"]] == [(home.key, near.key)]

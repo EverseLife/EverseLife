@@ -78,6 +78,11 @@ BIOME_VEIN_K = Table("biome.vein_k")
 #: tile the plane -- the azonal table of landform -> biome that outranks the
 #: climate, and the two bounds of the formless azonal cases (marsh, coast).
 BIOME_ZONAL = Shape("biome.zonal")
+#: The axes a facet is chosen by (landscape plan wave 7): the wave of its
+#: mosaic, the slope that counts as a wall, the reach of the water and the
+#: patch a height is ranked in. The rows themselves are `data/facets.yaml`,
+#: named things of the vault rather than numbers of the registry.
+BIOME_FACET_AXES = Table("biome.facet_axes")
 BIOME_AZONAL = Words("biome.azonal")
 BIOME_BOUNDS = Table("biome.bounds")
 #: Complexes (D-321): how often a find is a scheme of nodes, and the schemes.
@@ -112,6 +117,7 @@ __all__ = [
     "BIOME_MARKS",
     "BIOME_VEIN_K",
     "BIOME_ZONAL",
+    "BIOME_FACET_AXES",
     "BIOME_AZONAL",
     "BIOME_BOUNDS",
     "COMPLEX_CHANCE",

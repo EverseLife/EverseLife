@@ -47,6 +47,10 @@ class RenameTable(BaseModel):
     #: `ore_ridge`. A found node carries its province's id; the word is read
     #: off this table, on the map and in the digest alike.
     provinces: dict[str, str] = Field(default_factory=dict)
+    #: Facets of the field (landscape plan, wave 7): «Опушка» -> `forest_edge`.
+    #: A found node carries the id of the face its ground wears; the word is
+    #: read off this table, as a province's is.
+    facets: dict[str, str] = Field(default_factory=dict)
     #: Each thing's name per language: domain -> id -> word. Russian is derived
     #: by inverting the maps above (the vault is written in Russian and the id
     #: is derived from the name); the others arrive as an overlay by id

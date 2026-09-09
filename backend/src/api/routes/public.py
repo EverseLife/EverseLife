@@ -191,7 +191,7 @@ async def world_map(
         #: remember: a shared cache would hand one player another player's
         #: map, and that is the one failure this route must not have.
         response.headers["Cache-Control"] = "private, no-store"
-        return await mapshot.personal(db, constants, asker, now)
+        return await mapshot.personal(db, constants, catalog(), asker, now)
 
 
 @router.get("/terrain/{planet}")
