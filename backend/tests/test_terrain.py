@@ -342,3 +342,27 @@ def test_the_sketch_tool_builds_the_field_the_numbers_ask_for(
     assert turned["grid"] != plain["grid"], "другое зерно — другой мир"
     #: And the file the tool read is exactly as it was: a preview writes nothing.
     assert json.loads((build / "constants.json").read_text(encoding="utf-8")) == raw
+
+
+def test_the_field_has_metres(constants: Constants) -> None:
+    """A height in metres is the field's share of the rise times the vault's
+    rise (landscape plan, wave 1): the sea reads zero, the highest land reads
+    the whole `terrain.relief_m`, and nothing stands above it."""
+    rise = float(constants[R.TERRAIN_RELIEF_M])
+    assert rise > 0
+    field = terrain.field_of(constants, Planet.TERRA)
+    rows, cols = field.grid.shape
+    highest = 0.0
+    seen_sea = False
+    for row in range(0, rows, 3):
+        for col in range(0, cols, 3):
+            lat, lon = field.centre(row, col)
+            height = terrain.height_m(constants, Planet.TERRA, lat, lon)
+            assert 0.0 <= height <= rise
+            if field.is_water(lat, lon):
+                seen_sea = True
+                assert height == 0.0, "вода стоит на уровне моря"
+            else:
+                assert height == pytest.approx(field.relief(lat, lon) * rise)
+            highest = max(highest, height)
+    assert seen_sea and highest > rise / 2, "суша поднимается к своему размаху"

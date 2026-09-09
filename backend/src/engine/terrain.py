@@ -153,6 +153,20 @@ def is_land(constants: Constants, planet: Planet, lat: float, lon: float) -> boo
     return not field_of(constants, planet).is_water(lat, lon)
 
 
+def height_m(constants: Constants, planet: Planet, lat: float, lon: float) -> float:
+    """How high above the sea a point stands, in metres (landscape plan, wave 1).
+
+    The field reads a share of the land's rise (`Field.relief`, 0..1); the
+    vault says how many metres that rise is (`terrain.relief_m`). Sea and
+    lake read zero. This is the one place the share becomes a height, so a
+    contour, a horizon and a slope all measure the same mountain.
+    """
+    field = field_of(constants, planet)
+    if field.is_water(lat, lon):
+        return 0.0
+    return field.relief(lat, lon) * float(constants[R.TERRAIN_RELIEF_M])
+
+
 def river_reach_deg(constants: Constants, planet: Planet, lat: float) -> float:
     """`terrain.river_reach_km` as degrees of arc at this latitude's scale."""
     radius = globe.radius_m(constants, planet)

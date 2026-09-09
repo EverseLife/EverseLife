@@ -23,6 +23,10 @@ TERRAIN_SEA_SHARE = Table("terrain.sea_share")
 TERRAIN_MOUNTAIN_SHARE = Num("terrain.mountain_share")
 TERRAIN_RIVERS = Table("terrain.rivers")
 TERRAIN_LAPSE_C = Num("terrain.lapse_c")
+#: The land's rise from the sea to its highest summit, in metres (landscape
+#: plan, wave 1): the field reads as a share of that rise, and this is what
+#: turns the share into a height a contour, a horizon or a slope can use.
+TERRAIN_RELIEF_M = Num("terrain.relief_m")
 TERRAIN_RIVER_REACH_KM = Num("terrain.river_reach_km")
 TERRAIN_DETAIL_KM = Num("terrain.detail_km")
 TERRAIN_DETAIL_AMPLITUDE = Num("terrain.detail_amplitude")
@@ -81,6 +85,7 @@ __all__ = [
     "TERRAIN_MOUNTAIN_SHARE",
     "TERRAIN_RIVERS",
     "TERRAIN_LAPSE_C",
+    "TERRAIN_RELIEF_M",
     "TERRAIN_RIVER_REACH_KM",
     "TERRAIN_DETAIL_KM",
     "TERRAIN_DETAIL_AMPLITUDE",
