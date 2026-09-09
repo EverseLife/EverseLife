@@ -134,17 +134,28 @@ def _distance(facet: Facet, slope: float, wet: float, high: float) -> float:
 
 
 def weights(
-    rows: tuple[Facet, ...], slope: float, wet: float, high: float, soft: float
+    rows: tuple[Facet, ...],
+    slope: float,
+    wet: float,
+    high: float,
+    soft: float,
+    favours: tuple[str, ...] = (),
+    favour_k: float = 1.0,
 ) -> list[float]:
     """What each facet is worth at this point: its share, faded by how far the
     point lies outside its box (`biome.facet_axes.soft_edge`). Inside the box
     the share stands whole, so where the boxes do hold the point the vault's
     shares are the odds; outside them the nearer boxes still divide the ground
-    between themselves rather than the nearest one taking all of it."""
+    between themselves rather than the nearest one taking all of it.
+
+    A province's favoured faces weigh `favour_k` times as much inside it
+    (`favours` of `data/provinces.yaml`, plan §7): the Ore Ridge is known by
+    its screes and rock faces, not by its label alone."""
     out = []
     for row in rows:
         away = _distance(row, slope, wet, high) / soft
-        out.append(row.share * math.exp(-away * away))
+        liked = favour_k if row.id in favours else 1.0
+        out.append(row.share * liked * math.exp(-away * away))
     return out
 
 
@@ -155,6 +166,8 @@ def choose(
     wet: float,
     high: float,
     soft: float,
+    favours: tuple[str, ...] = (),
+    favour_k: float = 1.0,
 ) -> Facet | None:
     """The facet of these readings: the mosaic's flat draw divides the facets
     by what each is worth here (`weights`).
@@ -164,7 +177,7 @@ def choose(
     """
     if not rows:
         return None
-    weighed = weights(rows, slope, wet, high, soft)
+    weighed = weights(rows, slope, wet, high, soft, favours, favour_k)
     total = sum(weighed)
     if total <= 0:  # pragma: no cover -- every box is within reach of some point
         return rows[0]
@@ -193,7 +206,15 @@ def at(
     rows = catalog.facets.of_biome(where)
     if not rows:
         return None
-    return choose(rows, *readings(constants, planet, lat, lon), axes(constants)["soft_edge"])
+    scale = axes(constants)
+    field = terrain.field_of(constants, planet)
+    return choose(
+        rows,
+        *readings(constants, planet, lat, lon),
+        scale["soft_edge"],
+        field.province_favours_at(lat, lon),
+        scale["favour_k"],
+    )
 
 
 def of_node(constants: Constants, catalog: Catalog, node: Node) -> Facet | None:

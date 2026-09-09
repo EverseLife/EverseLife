@@ -409,8 +409,16 @@ export function frameMetres(within: number | undefined): number {
   return within === undefined ? Infinity : (2 * within) / UNITS_PER_METRE;
 }
 
-/** Segments in bins of `BIN_DEG` a side, keyed by the bin of a segment's
- *  first end, so a frame takes the bins under it and no more. */
+/** Segments in bins of `BIN_DEG` a side, so a frame takes the bins under it
+ *  and no more.
+ *
+ *  Keyed by a segment's first end, which for a segment one cell long -- all
+ *  the coast and the rivers are -- is the segment. `middle` keys by the
+ *  point halfway instead, for the joined runs of `provinceEdges`: those are
+ *  cut so that a run lies inside one bin, and its middle is the bin it lies
+ *  in, while its first end may stand half a cell out of it. Safe for those
+ *  and not in general: a segment across the date line has no halfway point
+ *  worth the name, and a run is cut before it reaches one. */
 export type Bins = Map<string, Segment[]>;
 
 export function binKey(lat: number, lon: number): string {
@@ -419,10 +427,11 @@ export function binKey(lat: number, lon: number): string {
   return `${b}:${l}`;
 }
 
-export function binned(segments: readonly Segment[]): Bins {
+export function binned(segments: readonly Segment[], middle = false): Bins {
   const bins: Bins = new Map();
   for (const segment of segments) {
-    const key = binKey(segment[0].lat, segment[0].lon);
+    const [a, b] = segment;
+    const key = middle ? binKey((a.lat + b.lat) / 2, (a.lon + b.lon) / 2) : binKey(a.lat, a.lon);
     let bin = bins.get(key);
     if (!bin) bins.set(key, (bin = []));
     bin.push(segment);
@@ -430,7 +439,17 @@ export function binned(segments: readonly Segment[]): Bins {
   return bins;
 }
 
-/** The segments of the bins under a frame about the eye. */
+/**
+ * The segments of the bins under a frame about the eye.
+ *
+ * The far side of the globe is dropped bin by bin, before any of it is
+ * projected. On the planet's frame the window spans the whole sphere and
+ * the bins of the hemisphere behind the eye are half of everything there
+ * is; every segment of them projects only to be thrown away for facing
+ * away. A bin is kept when its middle stands within a right angle of the
+ * eye and a bin's own width -- past that its nearest corner is behind the
+ * limb too.
+ */
 export function underFrame(bins: Bins, eye: Eye, radius: number, within: number | undefined): Segment[] {
   const span = spanOf({ rows: 0, cols: 0 }, eye, frameAngle(radius, within));
   const out: Segment[] = [];
@@ -439,14 +458,26 @@ export function underFrame(bins: Bins, eye: Eye, radius: number, within: number 
   const b1 = Math.min(180 / BIN_DEG - 1, Math.floor((span.latHi + 90) / BIN_DEG));
   const l0 = span.whole ? 0 : Math.floor((span.lonLo + 180) / BIN_DEG);
   const l1 = span.whole ? bands - 1 : Math.floor((span.lonHi + 180) / BIN_DEG);
+  const seen = Math.cos((90 + BIN_DEG) * RAD);
+  const eyeLat = eye.lat * RAD;
   for (let b = b0; b <= b1; b++) {
+    const lat = (b * BIN_DEG - 90 + BIN_DEG / 2) * RAD;
     for (let l = l0; l <= l1; l++) {
-      const bin = bins.get(`${b}:${((l % bands) + bands) % bands}`);
+      const lane = ((l % bands) + bands) % bands;
+      const lon = (lane * BIN_DEG - 180 + BIN_DEG / 2 - eye.lon) * RAD;
+      const near =
+        Math.sin(eyeLat) * Math.sin(lat) + Math.cos(eyeLat) * Math.cos(lat) * Math.cos(lon);
+      if (near < seen) continue;
+      const bin = bins.get(`${b}:${lane}`);
       if (bin) for (const segment of bin) out.push(segment);
     }
   }
   return out;
 }
+
+/** Where a province's name is written: the mean of its ground, which for a
+ *  patch of land is inside it. */
+export type ProvinceMark = { code: number; at: Geo };
 
 /** The lines of a planet that do not depend on the frame: the coast by
  *  the form of its land, the lakes' shores and the rivers, read once cell
@@ -456,6 +487,136 @@ export type PlanetLines = {
   lakes: Bins;
   rivers: Bins;
 };
+
+/** A planet's provinces as the map draws them: the boundaries binned, and
+ *  a place for every name. Read once per planet, like the coast -- and
+ *  apart from it, because the two are drawn on opposite frames and the
+ *  coast's walk must not be paid for on the planet's disk. */
+export type ProvinceLines = { edges: Bins; marks: ProvinceMark[] };
+
+export function provinceLines(rasters: Rasters, passport: RasterPassport): ProvinceLines {
+  const samples = samplesOf(passport, wholeWindow(passport));
+  return {
+    edges: binned(provinceEdges(rasters, samples), true),
+    marks: provinceMarks(rasters, samples),
+  };
+}
+
+/**
+ * The boundary between provinces: the edge two cells of different code
+ * share. Not an isoline -- a province is a name, not a level, and the two
+ * neighbours are equals: the line runs between them, along the cells.
+ *
+ * The sea has no province (code 0), and its edge with the land is the
+ * coast's business, drawn there in the colour of the water: a boundary
+ * drawn over it would double the shore.
+ *
+ * A run of edges along one meridian or one parallel comes out as a single
+ * segment rather than one a cell: a boundary of a province is thousands of
+ * cells long, and the path is rebuilt for every turn of the eye. A run ends
+ * where the two provinces it parts change -- one segment is one boundary --
+ * and where it would leave the bin it is filed under.
+ */
+export function provinceEdges(rasters: Rasters, samples: Samples): Segment[] {
+  const out: Segment[] = [];
+  const { nr, nc } = samples;
+  const code = (i: number, j: number) => rasters.province[samples.index(i, j)];
+  //: Two cells are on opposite sides of a boundary when both are in a
+  //: province and the provinces differ; the pair, in one number, says which
+  //: boundary it is, so a run can end where the boundary does.
+  const seam = (a: number, b: number) => (a > 0 && b > 0 && a !== b ? a * 256 + b : 0);
+  //: Which bin a cell falls in, down and along. A run is cut where its
+  //: cells would leave one bin, so that the whole of a run lies in the bin
+  //: its middle is in and `binned(.., true)` can file it there exactly --
+  //: a run filed in a bin it does not lie in would go missing from every
+  //: frame that it crosses and that bin does not. A run reaching the date
+  //: line is cut by the same rule, which is also what keeps a run's middle
+  //: an honest average of its two ends.
+  const lanes = 360 / BIN_DEG;
+  const band = (i: number) => Math.floor((samples.geo(i, 0).lat + 90) / BIN_DEG);
+  const lane = (j: number) =>
+    ((Math.floor((samples.geo(0, j).lon + 180) / BIN_DEG) % lanes) + lanes) % lanes;
+  //: Down a meridian: the shared edge of a cell and its eastern neighbour,
+  //: joined while the run holds. The last row has an eastern neighbour like
+  //: any other; a window round the whole planet closes on its first column.
+  for (let j = 0; j < nc - 1; j++) {
+    let from = -1;
+    let held = 0;
+    for (let i = 0; i <= nr; i++) {
+      const on = i < nr ? seam(code(i, j), code(i, j + 1)) : 0;
+      const goes = on !== 0 && on === held && band(i) === band(from);
+      if (from >= 0 && !goes) {
+        out.push([
+          samples.geo(from - MARK_HALF, j + MARK_HALF),
+          samples.geo(i - 1 + MARK_HALF, j + MARK_HALF),
+        ]);
+        from = -1;
+      }
+      if (on !== 0 && from < 0) from = i;
+      held = on;
+    }
+  }
+  //: And along a parallel: the shared edge of a cell and its southern one.
+  for (let i = 0; i + 1 < nr; i++) {
+    let from = -1;
+    let held = 0;
+    for (let j = 0; j <= nc - 1; j++) {
+      const on = j < nc - 1 ? seam(code(i, j), code(i + 1, j)) : 0;
+      const goes = on !== 0 && on === held && lane(j) === lane(from);
+      if (from >= 0 && !goes) {
+        out.push([
+          samples.geo(i + MARK_HALF, from - MARK_HALF),
+          samples.geo(i + MARK_HALF, j - 1 + MARK_HALF),
+        ]);
+        from = -1;
+      }
+      if (on !== 0 && from < 0) from = j;
+      held = on;
+    }
+  }
+  return out;
+}
+
+/** Half a cell: the boundary runs between the centres, not through them. */
+const MARK_HALF = 0.5;
+
+/**
+ * Where each province's name is written: the mean of the ground it holds.
+ *
+ * The ground, not the cells: a cell of a parallel near the pole is a
+ * fraction of one at the equator, and counting them alike would drag the
+ * name of a province that reaches north away from the land it names. The
+ * longitude is averaged round the circle, or a province astride the date
+ * line would be named on the other side of the planet.
+ */
+export function provinceMarks(rasters: Rasters, samples: Samples): ProvinceMark[] {
+  const sums = new Map<number, { lat: number; x: number; y: number; weight: number }>();
+  //: A window round the whole planet carries one column twice -- the last
+  //: closes on the first (`samplesOf`) -- and counting it would weigh the
+  //: provinces that touch it down towards the date line.
+  const closes = samples.nc > 1 && samples.cell(0, samples.nc - 1)[1] === samples.cell(0, 0)[1];
+  const columns = samples.nc - (closes ? 1 : 0);
+  for (let i = 0; i < samples.nr; i++) {
+    for (let j = 0; j < columns; j++) {
+      const code = rasters.province[samples.index(i, j)];
+      if (!code) continue;
+      const at = samples.geo(i, j);
+      const weight = Math.max(0, Math.cos(at.lat * RAD));
+      let sum = sums.get(code);
+      if (!sum) sums.set(code, (sum = { lat: 0, x: 0, y: 0, weight: 0 }));
+      sum.lat += at.lat * weight;
+      sum.x += Math.cos(at.lon * RAD) * weight;
+      sum.y += Math.sin(at.lon * RAD) * weight;
+      sum.weight += weight;
+    }
+  }
+  return [...sums.entries()]
+    .filter(([, sum]) => sum.weight > 0)
+    .map(([code, sum]) => ({
+      code,
+      at: { lat: sum.lat / sum.weight, lon: Math.atan2(sum.y, sum.x) / RAD },
+    }));
+}
 
 export function planetLines(rasters: Rasters, passport: RasterPassport): PlanetLines {
   const samples = samplesOf(passport, wholeWindow(passport));

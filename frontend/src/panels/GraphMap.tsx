@@ -55,6 +55,7 @@ import { placeAt, projectAll, UNITS_PER_METRE } from "./map/globe";
 import { firstOnGlobe, needsTurn } from "./map/follow";
 import { Ground } from "./map/Ground";
 import { GroundGL, type GroundGLHandle, type GroundGLState } from "./map/GroundGL";
+import { Provinces } from "./map/Provinces";
 import { Lines } from "./map/Lines";
 import { supportsShadedGround } from "./map/shade";
 import { useArcs, useGlobe, radiusOf } from "./map/useGlobe";
@@ -363,6 +364,12 @@ export function GraphMap({
       ? projectAll(eye, radius, laid)
       : flatten(laid);
   }, [visible, byKey, orbiting, globeScene, eye, radius]);
+  //: Whether the layers that read the field's rasters may draw at all: a
+  //: globe under the eye rather than an approach from the sky, and the GPU
+  //: ground already under them. Both of them read the same rasters, and on
+  //: the SVG path there are none to read.
+  const overGround =
+    globeScene && eye && radius && sphereShown && zoomed.descent === 0 && shaded && shading === "ready";
   const { curve, stubCurve } = useArcs({
     globeScene,
     eye,
@@ -770,6 +777,7 @@ export function GraphMap({
                 planet={sphereShown}
                 eye={eye}
                 radius={radius}
+                within={zoomed.descent > 0 ? undefined : groundReach(zoomed.unit, radius)}
                 svg={svgRef}
                 onState={setShading}
               />
@@ -821,13 +829,26 @@ export function GraphMap({
                   }
                 />
               )}
-              {globeScene && eye && radius && sphereShown && zoomed.descent === 0 && shaded && shading === "ready" && (
-                <Lines
-                  planet={sphereShown}
-                  eye={eye}
-                  radius={radius}
-                  within={groundReach(zoomed.unit, radius)}
-                />
+              {/* What is drawn on the ground itself, and only where the GPU
+                  drew it: the province's outline and name on the far frames,
+                  the relief's lines on the near ones. On the SVG path there
+                  are no rasters to read either from. */}
+              {overGround && (
+                <>
+                  <Provinces
+                    planet={sphereShown}
+                    eye={eye}
+                    radius={radius}
+                    within={groundReach(zoomed.unit, radius)}
+                    far={zoomed.far}
+                  />
+                  <Lines
+                    planet={sphereShown}
+                    eye={eye}
+                    radius={radius}
+                    within={groundReach(zoomed.unit, radius)}
+                  />
+                </>
               )}
               {globeScene && eye && radius && (
                 <Outlines

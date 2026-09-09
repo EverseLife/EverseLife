@@ -13,12 +13,14 @@ import * as api from "../../api";
 import type { RasterKind } from "../../api";
 import { heightsOf } from "./shade";
 
-/** The four rasters decoded: heights in metres, classes as bytes. */
+/** The rasters decoded: heights in metres, classes as bytes. */
 export type Rasters = {
   height: Float32Array;
   biome: Uint8Array;
   form: Uint8Array;
   water: Uint8Array;
+  rock: Uint8Array;
+  province: Uint8Array;
 };
 
 const RASTERS = new Map<string, Promise<Rasters>>();
@@ -29,14 +31,17 @@ export function rastersOf(planet: string): Promise<Rasters> {
   let asked = RASTERS.get(planet);
   if (!asked) {
     asked = Promise.all(
-      (["height", "biome", "form", "water"] as const satisfies readonly RasterKind[]).map((kind) =>
-        api.terrainRaster(planet, kind),
-      ),
-    ).then(([height, biome, form, water]) => ({
+      (
+        ["height", "biome", "form", "water", "rock", "province"] as const satisfies
+          readonly RasterKind[]
+      ).map((kind) => api.terrainRaster(planet, kind)),
+    ).then(([height, biome, form, water, rock, province]) => ({
       height: heightsOf(height),
       biome: new Uint8Array(biome),
       form: new Uint8Array(form),
       water: new Uint8Array(water),
+      rock: new Uint8Array(rock),
+      province: new Uint8Array(province),
     }));
     asked.catch(() => RASTERS.delete(planet));
     RASTERS.set(planet, asked);

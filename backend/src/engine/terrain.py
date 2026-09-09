@@ -248,7 +248,7 @@ def _sketched(constants: Constants, planet: Planet, field: fields.Field) -> dict
 
 #: The rasters the client draws by (plan §9.3), thinned to
 #: `runtime.RASTER_ROWS_MAX` rows at most.
-RASTER_KINDS = ("height", "biome", "form", "water")
+RASTER_KINDS = ("height", "biome", "form", "water", "rock", "province")
 
 
 def raster_stride(rows: int) -> int:
@@ -275,4 +275,12 @@ def raster_passport(constants: Constants, field: fields.Field) -> dict:
         #: `water` a byte a cell into this list: the rivers are cells of it,
         #: not a landform, and the vector layer threads them by it (wave 6).
         "water": list(fields.WATER_NAMES),
+        #: `rock` needs no table: it is the hardness of the ground as a
+        #: byte, and the shader reads it as a number between nought and one
+        #: off an `R8` texture, which is the same thing (wave 8).
+        #: `province` is a byte a cell: 0 no province, k the k-th of this
+        #: list. The map traces the boundary between differing codes and
+        #: writes the name in the middle of what it encloses (wave 8); the
+        #: word itself comes from `/public/renames`, as a node's does.
+        "provinces": list(field.provinces),
     }

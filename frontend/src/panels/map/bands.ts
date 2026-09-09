@@ -238,6 +238,16 @@ export function scaleAt(far: number): number {
   return CITY_SCALE * 2 ** (-far / 2);
 }
 
+/** How tall a province's name is drawn, map units: the same pixels at every
+ *  distance, for the same reason a closed city's name is (`cityLabelEm`).
+ *  A name of a land that shrank with the zoom would go unreadable exactly
+ *  on the frame where lands are all there is (plan §9.7). Smaller than a
+ *  city's: a province is the ground a city stands on, not a place to go. */
+export const PROVINCE_LABEL_PX = 11;
+export function provinceLabelEm(far: number): number {
+  return PROVINCE_LABEL_PX / scaleAt(far);
+}
+
 /**
  * How far out the frame is past the cities' closing, in half-octaves: 0
  * where the cities close, 2 at twice that span, 4 at four times. A fact of

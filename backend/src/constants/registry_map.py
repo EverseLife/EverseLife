@@ -82,7 +82,10 @@ BIOME_ZONAL = Shape("biome.zonal")
 #: mosaic, the slope that counts as a wall, the reach of the water and the
 #: patch a height is ranked in. The rows themselves are `data/facets.yaml`,
 #: named things of the vault rather than numbers of the registry.
-BIOME_FACET_AXES = Table("biome.facet_axes")
+BIOME_FACET_AXES = Table(
+    "biome.facet_axes",
+    keys=("wave_m", "slope_full", "wet_km", "patch_km", "soft_edge", "favour_k"),
+)
 BIOME_AZONAL = Words("biome.azonal")
 BIOME_BOUNDS = Table("biome.bounds")
 #: Complexes (D-321): how often a find is a scheme of nodes, and the schemes.

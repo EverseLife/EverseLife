@@ -13,7 +13,9 @@ What is pinned:
 * the same point is the same face, always -- the field is a file and the
   noise is a function of the seed (D-237);
 * the numbers of a place are the biome's bent by the face: the marks, the
-  vein's chance, the day's swing and the reach one scouts by.
+  vein's chance, the day's swing and the reach one scouts by;
+* a province leans on the faces it favours (wave 8) without shutting the
+  others out: the Ore Ridge is known by its screes, not by its label alone.
 """
 
 from __future__ import annotations
@@ -104,15 +106,18 @@ def test_the_shares_of_the_vault_divide_the_ground(constants: Constants, catalog
     """The measured defect of the first cut (the review of wave 7): the boxes
     of the vocabulary do not tile the cube, so a hard box test gave whole
     biomes to one face -- 93 % of the coast was `shore_wood`. The shares are
-    weights now, and the test measures the world rather than the arithmetic."""
+    weights now, and the test measures the world rather than the arithmetic.
+
+    Measured through `facet.at`, which is the path the world takes: the lean
+    of a province (wave 8) multiplies a face by `favour_k` inside its own
+    land, and if any collapse were left it would be there."""
     from collections import Counter
 
-    soft = facet.axes(constants)["soft_edge"]
     seen: dict[str, Counter] = {}
     for point in land(constants, step=3)[:600]:
         here = biome.classify(constants, Planet.TERRA, *point)
-        rows = catalog.facets.of_biome(here)
-        chosen = facet.choose(rows, *facet.readings(constants, Planet.TERRA, *point), soft)
+        chosen = facet.at(constants, catalog, Planet.TERRA, *point, here=here)
+        assert chosen is not None
         seen.setdefault(here, Counter())[chosen.id] += 1
     #: Where a biome is well sampled, no face takes it whole and more than one
     #: shows up: that is what the shares are for.
@@ -173,3 +178,67 @@ def test_the_face_bends_the_biome_numbers(constants: Constants, catalog: Catalog
     )
     #: A face the vault has dropped reads as no face at all, not as a crash.
     assert catalog.facets.by_id("no_such_facet") is None
+
+
+def test_a_province_leans_on_the_faces_it_favours(constants: Constants, catalog: Catalog) -> None:
+    """`favours` of `data/provinces.yaml` weighs its faces `favour_k` times
+    as much inside the province (landscape plan §7, wave 8). A lean, not a
+    law: the other faces of the biome keep their share of the ground."""
+    k = facet.axes(constants)["favour_k"]
+    assert k > 1
+    rows = catalog.facets.of_biome("forest")
+    liked = rows[0].id
+    plain = facet.weights(rows, 0.1, 0.5, 0.3, SOFT)
+    leaned = facet.weights(rows, 0.1, 0.5, 0.3, SOFT, (liked,), k)
+    assert leaned[0] == pytest.approx(plain[0] * k)
+    assert leaned[1:] == pytest.approx(plain[1:])
+    #: Every face still has its ground: a favoured one does not take all.
+    assert all(w > 0 for w in leaned)
+
+
+def test_the_field_carries_what_each_province_favours(constants: Constants) -> None:
+    """The favoured faces travel in the field's passport, so the choice can
+    read them without the vault at hand -- and a point on the sea, or on a
+    planet without provinces, favours nothing."""
+    field = terrain.field_of(constants, Planet.TERRA)
+    assert field.province_favours, "Terra's provinces name their faces"
+    assert len(field.province_favours) == len(field.provinces)
+    named = {name for row in field.province_favours for name in row}
+    assert named, "at least one province favours something"
+    for lat, lon in land(constants, step=11):
+        here = field.province_at(lat, lon)
+        favours = field.province_favours_at(lat, lon)
+        if here is None:
+            assert favours == ()
+        else:
+            assert favours == field.province_favours[field.provinces.index(here)]
+
+
+def test_a_favoured_face_turns_up_oftener_inside_its_province(
+    constants: Constants, catalog: Catalog
+) -> None:
+    """The lean is measurable on the ground, not only in the weights: over
+    the points of the provinces that name a face, the same readings choose a
+    favoured face oftener with the lean than without it."""
+    field = terrain.field_of(constants, Planet.TERRA)
+    scale = facet.axes(constants)
+    plain_hits = leaned_hits = points = 0
+    for lat, lon in land(constants, step=3):
+        wanted = field.province_favours_at(lat, lon)
+        if not wanted:
+            continue
+        here = biome.classify(constants, Planet.TERRA, lat, lon)
+        rows = catalog.facets.of_biome(here) if here else ()
+        #: Only where the province's own faces belong to this biome: a
+        #: favoured face of another biome cannot be chosen here, and
+        #: counting those points would dilute the measure with nothing.
+        if not rows or not any(row.id in wanted for row in rows):
+            continue
+        read = facet.readings(constants, Planet.TERRA, lat, lon)
+        plain = facet.choose(rows, *read, scale["soft_edge"])
+        leaned = facet.choose(rows, *read, scale["soft_edge"], wanted, scale["favour_k"])
+        points += 1
+        plain_hits += plain is not None and plain.id in wanted
+        leaned_hits += leaned is not None and leaned.id in wanted
+    assert points > 50, "the sweep found ground where a favoured face may stand"
+    assert leaned_hits > plain_hits

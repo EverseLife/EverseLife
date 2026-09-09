@@ -385,12 +385,36 @@ def test_the_rasters_are_the_field_thinned_and_named(constants: Constants) -> No
     assert (height[sea] < 0).all(), "the sea stays under zero, shallow cells too"
     land = ~sea
     assert (height[land] >= 0).all()
-    for kind in ("biome", "form", "water"):
+    for kind in ("biome", "form", "water", "rock", "province"):
         got = np.frombuffer(rasters.raster_bytes(constants, Planet.TERRA, kind), dtype=np.uint8)
-        assert got.size == n
+        assert got.size == n, kind
     water = np.frombuffer(rasters.raster_bytes(constants, Planet.TERRA, "water"), dtype=np.uint8)
     assert passport["water"][fields.RIVER] == "river" and (water == fields.RIVER).any()
     assert rasters.raster_bytes(constants, Planet.TERRA, "rivers") is None
+    #: The hardness of the ground (wave 8): a byte the whole way, and the
+    #: shader reads it as nought to one off an `R8` texture -- so the raster
+    #: must use its range rather than sit in a corner of it.
+    rock = np.frombuffer(rasters.raster_bytes(constants, Planet.TERRA, "rock"), dtype=np.uint8)
+    assert rock.min() < rock.max() and rock.max() > 200
+    #: The province of every cell as a code into the passport's own list: the
+    #: shift by one is the whole of the contract, and the sea has no province.
+    province = np.frombuffer(
+        rasters.raster_bytes(constants, Planet.TERRA, "province"), dtype=np.uint8
+    )
+    assert passport["provinces"] == list(field.provinces)
+    assert province.max() == len(field.provinces)
+    assert (province[sea] == 0).all(), "the sea is in no province"
+    assert (province[land] > 0).all(), "every cell of the land is in one"
+    for code in range(1, len(field.provinces) + 1):
+        assert (province == code).any(), code
+    #: And the code names the same province the engine names at that point.
+    rows, cols = field.rows, field.cols
+    for at in (0, n // 3, n // 2, n - 1):
+        row, col = divmod(at, passport["cols"])
+        lat = -90 + (row * stride + 0.5) * (180 / rows)
+        lon = -180 + (col * stride + 0.5) * (360 / cols)
+        code = int(province[at])
+        assert field.province_at(lat, lon) == (field.provinces[code - 1] if code else None)
     #: Written once: the second ask is the same bytes object.
     assert rasters.raster_bytes(constants, Planet.TERRA, "height") is rasters.raster_bytes(
         constants, Planet.TERRA, "height"

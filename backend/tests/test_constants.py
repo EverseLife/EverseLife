@@ -15,7 +15,7 @@ import pytest
 
 from src.constants import Constants, RenameTable, load_constants
 from src.constants import registry as R
-from src.constants.spec import ConstantError, Num, Span
+from src.constants.spec import ConstantError, Num, Span, Table
 
 
 def test_all_declared_constants_exist_in_vault(constants: Constants) -> None:
@@ -35,6 +35,22 @@ def test_wrong_shape_breaks_check() -> None:
     snapshot = Constants({"body.drain_rate": 5}, source="тест")
     with pytest.raises(ConstantError, match="expected"):
         snapshot[Span("body.drain_rate")]
+
+
+def test_a_table_missing_a_key_the_engine_reads_breaks_the_boot() -> None:
+    """A table declares the keys the engine reads by name (`Table.keys`), and
+    a vault that dropped one fails at startup like any missing constant.
+    Without that the shape alone is checked and the table passes whole: the
+    hole shows as a `KeyError` deep in play, on the machine of whoever ran
+    the half of the pair that arrived first."""
+    axes = Table("biome.facet_axes", keys=("wave_m", "favour_k"))
+    whole = Constants({"biome.facet_axes": {"wave_m": 200, "favour_k": 2.5}}, source="тест")
+    assert whole[axes] == {"wave_m": 200.0, "favour_k": 2.5}
+    half = Constants({"biome.facet_axes": {"wave_m": 200}}, source="тест")
+    with pytest.raises(ConstantError, match="favour_k"):
+        half.validate([axes])
+    #: A table that names no keys is still checked for its shape alone.
+    assert half[Table("biome.facet_axes")] == {"wave_m": 200.0}
 
 
 def test_range_with_min_above_max_rejected() -> None:

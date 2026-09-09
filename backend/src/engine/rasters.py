@@ -3,11 +3,12 @@
 
 """The rasters a planet's picture is drawn from (landscape plan wave 5, §9.3).
 
-Four arrays the client reads: the height in signed metres, sixteen bits a
+Five arrays the client reads: the height in signed metres, sixteen bits a
 cell; the biome as a byte into `biome.names`; the landform as a byte into
 the field's table; the water as a byte into `field.WATER_NAMES` -- the
-rivers are cells of it, which the vector layer threads (wave 6). Thinned to
-`runtime.RASTER_ROWS_MAX`
+rivers are cells of it, which the vector layer threads (wave 6); and the
+rock's hardness, a byte the shader's grain takes its character from (wave
+8). Thinned to `runtime.RASTER_ROWS_MAX`
 rows, written once per field and kept: a constant of the vault must not be
 encoded on every request. The shader draws by them and judges nothing --
 land, aim and find stay the server's, off the field itself (plan §9.1).
@@ -51,6 +52,10 @@ def _encode(constants: Constants, planet: Planet, field, kind: str) -> bytes:
         return np.ascontiguousarray(biome.raster(constants, planet)[::stride, ::stride]).tobytes()
     if kind == "water":
         return np.ascontiguousarray(field.water[::stride, ::stride]).astype(np.uint8).tobytes()
+    if kind == "rock":
+        return np.ascontiguousarray(field.hardness[::stride, ::stride]).astype(np.uint8).tobytes()
+    if kind == "province":
+        return np.ascontiguousarray(field.province[::stride, ::stride]).astype(np.uint8).tobytes()
     return np.ascontiguousarray(field.form[::stride, ::stride]).astype(np.uint8).tobytes()
 
 

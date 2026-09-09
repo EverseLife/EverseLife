@@ -29,6 +29,10 @@ export const HULL_EM = 10;
 /** And a door's caption smaller and wider (`.node-door`): the letter-spacing
  *  is why it is measured with a wider glyph than a name's. */
 export const DOOR_EM = 9;
+/** A province's name (`.province-lines text`), the same way: the size the
+ *  stylesheet sets, in map units, which the layer then grows to the pixels
+ *  it wants (`bands.provinceLabelEm`). */
+export const PROVINCE_EM = 9;
 const DOOR_GLYPH_W = 0.66;
 /** How wide one letter runs, as a share of the em. Measured off the sans the
  *  window uses, on the Cyrillic the names are written in -- an estimate on

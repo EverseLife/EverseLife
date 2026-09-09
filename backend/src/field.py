@@ -100,6 +100,9 @@ class Field:
     #: a found node is stamped with, and the vein multiplier the find rolls by.
     provinces: tuple[str, ...]
     province_vein_k: tuple[float, ...]
+    #: The faces each province favours (landscape plan wave 8): the ids of
+    #: the facets that turn up here oftener than elsewhere.
+    province_favours: tuple[tuple[str, ...], ...]
     mountain_level: float  # share above which the land is mountain
     river_cap_m: float  # the distance raster's reach: at it, no fresh water in sight
     sea_cap_m: float  # the same for the sea
@@ -223,6 +226,15 @@ class Field:
         a planet without provinces."""
         code = int(self.province[self.cell(lat, lon)])
         return self.provinces[code - 1] if 0 < code <= len(self.provinces) else None
+
+    def province_favours_at(self, lat: float, lon: float) -> tuple[str, ...]:
+        """The faces the province of this point favours, or nothing where
+        there is no province -- or where the field was built before they
+        travelled with it."""
+        code = int(self.province[self.cell(lat, lon)])
+        if 0 < code <= len(self.province_favours):
+            return self.province_favours[code - 1]
+        return ()
 
     def province_vein_k_at(self, lat: float, lon: float) -> float:
         """How much likelier a vein is here than the biome says: the
@@ -411,6 +423,9 @@ def _loaded(directory: str, planet: str, mountain_share: float, expected: tuple)
         forms=tuple(str(entry["id"]) for entry in meta.get("forms", [])),
         provinces=tuple(str(entry["id"]) for entry in provinces_table),
         province_vein_k=tuple(float(entry.get("vein_k", 1.0)) for entry in provinces_table),
+        province_favours=tuple(
+            tuple(str(fid) for fid in (entry.get("favours") or ())) for entry in provinces_table
+        ),
         mountain_level=mountain_level,
         river_cap_m=float(river_m.max()),
         sea_cap_m=float(sea_m.max()),

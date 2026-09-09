@@ -122,6 +122,35 @@
   stroke-opacity: 0.85;
   stroke-width: 1.2;
 }
+/* The provinces on the far frames (plan §9.7, wave 8): a hairline between
+   two named lands and the name in the middle of what it encloses. Quieter
+   than the coast -- a province is an agreement about a place, not a thing
+   one can walk into, and it must not read as a wall. */
+.province-lines path {
+  fill: none;
+  stroke: var(--base-400);
+  stroke-opacity: 0.5;
+  stroke-width: 0.8;
+  stroke-dasharray: 4 3;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+.province-lines text {
+  fill: var(--base-200);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-anchor: middle;
+  text-transform: uppercase;
+  pointer-events: none;
+  /* The name is written over the ground's own colour, and on a pale steppe
+     a grey word disappears. A thin ground-coloured casing under the glyphs
+     keeps it legible over anything without darkening the map. */
+  paint-order: stroke;
+  stroke: var(--base-950);
+  stroke-opacity: 0.45;
+  stroke-width: 2.5;
+}
+
 /* The warmth as a layer over the GPU ground (plan §9.5): the three tones of
    the climate, translucent, where the colour underneath is the biome's. */
 .ground.warmth .land {

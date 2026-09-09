@@ -146,7 +146,16 @@ class Bands(Spec):
 
 @dataclass(frozen=True, slots=True)
 class Table(Spec):
-    """A map `name -> number`: modifiers, role weights, sign bands."""
+    """A map `name -> number`: modifiers, role weights, sign bands.
+
+    `keys` names the entries the engine reads by name. Without it a table is
+    checked for its shape only, and a key the vault dropped is a `KeyError`
+    at the first find rather than at startup -- the one failure the registry
+    exists to prevent (D-065). Naming them here brings that back to the boot,
+    where a half-arrived pair of vault and code belongs.
+    """
+
+    keys: tuple[str, ...] = ()
 
     def read(self, raw: Any) -> dict[str, float]:
         if not isinstance(raw, dict):
@@ -156,6 +165,9 @@ class Table(Spec):
             if isinstance(value, bool) or not isinstance(value, (int, float)):
                 raise self._fail(raw, f"a number at key {name!r}")
             out[str(name)] = float(value)
+        missing = [name for name in self.keys if name not in out]
+        if missing:
+            raise self._fail(raw, f"a number at every one of {', '.join(missing)}")
         return out
 
 

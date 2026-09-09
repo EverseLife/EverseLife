@@ -12,6 +12,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   BIN_DEG,
+  binKey,
   CLOSE_FRAME_M,
   closeFrame,
   CONTOUR_LADDER,
@@ -24,6 +25,9 @@ import {
   hachures,
   isolines,
   planetLines,
+  provinceEdges,
+  provinceLines,
+  provinceMarks,
   quantisedEye,
   rivers,
   samplesOf,
@@ -38,14 +42,22 @@ import { frameMetres } from "../panels/map/contours";
 const FORMS = ["sea", "lake", "plain", "hills", "cliff", "coast_cliff", "beach"];
 const WATER = ["land", "sea", "lake", "river"];
 
-/** A small planet: `rows` by `2 * rows` cells, the heights given by a function. */
-function planet(rows: number, height: (r: number, c: number) => number, form?: (r: number, c: number) => string) {
+/** A small planet: `rows` by `2 * rows` cells, the heights given by a
+ *  function, and -- where a test asks for them -- the provinces by another. */
+function planet(
+  rows: number,
+  height: (r: number, c: number) => number,
+  form?: (r: number, c: number) => string,
+  province?: (r: number, c: number) => number,
+) {
   const cols = 2 * rows;
   const rasters: Rasters = {
     height: new Float32Array(rows * cols),
     biome: new Uint8Array(rows * cols),
     form: new Uint8Array(rows * cols),
     water: new Uint8Array(rows * cols),
+    rock: new Uint8Array(rows * cols),
+    province: new Uint8Array(rows * cols),
   };
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
@@ -54,6 +66,7 @@ function planet(rows: number, height: (r: number, c: number) => number, form?: (
       const named = form ? form(r, c) : height(r, c) < 0 ? "sea" : "plain";
       rasters.form[r * cols + c] = FORMS.indexOf(named === "river" ? "plain" : named);
       rasters.water[r * cols + c] = WATER.indexOf(named === "river" ? "river" : named === "sea" ? "sea" : named === "lake" ? "lake" : "land");
+      rasters.province[r * cols + c] = province ? province(r, c) : 0;
     }
   }
   const passport = { rows, cols, step_m: 500, relief_m: 3000, biomes: [], forms: FORMS, water: WATER };
@@ -246,11 +259,17 @@ describe("the ladder and the window's eye", () => {
     expect(near.hachures.length).toBeGreaterThan(0);
     expect(near.contours.length).toBeGreaterThan(0);
     const own = planetLines(rasters, passport);
-    expect([...own.rivers.values()].flat().length).toBeGreaterThan(0);
-    //: The whole planet from the planet frame, the bins under a frame otherwise.
-    expect(underFrame(own.rivers, { lat: 0, lon: 0 }, 1e6, undefined).length).toBe(
-      [...own.rivers.values()].flat().length,
-    );
+    const all = [...own.rivers.values()].flat().length;
+    expect(all).toBeGreaterThan(0);
+    //: From the planet frame, the hemisphere under the eye and not the one
+    //: behind it: those segments would project only to be thrown away for
+    //: facing away, and on the planet's disk they are half of everything.
+    const front = underFrame(own.rivers, { lat: 0, lon: 0 }, 1e6, undefined).length;
+    expect(front).toBeGreaterThan(0);
+    expect(front).toBeLessThan(all);
+    //: Between the two eyes, nothing of the planet is lost.
+    const back = underFrame(own.rivers, { lat: 0, lon: 180 }, 1e6, undefined).length;
+    expect(front + back).toBeGreaterThanOrEqual(all);
   });
   it("bins the segments by their first end and hands a frame the bins under it", () => {
     const bins = binned([
@@ -264,5 +283,133 @@ describe("the ladder and the window's eye", () => {
     const near = underFrame(bins, { lat: 3, lon: 1 }, radius, radius * 0.1);
     expect(near).toHaveLength(2);
     expect(underFrame(bins, { lat: -80, lon: 178 }, radius, radius * 0.05)).toHaveLength(1);
+  });
+});
+
+describe("the provinces", () => {
+  //: Two lands side by side with a strip of sea to the west of both: the
+  //: boundary is the one seam between them, and nowhere else.
+  const twoLands = (rows: number) =>
+    planet(
+      rows,
+      () => 100,
+      () => "plain",
+      (r, c) => (c < rows / 2 ? 0 : c < rows ? 1 : 2),
+    );
+
+  it("draws a line only where two provinces meet, never against the sea", () => {
+    //: A hundred and eighty rows, so a cell is a degree and a run of them
+    //: is worth joining: the seam is one line pole to pole, cut only where
+    //: it leaves the bin it is filed under.
+    const { rasters, passport } = twoLands(180);
+    const edges = provinceEdges(rasters, samplesOf(passport, wholeWindow(passport)));
+    expect(edges.length).toBe(passport.rows / BIN_DEG);
+    for (const [a, b] of edges) {
+      //: Every piece runs down one meridian, and that meridian stands
+      //: between the two cells, not on either centre.
+      expect(a.lon).toBeCloseTo(b.lon, 6);
+      expect(a.lon).toBeCloseTo(-180 + (180 * 360) / passport.cols, 6);
+    }
+    //: The edge with the sea (code 0) is the coast's business, and drawing
+    //: it here would double the shore.
+    expect(edges.some(([end]) => Math.abs(end.lon + 180) < 1e-6)).toBe(false);
+  });
+
+  it("files every joined run in the bin it actually lies in", () => {
+    //: `underFrame` hands back whole bins, so a run filed in a bin it does
+    //: not lie in would go missing from every frame that crosses it and
+    //: that bin does not. Joining may not make that worse than it is for
+    //: the coast, whose segments are single cells: runs are cut at the
+    //: bin's edge and filed by their middle, so the whole of a run is in
+    //: the bin it is under, but for the half cell an end stands out by.
+    for (const rows of [45, 180]) {
+      const { rasters, passport } = twoLands(rows);
+      const lines = provinceLines(rasters, passport);
+      const cell = 180 / passport.rows;
+      let seen = 0;
+      for (const [key, bin] of lines.edges) {
+        for (const [a, b] of bin) {
+          seen += 1;
+          expect(binKey((a.lat + b.lat) / 2, (a.lon + b.lon) / 2)).toBe(key);
+          //: Its ends too, but for the half cell between a centre and the
+          //: edge the line is drawn on.
+          for (const end of [a, b]) {
+            const band = Math.floor((end.lat + 90) / BIN_DEG);
+            const own = Math.floor(((a.lat + b.lat) / 2 + 90) / BIN_DEG);
+            expect(Math.abs(band - own)).toBeLessThanOrEqual(1);
+          }
+          expect(Math.abs(b.lat - a.lat)).toBeLessThanOrEqual(BIN_DEG + cell + 1e-6);
+        }
+      }
+      expect(seen).toBeGreaterThan(0);
+    }
+  });
+
+  it("cuts a run where the provinces on either side of it change", () => {
+    //: One land in the west, two in the east: the seam runs pole to pole,
+    //: but it parts a different pair north and south, and a line joined
+    //: across the equator would be one segment for two boundaries.
+    const { rasters, passport } = planet(
+      180,
+      () => 100,
+      () => "plain",
+      (r, c) => (c < 180 ? 1 : r < 90 ? 2 : 3),
+    );
+    const edges = provinceEdges(rasters, samplesOf(passport, wholeWindow(passport)));
+    const meridian = edges.filter(([a, b]) => Math.abs(a.lon - b.lon) < 1e-6);
+    const parallel = edges.filter(([a, b]) => Math.abs(a.lat - b.lat) < 1e-6);
+    //: Two seams -- the middle and the one round the date line -- each in
+    //: pieces of a bin, and none of the pieces straddling the change.
+    expect(meridian.length).toBe((2 * passport.rows) / BIN_DEG);
+    for (const [a, b] of meridian) {
+      expect(Math.min(a.lat, b.lat) >= 0 || Math.max(a.lat, b.lat) <= 0).toBe(true);
+    }
+    //: And the parallel where the two eastern lands meet, in pieces of a
+    //: bin like everything else.
+    expect(parallel.length).toBeGreaterThan(0);
+    for (const [a, b] of parallel) expect(a.lat).toBeCloseTo(b.lat, 6);
+  });
+
+  it("writes each name inside the land it names, weighed by its ground", () => {
+    const { rasters, passport } = twoLands(8);
+    const samples = samplesOf(passport, wholeWindow(passport));
+    const marks = provinceMarks(rasters, samples);
+    expect(marks.map((m) => m.code).sort()).toEqual([1, 2]);
+    const first = marks.find((m) => m.code === 1)!;
+    //: Columns 4..7 of sixteen: the middle of them.
+    expect(first.at.lon).toBeCloseTo(-180 + (6 * 360) / passport.cols, 6);
+    //: A band symmetric about the equator is named on it, however the
+    //: parallels are weighed.
+    expect(first.at.lat).toBeCloseTo(0, 6);
+  });
+
+  it("names a land astride the date line on its own side of the planet", () => {
+    //: The first and last columns are one province: the mean of the
+    //: longitudes is nought, the middle of the wrong ocean; round the
+    //: circle it is the date line, where the land actually lies. And the
+    //: closing column of a whole-planet window is not counted twice, or
+    //: the name would be dragged off the line towards it.
+    const { rasters, passport } = planet(
+      4,
+      () => 100,
+      () => "plain",
+      (_r, c) => (c === 0 || c === 7 ? 1 : 0),
+    );
+    const marks = provinceMarks(rasters, samplesOf(passport, wholeWindow(passport)));
+    expect(marks.length).toBe(1);
+    expect(Math.abs(marks[0].at.lon)).toBeCloseTo(180, 6);
+  });
+
+  it("keeps the province lines apart from the coast's own walk", () => {
+    const { rasters, passport } = twoLands(8);
+    const lines = provinceLines(rasters, passport);
+    expect([...lines.edges.values()].flat().length).toBe(passport.rows);
+    expect(lines.marks.length).toBe(2);
+    //: `planetLines` is the near frame's, and it says nothing of provinces.
+    expect(Object.keys(planetLines(rasters, passport))).toEqual([
+      "shores",
+      "lakes",
+      "rivers",
+    ]);
   });
 });

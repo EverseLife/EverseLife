@@ -19,6 +19,11 @@
  * off the theme when it changes and handed to the shader once (`sync`),
  * not every frame: a frame uploads the five numbers that move.
  *
+ * From the city frame in the ground also carries its grain (wave 8): the
+ * same shader, one more texture -- the rock's hardness -- and a strength
+ * the frame's width sets, nought on the wider frames where a texture of
+ * forty metres would be a screen of noise.
+ *
  * The map is told how this is going (`onState`): until the textures are up
  * the SVG ground keeps drawing the land, and if the GPU refuses -- no
  * context, a shader the driver will not take, a context lost and not
@@ -38,15 +43,19 @@ import {
 } from "react";
 
 import type { RasterPassport } from "../../api";
+import { frameMetres } from "./contours";
 import { useTerrain } from "./Ground";
-import type { Eye } from "./globe";
+import { UNITS_PER_METRE, type Eye } from "./globe";
 import { rastersOf, type Rasters } from "./rasters";
 import {
   FRAGMENT,
   PALETTE_SLOTS,
   VERTEX,
   deepOf,
+  edgeCells,
   formCodes,
+  grainMetres,
+  grainStrength,
   mipChain,
   paletteOf,
   sunDirection,
@@ -61,6 +70,9 @@ type Textures = {
   height: WebGLTexture;
   biome: WebGLTexture;
   form: WebGLTexture;
+  /** The hardness of the ground, a byte read back as nought to one: the
+   *  grain takes its edge off it (wave 8). */
+  rock: WebGLTexture;
   passport: RasterPassport;
   /** The deepest sea of the raster, metres: the water's shade runs to it. */
   deep: number;
@@ -124,6 +136,7 @@ function setUp(canvas: HTMLCanvasElement): Program | null {
   gl.uniform1i(at("u_height"), 0);
   gl.uniform1i(at("u_biome"), 1);
   gl.uniform1i(at("u_form"), 2);
+  gl.uniform1i(at("u_rock"), 3);
   return { gl, program, at, textures: new Map(), synced: null };
 }
 
@@ -140,6 +153,7 @@ function tearDown(program: Program | null, canvas: HTMLCanvasElement): void {
     gl.deleteTexture(t.height);
     gl.deleteTexture(t.biome);
     gl.deleteTexture(t.form);
+    gl.deleteTexture(t.rock);
   }
   program.textures.clear();
   program.synced = null;
@@ -150,7 +164,9 @@ function tearDown(program: Program | null, canvas: HTMLCanvasElement): void {
 
 /** The rasters as textures: the height a half-float red with its own mip
  *  chain and linear filtering; the classes unsigned bytes, read nearest --
- *  a class, not a mean of two (plan §9.3). */
+ *  a class, not a mean of two (plan §9.3); the rock a byte read back as a
+ *  number between nought and one, and that one blends -- hardness is a
+ *  measure, and a mean of two hardnesses is a hardness. */
 function upload(gl: WebGL2RenderingContext, passport: RasterPassport, rasters: Rasters): Textures {
   const { rows, cols } = passport;
   const height = gl.createTexture();
@@ -177,10 +193,22 @@ function upload(gl: WebGL2RenderingContext, passport: RasterPassport, rasters: R
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     return texture;
   };
+  const measure = (bytes: Uint8Array): WebGLTexture => {
+    const texture = gl.createTexture();
+    if (!texture) throw new Error("no texture");
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, cols, rows, 0, gl.RED, gl.UNSIGNED_BYTE, bytes);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    return texture;
+  };
   return {
     height,
     biome: classes(rasters.biome),
     form: classes(rasters.form),
+    rock: measure(rasters.rock),
     passport,
     deep: deepOf(heights),
   };
@@ -208,6 +236,9 @@ function sync(program: Program, planet: string, palette: Palette, highFrom: numb
   const codes = formCodes(passport);
   gl.uniform3ui(at("u_water_forms"), ...codes.water);
   gl.uniform4ui(at("u_cliff_forms"), ...codes.cliff);
+  gl.uniform4ui(at("u_stone_forms"), ...codes.stone);
+  gl.uniform2ui(at("u_sand_forms"), ...codes.sand);
+  gl.uniform3ui(at("u_ice_forms"), ...codes.ice);
   gl.uniform1i(at("u_shore"), codes.shore);
   const bind = (unit: number, texture: WebGLTexture) => {
     gl.activeTexture(gl.TEXTURE0 + unit);
@@ -216,6 +247,7 @@ function sync(program: Program, planet: string, palette: Palette, highFrom: numb
   bind(0, textures.height);
   bind(1, textures.biome);
   bind(2, textures.form);
+  bind(3, textures.rock);
   program.synced = { planet, palette, highFrom };
   return true;
 }
@@ -228,12 +260,15 @@ export const GroundGL = forwardRef<
     planet: string;
     eye: Eye;
     radius: number;
+    /** Half the frame's width in map units, undefined from the planet
+     *  frame: how strong the grain of the ground is (wave 8). */
+    within: number | undefined;
     /** The SVG the ground lies under: its screen matrix places the eye. */
     svg: React.RefObject<SVGSVGElement | null>;
     /** Told when the ground starts drawing, and when it gives up. */
     onState: (state: GroundGLState) => void;
   }
->(function GroundGL({ planet, eye, radius, svg, onState }, ref) {
+>(function GroundGL({ planet, eye, radius, within, svg, onState }, ref) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const probeRef = useRef<HTMLSpanElement | null>(null);
   const programRef = useRef<Program | null>(null);
@@ -336,14 +371,14 @@ export const GroundGL = forwardRef<
   //: where the SVG ground greys and the biome turns alpine, not at a line
   //: of the shader's own.
   const highFrom = terrain?.mountain_level ?? 1;
-  const state = useRef({ eye, radius, palette, planet, highFrom });
-  state.current = { eye, radius, palette, planet, highFrom };
+  const state = useRef({ eye, radius, palette, planet, highFrom, within });
+  state.current = { eye, radius, palette, planet, highFrom, within };
 
   const draw = useCallback(() => {
     const program = programRef.current;
     const canvas = canvasRef.current;
     const svgEl = svg.current;
-    const { eye, radius, palette, planet, highFrom } = state.current;
+    const { eye, radius, palette, planet, highFrom, within } = state.current;
     if (!program || !canvas || !svgEl || !palette) return;
     if (!sync(program, planet, palette, highFrom)) return;
     const { gl, at } = program;
@@ -361,9 +396,24 @@ export const GroundGL = forwardRef<
     gl.clear(gl.COLOR_BUFFER_BIT);
     gl.uniform2f(at("u_size"), width, height);
     gl.uniform2f(at("u_origin"), (ctm.e - box.left) * dpr, (ctm.f - box.top) * dpr);
-    gl.uniform1f(at("u_units"), 1 / (ctm.a * dpr));
+    const units = 1 / (ctm.a * dpr);
+    gl.uniform1f(at("u_units"), units);
     gl.uniform1f(at("u_radius"), radius);
     gl.uniform2f(at("u_eye"), eye.lat * RAD, eye.lon * RAD);
+    //: How strong the grain is comes off the ladder the lines share, so a
+    //: frame gains its texture and its lines together; how big it is comes
+    //: off the pixel, which is the only honest measure of the eye's height
+    //: -- the ladder's "frame" is how far the ground layer reaches, not how
+    //: much of it the eye sees.
+    const perPixel = units / UNITS_PER_METRE;
+    const strength = grainStrength(frameMetres(within));
+    gl.uniform1f(at("u_grain"), strength);
+    gl.uniform1f(at("u_grain_m"), grainMetres(perPixel));
+    //: The roughening of the colour's edge rides its own ramp (`edgeCells`):
+    //: it is wanted exactly where a cell of the raster is a line on screen,
+    //: which is not where the grain is strongest.
+    const step = program.textures.get(planet)?.passport.step_m ?? 0;
+    gl.uniform1f(at("u_edge"), edgeCells(width * perPixel, step, width));
     gl.drawArrays(gl.TRIANGLES, 0, 6);
   }, [svg]);
   useImperativeHandle(ref, () => ({ draw }), [draw]);
@@ -372,7 +422,7 @@ export const GroundGL = forwardRef<
   //: arrival -- redraws; the camera's frames redraw through the handle.
   useEffect(() => {
     draw();
-  }, [draw, eye, radius, palette, ready, planet, highFrom]);
+  }, [draw, eye, radius, palette, ready, planet, highFrom, within]);
   //: The box: a resize of the pane is a resize of the canvas.
   useEffect(() => {
     const canvas = canvasRef.current;
