@@ -8,6 +8,10 @@
  * Lines are vector on purpose: thin and sharp at any zoom (§9.5), and the
  * SVG's business, not the shader's.
  *
+ * Lines are a near frame's business (`closeFrame`): wider than the city
+ * frame the ground is the shader's alone, and a line drawn from cells of
+ * five hundred metres would be a web over the region rather than a line.
+ *
  * Two kinds of line, two costs. The coast, the lakes' shores and the rivers
  * do not depend on the frame: they are read once per planet, cell by cell,
  * and kept in bins of a few degrees, so a frame takes the bins under it.
@@ -54,14 +58,16 @@ export const CONTOUR_LADDER: readonly (readonly [frameM: number, intervalM: numb
 ];
 /** Every so many contours one is drawn heavier, as on a topographic sheet. */
 export const INDEX_EVERY = 5;
-/** Below this frame width the near frame's lines are drawn -- the hachures
- *  of the cliffs and the threads of the rivers: the city frame and nearer
- *  (plan §9.7), where the window is read cell by cell. Wider than this a
- *  river is a thread of 500-metre cells: crumbs on the planet's disk, a
- *  web over the region, and it is not drawn at all (owner, 2026-09-09). */
+/** Below this frame width the vector lines are drawn at all -- contours,
+ *  the coast, the lakes' shores, the hachures, the rivers: the city frame
+ *  and nearer (plan §9.7), where the window is read cell by cell. Wider
+ *  than this every one of them is a thread of 500-metre cells laid over a
+ *  region: a web rather than a line (owner, 2026-09-09), and the far
+ *  frames are the shaded ground's alone -- the coast is seen there as the
+ *  edge of the water's colour, which the shader cuts by the same zero. */
 export const CLOSE_FRAME_M = 45_000;
 
-/** Whether a frame of this width in metres is near enough for those lines. */
+/** Whether a frame of this width in metres is near enough to draw lines on. */
 export function closeFrame(frameM: number): boolean {
   return frameM <= CLOSE_FRAME_M;
 }

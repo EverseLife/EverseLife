@@ -230,7 +230,7 @@ describe("the ladder and the window's eye", () => {
     expect(b).toEqual(a);
     expect(c).not.toEqual(a);
   });
-  it("keeps the rivers for a near frame, and the planet frame has none", () => {
+  it("draws lines on a near frame alone: the planet's and the region's have none", () => {
     //: The frame the map hands the layer: the planet's has no width.
     expect(closeFrame(frameMetres(undefined))).toBe(false);
     expect(closeFrame(CLOSE_FRAME_M * 2)).toBe(false);

@@ -7,6 +7,12 @@
  * rivers -- read off the rasters (`contours.ts`) and projected by the eye.
  * Drawn over the ground and under the nodes, thin at any zoom.
  *
+ * Nothing at all from a frame wider than the city's (`closeFrame`): there
+ * the ground is the shader's, and lines cut from cells of five hundred
+ * metres would web the region over (owner, 2026-09-09). So the planet's
+ * lines are not even read until a near frame asks for them -- and once
+ * read they are kept for the page, so coming back costs nothing.
+ *
  * Three memos, three costs: the planet's own lines -- the coast, the lakes,
  * the rivers -- are read once per planet and kept in bins; the frame's
  * lines -- contours, hachures -- are read again only when the eye leaves
@@ -27,9 +33,15 @@ import {
   quantisedEye,
   underFrame,
   type Bins,
+  type PlanetLines,
   type Segment,
 } from "./contours";
 import { useRasters } from "./rasters";
+
+/** The lines a planet's own rasters give, read once for the life of the
+ *  page: a walk over every cell of the field, and the same answer every
+ *  time -- as `Ground`'s sketch and `rasters`' bytes are kept. */
+const PLANET_LINES = new Map<string, PlanetLines>();
 
 /** Segments to one path, dropping what faces away from the eye. */
 function pathOf(segments: readonly Segment[], eye: Eye, radius: number): string {
@@ -57,21 +69,25 @@ export function Lines({
 }) {
   const rasters = useRasters(planet);
   const passport = useTerrain(planet)?.raster ?? null;
-  const own = useMemo(
-    () => (rasters && passport ? planetLines(rasters, passport) : null),
-    [rasters, passport],
-  );
+  //: Whether this frame has lines at all.
+  const near = closeFrame(frameMetres(within));
+  const own = useMemo(() => {
+    if (!near || !rasters || !passport) return null;
+    let held = PLANET_LINES.get(planet);
+    if (!held) PLANET_LINES.set(planet, (held = planetLines(rasters, passport)));
+    return held;
+  }, [near, planet, rasters, passport]);
   const { lat, lon } = quantisedEye(eye, radius, within);
   const frame = useMemo(
-    () => (rasters && passport ? frameLines(rasters, passport, { lat, lon }, radius, within) : null),
-    [rasters, passport, lat, lon, radius, within],
+    () =>
+      near && rasters && passport
+        ? frameLines(rasters, passport, { lat, lon }, radius, within)
+        : null,
+    [near, rasters, passport, lat, lon, radius, within],
   );
   const drawn = useMemo(() => {
     if (!own || !frame) return null;
     const under = (bins: Bins) => pathOf(underFrame(bins, eye, radius, within), eye, radius);
-    //: The rivers are a near frame's line: from afar the cells of the water
-    //: raster read as a web over the land rather than as threads.
-    const near = closeFrame(frameMetres(within));
     return {
       contours: pathOf(frame.contours.filter((c) => !c.index).flatMap((c) => c.segments), eye, radius),
       index: pathOf(frame.contours.filter((c) => c.index).flatMap((c) => c.segments), eye, radius),
@@ -80,7 +96,7 @@ export function Lines({
       beach: under(own.shores.beach),
       shore: under(own.shores.shore),
       lakes: under(own.lakes),
-      rivers: near ? under(own.rivers) : "",
+      rivers: under(own.rivers),
     };
   }, [own, frame, eye, radius, within]);
   if (!drawn) return null;
