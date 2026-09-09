@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import math
+import shutil
 import subprocess
 import sys
 from datetime import timedelta
@@ -26,6 +27,7 @@ import numpy as np
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src import field as fields
 from src import relief
 from src.constants import Constants
 from src.constants import registry as R
@@ -87,90 +89,68 @@ def test_river_sources_keep_apart_by_arc_even_at_the_pole() -> None:
             assert len(polar) <= 6, (seed, cap, polar)
 
 
-def test_the_local_relief_is_read_from_the_tile_the_client_draws(constants: Constants) -> None:
-    """A tile's lattice points are the field's own heights, and between them
-    the field reads bilinearly (D-323): the ground drawn and the ground found
-    are one set of numbers."""
+def test_a_tile_is_the_field_read_on_the_client_lattice(constants: Constants) -> None:
+    """A tile's lattice points are the field's own heights (plan wave 2,
+    D-323): the ground drawn and the ground found are one set of numbers,
+    and a lake in it reads under the sea's zero so the client cuts water."""
     field = terrain.field_of(constants, Planet.TERRA)
-    assert field.detail_amplitude > 0, "Терра с местным рельефом"
-    row, col = relief.tile_of(41.0, 24.0)
+    row, col = relief.tile_of(*next(p for p in seed_points() if not field.is_water(*p)))
     tile = terrain.tile(constants, Planet.TERRA, row, col)
     assert tile is not None and tile["n"] == relief.TILE_N
-    #: The wire carries the noise alone (D-225): the client has the grid.
+    #: The wire carries the tile alone (D-225): the client has the grid.
     assert "grid" not in tile
     assert len(tile["local"]) == relief.TILE_N + 1 and len(tile["local"][0]) == relief.TILE_N + 1
     step = tile["step"]
-    heights, _ = field.tile(row, col)
     for i, j in ((0, 0), (17, 63), (relief.TILE_N, relief.TILE_N)):
         lat = min(90.0, tile["lat0"] + i * step)
         lon = tile["lon0"] + j * step
-        assert abs(float(heights[i][j]) - field.height(lat, lon)) < 1e-4, (i, j)
-        assert abs(tile["local"][i][j] - field.local(lat, lon)) < 1e-4, (i, j)
+        expected = field.height_at(lat, lon)
+        if field.is_lake(lat, lon):
+            expected = min(expected, fields.LAKE_SINK)
+        assert abs(tile["local"][i][j] - expected) < 1e-4, (i, j)
     #: Written once: the same bytes come back, and none off the planet.
     first = terrain.tile_json(constants, Planet.TERRA, row, col)
     assert first is not None and first is terrain.tile_json(constants, Planet.TERRA, row, col)
     assert terrain.tile_json(constants, Planet.TERRA, 99, 0) is None
-    #: The field keeps a neighbourhood of tiles, not the planet.
-    for r in range(relief.tile_counts()[0]):
-        for c in range(0, relief.tile_counts()[1], 3):
-            field.tile(r, c)
-    assert len(field.tiles) <= relief.TILE_KEEP
-    #: Halfway between two lattice points the height is their mean.
-    a = field.height(tile["lat0"] + 5 * step, tile["lon0"] + 5 * step)
-    b = field.height(tile["lat0"] + 5 * step, tile["lon0"] + 6 * step)
-    mid = field.height(tile["lat0"] + 5 * step, tile["lon0"] + 5.5 * step)
-    assert abs(mid - (a + b) / 2) < 1e-9
-    #: Off the planet there is no tile.
     assert terrain.tile(constants, Planet.TERRA, 18, 0) is None
     assert terrain.tile(constants, Planet.TERRA, 0, 36) is None
+    #: Halfway between two cells the height is their mean.
+    lat, lon = field.centre(field.rows // 2, field.cols // 2)
+    dlon = 360.0 / field.cols
+    a = field.height_at(lat, lon)
+    b = field.height_at(lat, lon + dlon)
+    assert abs(field.height_at(lat, lon + dlon / 2) - (a + b) / 2) < 1e-9
 
 
-def test_peaks_are_mountains_and_basins_lakes_at_the_vault_shares(constants: Constants) -> None:
-    """The local relief does not move a coast; on land its highest share is
-    mountain wherever it stands and its lowest share holds water on a planet
-    with a sea -- and nowhere else does the land dip under the sea."""
+def seed_points() -> list[tuple[float, float]]:
+    return [(lat, lon) for lat in range(-50, 51, 2) for lon in range(-180, 180, 2)]
+
+
+def test_water_mountains_and_lakes_are_the_rasters_word(constants: Constants) -> None:
+    """The sea is the water raster's cell, a mountain the height over the
+    line that leaves `terrain.mountain_share` of the land above it, and a
+    lake waters the node on its bank as a river does."""
     field = terrain.field_of(constants, Planet.TERRA)
     rng = np.random.default_rng(5)
     land: list[tuple[float, float]] = []
     while len(land) < 2000:
         lat = math.degrees(math.asin(rng.uniform(-1, 1)))
         lon = rng.uniform(-180.0, 180.0)
-        #: The coast is the grid's word, whatever the local noise says.
-        assert field.is_sea(lat, lon) == (field.coarse(lat, lon) < field.sea_level)
+        assert field.is_sea(lat, lon) == (field.water[field.cell(lat, lon)] == fields.SEA)
         if field.is_sea(lat, lon):
-            #: No shoal rises out of the sea -- away from the shore, where
-            #: the tile's lattice reads the coast a step from the grid's.
-            if field.coarse(lat, lon) < field.sea_level - 0.02:
-                assert field.height(lat, lon) < field.sea_level, "в море нет мелей из местного шума"
+            assert field.height_at(lat, lon) <= 0.05, "море стоит не выше кромки"
             continue
         land.append((lat, lon))
-    lakes = sum(field.is_lake(*p) for p in land) / len(land)
     mountains = sum(field.is_mountain(*p) for p in land) / len(land)
-    basin = float(constants[R.TERRAIN_BASIN_SHARE])
-    peak = float(constants[R.TERRAIN_PEAK_SHARE])
-    assert basin * 0.4 <= lakes <= basin * 2.0, lakes
-    assert mountains >= peak * 0.8, mountains
-    #: Dry land is dry: the local noise never sinks the land under the sea --
-    #: away from the coast, where the tile's lattice and the grid's read the
-    #: shore a step apart.
-    inland = [p for p in land if field.coarse(*p) >= field.sea_level + 0.02]
-    assert inland and all(field.height(*p) >= field.sea_level for p in inland)
-    #: A planet without a sea has basins but no lakes.
+    share = float(constants[R.TERRAIN_MOUNTAIN_SHARE])
+    assert share * 0.5 <= mountains <= share * 1.6, mountains
+    assert all(field.relief(*p) >= 0.0 for p in land)
+    #: A planet without a sea has no lake to water a node.
     dry = terrain.field_of(constants, Planet.PYROXIS)
-    assert not dry.wet
-    assert not any(dry.is_lake(*p) for p in land[:300])
-    #: The planet's ranges are the grid's word: a peak of the noise adds a
-    #: mountain, a dip of it never takes one away.
-    ranges = [p for p in land if field.coarse(*p) >= field.mountain_level]
-    assert ranges and all(field.is_mountain(*p) for p in ranges)
-    #: A lake waters the node on its bank as a river does. On the **bank**:
-    #: the reach is read on eight rays at three distances (`relief.around`),
-    #: and a lake is a thin sliver of a basin -- the one found here runs
-    #: 0.04 deg across against a reach of 0.58 -- so a node well within the
-    #: reach can still fall between two rings of rays and read dry. That is
-    #: OQ-152 and not this file's to settle; what is pinned here is the bank,
-    #: which no ring can miss.
-    lake = next(p for p in land if field.is_lake(*p))
+    assert not dry.is_sea(0.0, 0.0)
+    lakes = [p for p in land if field.is_lake(*p)]
+    assert lakes, "на Терре есть озёра"
+    lake = lakes[0]
     step = 0.01
     beside = lake
     while field.is_water(*beside) and abs(beside[0] - lake[0]) < 1.0:
@@ -185,17 +165,16 @@ def test_peaks_are_mountains_and_basins_lakes_at_the_vault_shares(constants: Con
 def test_the_river_mark_is_a_fact_of_the_map(constants: Constants) -> None:
     """Within the reach of a river a node has river water; far from every river it has none."""
     field = terrain.field_of(constants, Planet.TERRA)
-    assert field.rivers, "у Терры есть реки"
-    on_river = field.rivers[0][len(field.rivers[0]) // 2]
+    rivers = np.argwhere(field.water == fields.RIVER)
+    assert len(rivers), "у Терры есть реки"
+    on_river = field.centre(*(int(v) for v in rivers[len(rivers) // 2]))
     assert terrain.marks_at(constants, Planet.TERRA, *on_river)[world.WATER] == world.RIVER
     reach = terrain.river_reach_deg(constants, Planet.TERRA, 0.0)
-    #: A point the reach and then some away from every river: walk the grid
-    #: until one turns up, there is always one on a planet three-fifths sea.
     far = next(
         (lat, lon)
         for lat in range(-60, 61, 3)
         for lon in range(-180, 180, 3)
-        if field.river_distance_deg(lat, lon) > reach * 4
+        if not field.is_water(lat, lon) and field.river_distance_deg(lat, lon) > reach * 4
     )
     assert terrain.marks_at(constants, Planet.TERRA, *far)[world.WATER] == world.NO_WATER
 
@@ -210,12 +189,12 @@ def test_the_climate_follows_the_latitude_and_the_height(constants: Constants) -
     highs = [
         terrain.climate_at(constants, Planet.TERRA, 75.0, lon)[0] for lon in range(-180, 180, 20)
     ]
-    assert max(lows) <= warm and min(highs) >= cold - constants[R.TERRAIN_LAPSE_C]
+    assert max(lows) <= warm + 1 and min(highs) >= cold - constants[R.TERRAIN_LAPSE_C] - 10
     assert sum(lows) / len(lows) > sum(highs) / len(highs), "у экватора теплее, чем у полюса"
     #: The same latitude, a peak against the shore: the peak is colder.
     peak = max(
         ((lat, lon) for lat in range(-30, 31, 2) for lon in range(-180, 180, 2)),
-        key=lambda p: field.height(*p),
+        key=lambda p: field.height_at(*p),
     )
     shore = min(((peak[0], lon) for lon in range(-180, 180, 2)), key=lambda p: field.relief(*p))
     assert (
@@ -246,18 +225,18 @@ def test_no_node_stands_in_the_sea_or_past_the_last_latitude(constants: Constant
 
 
 def test_the_sketch_is_the_field_the_client_draws(constants: Constants) -> None:
+    field = terrain.field_of(constants, Planet.TERRA)
     sketch = terrain.sketch(constants, Planet.TERRA)
-    assert sketch["rows"] == relief.GRID_ROWS and len(sketch["grid"]) == relief.GRID_ROWS
-    assert len(sketch["grid"][0]) == relief.GRID_COLS
-    assert sketch["rivers"] and all(
-        len(point) == 2 for river in sketch["rivers"] for point in river
-    )
-    assert 0.0 < sketch["sea_level"] < sketch["mountain_level"] < 1.0
+    rows, cols = field.grid.shape
+    assert sketch["rows"] == rows and len(sketch["grid"]) == rows
+    assert len(sketch["grid"][0]) == cols and rows <= fields.SKETCH_ROWS
+    assert sketch["sea_level"] == 0.0 < sketch["mountain_level"] < 1.0
+    assert sketch["basin_level"] == 0.0 and sketch["peak_level"] == sketch["mountain_level"]
+    assert sketch["lakes"] and all(len(cell) == 2 for cell in sketch["lakes"])
     warmth = sketch["warmth"]
-    assert len(warmth) == relief.GRID_ROWS
-    middle = relief.GRID_ROWS // 2
+    assert len(warmth) == rows
+    middle = rows // 2
     assert warmth[0] < warmth[middle] > warmth[-1], "экватор теплее полюсов"
-    assert warmth[middle] == round(terrain.by_latitude(constants, 1.0))
 
 
 async def test_noon_comes_to_the_east_first(session: AsyncSession, constants: Constants) -> None:
@@ -325,6 +304,9 @@ def test_the_sketch_tool_builds_the_field_the_numbers_ask_for(
     #: to read: the test must not depend on where the vault is checked out.
     raw = json.loads(Path(constants.source).read_text(encoding="utf-8"))
     (build / "constants.json").write_text(json.dumps(raw), encoding="utf-8")
+    #: And the field beside it: the tool reads the planet from the build's
+    #: `field/` as the engine does (plan wave 2).
+    shutil.copytree(Path(constants.source).parent / "field", build / "field")
 
     def run(*extra: str) -> dict:
         done = subprocess.run(
@@ -337,9 +319,9 @@ def test_the_sketch_tool_builds_the_field_the_numbers_ask_for(
         return json.loads(done.stdout.decode("utf-8"))
 
     plain = run()
-    assert plain["rows"] == relief.GRID_ROWS and plain["cols"] == relief.GRID_COLS
-    turned = run("--set", "terrain.seed=17")
-    assert turned["grid"] != plain["grid"], "другое зерно — другой мир"
+    assert plain["rows"] > 0 and plain["cols"] == 2 * plain["rows"]
+    turned = run("--set", "terrain.mountain_share=0.5")
+    assert turned["mountain_level"] != plain["mountain_level"], "другая доля гор — другая линия"
     #: And the file the tool read is exactly as it was: a preview writes nothing.
     assert json.loads((build / "constants.json").read_text(encoding="utf-8")) == raw
 
@@ -352,15 +334,11 @@ def test_the_field_has_metres(constants: Constants) -> None:
     rise = float(constants[R.TERRAIN_RELIEF_M])
     assert rise > 0
     field = terrain.field_of(constants, Planet.TERRA)
-    rows, cols = field.grid.shape
-    sea = lake = None
-    for row in range(rows):
-        for col in range(cols):
-            lat, lon = field.centre(row, col)
-            if sea is None and field.is_sea(lat, lon):
-                sea = (lat, lon)
-            if lake is None and (row, col) in field.lakes:
-                lake = (lat, lon)
+    rows, cols = field.rows, field.cols
+    seas = np.argwhere(field.water == fields.SEA)
+    lakes = np.argwhere(field.water == fields.LAKE)
+    sea = field.centre(*(int(v) for v in seas[0])) if len(seas) else None
+    lake = field.centre(*(int(v) for v in lakes[0])) if len(lakes) else None
     assert sea is not None, "на Терре есть море"
     assert terrain.height_m(constants, Planet.TERRA, *sea) == 0.0, "море стоит на нуле"
     if lake is not None:

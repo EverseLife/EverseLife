@@ -15,6 +15,7 @@ rules, the turning back, and the race two scouts run for one cell.
 from __future__ import annotations
 
 import asyncio
+import json
 import math
 import uuid
 from datetime import UTC, datetime
@@ -24,7 +25,7 @@ from sqlalchemy import func, select, text
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from conftest import _slow
+from conftest import VAULT_BUILD, _slow
 from src import globe, seed_planets
 from src.constants import Catalog, Constants
 from src.constants import registry as R
@@ -49,7 +50,18 @@ from src.models.job import Job, JobState
 from src.models.world import Edge, Layer, Node, Planet, Surface, Vein
 from src.units import METRES_PER_KM
 
-CAPITAL = (41.0, 24.0)
+
+def _capital() -> tuple[float, float]:
+    """Where the layout pins the capital: read off the build the tests run
+    on, because the field decides where land is and the pin follows it
+    (landscape plan, wave 2)."""
+    layout = json.loads((VAULT_BUILD / "world.json").read_text(encoding="utf-8"))
+    nodes = layout["nodes"] if isinstance(layout, dict) else layout
+    place = next(node["place"] for node in nodes if node.get("key") == "terra.capital")
+    return float(place["lat"]), float(place["lon"])
+
+
+CAPITAL = _capital()
 
 
 async def _sphere(session: AsyncSession, planet: Planet = Planet.TERRA) -> Node:
