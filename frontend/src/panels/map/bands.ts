@@ -250,16 +250,34 @@ export function farOf(scale: number): number {
   return Math.max(0, Math.round(2 * Math.log2(span / closing)));
 }
 
-/** A closed city's radius **in pixels**: its count of nodes at the closing,
- *  held between what is still a city and what fits beside its neighbours,
- *  and larger the farther out -- from afar the cities are the map (owner,
- *  2026-09-06: as a web map shows the great cities first). */
+/**
+ * A closed city's radius **in pixels**: its count of nodes at the closing,
+ * held between what is still a city and what fits beside its neighbours,
+ * and a little larger the farther out -- from afar the cities are the map
+ * (owner, 2026-09-06: as a web map shows the great cities first).
+ *
+ * The growth **saturates**, and that is the whole of this arithmetic. Linear
+ * in half-octaves it multiplied the mark by five between the city's closing
+ * and a frame eighty kilometres wide -- measured on the running map: eleven
+ * pixels at the closing, forty-seven at eighty kilometres -- and over the
+ * ground the shader draws now (landscape plan wave 5) that is a blot, not a
+ * mark, with a name of thirteen pixels beside it (owner, 2026-09-09:
+ * «абстрактный узел города становится очень большим при зуме»). It grows
+ * towards `CITY_GROWTH` of its own size, half the way there at
+ * `CITY_GROWTH_HALF` half-octaves out, so the mark stands within a fifth or
+ * so of one size the whole way from the streets to the planet.
+ */
 export const CITY_R_MIN = 14;
-export const CITY_R_MAX = 120;
+//: The largest a city is drawn whatever its size and however far out: the
+//: biggest base grown by `CITY_GROWTH`, so a great city's own size is never
+//: clipped and no city ever passes it.
+export const CITY_R_MAX = 48;
 export const CITY_GROWTH = 0.6;
+export const CITY_GROWTH_HALF = 6;
 export function cityPixels(size: number, far: number): number {
   const base = Math.min(40, Math.max(CITY_R_MIN, size));
-  return Math.min(CITY_R_MAX, base * (1 + (CITY_GROWTH * far) / 2));
+  const growth = 1 + (CITY_GROWTH * far) / (far + CITY_GROWTH_HALF);
+  return Math.min(CITY_R_MAX, base * growth);
 }
 
 /**
