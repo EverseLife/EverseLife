@@ -31,12 +31,12 @@ from collections import OrderedDict
 import numpy as np
 
 from src import field as fields
-from src import globe, relief
+from src import globe, healpix, relief
 from src.constants import Constants
 from src.constants import registry as R
 from src.engine import ground, world
 from src.models.world import Planet
-from src.runtime import RASTER_ROWS_MAX
+from src.runtime import RASTER_CELLS_MAX
 from src.units import METRES_PER_KM, PERCENT
 
 #: A mountain's mark on the node: the client draws it, the ground reads it.
@@ -247,23 +247,54 @@ def _sketched(constants: Constants, planet: Planet, field: fields.Field) -> dict
 
 
 #: The rasters the client draws by (plan §9.3), thinned to
-#: `runtime.RASTER_ROWS_MAX` rows at most.
+#: `runtime.RASTER_CELLS_MAX` cells at most.
 RASTER_KINDS = ("height", "biome", "form", "water", "rock", "province", "river", "flow", "lake")
 
 
-def raster_stride(rows: int) -> int:
-    """Every n-th cell, so that the raster has `RASTER_ROWS_MAX` rows at most."""
-    return max(1, math.ceil(rows / RASTER_ROWS_MAX))
+def raster_nside(field: fields.Field) -> int:
+    """How fine the picture's copy of the field is (D-328).
+
+    The finest fineness that both divides the field's own and fits the
+    budget. It has to divide it, or a cell of the picture would not be a
+    square block of the field's cells inside one face, and the thinning
+    would smear across a seam. Nothing says it has to be a power of two --
+    Aurora's field is `nside` 362 and its picture 181, which is prime.
+    """
+    for factor in range(1, field.nside + 1):
+        if field.nside % factor:
+            continue
+        coarse = field.nside // factor
+        if healpix.npix(coarse) <= RASTER_CELLS_MAX:
+            return coarse
+    return 1
 
 
 def raster_passport(constants: Constants, field: fields.Field) -> dict:
-    """What the rasters are: rows, cols, the metres a cell spans at the
-    equator, the rise a height is a share of, and the code tables."""
-    stride = raster_stride(field.rows)
+    """What the rasters are: the grid they are cut on, how they are laid out
+    as a texture, the rise a height is a share of, and the code tables."""
+    nside = raster_nside(field)
+    rows, cols = healpix.tile_shape(nside)
     return {
-        "rows": len(range(0, field.rows, stride)),
-        "cols": len(range(0, field.cols, stride)),
-        "step_m": field.step_m * stride,
+        #: The grid (D-328): twelve square faces of `nside` cells a side,
+        #: equal in area everywhere. A cell is found by arithmetic on the
+        #: sphere's point, not by a row and a column of latitude.
+        "grid": "healpix",
+        "nside": nside,
+        "cells": healpix.npix(nside),
+        #: The texture: the twelve faces `across` by `down`, each with a
+        #: `border` of cells taken from the face over the edge so that the
+        #: blending between cells stays continuous across a seam. The texel
+        #: of cell (face, x, y) is
+        #: ((face % across) * (nside + 2 border) + border + x,
+        #:  (face / across) * (nside + 2 border) + border + y).
+        "rows": rows,
+        "cols": cols,
+        "across": healpix.ACROSS,
+        "down": healpix.DOWN,
+        "border": healpix.BORDER,
+        #: The metres a cell spans -- one number, and not "at the equator"
+        #: any more: every cell of the grid is the same size (D-328).
+        "step_m": healpix.cell_side_m(field.radius_m, nside),
         "relief_m": field.relief_m,
         #: `biome` is a byte a cell into this list, 255 on water; `form`
         #: into the field's own table; `height` a signed metre, sixteen bits.
@@ -283,7 +314,7 @@ def raster_passport(constants: Constants, field: fields.Field) -> dict:
         #: on a log scale to `flow_max_km2`. Between them the picture draws a
         #: river of an honest width that widens downstream (landscape plan
         #: wave 6's debt, closed 2026-09-09): a river is ground, not a line
-        #: laid over it, and a thread of 500-metre cells was the line.
+        #: laid over it, and a thread of whole cells was the line.
         "river_reach_m": fields.BYTE,
         "flow_max_km2": float(field.river_flow_km2.max()),
         #: `province` is a byte a cell: 0 no province, k the k-th of this

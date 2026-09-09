@@ -37,11 +37,35 @@ import {
   windowAbout,
 } from "../panels/map/contours";
 import type { Rasters } from "../panels/map/rasters";
+import type { Lattice } from "../panels/map/healpix";
+import type { RasterPassport } from "../api";
 import { UNITS_PER_METRE } from "../panels/map/globe";
 import { frameMetres } from "../panels/map/contours";
 
 const FORMS = ["sea", "lake", "plain", "hills", "cliff", "coast_cliff", "beach"];
 const WATER = ["land", "sea", "lake", "river"];
+
+/** A lattice of latitude and longitude whose points reach the rasters by
+ *  row and column, for the tests below.
+ *
+ *  What the vector layer walks is a mesh of latitude and longitude, and
+ *  where a point of it reaches into the rasters is the grid's business
+ *  (D-328): on a planet that is HEALPix, here it is a plain grid drawn by
+ *  hand. The drawing is what these tests are about -- a ring that closes, a
+ *  shore styled by the land it touches, a run of boundary cut where the
+ *  provinces change -- and it is the same drawing either way. That the
+ *  planet's own lattice reaches the right cell is `healpix.test.ts`. */
+function meshOf(rows: number, cols: number): Lattice {
+  return {
+    rows,
+    cols,
+    at: (lat, lon) => {
+      const r = Math.min(rows - 1, Math.max(0, Math.floor(((lat + 90) * rows) / 180)));
+      const c = ((Math.floor(((lon + 180) * cols) / 360) % cols) + cols) % cols;
+      return r * cols + c;
+    },
+  };
+}
 
 /** A small planet: `rows` by `2 * rows` cells, the heights given by a
  *  function, and -- where a test asks for them -- the provinces by another. */
@@ -75,36 +99,38 @@ function planet(
       rasters.province[r * cols + c] = province ? province(r, c) : 0;
     }
   }
-  const passport = {
-    rows, cols, step_m: 500, relief_m: 3000, biomes: [], forms: FORMS, water: WATER,
+  const passport: RasterPassport = {
+    grid: "healpix", nside: rows, cells: 12 * rows * rows,
+    rows, cols, across: 4, down: 3, border: 1,
+    step_m: 500, relief_m: 3000, biomes: [], forms: FORMS, water: WATER,
     flow_max_km2: 4000,
   };
-  return { rasters, passport };
+  return { rasters, passport, lattice: meshOf(rows, cols) };
 }
 
 describe("windowAbout", () => {
   it("reads the whole hemisphere at a stride within the budget from the planet frame", () => {
-    const win = windowAbout({ rows: 600, cols: 1200 }, { lat: 10, lon: 20 }, 1e6, undefined);
+    const win = windowAbout(meshOf(600, 1200), { lat: 10, lon: 20 }, 1e6, undefined);
     expect(win.r0).toBe(0);
     expect(win.r1).toBe(599);
     expect(win.count).toBe(1200);
-    const samples = samplesOf({ rows: 600, cols: 1200 }, win);
+    const samples = samplesOf(meshOf(600, 1200), win);
     expect(samples.nr * samples.nc).toBeLessThanOrEqual(SAMPLE_BUDGET * 1.05);
     expect(win.stride).toBeGreaterThan(1);
   });
   it("closes a window round the whole planet on itself: no seam on the first column", () => {
     //: A ring of land round the equator, the sea elsewhere: the coast must
     //: cross every column, the first included.
-    const { rasters, passport } = planet(8, (r) => (r === 3 || r === 4 ? 100 : -100));
-    const samples = samplesOf(passport, wholeWindow(passport));
-    expect(samples.nc).toBe(passport.cols + 1);
+    const { rasters, passport, lattice } = planet(8, (r) => (r === 3 || r === 4 ? 100 : -100));
+    const samples = samplesOf(lattice, wholeWindow(lattice));
+    expect(samples.nc).toBe(lattice.cols + 1);
     const { shores } = coast(rasters, samples, FORMS);
     const all = [...shores.rock, ...shores.beach, ...shores.shore];
     //: Two coasts, one north and one south of the ring, each `cols` cells
     //: long -- and every crossed cell is cut into `COAST_FINE` pieces, so
     //: the line follows the same curve inside a cell that the shader's
     //: water does.
-    expect(all).toHaveLength(2 * passport.cols * COAST_FINE);
+    expect(all).toHaveLength(2 * lattice.cols * COAST_FINE);
     const lons = all.map(([a]) => a.lon);
     expect(Math.min(...lons)).toBeLessThan(-160);
     expect(Math.max(...lons)).toBeGreaterThan(160);
@@ -112,10 +138,10 @@ describe("windowAbout", () => {
   it("reads a close frame whole, wrapping the columns round the planet", () => {
     const radius = 1e6;
     //: A frame of a few cells about a point near the date line.
-    const win = windowAbout({ rows: 600, cols: 1200 }, { lat: 0, lon: 179.9 }, radius, radius * 0.01);
+    const win = windowAbout(meshOf(600, 1200), { lat: 0, lon: 179.9 }, radius, radius * 0.01);
     expect(win.stride).toBe(1);
     expect(win.count).toBeLessThan(1200);
-    const samples = samplesOf({ rows: 600, cols: 1200 }, win);
+    const samples = samplesOf(meshOf(600, 1200), win);
     const lons = [];
     for (let j = 0; j < samples.nc; j++) lons.push(samples.geo(0, j).lon);
     expect(Math.max(...lons)).toBeLessThanOrEqual(180);
@@ -127,12 +153,12 @@ describe("windowAbout", () => {
 describe("isolines and contours", () => {
   it("closes a ring round a hill and counts the levels up to the summit", () => {
     const rows = 12;
-    const { rasters, passport } = planet(rows, (r, c) => {
+    const { rasters, passport, lattice } = planet(rows, (r, c) => {
       const d = Math.hypot(r - 6, c - 12);
       return d > 5 ? -100 : 1000 * (1 - d / 5);
     });
-    const win = windowAbout(passport, { lat: 0, lon: 0 }, 1e5, undefined);
-    const samples = samplesOf(passport, win);
+    const win = windowAbout(lattice, { lat: 0, lon: 0 }, 1e5, undefined);
+    const samples = samplesOf(lattice, win);
     expect(win.stride).toBe(1);
     const rings = contours(rasters, samples, 250);
     expect(rings.map((r) => r.level)).toEqual([250, 500, 750]);
@@ -150,14 +176,14 @@ describe("isolines and contours", () => {
     expect(contours(rasters, samples, Infinity)).toEqual([]);
   });
   it("marks every fifth contour as an index", () => {
-    const { rasters, passport } = planet(8, (r) => r * 500);
-    const win = windowAbout(passport, { lat: 0, lon: 0 }, 1e5, undefined);
-    const rings = contours(rasters, samplesOf(passport, win), 100);
+    const { rasters, passport, lattice } = planet(8, (r) => r * 500);
+    const win = windowAbout(lattice, { lat: 0, lon: 0 }, 1e5, undefined);
+    const rings = contours(rasters, samplesOf(lattice, win), 100);
     const index = rings.filter((r) => r.index).map((r) => r.level);
     expect(index).toEqual([500, 1000, 1500, 2000, 2500, 3000]);
   });
   it("splits a saddle by the mean of its corners", () => {
-    const samples = samplesOf({ rows: 2, cols: 4 }, { r0: 0, r1: 1, c0: 0, count: 2, stride: 1 });
+    const samples = samplesOf(meshOf(2, 4), { r0: 0, r1: 1, c0: 0, count: 2, stride: 1 });
     //: Top-left and bottom-right high (10), the other two low (0): the
     //: mean is 5, so at level 5 the middle counts high and the high corners
     //: join -- the two cuts go round the low corners, top-right and
@@ -185,13 +211,13 @@ describe("coast", () => {
     const rows = 6;
     //: The sea on the west half, land on the east; the land's first column
     //: a sea cliff in the north rows, a beach in the south rows.
-    const { rasters, passport } = planet(
+    const { rasters, passport, lattice } = planet(
       rows,
       (r, c) => (c < 6 ? -50 : 100),
       (r, c) => (c < 6 ? "sea" : c === 6 ? (r < 3 ? "coast_cliff" : "beach") : "plain"),
     );
-    const win = windowAbout(passport, { lat: 0, lon: 0 }, 1e5, undefined);
-    const { shores, lakes } = coast(rasters, samplesOf(passport, win), FORMS);
+    const win = windowAbout(lattice, { lat: 0, lon: 0 }, 1e5, undefined);
+    const { shores, lakes } = coast(rasters, samplesOf(lattice, win), FORMS);
     expect(shores.rock.length).toBeGreaterThan(0);
     expect(shores.beach.length).toBeGreaterThan(0);
     //: The planet closes on itself: the land's last column meets the sea's
@@ -207,9 +233,9 @@ describe("coast", () => {
     }
   });
   it("draws a lake's shore off the form raster", () => {
-    const { rasters, passport } = planet(6, () => 100, (r, c) => (r === 3 && c === 6 ? "lake" : "plain"));
-    const win = windowAbout(passport, { lat: 0, lon: 0 }, 1e5, undefined);
-    const { shores, lakes } = coast(rasters, samplesOf(passport, win), FORMS);
+    const { rasters, passport, lattice } = planet(6, () => 100, (r, c) => (r === 3 && c === 6 ? "lake" : "plain"));
+    const win = windowAbout(lattice, { lat: 0, lon: 0 }, 1e5, undefined);
+    const { shores, lakes } = coast(rasters, samplesOf(lattice, win), FORMS);
     expect(shores.rock.length + shores.beach.length + shores.shore.length).toBe(0);
     expect(lakes.length).toBe(4);
   });
@@ -218,18 +244,18 @@ describe("coast", () => {
 describe("hachures and rivers", () => {
   it("ticks a cliff cell down its slope", () => {
     //: The land rises to the east: the slope falls west.
-    const { rasters, passport } = planet(6, (r, c) => c * 100, (r, c) => (r === 3 && c === 6 ? "cliff" : "plain"));
-    const win = windowAbout(passport, { lat: 0, lon: 0 }, 1e5, undefined);
-    const ticks = hachures(rasters, samplesOf(passport, win), passport, win, 1e5);
+    const { rasters, passport, lattice } = planet(6, (r, c) => c * 100, (r, c) => (r === 3 && c === 6 ? "cliff" : "plain"));
+    const win = windowAbout(lattice, { lat: 0, lon: 0 }, 1e5, undefined);
+    const ticks = hachures(rasters, samplesOf(lattice, win), passport, win, 1e5);
     expect(ticks).toHaveLength(1);
     const [from, to] = ticks[0];
     expect(to.lon).toBeLessThan(from.lon);
     expect(Math.abs(to.lat - from.lat)).toBeLessThan(1e-9);
   });
   it("joins river cells to their river neighbours once", () => {
-    const { rasters, passport } = planet(6, () => 100, (r, c) => (r === 2 && c >= 4 && c <= 6 ? "river" : r === 3 && c === 7 ? "river" : "plain"));
-    const win = windowAbout(passport, { lat: 0, lon: 0 }, 1e5, undefined);
-    const threads = rivers(rasters, samplesOf(passport, win), WATER);
+    const { rasters, passport, lattice } = planet(6, () => 100, (r, c) => (r === 2 && c >= 4 && c <= 6 ? "river" : r === 3 && c === 7 ? "river" : "plain"));
+    const win = windowAbout(lattice, { lat: 0, lon: 0 }, 1e5, undefined);
+    const threads = rivers(rasters, samplesOf(lattice, win), WATER);
     //: 4-5, 5-6 along the row, 6 to the south-east 7.
     expect(threads).toHaveLength(3);
   });
@@ -264,14 +290,14 @@ describe("the ladder and the window's eye", () => {
     expect(closeFrame(CLOSE_FRAME_M / 4)).toBe(true);
   });
   it("draws the hachures only from a close frame, and the planet's lines at any", () => {
-    const { rasters, passport } = planet(6, (r, c) => c * 100, (r, c) => (r === 3 && c === 6 ? "cliff" : r === 2 && c > 3 ? "river" : "plain"));
-    const far = frameLines(rasters, passport, { lat: 0, lon: 0 }, 1e6, CLOSE_FRAME_M * UNITS_PER_METRE);
+    const { rasters, passport, lattice } = planet(6, (r, c) => c * 100, (r, c) => (r === 3 && c === 6 ? "cliff" : r === 2 && c > 3 ? "river" : "plain"));
+    const far = frameLines(rasters, passport, { lat: 0, lon: 0 }, 1e6, CLOSE_FRAME_M * UNITS_PER_METRE, lattice);
     expect(far.hachures).toEqual([]);
     expect(far.contours).toEqual([]);
-    const near = frameLines(rasters, passport, { lat: 0, lon: 0 }, 1e6, (CLOSE_FRAME_M / 4) * UNITS_PER_METRE);
+    const near = frameLines(rasters, passport, { lat: 0, lon: 0 }, 1e6, (CLOSE_FRAME_M / 4) * UNITS_PER_METRE, lattice);
     expect(near.hachures.length).toBeGreaterThan(0);
     expect(near.contours.length).toBeGreaterThan(0);
-    const own = planetLines(rasters, passport);
+    const own = planetLines(rasters, passport, lattice);
     //: The rivers come in bands of width, and every band is a river.
     expect(own.rivers.length).toBeGreaterThan(0);
     for (const band of own.rivers) expect(band.widthM).toBeGreaterThan(0);
@@ -317,14 +343,14 @@ describe("the provinces", () => {
     //: A hundred and eighty rows, so a cell is a degree and a run of them
     //: is worth joining: the seam is one line pole to pole, cut only where
     //: it leaves the bin it is filed under.
-    const { rasters, passport } = twoLands(180);
-    const edges = provinceEdges(rasters, samplesOf(passport, wholeWindow(passport)));
-    expect(edges.length).toBe(passport.rows / BIN_DEG);
+    const { rasters, passport, lattice } = twoLands(180);
+    const edges = provinceEdges(rasters, samplesOf(lattice, wholeWindow(lattice)));
+    expect(edges.length).toBe(lattice.rows / BIN_DEG);
     for (const [a, b] of edges) {
       //: Every piece runs down one meridian, and that meridian stands
       //: between the two cells, not on either centre.
       expect(a.lon).toBeCloseTo(b.lon, 6);
-      expect(a.lon).toBeCloseTo(-180 + (180 * 360) / passport.cols, 6);
+      expect(a.lon).toBeCloseTo(-180 + (180 * 360) / lattice.cols, 6);
     }
     //: The edge with the sea (code 0) is the coast's business, and drawing
     //: it here would double the shore.
@@ -339,9 +365,9 @@ describe("the provinces", () => {
     //: bin's edge and filed by their middle, so the whole of a run is in
     //: the bin it is under, but for the half cell an end stands out by.
     for (const rows of [45, 180]) {
-      const { rasters, passport } = twoLands(rows);
-      const lines = provinceLines(rasters, passport);
-      const cell = 180 / passport.rows;
+      const { rasters, passport, lattice } = twoLands(rows);
+      const lines = provinceLines(rasters, passport, lattice);
+      const cell = 180 / lattice.rows;
       let seen = 0;
       for (const [key, bin] of lines.edges) {
         for (const [a, b] of bin) {
@@ -365,18 +391,18 @@ describe("the provinces", () => {
     //: One land in the west, two in the east: the seam runs pole to pole,
     //: but it parts a different pair north and south, and a line joined
     //: across the equator would be one segment for two boundaries.
-    const { rasters, passport } = planet(
+    const { rasters, passport, lattice } = planet(
       180,
       () => 100,
       () => "plain",
       (r, c) => (c < 180 ? 1 : r < 90 ? 2 : 3),
     );
-    const edges = provinceEdges(rasters, samplesOf(passport, wholeWindow(passport)));
+    const edges = provinceEdges(rasters, samplesOf(lattice, wholeWindow(lattice)));
     const meridian = edges.filter(([a, b]) => Math.abs(a.lon - b.lon) < 1e-6);
     const parallel = edges.filter(([a, b]) => Math.abs(a.lat - b.lat) < 1e-6);
     //: Two seams -- the middle and the one round the date line -- each in
     //: pieces of a bin, and none of the pieces straddling the change.
-    expect(meridian.length).toBe((2 * passport.rows) / BIN_DEG);
+    expect(meridian.length).toBe((2 * lattice.rows) / BIN_DEG);
     for (const [a, b] of meridian) {
       expect(Math.min(a.lat, b.lat) >= 0 || Math.max(a.lat, b.lat) <= 0).toBe(true);
     }
@@ -387,13 +413,13 @@ describe("the provinces", () => {
   });
 
   it("writes each name inside the land it names, weighed by its ground", () => {
-    const { rasters, passport } = twoLands(8);
-    const samples = samplesOf(passport, wholeWindow(passport));
+    const { rasters, passport, lattice } = twoLands(8);
+    const samples = samplesOf(lattice, wholeWindow(lattice));
     const marks = provinceMarks(rasters, samples);
     expect(marks.map((m) => m.code).sort()).toEqual([1, 2]);
     const first = marks.find((m) => m.code === 1)!;
     //: Columns 4..7 of sixteen: the middle of them.
-    expect(first.at.lon).toBeCloseTo(-180 + (6 * 360) / passport.cols, 6);
+    expect(first.at.lon).toBeCloseTo(-180 + (6 * 360) / lattice.cols, 6);
     //: A band symmetric about the equator is named on it, however the
     //: parallels are weighed.
     expect(first.at.lat).toBeCloseTo(0, 6);
@@ -405,24 +431,24 @@ describe("the provinces", () => {
     //: circle it is the date line, where the land actually lies. And the
     //: closing column of a whole-planet window is not counted twice, or
     //: the name would be dragged off the line towards it.
-    const { rasters, passport } = planet(
+    const { rasters, passport, lattice } = planet(
       4,
       () => 100,
       () => "plain",
       (_r, c) => (c === 0 || c === 7 ? 1 : 0),
     );
-    const marks = provinceMarks(rasters, samplesOf(passport, wholeWindow(passport)));
+    const marks = provinceMarks(rasters, samplesOf(lattice, wholeWindow(lattice)));
     expect(marks.length).toBe(1);
     expect(Math.abs(marks[0].at.lon)).toBeCloseTo(180, 6);
   });
 
   it("keeps the province lines apart from the coast's own walk", () => {
-    const { rasters, passport } = twoLands(8);
-    const lines = provinceLines(rasters, passport);
-    expect([...lines.edges.values()].flat().length).toBe(passport.rows);
+    const { rasters, passport, lattice } = twoLands(8);
+    const lines = provinceLines(rasters, passport, lattice);
+    expect([...lines.edges.values()].flat().length).toBe(lattice.rows);
     expect(lines.marks.length).toBe(2);
     //: `planetLines` is the near frame's, and it says nothing of provinces.
-    expect(Object.keys(planetLines(rasters, passport))).toEqual([
+    expect(Object.keys(planetLines(rasters, passport, lattice))).toEqual([
       "shores",
       "lakes",
       "rivers",

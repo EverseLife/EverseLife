@@ -20,12 +20,14 @@ import math
 import uuid
 from datetime import UTC, datetime
 
+import numpy as np
 import pytest
 from sqlalchemy import func, select, text
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from conftest import VAULT_BUILD, _slow
+from src import field as fields
 from src import globe, seed_planets
 from src.constants import Catalog, Constants
 from src.constants import registry as R
@@ -589,15 +591,22 @@ def test_the_mountains_are_cold_and_bear_veins_more_often(constants: Constants) 
     assert biome.vein_k(constants, biome.ALPINE) > biome.vein_k(constants, biome.FLOODPLAIN)
     field = terrain.field_of(constants, Planet.TERRA)
     high = next(p for p in seed_points() if not field.is_water(*p) and field.is_mountain(*p))
-    low = next(
-        p
-        for p in seed_points()
-        if not field.is_water(*p) and not field.is_mountain(*p) and abs(p[0] - high[0]) < 15
-    )
     assert biome.classify(constants, Planet.TERRA, *high) == biome.ALPINE
-    cold, _ = terrain.climate_at(constants, Planet.TERRA, *high)
-    warm, _ = terrain.climate_at(constants, Planet.TERRA, high[0], low[1])
-    assert cold <= warm + 1, "в горах не холоднее, чем на той же широте внизу"
+    #: The lapse rate is read as a trend, not as one pair of points. The
+    #: field's temperature carries the depth of the continent and a local
+    #: swing besides the height, and either can be worth more degrees on
+    #: one parallel than a kilometre of rise: a pair picked by luck says
+    #: nothing, and used to pass by luck. A belt of one latitude, its
+    #: highest tenth of the land against its lowest, cannot.
+    band = (np.abs(field.cell_lat - high[0]) < 3.0) & (field.water != fields.SEA)
+    heights = field.height[band]
+    warmths = field.temperature_c[band].astype(float)
+    assert heights.size > 200, "на этой параллели есть суша"
+    order = np.argsort(heights)
+    tenth = max(1, order.size // 10)
+    tops = warmths[order[-tenth:]].mean()
+    floors = warmths[order[:tenth]].mean()
+    assert tops < floors, f"верх параллели {tops:.1f} °C, низ {floors:.1f} °C"
     assert METRES_PER_KM > 0 and Vein is not None
 
 

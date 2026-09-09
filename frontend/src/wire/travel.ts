@@ -255,8 +255,23 @@ export type RasterKind =
   | "flow"
   | "lake";
 export type RasterPassport = {
+  /** The grid the picture is cut on (D-328): twelve square faces of `nside`
+   *  cells a side, equal in area everywhere -- no rows of latitude, and so
+   *  no pole where a cell shrinks to nothing. */
+  grid: "healpix";
+  nside: number;
+  cells: number;
+  /** The texture: the twelve faces `across` by `down`, each with a `border`
+   *  of cells taken from the face over the edge so the blending between
+   *  cells stays continuous across a seam. The texel of cell (face, x, y)
+   *  is ((face % across) * (nside + 2 border) + border + x,
+   *      (face / across) * (nside + 2 border) + border + y). */
   rows: number;
   cols: number;
+  across: number;
+  down: number;
+  border: number;
+  /** The metres a cell spans -- everywhere, not just at the equator. */
   step_m: number;
   relief_m: number;
   biomes: string[];

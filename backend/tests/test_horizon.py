@@ -148,11 +148,18 @@ def test_broken_country_hides_and_flat_country_hardly_does(constants: Constants)
                 if horizon.hidden(constants, Planet.TERRA, here, there):
                     hidden[where] = hidden.get(where, 0) + 1
 
-    def share(where: str) -> float:
-        return hidden.get(where, 0) / tried[where]
+    def share(names: tuple[str, ...]) -> float:
+        return sum(hidden.get(one, 0) for one in names) / sum(tried[one] for one in names)
 
-    assert tried.get("alpine", 0) > 60 and tried.get("steppe", 0) > 60
+    broken = ("alpine", "foothills")
+    open_country = tuple(one for one in tried if one not in broken)
+    assert tried.get("alpine", 0) > 60 and open_country
+    #: The open country as a whole, not one biome of it: which of them a
+    #: planet happens to have much of is the seed's business, and a single
+    #: name can come out too thin to mean anything -- Terra's steppe is
+    #: twenty-eight readings of four thousand.
+    assert sum(tried[one] for one in open_country) > 600
     #: The mountains hide a real part of what stands a hundred metres off,
     #: and they hide several times what the open country does.
-    assert share("alpine") > 0.02
-    assert share("alpine") > 3 * share("steppe")
+    assert share(("alpine",)) > 0.02
+    assert share(("alpine",)) > 3 * share(open_country)

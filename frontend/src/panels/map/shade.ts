@@ -159,14 +159,6 @@ export function latticeAt(
  *  the way -- a texture nobody would see. Measured, not guessed: the spread
  *  of the blend is about a seventh of the range. */
 export const NOISE_GAIN = 3;
-/** How near the pole the cosine of the latitude is allowed to get before it
- *  is held: a thousandth, below which a column of the raster is centimetres
- *  of ground and nothing read across it means anything. */
-export const COS_FLOOR = 0.001;
-/** And how far east the hillshade may reach for its slope, as a share of
- *  the planet's turn: at the pole itself the honest step would be the whole
- *  circle, and a tenth of it is already the width of the cap. */
-export const POLE_SPAN = 0.1;
 export const FRAGMENT = `#version 300 es
 precision highp float;
 precision highp int;
@@ -183,7 +175,10 @@ uniform vec2 u_origin;
 uniform float u_units;
 uniform float u_radius;
 uniform vec2 u_eye;
-uniform vec2 u_cells;
+uniform vec2 u_atlas;
+uniform float u_nside;
+uniform float u_border;
+uniform float u_across;
 uniform float u_step;
 uniform float u_relief;
 uniform float u_deep;
@@ -221,11 +216,73 @@ const float GRAIN_SEEN_PX = ${GRAIN_SEEN_PX.toFixed(2)};
 const float GRAIN_FULL_PX = ${GRAIN_FULL_PX.toFixed(2)};
 const float EDGE_M = ${EDGE_M.toFixed(1)};
 const float EDGE_CELLS = ${EDGE_CELLS.toFixed(2)};
-const float COS_FLOOR = ${COS_FLOOR};
-const float POLE_SPAN = ${POLE_SPAN};
 const float UNITS_PER_METRE = ${UNITS_PER_METRE.toFixed(1)};
+const float THIRD_TWO = 0.6666666666666666;
+
+//: Where a point of the sphere sits on the picture's texture (D-328).
+//:
+//: The field is HEALPix: twelve square faces of u_nside cells a side, all
+//: of the same area. The projection is arithmetic -- two families of
+//: slanting lines over the belt, a Collignon diamond over each cap -- and
+//: it is the same arithmetic the vault cut the field by and the server
+//: reads it by (src/healpix.py). What comes back is not the cell but the
+//: **place inside the face**, a fraction: whole cells sit at halves, and
+//: the blending between them is then the hardware's own.
+//:
+//: This is where the grid pays for itself. On the old lattice of latitude
+//: and longitude a column at the pole was a hundredth of a column at the
+//: equator, everything read across it was noise, and it took a floor on the
+//: cosine and a cap on the step to keep the shading from tearing. Here the
+//: pole is not a place at all: it is the middle of four ordinary cells.
+vec2 atlasUV(vec3 p) {
+  float z = clamp(p.z, -1.0, 1.0);
+  float phi = atan(p.y, p.x);
+  if (phi < 0.0) phi += TAU;
+  float za = abs(z);
+  float turns = phi / (PI * 0.5);
+  float n = u_nside;
+  float u;
+  float v;
+  int face;
+  if (za <= THIRD_TWO) {
+    //: The belt: which side of the rising and the falling line the point
+    //: falls on says which of the twelve faces it is on.
+    float first = n * (0.5 + turns);
+    float second = n * z * 0.75;
+    float up = first - second;
+    float down = first + second;
+    int over = int(floor(up / n));
+    int under = int(floor(down / n));
+    if (over == under) face = (over & 3) + 4;
+    else if (over < under) face = over & 3;
+    else face = (under & 3) + 8;
+    u = down - n * floor(down / n);
+    v = n - (up - n * floor(up / n));
+  } else {
+    //: The caps: the point goes into the Collignon diamond of its quarter.
+    float quarter = min(3.0, floor(turns));
+    float along = turns - quarter;
+    float reach = n * sqrt(max(0.0, 3.0 * (1.0 - za)));
+    float a = clamp(along * reach, 0.0, n);
+    float b = clamp((1.0 - along) * reach, 0.0, n);
+    if (z >= 0.0) { face = int(quarter); u = n - b; v = n - a; }
+    else { face = int(quarter) + 8; u = a; v = b; }
+  }
+  //: The atlas: the faces laid out u_across wide, each with a border of
+  //: u_border cells taken from the face over the edge, so the blending
+  //: never reaches into the tile of a stranger.
+  float side = n + 2.0 * u_border;
+  int across = int(u_across);
+  float column = float(face - (face / across) * across);
+  float row = float(face / across);
+  return vec2(column * side + u_border + u, row * side + u_border + v) / u_atlas;
+}
 
 float heightAt(vec2 uv) { return texture(u_height, uv).r; }
+//: The height at a point of the sphere. Every reading goes through the
+//: projection, so a sample that steps off the edge of a face lands on
+//: whatever face is really there -- there is no wrapping to get wrong.
+float heightOf(vec3 p) { return heightAt(atlasUV(normalize(p))); }
 
 //: Value noise on the sphere: the corners of a lattice cell hashed and
 //: blended smoothly. The lattice is wrapped to GRAIN_WRAP before it is
@@ -335,7 +392,6 @@ void main() {
   float lon0 = u_eye.y;
   float lat = asin(clamp(cc * sin(lat0) + Y * cos(lat0), -1.0, 1.0));
   float lon = lon0 + atan(X, cc * cos(lat0) - Y * sin(lat0));
-  vec2 uv = vec2(fract(lon / TAU + 0.5), clamp(lat / PI + 0.5, 0.0, 1.0));
   //: The eye's own frame: which way is up, east and north where it stands.
   vec3 up = vec3(cos(lat0) * cos(lon0), cos(lat0) * sin(lon0), sin(lat0));
   vec3 east = vec3(-sin(lon0), cos(lon0), 0.0);
@@ -348,24 +404,31 @@ void main() {
   //: the fragment at all: what the lattices need of it is a small number
   //: the frame hands over ready-made (u_grain_at, u_edge_at).
   vec3 apart = up * (-rc * rc / (1.0 + cc)) + east * X + north * Y;
+  //: This pixel's own point on the ball, and the ground's compass there.
+  //: Built from the eye's frame rather than from the latitude and the
+  //: longitude that were just found: apart is the careful difference and
+  //: adding it back costs nothing.
+  vec3 here = normalize(up + apart);
+  vec3 sideways = cross(vec3(0.0, 0.0, 1.0), here);
+  float turn = length(sideways);
+  //: At the pole itself every direction is east; any one of them will do,
+  //: and no reading depends on which, because the ground there is a cell
+  //: like every other one (D-328).
+  vec3 pe = turn > 1e-6 ? sideways / turn : vec3(1.0, 0.0, 0.0);
+  vec3 pn = cross(here, pe);
+  vec2 uv = atlasUV(here);
 
-  //: A step east of the same length of ground as the step north. On a grid
-  //: of latitude and longitude a column is cos(lat) as wide as a row is
-  //: tall: at eighty-eight degrees one column is a metre of ground against
-  //: five hundred for one row, and a slope taken across it is not a slope
-  //: but the noise of the interpolation -- which is what stood at the pole
-  //: as a fan of streaks radiating from it. Stepping as many columns as it
-  //: takes to cover the same ground makes the two derivatives comparable
-  //: and the fan goes. Held to a tenth of the planet's turn, so the step
-  //: stays a step and does not reach round the world at the pole itself.
-  float squeeze = min(1.0 / max(cos(lat), COS_FLOOR), u_cells.x * POLE_SPAN);
-  vec2 du = vec2(squeeze / u_cells.x, 0.0);
-  vec2 dv = vec2(0.0, 1.0 / u_cells.y);
+  //: The slope, taken a cell of the ground east and north of the point --
+  //: **metres of the ground**, not steps of the raster. On the old lattice
+  //: of latitude and longitude a step of one column was cos(lat) of a step
+  //: of one row, and near the pole a slope read across it was not a slope
+  //: but the noise of the interpolation: that was the fan of streaks that
+  //: stood over the pole. Here the two steps are the same length of ground
+  //: everywhere, and the pole needs no special case at all.
+  float span = u_step / (u_radius / UNITS_PER_METRE);
   float h = heightAt(uv);
-  float dx = u_step * squeeze * max(cos(lat), COS_FLOOR);
-  float dy = u_step;
-  float slopeX = (heightAt(uv + du) - heightAt(uv - du)) / (2.0 * dx);
-  float slopeY = (heightAt(uv + dv) - heightAt(uv - dv)) / (2.0 * dy);
+  float slopeX = (heightOf(here + pe * span) - heightOf(here - pe * span)) / (2.0 * u_step);
+  float slopeY = (heightOf(here + pn * span) - heightOf(here - pn * span)) / (2.0 * u_step);
   vec3 n = normalize(vec3(-slopeX * EXAGGERATION, -slopeY * EXAGGERATION, 1.0));
   float shade = max(dot(n, u_light), 0.0);
 
@@ -395,8 +458,12 @@ void main() {
       0.65 * wave(j) + 0.35 * wave(j * 2.0),
       0.65 * wave(k) + 0.35 * wave(k * 2.0)
     ) * (EDGE_CELLS * u_edge);
-    vec2 juv = vec2(fract(uv.x + astray.x / u_cells.x), clamp(uv.y + astray.y / u_cells.y, 0.0, 1.0));
-    uint near = texture(u_biome, juv).r;
+    //: The wander is a walk over the **ground** -- so many cells east and
+    //: north -- and not a walk over the raster's own axes: on this grid a
+    //: face's lattice stands at an angle to the compass that changes over
+    //: the sphere, and a wander along it would have followed the faces.
+    vec3 strayed = here + (pe * astray.x + pn * astray.y) * span;
+    uint near = texture(u_biome, atlasUV(normalize(strayed))).r;
     if (near != ${NO_BIOME}u) b = near;
   }
   vec3 col;

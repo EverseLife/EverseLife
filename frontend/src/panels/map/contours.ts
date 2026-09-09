@@ -28,6 +28,7 @@
  */
 
 import type { RasterPassport } from "../../api";
+import { latticeOf, type Lattice } from "./healpix";
 import { UNITS_PER_METRE, type Eye, type Geo } from "./globe";
 import type { Rasters } from "./rasters";
 
@@ -107,7 +108,7 @@ function frameAngle(radius: number, within: number | undefined): number {
 /** The rows and columns under an angle about the eye: every column when a
  *  pole is in or the angle spans the planet. */
 function spanOf(
-  passport: { rows: number; cols: number },
+  lattice: { rows: number; cols: number },
   eye: Eye,
   ang: number,
 ): { latLo: number; latHi: number; lonLo: number; lonHi: number; whole: boolean } {
@@ -116,7 +117,7 @@ function spanOf(
   const nearestPole = Math.max(Math.abs(latLo), Math.abs(latHi));
   const spread = ang / Math.max(1e-9, Math.cos(nearestPole * RAD));
   const whole = latLo <= -90 || latHi >= 90 || spread >= 180;
-  void passport;
+  void lattice;
   return { latLo, latHi, lonLo: eye.lon - spread, lonHi: eye.lon + spread, whole };
 }
 
@@ -127,13 +128,13 @@ function spanOf(
  * width in map units; undefined means the whole hemisphere.
  */
 export function windowAbout(
-  passport: { rows: number; cols: number },
+  lattice: Lattice,
   eye: Eye,
   radius: number,
   within: number | undefined,
 ): Window {
-  const { rows, cols } = passport;
-  const span = spanOf(passport, eye, frameAngle(radius, within));
+  const { rows, cols } = lattice;
+  const span = spanOf(lattice, eye, frameAngle(radius, within));
   const r0 = Math.min(rows - 1, Math.max(0, Math.floor(((span.latLo + 90) * rows) / 180)));
   const r1 = Math.min(rows - 1, Math.max(0, Math.ceil(((span.latHi + 90) * rows) / 180)));
   let c0 = 0;
@@ -148,8 +149,8 @@ export function windowAbout(
 }
 
 /** The whole planet, cell by cell. */
-export function wholeWindow(passport: { rows: number; cols: number }): Window {
-  return { r0: 0, r1: passport.rows - 1, c0: 0, count: passport.cols, stride: 1 };
+export function wholeWindow(lattice: Lattice): Window {
+  return { r0: 0, r1: lattice.rows - 1, c0: 0, count: lattice.cols, stride: 1 };
 }
 
 /** The samples of a window: a grid `nr` by `nc` of cell readings, and the
@@ -164,8 +165,8 @@ export type Samples = {
   index: (i: number, j: number) => number;
 };
 
-export function samplesOf(passport: { rows: number; cols: number }, win: Window): Samples {
-  const { rows, cols } = passport;
+export function samplesOf(lattice: Lattice, win: Window): Samples {
+  const { rows, cols } = lattice;
   const { r0, r1, c0, count, stride } = win;
   const nr = Math.floor((r1 - r0) / stride) + 1;
   //: A window round the whole planet closes on itself: one sample more, so
@@ -175,17 +176,22 @@ export function samplesOf(passport: { rows: number; cols: number }, win: Window)
     Math.min(rows - 1, r0 + i * stride),
     (((c0 + j * stride) % cols) + cols) % cols,
   ];
+  const geo = (i: number, j: number): Geo => ({
+    lat: -90 + (r0 + i * stride + 0.5) * (180 / rows),
+    lon: ((((c0 + j * stride + 0.5) * (360 / cols)) % 360) + 360) % 360 - 180,
+  });
   return {
     nr,
     nc,
     cell,
-    geo: (i, j) => ({
-      lat: -90 + (r0 + i * stride + 0.5) * (180 / rows),
-      lon: ((((c0 + j * stride + 0.5) * (360 / cols)) % 360) + 360) % 360 - 180,
-    }),
+    geo,
+    //: The lattice is latitude and longitude; the rasters are the equal-area
+    //: cells of the field (D-328). A sample reaches its bytes by asking the
+    //: projection which cell stands under its point -- not by a row and a
+    //: column, which the rasters no longer have.
     index: (i, j) => {
-      const [r, c] = cell(i, j);
-      return r * cols + c;
+      const at = geo(i, j);
+      return lattice.at(at.lat, at.lon);
     },
   };
 }
@@ -595,11 +601,20 @@ export function riverBands(reaches: readonly River[]): { widthM: number; bins: B
 /** A planet's provinces as the map draws them: the boundaries binned, and
  *  a place for every name. Read once per planet, like the coast -- and
  *  apart from it, because the two are drawn on opposite frames and the
- *  coast's walk must not be paid for on the planet's disk. */
+ *  coast's walk must not be paid for on the planet's disk.
+ *
+ *  The lattice is an argument, not a fact of the passport: what this walks
+ *  is a mesh of latitude and longitude, and where each of its points
+ *  reaches into the rasters is the grid's business (D-328), not the
+ *  drawing's. Left out, it is the planet's own. */
 export type ProvinceLines = { edges: Bins; marks: ProvinceMark[] };
 
-export function provinceLines(rasters: Rasters, passport: RasterPassport): ProvinceLines {
-  const samples = samplesOf(passport, wholeWindow(passport));
+export function provinceLines(
+  rasters: Rasters,
+  passport: RasterPassport,
+  lattice: Lattice = latticeOf(passport),
+): ProvinceLines {
+  const samples = samplesOf(lattice, wholeWindow(lattice));
   return {
     edges: binned(provinceEdges(rasters, samples), true),
     marks: provinceMarks(rasters, samples),
@@ -722,8 +737,12 @@ export function provinceMarks(rasters: Rasters, samples: Samples): ProvinceMark[
     }));
 }
 
-export function planetLines(rasters: Rasters, passport: RasterPassport): PlanetLines {
-  const samples = samplesOf(passport, wholeWindow(passport));
+export function planetLines(
+  rasters: Rasters,
+  passport: RasterPassport,
+  lattice: Lattice = latticeOf(passport),
+): PlanetLines {
+  const samples = samplesOf(lattice, wholeWindow(lattice));
   const { shores, lakes } = coast(rasters, samples, passport.forms);
   return {
     shores: { rock: binned(shores.rock), beach: binned(shores.beach), shore: binned(shores.shore) },
@@ -745,13 +764,14 @@ export function frameLines(
   eye: Eye,
   radius: number,
   within: number | undefined,
+  lattice: Lattice = latticeOf(passport),
 ): FrameLines {
   const frame = frameMetres(within);
   const interval = contourInterval(frame);
   const close = closeFrame(frame);
   if (!Number.isFinite(interval) && !close) return { contours: [], hachures: [] };
-  const win = windowAbout(passport, eye, radius, within);
-  const samples = samplesOf(passport, win);
+  const win = windowAbout(lattice, eye, radius, within);
+  const samples = samplesOf(lattice, win);
   return {
     contours: contours(rasters, samples, interval),
     hachures: close ? hachures(rasters, samples, passport, win, radius) : [],

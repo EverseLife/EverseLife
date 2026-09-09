@@ -17,11 +17,22 @@ how high, how far the nearest river, whether a straight way crosses one.
 It also carries what the noise never had -- the landform, the rock, the
 temperature and rain of a point -- for the waves that read them.
 
+Since D-328 the grid is HEALPix: `12 nside**2` cells of equal area, one
+flat array, no rows and no columns, and a cell the same size at the pole as
+at the equator. Finding a point's cell is arithmetic (`healpix.ang2pix`),
+not a lookup, and the projection is checked against the passport's probe
+when the file is read -- the vault and the game hold the same arithmetic in
+two repositories that cannot import one another.
+
 Rasters are read with the cell's own value where the thing is categorical
-(water, form) and between the four nearest cells where it is a quantity
-(height): a coast is a line through the cells, not a staircase of them.
-The sketch the client draws is a coarser grid cut from the same height, and
-a tile is a window of it sampled on the client's lattice.
+(water, form) and between the four cells around the point where it is a
+quantity (height): a coast is a line through the cells, not a staircase of
+them. HEALPix has no four corners of a square, so the four are two rings of
+equal latitude and two places along each (`healpix.Rings.corners`).
+
+The sketch the client draws is a coarse lattice of latitude and longitude
+sampled off the field, and a tile is a window of it on the client's own
+lattice.
 """
 
 from __future__ import annotations
@@ -34,7 +45,7 @@ from pathlib import Path
 
 import numpy as np
 
-from src import relief
+from src import healpix, relief
 from src.constants import Constants
 from src.constants import registry as R
 from src.models.world import Planet
@@ -57,6 +68,11 @@ NO_CLASS = 255
 #: when its mean height would put it on the other: a coast cell reads as the
 #: raster does, not as its average.
 SKETCH_SHORE = 1e-3
+#: How many points across a sketch cell are sampled off the field to make
+#: it: the field is a flat run of cells with no rows to average, so the
+#: sketch is drawn by asking it, and a sample every few cells is enough for
+#: a picture of a hundred and twenty-eight rows.
+SKETCH_SAMPLES = 6
 
 
 class FieldMissing(RuntimeError):
@@ -79,13 +95,29 @@ class Field:
 
     planet: str
     seed: int
+    #: The side of a cell, metres -- one number for the whole planet, because
+    #: every cell holds the same area (D-328). What the vault was asked for
+    #: (`terrain.step_m`) is what the passport is checked against; this is
+    #: what the grid came out at, and it is what "a cell" means everywhere
+    #: below.
     step_m: float
     radius_m: float
     relief_m: float
+    #: The grid's fineness: `12 nside**2` cells (D-328).
+    nside: int
+    #: The cells laid out by ring of equal latitude, for reading a quantity
+    #: between them.
+    rings: healpix.Rings
+    #: The middle of every cell, degrees -- what `centre` answers with.
+    #: Kept to the full width of a float: a middle rounded to seven figures
+    #: is a part in a hundred thousand off its own cell, and a reading there
+    #: then carries that much of the next cell (`healpix.Rings.between`).
+    cell_lat: np.ndarray
+    cell_lon: np.ndarray
     #: The rasters as the file keeps them -- a byte a class, two a distance,
     #: four a height -- read into floats only at the point asked, so four
     #: planets fit a process in tens of megabytes, not hundreds.
-    height: np.ndarray  # share of the rise, float32, (rows, cols)
+    height: np.ndarray  # share of the rise, float32, (cells,)
     water: np.ndarray  # LAND / SEA / LAKE / RIVER, uint8
     form: np.ndarray  # uint8, codes of `forms`
     hardness: np.ndarray  # uint8, 255 = 1.0
@@ -93,9 +125,9 @@ class Field:
     #: How much land drains through the river a cell could be the bank of,
     #: km2 -- the catchment of the biggest river among its neighbours, and
     #: nought where there is none. A river's width is read off it (landscape
-    #: plan §9.2: a river is ground and widens downstream), and the width
-    #: never reaches past a neighbour, so a neighbour is as far as this has
-    #: to look.
+    #: plan §9.2: a river is ground and widens downstream). Made by the vault
+    #: and carried in the file since D-328: who a cell's neighbours are is a
+    #: property of the grid, and the game keeps no table of them.
     river_flow_km2: np.ndarray  # float32, 0 away from every river
     sea_m: np.ndarray  # to the nearest sea, metres, uint16, capped
     temperature_c: np.ndarray  # int8
@@ -114,10 +146,12 @@ class Field:
     river_cap_m: float  # the distance raster's reach: at it, no fresh water in sight
     sea_cap_m: float  # the same for the sea
     wet: bool  # whether any sea or lake holds water
-    #: The sketch's grid: the height share on a coarser grid, and the
-    #: lakes on it as (row, col) cells.
+    #: The sketch's grid: the height share on a coarse lattice of latitude
+    #: and longitude sampled off the field, the lakes on it as (row, col)
+    #: cells, and the mean warmth of each of its rows.
     grid: np.ndarray
     lakes: frozenset[tuple[int, int]]
+    warmth: tuple[int, ...]
 
     #: What the noise field promised and the sketch still speaks (D-323):
     #: the sea's level is zero by construction, a basin is a tile reading
@@ -126,12 +160,9 @@ class Field:
     rivers: tuple = ()
 
     @property
-    def rows(self) -> int:
+    def cells(self) -> int:
+        """How many cells the planet is cut into."""
         return int(self.height.shape[0])
-
-    @property
-    def cols(self) -> int:
-        return int(self.height.shape[1])
 
     def grid_latitudes(self) -> list[float]:
         """The latitude at the middle of each row of the sketch's grid, south to north."""
@@ -142,16 +173,7 @@ class Field:
         """The mean temperature of each row of the sketch's grid, south to
         north: the climate the globe tints, the field's own and not a curve
         of the latitude the nodes no longer read."""
-        rows = int(self.grid.shape[0])
-        factor = max(1, self.rows // rows)
-        used = rows * factor
-        means = (
-            self.temperature_c[:used]
-            .astype(float)
-            .reshape(rows, factor, self.cols)
-            .mean(axis=(1, 2))
-        )
-        return [int(round(float(value))) for value in means]
+        return list(self.warmth)
 
     @property
     def peak_level(self) -> float:
@@ -163,38 +185,23 @@ class Field:
 
     # --- cells ------------------------------------------------------------
 
-    def cell(self, lat: float, lon: float) -> tuple[int, int]:
-        row = int((lat + 90.0) / (180.0 / self.rows))
-        col = int((lon + 180.0) / (360.0 / self.cols))
-        return min(self.rows - 1, max(0, row)), col % self.cols
+    def cell(self, lat: float, lon: float) -> int:
+        """The cell a point falls in."""
+        return int(healpix.ang2pix(self.nside, lat, lon))
 
-    def centre(self, row: int, col: int) -> tuple[float, float]:
-        return (
-            -90.0 + (row + 0.5) * (180.0 / self.rows),
-            -180.0 + (col + 0.5) * (360.0 / self.cols),
-        )
+    def centre(self, cell: int) -> tuple[float, float]:
+        """The middle of a cell, degrees."""
+        return float(self.cell_lat[cell]), float(self.cell_lon[cell])
 
-    def _bilinear(self, raster: np.ndarray, lat: float, lon: float) -> float:
-        fr = min(self.rows - 1.0, max(0.0, (lat + 90.0) / (180.0 / self.rows) - 0.5))
-        fc = (((lon + 180.0) / (360.0 / self.cols) - 0.5) % self.cols + self.cols) % self.cols
-        r0 = int(math.floor(fr))
-        r1 = min(self.rows - 1, r0 + 1)
-        c0 = int(math.floor(fc))
-        c1 = (c0 + 1) % self.cols
-        t = fr - r0
-        u = fc - c0
-        return float(
-            raster[r0, c0] * (1 - t) * (1 - u)
-            + raster[r0, c1] * (1 - t) * u
-            + raster[r1, c0] * t * (1 - u)
-            + raster[r1, c1] * t * u
-        )
+    def between(self, raster: np.ndarray, lat: float, lon: float) -> float:
+        """A quantity between the cells around a point (`healpix.Rings`)."""
+        return float(self.rings.between(raster, lat, lon))
 
     # --- what the engine asks -------------------------------------------
 
     def height_at(self, lat: float, lon: float) -> float:
         """The share of the rise at a point, between the cells; the sea negative."""
-        return self._bilinear(self.height, lat, lon)
+        return self.between(self.height, lat, lon)
 
     def relief(self, lat: float, lon: float) -> float:
         """How far above the sea the point stands, as a share of the rise, 0..1."""
@@ -253,10 +260,10 @@ class Field:
         return float(self.hardness[self.cell(lat, lon)]) / BYTE
 
     def temperature_at(self, lat: float, lon: float) -> float:
-        return self._bilinear(self.temperature_c, lat, lon)
+        return self.between(self.temperature_c, lat, lon)
 
     def rain_at(self, lat: float, lon: float) -> float:
-        return self._bilinear(self.rain, lat, lon) / BYTE
+        return self.between(self.rain, lat, lon) / BYTE
 
     def river_distance_deg(self, lat: float, lon: float) -> float:
         """How far the nearest fresh water runs, in degrees of arc -- infinite
@@ -286,36 +293,21 @@ class Field:
         return False
 
     def land_share(self) -> float:
-        weight = np.cos(np.radians(-90.0 + (np.arange(self.rows) + 0.5) * (180.0 / self.rows)))
-        land = (self.water != SEA).astype(float)
-        return float((land * weight[:, None]).sum() / (weight.sum() * self.cols))
+        """The share of the planet that is not sea. A share of the cells is a
+        share of the area: every cell holds the same square metres (D-328)."""
+        return float((self.water != SEA).mean())
 
     def tile(self, row: int, col: int) -> np.ndarray:
         """The height share on the client's lattice of a tile (D-323): `TILE_N + 1`
         a side from the tile's south-west corner, lakes sunk under zero. The
-        same bilinear reading as `height_at`, over the whole lattice at once."""
+        same reading between the cells as `height_at`, over the whole lattice
+        at once."""
         lat0, lon0 = relief.tile_origin(row, col)
         steps = np.arange(relief.TILE_N + 1) * (relief.TILE_DEG / relief.TILE_N)
         lat = np.minimum(90.0, lat0 + steps)[:, None]
         lon = (((lon0 + steps + 180.0) % 360.0) - 180.0)[None, :]
-        fr = np.clip((lat + 90.0) / (180.0 / self.rows) - 0.5, 0.0, self.rows - 1.0)
-        fc = ((lon + 180.0) / (360.0 / self.cols) - 0.5) % self.cols
-        r0 = np.floor(fr).astype(int)
-        r1 = np.minimum(self.rows - 1, r0 + 1)
-        c0 = np.floor(fc).astype(int)
-        c1 = (c0 + 1) % self.cols
-        t = fr - r0
-        u = fc - c0
-        h = self.height
-        out = (
-            h[r0, c0] * (1 - t) * (1 - u)
-            + h[r0, c1] * (1 - t) * u
-            + h[r1, c0] * t * (1 - u)
-            + h[r1, c1] * t * u
-        )
-        cell_r = np.clip(((lat + 90.0) / (180.0 / self.rows)).astype(int), 0, self.rows - 1)
-        cell_c = ((lon + 180.0) / (360.0 / self.cols)).astype(int) % self.cols
-        lake = self.water[cell_r, cell_c] == LAKE
+        out = self.rings.between(self.height, lat, lon)
+        lake = self.water[healpix.ang2pix(self.nside, lat, lon)] == LAKE
         return np.where(lake, np.minimum(out, LAKE_SINK), out)
 
 
@@ -371,6 +363,36 @@ def _check_passport(params: dict, expected: dict[str, float], planet: str) -> No
         )
 
 
+def _check_probe(meta: dict, nside: int, planet: str) -> None:
+    """The vault's own points against this module's projection.
+
+    The grid lives in two repositories that cannot import one another, so
+    the arithmetic that finds a point's cell exists twice and could drift
+    apart without anything falling over -- a world read a kilometre off is
+    still a world. The vault writes a few points and the cells it put them
+    in; if they disagree here, the server stops (D-328).
+    """
+    probe = meta.get("probe")
+    if not probe:
+        raise FieldStale(
+            f"the field of {planet} carries no projection probe: it was built "
+            "before the equal-area grid. Rebuild it in the vault: "
+            f"`python tools/landscape.py build --planet {planet}`"
+        )
+    want = np.asarray(probe["cell"], dtype=np.int64)
+    got = healpix.ang2pix(nside, np.asarray(probe["lat"]), np.asarray(probe["lon"]))
+    apart = int((got != want).sum())
+    if apart:
+        first = int(np.flatnonzero(got != want)[0])
+        raise FieldStale(
+            f"the field of {planet} was cut by another projection than this one: "
+            f"{apart} of {want.size} probe points land elsewhere -- "
+            f"({probe['lat'][first]:.4f}, {probe['lon'][first]:.4f}) in cell "
+            f"{int(got[first])} here and {int(want[first])} in the vault. "
+            "`src/healpix.py` and the vault's `tools/field/healpix.py` have drifted apart"
+        )
+
+
 @functools.cache
 def _loaded(directory: str, planet: str, mountain_share: float, expected: tuple) -> Field:
     root = Path(directory) / "field"
@@ -384,6 +406,15 @@ def _loaded(directory: str, planet: str, mountain_share: float, expected: tuple)
     meta = json.loads(passport.read_text(encoding="utf-8"))
     params = meta["params"]
     _check_passport(params, dict(expected), planet)
+    grid = meta.get("grid") or {}
+    nside = int(grid.get("nside", 0))
+    if grid.get("kind") != "healpix" or nside < 1:
+        raise FieldStale(
+            f"the field of {planet} is on {grid.get('kind', 'an unnamed')} grid, "
+            "not the equal-area one. Rebuild it in the vault: "
+            f"`python tools/landscape.py build --planet {planet}`"
+        )
+    _check_probe(meta, nside, planet)
     relief_m = float(params["relief_m"])
     with np.load(arrays) as z:
         height = (z["height_m"].astype(np.float32) / np.float32(relief_m)).astype(np.float32)
@@ -391,7 +422,7 @@ def _loaded(directory: str, planet: str, mountain_share: float, expected: tuple)
         form = z["form"].astype(np.uint8)
         hardness = z["hardness"].astype(np.uint8)
         river_m = z["river_m"].astype(np.uint16)
-        flow_km2 = _flow_beside(z["water"].astype(np.uint8), z["area_km2"].astype(np.float32))
+        flow_km2 = z["flow_km2"].astype(np.float32)
         sea_m = z["sea_m"].astype(np.uint16)
         temperature = z["temperature_c"].astype(np.int8)
         rain = z["rain"].astype(np.uint8)
@@ -401,23 +432,37 @@ def _loaded(directory: str, planet: str, mountain_share: float, expected: tuple)
             if "province" in z
             else np.zeros(water.shape, dtype=np.uint8)
         )
+    if height.shape != (healpix.npix(nside),):
+        raise FieldStale(
+            f"the field of {planet} holds {height.size} cells where nside {nside} "
+            f"asks for {healpix.npix(nside)}"
+        )
     land = water != SEA
     provinces_table = list(meta.get("provinces", []))
     #: The mountain line as the noise field cut it: the share of the land
-    #: above it is `terrain.mountain_share`.
+    #: above it is `terrain.mountain_share`. A share of the cells is a share
+    #: of the area now (D-328), so the quantile needs no weights.
     heights_on_land = height[land]
     mountain_level = (
         float(np.quantile(heights_on_land, 1.0 - mountain_share))
         if heights_on_land.size and 0.0 < mountain_share < 1.0
         else 2.0
     )
-    grid, lakes = _sketch_grid(height, water)
+    rings = healpix.Rings(nside)
+    #: Laid out now rather than on the first request: reading a field is a
+    #: start-up cost by design (`preload`), and a `look` is not. The sketch
+    #: below is the first thing to ask for it.
+    sketch, lakes, warmth = _sketch(rings, height, water, temperature)
     return Field(
         planet=planet,
         seed=int(params["seed"]),
-        step_m=float(params["step_m"]),
+        step_m=float(grid.get("side_m") or params["step_m"]),
         radius_m=float(params["radius_m"]),
         relief_m=relief_m,
+        nside=nside,
+        rings=rings,
+        cell_lat=_cell_lat(rings),
+        cell_lon=_cell_lon(rings),
         height=height,
         water=water,
         form=form,
@@ -439,57 +484,74 @@ def _loaded(directory: str, planet: str, mountain_share: float, expected: tuple)
         river_cap_m=float(river_m.max()),
         sea_cap_m=float(sea_m.max()),
         wet=bool((water == SEA).any() or (water == LAKE).any()),
-        grid=grid,
+        grid=sketch,
         lakes=lakes,
+        warmth=warmth,
     )
 
 
-def _flow_beside(water: np.ndarray, area_km2: np.ndarray) -> np.ndarray:
-    """How much land drains through the river nearest each cell, km2.
+def _cell_lat(rings: healpix.Rings) -> np.ndarray:
+    """The latitude of every cell, by its ring."""
+    ring = np.arange(1, rings.count + 1)
+    quarter, _ = healpix.ring_shape(rings.nside, ring)
+    out = np.empty(healpix.npix(rings.nside))
+    latitude = healpix.ring_lat(rings.nside, ring)
+    for index in range(rings.count):
+        out[rings.table[index, : 4 * quarter[index]]] = latitude[index]
+    return out
 
-    The catchment of the biggest river among a cell and its eight
-    neighbours, and nought where none of them is a river. A neighbour is as
-    far as this looks because it is as far as it is used: the picture draws
-    a river no wider than a hundred metres or so and the grid is five
-    hundred, so a bank never reaches past the next cell. The whole raster is
-    made once, when the field is read, and costs a walk over nine shifts.
+
+def _cell_lon(rings: healpix.Rings) -> np.ndarray:
+    """The longitude of every cell, by its place in its ring."""
+    ring = np.arange(1, rings.count + 1)
+    quarter, shifted = healpix.ring_shape(rings.nside, ring)
+    out = np.empty(healpix.npix(rings.nside))
+    for index in range(rings.count):
+        wide = 4 * int(quarter[index])
+        place = np.arange(wide)
+        out[rings.table[index, :wide]] = healpix.ring_lon(quarter[index], shifted[index], place)
+    return out
+
+
+def _sketch(
+    rings: healpix.Rings, height: np.ndarray, water: np.ndarray, temperature: np.ndarray
+) -> tuple[np.ndarray, frozenset[tuple[int, int]], tuple[int, ...]]:
+    """The sketch's coarse lattice, sampled off the field.
+
+    A lattice of latitude and longitude, because that is what the globe
+    draws by and what the client already speaks -- the field itself has no
+    rows to average since D-328. Each cell of it is read at
+    `SKETCH_SAMPLES` points a side, and its height is the mean over the
+    side its majority stands on: a coast cell that is mostly land reads as
+    land, however deep the sea in its other half.
     """
-    on = np.where(water == RIVER, area_km2, 0.0).astype(np.float32)
-    best = on
-    for down in (-1, 0, 1):
-        for right in (-1, 0, 1):
-            best = np.maximum(best, np.roll(np.roll(on, down, axis=0), right, axis=1))
-    return best
-
-
-def _sketch_grid(
-    height: np.ndarray, water: np.ndarray
-) -> tuple[np.ndarray, frozenset[tuple[int, int]]]:
-    """The sketch's coarser grid: block means of the height on the side the
-    block's majority stands -- a coast block that is mostly land reads as
-    land, however deep the sea in its other half -- and the blocks that are
-    mostly lake."""
-    rows, cols = height.shape
-    factor = max(1, int(math.ceil(rows / SKETCH_ROWS)))
-    r = rows // factor * factor
-    c = cols // factor * factor
-    shape = (r // factor, factor, c // factor, factor)
-    blocks = height[:r, :c].astype(float).reshape(shape)
-    land = (water[:r, :c] != SEA).reshape(shape)
+    rows = SKETCH_ROWS
+    cols = 2 * rows
+    grain = SKETCH_SAMPLES
+    #: The sample points of every cell of the lattice at once.
+    within = (np.arange(grain) + 0.5) / grain
+    lat = (-90.0 + (np.arange(rows)[:, None] + within[None, :]) * (180.0 / rows)).reshape(-1)
+    lon = (-180.0 + (np.arange(cols)[:, None] + within[None, :]) * (360.0 / cols)).reshape(-1)
+    cells = healpix.ang2pix(rings.nside, lat[:, None], lon[None, :])
+    shape = (rows, grain, cols, grain)
+    blocks = height[cells].astype(float).reshape(shape)
+    land = (water[cells] != SEA).reshape(shape)
     land_share = land.mean(axis=(1, 3))
     mostly_land = land_share > 0.5
-    #: The mean over the majority's own cells, so a coast block is neither
+    #: The mean over the majority's own samples, so a coast cell is neither
     #: dragged under by its sea nor lifted by its land.
     land_mean = np.where(land, blocks, 0.0).sum(axis=(1, 3)) / np.maximum(land.sum(axis=(1, 3)), 1)
     sea_mean = np.where(~land, blocks, 0.0).sum(axis=(1, 3)) / np.maximum(
         (~land).sum(axis=(1, 3)), 1
     )
-    grid = np.where(
+    sketch = np.where(
         mostly_land, np.maximum(land_mean, SKETCH_SHORE), np.minimum(sea_mean, -SKETCH_SHORE)
     )
-    lake = (water[:r, :c] == LAKE).reshape(shape).mean(axis=(1, 3))
+    lake = (water[cells] == LAKE).reshape(shape).mean(axis=(1, 3))
     lakes = frozenset((int(i), int(j)) for i, j in zip(*np.nonzero(lake > 0.5), strict=True))
-    return grid, lakes
+    #: The warmth of each row of the lattice: the climate the globe tints.
+    warm = temperature[cells].astype(float).reshape(shape).mean(axis=(1, 2, 3))
+    return sketch, lakes, tuple(int(round(float(value))) for value in warm)
 
 
 def of(constants: Constants, planet: Planet) -> Field:

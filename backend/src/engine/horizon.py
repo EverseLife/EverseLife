@@ -12,10 +12,11 @@ a node inside the radius is seen unless the land between stands in the way.
 So nothing changes on the plain -- the horizon of an eye two metres up is six
 hundred metres and the radius is one -- and in broken country a neighbour
 behind a rise is simply not there until one walks to it. Measured over Terra
-at the sight radius, eight ways out of every point of a two-degree grid:
-alpine hides 5.9 % of its neighbours, foothills 1.9 %, the coast and the
-steppe 0.5 %, the floodplain 0.3 %, and the desert, the savanna and the
-rainforest none at all.
+at the sight radius, eight ways out of every point of a four-degree grid:
+alpine hides 5.7 % of its neighbours, foothills 2.7 %, the coast 1.5 %, the
+floodplain 0.9 %, and the open country 0.6 % all told -- ten times less than
+the mountains. (Measured again on the equal-area grid, D-328: the numbers
+moved by tenths, which is the point -- a different grid, the same world.)
 
 The curve of the planet is carried even at these distances, because one walk
 answers the question at any range: the ground falls away from a straight line

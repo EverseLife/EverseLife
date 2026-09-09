@@ -31,11 +31,12 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src import field as fields
-from src import relief
+from src import healpix, relief
 from src.constants import Constants
 from src.constants import registry as R
 from src.engine import climate, places, terrain, world
 from src.models.world import Layer, Planet
+from src.runtime import RASTER_CELLS_MAX
 
 
 def test_the_noise_has_no_seam_and_is_the_same_everywhere() -> None:
@@ -74,12 +75,17 @@ def test_a_tile_is_the_field_read_on_the_client_lattice(constants: Constants) ->
     assert terrain.tile_json(constants, Planet.TERRA, 99, 0) is None
     assert terrain.tile(constants, Planet.TERRA, 18, 0) is None
     assert terrain.tile(constants, Planet.TERRA, 0, 36) is None
-    #: Halfway between two cells the height is their mean.
-    lat, lon = field.centre(field.rows // 2, field.cols // 2)
-    dlon = 360.0 / field.cols
-    a = field.height_at(lat, lon)
-    b = field.height_at(lat, lon + dlon)
-    assert abs(field.height_at(lat, lon + dlon / 2) - (a + b) / 2) < 1e-9
+    #: At a cell's own middle the reading is that cell, and halfway to the
+    #: next cell of the same ring it is their mean: what the equal-area grid
+    #: has instead of the four corners of a square (D-328).
+    ring = 2 * field.nside
+    quarter, shifted = healpix.ring_shape(field.nside, ring)
+    here, there = field.rings.table[ring - 1, 0], field.rings.table[ring - 1, 1]
+    lat = float(healpix.ring_lat(field.nside, ring))
+    a, b = float(field.height[here]), float(field.height[there])
+    assert abs(field.height_at(*field.centre(here)) - a) < 1e-6
+    middle = float(healpix.ring_lon(quarter, shifted, 0.5))
+    assert abs(field.height_at(lat, middle) - (a + b) / 2) < 1e-6
 
 
 def seed_points() -> list[tuple[float, float]]:
@@ -125,9 +131,9 @@ def test_water_mountains_and_lakes_are_the_rasters_word(constants: Constants) ->
 def test_the_river_mark_is_a_fact_of_the_map(constants: Constants) -> None:
     """Within the reach of a river a node has river water; far from every river it has none."""
     field = terrain.field_of(constants, Planet.TERRA)
-    rivers = np.argwhere(field.water == fields.RIVER)
+    rivers = np.flatnonzero(field.water == fields.RIVER)
     assert len(rivers), "у Терры есть реки"
-    on_river = field.centre(*(int(v) for v in rivers[len(rivers) // 2]))
+    on_river = field.centre(int(rivers[len(rivers) // 2]))
     assert terrain.marks_at(constants, Planet.TERRA, *on_river)[world.WATER] == world.RIVER
     reach = terrain.river_reach_deg(constants, Planet.TERRA, 0.0)
     far = next(
@@ -197,12 +203,16 @@ def test_the_sketch_is_the_field_the_client_draws(constants: Constants) -> None:
     sketch = terrain.sketch(constants, Planet.TERRA)
     rows, cols = field.grid.shape
     #: The coast is the raster's word, not the block's average: a sketch
-    #: cell is over the sea's zero exactly where most of its cells are land,
-    #: so the client's coarse "sea" and the server's land check agree.
-    factor = field.rows // rows
-    land = (field.water[: rows * factor, : cols * factor] != fields.SEA).reshape(
-        rows, factor, cols, factor
-    )
+    #: cell is over the sea's zero exactly where most of the points it is
+    #: read at are land, so the client's coarse "sea" and the server's land
+    #: check agree. The sketch is sampled off the field now (D-328): the
+    #: field is a flat run of equal cells with no rows to average.
+    within = (np.arange(fields.SKETCH_SAMPLES) + 0.5) / fields.SKETCH_SAMPLES
+    lat = (-90.0 + (np.arange(rows)[:, None] + within) * (180.0 / rows)).reshape(-1)
+    lon = (-180.0 + (np.arange(cols)[:, None] + within) * (360.0 / cols)).reshape(-1)
+    cells = healpix.ang2pix(field.nside, lat[:, None], lon[None, :])
+    grain = fields.SKETCH_SAMPLES
+    land = (field.water[cells] != fields.SEA).reshape(rows, grain, cols, grain)
     majority = land.mean(axis=(1, 3)) > 0.5
     assert np.array_equal(field.grid > 0.0, majority), "знак клетки эскиза — большинство её суши"
     assert (sketch["warmth"][rows // 2] > sketch["warmth"][0]) and len(sketch["warmth"]) == rows
@@ -312,11 +322,10 @@ def test_the_field_has_metres(constants: Constants) -> None:
     rise = float(constants[R.TERRAIN_RELIEF_M])
     assert rise > 0
     field = terrain.field_of(constants, Planet.TERRA)
-    rows, cols = field.rows, field.cols
-    seas = np.argwhere(field.water == fields.SEA)
-    lakes = np.argwhere(field.water == fields.LAKE)
-    sea = field.centre(*(int(v) for v in seas[0])) if len(seas) else None
-    lake = field.centre(*(int(v) for v in lakes[0])) if len(lakes) else None
+    seas = np.flatnonzero(field.water == fields.SEA)
+    lakes = np.flatnonzero(field.water == fields.LAKE)
+    sea = field.centre(int(seas[0])) if len(seas) else None
+    lake = field.centre(int(lakes[0])) if len(lakes) else None
     assert sea is not None, "на Терре есть море"
     assert terrain.height_m(constants, Planet.TERRA, *sea) == 0.0, "море стоит на нуле"
     if lake is not None:
@@ -326,10 +335,9 @@ def test_the_field_has_metres(constants: Constants) -> None:
         assert terrain.height_m(constants, Planet.TERRA, *lake) > 0.0
     #: Monotone: the reading in metres orders the land as the share does.
     land = [
-        field.centre(row, col)
-        for row in range(0, rows, 5)
-        for col in range(0, cols, 5)
-        if not field.is_water(*field.centre(row, col))
+        field.centre(cell)
+        for cell in range(0, field.cells, 3571)
+        if not field.is_water(*field.centre(cell))
     ]
     assert land, "на Терре есть суша"
     heights = [terrain.height_m(constants, Planet.TERRA, *point) for point in land]
@@ -351,15 +359,13 @@ def test_the_biome_raster_is_the_classifier_at_every_cell_centre(constants: Cons
     raster = biome.raster(constants, Planet.TERRA)
     names = biome.codes(constants)
     assert raster.shape == field.height.shape and raster.dtype == np.uint8
-    rows, cols = raster.shape
-    for row in range(0, rows, 23):
-        for col in range(0, cols, 41):
-            point = field.centre(row, col)
-            word = biome.classify(constants, Planet.TERRA, *point)
-            code = int(raster[row, col])
-            assert (word is None and code == biome.NONE) or (
-                code < len(names) and names[code] == word
-            ), f"клетка {row},{col}: растр говорит {code}, классификатор {word}"
+    for cell in range(0, field.cells, 997):
+        point = field.centre(cell)
+        word = biome.classify(constants, Planet.TERRA, *point)
+        code = int(raster[cell])
+        assert (word is None and code == biome.NONE) or (
+            code < len(names) and names[code] == word
+        ), f"клетка {cell}: растр говорит {code}, классификатор {word}"
     assert biome.raster(constants, Planet.AURORA).max() < len(names)
     icy = np.unique(biome.raster(constants, Planet.AURORA))
     assert set(icy.tolist()) <= {names.index(biome.ICE), biome.NONE}, "Аврора — один лёд"
@@ -370,27 +376,48 @@ def test_the_rasters_are_the_field_thinned_and_named(constants: Constants) -> No
 
     field = terrain.field_of(constants, Planet.TERRA)
     passport = terrain.sketch(constants, Planet.TERRA)["raster"]
-    stride = terrain.raster_stride(field.rows)
-    assert passport["rows"] == len(range(0, field.rows, stride)) <= terrain.RASTER_ROWS_MAX
-    assert passport["cols"] == len(range(0, field.cols, stride))
-    assert passport["step_m"] == field.step_m * stride and passport["relief_m"] == field.relief_m
+    nside = terrain.raster_nside(field)
+    #: The picture is the same grid as the field, only coarser where it has
+    #: to be: twelve square faces of `nside` cells, each with a border of one
+    #: cell from the face across the edge (D-328).
+    assert passport["grid"] == "healpix" and passport["nside"] == nside
+    assert field.nside % nside == 0, "дробность картинки делит дробность поля"
+    assert healpix.npix(nside) <= RASTER_CELLS_MAX
+    side = nside + 2 * healpix.BORDER
+    assert passport["rows"] == healpix.DOWN * side
+    assert passport["cols"] == healpix.ACROSS * side
+    assert passport["cells"] == healpix.npix(nside)
+    assert passport["step_m"] == pytest.approx(healpix.cell_side_m(field.radius_m, nside))
+    assert passport["relief_m"] == field.relief_m
     assert passport["forms"] == list(field.forms) and passport["biomes"] == list(
         constants[R.BIOME_NAMES]
     )
     n = passport["rows"] * passport["cols"]
+
+    def texel(cell: int) -> int:
+        """Where a cell of the picture's grid sits in the atlas."""
+        face, ix, iy = (int(v) for v in healpix.pix2fxy(nside, np.array(cell)))
+        row = (face // healpix.ACROSS) * side + healpix.BORDER + iy
+        col = (face % healpix.ACROSS) * side + healpix.BORDER + ix
+        return row * passport["cols"] + col
+
     height = np.frombuffer(rasters.raster_bytes(constants, Planet.TERRA, "height"), dtype="<i2")
     assert height.size == n
     assert height.min() < 0 < height.max() <= field.relief_m, "море ниже нуля, суша до размаха"
-    sea = field.height[::stride, ::stride].reshape(-1) < 0
-    assert (height[sea] < 0).all(), "the sea stays under zero, shallow cells too"
-    land = ~sea
-    assert (height[land] >= 0).all()
     for kind in ("biome", "form", "water", "rock", "province"):
         got = np.frombuffer(rasters.raster_bytes(constants, Planet.TERRA, kind), dtype=np.uint8)
         assert got.size == n, kind
     water = np.frombuffer(rasters.raster_bytes(constants, Planet.TERRA, "water"), dtype=np.uint8)
     assert passport["water"][fields.RIVER] == "river" and (water == fields.RIVER).any()
     assert rasters.raster_bytes(constants, Planet.TERRA, "rivers") is None
+    #: Sea and land keep their sign through the thinning: the picture tells
+    #: the water by it, and a shallow cell rounded up would be drawn as shore.
+    cells = np.arange(0, healpix.npix(nside), 313)
+    seats = np.array([texel(int(cell)) for cell in cells])
+    lat, lon = _centres_of(nside, cells)
+    wet = np.array([field.is_sea(one, two) for one, two in zip(lat, lon, strict=True)])
+    assert (height[seats][wet] < 0).all(), "море остаётся ниже нуля"
+    assert (height[seats][~wet] >= 0).all()
     #: The hardness of the ground (wave 8): a byte the whole way, and the
     #: shader reads it as nought to one off an `R8` texture -- so the raster
     #: must use its range rather than sit in a corner of it.
@@ -403,19 +430,29 @@ def test_the_rasters_are_the_field_thinned_and_named(constants: Constants) -> No
     )
     assert passport["provinces"] == list(field.provinces)
     assert province.max() == len(field.provinces)
-    assert (province[sea] == 0).all(), "the sea is in no province"
-    assert (province[land] > 0).all(), "every cell of the land is in one"
-    for code in range(1, len(field.provinces) + 1):
-        assert (province == code).any(), code
+    assert (province[seats][wet] == 0).all(), "the sea is in no province"
+    assert (province[seats][~wet] > 0).all(), "every cell of the land is in one"
     #: And the code names the same province the engine names at that point.
-    rows, cols = field.rows, field.cols
-    for at in (0, n // 3, n // 2, n - 1):
-        row, col = divmod(at, passport["cols"])
-        lat = -90 + (row * stride + 0.5) * (180 / rows)
-        lon = -180 + (col * stride + 0.5) * (360 / cols)
-        code = int(province[at])
-        assert field.province_at(lat, lon) == (field.provinces[code - 1] if code else None)
+    for seat, one, two in zip(seats[:40], lat[:40], lon[:40], strict=True):
+        code = int(province[seat])
+        assert field.province_at(one, two) == (field.provinces[code - 1] if code else None)
+    #: The border is the face across the edge, not a repeat of the edge: a
+    #: cell just outside a face reads what the projection says lies there,
+    #: so the blending between cells stays continuous over the whole sphere.
+    skirt = healpix.skirt(nside)
+    for face in range(12):
+        top, left = (face // healpix.ACROSS) * side, (face % healpix.ACROSS) * side
+        inside = healpix.fxy2pix(nside, face, 0, side // 2 - healpix.BORDER)
+        beyond = int(skirt[top + side // 2, left])
+        assert beyond != int(inside), f"грань {face}: кайма повторяет край"
+        assert beyond // (nside * nside) != face, f"грань {face}: кайма со своей же грани"
     #: Written once: the second ask is the same bytes object.
     assert rasters.raster_bytes(constants, Planet.TERRA, "height") is rasters.raster_bytes(
         constants, Planet.TERRA, "height"
     )
+
+
+def _centres_of(nside: int, cells: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """The middles of some cells of a grid this fine."""
+    lat, lon = healpix.centres(nside)
+    return lat[cells], lon[cells]

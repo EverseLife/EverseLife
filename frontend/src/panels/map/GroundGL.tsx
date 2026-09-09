@@ -230,7 +230,10 @@ function sync(program: Program, planet: string, palette: Palette, highFrom: numb
   if (was && was.planet === planet && was.palette === palette && was.highFrom === highFrom) return true;
   const { gl, at } = program;
   const { passport } = textures;
-  gl.uniform2f(at("u_cells"), passport.cols, passport.rows);
+  gl.uniform2f(at("u_atlas"), passport.cols, passport.rows);
+  gl.uniform1f(at("u_nside"), passport.nside);
+  gl.uniform1f(at("u_border"), passport.border);
+  gl.uniform1f(at("u_across"), passport.across);
   gl.uniform1f(at("u_step"), passport.step_m);
   gl.uniform1f(at("u_relief"), passport.relief_m);
   gl.uniform1f(at("u_deep"), textures.deep);
