@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { bulk, long, nameWord, nodeWord, price, spread } from "../panels/map/words";
+import { bulk, long, nameWord, nodeWord, price, provinceWord, spread } from "../panels/map/words";
 import { DEFAULT_LOCALE, Words, learn } from "../locale";
 
 //: The terms below are assembled from the client's own locale (D-251), which
@@ -68,6 +68,12 @@ describe("words", () => {
   //: column and the world do not call one node two things.
   it("says a found node's biome, in the vault's word", () => {
     const names = { forest: "Лес", desert: "Пустыня" };
+    //: The province (landscape plan, wave 3): the vault's word by id, the id
+    //: itself before the table arrives, nothing for a node without one.
+    const provinces = { provinces: { ore_ridge: "Рудный кряж" } };
+    expect(provinceWord({ province: "ore_ridge" }, provinces)).toBe("Рудный кряж");
+    expect(provinceWord({ province: "ore_ridge" }, null)).toBe("ore_ridge");
+    expect(provinceWord({}, provinces)).toBeNull();
     expect(nodeWord({ name: "Рынок", features: ["forest"] }, names)).toBe("Рынок");
     expect(nodeWord({ name: "", features: ["forest"] }, names)).toBe("Лес");
     //: Marks that are not biomes are passed over: a vein in the woods is

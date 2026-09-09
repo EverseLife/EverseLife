@@ -40,6 +40,9 @@ CINDER = "cinder"
 #: The node properties a found node carries from its biome.
 BIOME = "biome"
 TEMPERATURE_SWING = "temperature_swing"
+#: The province a found node lies in (landscape plan, wave 3): an id of the
+#: vault's table, named through renames like any thing of the world.
+PROVINCE = "province"
 
 #: Planets whose whole surface is one biome: the ice of Aurora (D-232), the
 #: black fields of Pyroxis (D-233). Their relief still decides water and rock.
@@ -110,6 +113,13 @@ def of_node(constants: Constants, node: Node) -> str | None:
     if point is None:
         return None
     return classify(constants, node.planet, *point)
+
+
+def province_of(node: Node) -> str | None:
+    """The province written on a found node, or None: a seeded node and a
+    node off the ground have none."""
+    written = (node.properties or {}).get(PROVINCE)
+    return str(written) if written else None
 
 
 def signs(node: Node) -> list[str]:

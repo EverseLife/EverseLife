@@ -169,6 +169,9 @@ export type MapNode = {
   features?: string[];
   /** The owner's nailed mark, if any (D-238): beats the place signs. */
   emblem?: string | null;
+  /** The province the node lies in (landscape plan, wave 3): an id named
+   *  through `/public/renames`. Absent on a node without one. */
+  province?: string;
   /** Shown dark: remembered or public, not in sight (D-319). */
   faded?: boolean;
   /** The node the city grew from -- its bioprinter. Sent on a **city's** row

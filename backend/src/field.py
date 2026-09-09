@@ -89,7 +89,12 @@ class Field:
     temperature_c: np.ndarray  # int8
     rain: np.ndarray  # uint8, 255 = 1.0
     ice: np.ndarray  # bool
+    province: np.ndarray  # uint8: 0 none, k the province with code k
     forms: tuple[str, ...]  # the passport's table: code -> id
+    #: The provinces of the planet by code (landscape plan, wave 3): the id
+    #: a found node is stamped with, and the vein multiplier the find rolls by.
+    provinces: tuple[str, ...]
+    province_vein_k: tuple[float, ...]
     mountain_level: float  # share above which the land is mountain
     river_cap_m: float  # the distance raster's reach: at it, no fresh water in sight
     wet: bool  # whether any sea or lake holds water
@@ -196,6 +201,18 @@ class Field:
 
     def form_at(self, lat: float, lon: float) -> str:
         return self.forms[int(self.form[self.cell(lat, lon)])]
+
+    def province_at(self, lat: float, lon: float) -> str | None:
+        """The id of the province a point lies in, or None on the sea and on
+        a planet without provinces."""
+        code = int(self.province[self.cell(lat, lon)])
+        return self.provinces[code - 1] if 0 < code <= len(self.provinces) else None
+
+    def province_vein_k_at(self, lat: float, lon: float) -> float:
+        """How much likelier a vein is here than the biome says: the
+        province's multiplier, one where there is no province."""
+        code = int(self.province[self.cell(lat, lon)])
+        return self.province_vein_k[code - 1] if 0 < code <= len(self.province_vein_k) else 1.0
 
     def hardness_at(self, lat: float, lon: float) -> float:
         return float(self.hardness[self.cell(lat, lon)]) / BYTE
@@ -336,7 +353,13 @@ def _loaded(directory: str, planet: str, mountain_share: float, expected: tuple)
         temperature = z["temperature_c"].astype(np.int8)
         rain = z["rain"].astype(np.uint8)
         ice = z["ice"].astype(bool)
+        province = (
+            z["province"].astype(np.uint8)
+            if "province" in z
+            else np.zeros(water.shape, dtype=np.uint8)
+        )
     land = water != SEA
+    provinces_table = list(meta.get("provinces", []))
     #: The mountain line as the noise field cut it: the share of the land
     #: above it is `terrain.mountain_share`.
     heights_on_land = height[land]
@@ -360,7 +383,10 @@ def _loaded(directory: str, planet: str, mountain_share: float, expected: tuple)
         temperature_c=temperature,
         rain=rain,
         ice=ice,
+        province=province,
         forms=tuple(str(entry["id"]) for entry in meta.get("forms", [])),
+        provinces=tuple(str(entry["id"]) for entry in provinces_table),
+        province_vein_k=tuple(float(entry.get("vein_k", 1.0)) for entry in provinces_table),
         mountain_level=mountain_level,
         river_cap_m=float(river_m.max()),
         wet=bool((water == SEA).any() or (water == LAKE).any()),

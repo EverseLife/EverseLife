@@ -324,6 +324,12 @@ async def test_the_run_reads_the_field_and_sews_the_node_on(
         assert point == explore.point_of(constants, Planet.TERRA, cell)
         here = node.properties[biome.BIOME]
         assert node.name == explore.NAMELESS, "находка безымянна: её тип показывает знак"
+        #: The province, stamped once like the biome (landscape plan, wave 3):
+        #: the field's word at the point, an id of the vault's table.
+        field = terrain.field_of(constants, Planet.TERRA)
+        assert node.properties.get(biome.PROVINCE) == field.province_at(*point)
+        if field.provinces:
+            assert node.properties[biome.PROVINCE] in field.provinces
         assert node.properties[biome.TEMPERATURE_SWING] == biome.swing_c(constants, here)
         assert (
             node.properties["temperature"] == terrain.climate_at(constants, Planet.TERRA, *point)[0]

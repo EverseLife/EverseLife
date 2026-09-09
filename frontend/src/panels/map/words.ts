@@ -82,3 +82,15 @@ export function nodeWord(
   }
   return t("ui-map-node-unnamed");
 }
+
+/** The province a node lies in, in the vault's word for it (landscape plan,
+ *  wave 3; D-251): the wire carries the id, `/public/renames` the name in
+ *  the reader's language. Nothing for a node without a province, and the id
+ *  itself while the table has not arrived -- better a key than a blank. */
+export function provinceWord(
+  face: { province?: string | null },
+  names: { provinces?: Record<string, string> } | null | undefined,
+): string | null {
+  if (!face.province) return null;
+  return names?.provinces?.[face.province] ?? face.province;
+}

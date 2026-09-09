@@ -76,6 +76,10 @@ def node_row(
         #: relief is public from the world's birth (D-319 item 3), so it hides
         #: from nobody.
         "features": world.public_signs(node) + biome.signs(node),
+        #: The province the node lies in (landscape plan, wave 3): an id the
+        #: client names through renames; nothing sent tells it otherwise
+        #: (D-225). Absent on a node without one.
+        **({"province": province} if (province := biome.province_of(node)) else {}),
         #: The owner's mark, if one is nailed on (D-238).
         "emblem": estate.public_emblem(node),
         #: The land under the node, square metres: a city's outline is the

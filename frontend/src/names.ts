@@ -47,6 +47,9 @@ export type Names = {
    *  option id means different words under different laws -- `citizens` is
    *  «гражданам» for the printer and «граждане» for the land. */
   law_options: Record<string, string>;
+  /** Provinces of the field (landscape plan, wave 3): `ore_ridge` -> «Рудный
+   *  кряж». A found node carries its province's id; the name is read here. */
+  provinces?: Record<string, string>;
 };
 
 /**

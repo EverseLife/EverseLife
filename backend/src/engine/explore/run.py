@@ -52,6 +52,7 @@ from src.engine import (
     occupation,
     places,
     ruins,
+    terrain,
     transport,
     travel,
     world,
@@ -410,8 +411,16 @@ async def _found_node(
     here = biome.classify(constants, planet, *point)
     if here is None:  # pragma: no cover -- `aim.check` refused water already
         raise ExploreError(key="explore-not-land")
+    field = terrain.field_of(constants, planet)
     if vein is None:
-        chance = float(constants[R.GROUND_VEIN_SHARE]) / PERCENT * biome.vein_k(constants, here)
+        #: The biome's chance, times the province's (landscape plan, wave 3):
+        #: an ore ridge gives colour every second pit, a rotten lowland never.
+        chance = (
+            float(constants[R.GROUND_VEIN_SHARE])
+            / PERCENT
+            * biome.vein_k(constants, here)
+            * field.province_vein_k_at(*point)
+        )
         vein = dice.random() < chance
     properties = await ground.properties(
         session,
@@ -426,6 +435,11 @@ async def _found_node(
         biome.TEMPERATURE_SWING: biome.swing_c(constants, here),
         places.PLACE: {places.PLACE_LAT: point[0], places.PLACE_LON: point[1]},
     }
+    #: The province, stamped once like the biome (D-237): the field's word
+    #: at the point, and only where the planet has provinces at all.
+    province = field.province_at(*point)
+    if province:
+        properties[biome.PROVINCE] = province
     if vein:
         properties[VEIN] = True
     if extra:
