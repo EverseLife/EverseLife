@@ -56,15 +56,15 @@ const WATER = ["land", "sea", "lake", "river"];
  *  provinces change -- and it is the same drawing either way. That the
  *  planet's own lattice reaches the right cell is `healpix.test.ts`. */
 function meshOf(rows: number, cols: number): Lattice {
-  return {
-    rows,
-    cols,
-    at: (lat, lon) => {
-      const r = Math.min(rows - 1, Math.max(0, Math.floor(((lat + 90) * rows) / 180)));
-      const c = ((Math.floor(((lon + 180) * cols) / 360) % cols) + cols) % cols;
-      return r * cols + c;
-    },
+  const at = (lat: number, lon: number) => {
+    const r = Math.min(rows - 1, Math.max(0, Math.floor(((lat + 90) * rows) / 180)));
+    const c = ((Math.floor(((lon + 180) * cols) / 360) % cols) + cols) % cols;
+    return r * cols + c;
   };
+  //: On a mesh drawn by hand a point reads its own cell and nothing else:
+  //: the mesh *is* the cells, and there is nothing between them. On a
+  //: planet the two differ, and that reading is `healpix.test.ts`.
+  return { rows, cols, at, between: (raster, lat, lon) => raster[at(lat, lon)] };
 }
 
 /** A small planet: `rows` by `2 * rows` cells, the heights given by a
@@ -96,6 +96,9 @@ function planet(
       //: A river cell drains something: half a byte of the log scale, so a
       //: test planet's rivers have a width to be drawn at.
       rasters.flow[r * cols + c] = named === "river" ? 128 : 0;
+      //: A lake travels as a share, not as a class: the picture cuts its
+      //: shore between the cells as it cuts the sea's by the height.
+      rasters.lake[r * cols + c] = named === "lake" ? 255 : 0;
       rasters.province[r * cols + c] = province ? province(r, c) : 0;
     }
   }
@@ -232,12 +235,28 @@ describe("coast", () => {
       for (const p of [a, b]) expect(p.lon).toBeCloseTo(-5, 6);
     }
   });
-  it("draws a lake's shore off the form raster", () => {
+  it("closes a lake's shore round it, cut where its own share passes a half", () => {
+    //: Off the `lake` raster and not off the form: a share, so the shore is
+    //: cut between the cells, as the shader cuts it (`shade.ts`, u_wet). As
+    //: a class it was whole cells, and a lake with the corners of a cell is
+    //: not a lake (owner, 2026-09-10).
     const { rasters, passport, lattice } = planet(6, () => 100, (r, c) => (r === 3 && c === 6 ? "lake" : "plain"));
     const win = windowAbout(lattice, { lat: 0, lon: 0 }, 1e5, undefined);
     const { shores, lakes } = coast(rasters, samplesOf(lattice, win), FORMS);
     expect(shores.rock.length + shores.beach.length + shores.shore.length).toBe(0);
-    expect(lakes.length).toBe(4);
+    //: A closed ring round the one wet cell, cut as finely inside a cell as
+    //: the sea's own edge is (`COAST_FINE`).
+    expect(lakes.length).toBeGreaterThanOrEqual(4 * COAST_FINE);
+    const middle = { lat: -90 + (3 + 0.5) * (180 / 6), lon: -180 + (6 + 0.5) * (360 / 12) };
+    for (const [a, b] of lakes) {
+      for (const p of [a, b]) {
+        expect(Math.abs(p.lat - middle.lat)).toBeLessThan(180 / 6);
+        expect(Math.abs(p.lon - middle.lon)).toBeLessThan(360 / 12);
+      }
+    }
+    //: And every end of every stretch is on the half itself.
+    const wet = samplesOf(lattice, win).between(rasters.lake);
+    expect(wet.some((v) => v > 200) && wet.some((v) => v < 50)).toBe(true);
   });
 });
 

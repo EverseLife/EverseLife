@@ -41,6 +41,7 @@ import functools
 import json
 import math
 from dataclasses import dataclass
+from functools import cached_property
 from pathlib import Path
 
 import numpy as np
@@ -68,6 +69,9 @@ NO_CLASS = 255
 #: when its mean height would put it on the other: a coast cell reads as the
 #: raster does, not as its average.
 SKETCH_SHORE = 1e-3
+#: And the same hair for a coast texel of the picture's rasters, which are
+#: thinned the same way and hold the same contract (`engine.rasters._shore`).
+RASTER_SHORE = SKETCH_SHORE
 #: How many points across a sketch cell are sampled off the field to make
 #: it: the field is a flat run of cells with no rows to average, so the
 #: sketch is drawn by asking it, and a sample every few cells is enough for
@@ -108,15 +112,9 @@ class Field:
     #: The cells laid out by ring of equal latitude, for reading a quantity
     #: between them.
     rings: healpix.Rings
-    #: The middle of every cell, degrees -- what `centre` answers with.
-    #: Kept to the full width of a float: a middle rounded to seven figures
-    #: is a part in a hundred thousand off its own cell, and a reading there
-    #: then carries that much of the next cell (`healpix.Rings.between`).
-    cell_lat: np.ndarray
-    cell_lon: np.ndarray
     #: The rasters as the file keeps them -- a byte a class, two a distance,
-    #: four a height -- read into floats only at the point asked, so four
-    #: planets fit a process in tens of megabytes, not hundreds.
+    #: four a height -- read into floats only at the point asked, so a planet
+    #: is tens of megabytes and not hundreds: Terra's whole field is thirty.
     height: np.ndarray  # share of the rise, float32, (cells,)
     water: np.ndarray  # LAND / SEA / LAKE / RIVER, uint8
     form: np.ndarray  # uint8, codes of `forms`
@@ -189,13 +187,38 @@ class Field:
         """The cell a point falls in."""
         return int(healpix.ang2pix(self.nside, lat, lon))
 
+    def cells_at(self, lat: np.ndarray, lon: np.ndarray) -> np.ndarray:
+        """The cells a run of points falls in.
+
+        Finding one cell is a couple of dozen microseconds -- the projection
+        is arithmetic, but it is numpy's arithmetic, and the cost is the call
+        and not the sums. Asked for a hundred points at once it is the sums
+        again. Everything that walks a line over the ground (`horizon`,
+        `facet`, `explore.aim`) asks for its whole walk in one go.
+        """
+        return healpix.ang2pix(self.nside, lat, lon)
+
+    @cached_property
+    def centres(self) -> tuple[np.ndarray, np.ndarray]:
+        """The middle of every cell, degrees. Made when first asked and not
+        before: it is twelve megabytes a planet, and only `centre` and the
+        thinning of the picture's rasters read it."""
+        return healpix.centres(self.nside, self.rings)
+
     def centre(self, cell: int) -> tuple[float, float]:
         """The middle of a cell, degrees."""
-        return float(self.cell_lat[cell]), float(self.cell_lon[cell])
+        lat, lon = self.centres
+        return float(lat[cell]), float(lon[cell])
 
     def between(self, raster: np.ndarray, lat: float, lon: float) -> float:
         """A quantity between the cells around a point (`healpix.Rings`)."""
         return float(self.rings.between(raster, lat, lon))
+
+    def reliefs(self, lat: np.ndarray, lon: np.ndarray) -> np.ndarray:
+        """How far above the sea a run of points stands, shares of the rise,
+        the sea at nought. One reading for the whole walk (see `cells`)."""
+        share = self.rings.between(self.height, lat, lon)
+        return np.where(self.water[self.cells_at(lat, lon)] == SEA, 0.0, np.clip(share, 0.0, 1.0))
 
     # --- what the engine asks -------------------------------------------
 
@@ -280,17 +303,21 @@ class Field:
         return math.inf if metres >= self.river_cap_m else metres
 
     def river_crossed(self, a: tuple[float, float], b: tuple[float, float]) -> bool:
-        """Whether the straight way from `a` to `b` steps on a river cell."""
+        """Whether the straight way from `a` to `b` steps on a river cell.
+
+        The whole way is read in one ask: a cell of the equal-area grid is
+        found by arithmetic, and the cost of that arithmetic is the call, not
+        the sums (`cells_at`).
+        """
         phi = math.radians(a[0])
         dlat = b[0] - a[0]
         dlon = ((b[1] - a[1] + 180.0) % 360.0) - 180.0
         metres = self.radius_m * math.radians(math.hypot(dlat, dlon * math.cos(phi)))
         steps = max(2, int(math.ceil(metres / (0.5 * self.step_m))))
-        for k in range(steps + 1):
-            share = k / steps
-            if self.is_river(a[0] + dlat * share, a[1] + dlon * share):
-                return True
-        return False
+        share = np.arange(steps + 1) / steps
+        lat = a[0] + dlat * share
+        lon = ((a[1] + dlon * share + 180.0) % 360.0) - 180.0
+        return bool((self.water[self.cells_at(lat, lon)] == RIVER).any())
 
     def land_share(self) -> float:
         """The share of the planet that is not sea. A share of the cells is a
@@ -461,8 +488,6 @@ def _loaded(directory: str, planet: str, mountain_share: float, expected: tuple)
         relief_m=relief_m,
         nside=nside,
         rings=rings,
-        cell_lat=_cell_lat(rings),
-        cell_lon=_cell_lon(rings),
         height=height,
         water=water,
         form=form,
@@ -488,29 +513,6 @@ def _loaded(directory: str, planet: str, mountain_share: float, expected: tuple)
         lakes=lakes,
         warmth=warmth,
     )
-
-
-def _cell_lat(rings: healpix.Rings) -> np.ndarray:
-    """The latitude of every cell, by its ring."""
-    ring = np.arange(1, rings.count + 1)
-    quarter, _ = healpix.ring_shape(rings.nside, ring)
-    out = np.empty(healpix.npix(rings.nside))
-    latitude = healpix.ring_lat(rings.nside, ring)
-    for index in range(rings.count):
-        out[rings.table[index, : 4 * quarter[index]]] = latitude[index]
-    return out
-
-
-def _cell_lon(rings: healpix.Rings) -> np.ndarray:
-    """The longitude of every cell, by its place in its ring."""
-    ring = np.arange(1, rings.count + 1)
-    quarter, shifted = healpix.ring_shape(rings.nside, ring)
-    out = np.empty(healpix.npix(rings.nside))
-    for index in range(rings.count):
-        wide = 4 * int(quarter[index])
-        place = np.arange(wide)
-        out[rings.table[index, :wide]] = healpix.ring_lon(quarter[index], shifted[index], place)
-    return out
 
 
 def _sketch(

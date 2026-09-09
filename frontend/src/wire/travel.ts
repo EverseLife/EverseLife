@@ -241,10 +241,12 @@ export type Terrain = {
   raster?: RasterPassport;
 };
 
-/** What `/public/terrain/{planet}/raster/{kind}` answers with: `rows` by
- *  `cols` cells, row 0 the south, each `step_m` metres at the equator;
- *  `height` a signed sixteen-bit metre, `biome` a byte into `biomes`
- *  (255 on water), `form` a byte into `forms`, `water` a byte into `water`. */
+/** What `/public/terrain/{planet}/raster/{kind}` answers with: the atlas of
+ *  the equal-area grid, `rows` by `cols` texels row by row -- twelve square
+ *  faces of `nside` cells with a border of `border` each (D-328), and every
+ *  cell `step_m` metres a side wherever it lies. `height` is a signed
+ *  sixteen-bit metre, `biome` a byte into `biomes` (255 on water), `form` a
+ *  byte into `forms`, `water` a byte into `water`. */
 export type RasterKind =
   | "height"
   | "biome"

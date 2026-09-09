@@ -271,9 +271,13 @@ def fxy2pix(nside: int, face: np.ndarray, ix: np.ndarray, iy: np.ndarray) -> np.
     return (np.asarray(face) * nside + np.asarray(iy)) * nside + np.asarray(ix)
 
 
-def centres(nside: int) -> tuple[np.ndarray, np.ndarray]:
-    """The middle of every cell of a grid this fine, degrees."""
-    rings = Rings(nside)
+def centres(nside: int, rings: Rings | None = None) -> tuple[np.ndarray, np.ndarray]:
+    """The middle of every cell of a grid this fine, degrees.
+
+    The ring table may be handed in by a caller that already has one -- it
+    is a million lookups to build and the field keeps its own.
+    """
+    rings = rings or Rings(nside)
     ring = np.arange(1, rings.count + 1)
     quarter, shifted = ring_shape(nside, ring)
     latitude = ring_lat(nside, ring)
@@ -293,7 +297,7 @@ def xyz(lat_deg: np.ndarray, lon_deg: np.ndarray) -> np.ndarray:
     return np.stack([np.cos(rad) * np.cos(lam), np.cos(rad) * np.sin(lam), np.sin(rad)])
 
 
-def skirt(nside: int) -> np.ndarray:
+def skirt(nside: int, rings: Rings | None = None) -> np.ndarray:
     """For every texel of the atlas, the cell whose value goes in it.
 
     Inside a face it is that face's own cell. In the border it is the cell
@@ -324,7 +328,7 @@ def skirt(nside: int) -> np.ndarray:
         np.clip(ix - out_x, 0, nside - 1)[None, None, :],
         np.clip(iy - out_y, 0, nside - 1)[None, :, None],
     )
-    lat, lon = centres(nside)
+    lat, lon = centres(nside, rings)
     edge = xyz(lat[here], lon[here])
     back = xyz(lat[inward], lon[inward])
     beyond = float(BOTH) * (edge * back).sum(axis=0)[None, ...] * edge - back
@@ -335,7 +339,7 @@ def skirt(nside: int) -> np.ndarray:
         np.degrees(np.arctan2(beyond[1], beyond[0])),
     )
     cells = np.where(outside, over, here)
-    out = np.zeros((DOWN * side, ACROSS * side), dtype=np.int64)
+    out = np.zeros((DOWN * side, ACROSS * side), dtype=np.int32)
     for one in range(FACES):
         top, left = (one // ACROSS) * side, (one % ACROSS) * side
         out[top : top + side, left : left + side] = cells[one]

@@ -153,16 +153,31 @@ export function wholeWindow(lattice: Lattice): Window {
   return { r0: 0, r1: lattice.rows - 1, c0: 0, count: lattice.cols, stride: 1 };
 }
 
-/** The samples of a window: a grid `nr` by `nc` of cell readings, and the
- *  place of a sample by its fractional indices. */
+/** The samples of a window: a grid `nr` by `nc` of readings, and the place
+ *  of a sample by its fractional indices. */
 export type Samples = {
   nr: number;
   nc: number;
-  /** The raster's row and column of sample (i, j). */
+  /** The lattice's row and column of sample (i, j). */
   cell: (i: number, j: number) => [number, number];
   /** Degrees of sample (i, j), fractional indices allowed. */
   geo: (i: number, j: number) => Geo;
+  /** Where sample (i, j) reaches into the rasters: the cell it stands in.
+   *  For what the rasters keep as a class. */
   index: (i: number, j: number) => number;
+  /** A quantity of the rasters read **between** the cells around every
+   *  sample, as one array over the window.
+   *
+   *  A level line is drawn from this and never from the cell's own value.
+   *  The cells are a field of steps, and the level line of a field of steps
+   *  runs along the edges of cells -- on the equal-area grid that is a
+   *  chain of straight runs at forty-five degrees, which is the shape of a
+   *  cell and not the shape of a shore. It is also the surface the shader
+   *  draws by, so the coast's line and the water's colour agree.
+   *
+   *  Kept by raster: a window is walked once for the coast and again for
+   *  every contour of the ladder. */
+  between: (raster: ArrayLike<number>) => Float32Array;
 };
 
 export function samplesOf(lattice: Lattice, win: Window): Samples {
@@ -180,20 +195,39 @@ export function samplesOf(lattice: Lattice, win: Window): Samples {
     lat: -90 + (r0 + i * stride + 0.5) * (180 / rows),
     lon: ((((c0 + j * stride + 0.5) * (360 / cols)) % 360) + 360) % 360 - 180,
   });
-  return {
-    nr,
-    nc,
-    cell,
-    geo,
-    //: The lattice is latitude and longitude; the rasters are the equal-area
-    //: cells of the field (D-328). A sample reaches its bytes by asking the
-    //: projection which cell stands under its point -- not by a row and a
-    //: column, which the rasters no longer have.
-    index: (i, j) => {
-      const at = geo(i, j);
-      return lattice.at(at.lat, at.lon);
-    },
+  //: The lattice is latitude and longitude; the rasters are the equal-area
+  //: cells of the field (D-328). A sample reaches its bytes by asking the
+  //: projection which cell stands under its point -- not by a row and a
+  //: column, which the rasters no longer have.
+  //
+  //: Asked once per sample and kept, not asked where it is read: marching
+  //: squares reads the four corners of every quad, so a lazy `index` did the
+  //: projection four times over for each sample, and the whole planet's
+  //: lines are a million of them. The table is the same size as the window.
+  const table = new Int32Array(nr * nc);
+  for (let i = 0; i < nr; i++) {
+    const lat = -90 + (r0 + i * stride + 0.5) * (180 / rows);
+    for (let j = 0; j < nc; j++) {
+      const lon = ((((c0 + j * stride + 0.5) * (360 / cols)) % 360) + 360) % 360 - 180;
+      table[i * nc + j] = lattice.at(lat, lon);
+    }
+  }
+  const read = new Map<ArrayLike<number>, Float32Array>();
+  const between = (raster: ArrayLike<number>): Float32Array => {
+    let held = read.get(raster);
+    if (held) return held;
+    held = new Float32Array(nr * nc);
+    for (let i = 0; i < nr; i++) {
+      const lat = -90 + (r0 + i * stride + 0.5) * (180 / rows);
+      for (let j = 0; j < nc; j++) {
+        const lon = ((((c0 + j * stride + 0.5) * (360 / cols)) % 360) + 360) % 360 - 180;
+        held[i * nc + j] = lattice.between(raster, lat, lon);
+      }
+    }
+    read.set(raster, held);
+    return held;
   };
+  return { nr, nc, cell, geo, index: (i, j) => table[i * nc + j], between };
 }
 
 /** A line as two ends, degrees. */
@@ -345,7 +379,8 @@ export function contours(
   interval: number,
 ): { level: number; index: boolean; segments: Segment[] }[] {
   if (!Number.isFinite(interval) || interval <= 0) return [];
-  const value = (i: number, j: number) => rasters.height[samples.index(i, j)];
+  const read = samples.between(rasters.height);
+  const value = (i: number, j: number) => read[i * samples.nc + j];
   let top = 0;
   for (let i = 0; i < samples.nr; i++) {
     for (let j = 0; j < samples.nc; j++) top = Math.max(top, value(i, j));
@@ -385,7 +420,8 @@ export function coast(
   const rock = new Set([code("coast_cliff"), code("cliff")]);
   const beach = code("beach");
   const lake = code("lake");
-  const height = (i: number, j: number) => rasters.height[samples.index(i, j)];
+  const read = samples.between(rasters.height);
+  const height = (i: number, j: number) => read[i * samples.nc + j];
   const shores: Record<Shore, Segment[]> = { rock: [], beach: [], shore: [] };
   //: The style of a quad is read off its land corners as its segment is made.
   const styleOf = (i: number, j: number): Shore => {
@@ -401,10 +437,13 @@ export function coast(
   const styles: Shore[] = [];
   const segments = isolines(samples, height, 0, (i, j) => styles.push(styleOf(i, j)), COAST_FINE);
   segments.forEach((segment, k) => shores[styles[k]].push(segment));
-  const lakes =
-    lake < 0
-      ? []
-      : isolines(samples, (i, j) => (rasters.form[samples.index(i, j)] === lake ? 1 : 0), 0.5);
+  //: The lake is cut where its own share passes a half, read between the
+  //: cells -- the very number and the very threshold the shader cuts it by
+  //: (`shade.ts`, u_wet). As a class it was whole cells, and a lake with the
+  //: corners of a cell is not a lake.
+  const wet = samples.between(rasters.lake);
+  const lakes = isolines(samples, (i, j) => wet[i * samples.nc + j], BYTE / 2, undefined, COAST_FINE);
+  void lake;
   return { shores, lakes };
 }
 
@@ -426,6 +465,7 @@ export function hachures(
   if (!cliffs.size) return [];
   const out: Segment[] = [];
   const { nr, nc } = samples;
+  const read = samples.between(rasters.height);
   const step = passport.step_m * win.stride;
   const radiusM = radius / UNITS_PER_METRE;
   const length = HACHURE_SHARE * step;
@@ -434,8 +474,8 @@ export function hachures(
       if (!cliffs.has(rasters.form[samples.index(i, j)])) continue;
       const here = samples.geo(i, j);
       const cos = Math.max(Math.cos(here.lat * RAD), 0.05);
-      const east = (rasters.height[samples.index(i, j + 1)] - rasters.height[samples.index(i, j - 1)]) / (2 * step * cos);
-      const north = (rasters.height[samples.index(i + 1, j)] - rasters.height[samples.index(i - 1, j)]) / (2 * step);
+      const east = (read[i * nc + j + 1] - read[i * nc + j - 1]) / (2 * step * cos);
+      const north = (read[(i + 1) * nc + j] - read[(i - 1) * nc + j]) / (2 * step);
       const norm = Math.hypot(east, north);
       if (norm === 0) continue;
       //: Down the slope: against the gradient, in metres, then in degrees.

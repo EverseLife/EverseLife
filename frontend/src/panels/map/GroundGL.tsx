@@ -173,20 +173,24 @@ function tearDown(program: Program | null, canvas: HTMLCanvasElement): void {
  *  a class, not a mean of two (plan §9.3); the rock a byte read back as a
  *  number between nought and one, and that one blends -- hardness is a
  *  measure, and a mean of two hardnesses is a hardness. */
+//: The rasters are an atlas of twelve square faces, not a cylinder of
+//: latitude and longitude: nothing wraps round its right edge any more, and
+//: a sample that walks off a face lands on the face that is really there,
+//: because the projection put it there. Both axes clamp.
 function upload(gl: WebGL2RenderingContext, passport: RasterPassport, rasters: Rasters): Textures {
   const { rows, cols } = passport;
   const height = gl.createTexture();
   if (!height) throw new Error("no texture");
   gl.bindTexture(gl.TEXTURE_2D, height);
   const heights = rasters.height;
-  const chain = mipChain(heights, cols, rows);
+  const chain = mipChain(heights, cols, rows, passport.nside + 2 * passport.border);
   chain.forEach((level, index) => {
     gl.texImage2D(gl.TEXTURE_2D, index, gl.R16F, level.cols, level.rows, 0, gl.RED, gl.FLOAT, level.data);
   });
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAX_LEVEL, chain.length - 1);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
   const classes = (bytes: Uint8Array): WebGLTexture => {
     const texture = gl.createTexture();
@@ -195,7 +199,7 @@ function upload(gl: WebGL2RenderingContext, passport: RasterPassport, rasters: R
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8UI, cols, rows, 0, gl.RED_INTEGER, gl.UNSIGNED_BYTE, bytes);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     return texture;
   };
@@ -206,7 +210,7 @@ function upload(gl: WebGL2RenderingContext, passport: RasterPassport, rasters: R
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, cols, rows, 0, gl.RED, gl.UNSIGNED_BYTE, bytes);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     return texture;
   };

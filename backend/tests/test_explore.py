@@ -598,7 +598,8 @@ def test_the_mountains_are_cold_and_bear_veins_more_often(constants: Constants) 
     #: one parallel than a kilometre of rise: a pair picked by luck says
     #: nothing, and used to pass by luck. A belt of one latitude, its
     #: highest tenth of the land against its lowest, cannot.
-    band = (np.abs(field.cell_lat - high[0]) < 3.0) & (field.water != fields.SEA)
+    lat, _ = field.centres
+    band = (np.abs(lat - high[0]) < 3.0) & (field.water != fields.SEA)
     heights = field.height[band]
     warmths = field.temperature_c[band].astype(float)
     assert heights.size > 200, "на этой параллели есть суша"

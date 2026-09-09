@@ -40,6 +40,9 @@ from src.constants import Constants
 from src.engine import biome, terrain
 from src.models.world import Planet
 
+#: How far off nought a coast texel of the picture is held on the side its
+#: own class stands (`_shore`), as a share of the rise -- the sketch's own.
+SHORE = fields.RASTER_SHORE
 #: The atlas is the grid's own layout, and it is read from there: the
 #: shader finds its texel by the same numbers (`shade.ts`).
 ACROSS, DOWN, BORDER = healpix.ACROSS, healpix.DOWN, healpix.BORDER
@@ -62,32 +65,69 @@ def raster_bytes(constants: Constants, planet: Planet, kind: str) -> bytes | Non
 def _thin(field, values: np.ndarray, nside: int, average: bool) -> np.ndarray:
     """The field's cells at a coarser fineness.
 
-    A quantity is the mean of the cells it swallows, a class the cell in the
-    middle of them: an average of codes is not a code. The coarse fineness
-    always divides the field's own (`terrain.raster_nside`), so a coarse cell
-    is a square block of fine ones inside one face and nothing crosses a seam.
+    Both grids are the same kind, so a coarse cell is asked of the
+    projection and not of the indices: the field's cells whose middles fall
+    inside it are its own, however the two finenesses stand to one another.
+
+    A quantity is the mean of what falls in, a class the field's cell at the
+    coarse cell's own middle: an average of codes is not a code. That leaves
+    a coast cell of the picture with a height averaged across the water's
+    edge and a class taken from its middle, which can disagree -- see
+    `_shore`, which puts the sign back where the class says it belongs.
     """
     if nside == field.nside:
         return values
-    factor = field.nside // nside
-    face, ix, iy = healpix.pix2fxy(field.nside, np.arange(field.cells))
     if average:
-        home = healpix.fxy2pix(nside, face, ix // factor, iy // factor)
-        total = np.bincount(home, weights=values.astype(np.float64), minlength=healpix.npix(nside))
-        return total / float(factor * factor)
-    face, ix, iy = healpix.pix2fxy(nside, np.arange(healpix.npix(nside)))
-    middle = factor // healpix.BOTH
-    return values[healpix.fxy2pix(field.nside, face, ix * factor + middle, iy * factor + middle)]
+        lat, lon = field.centres
+        home = healpix.ang2pix(nside, lat, lon)
+        many = healpix.npix(nside)
+        total = np.bincount(home, weights=values.astype(np.float64), minlength=many)
+        return total / np.maximum(np.bincount(home, minlength=many), 1)
+    lat, lon = healpix.centres(nside)
+    return values[healpix.ang2pix(field.nside, lat, lon)]
+
+
+def _shore(field, height: np.ndarray, nside: int) -> np.ndarray:
+    """The thinned height with the sign its own cell's class asks for.
+
+    The picture tells water from land by the sign of the height, and colours
+    the land by the class at the same texel. Thinned apart, the two can
+    disagree on a coast: two cells of sea and two of land average to a
+    height above nought while the class in the middle says sea, and the
+    picture draws a strip of shore where the field has water. Held to the
+    class, as the sketch holds its own coarse grid (`field._sketch`).
+    """
+    if nside == field.nside:
+        return height
+    wet = _thin(field, field.water, nside, False) == fields.SEA
+    return np.where(wet, np.minimum(height, -SHORE), np.maximum(height, SHORE))
+
+
+def _skirt_of(field, nside: int) -> np.ndarray:
+    """The atlas layout of a fineness, made once.
+
+    Kept by fineness and not by planet: Terra and Aquatica are the same grid,
+    and the layout of a grid is the grid's, not the world's.
+    """
+    skirt = _SKIRTS.get(nside)
+    if skirt is None:
+        #: The field's own ring table when the picture is at its fineness --
+        #: building a second one is a million lookups and a third of a second.
+        skirt = healpix.skirt(nside, field.rings if nside == field.nside else None)
+        _SKIRTS[nside] = skirt
+    return skirt
 
 
 def _laid(field, values: np.ndarray, nside: int, average: bool) -> np.ndarray:
     """A raster thinned to `nside` and laid out as the atlas."""
-    key = (id(field), nside)
-    skirt = _SKIRTS.get(key)
-    if skirt is None:
-        skirt = healpix.skirt(nside)
-        _SKIRTS[key] = skirt
-    return _thin(field, values, nside, average)[skirt]
+    return _thin(field, values, nside, average)[_skirt_of(field, nside)]
+
+
+def _laid_height(field, nside: int) -> np.ndarray:
+    """The height as the atlas keeps it: thinned, held to its class's side
+    of the water's edge, then laid out."""
+    thinned = _thin(field, field.height.astype(np.float64), nside, True)
+    return _shore(field, thinned, nside)[_skirt_of(field, nside)]
 
 
 def _encode(constants: Constants, planet: Planet, field, kind: str) -> bytes:
@@ -97,7 +137,7 @@ def _encode(constants: Constants, planet: Planet, field, kind: str) -> bytes:
         return _laid(field, values, nside, average)
 
     if kind == "height":
-        share = laid(field.height.astype(np.float64), average=True)
+        share = _laid_height(field, nside)
         metres = np.round(share * field.relief_m)
         #: The sea stays under zero: the picture tells the water by the sign
         #: of the height, and a shallow cell rounded up to nought would be
@@ -147,4 +187,21 @@ def _bytes(values: np.ndarray) -> bytes:
 #: Rasters by field and kind, and the atlas layout by field and fineness;
 #: the fields live for the process (`field.of`), so their ids are stable keys.
 _BYTES: dict[tuple[int, str], bytes] = {}
-_SKIRTS: dict[tuple[int, int], np.ndarray] = {}
+_SKIRTS: dict[int, np.ndarray] = {}
+
+
+def warm(constants: Constants) -> None:
+    """Cut every planet's rasters now.
+
+    They are a constant of the vault and are made once; the question is only
+    where the making is paid for. Made on demand it is most of a second of
+    arithmetic inside a public route, and the route is `async def` on the
+    loop, so the first reader of a planet's picture stops every other
+    session in the process. Startup already declares that price for the
+    fields themselves (`field.preload`), and this belongs beside it.
+    """
+    for planet in Planet:
+        for kind in terrain.RASTER_KINDS:
+            raster_bytes(constants, planet, kind)
+    #: The layout was scaffolding for the cutting and nobody reads it again.
+    _SKIRTS.clear()

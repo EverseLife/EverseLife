@@ -25,6 +25,8 @@ from __future__ import annotations
 
 import math
 
+import numpy as np
+
 from src.constants import Constants
 from src.constants import registry as R
 from src.models.world import Planet
@@ -102,6 +104,13 @@ def bearing(one: Geo, other: Geo) -> float:
 def wrap_lon(lon: float) -> float:
     """A longitude brought into the half-open turn round the zero meridian."""
     return ((lon + HALF_TURN) % FULL_TURN) - HALF_TURN
+
+
+def walk_between(a: Geo, b: Geo, share: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """`between` for a whole walk at once: the points a share of the way from
+    one to the other, the short way round."""
+    turn = wrap_lon(b[1] - a[1])
+    return a[0] + (b[0] - a[0]) * share, (a[1] + turn * share + HALF_TURN) % FULL_TURN - HALF_TURN
 
 
 def between(a: Geo, b: Geo, share: float) -> Geo:

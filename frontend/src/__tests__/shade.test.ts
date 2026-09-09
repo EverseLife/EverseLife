@@ -172,8 +172,13 @@ describe("the roughened edge of the colour", () => {
     //: against that: a good part of a cell, waving over a length of the
     //: ground. Neither number follows the frame -- the edge between two
     //: biomes is one line of the country at every zoom.
-    expect(EDGE_CELLS).toBeGreaterThan(0.3);
-    expect(EDGE_CELLS).toBeLessThan(1);
+    //: Worth about one whole edge of a cell. On the equal-area grid a cell
+    //: is a diamond and shows the eye its diagonal -- a run half again as
+    //: long as the old square's side, and at forty-five degrees, which
+    //: reads as a drawn line rather than a step. Under a cell the teeth
+    //: stayed countable; over two the boundary leaves the ground it names.
+    expect(EDGE_CELLS).toBeGreaterThan(0.8);
+    expect(EDGE_CELLS).toBeLessThan(2);
   });
 
   it("goes out where its own wave falls under a pixel", () => {

@@ -32,6 +32,8 @@ from __future__ import annotations
 
 import math
 
+import numpy as np
+
 from src import globe, relief
 from src.constants import Constants
 from src.constants import registry as R
@@ -77,22 +79,33 @@ def readings(
     #: than that the raster only interpolates itself.
     step = field.step_m
     rise = field.relief_m
+    patch = scale["patch_km"] * METRES_PER_KM
+    #: Every point this reading needs, asked of the field **once**: four for
+    #: the slope, one for the standpoint and a ring of them for the patch.
+    #: Finding a cell of the equal-area grid costs the call and not the sums
+    #: (`field.cells_at`), and thirteen calls a point told on the map.
     east = globe.offset(radius, (lat, lon), step, 0.0)
     west = globe.offset(radius, (lat, lon), -step, 0.0)
     north = globe.offset(radius, (lat, lon), 0.0, step)
     south = globe.offset(radius, (lat, lon), 0.0, -step)
+    ring = [
+        globe.offset(
+            radius,
+            (lat, lon),
+            patch * math.sin(math.tau * point / globe.COMPASS_POINTS),
+            patch * math.cos(math.tau * point / globe.COMPASS_POINTS),
+        )
+        for point in range(globe.COMPASS_POINTS)
+    ]
+    points = [(lat, lon), east, west, north, south, *ring]
+    shares = field.reliefs(
+        np.array([one[0] for one in points]), np.array([one[1] for one in points])
+    )
+    at_here, at_east, at_west, at_north, at_south = shares[: len(points) - len(ring)]
     #: The run is measured between the very points read, not reckoned from
     #: the step: the rise over the run is the slope, and both are metres.
-    dx = (
-        (field.height_at(*east) - field.height_at(*west))
-        * rise
-        / globe.distance_m(radius, west, east)
-    )
-    dy = (
-        (field.height_at(*north) - field.height_at(*south))
-        * rise
-        / globe.distance_m(radius, south, north)
-    )
+    dx = (at_east - at_west) * rise / globe.distance_m(radius, west, east)
+    dy = (at_north - at_south) * rise / globe.distance_m(radius, south, north)
     slope = min(1.0, math.hypot(dx, dy) / scale["slope_full"])
 
     #: The water: whichever is nearer, the fresh or the sea.
@@ -101,19 +114,8 @@ def readings(
     wet = max(0.0, 1.0 - to_water / reach) if reach > 0 else 0.0
 
     #: The patch: where this point stands among the ring about it.
-    patch = scale["patch_km"] * METRES_PER_KM
-    here = field.height_at(lat, lon)
-    around = [
-        field.height_at(
-            *globe.offset(
-                radius,
-                (lat, lon),
-                patch * math.sin(math.tau * point / globe.COMPASS_POINTS),
-                patch * math.cos(math.tau * point / globe.COMPASS_POINTS),
-            )
-        )
-        for point in range(globe.COMPASS_POINTS)
-    ]
+    here = float(at_here)
+    around = [float(one) for one in shares[len(points) - len(ring) :]]
     low, top = min([here, *around]), max([here, *around])
     high = (here - low) / (top - low) if top > low else MIDDLE
     return noise, slope, wet, high

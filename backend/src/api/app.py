@@ -32,7 +32,7 @@ from src import (
 from src.api import push, session
 from src.api.routes import public
 from src.constants import HOLDER, Catalog, bootstrap, current_catalog
-from src.engine import tick  # noqa: F401 -- registers job handlers
+from src.engine import rasters, tick  # noqa: F401 -- registers job handlers
 from src.engine.jobs import require_handlers
 from src.runtime import RASTER_GZIP_MIN_BYTES
 from src.settings import settings
@@ -59,6 +59,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     #: And a missing or stale field of a planet must fail here, not in the
     #: first `look` (landscape plan, wave 2).
     field.preload(constants)
+    #: And the picture's rasters are cut here rather than inside the first
+    #: request for them: they are a constant of the vault, and a second of
+    #: arithmetic on the loop stops every other session (`rasters.warm`).
+    rasters.warm(constants)
 
     log.info(
         "constants loaded: %s (fingerprint %s), %s recipes",

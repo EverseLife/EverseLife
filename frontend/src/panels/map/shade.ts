@@ -105,12 +105,15 @@ export function grainStrength(cellPx: number): number {
  *  country, and a line that is redrawn when the hand zooms reads as the
  *  country itself changing.
  *
- *  The numbers are set against what they hide: the staircase of a raster
- *  cell, five hundred metres of it. A wander of three fifths of a cell,
- *  waving every three hundred metres, turns that staircase into a line the
- *  ground could have drawn; much less and the steps show through. */
-export const EDGE_CELLS = 0.6;
-export const EDGE_M = 300;
+ *  The numbers are set against what they hide: one straight edge of a cell.
+ *  On the equal-area grid (D-328) a cell is a diamond and shows the eye its
+ *  **diagonal** -- five hundred and sixty metres of unbroken line where the
+ *  old square showed four hundred, and at forty-five degrees, which reads
+ *  as a line somebody drew rather than as a step. A wander has to be worth
+ *  about that whole edge to break it: three fifths of a cell softened the
+ *  teeth and left them countable. */
+export const EDGE_CELLS = 1.1;
+export const EDGE_M = 260;
 /** And the same two pixel widths for it: a wander finer than a pixel is
  *  not a rough edge but salt and pepper, because neighbouring pixels then
  *  read the wander at points too far apart to be alike. */
@@ -278,11 +281,20 @@ vec2 atlasUV(vec3 p) {
   return vec2(column * side + u_border + u, row * side + u_border + v) / u_atlas;
 }
 
-float heightAt(vec2 uv) { return texture(u_height, uv).r; }
+//: The height, at a level of the texture chosen by the caller.
+//:
+//: **Chosen**, and never left to the hardware: it picks the level from how
+//: fast the texture's coordinates run across the screen, and atlasUV jumps
+//: by a quarter of the atlas at every edge of a face. A level chosen from
+//: that jump is the coarsest there is, so along all twelve seams -- and at
+//: the pole, where four faces meet -- the ground would be drawn at the mean
+//: height of half a planet. The old grid had the same fault on exactly one
+//: meridian, where the longitude wrapped; twelve of them is a picture.
+float heightAt(vec2 uv, float lod) { return textureLod(u_height, uv, lod).r; }
 //: The height at a point of the sphere. Every reading goes through the
 //: projection, so a sample that steps off the edge of a face lands on
 //: whatever face is really there -- there is no wrapping to get wrong.
-float heightOf(vec3 p) { return heightAt(atlasUV(normalize(p))); }
+float heightOf(vec3 p, float lod) { return heightAt(atlasUV(normalize(p)), lod); }
 
 //: Value noise on the sphere: the corners of a lattice cell hashed and
 //: blended smoothly. The lattice is wrapped to GRAIN_WRAP before it is
@@ -417,6 +429,13 @@ void main() {
   vec3 pe = turn > 1e-6 ? sideways / turn : vec3(1.0, 0.0, 0.0);
   vec3 pn = cross(here, pe);
   vec2 uv = atlasUV(here);
+  //: How much ground one pixel covers, taken from the point on the ball --
+  //: which runs smoothly across the screen everywhere, seams included --
+  //: and turned into a level of the texture. One cell to the pixel is level
+  //: nought; every doubling is one level up.
+  float metres = u_radius / UNITS_PER_METRE;
+  float across = max(length(dFdx(apart)), length(dFdy(apart))) * metres;
+  float lod = max(0.0, log2(max(across / u_step, 1.0)));
 
   //: The slope, taken a cell of the ground east and north of the point --
   //: **metres of the ground**, not steps of the raster. On the old lattice
@@ -425,15 +444,25 @@ void main() {
   //: but the noise of the interpolation: that was the fan of streaks that
   //: stood over the pole. Here the two steps are the same length of ground
   //: everywhere, and the pole needs no special case at all.
-  float span = u_step / (u_radius / UNITS_PER_METRE);
-  float h = heightAt(uv);
-  float slopeX = (heightOf(here + pe * span) - heightOf(here - pe * span)) / (2.0 * u_step);
-  float slopeY = (heightOf(here + pn * span) - heightOf(here - pn * span)) / (2.0 * u_step);
+  //: The slope is read a cell of the ground apart on the near frames and a
+  //: pixel's worth of ground apart on the far ones: read a cell apart at a
+  //: frame where a pixel covers ten, the two samples fall in the same texel
+  //: of the level being drawn and the shading goes flat.
+  float reach = max(u_step, across);
+  float span = reach / metres;
+  float h = heightAt(uv, lod);
+  float slopeX = (heightOf(here + pe * span, lod) - heightOf(here - pe * span, lod)) / (2.0 * reach);
+  float slopeY = (heightOf(here + pn * span, lod) - heightOf(here - pn * span, lod)) / (2.0 * reach);
   vec3 n = normalize(vec3(-slopeX * EXAGGERATION, -slopeY * EXAGGERATION, 1.0));
   float shade = max(dot(n, u_light), 0.0);
 
   uint b = texture(u_biome, uv).r;
   uint f = texture(u_form, uv).r;
+  //: The landform wanders with the biome, and for the same reason. The
+  //: picture darkens a cliff and roughens the ground by what the form says,
+  //: and a cliff is often a single cell: read at the pixel's own point it
+  //: came out as a hard diamond of shadow, scattered along a mountain front
+  //: like beads -- the shape of a cell and nothing of the country.
   //: The colour's edge, roughened (wave 8). A biome is a class of a cell
   //: five hundred metres wide, and on a near frame its edge is a straight
   //: staircase across the ground -- the one thing on the map that says
@@ -463,8 +492,10 @@ void main() {
     //: face's lattice stands at an angle to the compass that changes over
     //: the sphere, and a wander along it would have followed the faces.
     vec3 strayed = here + (pe * astray.x + pn * astray.y) * span;
-    uint near = texture(u_biome, atlasUV(normalize(strayed))).r;
+    vec2 juv = atlasUV(normalize(strayed));
+    uint near = texture(u_biome, juv).r;
     if (near != ${NO_BIOME}u) b = near;
+    f = texture(u_form, juv).r;
   }
   vec3 col;
   //: The sea is where the height, read between the cells, is under zero:
@@ -649,15 +680,25 @@ export function deepOf(heights: Float32Array): number {
  * than by `generateMipmap`, which WebGL2 does not promise for a half-float
  * red texture without an extension; and so that a far frame reads the mean
  * height of a region, not one cell of it.
+ *
+ * `tile` is the side of one face of the atlas, borders counted, and the
+ * chain stops where a face would stop being a whole number of texels. The
+ * face is a power of two (`terrain.raster_nside`) so every level down to
+ * one texel a face halves it evenly, and a texel of a coarse level is
+ * always a mean of one face's own ground. Past that a texel would be a
+ * mixture of faces from opposite sides of the planet -- and the whole globe
+ * is a few pixels there anyway.
  */
 export function mipChain(
   level0: Float32Array,
   cols: number,
   rows: number,
+  tile = 0,
 ): { data: Float32Array; cols: number; rows: number }[] {
+  const deepest = tile > 1 ? Math.floor(Math.log2(tile)) : Infinity;
   const chain = [{ data: level0, cols, rows }];
   let { data, cols: w, rows: h } = chain[0];
-  while (w > 1 || h > 1) {
+  while ((w > 1 || h > 1) && chain.length <= deepest) {
     const w2 = Math.max(1, Math.floor(w / 2));
     const h2 = Math.max(1, Math.floor(h / 2));
     const next = new Float32Array(w2 * h2);

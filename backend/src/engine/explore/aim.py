@@ -28,9 +28,11 @@ from __future__ import annotations
 import math
 import uuid
 
+import numpy as np
 from sqlalchemy import or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src import field as fields
 from src import globe
 from src.constants import Catalog, Constants
 from src.constants import registry as R
@@ -90,9 +92,12 @@ def crosses_water(
     (OQ-146), the ford is a mark a complex lays, not a place on the line.
     """
     field = terrain.field_of(constants, planet)
-    for step in range(1, globe.WAY_SAMPLES):
-        if field.is_water(*globe.between(a, b, step / globe.WAY_SAMPLES)):
-            return True
+    #: The whole way in one ask of the field: a cell of the equal-area grid
+    #: costs the call, not the sums (`field.cells_at`).
+    share = np.arange(1, globe.WAY_SAMPLES) / globe.WAY_SAMPLES
+    water = field.water[field.cells_at(*globe.walk_between(a, b, share))]
+    if ((water == fields.SEA) | (water == fields.LAKE)).any():
+        return True
     return not ford and field.river_crossed(a, b)
 
 

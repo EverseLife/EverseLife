@@ -381,9 +381,14 @@ def test_the_rasters_are_the_field_thinned_and_named(constants: Constants) -> No
     #: to be: twelve square faces of `nside` cells, each with a border of one
     #: cell from the face across the edge (D-328).
     assert passport["grid"] == "healpix" and passport["nside"] == nside
-    assert field.nside % nside == 0, "дробность картинки делит дробность поля"
+    assert nside <= field.nside, "картинка не тоньше поля"
     assert healpix.npix(nside) <= RASTER_CELLS_MAX
     side = nside + 2 * healpix.BORDER
+    #: The face of the atlas is a power of two, borders counted: the picture
+    #: is drawn from a chain of ever coarser copies, the hardware halves each
+    #: exactly, and only an even halving keeps a coarse texel inside one face.
+    assert side & (side - 1) == 0, f"грань атласа {side} — не степень двойки"
+    assert (nside + 2) * 2 > field.nside, "картинка не грубее, чем должна быть"
     assert passport["rows"] == healpix.DOWN * side
     assert passport["cols"] == healpix.ACROSS * side
     assert passport["cells"] == healpix.npix(nside)
@@ -411,11 +416,19 @@ def test_the_rasters_are_the_field_thinned_and_named(constants: Constants) -> No
     assert passport["water"][fields.RIVER] == "river" and (water == fields.RIVER).any()
     assert rasters.raster_bytes(constants, Planet.TERRA, "rivers") is None
     #: Sea and land keep their sign through the thinning: the picture tells
-    #: the water by it, and a shallow cell rounded up would be drawn as shore.
+    #: the water by it, and a coast texel whose height was averaged across
+    #: the water's edge would be drawn as shore where the field has water
+    #: (`rasters._shore`).
     cells = np.arange(0, healpix.npix(nside), 313)
     seats = np.array([texel(int(cell)) for cell in cells])
     lat, lon = _centres_of(nside, cells)
-    wet = np.array([field.is_sea(one, two) for one, two in zip(lat, lon, strict=True)])
+    #: The class of the picture's own cell, which is what its colour comes
+    #: from -- not the field's word at that point, which the thinning may
+    #: have averaged away.
+    wet = (
+        np.frombuffer(rasters.raster_bytes(constants, Planet.TERRA, "water"), dtype=np.uint8)[seats]
+        == fields.SEA
+    )
     assert (height[seats][wet] < 0).all(), "море остаётся ниже нуля"
     assert (height[seats][~wet] >= 0).all()
     #: The hardness of the ground (wave 8): a byte the whole way, and the

@@ -34,6 +34,8 @@ from __future__ import annotations
 import math
 from collections.abc import Sequence
 
+import numpy as np
+
 from src import field as fields
 from src import globe
 from src.constants import Constants
@@ -102,6 +104,17 @@ def blocked(
     return False
 
 
+def walk(step: float, span: float) -> np.ndarray:
+    """How far along the way each reading is taken, strictly between the ends.
+
+    The last step used to land on the target itself when the span was a hair
+    over a multiple of the step, and then the ground at the target was
+    compared with the target and the answer came out of the rounding.
+    """
+    many = max(0, int(math.ceil((span - globe.midpoint(0.0, step)) / step)) - 1)
+    return np.arange(1, many + 1, dtype=float) * step
+
+
 def profile(
     constants: Constants,
     planet: Planet,
@@ -115,24 +128,15 @@ def profile(
     give the same profile for ever. The step is the vault's, and it is set
     against the distances a place stands at -- a node's neighbours are metres
     to a hundred metres off (`map.city_step_m`, `map.sight_km`) -- and not
-    against the field's own cell, which is five hundred metres and is read
-    between its corners anyway.
-
-    Strictly between the two ends. The last step used to land on the target
-    itself when the span was a hair over a multiple of the step, and then
-    the ground at the target was compared with the target and the answer
-    came out of the rounding.
+    against the field's own cell, which is read between its own anyway.
     """
-    step = float(constants[R.MAP_SIGHT_STEP_M])
     field = terrain.field_of(constants, planet)
     rise = float(constants[R.TERRAIN_RELIEF_M])
-    out: list[tuple[float, float]] = []
-    along = step
-    while along < span - globe.midpoint(0.0, step):
-        at = globe.between(frm, to, along / span)
-        out.append((along, _height(field, rise, at)))
-        along += step
-    return out
+    along = walk(float(constants[R.MAP_SIGHT_STEP_M]), span)
+    if not along.size:
+        return []
+    lat, lon = globe.walk_between(frm, to, along / span)
+    return list(zip(along.tolist(), (field.reliefs(lat, lon) * rise).tolist(), strict=True))
 
 
 def _height(field: fields.Field, rise: float, at: globe.Geo) -> float:
@@ -159,6 +163,11 @@ def hidden(
     `radius` and `span` may be handed in by a caller that has already
     measured them -- the map asks this of every place inside the eye's
     radius, and it found the distance to each of them to get there.
+
+    The eye, the target and the whole way between them are read in **one**
+    ask of the field. Point by point they were forty microseconds each on
+    the equal-area grid against two on the old one, and this runs for every
+    node in sight on every reading of the map: the map went slow to the hand.
     """
     radius = globe.radius_m(constants, planet) if radius is None else radius
     span = globe.distance_m(radius, frm, to) if span is None else span
@@ -166,9 +175,15 @@ def hidden(
         return False
     field = terrain.field_of(constants, planet)
     rise = float(constants[R.TERRAIN_RELIEF_M])
-    eye = _height(field, rise, frm) + float(constants[R.MAP_EYE_M])
-    target = _height(field, rise, to)
-    return blocked(radius, span, eye, target, profile(constants, planet, frm, to, span))
+    along = walk(float(constants[R.MAP_SIGHT_STEP_M]), span)
+    #: The eye's own point and the target lead the walk, so the whole
+    #: reading is one ask of the field.
+    ends = np.array([0.0, 1.0])
+    lat, lon = globe.walk_between(frm, to, np.r_[ends, along / span])
+    ground = field.reliefs(lat, lon) * rise
+    eye = float(ground[0]) + float(constants[R.MAP_EYE_M])
+    between = list(zip(along.tolist(), ground[ends.size :].tolist(), strict=True))
+    return blocked(radius, span, eye, float(ground[1]), between)
 
 
 def reach_m(constants: Constants, planet: Planet, at: globe.Geo) -> float:

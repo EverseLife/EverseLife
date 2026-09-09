@@ -254,19 +254,28 @@ RASTER_KINDS = ("height", "biome", "form", "water", "rock", "province", "river",
 def raster_nside(field: fields.Field) -> int:
     """How fine the picture's copy of the field is (D-328).
 
-    The finest fineness that both divides the field's own and fits the
-    budget. It has to divide it, or a cell of the picture would not be a
-    square block of the field's cells inside one face, and the thinning
-    would smear across a seam. Nothing says it has to be a power of two --
-    Aurora's field is `nside` 362 and its picture 181, which is prime.
+    The finest fineness that fits the budget and leaves a **face of a power
+    of two**, borders counted: `nside + 2 border`. That is not tidiness. The
+    picture is drawn from a chain of ever coarser copies, and the hardware
+    demands each be exactly half the one above; only when the face halves
+    evenly does a texel of a coarse copy stay inside one face. On a face of
+    258 the third copy is 64 and a half, and from there every texel along a
+    seam is a mixture of two faces -- which is the strip of a stranger's
+    ground the border is there to prevent.
+
+    So Terra's picture is `nside` 254 against a field of 256, Aurora's 254
+    against 362, and Pyroxis's 126 against 148. The picture is never finer
+    than the field, and it need not divide it: a cell of the picture takes
+    the field's cells whose middles fall inside it (`rasters._thin`).
     """
-    for factor in range(1, field.nside + 1):
-        if field.nside % factor:
-            continue
-        coarse = field.nside // factor
-        if healpix.npix(coarse) <= RASTER_CELLS_MAX:
-            return coarse
-    return 1
+    best = 1
+    side = healpix.BOTH
+    while side <= field.nside + healpix.BOTH * healpix.BORDER:
+        coarse = side - healpix.BOTH * healpix.BORDER
+        if 0 < coarse <= field.nside and healpix.npix(coarse) <= RASTER_CELLS_MAX:
+            best = coarse
+        side *= healpix.BOTH
+    return best
 
 
 def raster_passport(constants: Constants, field: fields.Field) -> dict:
