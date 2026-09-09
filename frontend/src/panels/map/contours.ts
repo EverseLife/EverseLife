@@ -54,9 +54,17 @@ export const CONTOUR_LADDER: readonly (readonly [frameM: number, intervalM: numb
 ];
 /** Every so many contours one is drawn heavier, as on a topographic sheet. */
 export const INDEX_EVERY = 5;
-/** Below this frame width the hachures of the cliffs are drawn: the city
- *  frame and nearer (plan §9.7), where the window is read cell by cell. */
+/** Below this frame width the near frame's lines are drawn -- the hachures
+ *  of the cliffs and the threads of the rivers: the city frame and nearer
+ *  (plan §9.7), where the window is read cell by cell. Wider than this a
+ *  river is a thread of 500-metre cells: crumbs on the planet's disk, a
+ *  web over the region, and it is not drawn at all (owner, 2026-09-09). */
 export const CLOSE_FRAME_M = 45_000;
+
+/** Whether a frame of this width in metres is near enough for those lines. */
+export function closeFrame(frameM: number): boolean {
+  return frameM <= CLOSE_FRAME_M;
+}
 /** A hachure's length as a share of a cell's side. */
 export const HACHURE_SHARE = 0.45;
 /** The landforms that get hachures: the cliffs, and the canyon, whose
@@ -469,7 +477,7 @@ export function frameLines(
 ): FrameLines {
   const frame = frameMetres(within);
   const interval = contourInterval(frame);
-  const close = frame <= CLOSE_FRAME_M;
+  const close = closeFrame(frame);
   if (!Number.isFinite(interval) && !close) return { contours: [], hachures: [] };
   const win = windowAbout(passport, eye, radius, within);
   const samples = samplesOf(passport, win);

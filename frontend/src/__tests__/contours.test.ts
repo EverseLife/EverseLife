@@ -13,6 +13,7 @@ import { describe, expect, it } from "vitest";
 import {
   BIN_DEG,
   CLOSE_FRAME_M,
+  closeFrame,
   CONTOUR_LADDER,
   SAMPLE_BUDGET,
   binned,
@@ -32,6 +33,7 @@ import {
 } from "../panels/map/contours";
 import type { Rasters } from "../panels/map/rasters";
 import { UNITS_PER_METRE } from "../panels/map/globe";
+import { frameMetres } from "../panels/map/contours";
 
 const FORMS = ["sea", "lake", "plain", "hills", "cliff", "coast_cliff", "beach"];
 const WATER = ["land", "sea", "lake", "river"];
@@ -227,6 +229,13 @@ describe("the ladder and the window's eye", () => {
     const c = quantisedEye({ lat: 14.0, lon: 26.0 }, radius, within);
     expect(b).toEqual(a);
     expect(c).not.toEqual(a);
+  });
+  it("keeps the rivers for a near frame, and the planet frame has none", () => {
+    //: The frame the map hands the layer: the planet's has no width.
+    expect(closeFrame(frameMetres(undefined))).toBe(false);
+    expect(closeFrame(CLOSE_FRAME_M * 2)).toBe(false);
+    expect(closeFrame(CLOSE_FRAME_M)).toBe(true);
+    expect(closeFrame(CLOSE_FRAME_M / 4)).toBe(true);
   });
   it("draws the hachures only from a close frame, and the planet's lines at any", () => {
     const { rasters, passport } = planet(6, (r, c) => c * 100, (r, c) => (r === 3 && c === 6 ? "cliff" : r === 2 && c > 3 ? "river" : "plain"));

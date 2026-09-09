@@ -19,7 +19,16 @@ import { useMemo } from "react";
 
 import { useTerrain } from "./Ground";
 import { project, type Eye } from "./globe";
-import { frameLines, planetLines, quantisedEye, underFrame, type Bins, type Segment } from "./contours";
+import {
+  closeFrame,
+  frameLines,
+  frameMetres,
+  planetLines,
+  quantisedEye,
+  underFrame,
+  type Bins,
+  type Segment,
+} from "./contours";
 import { useRasters } from "./rasters";
 
 /** Segments to one path, dropping what faces away from the eye. */
@@ -60,6 +69,9 @@ export function Lines({
   const drawn = useMemo(() => {
     if (!own || !frame) return null;
     const under = (bins: Bins) => pathOf(underFrame(bins, eye, radius, within), eye, radius);
+    //: The rivers are a near frame's line: from afar the cells of the water
+    //: raster read as a web over the land rather than as threads.
+    const near = closeFrame(frameMetres(within));
     return {
       contours: pathOf(frame.contours.filter((c) => !c.index).flatMap((c) => c.segments), eye, radius),
       index: pathOf(frame.contours.filter((c) => c.index).flatMap((c) => c.segments), eye, radius),
@@ -68,7 +80,7 @@ export function Lines({
       beach: under(own.shores.beach),
       shore: under(own.shores.shore),
       lakes: under(own.lakes),
-      rivers: under(own.rivers),
+      rivers: near ? under(own.rivers) : "",
     };
   }, [own, frame, eye, radius, within]);
   if (!drawn) return null;
