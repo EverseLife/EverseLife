@@ -3,11 +3,14 @@
 
 """A planet is made of something, and it is the same something for everybody (D-319).
 
-The relief -- seas, mountains, rivers -- is built from the vault's seed and
-read at a point, never rolled. What is checked here is the whole of that:
+The field -- seas, mountains, rivers, lakes, climate -- is the vault's
+build, read at a point, never rolled (landscape plan, wave 2). What is
+checked here is the whole of that:
 
-* the same seed builds the same field, and a different seed a different one;
-* the sea is the share the vault asks for, and a river ends in water;
+* a tile is the field's own heights on the client's lattice, and a sketch
+  its coarser grid with the sea at zero;
+* water, mountains and lakes are the rasters' word, and a lake waters the
+  node on its bank;
 * a node beside a river carries river water, and nowhere else does;
 * the climate is warm at the equator, cold at the pole and colder uphill;
 * the planet turns: noon comes to the east first, by the longitude's share.
@@ -34,59 +37,16 @@ from src.constants import registry as R
 from src.engine import climate, places, terrain, world
 from src.models.world import Layer, Planet
 
-SEED = 7
 
-
-def test_the_same_seed_builds_the_same_world() -> None:
-    """Two servers replaying one vault lay one relief; a different seed lays another."""
-    one = relief.build(SEED, sea_share=0.6, mountain_share=0.15, rivers=8)
-    twin = relief.build(SEED, sea_share=0.6, mountain_share=0.15, rivers=8)
-    other = relief.build(SEED + 1, sea_share=0.6, mountain_share=0.15, rivers=8)
-    assert (one.grid == twin.grid).all() and one.rivers == twin.rivers
-    assert not (one.grid == other.grid).all()
-    assert one.grid.min() >= 0.0 and one.grid.max() <= 1.0
-
-
-def test_the_sea_is_the_share_asked_for_and_the_field_has_no_seam() -> None:
-    """The sea level is the quantile of the grid; the noise wraps the antimeridian."""
-    field = relief.build(SEED, sea_share=0.6, mountain_share=0.15, rivers=0)
-    assert field.land_share() == pytest.approx(0.4, abs=0.02)
-    assert relief.noise_at(SEED, 10.0, 179.999) == pytest.approx(
-        relief.noise_at(SEED, 10.0, -179.999), abs=1e-3
+def test_the_noise_has_no_seam_and_is_the_same_everywhere() -> None:
+    """The ground's marks still read the noise on the sphere: one reading for
+    one seed on every machine, and none at the antimeridian."""
+    assert relief.noise_at(7, 10.0, 179.999) == pytest.approx(
+        relief.noise_at(7, 10.0, -179.999), abs=1e-3
     )
-    dry = relief.build(SEED, sea_share=0.0, mountain_share=0.15, rivers=0)
-    assert dry.land_share() == 1.0 and not dry.is_sea(0.0, 0.0)
-    assert math.isinf(dry.river_distance_deg(0.0, 0.0)), "без рек расстояние до реки бесконечно"
-
-
-def test_a_river_runs_downhill_and_ends_in_water() -> None:
-    """Every river starts on land, drops with every step and stops at the sea or in a lake."""
-    field = relief.build(SEED, sea_share=0.6, mountain_share=0.15, rivers=12)
-    assert 0 < len(field.rivers) <= 12
-    for river in field.rivers:
-        assert not field.is_sea(*river[0]), "исток на суше"
-        heights = [field.grid[field.cell(*point)] for point in river]
-        assert all(later < earlier for earlier, later in zip(heights, heights[1:], strict=False))
-        end = river[-1]
-        assert field.is_sea(*end) or field.cell(*end) in field.lakes, "река кончается водой"
-
-
-def test_river_sources_keep_apart_by_arc_even_at_the_pole() -> None:
-    """Two rivers do not rise within a few degrees of each other -- measured on
-    the sphere, where a polar row of cells is one point, not a hundred and
-    eighty sources."""
-    for seed in range(SEED, SEED + 6):
-        field = relief.build(seed, sea_share=0.6, mountain_share=0.15, rivers=24)
-        sources = [river[0] for river in field.rivers]
-        for i, a in enumerate(sources):
-            for b in sources[i + 1 :]:
-                assert relief._arc_deg(a, b) >= relief.SOURCE_SPACING_DEG, (seed, a, b)
-        #: The complaint itself: a polar cap is a few rivers, not a fan of
-        #: twenty -- the last five degrees round a pole hold six sources
-        #: five degrees apart at most.
-        for cap in (1, -1):
-            polar = [a for a in sources if cap * a[0] >= 85.0]
-            assert len(polar) <= 6, (seed, cap, polar)
+    assert relief.noise_at(7, 10.0, 10.0) == relief.noise_at(7, 10.0, 10.0)
+    assert relief.noise_at(7, 10.0, 10.0) != relief.noise_at(8, 10.0, 10.0)
+    assert 0.0 <= relief.noise_at(7, 10.0, 10.0) <= 1.0
 
 
 def test_a_tile_is_the_field_read_on_the_client_lattice(constants: Constants) -> None:
@@ -189,7 +149,15 @@ def test_the_climate_follows_the_latitude_and_the_height(constants: Constants) -
     highs = [
         terrain.climate_at(constants, Planet.TERRA, 75.0, lon)[0] for lon in range(-180, 180, 20)
     ]
-    assert max(lows) <= warm + 1 and min(highs) >= cold - constants[R.TERRAIN_LAPSE_C] - 10
+    #: The field's temperature may fall under the cold end by the depth of the
+    #: continent, the local weather and the whole rise's lapse, and no further.
+    floor = (
+        cold
+        - constants[R.TERRAIN_CONTINENTAL_C]
+        - constants[R.TERRAIN_CLIMATE_NOISE_C]
+        - constants[R.TERRAIN_LAPSE_C]
+    )
+    assert max(lows) <= warm and min(highs) >= floor
     assert sum(lows) / len(lows) > sum(highs) / len(highs), "у экватора теплее, чем у полюса"
     #: The same latitude, a peak against the shore: the peak is colder.
     peak = max(
@@ -228,6 +196,16 @@ def test_the_sketch_is_the_field_the_client_draws(constants: Constants) -> None:
     field = terrain.field_of(constants, Planet.TERRA)
     sketch = terrain.sketch(constants, Planet.TERRA)
     rows, cols = field.grid.shape
+    #: The coast is the raster's word, not the block's average: a sketch
+    #: cell is over the sea's zero exactly where most of its cells are land,
+    #: so the client's coarse "sea" and the server's land check agree.
+    factor = field.rows // rows
+    land = (field.water[: rows * factor, : cols * factor] != fields.SEA).reshape(
+        rows, factor, cols, factor
+    )
+    majority = land.mean(axis=(1, 3)) > 0.5
+    assert np.array_equal(field.grid > 0.0, majority), "знак клетки эскиза — большинство её суши"
+    assert (sketch["warmth"][rows // 2] > sketch["warmth"][0]) and len(sketch["warmth"]) == rows
     assert sketch["rows"] == rows and len(sketch["grid"]) == rows
     assert len(sketch["grid"][0]) == cols and rows <= fields.SKETCH_ROWS
     assert sketch["sea_level"] == 0.0 < sketch["mountain_level"] < 1.0

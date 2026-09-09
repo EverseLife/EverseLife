@@ -115,11 +115,8 @@ def height_m(constants: Constants, planet: Planet, lat: float, lon: float) -> fl
     reads zero; a lake reads the land under it, as the climate does
     (`climate_at`), so a mountain lake is as high and as cold on every
     reading. This is the one place the share becomes a height, so a
-    contour, a horizon and a slope all measure the same mountain.
-
-    Until the field of the landscape plan lands, the share's ceiling is the
-    noise's, which the land does not quite reach: `terrain.relief_m` is the
-    top of the scale, and the highest summit stands a little under it.
+    contour, a horizon and a slope all measure the same mountain. The field
+    is scaled so that its highest summit is the whole rise.
     """
     field = field_of(constants, planet)
     if field.is_sea(lat, lon):
@@ -233,5 +230,5 @@ def _sketched(constants: Constants, planet: Planet, field: fields.Field) -> dict
         "wet": field.wet,
         #: The climate field as the globe tints it (plan, "Climate field"):
         #: the sea-level mean of each row of the grid, warm to cold.
-        "warmth": [round(by_latitude(constants, lat)) for lat in field.grid_latitudes()],
+        "warmth": field.grid_warmth(),
     }

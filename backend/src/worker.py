@@ -20,7 +20,7 @@ import signal
 import socket
 from pathlib import Path
 
-from src import herald
+from src import field, herald
 from src.constants import bootstrap
 from src.db.base import dispose, session_factory
 from src.engine import tick, utility
@@ -50,6 +50,8 @@ async def main() -> None:
 
     constants, _ = bootstrap(conf.vault_build_path)
     require_handlers()
+    #: The planets' fields are read now, not in the first job (landscape plan, wave 2).
+    field.preload(constants)
     log.info("constants %s, fingerprint %s", constants.source, constants.digest)
 
     factory = session_factory()

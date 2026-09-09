@@ -47,10 +47,25 @@ SKETCH_ROWS = 128
 #: A lake in a tile reads this far under the sea's level: the client cuts
 #: water where the tile is at or under zero.
 LAKE_SINK = -0.01
+#: A byte-scaled share: 255 is one.
+BYTE = 255.0
+#: How far off zero a sketch cell is held on the side its land majority says,
+#: when its mean height would put it on the other: a coast cell reads as the
+#: raster does, not as its average.
+SKETCH_SHORE = 1e-3
 
 
 class FieldMissing(RuntimeError):
     """The vault's build carries no field for this planet."""
+
+
+class FieldStale(RuntimeError):
+    """The field was built under other numbers than the constants say."""
+
+
+#: How closely a passport's number must match the registry's: shares and
+#: degrees to a thousandth, metres to the metre.
+PASSPORT_TOLERANCE = 1e-3
 
 
 @dataclass(frozen=True)
@@ -63,17 +78,21 @@ class Field:
     step_m: float
     radius_m: float
     relief_m: float
-    height: np.ndarray  # share of the rise, (rows, cols)
-    water: np.ndarray  # LAND / SEA / LAKE / RIVER
-    form: np.ndarray
-    hardness: np.ndarray  # [0.25, 1]
-    river_m: np.ndarray  # to the nearest river or lake, metres, capped
-    wet_m: np.ndarray  # to any water, metres, capped
-    temperature_c: np.ndarray
-    rain: np.ndarray  # [0, 1]
-    ice: np.ndarray
+    #: The rasters as the file keeps them -- a byte a class, two a distance,
+    #: four a height -- read into floats only at the point asked, so four
+    #: planets fit a process in tens of megabytes, not hundreds.
+    height: np.ndarray  # share of the rise, float32, (rows, cols)
+    water: np.ndarray  # LAND / SEA / LAKE / RIVER, uint8
+    form: np.ndarray  # uint8, codes of `forms`
+    hardness: np.ndarray  # uint8, 255 = 1.0
+    river_m: np.ndarray  # to the nearest river or lake, metres, uint16, capped
+    temperature_c: np.ndarray  # int8
+    rain: np.ndarray  # uint8, 255 = 1.0
+    ice: np.ndarray  # bool
     forms: tuple[str, ...]  # the passport's table: code -> id
     mountain_level: float  # share above which the land is mountain
+    river_cap_m: float  # the distance raster's reach: at it, no fresh water in sight
+    wet: bool  # whether any sea or lake holds water
     #: The sketch's grid: the height share on a coarser grid, and the
     #: lakes on it as (row, col) cells.
     grid: np.ndarray
@@ -98,9 +117,20 @@ class Field:
         rows = int(self.grid.shape[0])
         return [-90.0 + (row + 0.5) * (180.0 / rows) for row in range(rows)]
 
-    @property
-    def wet(self) -> bool:
-        return bool((self.water == SEA).any() or (self.water == LAKE).any())
+    def grid_warmth(self) -> list[int]:
+        """The mean temperature of each row of the sketch's grid, south to
+        north: the climate the globe tints, the field's own and not a curve
+        of the latitude the nodes no longer read."""
+        rows = int(self.grid.shape[0])
+        factor = max(1, self.rows // rows)
+        used = rows * factor
+        means = (
+            self.temperature_c[:used]
+            .astype(float)
+            .reshape(rows, factor, self.cols)
+            .mean(axis=(1, 2))
+        )
+        return [int(round(float(value))) for value in means]
 
     @property
     def peak_level(self) -> float:
@@ -168,19 +198,19 @@ class Field:
         return self.forms[int(self.form[self.cell(lat, lon)])]
 
     def hardness_at(self, lat: float, lon: float) -> float:
-        return float(self.hardness[self.cell(lat, lon)])
+        return float(self.hardness[self.cell(lat, lon)]) / BYTE
 
     def temperature_at(self, lat: float, lon: float) -> float:
         return self._bilinear(self.temperature_c, lat, lon)
 
     def rain_at(self, lat: float, lon: float) -> float:
-        return self._bilinear(self.rain, lat, lon)
+        return self._bilinear(self.rain, lat, lon) / BYTE
 
     def river_distance_deg(self, lat: float, lon: float) -> float:
         """How far the nearest fresh water runs, in degrees of arc -- infinite
         beyond the raster's reach."""
         metres = float(self.river_m[self.cell(lat, lon)])
-        if metres >= float(self.river_m.max()):
+        if metres >= self.river_cap_m:
             return math.inf
         return math.degrees(metres / self.radius_m)
 
@@ -235,12 +265,56 @@ class Field:
 
 
 def build_dir(constants: Constants) -> Path:
-    """Where the vault's build lies: beside the constants the engine runs on."""
-    return Path(constants.source.split("+")[0]).resolve().parent
+    """Where the vault's build lies: beside the constants the engine runs on.
+
+    `Constants.source` is the path of `constants.json` the set was read from
+    (`loader.load_constants`), with `+overrides` appended by an edit; a set
+    made in a test carries a label instead, and then there is no build to
+    read a field from -- said so, not guessed at.
+    """
+    source = Path(constants.source.split("+")[0])
+    if not source.is_file():
+        raise FieldMissing(
+            f"the constant set {constants.source!r} was not read from a build, "
+            "so there is no field beside it"
+        )
+    return source.resolve().parent
+
+
+def _expected(constants: Constants, planet: Planet) -> dict[str, float]:
+    """The passport's numbers as the registry would have them."""
+    planets = list(Planet)
+    temp = constants[R.SITE_TEMP_RANGE]
+    return {
+        "seed": float(int(constants[R.TERRAIN_SEED]) * len(planets) + planets.index(planet)),
+        "sea_share": float(constants[R.TERRAIN_SEA_SHARE].get(planet.value, 0.0)),
+        "relief_m": float(constants[R.TERRAIN_RELIEF_M]),
+        "step_m": float(constants[R.TERRAIN_STEP_M]),
+        "version": float(constants[R.TERRAIN_VERSION]),
+        "warm_c": float(temp.max),
+        "cold_c": float(temp.min),
+    }
+
+
+def _check_passport(params: dict, expected: dict[str, float], planet: str) -> None:
+    """A field built under other numbers than the registry's is refused:
+    a rise or a sea share edited in the vault without a rebuilt field would
+    otherwise scale the world quietly (review, 2026-09-09)."""
+    wrong = []
+    for key, want in expected.items():
+        got = params.get(key)
+        if got is None or abs(float(got) - want) > PASSPORT_TOLERANCE * max(1.0, abs(want)):
+            wrong.append(f"{key}: passport {got}, registry {want:g}")
+    if wrong:
+        raise FieldStale(
+            f"the field of {planet} was built under other numbers -- "
+            + "; ".join(wrong)
+            + f". Rebuild it in the vault: `python tools/landscape.py build --planet {planet}`"
+        )
 
 
 @functools.cache
-def _loaded(directory: str, planet: str, mountain_share: float) -> Field:
+def _loaded(directory: str, planet: str, mountain_share: float, expected: tuple) -> Field:
     root = Path(directory) / "field"
     arrays = root / f"{planet}.npz"
     passport = root / f"{planet}.json"
@@ -251,18 +325,17 @@ def _loaded(directory: str, planet: str, mountain_share: float) -> Field:
         )
     meta = json.loads(passport.read_text(encoding="utf-8"))
     params = meta["params"]
+    _check_passport(params, dict(expected), planet)
     relief_m = float(params["relief_m"])
     with np.load(arrays) as z:
-        height_m = z["height_m"].astype(float)
+        height = (z["height_m"].astype(np.float32) / np.float32(relief_m)).astype(np.float32)
         water = z["water"].astype(np.uint8)
         form = z["form"].astype(np.uint8)
-        hardness = z["hardness"].astype(float) / 255.0
-        river_m = z["river_m"].astype(float)
-        wet_m = z["wet_m"].astype(float)
-        temperature = z["temperature_c"].astype(float)
-        rain = z["rain"].astype(float) / 255.0
+        hardness = z["hardness"].astype(np.uint8)
+        river_m = z["river_m"].astype(np.uint16)
+        temperature = z["temperature_c"].astype(np.int8)
+        rain = z["rain"].astype(np.uint8)
         ice = z["ice"].astype(bool)
-    height = height_m / relief_m
     land = water != SEA
     #: The mountain line as the noise field cut it: the share of the land
     #: above it is `terrain.mountain_share`.
@@ -284,12 +357,13 @@ def _loaded(directory: str, planet: str, mountain_share: float) -> Field:
         form=form,
         hardness=hardness,
         river_m=river_m,
-        wet_m=wet_m,
         temperature_c=temperature,
         rain=rain,
         ice=ice,
         forms=tuple(str(entry["id"]) for entry in meta.get("forms", [])),
         mountain_level=mountain_level,
+        river_cap_m=float(river_m.max()),
+        wet=bool((water == SEA).any() or (water == LAKE).any()),
         grid=grid,
         lakes=lakes,
     )
@@ -298,23 +372,47 @@ def _loaded(directory: str, planet: str, mountain_share: float) -> Field:
 def _sketch_grid(
     height: np.ndarray, water: np.ndarray
 ) -> tuple[np.ndarray, frozenset[tuple[int, int]]]:
-    """The sketch's coarser grid: block means of the height, and the blocks
-    that are mostly lake."""
+    """The sketch's coarser grid: block means of the height on the side the
+    block's majority stands -- a coast block that is mostly land reads as
+    land, however deep the sea in its other half -- and the blocks that are
+    mostly lake."""
     rows, cols = height.shape
     factor = max(1, int(math.ceil(rows / SKETCH_ROWS)))
     r = rows // factor * factor
     c = cols // factor * factor
-    blocks = height[:r, :c].reshape(r // factor, factor, c // factor, factor)
-    grid = blocks.mean(axis=(1, 3))
-    lake = (
-        (water[:r, :c] == LAKE).reshape(r // factor, factor, c // factor, factor).mean(axis=(1, 3))
+    shape = (r // factor, factor, c // factor, factor)
+    blocks = height[:r, :c].astype(float).reshape(shape)
+    land = (water[:r, :c] != SEA).reshape(shape)
+    land_share = land.mean(axis=(1, 3))
+    mostly_land = land_share > 0.5
+    #: The mean over the majority's own cells, so a coast block is neither
+    #: dragged under by its sea nor lifted by its land.
+    land_mean = np.where(land, blocks, 0.0).sum(axis=(1, 3)) / np.maximum(land.sum(axis=(1, 3)), 1)
+    sea_mean = np.where(~land, blocks, 0.0).sum(axis=(1, 3)) / np.maximum(
+        (~land).sum(axis=(1, 3)), 1
     )
+    grid = np.where(
+        mostly_land, np.maximum(land_mean, SKETCH_SHORE), np.minimum(sea_mean, -SKETCH_SHORE)
+    )
+    lake = (water[:r, :c] == LAKE).reshape(shape).mean(axis=(1, 3))
     lakes = frozenset((int(i), int(j)) for i, j in zip(*np.nonzero(lake > 0.5), strict=True))
     return grid, lakes
 
 
 def of(constants: Constants, planet: Planet) -> Field:
     """The planet's field, read once per build and kept for the process."""
+    expected = tuple(sorted(_expected(constants, planet).items()))
     return _loaded(
-        str(build_dir(constants)), planet.value, float(constants[R.TERRAIN_MOUNTAIN_SHARE])
+        str(build_dir(constants)),
+        planet.value,
+        float(constants[R.TERRAIN_MOUNTAIN_SHARE]),
+        expected,
     )
+
+
+def preload(constants: Constants) -> None:
+    """Every planet's field, read now: a build without one, or with one
+    built under other numbers, stops the process here rather than the
+    first `look`."""
+    for planet in Planet:
+        of(constants, planet)

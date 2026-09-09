@@ -52,6 +52,11 @@ runs:
         if [ -f .vault-source/build/renames.json ]; then
           cp .vault-source/build/renames.json vault/
         fi
+        # The planets' fields (landscape plan, wave 2): rasters and passports
+        # the engine reads through src/field.py. Kept in the vault's history
+        # like the rest of build/; a build without them cannot stand.
+        mkdir -p vault/field
+        cp .vault-source/build/field/*.npz .vault-source/build/field/*.json vault/field/
         revision=$(git -C .vault-source rev-parse --short HEAD)
         echo "revision=$revision" >> "$GITHUB_OUTPUT"
         echo "numbers built from the vault at $revision"

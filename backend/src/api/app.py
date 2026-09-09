@@ -24,7 +24,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from src import herald  # noqa: F401 -- registers the chronicle handler
+from src import (
+    field,
+    herald,  # noqa: F401 -- registers the chronicle handler
+)
 from src.api import push, session
 from src.api.routes import public
 from src.constants import HOLDER, Catalog, bootstrap, current_catalog
@@ -51,6 +54,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     constants, loaded = bootstrap(conf.vault_build_path)
     #: A missing handler must fail at startup, not in a tick.
     require_handlers()
+    #: And a missing or stale field of a planet must fail here, not in the
+    #: first `look` (landscape plan, wave 2).
+    field.preload(constants)
 
     log.info(
         "constants loaded: %s (fingerprint %s), %s recipes",
