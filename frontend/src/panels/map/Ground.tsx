@@ -31,6 +31,7 @@ import {
   type Tiles,
   type Warmth,
 } from "./relief";
+import { warmthOf } from "./scout";
 
 /** One answer per planet for the life of the page. */
 const RELIEF = new Map<string, Promise<Terrain>>();
@@ -173,15 +174,10 @@ export function Ground({
   unit?: number;
 }) {
   const terrain = useTerrain(planet);
-  /** The land's tones: the climate's two bounds, from the vault (D-065).
-   *  Null until the book carries them -- and then no ground is drawn at all,
-   *  rather than land of a tone made up here. */
-  const bands = useMemo<Warmth | null>(() => {
-    const bounds = book?.constants?.["biome.bounds"] as Record<string, unknown> | undefined;
-    const cold = Number(bounds?.cold_c);
-    const cool = Number(bounds?.cool_c);
-    return Number.isFinite(cold) && Number.isFinite(cool) ? { cold, cool } : null;
-  }, [book]);
+  /** The land's tones: the climate's two lines, off the vault's zonal table
+   *  (D-065). Null until the book carries them -- and then no ground is
+   *  drawn at all, rather than land of a tone made up here. */
+  const bands = useMemo<Warmth | null>(() => warmthOf(book?.constants?.["biome.zonal"]), [book]);
   //: The sun as of this render, from the clock: no timer (D-226).
   const dayHours =
     clock?.planet === planet ? clock.day_hours : Number(book?.constants?.[`time.day_${planet}`] ?? 0);

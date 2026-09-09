@@ -86,6 +86,7 @@ class Field:
     form: np.ndarray  # uint8, codes of `forms`
     hardness: np.ndarray  # uint8, 255 = 1.0
     river_m: np.ndarray  # to the nearest river or lake, metres, uint16, capped
+    sea_m: np.ndarray  # to the nearest sea, metres, uint16, capped
     temperature_c: np.ndarray  # int8
     rain: np.ndarray  # uint8, 255 = 1.0
     ice: np.ndarray  # bool
@@ -97,6 +98,7 @@ class Field:
     province_vein_k: tuple[float, ...]
     mountain_level: float  # share above which the land is mountain
     river_cap_m: float  # the distance raster's reach: at it, no fresh water in sight
+    sea_cap_m: float  # the same for the sea
     wet: bool  # whether any sea or lake holds water
     #: The sketch's grid: the height share on a coarser grid, and the
     #: lakes on it as (row, col) cells.
@@ -198,6 +200,16 @@ class Field:
 
     def is_mountain(self, lat: float, lon: float) -> bool:
         return not self.is_water(lat, lon) and self.height_at(lat, lon) >= self.mountain_level
+
+    def ice_at(self, lat: float, lon: float) -> bool:
+        """Whether the cap lies here: cold and wet, or very cold (the field's
+        `terrain.ice_*`), read as the field decided it, not re-derived."""
+        return bool(self.ice[self.cell(lat, lon)])
+
+    def sea_distance_m(self, lat: float, lon: float) -> float:
+        """How far the nearest sea lies, metres -- infinite beyond the raster's reach."""
+        metres = float(self.sea_m[self.cell(lat, lon)])
+        return math.inf if metres >= self.sea_cap_m else metres
 
     def form_at(self, lat: float, lon: float) -> str:
         return self.forms[int(self.form[self.cell(lat, lon)])]
@@ -350,6 +362,7 @@ def _loaded(directory: str, planet: str, mountain_share: float, expected: tuple)
         form = z["form"].astype(np.uint8)
         hardness = z["hardness"].astype(np.uint8)
         river_m = z["river_m"].astype(np.uint16)
+        sea_m = z["sea_m"].astype(np.uint16)
         temperature = z["temperature_c"].astype(np.int8)
         rain = z["rain"].astype(np.uint8)
         ice = z["ice"].astype(bool)
@@ -380,6 +393,7 @@ def _loaded(directory: str, planet: str, mountain_share: float, expected: tuple)
         form=form,
         hardness=hardness,
         river_m=river_m,
+        sea_m=sea_m,
         temperature_c=temperature,
         rain=rain,
         ice=ice,
@@ -389,6 +403,7 @@ def _loaded(directory: str, planet: str, mountain_share: float, expected: tuple)
         province_vein_k=tuple(float(entry.get("vein_k", 1.0)) for entry in provinces_table),
         mountain_level=mountain_level,
         river_cap_m=float(river_m.max()),
+        sea_cap_m=float(sea_m.max()),
         wet=bool((water == SEA).any() or (water == LAKE).any()),
         grid=grid,
         lakes=lakes,

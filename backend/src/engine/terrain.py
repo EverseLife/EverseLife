@@ -173,8 +173,9 @@ def by_latitude(constants: Constants, lat: float) -> float:
     return warm - (warm - cold) * tilt * tilt
 
 
-def climate_at(constants: Constants, planet: Planet, lat: float, lon: float) -> tuple[int, int]:
-    """The mean temperature and the rainfall a node here carries (D-261).
+def climate_of(constants: Constants, planet: Planet, lat: float, lon: float) -> tuple[float, float]:
+    """The mean temperature and the rainfall at a point, read between the
+    cells and not rounded: what the biome is sorted by.
 
     Both are the field's (plan wave 2): the temperature raster carries
     latitude, height, the depth of the continent and the local weather; the
@@ -183,7 +184,14 @@ def climate_at(constants: Constants, planet: Planet, lat: float, lon: float) -> 
     field = field_of(constants, planet)
     rain = constants[R.SITE_RAIN_RANGE]
     precipitation = rain.min + (rain.max - rain.min) * field.rain_at(lat, lon)
-    return round(field.temperature_at(lat, lon)), round(precipitation)
+    return field.temperature_at(lat, lon), precipitation
+
+
+def climate_at(constants: Constants, planet: Planet, lat: float, lon: float) -> tuple[int, int]:
+    """The mean temperature and the rainfall a node here carries (D-261): the
+    climate of the point in whole degrees and units, as the node writes it."""
+    temperature, precipitation = climate_of(constants, planet, lat, lon)
+    return round(temperature), round(precipitation)
 
 
 def sketch(constants: Constants, planet: Planet) -> dict:

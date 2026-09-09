@@ -67,13 +67,18 @@ EXPLORE_FILL_SHARE = Num("explore.fill_share")
 #: outside it -- and a window at all, so an aim does not read the planet.
 EXPLORE_WINDOW_KM = Num("explore.window_km")
 #: Biomes (D-321): the classes of the field, their names, how near and far one
-#: explores from them, the swing of their day, the marks and veins they bear,
-#: and the bounds that sort a point into one.
+#: explores from them, the swing of their day, the marks and veins they bear.
 BIOME_NAMES = Words("biome.names")
 BIOME_REACH_M = Bands("biome.reach_m")
 BIOME_SWING_C = Table("biome.swing_c")
 BIOME_MARKS = Book("biome.marks")
 BIOME_VEIN_K = Table("biome.vein_k")
+#: How a point is sorted into one (landscape plan, wave 4): the zonal table
+#: -- rectangles of mean temperature and rain, the vault build checks they
+#: tile the plane -- the azonal table of landform -> biome that outranks the
+#: climate, and the two bounds of the formless azonal cases (marsh, coast).
+BIOME_ZONAL = Shape("biome.zonal")
+BIOME_AZONAL = Words("biome.azonal")
 BIOME_BOUNDS = Table("biome.bounds")
 #: Complexes (D-321): how often a find is a scheme of nodes, and the schemes.
 COMPLEX_CHANCE = Book("complex.chance")
@@ -106,6 +111,8 @@ __all__ = [
     "BIOME_SWING_C",
     "BIOME_MARKS",
     "BIOME_VEIN_K",
+    "BIOME_ZONAL",
+    "BIOME_AZONAL",
     "BIOME_BOUNDS",
     "COMPLEX_CHANCE",
     "COMPLEX_SCHEMES",

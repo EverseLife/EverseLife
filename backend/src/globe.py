@@ -42,8 +42,6 @@ FULL_TURN = 360.0
 QUARTER_TURN = 90.0
 #: How many points along a straight way are read for what it crosses.
 WAY_SAMPLES = 8
-#: How many directions the compass is read in when looking round a point.
-COMPASS_POINTS = 8
 #: The golden angle: points fanned round a centre without a pattern.
 GOLDEN_ANGLE = math.pi * (3 - math.sqrt(5))
 #: Below this the cosine of the latitude is treated as at the pole.
