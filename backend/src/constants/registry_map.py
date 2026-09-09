@@ -49,6 +49,11 @@ MAP_LATTICE_M = Num("map.lattice_m")
 #: Memory instead of fog (D-319 п. 6-7): how far the eye reaches over the
 #: globe, how many places an identity keeps, and how old the public map is.
 MAP_SIGHT_KM = Num("map.sight_km")
+#: The eye itself (landscape plan wave 9, §10): how high above the ground one
+#: looks from, and how finely the ground between is read. The radius says how
+#: far a place can be made out; these two say whether the land is in the way.
+MAP_EYE_M = Num("map.eye_m")
+MAP_SIGHT_STEP_M = Num("map.sight_step_m")
 #: Read by the client through `/public/constants`: the floor of the surface
 #: band of the map (D-319). Declared so that the vault's key is checked at
 #: bootstrap like every other, though the server itself does not read it.
@@ -108,7 +113,9 @@ __all__ = [
     "PATH_FADE_PER_DAY",
     "MAP_APPROACH_KM",
     "MAP_LATTICE_M",
+    "MAP_EYE_M",
     "MAP_SIGHT_KM",
+    "MAP_SIGHT_STEP_M",
     "MAP_MEMORY_PLACES",
     "MAP_DRAW_STAMINA",
     "MAP_PUBLIC_DELAY_DAYS",

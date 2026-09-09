@@ -8,6 +8,9 @@ and one step of the graph; the memory of places is drawn dark; the cities of
 the planet are public and dark unless in sight. The sky is everybody's and
 carries no way in; whatever is drawn brings its parents; a reader with no
 body gets the sky.
+
+Since wave 9 of the landscape plan the ground may take from the radius and
+never adds to it: inside the radius, a place the land hides is not drawn.
 """
 
 from __future__ import annotations
@@ -16,6 +19,7 @@ import math
 import uuid
 from datetime import UTC, datetime
 
+import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src import globe
@@ -87,6 +91,43 @@ async def test_the_eye_reaches_the_sight_radius_and_no_farther(
     assert home.id in view.seen and near.id in view.seen
     assert far.id not in view.seen, "за радиусом взгляда узел не рисуется"
     assert near.id not in view.faded, "в радиусе — ярко"
+
+
+async def test_the_ground_hides_what_stands_inside_the_radius(
+    session: AsyncSession, constants: Constants, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The owner's rule of wave 9: the land may take from the eye's radius
+    and never adds to it.
+
+    The ground itself is judged by `engine.horizon`, on profiles drawn by
+    hand (`test_horizon`); what is pinned here is the wiring -- that the
+    map asks, and that a place the answer hides is not drawn while its
+    neighbour on open ground is. Asked of a made-up ground rather than of
+    Terra's: a pair of points that some build of the field happens to hide
+    would pin the file, and the first version of this test did exactly that
+    and passed on a rounding error instead of on a hill.
+    """
+    terra = await _sphere(session, Planet.TERRA)
+    home = await _node(session, "terra.home", terra, at=HOME)
+    reach = constants[R.MAP_SIGHT_KM]
+    behind = await _node(session, "terra.behind", terra, at=_away(constants, reach * 0.5))
+    open_ground = await _node(
+        session, "terra.open", terra, at=_away(constants, reach * 0.5, math.pi)
+    )
+    hides = {places.geo_of(behind)}
+    monkeypatch.setattr(
+        sight.horizon,
+        "hidden",
+        lambda *a, **k: (
+            (round(a[3][0], 6), round(a[3][1], 6))
+            in {(round(p[0], 6), round(p[1], 6)) for p in hides if p is not None}
+        ),
+    )
+    nodes, edges = await _graph(session)
+    view = sight.around(home, constants=constants, nodes=nodes, edges=edges)
+    assert home.id in view.seen
+    assert open_ground.id in view.seen, "на открытой земле видно, как и было"
+    assert behind.id not in view.seen, "земля между глазом и местом его прячет"
 
 
 async def test_a_step_into_an_inside_is_seen_and_a_road_neighbour_is_not(
