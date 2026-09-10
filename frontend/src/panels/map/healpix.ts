@@ -150,11 +150,6 @@ export function ringsOf(passport: RasterPassport): Rings {
   return held;
 }
 
-/** The twelve faces by the ring they start on and where they stand round
- *  it -- the tables every HEALPix implementation carries. */
-const RING_OF_FACE = [2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4];
-const PLACE_OF_FACE = [1, 3, 5, 7, 0, 2, 4, 6, 1, 3, 5, 7];
-
 /** How many cells a ring holds, as a quarter of them, and whether it is the
  *  half-step-shifted kind. */
 function ringShape(nside: number, ring: number): [number, number] {
@@ -205,8 +200,11 @@ export class Rings {
   /** The rings already laid out, by ring number. A frame touches a few
    *  dozen of the four thousand a planet has. */
   private laid = new Map<number, Int32Array>();
+  readonly nside: number;
 
-  constructor(readonly nside: number) {}
+  constructor(nside: number) {
+    this.nside = nside;
+  }
 
   get count(): number {
     return 4 * this.nside - 1;

@@ -36,7 +36,7 @@ import {
   windowAbout,
 } from "../panels/map/contours";
 import type { Rasters } from "../panels/map/rasters";
-import type { River } from "../panels/map/contours";
+import type { River, Segment } from "../panels/map/contours";
 import type { Lattice } from "../panels/map/healpix";
 import type { RasterPassport } from "../api";
 import { UNITS_PER_METRE } from "../panels/map/globe";
@@ -133,7 +133,7 @@ describe("windowAbout", () => {
   it("closes a window round the whole planet on itself: no seam on the first column", () => {
     //: A ring of land round the equator, the sea elsewhere: the coast must
     //: cross every column, the first included.
-    const { rasters, passport, lattice } = planet(8, (r) => (r === 3 || r === 4 ? 100 : -100));
+    const { rasters, lattice } = planet(8, (r) => (r === 3 || r === 4 ? 100 : -100));
     const samples = samplesOf(lattice, wholeWindow(lattice));
     expect(samples.nc).toBe(lattice.cols + 1);
     const { shores } = coast(rasters, samples, FORMS);
@@ -165,7 +165,7 @@ describe("windowAbout", () => {
 describe("isolines and contours", () => {
   it("closes a ring round a hill and counts the levels up to the summit", () => {
     const rows = 12;
-    const { rasters, passport, lattice } = planet(rows, (r, c) => {
+    const { rasters, lattice } = planet(rows, (r, c) => {
       const d = Math.hypot(r - 6, c - 12);
       return d > 5 ? -100 : 1000 * (1 - d / 5);
     });
@@ -188,7 +188,7 @@ describe("isolines and contours", () => {
     expect(contours(rasters, samples, Infinity)).toEqual([]);
   });
   it("marks every fifth contour as an index", () => {
-    const { rasters, passport, lattice } = planet(8, (r) => r * 500);
+    const { rasters, lattice } = planet(8, (r) => r * 500);
     const win = windowAbout(lattice, { lat: 0, lon: 0 }, 1e5, undefined);
     const rings = contours(rasters, samplesOf(lattice, win), 100);
     const index = rings.filter((r) => r.index).map((r) => r.level);
@@ -223,9 +223,9 @@ describe("coast", () => {
     const rows = 6;
     //: The sea on the west half, land on the east; the land's first column
     //: a sea cliff in the north rows, a beach in the south rows.
-    const { rasters, passport, lattice } = planet(
+    const { rasters, lattice } = planet(
       rows,
-      (r, c) => (c < 6 ? -50 : 100),
+      (_r, c) => (c < 6 ? -50 : 100),
       (r, c) => (c < 6 ? "sea" : c === 6 ? (r < 3 ? "coast_cliff" : "beach") : "plain"),
     );
     const win = windowAbout(lattice, { lat: 0, lon: 0 }, 1e5, undefined);
@@ -249,7 +249,7 @@ describe("coast", () => {
     //: cut between the cells, as the shader cuts it (`shade.ts`, u_wet). As
     //: a class it was whole cells, and a lake with the corners of a cell is
     //: not a lake (owner, 2026-09-10).
-    const { rasters, passport, lattice } = planet(6, () => 100, (r, c) => (r === 3 && c === 6 ? "lake" : "plain"));
+    const { rasters, lattice } = planet(6, () => 100, (r, c) => (r === 3 && c === 6 ? "lake" : "plain"));
     const win = windowAbout(lattice, { lat: 0, lon: 0 }, 1e5, undefined);
     const { shores, lakes } = coast(rasters, samplesOf(lattice, win), FORMS);
     expect(shores.rock.length + shores.beach.length + shores.shore.length).toBe(0);
@@ -272,7 +272,7 @@ describe("coast", () => {
 describe("hachures and rivers", () => {
   it("ticks a cliff cell down its slope", () => {
     //: The land rises to the east: the slope falls west.
-    const { rasters, passport, lattice } = planet(6, (r, c) => c * 100, (r, c) => (r === 3 && c === 6 ? "cliff" : "plain"));
+    const { rasters, passport, lattice } = planet(6, (_r, c) => c * 100, (r, c) => (r === 3 && c === 6 ? "cliff" : "plain"));
     const win = windowAbout(lattice, { lat: 0, lon: 0 }, 1e5, undefined);
     const ticks = hachures(rasters, samplesOf(lattice, win), passport, win, 1e5);
     expect(ticks).toHaveLength(1);
@@ -281,7 +281,7 @@ describe("hachures and rivers", () => {
     expect(Math.abs(to.lat - from.lat)).toBeLessThan(1e-9);
   });
   it("joins river cells to their river neighbours once", () => {
-    const { rasters, passport, lattice } = planet(6, () => 100, (r, c) => (r === 2 && c >= 4 && c <= 6 ? "river" : r === 3 && c === 7 ? "river" : "plain"));
+    const { rasters, lattice } = planet(6, () => 100, (r, c) => (r === 2 && c >= 4 && c <= 6 ? "river" : r === 3 && c === 7 ? "river" : "plain"));
     const win = windowAbout(lattice, { lat: 0, lon: 0 }, 1e5, undefined);
     const threads = rivers(rasters, samplesOf(lattice, win), WATER);
     //: 4-5, 5-6 along the row, 6 to the south-east 7.
@@ -318,7 +318,7 @@ describe("the ladder and the window's eye", () => {
     expect(closeFrame(CLOSE_FRAME_M / 4)).toBe(true);
   });
   it("draws every line for the frame it stands in, and none from a wide one", () => {
-    const { rasters, passport, lattice } = planet(6, (r, c) => c * 100, (r, c) => (r === 3 && c === 6 ? "cliff" : r === 2 && c > 3 ? "river" : "plain"));
+    const { rasters, passport, lattice } = planet(6, (_r, c) => c * 100, (r, c) => (r === 3 && c === 6 ? "cliff" : r === 2 && c > 3 ? "river" : "plain"));
     const far = frameLines(rasters, passport, { lat: 0, lon: 0 }, 1e6, CLOSE_FRAME_M * UNITS_PER_METRE, lattice);
     expect(far.hachures).toEqual([]);
     expect(far.contours).toEqual([]);
@@ -365,14 +365,14 @@ describe("the provinces", () => {
       rows,
       () => 100,
       () => "plain",
-      (r, c) => (c < rows / 2 ? 0 : c < rows ? 1 : 2),
+      (_r, c) => (c < rows / 2 ? 0 : c < rows ? 1 : 2),
     );
 
   it("draws a line only where two provinces meet, never against the sea", () => {
     //: A hundred and eighty rows, so a cell is a degree and a run of them
     //: is worth joining: the seam is one line pole to pole, cut only where
     //: it leaves the bin it is filed under.
-    const { rasters, passport, lattice } = twoLands(180);
+    const { rasters, lattice } = twoLands(180);
     const edges = provinceEdges(rasters, samplesOf(lattice, wholeWindow(lattice)));
     expect(edges.length).toBe(lattice.rows / BIN_DEG);
     for (const [a, b] of edges) {
@@ -420,7 +420,7 @@ describe("the provinces", () => {
     //: One land in the west, two in the east: the seam runs pole to pole,
     //: but it parts a different pair north and south, and a line joined
     //: across the equator would be one segment for two boundaries.
-    const { rasters, passport, lattice } = planet(
+    const { rasters, lattice } = planet(
       180,
       () => 100,
       () => "plain",
@@ -442,7 +442,7 @@ describe("the provinces", () => {
   });
 
   it("writes each name inside the land it names, weighed by its ground", () => {
-    const { rasters, passport, lattice } = twoLands(8);
+    const { rasters, lattice } = twoLands(8);
     const samples = samplesOf(lattice, wholeWindow(lattice));
     const marks = provinceMarks(rasters, samples);
     expect(marks.map((m) => m.code).sort()).toEqual([1, 2]);
@@ -460,7 +460,7 @@ describe("the provinces", () => {
     //: circle it is the date line, where the land actually lies. And the
     //: closing column of a whole-planet window is not counted twice, or
     //: the name would be dragged off the line towards it.
-    const { rasters, passport, lattice } = planet(
+    const { rasters, lattice } = planet(
       4,
       () => 100,
       () => "plain",
