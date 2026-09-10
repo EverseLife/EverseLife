@@ -117,7 +117,7 @@ export function useScout({
   //: The two thresholds the relief is read by. Off the book rather than
   //: named here: they are the vault's (D-065).
   const bands = useMemo<Warmth | null>(
-    () => warmthOf(book?.constants?.["biome.bounds"]),
+    () => warmthOf(book?.constants?.["biome.zonal"]),
     [book],
   );
 

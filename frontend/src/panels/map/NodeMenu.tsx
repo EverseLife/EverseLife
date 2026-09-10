@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Nurlan Urazkulov
 
 import { spell, type Look, type MapNode } from "../../api";
-import { Refusal, useActions, useBook, useSession } from "../../actions";
+import { Refusal, useActions, useBook, useNames, useSession } from "../../actions";
 import { t } from "../../locale";
 import { nodeWord } from "./words";
 
@@ -37,6 +37,9 @@ export function NodeMenu({
   //: The vault's word for a biome (D-321): a found node has no name, and the
   //: column says its kind instead -- the same word the world's refusals use.
   const biomes = useBook()?.constants?.["biome.names"];
+  //: The facet names a find (landscape plan wave 7); the table is the same
+  //: one the inspector reads.
+  const names = useNames();
   if (!node) return null;
 
   //: On the road the body stands in no node at all (D-107): `look.node` still
@@ -61,7 +64,7 @@ export function NodeMenu({
       //: The window-wide listener shuts the menu; a click inside it must not.
       onPointerDown={(e) => e.stopPropagation()}
     >
-      <p className="menu-ask">{nodeWord(node, biomes)}</p>
+      <p className="menu-ask">{nodeWord(node, biomes, names)}</p>
       {may && (
         <button
           role="menuitem"

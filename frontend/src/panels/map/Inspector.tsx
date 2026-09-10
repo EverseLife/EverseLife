@@ -4,14 +4,14 @@
 import { spell, type Look, type MapNode } from "../../api";
 import { Deadline } from "../../Deadline";
 import { Rule } from "../../Rule";
-import { Refusal, useActions, useBook, useSession } from "../../actions";
+import { Refusal, useActions, useBook, useNames, useSession } from "../../actions";
 import { t } from "../../locale";
 import { cityWord } from "../../planets";
 import { Roads } from "./Roads";
 import { LAYER_NAME, offworld } from "./model";
 import { metresBetween } from "./scout";
 import { radiusOf } from "./useGlobe";
-import { nameWord, nodeWord, price } from "./words";
+import { nameWord, nodeWord, price, provinceWord } from "./words";
 
 /**
  * The column beside the map: everything about the node you picked.
@@ -56,6 +56,8 @@ export function Inspector({
   //: column says its kind instead -- the same word the world's refusals use.
   const book = useBook();
   const biomes = book?.constants?.["biome.names"];
+  //: The province's name (landscape plan, wave 3): the vault's word by id.
+  const names = useNames();
   const here = look.node?.key ?? "";
   const ongoing = look.travel ?? null;
 
@@ -141,7 +143,10 @@ export function Inspector({
     return (
       <aside className="inspect">
         <h3>{t("ui-map-here")}</h3>
-        <p className="sign">{look.node ? nodeWord(look.node, biomes) : ""}</p>
+        <p className="sign">{look.node ? nodeWord(look.node, biomes, names) : ""}</p>
+        {look.node && provinceWord(look.node, names) && (
+          <p className="sign">{provinceWord(look.node, names)}</p>
+        )}
         <div className="row">
           <button onClick={onEnter} disabled={busy}>
             {t("ui-map-enter")}
@@ -166,9 +171,10 @@ export function Inspector({
   return (
     <aside className="inspect">
       <h3>
-        {nodeWord(node, biomes)}
+        {nodeWord(node, biomes, names)}
         <Rule>{t("ui-map-node-rule")}</Rule>
       </h3>
+      {provinceWord(node, names) && <p className="sign">{provinceWord(node, names)}</p>}
       {node.drawn !== undefined && (
         //: A counter, not a measure: no thousands separator, as the clock does it.
         <p className="note">

@@ -6,11 +6,15 @@
 The map is not the world: it is what a body sees, what its identity
 remembers, and what is public. Three sources, two tones:
 
-* **sight** -- every node of the planet within `map.sight_km` of the body, a
-  distance on the globe and not a count of steps (D-319 п. 6): with honest
-  metres one sees far, not along the ways. Plus the one step of the graph the
-  body may actually take -- the gangway, the corridor aboard, the door -- so a
-  crew aboard sees its pier and a floor sees its stair. Drawn bright;
+* **sight** -- every node of the planet within `map.sight_km` of the body
+  **that the ground does not hide** (`engine.horizon`, landscape plan wave 9),
+  a distance on the globe and not a count of steps (D-319 п. 6): with honest
+  metres one sees far, not along the ways. The land may take from the radius
+  and never adds to it (owner, 2026-09-09), so the plain is what it was and
+  in broken country a neighbour behind a rise is not there until one walks
+  to it. Plus the one step of the graph the body may actually take -- the
+  gangway, the corridor aboard, the door -- so a crew aboard sees its pier
+  and a floor sees its stair. Drawn bright;
 * **memory** -- the places the identity has been to (`engine.memory`), shown
   as the world knows them now, drawn dark. A snapshot of "how it was" is not
   kept: that would be a second world beside the world (D-240's argument
@@ -41,10 +45,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src import globe
 from src.constants import Constants
-from src.constants import registry as R
-from src.engine import places
+from src.engine import horizon, places
 from src.models.world import Edge, Layer, Node, Surface
-from src.units import METRES_PER_KM
 
 
 @dataclass(frozen=True, slots=True)
@@ -160,17 +162,31 @@ def around(
             continue
         if places.geo_of(standing) is None or places.geo_of(other) is None:
             bright.add(other_id)
-    #: The eye: everything of this planet's surface within the radius.
+    #: The eye: everything of this planet's surface within the radius that
+    #: the ground does not hide. The radius is asked first because it is one
+    #: subtraction against a walk over the land between (`horizon.hidden`),
+    #: and on a planet of thousands of nodes all but a handful fail it.
     point = _standpoint(standing, by_id)
     if point is not None:
         radius = globe.radius_m(constants, standing.planet)
-        reach = float(constants[R.MAP_SIGHT_KM]) * METRES_PER_KM
+        #: How far the eye reaches from this very place: the vault's radius,
+        #: and never further than the planet's own curve allows from the
+        #: height one stands at. One rule rather than two -- on this planet
+        #: the radius is what binds everywhere on land, and it stays the
+        #: rule if the owner ever raises it.
+        reach = horizon.reach_m(constants, standing.planet, point)
         for node in nodes:
             if node.planet is not standing.planet or node.layer is not Layer.PLANET:
                 continue
             where = places.geo_of(node)
-            if where is not None and globe.distance_m(radius, point, where) <= reach:
-                bright.add(node.id)
+            if where is None:
+                continue
+            span = globe.distance_m(radius, point, where)
+            if span > reach:
+                continue
+            if horizon.hidden(constants, standing.planet, point, where, radius=radius, span=span):
+                continue
+            bright.add(node.id)
     bright = _with_parents(bright, by_id)
 
     #: Memory and the public, on this planet, dark where the eye does not reach.

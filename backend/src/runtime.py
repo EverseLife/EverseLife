@@ -193,6 +193,17 @@ PUBLIC_MAP_MAX_AGE_S = 300
 #: -- a constant of the seed, but a world reborn with another seed must not
 #: draw the old ground for days.
 TILE_MAX_AGE_S = 3600
+#: From what size an answer of the API leaves gzipped (landscape plan wave
+#: 5): the picture's rasters are megabytes that squeeze to a third, and
+#: anything smaller than a few packets is not worth the round of deflate.
+RASTER_GZIP_MIN_BYTES = 4096
+#: The rasters the client draws by are the field thinned to this many cells
+#: at most (landscape plan §9.3, D-328): a texture a shader reads whole, not
+#: a planet a process holds. Terra, Aquatica and Pyroxis travel whole
+#: (786 432 and 262 848 cells); Aurora's field is a million and a half and
+#: would be three megabytes of height alone, so its picture goes at half the
+#: fineness -- `nside` 181 against the field's 362.
+RASTER_CELLS_MAX = 1_000_000
 MAP_HASH_STEP = 31
 MAP_HASH_SPAN = 65_521
 #: Width of the advisory-lock key that holds one group's map while a node

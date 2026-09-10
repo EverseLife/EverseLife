@@ -23,13 +23,18 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 
-from src import herald  # noqa: F401 -- registers the chronicle handler
+from src import (
+    field,
+    herald,  # noqa: F401 -- registers the chronicle handler
+)
 from src.api import push, session
 from src.api.routes import public
 from src.constants import HOLDER, Catalog, bootstrap, current_catalog
-from src.engine import tick  # noqa: F401 -- registers job handlers
+from src.engine import rasters, tick  # noqa: F401 -- registers job handlers
 from src.engine.jobs import require_handlers
+from src.runtime import RASTER_GZIP_MIN_BYTES
 from src.settings import settings
 
 log = logging.getLogger(__name__)
@@ -51,6 +56,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     constants, loaded = bootstrap(conf.vault_build_path)
     #: A missing handler must fail at startup, not in a tick.
     require_handlers()
+    #: And a missing or stale field of a planet must fail here, not in the
+    #: first `look` (landscape plan, wave 2).
+    field.preload(constants)
+    #: And the picture's rasters are cut here rather than inside the first
+    #: request for them: they are a constant of the vault, and a second of
+    #: arithmetic on the loop stops every other session (`rasters.warm`).
+    rasters.warm(constants)
 
     log.info(
         "constants loaded: %s (fingerprint %s), %s recipes",
@@ -89,6 +101,11 @@ def create_app() -> FastAPI:
         allow_methods=["GET"],
         allow_headers=["*"],
     )
+
+    #: The picture's rasters (landscape plan wave 5) are megabytes of bytes
+    #: that squeeze to a third, and the sketch's grid is a page of numbers:
+    #: whatever is bigger than a packet leaves compressed.
+    app.add_middleware(GZipMiddleware, minimum_size=RASTER_GZIP_MIN_BYTES)
 
     app.include_router(public.router)
     #: The only surface where the player acts. It has no HTTP methods.

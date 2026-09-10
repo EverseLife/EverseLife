@@ -46,6 +46,7 @@ from src.engine import (
     energy,
     estate,
     explore,
+    facet,
     farm,
     forage,
     frost,
@@ -263,6 +264,12 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
         #: The owner's map mark, if one is nailed on (D-238): the plot window
         #: preselects it in the picker. Belted like the public map's copy.
         "emblem": estate.public_emblem(node),
+        #: The face the node's ground wears (landscape plan, wave 7), named
+        #: like the province by `/public/renames`.
+        **({"facet": face} if (face := facet.of_node_id(node)) else {}),
+        #: The province the node lies in (landscape plan, wave 3), named by
+        #: the client through renames; absent on a node without one (D-225).
+        **({"province": province} if (province := biome.province_of(node)) else {}),
         #: Fertility is a place property (D-126): the plots scene is shown by it.
         "fertility": float(node.properties.get("fertility", 0) or 0),
         #: The place's climate as farming reads it (D-261): the current values

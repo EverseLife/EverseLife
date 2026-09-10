@@ -3,114 +3,69 @@
 
 """What a planet is made of, read at a point: sea, mountain, river, climate (D-319).
 
-A planet has a **relief** -- continents, seas, mountains, rivers, lakes --
-built once from the vault's seed and shares (`relief.build`) and read
-wherever a node stands. Nothing is rolled: a node at a point carries what the
-field says there, so the globe and the ground agree, and a river drawn on the
-map is a river at the node beside it (`terrain.river_reach_km`).
+A planet has a **field** -- continents, seas, mountains, rivers, lakes,
+landforms, climate -- made by the vault's pipeline and read from its build
+(`src.field`, landscape plan wave 2) wherever a node stands. Nothing is
+rolled: a node at a point carries what the field says there, so the globe
+and the ground agree, and a river drawn on the map is a river at the node
+beside it (`terrain.river_reach_km`).
 
-The **climate** is read off the same field: warm at the equator and cold at
-the pole between the vault's two temperatures (`site.temp_range`), colder
-again with height (`terrain.lapse_c` across the land's whole rise), and rain
-by the field's own noise, wetter near water. The diurnal swing is the
-planet's (`planet.temp_swing`, D-261), and the hour is the node's own since
-D-319: the longitude sets when its noon comes (`climate.day_phase`).
+The **climate** is the field's too: temperature by latitude, height, the
+depth of the continent and the local weather, rain carried by the winds
+and dropped on the windward slopes -- read off the rasters and scaled to
+the vault's ranges (`site.temp_range`, `site.rain_range`). The diurnal
+swing is the planet's (`planet.temp_swing`, D-261), and the hour is the
+node's own since D-319: the longitude sets when its noon comes
+(`climate.day_phase`).
 
-The field is a pure function of the vault, so it is built on first use and
-kept for the process: two servers with one vault read one relief.
+The field is a file of the vault's build, read on first use and kept for
+the process: two servers with one build read one world.
 """
 
 from __future__ import annotations
 
-import functools
 import json
 import math
 from collections import OrderedDict
 
 import numpy as np
 
-from src import globe, relief
+from src import field as fields
+from src import globe, healpix, relief
 from src.constants import Constants
 from src.constants import registry as R
 from src.engine import ground, world
 from src.models.world import Planet
+from src.runtime import RASTER_CELLS_MAX
 from src.units import METRES_PER_KM, PERCENT
 
-#: The vault keys the field is built from, per planet: a share of sea and a
-#: count of rivers. A planet the table does not name is dry and riverless.
-DRY = 0.0
-NONE = 0
 #: A mountain's mark on the node: the client draws it, the ground reads it.
 MOUNTAIN = "mountain"
 #: The field's other readings: each sign of the place reads the noise from
 #: its own seed off the height's, so the woods do not simply follow the hills.
+#: Until the facets of the landscape plan (wave 7) say where the woods are,
+#: the noise does.
 TEXTURE = 1
 STONES = TEXTURE + 1
-RAIN = STONES + 1
 
 
-#: Four planets, one vault: the cache holds every field there is.
-@functools.cache
-def _built(
-    seed: int,
-    sea_share: float,
-    mountain_share: float,
-    rivers: int,
-    detail_lattice: float,
-    detail_amplitude: float,
-    peak_share: float,
-    basin_share: float,
-    detail_seed: int,
-) -> relief.Field:
-    return relief.build(
-        seed,
-        sea_share=sea_share,
-        mountain_share=mountain_share,
-        rivers=rivers,
-        detail_lattice=detail_lattice,
-        detail_amplitude=detail_amplitude,
-        peak_share=peak_share,
-        basin_share=basin_share,
-        detail_seed=detail_seed,
-    )
-
-
-def field_of(constants: Constants, planet: Planet) -> relief.Field:
-    """The planet's relief, built once for these constants."""
-    seed = int(constants[R.TERRAIN_SEED])
-    sea = float(constants[R.TERRAIN_SEA_SHARE].get(planet.value, DRY))
-    rivers = int(constants[R.TERRAIN_RIVERS].get(planet.value, NONE))
-    #: Each planet its own seed off the world's: one number in the vault, four
-    #: different worlds, and Terra's continents never repeat on Aurora.
-    own = seed * len(Planet) + list(Planet).index(planet)
-    #: The local relief's first octave spans `terrain.detail_km` (D-323): as
-    #: many lattice cells across the diameter as the feature divides it into.
-    lattice = relief.lattice_for(
-        globe.radius_m(constants, planet) / METRES_PER_KM, float(constants[R.TERRAIN_DETAIL_KM])
-    )
-    return _built(
-        own,
-        sea,
-        float(constants[R.TERRAIN_MOUNTAIN_SHARE]),
-        rivers,
-        lattice,
-        float(constants[R.TERRAIN_DETAIL_AMPLITUDE]),
-        float(constants[R.TERRAIN_PEAK_SHARE]),
-        float(constants[R.TERRAIN_BASIN_SHARE]),
-        int(constants[R.TERRAIN_DETAIL_SEED]),
-    )
+def field_of(constants: Constants, planet: Planet) -> fields.Field:
+    """The planet's field, read once from the vault's build for these constants."""
+    return fields.of(constants, planet)
 
 
 def tile(constants: Constants, planet: Planet, row: int, col: int) -> dict | None:
-    """A tile of the local relief as the client draws it (D-323): the noise,
-    and only the noise -- the client reads the heights off the grid it has
-    (D-225), and a peak and a basin are cut from the noise against the
-    sketch's `peak_level` and `basin_level`. None off the planet."""
+    """A tile of the field as the client draws it (D-323, plan wave 2): the
+    height share on the tile's lattice, lakes sunk under zero. The client
+    keeps reading it as the `local` reading it cuts along `basin_level` and
+    `peak_level` -- which the sketch sets to the sea's zero and the mountain
+    line -- so the coast and the peaks it draws close up are the field's own
+    (D-225). None off the planet."""
     rows, cols = relief.tile_counts()
     if not (0 <= row < rows and 0 <= col < cols):
         return None
     lat0, lon0 = relief.tile_origin(row, col)
-    _, local = field_of(constants, planet).tile(row, col)
+    local = field_of(constants, planet).tile(row, col)
     return {
         "row": row,
         "col": col,
@@ -151,6 +106,23 @@ def is_land(constants: Constants, planet: Planet, lat: float, lon: float) -> boo
     if abs(lat) > float(constants[R.MAP_CITY_LAT_MAX]):
         return False
     return not field_of(constants, planet).is_water(lat, lon)
+
+
+def height_m(constants: Constants, planet: Planet, lat: float, lon: float) -> float:
+    """How high above the sea a point stands, in metres (landscape plan, wave 1).
+
+    The field reads a share of the land's rise (`Field.relief`, 0..1); the
+    vault says how many metres that rise is (`terrain.relief_m`). The sea
+    reads zero; a lake reads the land under it, as the climate does
+    (`climate_at`), so a mountain lake is as high and as cold on every
+    reading. This is the one place the share becomes a height, so a
+    contour, a horizon and a slope all measure the same mountain. The field
+    is scaled so that its highest summit is the whole rise.
+    """
+    field = field_of(constants, planet)
+    if field.is_sea(lat, lon):
+        return 0.0
+    return field.relief(lat, lon) * float(constants[R.TERRAIN_RELIEF_M])
 
 
 def river_reach_deg(constants: Constants, planet: Planet, lat: float) -> float:
@@ -202,37 +174,37 @@ def by_latitude(constants: Constants, lat: float) -> float:
     return warm - (warm - cold) * tilt * tilt
 
 
-def climate_at(constants: Constants, planet: Planet, lat: float, lon: float) -> tuple[int, int]:
-    """The mean temperature and the rainfall a node here carries (D-261).
+def climate_of(constants: Constants, planet: Planet, lat: float, lon: float) -> tuple[float, float]:
+    """The mean temperature and the rainfall at a point, read between the
+    cells and not rounded: what the biome is sorted by.
 
-    Temperature: the vault's warm end at the equator, its cold end at the
-    pole, by the square of the sine of the latitude -- the shape sunlight
-    has -- and `terrain.lapse_c` less at the top of the land's rise. Rain:
-    the noise across the vault's range, the wetter half where the field is
-    near water.
+    Both are the field's (plan wave 2): the temperature raster carries
+    latitude, height, the depth of the continent and the local weather; the
+    rain raster the winds' work, in shares of the vault's `site.rain_range`.
     """
     field = field_of(constants, planet)
-    temperature = by_latitude(constants, lat) - float(constants[R.TERRAIN_LAPSE_C]) * field.relief(
-        lat, lon
-    )
     rain = constants[R.SITE_RAIN_RANGE]
-    wet = relief.noise_at(field.seed + RAIN, lat, lon)
-    near_water = field.river_distance_deg(lat, lon) <= river_reach_deg(constants, planet, lat)
-    own = float(constants[R.TERRAIN_RAIN_NOISE_SHARE])
-    share = wet * own + ((1 - own) if near_water else 0)
-    precipitation = rain.min + (rain.max - rain.min) * share
+    precipitation = rain.min + (rain.max - rain.min) * field.rain_at(lat, lon)
+    return field.temperature_at(lat, lon), precipitation
+
+
+def climate_at(constants: Constants, planet: Planet, lat: float, lon: float) -> tuple[int, int]:
+    """The mean temperature and the rainfall a node here carries (D-261): the
+    climate of the point in whole degrees and units, as the node writes it."""
+    temperature, precipitation = climate_of(constants, planet, lat, lon)
     return round(temperature), round(precipitation)
 
 
 def sketch(constants: Constants, planet: Planet) -> dict:
-    """The relief as the client draws it: the grid, the water lines, the rivers.
+    """The field as the client draws it from afar: a coarser grid of the
+    height, its lakes, the tiling it asks the close ground by.
 
     Everybody's from the world's first day (D-319): the shape of a planet is
     arithmetic over the vault, not intelligence, and hiding it would hide the
     one thing that makes a farmer walk along a river.
 
     Drawn once per field: the answer is a constant of the vault, and a
-    public route must not rebuild sixteen thousand numbers per request.
+    public route must not rebuild thirty thousand numbers per request.
     """
     field = field_of(constants, planet)
     if id(field) not in _SKETCHES:
@@ -241,26 +213,122 @@ def sketch(constants: Constants, planet: Planet) -> dict:
 
 
 #: Sketches by the field they draw; the fields themselves live for the
-#: process (`_built`), so their ids are stable keys.
+#: process (`field.of`), so their ids are stable keys.
 _SKETCHES: dict[int, dict] = {}
 
 
-def _sketched(constants: Constants, planet: Planet, field: relief.Field) -> dict:
+def _sketched(constants: Constants, planet: Planet, field: fields.Field) -> dict:
+    rows, cols = field.grid.shape
     return {
-        "rows": relief.GRID_ROWS,
-        "cols": relief.GRID_COLS,
+        "rows": int(rows),
+        "cols": int(cols),
         "sea_level": field.sea_level,
         "mountain_level": field.mountain_level,
-        "grid": [[float(value) for value in row] for row in field.grid],
-        "rivers": [[[lat, lon] for lat, lon in river] for river in field.rivers],
+        "grid": [
+            [round(float(value), relief.TILE_DECIMALS) for value in row] for row in field.grid
+        ],
+        #: The rivers as lines are the vector layer's, a later wave of the
+        #: plan (§9.2); the raster keeps them for the game meanwhile.
+        "rivers": [],
         "lakes": sorted(list(cell) for cell in field.lakes),
-        #: The tiling of the local relief (D-323): the client asks for the
-        #: tiles under a close frame by this.
+        #: The tiling of the field (D-323): the client asks for the tiles
+        #: under a close frame by this.
         "tile": {"deg": relief.TILE_DEG, "n": relief.TILE_N},
         "peak_level": field.peak_level,
         "basin_level": field.basin_level,
         "wet": field.wet,
         #: The climate field as the globe tints it (plan, "Climate field"):
         #: the sea-level mean of each row of the grid, warm to cold.
-        "warmth": [round(by_latitude(constants, lat)) for lat in relief.row_latitudes()],
+        "warmth": field.grid_warmth(),
+        #: The rasters the shader draws by (plan wave 5, §9.3): their shape
+        #: and what their bytes mean, so the client asks for them by kind.
+        "raster": raster_passport(constants, field),
+    }
+
+
+#: The rasters the client draws by (plan §9.3), thinned to
+#: `runtime.RASTER_CELLS_MAX` cells at most.
+RASTER_KINDS = ("height", "biome", "form", "water", "rock", "province", "river", "flow", "lake")
+
+
+def raster_nside(field: fields.Field) -> int:
+    """How fine the picture's copy of the field is (D-328).
+
+    The finest fineness that fits the budget and leaves a **face of a power
+    of two**, borders counted: `nside + 2 border`. That is not tidiness. The
+    picture is drawn from a chain of ever coarser copies, and the hardware
+    demands each be exactly half the one above; only when the face halves
+    evenly does a texel of a coarse copy stay inside one face. On a face of
+    258 the third copy is 64 and a half, and from there every texel along a
+    seam is a mixture of two faces -- which is the strip of a stranger's
+    ground the border is there to prevent.
+
+    So Terra's picture is `nside` 254 against a field of 256, Aurora's 254
+    against 362, and Pyroxis's 126 against 148. The picture is never finer
+    than the field, and it need not divide it: a cell of the picture takes
+    the field's cells whose middles fall inside it (`rasters._thin`).
+    """
+    best = 1
+    side = healpix.BOTH
+    while side <= field.nside + healpix.BOTH * healpix.BORDER:
+        coarse = side - healpix.BOTH * healpix.BORDER
+        if 0 < coarse <= field.nside and healpix.npix(coarse) <= RASTER_CELLS_MAX:
+            best = coarse
+        side *= healpix.BOTH
+    return best
+
+
+def raster_passport(constants: Constants, field: fields.Field) -> dict:
+    """What the rasters are: the grid they are cut on, how they are laid out
+    as a texture, the rise a height is a share of, and the code tables."""
+    nside = raster_nside(field)
+    rows, cols = healpix.tile_shape(nside)
+    return {
+        #: The grid (D-328): twelve square faces of `nside` cells a side,
+        #: equal in area everywhere. A cell is found by arithmetic on the
+        #: sphere's point, not by a row and a column of latitude.
+        "grid": "healpix",
+        "nside": nside,
+        "cells": healpix.npix(nside),
+        #: The texture: the twelve faces `across` by `down`, each with a
+        #: `border` of cells taken from the face over the edge so that the
+        #: blending between cells stays continuous across a seam. The texel
+        #: of cell (face, x, y) is
+        #: ((face % across) * (nside + 2 border) + border + x,
+        #:  (face / across) * (nside + 2 border) + border + y).
+        "rows": rows,
+        "cols": cols,
+        "across": healpix.ACROSS,
+        "down": healpix.DOWN,
+        "border": healpix.BORDER,
+        #: The metres a cell spans -- one number, and not "at the equator"
+        #: any more: every cell of the grid is the same size (D-328).
+        "step_m": healpix.cell_side_m(field.radius_m, nside),
+        "relief_m": field.relief_m,
+        #: `biome` is a byte a cell into this list, 255 on water; `form`
+        #: into the field's own table; `height` a signed metre, sixteen bits.
+        #: The list repeats the order of `biome.names` on `/public/constants`
+        #: on purpose: it is the contract of the bytes, kept beside them, so
+        #: a raster and the book it was cut against cannot be read apart.
+        "biomes": list(constants[R.BIOME_NAMES]),
+        "forms": list(field.forms),
+        #: `water` a byte a cell into this list: the rivers are cells of it,
+        #: not a landform, and the vector layer threads them by it (wave 6).
+        "water": list(fields.WATER_NAMES),
+        #: `rock` needs no table: it is the hardness of the ground as a
+        #: byte, and the shader reads it as a number between nought and one
+        #: off an `R8` texture, which is the same thing (wave 8).
+        #: `river` is how far the nearest fresh water lies, a metre a step,
+        #: and `flow` how much land drains through the river it belongs to,
+        #: on a log scale to `flow_max_km2`. Between them the picture draws a
+        #: river of an honest width that widens downstream (landscape plan
+        #: wave 6's debt, closed 2026-09-09): a river is ground, not a line
+        #: laid over it, and a thread of whole cells was the line.
+        "river_reach_m": fields.BYTE,
+        "flow_max_km2": float(field.river_flow_km2.max()),
+        #: `province` is a byte a cell: 0 no province, k the k-th of this
+        #: list. The map traces the boundary between differing codes and
+        #: writes the name in the middle of what it encloses (wave 8); the
+        #: word itself comes from `/public/renames`, as a node's does.
+        "provinces": list(field.provinces),
     }

@@ -15,16 +15,19 @@ rules, the turning back, and the race two scouts run for one cell.
 from __future__ import annotations
 
 import asyncio
+import json
 import math
 import uuid
 from datetime import UTC, datetime
 
+import numpy as np
 import pytest
 from sqlalchemy import func, select, text
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from conftest import _slow
+from conftest import VAULT_BUILD, _slow
+from src import field as fields
 from src import globe, seed_planets
 from src.constants import Catalog, Constants
 from src.constants import registry as R
@@ -32,6 +35,7 @@ from src.engine import (
     access,
     biome,
     explore,
+    facet,
     jobs,
     occupation,
     places,
@@ -49,7 +53,18 @@ from src.models.job import Job, JobState
 from src.models.world import Edge, Layer, Node, Planet, Surface, Vein
 from src.units import METRES_PER_KM
 
-CAPITAL = (41.0, 24.0)
+
+def _capital() -> tuple[float, float]:
+    """Where the layout pins the capital: read off the build the tests run
+    on, because the field decides where land is and the pin follows it
+    (landscape plan, wave 2)."""
+    layout = json.loads((VAULT_BUILD / "world.json").read_text(encoding="utf-8"))
+    nodes = layout["nodes"] if isinstance(layout, dict) else layout
+    place = next(node["place"] for node in nodes if node.get("key") == "terra.capital")
+    return float(place["lat"]), float(place["lon"])
+
+
+CAPITAL = _capital()
 
 
 async def _sphere(session: AsyncSession, planet: Planet = Planet.TERRA) -> Node:
@@ -143,7 +158,7 @@ def test_water_has_no_biome_and_the_frozen_planets_have_one(constants: Constants
 
 
 async def test_the_landscape_refuses_too_near_too_far_and_the_water(
-    session: AsyncSession, constants: Constants
+    session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
     _, camp, _ = await _camp(session, constants)
     here = places.geo_of(camp)
@@ -151,12 +166,14 @@ async def test_the_landscape_refuses_too_near_too_far_and_the_water(
     near, far = _reach(constants, camp)
     with pytest.raises(explore.TooNear):
         await explore.check(
-            session, constants, camp, _step(constants, Planet.TERRA, here, near / 3)
+            session, constants, catalog, camp, _step(constants, Planet.TERRA, here, near / 3)
         )
     with pytest.raises(explore.TooFar):
-        await explore.check(session, constants, camp, _step(constants, Planet.TERRA, here, far * 3))
+        await explore.check(
+            session, constants, catalog, camp, _step(constants, Planet.TERRA, here, far * 3)
+        )
     aim = await explore.check(
-        session, constants, camp, _step(constants, Planet.TERRA, here, (near + far) / 2)
+        session, constants, catalog, camp, _step(constants, Planet.TERRA, here, (near + far) / 2)
     )
     assert near <= aim.metres <= far and aim.existing is None
     #: Into the sea: a camp on the land side of a shoreline aims across it.
@@ -166,7 +183,7 @@ async def test_the_landscape_refuses_too_near_too_far_and_the_water(
         session, "terra.shore", "Shore", area_m2=60, parent=sphere, properties=_pin(land)
     )
     with pytest.raises((explore.NotLand, explore.IntoWater)):
-        await explore.check(session, constants, shore, water)
+        await explore.check(session, constants, catalog, shore, water)
 
 
 def _shoreline(constants: Constants) -> tuple[globe.Geo, globe.Geo]:
@@ -213,7 +230,7 @@ def seed_points() -> list[globe.Geo]:
 
 
 async def test_no_room_beside_a_node_and_no_way_across_another(
-    session: AsyncSession, constants: Constants
+    session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
     """The found node must not overlap a standing one, and the way must not cross a way."""
     sphere, camp, _ = await _camp(session, constants)
@@ -227,7 +244,7 @@ async def test_no_room_beside_a_node_and_no_way_across_another(
     #: Right beside the standing node: the two circles would overlap.
     beside = _step(constants, Planet.TERRA, taken, constants[R.MAP_LATTICE_M], bearing=math.pi / 2)
     with pytest.raises(explore.NoRoom):
-        await explore.check(session, constants, camp, beside)
+        await explore.check(session, constants, catalog, camp, beside)
     #: A way from the camp to a node east, then an aim north-east that would
     #: have to cross it... laid as two nodes joined across the aimed line.
     left = await world.create_node(
@@ -251,6 +268,7 @@ async def test_no_room_beside_a_node_and_no_way_across_another(
         await explore.check(
             session,
             constants,
+            catalog,
             camp,
             _step(constants, Planet.TERRA, here, far * 0.85, bearing=math.pi / 2),
         )
@@ -312,7 +330,20 @@ async def test_the_run_reads_the_field_and_sews_the_node_on(
         assert point == explore.point_of(constants, Planet.TERRA, cell)
         here = node.properties[biome.BIOME]
         assert node.name == explore.NAMELESS, "находка безымянна: её тип показывает знак"
-        assert node.properties[biome.TEMPERATURE_SWING] == biome.swing_c(constants, here)
+        #: The province, stamped once like the biome (landscape plan, wave 3):
+        #: the field's word at the point, an id of the vault's table.
+        field = terrain.field_of(constants, Planet.TERRA)
+        assert node.properties.get(biome.PROVINCE) == field.province_at(*point)
+        if field.provinces:
+            assert node.properties[biome.PROVINCE] in field.provinces
+        #: The face of the ground, stamped like the biome (landscape plan,
+        #: wave 7): a face of this very biome, and the node's numbers are the
+        #: biome's bent by it -- the swing among them.
+        face = catalog.facets.by_id(node.properties[facet.FACET])
+        assert face is not None and face.biome == here
+        assert node.properties[biome.TEMPERATURE_SWING] == pytest.approx(
+            facet.swing_c(constants, here, face)
+        )
         assert (
             node.properties["temperature"] == terrain.climate_at(constants, Planet.TERRA, *point)[0]
         )
@@ -332,7 +363,7 @@ async def test_the_run_reads_the_field_and_sews_the_node_on(
         camp = await session.get(Node, camp_id)
         camp_point = places.geo_of(camp)
         await session.flush()
-        again = await explore.check(session, constants, node, camp_point)
+        again = await explore.check(session, constants, catalog, node, camp_point)
         assert again.existing is not None and again.existing.id == camp_id
         assert scout is not None
     assert await _count(factory, Node) >= 2
@@ -560,15 +591,23 @@ def test_the_mountains_are_cold_and_bear_veins_more_often(constants: Constants) 
     assert biome.vein_k(constants, biome.ALPINE) > biome.vein_k(constants, biome.FLOODPLAIN)
     field = terrain.field_of(constants, Planet.TERRA)
     high = next(p for p in seed_points() if not field.is_water(*p) and field.is_mountain(*p))
-    low = next(
-        p
-        for p in seed_points()
-        if not field.is_water(*p) and not field.is_mountain(*p) and abs(p[0] - high[0]) < 15
-    )
     assert biome.classify(constants, Planet.TERRA, *high) == biome.ALPINE
-    cold, _ = terrain.climate_at(constants, Planet.TERRA, *high)
-    warm, _ = terrain.climate_at(constants, Planet.TERRA, high[0], low[1])
-    assert cold <= warm + 1, "в горах не холоднее, чем на той же широте внизу"
+    #: The lapse rate is read as a trend, not as one pair of points. The
+    #: field's temperature carries the depth of the continent and a local
+    #: swing besides the height, and either can be worth more degrees on
+    #: one parallel than a kilometre of rise: a pair picked by luck says
+    #: nothing, and used to pass by luck. A belt of one latitude, its
+    #: highest tenth of the land against its lowest, cannot.
+    lat, _ = field.centres
+    band = (np.abs(lat - high[0]) < 3.0) & (field.water != fields.SEA)
+    heights = field.height[band]
+    warmths = field.temperature_c[band].astype(float)
+    assert heights.size > 200, "на этой параллели есть суша"
+    order = np.argsort(heights)
+    tenth = max(1, order.size // 10)
+    tops = warmths[order[-tenth:]].mean()
+    floors = warmths[order[:tenth]].mean()
+    assert tops < floors, f"верх параллели {tops:.1f} °C, низ {floors:.1f} °C"
     assert METRES_PER_KM > 0 and Vein is not None
 
 
@@ -719,7 +758,7 @@ def test_the_seed_pins_pyroxis_on_the_lattice_a_reach_apart(constants: Constants
 
 
 async def test_a_long_leap_lands_on_wide_ground_and_a_wide_node_keeps_others_off(
-    session: AsyncSession, constants: Constants
+    session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
     """The find's area follows the leap (the owner, 2026-09-06): the farther the
     aim, the wider the node; and next to a wide node there is no room to aim."""
@@ -728,10 +767,10 @@ async def test_a_long_leap_lands_on_wide_ground_and_a_wide_node_keeps_others_off
     assert here is not None
     near, far = _reach(constants, camp)
     short = await explore.check(
-        session, constants, camp, _step(constants, Planet.TERRA, here, far * 0.5)
+        session, constants, catalog, camp, _step(constants, Planet.TERRA, here, far * 0.5)
     )
     long = await explore.check(
-        session, constants, camp, _step(constants, Planet.TERRA, here, far * 0.75)
+        session, constants, catalog, camp, _step(constants, Planet.TERRA, here, far * 0.75)
     )
     assert long.area > short.area, "дальний выпад — больше площадь"
     span = constants[R.EXPLORE_NODE_AREA]
@@ -745,12 +784,15 @@ async def test_a_long_leap_lands_on_wide_ground_and_a_wide_node_keeps_others_off
         await explore.check(
             session,
             constants,
+            catalog,
             camp,
             _step(constants, Planet.TERRA, here, far * 0.8, bearing=math.pi / 2 + 0.3),
         )
     #: Too short a leap leaves no room for a node at all: refused as no room.
     with pytest.raises((explore.NoRoom, explore.TooNear)):
-        await explore.check(session, constants, camp, _step(constants, Planet.TERRA, here, near))
+        await explore.check(
+            session, constants, catalog, camp, _step(constants, Planet.TERRA, here, near)
+        )
 
 
 async def test_a_scout_with_a_run_under_way_does_not_set_out(
@@ -858,7 +900,7 @@ async def test_the_loser_of_the_race_ends_on_the_node_somebody_else_laid(
         term, scout_id = job.run_at, scout.id
         #: The cell is taken before the term is up -- by somebody else's find,
         #: as in the race.
-        aim = await explore.check(session, constants, camp, target)
+        aim = await explore.check(session, constants, catalog, camp, target)
         taken, _ = await explore.materialise(session, constants, catalog, aim, camp, who=None)
         taken_id = taken.id
         #: The way that other find laid is removed: with it the run would come

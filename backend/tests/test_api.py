@@ -87,3 +87,19 @@ def test_action_api_does_not_exist(client) -> None:
         f"в API появились изменяющие маршруты: {sorted(mutating)}. "
         "Присутственное действие идёт только через сессию клиента (D-042, D-110)"
     )
+
+
+def test_the_picture_rasters_are_public_bytes_with_an_etag(client) -> None:
+    """The shader's textures (landscape plan wave 5): bytes, cached by the
+    constants' digest, and the sketch says what they are."""
+    passport = client.get("/public/terrain/terra").json()["raster"]
+    n = passport["rows"] * passport["cols"]
+    for kind, width in (("height", 2), ("biome", 1), ("form", 1), ("water", 1)):
+        answer = client.get(f"/public/terrain/terra/raster/{kind}")
+        assert answer.status_code == 200
+        assert answer.headers["content-type"] == "application/octet-stream"
+        assert answer.headers["etag"] and "max-age" in answer.headers["cache-control"]
+        assert len(answer.content) == n * width
+    assert client.get("/public/terrain/terra/raster/rivers").status_code == 404
+    #: The tile route still answers by row and column beside it.
+    assert client.get("/public/terrain/terra/0/0").status_code == 200

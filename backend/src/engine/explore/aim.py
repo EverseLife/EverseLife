@@ -28,13 +28,15 @@ from __future__ import annotations
 import math
 import uuid
 
+import numpy as np
 from sqlalchemy import or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src import field as fields
 from src import globe
-from src.constants import Constants
+from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import access, biome, places, terrain
+from src.engine import access, biome, facet, places, terrain
 from src.engine.biome import word_of
 from src.engine.explore._base import (
     Aim,
@@ -55,8 +57,10 @@ from src.units import METRES_PER_KM
 
 
 def radius_of(area_m2: float) -> float:
-    """The radius of the circle a node's area makes: its footprint on the map."""
-    return math.sqrt(float(area_m2) / math.pi)
+    """The radius of the circle a node's area makes: its footprint on the map.
+    The arithmetic is `globe`'s, so what reads the placement rule from
+    elsewhere (`facet.room_floor`) does not reach into the aim for it."""
+    return globe.radius_of_area(area_m2)
 
 
 def area_for(constants: Constants, free_m: float) -> float | None:
@@ -88,9 +92,12 @@ def crosses_water(
     (OQ-146), the ford is a mark a complex lays, not a place on the line.
     """
     field = terrain.field_of(constants, planet)
-    for step in range(1, globe.WAY_SAMPLES):
-        if field.is_water(*globe.between(a, b, step / globe.WAY_SAMPLES)):
-            return True
+    #: The whole way in one ask of the field: a cell of the equal-area grid
+    #: costs the call, not the sums (`field.cells_at`).
+    share = np.arange(1, globe.WAY_SAMPLES) / globe.WAY_SAMPLES
+    water = field.water[field.cells_at(*globe.walk_between(a, b, share))]
+    if ((water == fields.SEA) | (water == fields.LAKE)).any():
+        return True
     return not ford and field.river_crossed(a, b)
 
 
@@ -209,6 +216,7 @@ async def _far_ends(
 async def check(
     session: AsyncSession,
     constants: Constants,
+    catalog: Catalog,
     origin: Node,
     target: globe.Geo,
     *,
@@ -235,7 +243,7 @@ async def check(
     cell = cell_of(constants, planet, target)
     point = point_of(constants, planet, cell)
     metres = globe.distance_m(radius, origin_point, point)
-    near, far = biome.reach_m(constants, here)
+    near, far = facet.reach_m(constants, here, facet.of_node(constants, catalog, origin))
     if metres < near:
         raise TooNear(key="explore-too-near", metres=round(metres), near=round(near))
     if metres > far:

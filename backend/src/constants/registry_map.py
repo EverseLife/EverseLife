@@ -13,24 +13,28 @@ from __future__ import annotations
 
 from src.constants.spec import Bands, Book, Num, Shape, Table, Words
 
-#: The relief of a planet (D-319): one seed for the world, a share of sea and
-#: a count of rivers per planet, one mountain line for all, and how much
-#: colder the top of the land's rise is than its foot. Within
-#: `terrain.river_reach_km` of a river a node has river water, and a node
-#: bears a vein `biome.vein_k` times as often as its biome says (D-321).
+#: The field of a planet (D-319, landscape plan wave 2): the vault's pipeline
+#: builds it from one seed for the world, a share of sea per planet and the
+#: land's rise in metres, and the engine reads the file (`src.field`). The
+#: keys the engine still reads itself: the mountain line is the share of the
+#: land above it, within `terrain.river_reach_km` of fresh water a node has
+#: water, and the field's passport is checked against the seed, the sea,
+#: the rise, the grid's step and the algorithm's version at load, so a
+#: registry edited without a rebuilt field fails loudly rather than scales
+#: the world quietly. A node bears a vein `biome.vein_k` times as often as
+#: its biome says (D-321).
 TERRAIN_SEED = Num("terrain.seed")
 TERRAIN_SEA_SHARE = Table("terrain.sea_share")
 TERRAIN_MOUNTAIN_SHARE = Num("terrain.mountain_share")
-TERRAIN_RIVERS = Table("terrain.rivers")
 TERRAIN_LAPSE_C = Num("terrain.lapse_c")
+TERRAIN_RELIEF_M = Num("terrain.relief_m")
+TERRAIN_STEP_M = Num("terrain.step_m")
+TERRAIN_VERSION = Num("terrain.version")
 TERRAIN_RIVER_REACH_KM = Num("terrain.river_reach_km")
-TERRAIN_DETAIL_KM = Num("terrain.detail_km")
-TERRAIN_DETAIL_AMPLITUDE = Num("terrain.detail_amplitude")
-TERRAIN_PEAK_SHARE = Num("terrain.peak_share")
-TERRAIN_BASIN_SHARE = Num("terrain.basin_share")
-TERRAIN_DETAIL_SEED = Num("terrain.detail_seed")
-#: How much of a place's rain is the field's own noise; the rest is water nearby.
-TERRAIN_RAIN_NOISE_SHARE = Num("terrain.rain_noise_share")
+#: Read by the tests of the climate's range: how far the continent's depth
+#: and the local weather may pull a temperature under the cold end.
+TERRAIN_CONTINENTAL_C = Num("terrain.continental_c")
+TERRAIN_CLIMATE_NOISE_C = Num("terrain.climate_noise_c")
 #: A trail is worn in by feet, never laid (D-319): this many arrivals over
 #: an untrodden edge make it a trail, below the lower mark it grows over
 #: again, and the daily tick takes this much wear off every edge. Two marks,
@@ -45,6 +49,11 @@ MAP_LATTICE_M = Num("map.lattice_m")
 #: Memory instead of fog (D-319 п. 6-7): how far the eye reaches over the
 #: globe, how many places an identity keeps, and how old the public map is.
 MAP_SIGHT_KM = Num("map.sight_km")
+#: The eye itself (landscape plan wave 9, §10): how high above the ground one
+#: looks from, and how finely the ground between is read. The radius says how
+#: far a place can be made out; these two say whether the land is in the way.
+MAP_EYE_M = Num("map.eye_m")
+MAP_SIGHT_STEP_M = Num("map.sight_step_m")
 #: Read by the client through `/public/constants`: the floor of the surface
 #: band of the map (D-319). Declared so that the vault's key is checked at
 #: bootstrap like every other, though the server itself does not read it.
@@ -63,13 +72,26 @@ EXPLORE_FILL_SHARE = Num("explore.fill_share")
 #: outside it -- and a window at all, so an aim does not read the planet.
 EXPLORE_WINDOW_KM = Num("explore.window_km")
 #: Biomes (D-321): the classes of the field, their names, how near and far one
-#: explores from them, the swing of their day, the marks and veins they bear,
-#: and the bounds that sort a point into one.
+#: explores from them, the swing of their day, the marks and veins they bear.
 BIOME_NAMES = Words("biome.names")
 BIOME_REACH_M = Bands("biome.reach_m")
 BIOME_SWING_C = Table("biome.swing_c")
 BIOME_MARKS = Book("biome.marks")
 BIOME_VEIN_K = Table("biome.vein_k")
+#: How a point is sorted into one (landscape plan, wave 4): the zonal table
+#: -- rectangles of mean temperature and rain, the vault build checks they
+#: tile the plane -- the azonal table of landform -> biome that outranks the
+#: climate, and the two bounds of the formless azonal cases (marsh, coast).
+BIOME_ZONAL = Shape("biome.zonal")
+#: The axes a facet is chosen by (landscape plan wave 7): the wave of its
+#: mosaic, the slope that counts as a wall, the reach of the water and the
+#: patch a height is ranked in. The rows themselves are `data/facets.yaml`,
+#: named things of the vault rather than numbers of the registry.
+BIOME_FACET_AXES = Table(
+    "biome.facet_axes",
+    keys=("wave_m", "slope_full", "wet_km", "patch_km", "soft_edge", "favour_k"),
+)
+BIOME_AZONAL = Words("biome.azonal")
 BIOME_BOUNDS = Table("biome.bounds")
 #: Complexes (D-321): how often a find is a scheme of nodes, and the schemes.
 COMPLEX_CHANCE = Book("complex.chance")
@@ -79,21 +101,21 @@ __all__ = [
     "TERRAIN_SEED",
     "TERRAIN_SEA_SHARE",
     "TERRAIN_MOUNTAIN_SHARE",
-    "TERRAIN_RIVERS",
     "TERRAIN_LAPSE_C",
+    "TERRAIN_RELIEF_M",
+    "TERRAIN_STEP_M",
+    "TERRAIN_VERSION",
     "TERRAIN_RIVER_REACH_KM",
-    "TERRAIN_DETAIL_KM",
-    "TERRAIN_DETAIL_AMPLITUDE",
-    "TERRAIN_PEAK_SHARE",
-    "TERRAIN_BASIN_SHARE",
-    "TERRAIN_DETAIL_SEED",
-    "TERRAIN_RAIN_NOISE_SHARE",
+    "TERRAIN_CONTINENTAL_C",
+    "TERRAIN_CLIMATE_NOISE_C",
     "PATH_WEAR_THRESHOLD",
     "PATH_FADE_THRESHOLD",
     "PATH_FADE_PER_DAY",
     "MAP_APPROACH_KM",
     "MAP_LATTICE_M",
+    "MAP_EYE_M",
     "MAP_SIGHT_KM",
+    "MAP_SIGHT_STEP_M",
     "MAP_MEMORY_PLACES",
     "MAP_DRAW_STAMINA",
     "MAP_PUBLIC_DELAY_DAYS",
@@ -104,6 +126,9 @@ __all__ = [
     "BIOME_SWING_C",
     "BIOME_MARKS",
     "BIOME_VEIN_K",
+    "BIOME_ZONAL",
+    "BIOME_FACET_AXES",
+    "BIOME_AZONAL",
     "BIOME_BOUNDS",
     "COMPLEX_CHANCE",
     "COMPLEX_SCHEMES",

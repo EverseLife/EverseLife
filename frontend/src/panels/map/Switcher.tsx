@@ -33,6 +33,8 @@ export function Switcher({
   onTether,
   scouting,
   onScout,
+  warmth,
+  onWarmth,
 }: {
   /** Whether there is an inside to open from here -- floors, a hull's rooms
    *  (D-319, wave 4) -- and whether it is open now. Null: nothing inside. */
@@ -45,10 +47,20 @@ export function Switcher({
    *  point to survey (D-321). Null off the ground -- the sky, a house. */
   scouting: boolean | null;
   onScout: (on: boolean) => void;
+  /** Whether the climate's three tones are laid over the ground (landscape
+   *  plan wave 5, §9.5): the colour is the biome's, and the climate is a
+   *  layer one switches on. Named "climate", not "warmth": the top bar
+   *  already says "warmth" of the body's heat reserve (D-231), with the
+   *  flame glyph, and one word must not mean two things on one screen.
+   *  Null where there is no ground to lay it on -- the sky, a house -- or
+   *  no GPU ground for it to lie over. */
+  warmth: boolean | null;
+  onWarmth: (on: boolean) => void;
 }) {
   const word = t(tethered ? "ui-map-cam-tied" : "ui-map-cam-free");
   const scout = t("ui-map-scout");
   const door = t(inside ? "ui-map-outside" : "ui-map-inside");
+  const climate = t("ui-map-climate");
   return (
     <nav className="row tabs map-layers">
       {/* The heights are the wheel's now (D-319, wave 4): far out the sky,
@@ -84,6 +96,17 @@ export function Switcher({
         >
           <Glyph name="eye" />
           <span className="tab-word">{scout}</span>
+        </button>
+      )}
+      {warmth !== null && (
+        <button
+          className={`climate${warmth ? "" : " quiet"}`}
+          aria-pressed={warmth}
+          aria-label={climate}
+          onClick={() => onWarmth(!warmth)}
+        >
+          <Glyph name="snow" />
+          <span className="tab-word">{climate}</span>
         </button>
       )}
     </nav>

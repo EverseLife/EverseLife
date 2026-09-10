@@ -36,6 +36,10 @@ REPO = Path(__file__).resolve().parent.parent
 # snapshot it describes.
 SNAPSHOT = (
     "constants.json",
+    #: The faces of the ground (landscape plan wave 7): the engine reads the
+    #: rows at startup like the plants, so a snapshot without them does not
+    #: boot at all.
+    "facets.json",
     "laws.json",
     "plants.json",
     "recipes.json",
@@ -78,12 +82,26 @@ def copy_snapshot(vault: Path, repo: Path = REPO) -> list[str]:
     source = vault / "build"
     missing = [name for name in SNAPSHOT if not (source / name).exists()]
     if missing:
-        raise FileNotFoundError(f"the build is incomplete, missing: {', '.join(missing)}")
+        raise FileNotFoundError(
+            f"the build is incomplete, missing: {', '.join(missing)}"
+        )
     target = repo / "vault"
     target.mkdir(parents=True, exist_ok=True)
     for name in SNAPSHOT:
         shutil.copyfile(source / name, target / name)
-    return list(SNAPSHOT)
+    copied = list(SNAPSHOT)
+    #: The planets' fields (landscape plan, wave 2): rasters and passports
+    #: in `build/field/`, read by `src.field`. A build without them is a
+    #: build the engine cannot stand on, so their absence stops the step.
+    fields = source / "field"
+    if not fields.is_dir():
+        raise FileNotFoundError("the build is incomplete, missing: field/")
+    (target / "field").mkdir(exist_ok=True)
+    for path in sorted(fields.iterdir()):
+        if path.suffix in (".npz", ".json"):
+            shutil.copyfile(path, target / "field" / path.name)
+            copied.append(f"field/{path.name}")
+    return copied
 
 
 def main() -> int:
@@ -112,7 +130,9 @@ def main() -> int:
         print(f"  {name}")
     print()
     print(f"snapshot refreshed: {REPO / 'vault'}")
-    print("next: git add vault && git commit && git push -- the numbers reach the server by deploy")
+    print(
+        "next: git add vault && git commit && git push -- the numbers reach the server by deploy"
+    )
     return 0
 
 

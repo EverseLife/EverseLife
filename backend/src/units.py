@@ -23,6 +23,16 @@ MONEY_SCALE = 10_000
 #: The percent scale. Constants like `craft.waste_share` are given in percent.
 PERCENT = 100.0
 
+#: How far over a line something must stand before the arithmetic will say it
+#: is over it: a millimetre in a metre, as a slope. The width of a float's own
+#: doubt rather than a quantity of the world -- on a plain hillside every
+#: point of the way to a place lies exactly on the line of sight to it, and
+#: which side of the line the sum puts them on is decided by the last bits
+#: (`engine/horizon.py`). Nothing in the game is measured in it, which is why
+#: it is here and not in the vault: D-065 governs what the world is, not what
+#: a number can tell.
+GRAZE = 1e-3
+
 #: Hours per Terran day the engine takes from the vault (`time.day_terra`),
 #: but the tariff unit is set by the vault itself as "TC per 100 energy": that
 #: is how the price is written, not its magnitude.

@@ -432,6 +432,48 @@ class PlantCatalog(Strict):
         return None
 
 
+class FacetWhere(Strict):
+    """Where a facet sits in the three axes: each a stretch `[from, to]`
+    within [0, 1], as the vault writes it (`data/facets.yaml`)."""
+
+    slope: tuple[float, float]
+    wet: tuple[float, float]
+    high: tuple[float, float]
+
+
+class Facet(Strict):
+    """A face of a biome (landscape plan wave 7, §6): a couple of hundred
+    metres of ground with a name, a place in the three axes, a share of its
+    biome, its own marks and multipliers to the biome's numbers."""
+
+    id: str
+    name: str
+    biome: str
+    share: float
+    where: FacetWhere
+    marks: dict[str, float]
+    vein_k: float
+    reach_k: float
+    swing_k: float
+    note: str | None = None
+
+
+class FacetBook(Strict):
+    facets: tuple[Facet, ...] = ()
+
+    def of_biome(self, biome: str) -> tuple[Facet, ...]:
+        """The faces this biome wears, in the vault's order."""
+        return tuple(facet for facet in self.facets if facet.biome == biome)
+
+    def by_id(self, facet_id: str) -> Facet | None:
+        """A facet by its id, or nothing: a node stamped with a facet the
+        vault has since dropped reads as a node without one, not as a crash."""
+        for facet in self.facets:
+            if facet.id == facet_id:
+                return facet
+        return None
+
+
 class CharterOption(Strict):
     id: str
     label: str
@@ -520,6 +562,7 @@ class Catalog(Strict):
     recipes: RecipeBook
     plants: PlantCatalog
     laws: LawBook
+    facets: FacetBook = FacetBook()
 
 
 class CatalogHolder:
@@ -689,6 +732,18 @@ def _renamed_plants(payload: dict, renames: RenameTable) -> dict:
     }
 
 
+def _flat_facets(payload: dict) -> dict:
+    """facets.json is written by biome, as the vault reads best; the book is
+    one list, each row carrying the biome it came under."""
+    return {
+        "facets": [
+            {**row, "biome": biome}
+            for biome, rows in (payload.get("facets") or {}).items()
+            for row in rows or []
+        ]
+    }
+
+
 def load_catalog(build_dir: Path, renames: RenameTable) -> Catalog:
     return Catalog(
         recipes=RecipeBook.model_validate(
@@ -698,4 +753,5 @@ def load_catalog(build_dir: Path, renames: RenameTable) -> Catalog:
             _renamed_plants(_read(build_dir, "plants.json"), renames)
         ),
         laws=LawBook.model_validate(_read(build_dir, "laws.json")),
+        facets=FacetBook.model_validate(_flat_facets(_read(build_dir, "facets.json"))),
     )

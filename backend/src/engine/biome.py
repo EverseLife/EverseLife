@@ -4,20 +4,30 @@
 """Which biome a point of the field is, and what the biome says about a node (D-321).
 
 The hidden map of a planet is the relief and the climate (`terrain`); the biome
-is their reading at a point, sorted into a dozen classes the vault names:
-coast, floodplain, forest, steppe, desert, taiga, tundra, marsh, foothills,
-alpine -- and one for the whole of Aurora (ice) and Pyroxis (cinder). The class
-decides what exploration may do from a node (`biome.reach_m`), what a found
-node looks like (`biome.marks`, `biome.vein_k`), how hot its day and cold its
-night (`biome.swing_c`) and what it is called. The bounds between classes are
-the vault's (`biome.bounds`); nothing here is a number of its own.
+is their reading at a point, sorted into the classes the vault names
+(`biome.names`): the zonal ones -- tundra, taiga, steppe, woodland, forest,
+semidesert, desert, savanna, rainforest -- which the climate alone decides, the
+azonal ones -- alpine, foothills, floodplain, coast, marsh -- which the land's
+shape decides over the climate, and one for the whole of Aurora (ice) and
+Pyroxis (cinder). The class decides what exploration may do from a node
+(`biome.reach_m`), what a found node looks like (`biome.marks`,
+`biome.vein_k`), how hot its day and cold its night (`biome.swing_c`) and what
+it is called.
+
+The sorting is the vault's, not this module's (landscape plan, wave 4): the
+zonal classes are rectangles of temperature and rain in `biome.zonal`, the
+azonal ones a table of landform to biome in `biome.azonal`, and the two
+formless cases keep their bounds in `biome.bounds`. The field's preview reads
+the same tables off the rasters as the file keeps them, so what the owner
+tunes on the render is what the node gets -- up to the reading between the
+cells, which is the node's alone. Nothing here is a number of its own.
 """
 
 from __future__ import annotations
 
-import math
+import numpy as np
 
-from src import globe
+from src import field as fields
 from src.constants import Constants
 from src.constants import registry as R
 from src.engine import places, terrain
@@ -40,6 +50,9 @@ CINDER = "cinder"
 #: The node properties a found node carries from its biome.
 BIOME = "biome"
 TEMPERATURE_SWING = "temperature_swing"
+#: The province a found node lies in (landscape plan, wave 3): an id of the
+#: vault's table, named through renames like any thing of the world.
+PROVINCE = "province"
 
 #: Planets whose whole surface is one biome: the ice of Aurora (D-232), the
 #: black fields of Pyroxis (D-233). Their relief still decides water and rock.
@@ -52,14 +65,31 @@ def _bound(constants: Constants, name: str) -> float:
 
 def _near_sea(constants: Constants, planet: Planet, lat: float, lon: float) -> bool:
     field = terrain.field_of(constants, planet)
-    radius = globe.radius_m(constants, planet)
-    reach = _bound(constants, "coast_km") * METRES_PER_KM
-    for step in range(globe.COMPASS_POINTS):
-        angle = math.tau * step / globe.COMPASS_POINTS
-        there = globe.offset(radius, (lat, lon), reach * math.cos(angle), reach * math.sin(angle))
-        if field.is_sea(*there):
-            return True
-    return False
+    return field.sea_distance_m(lat, lon) <= _bound(constants, "coast_km") * METRES_PER_KM
+
+
+def _inside(value: float, low: float, high: float, top: float) -> bool:
+    """A rectangle's edge rule: the low edge is in, the high edge out --
+    except the top of the plane, which no other row could claim."""
+    return low <= value < high or (value == top and high == top)
+
+
+def zonal(constants: Constants, temperature: float, rain: float) -> str:
+    """The zonal biome of a climate: the row of `biome.zonal` whose rectangle
+    holds the point. The vault build has checked the rows tile the plane, so
+    a point inside it always lands; a point outside is pushed to its edge
+    rather than left without a class."""
+    rows = list(constants[R.BIOME_ZONAL].values())
+    top_t = max(float(row["temp"][1]) for row in rows)
+    top_r = max(float(row["rain"][1]) for row in rows)
+    t = min(top_t, max(min(float(row["temp"][0]) for row in rows), temperature))
+    r = min(top_r, max(min(float(row["rain"][0]) for row in rows), rain))
+    for row in rows:
+        if _inside(t, float(row["temp"][0]), float(row["temp"][1]), top_t) and _inside(
+            r, float(row["rain"][0]), float(row["rain"][1]), top_r
+        ):
+            return str(row["biome"])
+    raise ValueError(f"biome.zonal has no row for {temperature} C, rain {rain}")
 
 
 def _near_river(constants: Constants, planet: Planet, lat: float, lon: float) -> bool:
@@ -70,35 +100,119 @@ def _near_river(constants: Constants, planet: Planet, lat: float, lon: float) ->
 def classify(constants: Constants, planet: Planet, lat: float, lon: float) -> str | None:
     """The biome at a point, or nothing where there is water.
 
-    Read top-down the way a geographer would: rock before soil, water's edge
-    before the open land, then cold, then dryness, then wetness -- and the
-    forest is what is left when nothing else claims the place.
+    Read top-down the way a geographer would: the planets of one face, then
+    the ice the field laid, then the mountain line, then the shape of the
+    land (`biome.azonal`), then the water's edge and the bog, and the climate
+    (`biome.zonal`) sorts whatever the land's shape did not claim.
     """
     field = terrain.field_of(constants, planet)
     if field.is_water(lat, lon):
         return None
     if planet in OF_PLANET:
         return OF_PLANET[planet]
+    if field.ice_at(lat, lon):
+        return ICE
     if field.is_mountain(lat, lon):
         return ALPINE
-    if field.relief(lat, lon) >= _bound(constants, "hills_relief"):
-        return FOOTHILLS
+    azonal = constants[R.BIOME_AZONAL].get(field.form_at(lat, lon))
+    if azonal:
+        return azonal
     if _near_river(constants, planet, lat, lon):
         return FLOODPLAIN
     if _near_sea(constants, planet, lat, lon):
         return COAST
-    temperature, rain = terrain.climate_at(constants, planet, lat, lon)
-    if temperature < _bound(constants, "cold_c"):
-        return TUNDRA
-    if temperature < _bound(constants, "cool_c"):
-        return TAIGA
-    if rain < _bound(constants, "dry"):
-        return DESERT if abs(lat) <= _bound(constants, "desert_lat") else STEPPE
+    temperature, rain = terrain.climate_of(constants, planet, lat, lon)
     if rain > _bound(constants, "wet") and field.relief(lat, lon) < _bound(
         constants, "marsh_relief"
     ):
         return MARSH
-    return FOREST
+    return zonal(constants, temperature, rain)
+
+
+#: The biome raster's word for water, which has no biome.
+NONE = fields.NO_CLASS
+
+
+def codes(constants: Constants) -> list[str]:
+    """The biome raster's codes: the order of `biome.names`."""
+    return list(constants[R.BIOME_NAMES])
+
+
+def raster(constants: Constants, planet: Planet) -> np.ndarray:
+    """The whole field sorted at once, for the picture (landscape plan wave 5):
+    a byte a cell, the index into `codes`, `NONE` on water.
+
+    The same layers in the same order as `classify`, laid over the arrays
+    instead of read at a point -- so the raster at a cell's centre is the
+    classifier's word there, and a test holds the two to it. The shader
+    draws by this; nothing of the game is judged by it.
+    """
+    field = terrain.field_of(constants, planet)
+    code = {name: index for index, name in enumerate(codes(constants))}
+    out = np.full(field.height.shape, NONE, dtype=np.uint8)
+    #: A river cell is land to the classifier (`is_water` is the sea and the lakes).
+    todo = (field.water != fields.SEA) & (field.water != fields.LAKE)
+
+    def claim(mask: np.ndarray, name: str) -> None:
+        taken = todo & mask
+        out[taken] = code[name]
+        todo[taken] = False
+
+    if planet in OF_PLANET:
+        claim(todo.copy(), OF_PLANET[planet])
+        return out
+    #: Float64 like the point reading: a cell exactly on the mountain line
+    #: must fall the same side of it here and there.
+    height = field.height.astype(np.float64)
+    claim(field.ice, ICE)
+    claim(height >= field.mountain_level, ALPINE)
+    azonal = constants[R.BIOME_AZONAL]
+    for index, form in enumerate(field.forms):
+        if form in azonal:
+            claim(field.form == index, azonal[form])
+    river_m = field.river_m.astype(np.float64)
+    claim(
+        (river_m < field.river_cap_m)
+        & (river_m <= float(constants[R.TERRAIN_RIVER_REACH_KM]) * METRES_PER_KM),
+        FLOODPLAIN,
+    )
+    sea_m = field.sea_m.astype(np.float64)
+    claim(
+        (sea_m < field.sea_cap_m) & (sea_m <= _bound(constants, "coast_km") * METRES_PER_KM), COAST
+    )
+    rain_range = constants[R.SITE_RAIN_RANGE]
+    rain = rain_range.min + (rain_range.max - rain_range.min) * (
+        field.rain.astype(np.float64) / fields.BYTE
+    )
+    relief = np.clip(height, 0.0, 1.0)
+    claim((rain > _bound(constants, "wet")) & (relief < _bound(constants, "marsh_relief")), MARSH)
+    zonal_codes = _zonal_raster(constants, field.temperature_c.astype(np.float64), rain, code)
+    out[todo] = zonal_codes[todo]
+    #: Land without a class would be drawn as water; the point reading
+    #: raises for it, and so does this, rather than paint a quiet sea.
+    if (out[todo] == NONE).any():
+        raise ValueError("biome.zonal leaves land without a class")
+    return out
+
+
+def _zonal_raster(
+    constants: Constants, temperature: np.ndarray, rain: np.ndarray, code: dict[str, int]
+) -> np.ndarray:
+    """`zonal` over arrays: the same rectangles, the same edge rule, the
+    same push to the plane's edge."""
+    rows = list(constants[R.BIOME_ZONAL].values())
+    top_t = max(float(row["temp"][1]) for row in rows)
+    top_r = max(float(row["rain"][1]) for row in rows)
+    t = np.clip(temperature, min(float(row["temp"][0]) for row in rows), top_t)
+    r = np.clip(rain, min(float(row["rain"][0]) for row in rows), top_r)
+    out = np.full(t.shape, NONE, dtype=np.uint8)
+    for row in rows:
+        (t0, t1), (r0, r1) = (float(v) for v in row["temp"]), (float(v) for v in row["rain"])
+        in_t = ((t >= t0) & (t < t1)) | ((t == top_t) & (t1 == top_t))
+        in_r = ((r >= r0) & (r < r1)) | ((r == top_r) & (r1 == top_r))
+        take = in_t & in_r & (out == NONE)
+        out[take] = code[str(row["biome"])]
+    return out
 
 
 def of_node(constants: Constants, node: Node) -> str | None:
@@ -110,6 +224,13 @@ def of_node(constants: Constants, node: Node) -> str | None:
     if point is None:
         return None
     return classify(constants, node.planet, *point)
+
+
+def province_of(node: Node) -> str | None:
+    """The province written on a found node, or None: a seeded node and a
+    node off the ground have none."""
+    written = (node.properties or {}).get(PROVINCE)
+    return str(written) if written else None
 
 
 def signs(node: Node) -> list[str]:

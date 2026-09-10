@@ -47,6 +47,12 @@ export type Names = {
    *  option id means different words under different laws -- `citizens` is
    *  «гражданам» for the printer and «граждане» for the land. */
   law_options: Record<string, string>;
+  /** Provinces of the field (landscape plan, wave 3): `ore_ridge` -> «Рудный
+   *  кряж». A found node carries its province's id; the name is read here. */
+  provinces?: Record<string, string>;
+  /** Faces of the ground (landscape plan wave 7): «Опушка» by `forest_edge`.
+   *  What a find is called on the map, in its menu and in the inspector. */
+  facets?: Record<string, string>;
 };
 
 /**

@@ -195,16 +195,31 @@ export function metresBetween(from: Geo, to: Geo, radius: number): number {
   return (arcDeg(from, to) * RAD * radius) / UNITS_PER_METRE;
 }
 
-/** The two thresholds the relief is read by, off the vault's `biome.bounds`
- *  (D-065). Null where the book has not come, or says something else: then
- *  the water is not judged at all and every point is taken as land. */
+/** The two thresholds the relief is toned by, off the vault's `biome.zonal`
+ *  (D-065, landscape plan wave 4): the warm edge of the tundra's row is the
+ *  cold line, the warm edge of the taiga's the cool line -- the same rows
+ *  that sort a node, so the globe's tones and the node's word agree. Null
+ *  where the book has not come, or says something else: then the water is
+ *  not judged at all and every point is taken as land. */
 export function warmthOf(
-  bounds: unknown,
+  zonal: unknown,
 ): { cold: number; cool: number } | null {
-  const said = bounds as Record<string, unknown> | undefined;
-  const cold = Number(said?.cold_c);
-  const cool = Number(said?.cool_c);
-  return Number.isFinite(cold) && Number.isFinite(cool) ? { cold, cool } : null;
+  const rows = Object.values((zonal ?? {}) as Record<string, unknown>);
+  //: A biome may hold several rectangles (a dry and a wet tundra, say):
+  //: its line is the warmest edge among them.
+  const edge = (biome: string): number =>
+    rows.reduce((warmest, r) => {
+      const row = r as { biome?: unknown; temp?: unknown };
+      const top = Array.isArray(row.temp) ? Number(row.temp[1]) : NaN;
+      return row.biome === biome && Number.isFinite(top) ? Math.max(warmest, top) : warmest;
+    }, -Infinity);
+  const cold = edge("tundra");
+  const cool = edge("taiga");
+  if (Number.isFinite(cold) && Number.isFinite(cool)) return { cold, cool };
+  //: The table came but names no tundra or taiga: the globe draws no land,
+  //: and that must not look like a book still on its way.
+  if (rows.length) console.warn("biome.zonal has no tundra or taiga row: no tone lines");
+  return null;
 }
 
 export type Block = { at: Point; r: number };

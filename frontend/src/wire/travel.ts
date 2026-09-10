@@ -169,6 +169,13 @@ export type MapNode = {
   features?: string[];
   /** The owner's nailed mark, if any (D-238): beats the place signs. */
   emblem?: string | null;
+  /** The province the node lies in (landscape plan, wave 3): an id named
+   *  through `/public/renames`. Absent on a node without one. */
+  province?: string;
+  /** The face the node's ground wears (landscape plan, wave 7): the facet's
+   *  id, named through `/public/renames` like the province. It is what a
+   *  found node is called -- «Опушка» rather than a sixth «Берег». */
+  facet?: string;
   /** Shown dark: remembered or public, not in sight (D-319). */
   faded?: boolean;
   /** The node the city grew from -- its bioprinter. Sent on a **city's** row
@@ -229,6 +236,58 @@ export type Terrain = {
   peak_level: number;
   basin_level: number;
   wet: boolean;
+  /** The rasters the shader draws by (landscape plan wave 5): their shape
+   *  and what their bytes mean. Absent on a build older than the wave. */
+  raster?: RasterPassport;
+};
+
+/** What `/public/terrain/{planet}/raster/{kind}` answers with: the atlas of
+ *  the equal-area grid, `rows` by `cols` texels row by row -- twelve square
+ *  faces of `nside` cells with a border of `border` each (D-328), and every
+ *  cell `step_m` metres a side wherever it lies. `height` is a signed
+ *  sixteen-bit metre, `biome` a byte into `biomes` (255 on water), `form` a
+ *  byte into `forms`, `water` a byte into `water`. */
+export type RasterKind =
+  | "height"
+  | "biome"
+  | "form"
+  | "water"
+  | "rock"
+  | "province"
+  | "flow"
+  | "lake";
+export type RasterPassport = {
+  /** The grid the picture is cut on (D-328): twelve square faces of `nside`
+   *  cells a side, equal in area everywhere -- no rows of latitude, and so
+   *  no pole where a cell shrinks to nothing. */
+  grid: "healpix";
+  nside: number;
+  cells: number;
+  /** The texture: the twelve faces `across` by `down`, each with a `border`
+   *  of cells taken from the face over the edge so the blending between
+   *  cells stays continuous across a seam. The texel of cell (face, x, y)
+   *  is ((face % across) * (nside + 2 border) + border + x,
+   *      (face / across) * (nside + 2 border) + border + y). */
+  rows: number;
+  cols: number;
+  across: number;
+  down: number;
+  border: number;
+  /** The metres a cell spans -- everywhere, not just at the equator. */
+  step_m: number;
+  relief_m: number;
+  biomes: string[];
+  forms: string[];
+  /** The water raster's classes by code: land, sea, lake, river. */
+  water: string[];
+  /** The provinces by the code of the province raster (0 is none, k is the
+   *  k-th of this list): the map draws their boundary and their name. */
+  provinces?: string[];
+  /** What a full byte of the flow raster stands for on a log scale: how
+   *  much land drains through the river a cell belongs to. The map draws a
+   *  river of its own width by it -- a brook a thread, the continent's
+   *  river two hundred metres across (wave 6's debt). */
+  flow_max_km2?: number;
 };
 
 /** A tile of a planet's local relief (D-323): `n + 1` rows and columns of

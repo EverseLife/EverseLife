@@ -1,0 +1,131 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Copyright (C) 2026 Nurlan Urazkulov
+
+/**
+ * The lines of the relief on the globe (landscape plan wave 6): contours,
+ * the coast by the form of its land, the hachures of the cliffs and the
+ * rivers -- read off the rasters (`contours.ts`) and projected by the eye.
+ * Drawn over the ground and under the nodes, thin at any zoom.
+ *
+ * Nothing at all from a frame wider than the city's (`closeFrame`): there
+ * the ground is the shader's, and lines cut from cells of five hundred
+ * metres would web the region over (owner, 2026-09-09). So the planet's
+ * lines are not even read until a near frame asks for them -- and once
+ * read they are kept for the page, so coming back costs nothing.
+ *
+ * Three memos, three costs: the planet's own lines -- the coast, the lakes,
+ * the rivers -- are read once per planet and kept in bins; the frame's
+ * lines -- contours, hachures -- are read again only when the eye leaves
+ * the window they were read for (`quantisedEye`) or the frame changes
+ * width; the projection to the frame runs on every eye, over the bins
+ * under the frame, because the frame's origin is the eye.
+ */
+
+import { useMemo } from "react";
+
+import { useTerrain } from "./Ground";
+import { project, type Eye } from "./globe";
+import {
+  closeFrame,
+  frameLines,
+  frameMetres,
+  planetLines,
+  quantisedEye,
+  underFrame,
+  type Bins,
+  type PlanetLines,
+  type Segment,
+} from "./contours";
+import { UNITS_PER_METRE } from "./globe";
+import { useRasters } from "./rasters";
+
+/** The lines a planet's own rasters give, read once for the life of the
+ *  page: a walk over every cell of the field, and the same answer every
+ *  time -- as `Ground`'s sketch and `rasters`' bytes are kept. */
+const PLANET_LINES = new Map<string, PlanetLines>();
+
+/** Segments to one path, dropping what faces away from the eye. */
+function pathOf(segments: readonly Segment[], eye: Eye, radius: number): string {
+  const parts: string[] = [];
+  for (const [a, b] of segments) {
+    const p = project(eye, radius, a);
+    const q = project(eye, radius, b);
+    if (!p.front || !q.front) continue;
+    parts.push(`M${p.x.toFixed(1)} ${p.y.toFixed(1)}L${q.x.toFixed(1)} ${q.y.toFixed(1)}`);
+  }
+  return parts.join("");
+}
+
+export function Lines({
+  planet,
+  eye,
+  radius,
+  within,
+}: {
+  planet: string;
+  eye: Eye;
+  radius: number;
+  /** Half the frame's width in map units; undefined from the planet frame. */
+  within: number | undefined;
+}) {
+  const rasters = useRasters(planet);
+  const passport = useTerrain(planet)?.raster ?? null;
+  //: Whether this frame has lines at all.
+  const near = closeFrame(frameMetres(within));
+  const own = useMemo(() => {
+    if (!near || !rasters || !passport) return null;
+    let held = PLANET_LINES.get(planet);
+    if (!held) PLANET_LINES.set(planet, (held = planetLines(rasters, passport)));
+    return held;
+  }, [near, planet, rasters, passport]);
+  const { lat, lon } = quantisedEye(eye, radius, within);
+  const frame = useMemo(
+    () =>
+      near && rasters && passport
+        ? frameLines(rasters, passport, { lat, lon }, radius, within)
+        : null,
+    [near, rasters, passport, lat, lon, radius, within],
+  );
+  const drawn = useMemo(() => {
+    if (!own || !frame) return null;
+    const under = (bins: Bins) => pathOf(underFrame(bins, eye, radius, within), eye, radius);
+    return {
+      contours: pathOf(frame.contours.filter((c) => !c.index).flatMap((c) => c.segments), eye, radius),
+      index: pathOf(frame.contours.filter((c) => c.index).flatMap((c) => c.segments), eye, radius),
+      hachures: pathOf(frame.hachures, eye, radius),
+      rock: under(own.shores.rock),
+      beach: under(own.shores.beach),
+      shore: under(own.shores.shore),
+      lakes: under(own.lakes),
+      //: A river is drawn at the width it is (`riverWidthM`), in units of
+      //: the ground rather than of the glass: it is a part of the country,
+      //: not a line laid over it (owner, 2026-09-09), so it grows under the
+      //: zoom as the ground does and a brook stays a brook.
+      rivers: own.rivers.map((band) => ({
+        width: band.widthM * UNITS_PER_METRE,
+        path: under(band.bins),
+      })),
+    };
+  }, [own, frame, eye, radius, within]);
+  if (!drawn) return null;
+  return (
+    <g
+      className="relief-lines"
+      style={{ "--pc": `var(--planet-${planet})` } as React.CSSProperties}
+      aria-hidden="true"
+    >
+      {drawn.contours && <path className="contour" d={drawn.contours} />}
+      {drawn.index && <path className="contour index" d={drawn.index} />}
+      {drawn.rivers.map(({ width, path }) =>
+        path ? (
+          <path key={width} className="river" d={path} strokeWidth={width} />
+        ) : null,
+      )}
+      {drawn.lakes && <path className="coast lake" d={drawn.lakes} />}
+      {drawn.shore && <path className="coast shore" d={drawn.shore} />}
+      {drawn.beach && <path className="coast beach" d={drawn.beach} />}
+      {drawn.rock && <path className="coast rock" d={drawn.rock} />}
+      {drawn.hachures && <path className="hachure" d={drawn.hachures} />}
+    </g>
+  );
+}

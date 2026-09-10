@@ -25,9 +25,9 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src import globe
-from src.constants import Constants
+from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import biome, climate, estate, memory, places, sheet, sight, travel, world
+from src.engine import biome, climate, estate, facet, memory, places, sheet, sight, travel, world
 from src.engine import ship as vessels
 from src.models.city import City
 from src.models.identity import Body
@@ -76,6 +76,13 @@ def node_row(
         #: relief is public from the world's birth (D-319 item 3), so it hides
         #: from nobody.
         "features": world.public_signs(node) + biome.signs(node),
+        #: The face the node's ground wears (landscape plan, wave 7): an id
+        #: named through renames, like the province beside it.
+        **({"facet": face} if (face := facet.of_node_id(node)) else {}),
+        #: The province the node lies in (landscape plan, wave 3): an id the
+        #: client names through renames; nothing sent tells it otherwise
+        #: (D-225). Absent on a node without one.
+        **({"province": province} if (province := biome.province_of(node)) else {}),
         #: The owner's mark, if one is nailed on (D-238).
         "emblem": estate.public_emblem(node),
         #: The land under the node, square metres: a city's outline is the
@@ -236,7 +243,11 @@ async def anonymous(
 
 
 async def personal(
-    session: AsyncSession, constants: Constants, asker: Body, now: datetime
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    asker: Body,
+    now: datetime,
 ) -> dict[str, Any]:
     """The map as the asker's body sees it and their identity remembers it."""
     standing = await session.get(Node, asker.node_id)
@@ -277,7 +288,13 @@ async def personal(
     nodes = [node for node in every if node.id in view.seen and node.id not in inside]
     shown = {node.id for node in nodes}
     here_biome = biome.of_node(constants, standing) if standing is not None else None
-    reach = biome.reach_m(constants, here_biome) if here_biome else None
+    #: The very band the aim refuses by (`explore.aim`), the facet's multiplier
+    #: and all: a ring drawn wider than the aim allows is a promise broken.
+    reach = (
+        facet.reach_m(constants, here_biome, facet.of_node(constants, catalog, standing))
+        if here_biome and standing is not None
+        else None
+    )
     #: The surface beyond sight: what a stub points at. Insides are not
     #: hidden by the fog, they are simply not the map's (D-201, item 9).
     beyond = {node.id: node for node in _public_surface(every) if node.id not in shown}

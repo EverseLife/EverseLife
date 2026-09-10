@@ -17,7 +17,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ship_kit import _laid, _port, _shipwright
-from src.constants import Constants
+from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import biome, mapshot, memory, travel, world
 from src.models.identity import Body
@@ -72,7 +72,7 @@ async def test_a_city_names_the_node_it_grew_from(
 
 
 async def test_the_snapshot_carries_the_surface_and_not_the_insides(
-    session: AsyncSession, constants: Constants
+    session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
     terra, city, plot = await _world(session)
     taken = await mapshot.take(session, constants, datetime.now(UTC))
@@ -92,7 +92,7 @@ async def test_the_snapshot_carries_the_surface_and_not_the_insides(
 
 
 async def test_the_route_serves_only_a_snapshot_old_enough_and_the_tick_prunes(
-    session: AsyncSession, constants: Constants
+    session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
     await _world(session)
     delay = timedelta(days=float(constants[R.MAP_PUBLIC_DELAY_DAYS]))
@@ -112,7 +112,7 @@ async def test_the_route_serves_only_a_snapshot_old_enough_and_the_tick_prunes(
 
 
 async def test_the_anonymous_map_is_the_sky_now_and_the_surface_then(
-    session: AsyncSession, constants: Constants
+    session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
     """Without a body: the sky live, the surface from the served snapshot, no tones."""
     terra, city, plot = await _world(session)
@@ -137,13 +137,13 @@ async def test_the_anonymous_map_is_the_sky_now_and_the_surface_then(
 
 
 async def test_the_personal_map_is_the_askers_sight_and_memory(
-    session: AsyncSession, constants: Constants
+    session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
     terra, city, plot = await _world(session)
     identity = await world.create_identity(session, "Asker")
     body = await world.print_body(session, identity, plot)
     await memory.remember(session, constants, identity.id, ["terra.city"], at=datetime.now(UTC))
-    answer = await mapshot.personal(session, constants, body, datetime.now(UTC))
+    answer = await mapshot.personal(session, constants, catalog, body, datetime.now(UTC))
     keys = {row["key"]: row for row in answer["nodes"]}
     assert "terra.city.plot" in keys and "terra.city" in keys and "terra" in keys
     assert "ship.x.room" not in keys, "борт не публичен (D-201)"
@@ -152,14 +152,14 @@ async def test_the_personal_map_is_the_askers_sight_and_memory(
 
 
 async def test_a_ship_at_the_pier_marks_the_port_and_a_parking_marks_nothing(
-    session: AsyncSession, constants: Constants
+    session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
     """The hull is not a point of the map (D-319 item 10): the port it lies at
     says so, and the client cannot tell that off the hull's own row."""
     port = await _port(session)
     _, body = await _shipwright(session, port)
     await _laid(session, constants, body, port)
-    answer = await mapshot.personal(session, constants, body, datetime.now(UTC))
+    answer = await mapshot.personal(session, constants, catalog, body, datetime.now(UTC))
     rows = {row["key"]: row for row in answer["nodes"]}
     assert rows[port.key].get("moored") is True
     assert all("moored" not in row for key, row in rows.items() if key != port.key)
@@ -170,7 +170,7 @@ async def test_a_ship_at_the_pier_marks_the_port_and_a_parking_marks_nothing(
 
 
 async def test_the_map_tells_the_reach_of_the_node_one_stands_in(
-    session: AsyncSession, constants: Constants
+    session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
     """The scout's field is drawn by the biome's reach of the node under the
     body (D-321 item 4), sent with that node alone (D-225)."""
@@ -180,7 +180,7 @@ async def test_the_map_tells_the_reach_of_the_node_one_stands_in(
     core = await seed(session)
     identity = await world.create_identity(session, "Разведчица")
     body = await world.print_body(session, identity, core)
-    got = await mapshot.personal(session, constants, body, datetime.now(UTC))
+    got = await mapshot.personal(session, constants, catalog, body, datetime.now(UTC))
     rows = {row["key"]: row for row in got["nodes"]}
     here = rows[core.key]
     assert 0 < here["reach"]["min"] < here["reach"]["max"]
@@ -188,7 +188,7 @@ async def test_the_map_tells_the_reach_of_the_node_one_stands_in(
 
 
 async def test_the_map_names_a_find_by_its_biome_the_way_the_world_does(
-    session: AsyncSession, constants: Constants
+    session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
     """A found node has no name (D-321) and wears its kind instead.
 

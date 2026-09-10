@@ -7,6 +7,8 @@ import { describe, expect, it } from "vitest";
 
 import type { MapNode } from "../api";
 import {
+  CITY_GROWTH,
+  CITY_GROWTH_HALF,
   CITY_OF_GLOBE,
   CITY_SCALE,
   GLOBE_FILL,
@@ -202,7 +204,7 @@ describe("the bands", () => {
     //: drawn at the floor.
     expect(cityPixels(20, 0)).toBe(20);
     expect(cityPixels(3, 0)).toBe(CITY_R_MIN);
-    expect(cityPixels(20, 2)).toBeCloseTo(20 * 1.6, 9);
+    expect(cityPixels(20, 2)).toBeCloseTo(20 * (1 + (0.6 * 2) / 8), 9);
     expect(cityPixels(40, 40)).toBe(CITY_R_MAX);
     //: And what the drawing takes is map units, which are pixels only at
     //: scale one: divided by the scale of the band, the circle holds its
@@ -749,6 +751,30 @@ describe("a city never covers its own planet", () => {
     //: flat.
     for (const far of [0, 4, 10]) {
       expect(cityRadius(40, far, null)).toBe(cityRadius(40, far));
+    }
+  });
+
+  it("stays a mark and never becomes a blot, however far out", () => {
+    //: Measured on the running map before this rule (2026-09-09): the
+    //: capital's circle went from eleven pixels where the cities close to
+    //: forty-seven on a frame of eighty kilometres, beside a name of
+    //: thirteen. The growth saturates: from any distance the mark is within
+    //: `CITY_GROWTH` of the size the city has at the closing.
+    for (const size of [3, 14, 20, 40, 400]) {
+      const own = cityPixels(size, 0);
+      let last = own;
+      for (const far of [1, 2, 4, 6, 8, 12, 16, 20, 24, 40]) {
+        const now = cityPixels(size, far);
+        expect(now).toBeGreaterThanOrEqual(last);
+        expect(now).toBeLessThanOrEqual(Math.min(CITY_R_MAX, own * (1 + CITY_GROWTH)));
+        last = now;
+      }
+      //: Half the growth is spent by `CITY_GROWTH_HALF` half-octaves out,
+      //: and the rest never arrives in full: the mark settles.
+      expect(cityPixels(size, CITY_GROWTH_HALF)).toBeCloseTo(
+        Math.min(CITY_R_MAX, own * (1 + CITY_GROWTH / 2)),
+        9,
+      );
     }
   });
 

@@ -122,16 +122,22 @@ describe("what the survey panel says before the run", () => {
     );
   });
 
-  it("reads the relief's two thresholds off the book, or judges no water at all", () => {
-    expect(warmthOf({ cold_c: -20, cool_c: 4 })).toEqual({
-      cold: -20,
-      cool: 4,
-    });
+  it("reads the relief's two thresholds off the zonal table, or judges no water at all", () => {
+    const zonal = {
+      frozen: { biome: "tundra", temp: [-60, -20], rain: [0, 100] },
+      boreal: { biome: "taiga", temp: [-20, 4], rain: [0, 100] },
+      mild: { biome: "forest", temp: [4, 60], rain: [0, 100] },
+    };
+    expect(warmthOf(zonal)).toEqual({ cold: -20, cool: 4 });
+    //: Two tundras, a dry and a wet: the line is the warmer edge.
+    expect(
+      warmthOf({ ...zonal, dry: { biome: "tundra", temp: [-60, -15], rain: [0, 10] } }),
+    ).toEqual({ cold: -15, cool: 4 });
     //: Nothing said, or half of it, or nonsense: no thresholds, and the
     //: caller then takes every point for land rather than guessing.
     expect(warmthOf(undefined)).toBe(null);
-    expect(warmthOf({ cold_c: -20 })).toBe(null);
-    expect(warmthOf({ cold_c: "тепло", cool_c: 4 })).toBe(null);
+    expect(warmthOf({ frozen: zonal.frozen })).toBe(null);
+    expect(warmthOf({ ...zonal, boreal: { biome: "taiga", temp: "тепло" } })).toBe(null);
   });
 });
 
