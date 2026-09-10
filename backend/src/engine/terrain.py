@@ -239,7 +239,18 @@ def _sketched(constants: Constants, planet: Planet, field: fields.Field) -> dict
 
 #: The rasters the client draws by (plan §9.3), thinned to
 #: `runtime.RASTER_CELLS_MAX` cells at most.
-RASTER_KINDS = ("height", "biome", "form", "water", "rock", "province", "river", "flow", "lake")
+RASTER_KINDS = (
+    "height",
+    "biome",
+    "form",
+    "water",
+    "rock",
+    "province",
+    "river",
+    "flow",
+    "lake",
+    "stream",
+)
 
 
 def raster_nside(field: fields.Field) -> int:

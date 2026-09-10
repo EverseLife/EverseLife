@@ -247,7 +247,14 @@ class Field:
 
     def ice_at(self, lat: float, lon: float) -> bool:
         """Whether the cap lies here: cold and wet, or very cold (the field's
-        `terrain.ice_*`), read as the field decided it, not re-derived."""
+        `terrain.ice_*`), read as the field decided it, not re-derived.
+
+        Since D-329 the raster also covers **sea** colder than `terrain.ice_c`
+        -- the fast ice of a frozen ocean, which Aurora is made of and Terra
+        has at its poles. That does not reach the biome: `classify` asks
+        `is_water` first and a sea cell has none, so this answers for the
+        land alone wherever anybody asks it.
+        """
         return bool(self.ice[self.cell(lat, lon)])
 
     def sea_distance_m(self, lat: float, lon: float) -> float:
@@ -370,7 +377,7 @@ def _expected(constants: Constants, planet: Planet) -> dict[str, float]:
     temp = constants[R.TERRAIN_TEMP_RANGE][planet.value]
     return {
         "seed": float(constants[R.TERRAIN_SEED][planet.value]),
-        "sea_share": float(constants[R.TERRAIN_SEA_SHARE].get(planet.value, 0.0)),
+        "sea_level": float(constants[R.TERRAIN_SEA_LEVEL][planet.value]),
         "relief_m": float(constants[R.TERRAIN_RELIEF_M]),
         "step_m": float(constants[R.TERRAIN_STEP_M]),
         "version": float(constants[R.TERRAIN_VERSION]),

@@ -255,7 +255,11 @@ export type RasterKind =
   | "rock"
   | "province"
   | "flow"
-  | "lake";
+  | "lake"
+  /** The river as a share of the cell, as `lake` is: the shader cuts its
+   *  bank between the cells off this, so a stream bends where the water
+   *  bends and not where the grid does. */
+  | "stream";
 export type RasterPassport = {
   /** What flows on this planet: water on Terra and Aquatica, lava on
    *  Pyroxis. One raster says where the fluid lies on every planet -- a cell

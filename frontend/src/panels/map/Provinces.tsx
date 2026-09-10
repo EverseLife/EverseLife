@@ -26,7 +26,7 @@
 import { useMemo } from "react";
 
 import { useNames } from "../../actions";
-import { provinceLabelEm } from "./bands";
+import { limbShare, provinceLabelEm } from "./bands";
 import { useTerrain } from "./Ground";
 import { PROVINCE_EM } from "./labels";
 import { project, type Eye } from "./globe";
@@ -105,7 +105,9 @@ export function Provinces({
       const at = project(eye, radius, mark.at);
       //: A name on the far side of the globe would be written backwards
       //: over the near side, so only the near half is named.
-      return word && at.front ? [{ id, word, x: at.x, y: at.y }] : [];
+      return word && at.front
+        ? [{ id, word, x: at.x, y: at.y, limb: limbShare(at.x, at.y, radius) }]
+        : [];
     });
     return { edges: parts.join(""), labels };
   }, [whole, edges, passport, names, eye, radius]);
@@ -119,7 +121,10 @@ export function Provinces({
       {drawn.edges && <path className="province" d={drawn.edges} />}
       {drawn.labels.map((label) => (
         <g key={label.id} transform={`translate(${label.x} ${label.y})`}>
-          <text className="province-label" transform={`scale(${grown})`}>
+          <text
+            className="province-label"
+            transform={`scale(${(grown * label.limb).toFixed(4)})`}
+          >
             {label.word}
           </text>
         </g>

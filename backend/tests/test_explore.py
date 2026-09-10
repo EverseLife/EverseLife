@@ -158,8 +158,31 @@ def test_water_has_no_biome_and_the_frozen_planets_have_one(constants: Constants
             assert biome.classify(constants, Planet.TERRA, *point) is None
         else:
             assert biome.classify(constants, Planet.TERRA, *point) in constants[R.BIOME_NAMES]
-    assert biome.classify(constants, Planet.AURORA, 0.0, 0.0) == biome.ICE
-    assert biome.classify(constants, Planet.PYROXIS, 0.0, 0.0) == biome.CINDER
+    #: A planet of one biome answers with it on its **land**, and with
+    #: nothing on its water like any other. The point is looked up rather
+    #: than named: Aurora had no sea until D-329 gave it one, and (0, 0) went
+    #: under it -- a fixed pair of coordinates pins a test to a world, and
+    #: every rebuild is a new world.
+    for planet, word in ((Planet.AURORA, biome.ICE), (Planet.PYROXIS, biome.CINDER)):
+        ground = terrain.field_of(constants, planet)
+        dry = next(
+            (lat, lon)
+            for lat in range(-60, 61, 5)
+            for lon in range(-180, 180, 5)
+            if not ground.is_water(float(lat), float(lon))
+        )
+        assert biome.classify(constants, planet, *map(float, dry)) == word
+        wet = next(
+            (
+                (lat, lon)
+                for lat in range(-60, 61, 5)
+                for lon in range(-180, 180, 5)
+                if ground.is_water(float(lat), float(lon))
+            ),
+            None,
+        )
+        if wet is not None:
+            assert biome.classify(constants, planet, *map(float, wet)) is None
     for name in constants[R.BIOME_NAMES]:
         near, far = biome.reach_m(constants, name)
         assert 0 < near < far
@@ -412,6 +435,18 @@ async def test_a_find_gets_one_way_and_it_is_the_one_walked(
         #: within reach of the find to be, which is exactly the case `knit`
         #: sewed. Without it the test would check nothing.
         where = explore.point_of(constants, Planet.TERRA, cell)
+        #: As far from the find as still counts as within reach, not half of
+        #: it: the find takes its share of the room left between the nodes
+        #: around it (`area_for`), and a neighbour set at half the reach left
+        #: less than a node's floor -- the run then ended in `NoRoom` and the
+        #: test read it as «the way was not laid». The room is asserted below
+        #: rather than assumed, so a world that cannot hold this case says so
+        #: instead of passing quietly.
+        step = far * 0.95
+        room = step - explore.radius_of(60.0)
+        assert room >= explore.radius_of(float(constants[R.EXPLORE_NODE_AREA].min)), (
+            f"соседу негде стоять: {room:.1f} м на кадре досягаемости {far:.1f} м"
+        )
         neighbour = await world.create_node(
             session,
             f"terra.neighbour.{uuid.uuid4().hex[:6]}",
@@ -419,7 +454,7 @@ async def test_a_find_gets_one_way_and_it_is_the_one_walked(
             planet=Planet.TERRA,
             area_m2=60,
             parent=await session.get(Node, camp.parent_id),
-            properties=_pin(_step(constants, Planet.TERRA, where, far * 0.5, bearing=1.9)),
+            properties=_pin(_step(constants, Planet.TERRA, where, step, bearing=1.9)),
         )
         neighbour_id = neighbour.id
     assert await jobs.run_one(factory, now=term) is not None

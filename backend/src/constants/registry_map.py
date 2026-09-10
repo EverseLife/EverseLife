@@ -34,7 +34,12 @@ PLANETS = ("terra", "aquatica", "pyroxis", "aurora")
 #: the world quietly. A node bears a vein `biome.vein_k` times as often as
 #: its biome says (D-321).
 TERRAIN_SEED = Table("terrain.seed", keys=PLANETS)
-TERRAIN_SEA_SHARE = Table("terrain.sea_share")
+#: The level the world ocean stands at, in the base relief's own units:
+#: how much land is left over is a **result** and lives in the field's
+#: passport, not here (D-329). It was the share of the surface under
+#: water, and the level was then fitted to it -- the ocean answered to
+#: the number instead of the land answering to the ocean.
+TERRAIN_SEA_LEVEL = Table("terrain.sea_level", keys=PLANETS)
 #: What flows on this planet: water or lava. The water raster is one raster on
 #: every planet -- a cell is either land or under a fluid, and the engine
 #: refuses to walk into either -- but the substance is named and drawn apart.
@@ -115,7 +120,7 @@ COMPLEX_SCHEMES = Shape("complex.schemes")
 
 __all__ = [
     "TERRAIN_SEED",
-    "TERRAIN_SEA_SHARE",
+    "TERRAIN_SEA_LEVEL",
     "TERRAIN_FLUID",
     "TERRAIN_TEMP_RANGE",
     "TERRAIN_MOUNTAIN_SHARE",

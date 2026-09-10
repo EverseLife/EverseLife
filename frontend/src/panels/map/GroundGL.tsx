@@ -77,6 +77,9 @@ type Textures = {
   /** The lakes as a quantity rather than as a class, so their shore is cut
    *  between the cells as the sea's is by the height. */
   lake: WebGLTexture;
+  /** And the rivers the same way, for the same reason (owner, 2026-09-11):
+   *  as a class a river is a chain of whole cells with right angles. */
+  stream: WebGLTexture;
   passport: RasterPassport;
   /** The deepest sea of the raster, metres: the water's shade runs to it. */
   deep: number;
@@ -135,13 +138,14 @@ function setUp(canvas: HTMLCanvasElement): Program | null {
     if (!places.has(name)) places.set(name, gl.getUniformLocation(program, name));
     return places.get(name) ?? null;
   };
-  //: What never changes: the light and the three sampler units.
+  //: What never changes: the light and the sampler units.
   gl.uniform3fv(at("u_light"), sunDirection());
   gl.uniform1i(at("u_height"), 0);
   gl.uniform1i(at("u_biome"), 1);
   gl.uniform1i(at("u_form"), 2);
   gl.uniform1i(at("u_rock"), 3);
   gl.uniform1i(at("u_wet"), 4);
+  gl.uniform1i(at("u_stream"), 5);
   return { gl, program, at, textures: new Map(), synced: null };
 }
 
@@ -159,6 +163,7 @@ function tearDown(program: Program | null, canvas: HTMLCanvasElement): void {
     gl.deleteTexture(t.biome);
     gl.deleteTexture(t.form);
     gl.deleteTexture(t.rock);
+    gl.deleteTexture(t.stream);
     gl.deleteTexture(t.lake);
   }
   program.textures.clear();
@@ -220,6 +225,7 @@ function upload(gl: WebGL2RenderingContext, passport: RasterPassport, rasters: R
     form: classes(rasters.form),
     rock: measure(rasters.rock),
     lake: measure(rasters.lake),
+    stream: measure(rasters.stream),
     passport,
     deep: deepOf(heights),
   };
@@ -263,6 +269,7 @@ function sync(program: Program, planet: string, palette: Palette, highFrom: numb
   bind(2, textures.form);
   bind(3, textures.rock);
   bind(4, textures.lake);
+  bind(5, textures.stream);
   program.synced = { planet, palette, highFrom };
   return true;
 }

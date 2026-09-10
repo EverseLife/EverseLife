@@ -242,10 +242,38 @@ export function scaleAt(far: number): number {
  *  distance, for the same reason a closed city's name is (`cityLabelEm`).
  *  A name of a land that shrank with the zoom would go unreadable exactly
  *  on the frame where lands are all there is (plan §9.7). Smaller than a
- *  city's: a province is the ground a city stands on, not a place to go. */
-export const PROVINCE_LABEL_PX = 11;
+ *  city's: a province is the ground a city stands on, not a place to go --
+ *  and smaller again since 2026-09-11 (owner: «сделай так чтобы текст
+ *  биомов меньше»), because a dozen of them crowded the globe. */
+export const PROVINCE_LABEL_PX = 8;
 export function provinceLabelEm(far: number): number {
   return PROVINCE_LABEL_PX / scaleAt(far);
+}
+
+/** The smallest share of its size a name is drawn at when it lies on the
+ *  limb of the globe rather than under the eye. */
+export const LIMB_LABEL_SHARE = 0.45;
+
+/**
+ * How large a name at this point of the sphere is drawn, as a share of its
+ * full size: full under the eye, `LIMB_LABEL_SHARE` at the limb.
+ *
+ * The land itself is foreshortened towards the edge -- a province a
+ * thousand kilometres across is a sliver there -- while its name was drawn
+ * the same size wherever it fell, so the names at the rim were the loudest
+ * thing on the globe and belonged to the least of it (owner, 2026-09-11:
+ * «чтобы он скейлился от того в центре экрана они или с края»).
+ *
+ * The share is the foreshortening itself, `sqrt(1 - (r/R)^2)` -- the cosine
+ * of the angle off the eye -- softened by a floor so a rim name stays
+ * legible instead of vanishing. Near frames are untouched by arithmetic
+ * rather than by a branch: there the whole visible patch sits under the eye,
+ * `r/R` is a rounding error, and the share is one.
+ */
+export function limbShare(x: number, y: number, radius: number): number {
+  if (!(radius > 0)) return 1;
+  const off = Math.min(1, Math.hypot(x, y) / radius);
+  return LIMB_LABEL_SHARE + (1 - LIMB_LABEL_SHARE) * Math.sqrt(1 - off * off);
 }
 
 /**
@@ -333,17 +361,17 @@ export function cityRadius(
   //: planet (owner, 2026-09-08). A city is a place on a planet, and it must
   //: look like one.
   if (!globe || globe <= 0) return units;
-  //: **And never smaller than a mark.** The share of the globe shrinks with
-  //: the frame while the mark holds its pixels, so past some frame the share
-  //: is the smaller of the two and goes on halving every octave -- which is
-  //: exactly the shrinking-to-a-speck this function was written to stop
-  //: (owner, 2026-09-08: the city node is too small). Without this floor a
-  //: share of a twenty-fifth drew the capital at seven pixels on the map's
-  //: farthest frame. The floor is `CITY_R_MIN`, the same pixels that say
-  //: what still reads as a city, so the two rules meet instead of arguing:
-  //: the share brings the mark down as the world comes into the frame, and
-  //: sets it down on the floor rather than through it.
-  return Math.max(CITY_R_MIN / scaleAt(far), Math.min(units, globe * CITY_OF_GLOBE));
+  //: **And never smaller than a mark** -- but the mark yields to the share,
+  //: not the other way about. The floor is a size on the glass and the share
+  //: a size on the world, and on a small planet they argue: the floor stood
+  //: outside the share and always won, so on the farthest frame the capital
+  //: came out a sixth of the planet's own radius, a third of its disk
+  //: (owner, 2026-09-11: the capital's circle is wrong again). Clipping the
+  //: floor by the share settles it in favour of the world: the mark is as
+  //: large as a mark should be until the planet itself is smaller than that,
+  //: and from there it is the planet that says how big a town may look.
+  const floor = CITY_R_MIN / scaleAt(far);
+  return Math.min(Math.max(floor, units), globe * CITY_OF_GLOBE);
 }
 
 //: What share of the planet's radius a city's circle never passes.

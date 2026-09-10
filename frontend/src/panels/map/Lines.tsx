@@ -5,6 +5,11 @@
  * The lines of the relief on the globe (landscape plan wave 6): contours,
  * the coast by the form of its land, the hachures of the cliffs and the
  * rivers -- read off the rasters (`contours.ts`) and projected by the eye.
+ *
+ * The rivers left this layer 2026-09-11 and went into the shader: as a line
+ * a river was a thread laid over the ground rather than water in it, and
+ * the owner asked for the raster instead. `contours.rivers` is still cut --
+ * the near frames measure a river's width by it -- but nothing draws it.
  * Drawn over the ground and under the nodes, thin at any zoom.
  *
  * Nothing at all from a frame wider than the city's (`closeFrame`): there
@@ -84,14 +89,6 @@ export function Lines({
       beach: drawnOf(frame.shores.beach),
       shore: drawnOf(frame.shores.shore),
       lakes: drawnOf(frame.lakes),
-      //: A river is drawn at the width it is (`riverWidthM`), in units of
-      //: the ground rather than of the glass: it is a part of the country,
-      //: not a line laid over it (owner, 2026-09-09), so it grows under the
-      //: zoom as the ground does and a brook stays a brook.
-      rivers: frame.rivers.map((band) => ({
-        width: band.widthM * UNITS_PER_METRE,
-        path: drawnOf(band.segments),
-      })),
     };
   }, [frame, eye, radius]);
   if (!drawn) return null;
@@ -103,11 +100,6 @@ export function Lines({
     >
       {drawn.contours && <path className="contour" d={drawn.contours} />}
       {drawn.index && <path className="contour index" d={drawn.index} />}
-      {drawn.rivers.map(({ width, path }) =>
-        path ? (
-          <path key={width} className="river" d={path} strokeWidth={width} />
-        ) : null,
-      )}
       {drawn.lakes && <path className="coast lake" d={drawn.lakes} />}
       {drawn.shore && <path className="coast shore" d={drawn.shore} />}
       {drawn.beach && <path className="coast beach" d={drawn.beach} />}

@@ -743,14 +743,12 @@ describe("a city never covers its own planet", () => {
   it("holds the circle to a share of the globe when the scene is one", () => {
     const globe = 1000;
     for (const far of [0, 4, 10, 20]) {
-      //: Unless the floor lifts it: the share shrinks with the frame and the
-      //: floor does not, so on the far frames the floor is the stronger of
-      //: the two and the share gives way. A toy globe of a thousand units is
-      //: all floor.
-      const floor = CITY_R_MIN / scaleAt(far);
-      expect(cityRadius(40, far, globe)).toBeLessThanOrEqual(
-        Math.max(floor, globe * CITY_OF_GLOBE),
-      );
+      //: The share is the ceiling and nothing lifts it -- not even the mark's
+      //: own floor. It used to: the floor stood outside the share and won on
+      //: every far frame, so on a small planet the capital came out a sixth
+      //: of its radius (owner, 2026-09-11). A toy globe of a thousand units
+      //: is all ceiling, and that is the point of asking it here.
+      expect(cityRadius(40, far, globe)).toBeLessThanOrEqual(globe * CITY_OF_GLOBE);
     }
   });
 
@@ -770,12 +768,18 @@ describe("a city never covers its own planet", () => {
     expect(seen(disk - 3)).toBeCloseTo(cityPixels(26, disk - 3), 6);
     expect(seen(disk - 2)).toBeLessThan(cityPixels(26, disk - 2));
     expect(seen(disk - 1)).toBeLessThan(seen(disk - 2));
-    //: And stops on the floor rather than through it -- at the planet's frame
-    //: and at the farthest frame the map has, where the share alone would
-    //: have drawn seven pixels.
-    expect(seen(disk)).toBeCloseTo(CITY_R_MIN, 6);
-    expect(seen(edge)).toBeCloseTo(CITY_R_MIN, 6);
+    //: And comes to rest at a mark's size -- near enough at the planet's own
+    //: frame, where the share has only just begun to bite (13.7 px against a
+    //: floor of 14), and never above it.
+    expect(seen(disk)).toBeLessThanOrEqual(CITY_R_MIN);
+    expect(seen(disk)).toBeGreaterThan(CITY_R_MIN * 0.9);
+    //: On the farthest frame the share is the smaller of the two, and there
+    //: the share wins -- the mark goes under a mark's size rather than take
+    //: a sixth of the world. Which of the two rules gives way is the whole
+    //: question, and this is the line that answers it.
     expect(globe * CITY_OF_GLOBE * scaleAt(edge)).toBeLessThan(CITY_R_MIN);
+    expect(seen(edge)).toBeCloseTo(globe * CITY_OF_GLOBE * scaleAt(edge), 6);
+    expect(cityRadius(26, edge, globe)).toBe(globe * CITY_OF_GLOBE);
   });
 
   it("leaves a flat scene alone: there the pixel ceiling is the whole rule", () => {

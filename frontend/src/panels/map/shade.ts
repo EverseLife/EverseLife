@@ -198,6 +198,7 @@ uniform vec3 u_sea_shallow;
 uniform vec3 u_sea_deep;
 uniform vec3 u_lake;
 uniform vec3 u_high;
+uniform sampler2D u_stream;
 uniform uvec3 u_water_forms;
 uniform uvec4 u_cliff_forms;
 uniform uvec4 u_stone_forms;
@@ -511,7 +512,18 @@ void main() {
   //: cells: as a class it was whole five-hundred-metre cells, and a lake
   //: of blue rectangles with right angles is not a lake (owner,
   //: 2026-09-10). The sea is the height's own zero, as it was.
-  if (h < 0.0 || texture(u_wet, uv).r > 0.5) {
+  //: The river is a share of the cell like the lake (the stream raster),
+  //: and it is read the same way: between the cells, cut at a half. Drawn as
+  //: a class it was a chain of whole cells with right angles; drawn as a
+  //: vector line it was a thread laid over the ground rather than water in
+  //: it, and the owner said so on 2026-09-11. A raster read between the
+  //: cells bends where the water bends.
+  //:
+  //: No backticks in here: this is GLSL inside a template string, and a pair
+  //: of them closes it. The compiler said nothing -- the pair balanced --
+  //: and the bundler refused the file.
+  float run = texture(u_stream, uv).r;
+  if (h < 0.0 || texture(u_wet, uv).r > 0.5 || run > 0.5) {
     if (h >= 0.0) {
       col = u_lake;
     } else {

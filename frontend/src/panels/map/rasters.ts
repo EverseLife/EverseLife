@@ -23,6 +23,9 @@ export type Rasters = {
   province: Uint8Array;
   flow: Uint8Array;
   lake: Uint8Array;
+  /** The river as a share of the cell (`stream`), so the shader can cut its
+   *  bank between the cells as it cuts a lake's. */
+  stream: Uint8Array;
 };
 
 const RASTERS = new Map<string, Promise<Rasters>>();
@@ -34,10 +37,12 @@ export function rastersOf(planet: string): Promise<Rasters> {
   if (!asked) {
     asked = Promise.all(
       (
-        ["height", "biome", "form", "water", "rock", "province", "flow", "lake"] as const satisfies
+        [
+          "height", "biome", "form", "water", "rock", "province", "flow", "lake", "stream",
+        ] as const satisfies
           readonly RasterKind[]
       ).map((kind) => api.terrainRaster(planet, kind)),
-    ).then(([height, biome, form, water, rock, province, flow, lake]) => ({
+    ).then(([height, biome, form, water, rock, province, flow, lake, stream]) => ({
       height: heightsOf(height),
       biome: new Uint8Array(biome),
       form: new Uint8Array(form),
@@ -46,6 +51,7 @@ export function rastersOf(planet: string): Promise<Rasters> {
       province: new Uint8Array(province),
       flow: new Uint8Array(flow),
       lake: new Uint8Array(lake),
+      stream: new Uint8Array(stream),
     }));
     asked.catch(() => RASTERS.delete(planet));
     RASTERS.set(planet, asked);
