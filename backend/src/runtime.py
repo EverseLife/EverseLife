@@ -199,11 +199,25 @@ TILE_MAX_AGE_S = 3600
 RASTER_GZIP_MIN_BYTES = 4096
 #: The rasters the client draws by are the field thinned to this many cells
 #: at most (landscape plan §9.3, D-328): a texture a shader reads whole, not
-#: a planet a process holds. Terra, Aquatica and Pyroxis travel whole
-#: (786 432 and 262 848 cells); Aurora's field is a million and a half and
-#: would be three megabytes of height alone, so its picture goes at half the
-#: fineness -- `nside` 181 against the field's 362.
-RASTER_CELLS_MAX = 1_000_000
+#: a planet a process holds. No field travels whole any more: with a cell of
+#: fifty metres the smallest of them, Pyroxis, is a million cells and Aurora
+#: is six and a quarter. The picture takes the finest copy that fits here and
+#: leaves a face of a power of two, which is the rule that mostly decides it:
+#: the copy's `nside` must be `2^k - 2`, so Terra's field of 509 cannot use
+#: 510 and drops to 254 whatever the budget is.
+#:
+#: **This number moves one planet.** Measured on the built fields: at a
+#: million Terra, Aquatica and Pyroxis are already at 254 (cells of 100, 100
+#: and 58 m) and stay there; only Aurora goes 254 -> 510, its cell 142 m ->
+#: 71 m. It is bought at 24 MB more resident, five seconds more of
+#: `rasters.warm` at startup, and Aurora's atlas over the wire at 5.3 MB
+#: gzipped instead of 1.5. Owner's call, 2026-09-10: four million.
+#:
+#: What it does **not** fix is Terra's own gap -- a picture of 100 m over a
+#: field of 50 -- because that is the power of two, not the budget. Closing
+#: it means a `terrain.step_m` that lands Terra on 510 (about 49.9 m), and
+#: then every planet's atlas is 31 MB.
+RASTER_CELLS_MAX = 4_000_000
 MAP_HASH_STEP = 31
 MAP_HASH_SPAN = 65_521
 #: Width of the advisory-lock key that holds one group's map while a node

@@ -38,8 +38,8 @@ void main() { gl_Position = vec4(a_pos, 0.0, 1.0); }
  */
 export const SUN_AZIMUTH_DEG = 315;
 export const SUN_ALTITUDE_DEG = 45;
-/** The slope is drawn steeper than it is: at a thousand kilometres a
- *  frame, a three-kilometre rise is nothing to the eye without it. */
+/** The slope is drawn steeper than it is: at hundreds of kilometres a
+ *  frame, a rise of seven hundred metres is nothing to the eye without it. */
 export const EXAGGERATION = 2;
 
 /** The grain of the ground (landscape plan wave 8, §9.5): the texture that
@@ -106,13 +106,19 @@ export function grainStrength(cellPx: number): number {
  *
  *  The numbers are set against what they hide: one straight edge of a cell.
  *  On the equal-area grid (D-328) a cell is a diamond and shows the eye its
- *  **diagonal** -- five hundred and sixty metres of unbroken line where the
- *  old square showed four hundred, and at forty-five degrees, which reads
- *  as a line somebody drew rather than as a step. A wander has to be worth
- *  about that whole edge to break it: three fifths of a cell softened the
- *  teeth and left them countable. */
+ *  **diagonal** -- a hundred and forty metres of unbroken line at forty-five
+ *  degrees, which reads as a line somebody drew rather than as a step. A
+ *  wander has to be worth about that whole edge to break it: three fifths of
+ *  a cell softened the teeth and left them countable.
+ *
+ *  The amplitude is in cells and moved by itself when the planets shrank;
+ *  the wavelength is in metres and did not, so it was divided by the same
+ *  four (260 -> 65). Left alone it would have been two and a half cells of
+ *  the picture long, and a wander longer than the teeth it hides does not
+ *  break the staircase -- it carries the whole staircase sideways, which is
+ *  the very look the constant exists to remove. */
 export const EDGE_CELLS = 1.1;
-export const EDGE_M = 260;
+export const EDGE_M = 65;
 /** And the same two pixel widths for it: a wander finer than a pixel is
  *  not a rough edge but salt and pepper, because neighbouring pixels then
  *  read the wander at points too far apart to be alike. */
@@ -463,7 +469,7 @@ void main() {
   //: came out as a hard diamond of shadow, scattered along a mountain front
   //: like beads -- the shape of a cell and nothing of the country.
   //: The colour's edge, roughened (wave 8). A biome is a class of a cell
-  //: five hundred metres wide, and on a near frame its edge is a straight
+  //: a hundred metres wide, and on a near frame its edge is a straight
   //: staircase across the ground -- the one thing on the map that says
   //: "raster" out loud. The class is not blended (plan §9.3 keeps it a
   //: class, not a mean of two): what wanders is the *point the class is

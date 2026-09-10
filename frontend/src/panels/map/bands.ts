@@ -38,7 +38,7 @@ export const STREET_SCALE = 1;
 export const CELL_DEG = 2;
 /** From this drawn cell and finer the ground is read off the tiles of the
  *  local relief (D-323): a sixteenth of a grid cell, the frame under some
- *  thirty kilometres on a small world. */
+ *  two and a half kilometres on a world this small. */
 export const TILE_UNIT = 1 / 16;
 /** The finest reading of the ground, a thirty-second of a grid cell: one
  *  halving under `TILE_UNIT`, so the tiles' features bend. */
@@ -389,8 +389,16 @@ export function cityLabelEm(far: number): number {
  * Whether a closed city of `size` nodes is still drawn this far out: the
  * frame may hold one node of it per `KM_PER_NODE` of its span, so a hamlet
  * fades a few hundred kilometres out and the capital never does.
+ *
+ * Divided by four when the planets were shrunk sixteenfold by area
+ * (2026-09-10). The frames of the map are the planet's radius
+ * (`groundReach`), and this rule is the only one on them written in absolute
+ * kilometres -- so it is the only one that has to be moved by hand every
+ * time the radius changes, and the next such change will find it here again.
+ * Fifty keeps what two hundred kept: two nodes on the planet's own frame,
+ * fifteen on the farthest the map goes.
  */
-export const KM_PER_NODE = 200;
+export const KM_PER_NODE = 50;
 export function citySeen(size: number, far: number): boolean {
   const spanKm = (W / CITY_SCALE / UNITS_PER_METRE / 1000) * 2 ** (far / 2);
   return size >= Math.ceil(spanKm / KM_PER_NODE);

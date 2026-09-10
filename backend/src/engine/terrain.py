@@ -263,10 +263,14 @@ def raster_nside(field: fields.Field) -> int:
     seam is a mixture of two faces -- which is the strip of a stranger's
     ground the border is there to prevent.
 
-    So Terra's picture is `nside` 254 against a field of 256, Aurora's 254
-    against 362, and Pyroxis's 126 against 148. The picture is never finer
+    So Terra's picture is `nside` 254 against a field of 509, Aurora's 510
+    against 720, and Pyroxis's 254 against 294. The picture is never finer
     than the field, and it need not divide it: a cell of the picture takes
     the field's cells whose middles fall inside it (`rasters._thin`).
+
+    Terra's pair is the one to look at: 509 misses 510 by one, so its picture
+    is the next power of two down and its cell is twice the field's. The
+    budget has nothing to do with it -- see `runtime.RASTER_CELLS_MAX`.
     """
     best = 1
     side = healpix.BOTH

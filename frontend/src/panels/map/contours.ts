@@ -11,9 +11,9 @@
  * planet. The near frames are cut on a mesh of ground about the eye, a cell
  * of the grid to the step (`localSamples`); the planet's own disk, which has
  * no bounded frame, is read whole and coarse (`provinceWhole`). Cutting for
- * the planet is what it was: one walk over a million and a half cells kept
+ * the planet is what it was: one walk over three million cells kept
  * in bins, three seconds of it before the first line appeared, for a shore
- * that is drawn from forty-five kilometres in.
+ * that is drawn from eleven kilometres in.
  *
  * A quantity of the rasters is read **between** the cells and never as the
  * cell's own value (`Samples.between`). A field of steps has its level line
@@ -40,17 +40,28 @@ export const WINDOW_MARGIN = 0.25;
  *  frame is the coast's and the biomes', the region frame reads its ridges
  *  and canyons by the shade (plan §9.7) -- and each narrower frame steps
  *  down to the next interval. The bounded frames of the map are the
- *  ground's units (`bands.groundReach`): on Terra about 83, 42, 21, 10 and
- *  5 km across, so the ladder starts under the region's 83 km.
+ *  ground's units (`bands.groundReach`), which are the planet's radius
+ *  times a halving: on Terra about 21, 10, 5.2, 2.6 and 1.3 km across, so
+ *  the ladder starts under the region's 21 km.
+ *
+ *  Both columns were divided by four when the planets were shrunk
+ *  sixteenfold by area (2026-09-10), and for two different reasons.
+ *  The **widths** because the frames themselves are the radius: at the old
+ *  ladder every bounded frame would have fallen under 45 km and the region
+ *  frame would have gained lines it was never meant to have. The
+ *  **intervals** because the relief was divided by the same four
+ *  (`terrain.relief_m` 3000 to 750) to keep the slopes: a frame narrower
+ *  by that much crosses that much less height, and an interval left alone
+ *  would have left three lines where there were eight.
  *
  *  Picture, not balance: D-065 leaves the sizes and colours of the window
  *  out of the registry, and the plan's §9.2 lets what the shader and the
  *  lines draw be merely beautiful, judging nothing. */
 export const CONTOUR_LADDER: readonly (readonly [frameM: number, intervalM: number])[] = [
-  [45_000, Infinity],
-  [30_000, 250],
-  [7_000, 100],
-  [0, 50],
+  [11_250, Infinity],
+  [7_500, 60],
+  [1_750, 25],
+  [0, 12],
 ];
 /** Every so many contours one is drawn heavier, as on a topographic sheet. */
 export const INDEX_EVERY = 5;
@@ -60,8 +71,13 @@ export const INDEX_EVERY = 5;
  *  than this every one of them is a thread of whole cells laid over a
  *  region: a web rather than a line (owner, 2026-09-09), and the far
  *  frames are the shaded ground's alone -- the coast is seen there as the
- *  edge of the water's colour, which the shader cuts by the same zero. */
-export const CLOSE_FRAME_M = 45_000;
+ *  edge of the water's colour, which the shader cuts by the same zero.
+ *
+ *  It is the first rung of `CONTOUR_LADDER` and moved with it: the two
+ *  answer one question -- whether this frame is near enough to be read as
+ *  ground -- and a gap between them would be a frame with a shore and no
+ *  contours. */
+export const CLOSE_FRAME_M = CONTOUR_LADDER[0][0];
 
 /** Whether a frame of this width in metres is near enough to draw lines on. */
 export function closeFrame(frameM: number): boolean {
@@ -847,7 +863,7 @@ export function provinceWhole(
  *  walk over every cell of it, kept in bins, and the frame picked the bins
  *  it could see -- and that walk was **three seconds** before the first
  *  line appeared, all of it on the loop, for a shore that is drawn from
- *  forty-five kilometres in and nearer. A frame's window is forty thousand
+ *  eleven kilometres in and nearer. A frame's window is forty thousand
  *  samples against a planet's million and a half; cutting it again when the
  *  eye leaves the window is milliseconds, and there is nothing to wait for
  *  at the start. What it costs is that the same shore is cut afresh when

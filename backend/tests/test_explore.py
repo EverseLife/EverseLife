@@ -766,19 +766,46 @@ async def test_a_long_leap_lands_on_wide_ground_and_a_wide_node_keeps_others_off
     here = places.geo_of(camp)
     assert here is not None
     near, far = _reach(constants, camp)
+    span = constants[R.EXPLORE_NODE_AREA]
+    #: The rule itself, and it is asked of the arithmetic rather than of two
+    #: aims from this camp. `area_for` is `min(ceiling, pi (fill x free)^2)`,
+    #: so it climbs only until the ceiling: with the floor at 60 m² and the
+    #: ceiling at 240, the whole band is five and a half to eleven metres of
+    #: free room, and every aim with more room than that is the same 240.
+    #: Asked of two aims, this passed or failed by the biome the capital
+    #: happens to stand in -- from alpine, whose nearest legal aim is twenty
+    #: metres, both leaps are the ceiling and the rule is not observable at
+    #: all. That is worth knowing about the rule and is no reason to let the
+    #: test say the arithmetic is broken.
+    room = explore.radius_of(span.min) / float(constants[R.EXPLORE_FILL_SHARE])
+    climbing = [explore.area_for(constants, room * k) for k in (1.01, 1.3, 1.6)]
+    assert all(one is not None for one in climbing)
+    assert climbing[0] < climbing[1] < climbing[2] <= span.max, "дальше выпад — больше площадь"
+    assert explore.area_for(constants, room * 0.9) is None, "ниже пола места нет вовсе"
+
+    #: And from this camp: both aims are legal, both stand within the span.
     short = await explore.check(
         session, constants, catalog, camp, _step(constants, Planet.TERRA, here, far * 0.5)
     )
     long = await explore.check(
         session, constants, catalog, camp, _step(constants, Planet.TERRA, here, far * 0.75)
     )
-    assert long.area > short.area, "дальний выпад — больше площадь"
-    span = constants[R.EXPLORE_NODE_AREA]
-    assert span.min <= short.area <= span.max and long.area <= span.max
+    assert span.min <= short.area <= span.max and short.area <= long.area <= span.max
     #: A wide node standing near the camp: the ground beside it is taken.
-    wide_at = _step(constants, Planet.TERRA, here, far * 0.7, bearing=math.pi / 2)
+    #: How close «beside» has to be is arithmetic, not a guess: the room left
+    #: is the distance to the wide node's **edge**, and a find needs
+    #: `radius_of(floor) / fill_share` of it. Anything nearer than the wide
+    #: node's own radius plus that is taken ground. Written as a bearing of
+    #: three tenths of a radian, this held or did not by how far the camp's
+    #: biome lets a scout leap -- from alpine's hundred metres the same angle
+    #: is twenty-two metres away, which is room enough.
+    stand = far * 0.7
+    wide_at = _step(constants, Planet.TERRA, here, stand, bearing=math.pi / 2)
     await world.create_node(
         session, "terra.wide", "Wide", area_m2=span.max, parent=sphere, properties=_pin(wide_at)
+    )
+    taken = explore.radius_of(span.max) + explore.radius_of(span.min) / float(
+        constants[R.EXPLORE_FILL_SHARE]
     )
     with pytest.raises(explore.NoRoom):
         await explore.check(
@@ -786,7 +813,13 @@ async def test_a_long_leap_lands_on_wide_ground_and_a_wide_node_keeps_others_off
             constants,
             catalog,
             camp,
-            _step(constants, Planet.TERRA, here, far * 0.8, bearing=math.pi / 2 + 0.3),
+            _step(
+                constants,
+                Planet.TERRA,
+                here,
+                stand,
+                bearing=math.pi / 2 + taken * 0.5 / stand,
+            ),
         )
     #: Too short a leap leaves no room for a node at all: refused as no room.
     with pytest.raises((explore.NoRoom, explore.TooNear)):
