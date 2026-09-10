@@ -23,11 +23,12 @@ import {
   frameLines,
   hachures,
   isolines,
+  localSamples,
   provinceEdges,
   provinceFrame,
   riverBands,
   riverWidthM,
-  provinceMarksOf,
+  provinceWhole,
   provinceMarks,
   quantisedEye,
   rivers,
@@ -274,7 +275,8 @@ describe("hachures and rivers", () => {
     //: The land rises to the east: the slope falls west.
     const { rasters, passport, lattice } = planet(6, (_r, c) => c * 100, (r, c) => (r === 3 && c === 6 ? "cliff" : "plain"));
     const win = windowAbout(lattice, { lat: 0, lon: 0 }, 1e5, undefined);
-    const ticks = hachures(rasters, samplesOf(lattice, win), passport, win, 1e5);
+    const step = (Math.PI * (1e5 / UNITS_PER_METRE)) / lattice.rows;
+    const ticks = hachures(rasters, samplesOf(lattice, win), passport, step, 1e5);
     expect(ticks).toHaveLength(1);
     const [from, to] = ticks[0];
     expect(to.lon).toBeLessThan(from.lon);
@@ -319,14 +321,19 @@ describe("the ladder and the window's eye", () => {
   });
   it("draws every line for the frame it stands in, and none from a wide one", () => {
     const { rasters, passport, lattice } = planet(6, (_r, c) => c * 100, (r, c) => (r === 3 && c === 6 ? "cliff" : r === 2 && c > 3 ? "river" : "plain"));
-    const far = frameLines(rasters, passport, { lat: 0, lon: 0 }, 1e6, CLOSE_FRAME_M * UNITS_PER_METRE, lattice);
+    //: A planet small enough that a near frame covers several of its cells:
+    //: the mesh of a near frame is a square of ground a cell to the step,
+    //: and on a planet whose cells are a hundred kilometres wide it would
+    //: sit inside one of them and see no slope at all.
+    const radius = 1e5;
+    const far = frameLines(rasters, passport, { lat: 0, lon: 0 }, radius, CLOSE_FRAME_M * UNITS_PER_METRE, lattice);
     expect(far.hachures).toEqual([]);
     expect(far.contours).toEqual([]);
     //: The shore and the rivers belong to the near frame with the rest: on
     //: a region they would web the ground over (owner, 2026-09-09).
     expect(far.rivers).toEqual([]);
     expect(far.lakes).toEqual([]);
-    const near = frameLines(rasters, passport, { lat: 0, lon: 0 }, 1e6, (CLOSE_FRAME_M / 4) * UNITS_PER_METRE, lattice);
+    const near = frameLines(rasters, passport, { lat: 0, lon: 0 }, radius, (CLOSE_FRAME_M / 4) * UNITS_PER_METRE, lattice);
     expect(near.hachures.length).toBeGreaterThan(0);
     expect(near.contours.length).toBeGreaterThan(0);
     //: The rivers come in bands of width, and every band is a river.
@@ -334,6 +341,44 @@ describe("the ladder and the window's eye", () => {
     for (const band of near.rivers) {
       expect(band.widthM).toBeGreaterThan(0);
       expect(band.segments.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("reads a near frame a cell of the ground to the step, at every latitude", () => {
+    //: The regression this test exists for. The near frame's lines used to
+    //: be cut on a box of latitude and longitude, and a box has to reach as
+    //: far east as the frame's corner does -- near the pole that is every
+    //: meridian there is. The budget then answered by striding over cells,
+    //: and the coast came out cut at twice the cell where the shader cuts
+    //: water at one: the line left the edge of the colour over most of the
+    //: planet, and not one test noticed.
+    //
+    //: A mesh of ground has no pole in it. The step is the cell, everywhere.
+    const lattice = meshOf(600, 1200);
+    const radius = 1e6;
+    const cellM = 400;
+    const reach = 20_000;
+    for (const lat of [0, 30, 45, 60, 75, 89]) {
+      const { samples, stepM } = localSamples(lattice, { lat, lon: 0 }, radius, reach, cellM);
+      expect(stepM).toBeLessThanOrEqual(cellM);
+      expect(samples.nr).toBe(samples.nc);
+      //: And the mesh really covers the ground it promises: its corner
+      //: stands a frame's corner away from the eye, whatever the latitude.
+      const corner = samples.geo(0, 0);
+      const away =
+        (Math.acos(
+          Math.min(
+            1,
+            Math.sin(lat * (Math.PI / 180)) * Math.sin(corner.lat * (Math.PI / 180)) +
+              Math.cos(lat * (Math.PI / 180)) *
+                Math.cos(corner.lat * (Math.PI / 180)) *
+                Math.cos((corner.lon - 0) * (Math.PI / 180)),
+          ),
+        ) *
+          radius) /
+        UNITS_PER_METRE;
+      expect(away).toBeGreaterThan(reach);
+      expect(away).toBeLessThan(reach * 1.6);
     }
   });
 
@@ -410,7 +455,7 @@ describe("the provinces", () => {
       //: And on the planet's disk, where the window strides over cells, a
       //: run may be as long as its own two samples -- but never round the
       //: back of the planet.
-      const wide = provinceFrame(rasters, passport, { lat: 0, lon: 0 }, radius, undefined, lattice);
+      const wide = provinceWhole(rasters, passport, lattice).edges;
       expect(wide.length).toBeGreaterThan(0);
       for (const [a, b] of wide) expect(Math.abs(a.lon - b.lon)).toBeLessThan(180);
     }
@@ -473,9 +518,9 @@ describe("the provinces", () => {
 
   it("keeps the province boundaries apart from the coast's own walk", () => {
     const { rasters, passport, lattice } = twoLands(8);
-    const edges = provinceFrame(rasters, passport, { lat: 0, lon: 0 }, 1e6, undefined, lattice);
+    const edges = provinceWhole(rasters, passport, lattice).edges;
     expect(edges.length).toBe(lattice.rows);
-    expect(provinceMarksOf(rasters, passport, lattice).length).toBe(2);
+    expect(provinceWhole(rasters, passport, lattice).marks.length).toBe(2);
     //: The near frame's lines say nothing of provinces: the boundary is
     //: drawn from the region outward, the shore from the city inward.
     const near = frameLines(rasters, passport, { lat: 0, lon: 0 }, 1e6, 1e3, lattice);

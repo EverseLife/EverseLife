@@ -113,7 +113,7 @@ export type Lattice = {
 };
 
 /** One lattice per fineness: it carries a table of a million entries, and
- *  what is keyed by it (`contours.wholeSamples`) wants a stable key. */
+ *  it holds the rings, which are laid out as they are read. */
 const LATTICES = new Map<number, Lattice>();
 export function latticeOf(passport: RasterPassport): Lattice {
   const held = LATTICES.get(passport.nside);
@@ -141,8 +141,8 @@ function madeLattice(passport: RasterPassport): Lattice {
   };
 }
 
-/** The rings of a planet, made once and kept: the table is four megabytes
- *  and every frame of the vector layer reads it. */
+/** The rings of a planet, made once and kept: every frame of the vector
+ *  layer reads them, and a ring is laid out when it is first read. */
 const RINGS = new Map<number, Rings>();
 export function ringsOf(passport: RasterPassport): Rings {
   let held = RINGS.get(passport.nside);
@@ -198,7 +198,8 @@ function ringOf(nside: number, latDeg: number): number {
  */
 export class Rings {
   /** The rings already laid out, by ring number. A frame touches a few
-   *  dozen of the four thousand a planet has. */
+   *  dozen of a planet's `4 nside - 1` -- a thousand on Terra -- and all of
+   *  them together weigh what one solid table would. */
   private laid = new Map<number, Int32Array>();
   readonly nside: number;
 
@@ -221,7 +222,7 @@ export class Rings {
    * Laid out when the ring is first read and not before. Walking every cell
    * of the planet to put it in its ring is the shorter arithmetic per ring,
    * but it is four hundred milliseconds of it before a single line can be
-   * drawn, and a frame touches a few dozen rings of four thousand. Asking
+   * drawn, and a frame touches a few dozen of a planet's thousand. Asking
    * the projection for the middle of every place of one ring is a fifth of
    * a millisecond, and it is asked for the rings that are looked at.
    */

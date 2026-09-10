@@ -11,14 +11,16 @@
  * the ground is the shader's, and lines cut from cells of four hundred
  * metres would web the region over (owner, 2026-09-09).
  *
- * Two memos, two costs: every line is cut for the window the frame stands
- * in, and cut again only when the eye leaves that window (`quantisedEye`)
- * or the frame changes width; the projection runs on every eye, because
- * the frame's origin is the eye. The coast and the rivers used to be cut
- * for the **planet** instead and kept in bins -- one walk over a million
- * and a half cells, three seconds of it on the loop before a single line
- * appeared, for a shore that is only ever drawn from forty-five kilometres
- * in. The window is forty thousand samples; there is nothing to wait for.
+ * Two memos, two costs: every line is cut on one mesh of ground about the
+ * eye, a cell of the grid to the step, and cut again only when the eye
+ * leaves the window it was cut for (`quantisedEye`) or the frame changes
+ * width; the projection runs on every eye, because the frame's origin is
+ * the eye. The coast and the rivers used to be cut for the **planet**
+ * instead and kept in bins -- one walk over a million and a half cells,
+ * three seconds of it on the loop before a single line appeared, for a
+ * shore that is only ever drawn from forty-five kilometres in. A near
+ * frame's mesh is tens of thousands of samples; there is nothing to wait
+ * for.
  */
 
 import { useMemo } from "react";

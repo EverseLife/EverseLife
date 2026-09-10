@@ -13,9 +13,14 @@
  * here", and neither crowds the other's frame. Close in the province is
  * not lost -- the inspector names it under every find (wave 3).
  *
- * The boundary is read off the province raster once per planet and kept
- * for the page, as the coast is; the projection runs per eye over the bins
- * under the frame, so a frame pays for what is under it.
+ * Where each name is written is read once per planet -- a mean over the
+ * ground, which no frame changes -- and so are the boundaries **as the
+ * planet's own disk shows them**: that disk has no bounded frame, every eye
+ * sees the same whole, and a walk with a fixed phase is the only one whose
+ * lines do not crawl a sample sideways after every step of the eye. A
+ * bounded frame cuts its own boundaries instead, on a mesh of ground at the
+ * frame's own step, and cuts them again when the eye leaves the window they
+ * were cut for.
  */
 
 import { useMemo } from "react";
@@ -29,19 +34,20 @@ import {
   closeFrame,
   frameMetres,
   provinceFrame,
-  provinceMarksOf,
+  provinceWhole,
   quantisedEye,
   type ProvinceMark,
+  type Segment,
 } from "./contours";
 import { useRasters } from "./rasters";
 import { provinceWord } from "./words";
 
-/** Where a planet's names are written, read once for the life of the page:
- *  the mean of each province's ground, which no frame changes. The
- *  boundaries are not kept -- they are cut for the frame's own window and
- *  at its own stride, so the planet's disk is walked two hundred samples
- *  across and the region's at its cells. */
-const MARKS = new Map<string, ProvinceMark[]>();
+/** What the planet's own disk shows of its provinces, read once for the
+ *  life of the page: where each name is written -- a mean over the ground,
+ *  which no frame changes -- and the boundaries at that disk's own
+ *  coarseness. A bounded frame cuts its own boundaries instead, on a mesh
+ *  of ground at the frame's step (`provinceFrame`). */
+const WHOLE = new Map<string, { marks: ProvinceMark[]; edges: Segment[] }>();
 
 export function Provinces({
   planet,
@@ -64,22 +70,28 @@ export function Provinces({
   const names = useNames();
   //: Far frames only: the near ones belong to the relief's lines.
   const wide = !closeFrame(frameMetres(within));
-  const marks = useMemo(() => {
+  const whole = useMemo(() => {
     if (!wide || !rasters || !passport) return null;
-    let held = MARKS.get(planet);
-    if (!held) MARKS.set(planet, (held = provinceMarksOf(rasters, passport)));
+    let held = WHOLE.get(planet);
+    if (!held) WHOLE.set(planet, (held = provinceWhole(rasters, passport)));
     return held;
   }, [wide, planet, rasters, passport]);
   const { lat, lon } = quantisedEye(eye, radius, within);
+  //: The planet's disk has no frame to cut for -- every eye sees the same
+  //: hemisphere of the same whole -- so it takes the walk that was made
+  //: once. A bounded frame cuts its own, and cuts it again when the eye
+  //: leaves the window it was cut for.
   const edges = useMemo(
     () =>
-      wide && rasters && passport
-        ? provinceFrame(rasters, passport, { lat, lon }, radius, within)
-        : null,
-    [wide, rasters, passport, lat, lon, radius, within],
+      !wide || !rasters || !passport
+        ? null
+        : within === undefined
+          ? (whole?.edges ?? null)
+          : provinceFrame(rasters, passport, { lat, lon }, radius, within),
+    [wide, rasters, passport, whole, lat, lon, radius, within],
   );
   const drawn = useMemo(() => {
-    if (!marks || !edges || !passport) return null;
+    if (!whole || !edges || !passport) return null;
     const parts: string[] = [];
     for (const [a, b] of edges) {
       const p = project(eye, radius, a);
@@ -87,7 +99,7 @@ export function Provinces({
       if (!p.front || !q.front) continue;
       parts.push(`M${p.x.toFixed(1)} ${p.y.toFixed(1)}L${q.x.toFixed(1)} ${q.y.toFixed(1)}`);
     }
-    const labels = marks.flatMap((mark) => {
+    const labels = whole.marks.flatMap((mark) => {
       const id = passport.provinces?.[mark.code - 1];
       const word = id ? provinceWord({ province: id }, names) : null;
       const at = project(eye, radius, mark.at);
@@ -96,7 +108,7 @@ export function Provinces({
       return word && at.front ? [{ id, word, x: at.x, y: at.y }] : [];
     });
     return { edges: parts.join(""), labels };
-  }, [marks, edges, passport, names, eye, radius]);
+  }, [whole, edges, passport, names, eye, radius]);
   //: The name is set in map units by the stylesheet and grown to the pixels
   //: it wants, as a closed city's name is (`Nodes`): a `font-size` of many
   //: thousands of units is one the browser draws no glyphs for at all.
