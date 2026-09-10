@@ -37,9 +37,18 @@ first, too -- whoever merges first is by definition not the one who must
 re-parent. Two sessions stood in that deadlock within an hour of the first
 version of this check, and the author of it could not commit the repair.
 
-`--tree` is the other question and the only one allowed to refuse: not a
-forecast but a fact -- *this* tree, right now, holds two heads. That is what
-`pre-merge-commit` asks.
+One exception, and it is not about what was found: `Unusable`, raised when the
+check cannot read what it was asked to read, exits 1. A check that could not
+look is not a check that found nothing, and the two must not arrive as the
+same number. It cannot lock a tree either way -- `pre-commit` runs the
+forecast with `|| true`, and only the forecast reads git at all: `--tree`
+reads the files lying here and has nothing to be unable to read. Which is
+also why the hooks may print "two heads, re-parent" on any non-zero from
+`--tree` without ever putting that sentence to a failure of a different kind.
+
+`--tree` is the other question and the only one allowed to refuse over what it
+finds: not a forecast but a fact -- *this* tree, right now, holds two heads.
+That is what `pre-merge-commit` asks.
 
 **Run it by hand before a merge.** The `pre-merge-commit` hook is the hard
 stop, but it fires only when a merge writes a commit -- and `--ff-only`, the
@@ -102,9 +111,20 @@ def _refs() -> list[str]:
 
 
 def _blobs(ref: str) -> dict[str, str]:
-    """path -> blob sha for the migrations of one ref."""
+    """path -> blob sha for the migrations of one ref.
+
+    `--full-tree` because a pathspec is otherwise read against the current
+    directory, and `backend/` is where `pytest`, `alembic` and `ruff` are run
+    here: from there `VERSIONS` resolves to `backend/backend/migrations/...`
+    and **every ref answers with nothing**. Not an error -- an empty listing,
+    which leaves the forecast standing on the worktree files alone, and a
+    branch with no worktree on disk simply disappears from it. Measured: 109
+    blobs from the root, 0 from `backend/`, the same command otherwise. The
+    silent "clean" this whole module exists to prevent, reachable by
+    `cd backend`.
+    """
     found: dict[str, str] = {}
-    for line in _git("ls-tree", "-r", ref, "--", VERSIONS).splitlines():
+    for line in _git("ls-tree", "-r", "--full-tree", ref, "--", VERSIONS).splitlines():
         head, _, path = line.partition("\t")
         parts = head.split()
         if len(parts) == 3 and parts[1] == "blob" and path.endswith(".py"):
@@ -113,32 +133,64 @@ def _blobs(ref: str) -> dict[str, str]:
 
 
 def _read(shas: set[str]) -> dict[str, str]:
-    """Every blob in one `cat-file --batch`: a `git show` per file is minutes."""
+    """Every blob in one `cat-file --batch`: a `git show` per file is minutes.
+
+    Read as **bytes**, and the reason is `size`: git counts each body in
+    bytes, while the migrations here hold Russian -- in comments and in the
+    text of refusals. Decoded first and sliced by that count afterwards, every
+    non-ASCII character shortens the slice by a byte; the slice then runs into
+    the headers that follow, and the record after it is lost. Measured on
+    `rescue/main-tree-2026-09-04`, 99 migrations: 88 came back.
+
+    Silently, which is the whole of the harm. A lost migration leaves its
+    parent unclaimed and invents a head -- noisy, and merely wrong. The other
+    way round is worse: lose one half of a real collision and its revision is
+    nowhere, the head count comes out at one, and this exits 0 -- the
+    "молчаливое «чисто»" the module warns about, over the very fault it
+    exists to catch. So the batch is sliced as bytes and each body decoded
+    on its own.
+    """
     if not shas:
         return {}
     listing = sorted(shas)
     done = subprocess.run(
         ["git", "cat-file", "--batch"],
-        input="\n".join(listing) + "\n",
+        input=("\n".join(listing) + "\n").encode("ascii"),
         capture_output=True,
-        encoding="utf-8",
-        errors="replace",
-        text=True,
     )
     if done.returncode != 0:
-        raise Unusable(f"git cat-file: {done.stderr.strip()}")
+        raise Unusable(f"git cat-file: {done.stderr.decode('utf-8', 'replace').strip()}")
     out: dict[str, str] = {}
     rest = done.stdout
+    #: A cursor rather than `rest = rest[...]`: re-slicing copies the whole
+    #: remaining batch once per blob, and there are as many blobs as every
+    #: branch holds migrations.
+    at = 0
     for sha in listing:
-        marker = rest.find(sha)
-        if marker < 0:
-            continue
-        line_end = rest.find("\n", marker)
-        header = rest[marker:line_end].split()
-        size = int(header[2]) if len(header) == 3 and header[2].isdigit() else 0
+        line_end = rest.find(b"\n", at)
+        header = rest[at:line_end].split() if line_end >= 0 else []
+        #: `<sha> SP <type> SP <size> LF`, one record per line asked and in
+        #: the order asked -- so the record here must be the blob asked for.
+        #: Anything else (a missing object, a size that is not a number, a
+        #: header where a body should be) means the parse has lost its place,
+        #: and carrying on from a lost place is what dropped blobs before: it
+        #: ends in a head count nobody can trust. A refused answer beats an
+        #: invented one.
+        if len(header) != 3 or header[0] != sha.encode("ascii") or not header[2].isdigit():
+            raise Unusable(
+                f"git cat-file --batch: на месте записи о {sha} -- {rest[at : at + 200]!r}; "
+                "разбор сбился, и посчитанные головы уже ничего не значат"
+            )
         body_at = line_end + 1
-        out[sha] = rest[body_at : body_at + size]
-        rest = rest[body_at + size :]
+        size = int(header[2])
+        body = rest[body_at : body_at + size]
+        if len(body) != size:
+            raise Unusable(f"git cat-file --batch: {sha} оборван на {len(body)} байтах из {size}")
+        out[sha] = body.decode("utf-8", "replace")
+        #: git writes a newline of its own after each body.
+        at = body_at + size
+        if rest[at : at + 1] == b"\n":
+            at += 1
     return out
 
 
