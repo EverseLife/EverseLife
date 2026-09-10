@@ -389,8 +389,17 @@ export function cityLabelEm(far: number): number {
  * Whether a closed city of `size` nodes is still drawn this far out: the
  * frame may hold one node of it per `KM_PER_NODE` of its span, so a hamlet
  * fades a few hundred kilometres out and the capital never does.
+ *
+ * Divided by the root of eight when the planets were shrunk eightfold by
+ * area (2026-09-10). The frames of the map are the planet's radius
+ * (`groundReach`), and this rule is the only one on them written in absolute
+ * kilometres: left at two hundred, the widest frame Terra has would have
+ * been 180 km and the threshold would have been one node, so nothing would
+ * have faded anywhere and the rule would have been off. Seventy keeps what
+ * it kept before -- two nodes on the planet's own frame, three on the
+ * farthest the map goes.
  */
-export const KM_PER_NODE = 200;
+export const KM_PER_NODE = 70;
 export function citySeen(size: number, far: number): boolean {
   const spanKm = (W / CITY_SCALE / UNITS_PER_METRE / 1000) * 2 ** (far / 2);
   return size >= Math.ceil(spanKm / KM_PER_NODE);
