@@ -128,7 +128,14 @@ class Span(Spec):
 
 @dataclass(frozen=True, slots=True)
 class Bands(Spec):
-    """A map `name -> {min, max}`: the moisture band a thirst asks for (D-296)."""
+    """A map `name -> {min, max}`: the moisture band a thirst asks for (D-296).
+
+    `keys` names the entries the engine reads by name, exactly as `Table`
+    does and for the same reason: without it a band the vault dropped is a
+    `KeyError` at the first read rather than a refusal at the boot.
+    """
+
+    keys: tuple[str, ...] = ()
 
     def read(self, raw: Any) -> dict[str, dict[str, float]]:
         if not isinstance(raw, dict):
@@ -141,6 +148,9 @@ class Bands(Spec):
             if not isinstance(lo, (int, float)) or not isinstance(hi, (int, float)) or lo > hi:
                 raise self._fail(raw, f"numbers with min <= max at key {name!r}")
             out[str(name)] = {"min": float(lo), "max": float(hi)}
+        missing = [name for name in self.keys if name not in out]
+        if missing:
+            raise self._fail(raw, f"a band at every one of {', '.join(missing)}")
         return out
 
 
@@ -178,7 +188,16 @@ class Words(Spec):
     `forage.place` says where a find lies, and the answer is a place mark
     rather than a quantity (D-254). Read apart from `Table` on purpose: a
     table of numbers that quietly admitted a string would stop being one.
+
+    `keys` names the entries the engine reads by name and `allowed` the words
+    it knows, exactly as `Table` and `Bands` name theirs. Both matter more
+    here than for a number: a missing planet in `terrain.fluid` silently made
+    that world watery, and a misspelt `Lava` did the same without any reader
+    noticing -- a word compares equal to nothing and nobody raises.
     """
+
+    keys: tuple[str, ...] = ()
+    allowed: tuple[str, ...] = ()
 
     def read(self, raw: Any) -> dict[str, str]:
         if not isinstance(raw, dict):
@@ -187,7 +206,12 @@ class Words(Spec):
         for name, value in raw.items():
             if not isinstance(value, str) or not value:
                 raise self._fail(raw, f"a non-empty word under {name!r}")
+            if self.allowed and value not in self.allowed:
+                raise self._fail(raw, f"one of {', '.join(self.allowed)} at key {name!r}")
             out[str(name)] = value
+        missing = [name for name in self.keys if name not in out]
+        if missing:
+            raise self._fail(raw, f"a word at every one of {', '.join(missing)}")
         return out
 
 

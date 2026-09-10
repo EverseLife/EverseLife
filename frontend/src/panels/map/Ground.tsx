@@ -216,6 +216,11 @@ export function Ground({
   return (
     <g
       className={tones ? "ground warmth" : "ground"}
+      //: What flows here, for the stylesheet: this path draws the whole
+      //: planet where WebGL2 is missing, and a lava ocean painted blue is a
+      //: lie about the world, not a fallback for it. The shader learns the
+      //: same word through the palette's probe (`shade.FLUID_TONES`).
+      data-fluid={terrain?.raster?.fluid ?? "water"}
       style={{ "--pc": `var(--planet-${planet})` } as React.CSSProperties}
     >
       <clipPath id={clip}>

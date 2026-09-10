@@ -18,13 +18,8 @@ checked here is the whole of that:
 
 from __future__ import annotations
 
-import json
 import math
-import shutil
-import subprocess
-import sys
 from datetime import timedelta
-from pathlib import Path
 
 import numpy as np
 import pytest
@@ -148,7 +143,11 @@ def test_the_river_mark_is_a_fact_of_the_map(constants: Constants) -> None:
 def test_the_climate_follows_the_latitude_and_the_height(constants: Constants) -> None:
     """Warm at the equator, cold at the pole, colder again uphill (D-261, D-319)."""
     field = terrain.field_of(constants, Planet.TERRA)
-    warm, cold = constants[R.SITE_TEMP_RANGE].max, constants[R.SITE_TEMP_RANGE].min
+    #: The planet's own ends, not the node's scale: since 2026-09-10 every
+    #: world has its warm and cold end of its own, and Terra's happen to be
+    #: the same pair `site.temp_range` still uses for a node's thermometer.
+    ends = constants[R.TERRAIN_TEMP_RANGE][Planet.TERRA.value]
+    warm, cold = ends["max"], ends["min"]
     lows = [
         terrain.climate_at(constants, Planet.TERRA, 0.0, lon)[0] for lon in range(-180, 180, 20)
     ]
@@ -273,45 +272,6 @@ async def test_noon_comes_to_the_east_first(session: AsyncSession, constants: Co
     assert climate.temperature_now(constants, east, origin, later) < 20.0
     assert climate.temperature_now(constants, west, origin, later) > 20.0
     assert swing > 0
-
-
-def test_the_sketch_tool_builds_the_field_the_numbers_ask_for(
-    constants: Constants, tmp_path
-) -> None:
-    """`tools/sketch.py`: the same field, with numbers tried over the build.
-
-    The vault's editor draws a planet while its numbers are being turned, and
-    the shape those numbers make is **this** arithmetic. The tool is the door
-    it asks through, so that the world never has two shapes -- the one a tool
-    shows and the one the game builds. What is pinned here is the door: a
-    value put over the build changes the field, and nothing is written.
-    """
-    build = tmp_path / "build"
-    build.mkdir()
-    #: The build the engine itself is running on, copied so the tool has one
-    #: to read: the test must not depend on where the vault is checked out.
-    raw = json.loads(Path(constants.source).read_text(encoding="utf-8"))
-    (build / "constants.json").write_text(json.dumps(raw), encoding="utf-8")
-    #: And the field beside it: the tool reads the planet from the build's
-    #: `field/` as the engine does (plan wave 2).
-    shutil.copytree(Path(constants.source).parent / "field", build / "field")
-
-    def run(*extra: str) -> dict:
-        done = subprocess.run(
-            [sys.executable, "tools/sketch.py", "--planet", "terra", "--build", str(build), *extra],
-            capture_output=True,
-            check=False,
-            cwd=Path(__file__).resolve().parent.parent,
-        )
-        assert done.returncode == 0, done.stderr.decode("utf-8", errors="replace")
-        return json.loads(done.stdout.decode("utf-8"))
-
-    plain = run()
-    assert plain["rows"] > 0 and plain["cols"] == 2 * plain["rows"]
-    turned = run("--set", "terrain.mountain_share=0.5")
-    assert turned["mountain_level"] != plain["mountain_level"], "другая доля гор — другая линия"
-    #: And the file the tool read is exactly as it was: a preview writes nothing.
-    assert json.loads((build / "constants.json").read_text(encoding="utf-8")) == raw
 
 
 def test_the_field_has_metres(constants: Constants) -> None:

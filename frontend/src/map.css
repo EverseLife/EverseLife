@@ -54,6 +54,15 @@
   --gl-sea-deep: color-mix(in srgb, var(--pc) 22%, var(--base-900));
   --gl-sea-shallow: color-mix(in srgb, var(--pc) 34%, var(--base-850));
   --gl-lake: color-mix(in srgb, var(--pc) 62%, var(--base-700));
+  /* Lava, for a planet whose fluid is not water (`RasterPassport.fluid`).
+     Not the sea in another hue: the sea darkens with depth because light
+     stops reaching down it, and lava brightens because the light comes out
+     of it -- so the deep end is the hot one, and both ends are mixed towards
+     white rather than towards the page's dark. Mixed the sea's way, a lava
+     ocean came out muddy brown and read as a mud flat. */
+  --gl-lava-deep: color-mix(in srgb, var(--pc) 70%, #ffd08a);
+  --gl-lava-shallow: color-mix(in srgb, var(--pc) 88%, var(--base-800));
+  --gl-lava-lake: color-mix(in srgb, var(--pc) 76%, #ffd08a);
   --gl-high: color-mix(in srgb, var(--base-400) 40%, var(--base-700));
 }
 .map-field > .ground-gl {
@@ -529,6 +538,17 @@ polyline.edge {
 .ground .water {
   --tone: color-mix(in srgb, var(--pc) 62%, var(--base-700));
   fill: var(--tone);
+}
+/* Lava, where the planet's fluid is not water (`Ground` sets `data-fluid`
+   off the raster passport). This path is the whole ground on a machine
+   without WebGL2, so leaving it blue would paint Pyroxis an ocean world for
+   exactly the people who cannot see the shader's answer. Mixed towards white
+   rather than towards the page's dark, for the reason `--gl-lava-*` gives. */
+.ground[data-fluid="lava"] .sea {
+  --tone: color-mix(in srgb, var(--pc) 70%, #ffd08a);
+}
+.ground[data-fluid="lava"] .water {
+  --tone: color-mix(in srgb, var(--pc) 76%, #ffd08a);
 }
 .ground .land.cold {
   --tone: var(--base-800);

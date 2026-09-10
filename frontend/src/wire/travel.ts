@@ -257,6 +257,12 @@ export type RasterKind =
   | "flow"
   | "lake";
 export type RasterPassport = {
+  /** What flows on this planet: water on Terra and Aquatica, lava on
+   *  Pyroxis. One raster says where the fluid lies on every planet -- a cell
+   *  is either land or under it, and either way it cannot be walked into --
+   *  but a lava ocean must not be painted blue, so the substance comes with
+   *  the picture rather than being guessed from the planet's name. */
+  fluid: "water" | "lava";
   /** The grid the picture is cut on (D-328): twelve square faces of `nside`
    *  cells a side, equal in area everywhere -- no rows of latitude, and so
    *  no pole where a cell shrinks to nothing. */

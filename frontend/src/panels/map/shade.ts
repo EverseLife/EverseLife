@@ -589,13 +589,32 @@ export type Palette = {
   high: [number, number, number];
 };
 
-/** What is asked of the theme for the water and the heights, as the map's
- *  own tones are spelt in `map.css` -- the same expressions the SVG ground
- *  uses, so the two paths draw one sea. */
+/** What is asked of the theme for the fluid and the heights, as the map's
+ *  own tones are spelt in `map.css`. The SVG ground answers the same
+ *  question there in its own rules (`.ground[data-fluid]`) rather than
+ *  through these expressions: the two paths agree on the colour of a sea
+ *  because they are given the same recipe, not because they share a token.
+ *
+ *  A set per fluid (`RasterPassport.fluid`). Lava is not water in another
+ *  hue: water darkens with depth because light stops reaching down it, and
+ *  lava brightens because the light is coming out of it. Mixed towards the
+ *  page's own dark the way the sea is, a lava ocean came out a muddy brown
+ *  and read as a mud flat -- which is what Pyroxis looked like before the
+ *  planets were told apart at all. */
+export const FLUID_TONES = {
+  water: {
+    seaShallow: "var(--gl-sea-shallow)",
+    seaDeep: "var(--gl-sea-deep)",
+    lake: "var(--gl-lake)",
+  },
+  lava: {
+    seaShallow: "var(--gl-lava-shallow)",
+    seaDeep: "var(--gl-lava-deep)",
+    lake: "var(--gl-lava-lake)",
+  },
+} as const;
 export const TONES = {
-  seaShallow: "var(--gl-sea-shallow)",
-  seaDeep: "var(--gl-sea-deep)",
-  lake: "var(--gl-lake)",
+  ...FLUID_TONES.water,
   high: "var(--gl-high)",
 } as const;
 
@@ -611,6 +630,7 @@ export function paletteOf(
   probe: HTMLElement,
   planet: string,
   biomes: readonly string[],
+  fluid: keyof typeof FLUID_TONES = "water",
   computed: (el: HTMLElement) => string = (el) => getComputedStyle(el).color,
 ): Palette {
   probe.style.setProperty("--pc", `var(--planet-${planet})`);
@@ -626,11 +646,15 @@ export function paletteOf(
     table[i * 3 + 1] = g;
     table[i * 3 + 2] = b;
   }
+  //: A fluid the client has not heard of falls back to water rather than to
+  //: magenta: an unknown word is a vault ahead of this build, and a blue sea
+  //: is a better wrong answer than a hole in the map.
+  const tones = FLUID_TONES[fluid] ?? FLUID_TONES.water;
   return {
     biomes: table,
-    seaShallow: read(TONES.seaShallow),
-    seaDeep: read(TONES.seaDeep),
-    lake: read(TONES.lake),
+    seaShallow: read(tones.seaShallow),
+    seaDeep: read(tones.seaDeep),
+    lake: read(tones.lake),
     high: read(TONES.high),
   };
 }

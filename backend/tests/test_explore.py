@@ -109,10 +109,21 @@ def _step(
     return globe.offset(radius, origin, metres * math.sin(bearing), metres * math.cos(bearing))
 
 
-def _reach(constants: Constants, node: Node) -> tuple[float, float]:
+def _reach(constants: Constants, catalog: Catalog, node: Node) -> tuple[float, float]:
+    """The band `explore.check` will measure this node's aim against.
+
+    The **facet's** band, not the biome's. They are not the same: a face may
+    narrow the biome's reach by as much as the vault's reeds do, and asking
+    the biome alone gave a step the engine then refused for being too far.
+    It held only while the camp happened to stand on a face that narrows
+    little, and every rebuilt field moves the camp -- D-324 moved it once,
+    D-329 again, and the second time it broke here (38 m against a 25 m
+    reach). A test that measures by one rule what the engine judges by
+    another is a trap that re-arms itself on the next world.
+    """
     here = biome.of_node(constants, node)
     assert here is not None
-    return biome.reach_m(constants, here)
+    return facet.reach_m(constants, here, facet.of_node(constants, catalog, node))
 
 
 # --- the lattice --------------------------------------------------------------
@@ -163,7 +174,7 @@ async def test_the_landscape_refuses_too_near_too_far_and_the_water(
     _, camp, _ = await _camp(session, constants)
     here = places.geo_of(camp)
     assert here is not None
-    near, far = _reach(constants, camp)
+    near, far = _reach(constants, catalog, camp)
     with pytest.raises(explore.TooNear):
         await explore.check(
             session, constants, catalog, camp, _step(constants, Planet.TERRA, here, near / 3)
@@ -178,7 +189,7 @@ async def test_the_landscape_refuses_too_near_too_far_and_the_water(
     assert near <= aim.metres <= far and aim.existing is None
     #: Into the sea: a camp on the land side of a shoreline aims across it.
     sphere = await session.get(Node, camp.parent_id)
-    land, water = _shoreline(constants)
+    land, water = _shoreline(constants, catalog)
     shore = await world.create_node(
         session, "terra.shore", "Shore", area_m2=60, parent=sphere, properties=_pin(land)
     )
@@ -186,7 +197,7 @@ async def test_the_landscape_refuses_too_near_too_far_and_the_water(
         await explore.check(session, constants, catalog, shore, water)
 
 
-def _shoreline(constants: Constants) -> tuple[globe.Geo, globe.Geo]:
+def _shoreline(constants: Constants, catalog: Catalog) -> tuple[globe.Geo, globe.Geo]:
     """A dry point just inland of the sea's edge and a wet one a lawful step
     out: the edge is bisected along a row between a dry centre and a wet one,
     because the height is interpolated between cells.
@@ -218,7 +229,12 @@ def _shoreline(constants: Constants) -> tuple[globe.Geo, globe.Geo]:
             if field.is_water(*land):
                 continue
             here = biome.classify(constants, Planet.TERRA, *land)
-            near, far = biome.reach_m(constants, here)
+            #: The **facet's** band, as `explore.check` will measure it: the
+            #: biome's alone gave a step the engine then refused for being
+            #: too far, and the test never reached the question it asks.
+            near, far = facet.reach_m(
+                constants, here, facet.at(constants, catalog, Planet.TERRA, *land, here=here)
+            )
             water = globe.offset(radius, land, (near + far) / 2, 0.0)
             if field.is_water(*water):
                 return land, water
@@ -236,7 +252,7 @@ async def test_no_room_beside_a_node_and_no_way_across_another(
     sphere, camp, _ = await _camp(session, constants)
     here = places.geo_of(camp)
     assert here is not None
-    near, far = _reach(constants, camp)
+    near, far = _reach(constants, catalog, camp)
     taken = _step(constants, Planet.TERRA, here, far * 0.7, bearing=0.0)
     other = await world.create_node(
         session, "terra.taken", "Taken", area_m2=240, parent=sphere, properties=_pin(taken)
@@ -279,12 +295,12 @@ async def test_no_room_beside_a_node_and_no_way_across_another(
 
 
 async def test_a_run_costs_the_walk_of_its_metres_over_wild_ground(
-    session: AsyncSession, constants: Constants
+    session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
     _, camp, scout = await _camp(session, constants)
     here = places.geo_of(camp)
     assert here is not None
-    near, far = _reach(constants, camp)
+    near, far = _reach(constants, catalog, camp)
     before = float(scout.stamina)
     moment = datetime.now(UTC)
     job = await explore.survey(
@@ -316,7 +332,7 @@ async def test_the_run_reads_the_field_and_sews_the_node_on(
         _, camp, scout = await _camp(session, constants)
         here = places.geo_of(camp)
         assert here is not None
-        _, far = _reach(constants, camp)
+        _, far = _reach(constants, catalog, camp)
         target = _step(constants, Planet.TERRA, here, far * 0.8, bearing=0.3)
         job = await explore.survey(session, constants, scout, target)
         cell = tuple(job.payload["cell"])
@@ -387,7 +403,7 @@ async def test_a_find_gets_one_way_and_it_is_the_one_walked(
         _, camp, scout = await _camp(session, constants)
         here = places.geo_of(camp)
         assert here is not None
-        _, far = _reach(constants, camp)
+        _, far = _reach(constants, catalog, camp)
         job = await explore.survey(
             session, constants, scout, _step(constants, Planet.TERRA, here, far * 0.8, bearing=0.3)
         )
@@ -416,7 +432,7 @@ async def test_a_find_gets_one_way_and_it_is_the_one_walked(
         point = places.geo_of(node)
         assert point is not None
         radius = globe.radius_m(constants, Planet.TERRA)
-        _, reach = _reach(constants, node)
+        _, reach = _reach(constants, catalog, node)
         near = [
             other
             for other in (await session.scalars(select(Node).where(Node.planet == Planet.TERRA)))
@@ -450,7 +466,7 @@ async def test_two_scouts_do_not_lay_one_cell_twice(
         sphere, camp, scout = await _camp(session, constants)
         here = places.geo_of(camp)
         assert here is not None
-        near, far = _reach(constants, camp)
+        near, far = _reach(constants, catalog, camp)
         target = _step(constants, Planet.TERRA, here, far * 0.8, bearing=0.0)
         other_point = _step(constants, Planet.TERRA, here, far * 1.6, bearing=0.0)
         other_camp = await world.create_node(
@@ -507,7 +523,7 @@ async def test_a_run_on_the_ice_may_find_a_complex_of_the_forerunners(
         sphere, camp, scout = await _camp(session, constants, Planet.AURORA, at=(-8.0, 112.0))
         here = places.geo_of(camp)
         assert here is not None
-        near, far = _reach(constants, camp)
+        near, far = _reach(constants, catalog, camp)
         #: Runs from one camp at the cells whose own roll hides a complex: the
         #: roll is the cell's (`complex_roll`), so the test may ask it first.
         chance = constants[R.COMPLEX_CHANCE]["aurora"][biome.ICE] / 100
@@ -624,7 +640,7 @@ async def test_a_body_scouts_again_after_a_run_is_over(
         _, camp, scout = await _camp(session, constants)
         here = places.geo_of(camp)
         assert here is not None
-        _, far = _reach(constants, camp)
+        _, far = _reach(constants, catalog, camp)
         job = await explore.survey(
             session, constants, scout, _step(constants, Planet.TERRA, here, far * 0.8, bearing=0.0)
         )
@@ -658,7 +674,7 @@ async def test_the_loser_of_the_race_brings_home_a_way_and_both_runs_end(
         sphere, camp, scout = await _camp(session, constants)
         here = places.geo_of(camp)
         assert here is not None
-        _, far = _reach(constants, camp)
+        _, far = _reach(constants, catalog, camp)
         target = _step(constants, Planet.TERRA, here, far * 0.8, bearing=0.0)
         other_camp = await world.create_node(
             session,
@@ -711,7 +727,7 @@ async def test_a_scout_who_walked_away_comes_back_to_nothing(
         sphere, camp, scout = await _camp(session, constants)
         here = places.geo_of(camp)
         assert here is not None
-        _, far = _reach(constants, camp)
+        _, far = _reach(constants, catalog, camp)
         job = await explore.survey(
             session, constants, scout, _step(constants, Planet.TERRA, here, far * 0.8, bearing=0.0)
         )
@@ -765,7 +781,7 @@ async def test_a_long_leap_lands_on_wide_ground_and_a_wide_node_keeps_others_off
     sphere, camp, _ = await _camp(session, constants)
     here = places.geo_of(camp)
     assert here is not None
-    near, far = _reach(constants, camp)
+    near, far = _reach(constants, catalog, camp)
     span = constants[R.EXPLORE_NODE_AREA]
     #: The rule itself, and it is asked of the arithmetic rather than of two
     #: aims from this camp. `area_for` is `min(ceiling, pi (fill x free)^2)`,
@@ -829,7 +845,7 @@ async def test_a_long_leap_lands_on_wide_ground_and_a_wide_node_keeps_others_off
 
 
 async def test_a_scout_with_a_run_under_way_does_not_set_out(
-    factory: async_sessionmaker[AsyncSession], constants: Constants
+    factory: async_sessionmaker[AsyncSession], constants: Constants, catalog: Catalog
 ) -> None:
     """The road is a second deed (D-211): refused at the door, not found out
     at the run's end (D-321 item 7). The body stands in the node meanwhile."""
@@ -837,7 +853,7 @@ async def test_a_scout_with_a_run_under_way_does_not_set_out(
         sphere, camp, scout = await _camp(session, constants)
         here = places.geo_of(camp)
         assert here is not None
-        _, far = _reach(constants, camp)
+        _, far = _reach(constants, catalog, camp)
         await explore.survey(
             session, constants, scout, _step(constants, Planet.TERRA, here, far * 0.8, bearing=0.0)
         )
@@ -896,7 +912,7 @@ async def test_the_run_ends_standing_on_the_find(
         _, camp, scout = await _camp(session, constants)
         here = places.geo_of(camp)
         assert here is not None
-        _, far = _reach(constants, camp)
+        _, far = _reach(constants, catalog, camp)
         job = await explore.survey(
             session, constants, scout, _step(constants, Planet.TERRA, here, far * 0.8, bearing=0.4)
         )
@@ -927,7 +943,7 @@ async def test_the_loser_of_the_race_ends_on_the_node_somebody_else_laid(
         sphere, camp, scout = await _camp(session, constants)
         here = places.geo_of(camp)
         assert here is not None
-        _, far = _reach(constants, camp)
+        _, far = _reach(constants, catalog, camp)
         target = _step(constants, Planet.TERRA, here, far * 0.8, bearing=0.0)
         job = await explore.survey(session, constants, scout, target)
         term, scout_id = job.run_at, scout.id
@@ -963,7 +979,7 @@ async def test_turning_back_leaves_the_scout_where_they_set_out(
         _, camp, scout = await _camp(session, constants)
         here = places.geo_of(camp)
         assert here is not None
-        _, far = _reach(constants, camp)
+        _, far = _reach(constants, catalog, camp)
         job = await explore.survey(
             session, constants, scout, _step(constants, Planet.TERRA, here, far * 0.8, bearing=1.0)
         )
@@ -1015,7 +1031,7 @@ async def test_the_run_says_where_it_goes_and_by_when(
         _, camp, scout = await _camp(session, constants)
         here = places.geo_of(camp)
         assert here is not None
-        _, far = _reach(constants, camp)
+        _, far = _reach(constants, catalog, camp)
         assert await explore.leg_of(session, constants, scout) is None
         job = await explore.survey(
             session, constants, scout, _step(constants, Planet.TERRA, here, far * 0.8, bearing=2.5)
@@ -1053,7 +1069,7 @@ async def test_the_turn_back_and_the_run_do_not_both_land(
         _, camp, scout = await _camp(session, constants)
         here = places.geo_of(camp)
         assert here is not None
-        _, far = _reach(constants, camp)
+        _, far = _reach(constants, catalog, camp)
         job = await explore.survey(
             session, constants, scout, _step(constants, Planet.TERRA, here, far * 0.8, bearing=1.4)
         )
@@ -1107,7 +1123,7 @@ async def test_a_cart_does_not_go_into_the_wild(
         _, camp, scout = await _camp(session, constants)
         here = places.geo_of(camp)
         assert here is not None
-        _, far = _reach(constants, camp)
+        _, far = _reach(constants, catalog, camp)
         yard = await world.node_container(session, camp)
         cart = await world.grant_item(session, yard, "cart", amount=1, origin="test")
         await transport.harness(session, constants, catalog, scout, cart)
@@ -1134,7 +1150,7 @@ async def test_a_shut_place_is_not_aimed_at(
         sphere, camp, scout = await _camp(session, constants)
         here = places.geo_of(camp)
         assert here is not None
-        _, far = _reach(constants, camp)
+        _, far = _reach(constants, catalog, camp)
         target = _step(constants, Planet.TERRA, here, far * 0.8, bearing=2.9)
         theirs = await world.create_identity(session, "Somebody")
         cell = explore.cell_of(constants, Planet.TERRA, target)

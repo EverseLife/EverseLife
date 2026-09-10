@@ -45,7 +45,9 @@ export const WINDOW_MARGIN = 0.25;
  *  the ladder starts under the region's 21 km.
  *
  *  Both columns were divided by four when the planets were shrunk
- *  sixteenfold by area (2026-09-10), and for two different reasons.
+ *  sixteenfold by area (2026-09-10), and again by two when they were shrunk
+ *  fourfold more (D-329) -- each time by whatever the radius was divided by,
+ *  and each time for two different reasons.
  *  The **widths** because the frames themselves are the radius: at the old
  *  ladder every bounded frame would have fallen under 45 km and the region
  *  frame would have gained lines it was never meant to have. The
@@ -54,14 +56,19 @@ export const WINDOW_MARGIN = 0.25;
  *  by that much crosses that much less height, and an interval left alone
  *  would have left three lines where there were eight.
  *
+ *  Measured on the running client at the first ladder (2026-09-10): 11 lines
+ *  on an 8.1 km frame, 10 on 3.65 km, 9 on 1.63 km, 5 from 0.93 km in, and
+ *  none at all past the first rung. The second ladder is the same numbers
+ *  halved, so the same frames -- half as wide now -- draw the same count.
+ *
  *  Picture, not balance: D-065 leaves the sizes and colours of the window
  *  out of the registry, and the plan's §9.2 lets what the shader and the
  *  lines draw be merely beautiful, judging nothing. */
 export const CONTOUR_LADDER: readonly (readonly [frameM: number, intervalM: number])[] = [
-  [11_250, Infinity],
-  [7_500, 60],
-  [1_750, 25],
-  [0, 12],
+  [5_625, Infinity],
+  [3_750, 30],
+  [875, 12],
+  [0, 6],
 ];
 /** Every so many contours one is drawn heavier, as on a topographic sheet. */
 export const INDEX_EVERY = 5;

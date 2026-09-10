@@ -165,15 +165,6 @@ def marks_at(constants: Constants, planet: Planet, lat: float, lon: float) -> di
     }
 
 
-def by_latitude(constants: Constants, lat: float) -> float:
-    """The mean temperature at sea level here: the vault's warm end at the
-    equator, its cold end at the pole, by the square of the sine of the
-    latitude -- the shape sunlight has."""
-    warm, cold = constants[R.SITE_TEMP_RANGE].max, constants[R.SITE_TEMP_RANGE].min
-    tilt = math.sin(math.radians(lat))
-    return warm - (warm - cold) * tilt * tilt
-
-
 def climate_of(constants: Constants, planet: Planet, lat: float, lon: float) -> tuple[float, float]:
     """The mean temperature and the rainfall at a point, read between the
     cells and not rounded: what the biome is sorted by.
@@ -242,7 +233,7 @@ def _sketched(constants: Constants, planet: Planet, field: fields.Field) -> dict
         "warmth": field.grid_warmth(),
         #: The rasters the shader draws by (plan wave 5, §9.3): their shape
         #: and what their bytes mean, so the client asks for them by kind.
-        "raster": raster_passport(constants, field),
+        "raster": raster_passport(constants, planet, field),
     }
 
 
@@ -263,14 +254,17 @@ def raster_nside(field: fields.Field) -> int:
     seam is a mixture of two faces -- which is the strip of a stranger's
     ground the border is there to prevent.
 
-    So Terra's picture is `nside` 254 against a field of 509, Aurora's 510
-    against 720, and Pyroxis's 254 against 294. The picture is never finer
-    than the field, and it need not divide it: a cell of the picture takes
-    the field's cells whose middles fall inside it (`rasters._thin`).
+    So Terra's picture is `nside` 254 against a field of 255, and the same
+    for Aquatica and Aurora, which are the same size since D-329; Pyroxis's
+    is 126 against 147. The picture is never finer than the field, and it
+    need not divide it: a cell of the picture takes the field's cells whose
+    middles fall inside it (`rasters._thin`).
 
-    Terra's pair is the one to look at: 509 misses 510 by one, so its picture
-    is the next power of two down and its cell is twice the field's. The
-    budget has nothing to do with it -- see `runtime.RASTER_CELLS_MAX`.
+    Three of the four now sit one cell above a rung, so their picture is
+    within four hundredths of a per cent of the field's own fineness. That
+    is luck rather than design --
+    see `runtime.RASTER_CELLS_MAX`, which explains what it used to cost when
+    the radii did not line up, and why the budget there now binds nothing.
     """
     best = 1
     side = healpix.BOTH
@@ -282,12 +276,22 @@ def raster_nside(field: fields.Field) -> int:
     return best
 
 
-def raster_passport(constants: Constants, field: fields.Field) -> dict:
+def raster_passport(constants: Constants, planet: Planet, field: fields.Field) -> dict:
     """What the rasters are: the grid they are cut on, how they are laid out
-    as a texture, the rise a height is a share of, and the code tables."""
+    as a texture, the rise a height is a share of, the code tables, and what
+    the planet's fluid is."""
     nside = raster_nside(field)
     rows, cols = healpix.tile_shape(nside)
     return {
+        #: What flows here: `water` or `lava` (the registry). One raster
+        #: says where the fluid is on every planet -- the engine refuses to
+        #: walk into either -- but the client must not paint a lava ocean
+        #: blue, so the substance travels with the picture rather than being
+        #: guessed from the planet's name. Asked without a default on
+        #: purpose: the spec names every planet and both words, so a vault
+        #: that dropped one is refused at the boot rather than here, where a
+        #: fallback would have quietly made that world watery.
+        "fluid": constants[R.TERRAIN_FLUID][planet.value],
         #: The grid (D-328): twelve square faces of `nside` cells a side,
         #: equal in area everywhere. A cell is found by arithmetic on the
         #: sphere's point, not by a row and a column of latitude.

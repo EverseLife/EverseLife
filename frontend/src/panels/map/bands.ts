@@ -391,14 +391,16 @@ export function cityLabelEm(far: number): number {
  * fades a few hundred kilometres out and the capital never does.
  *
  * Divided by four when the planets were shrunk sixteenfold by area
- * (2026-09-10). The frames of the map are the planet's radius
- * (`groundReach`), and this rule is the only one on them written in absolute
- * kilometres -- so it is the only one that has to be moved by hand every
- * time the radius changes, and the next such change will find it here again.
- * Fifty keeps what two hundred kept: two nodes on the planet's own frame,
- * fifteen on the farthest the map goes.
+ * (2026-09-10), and by two again when they were shrunk fourfold more
+ * (D-329). The frames of the map are the planet's radius (`groundReach`),
+ * and this rule is the only one on them written in absolute kilometres -- so
+ * it is the only one that has to be moved by hand every time the radius
+ * changes. It found itself here again on the very next change, which is the
+ * comment above working as intended. Twenty-five keeps what fifty and two
+ * hundred kept: two nodes on the planet's own frame, fifteen on the farthest
+ * the map goes.
  */
-export const KM_PER_NODE = 50;
+export const KM_PER_NODE = 25;
 export function citySeen(size: number, far: number): boolean {
   const spanKm = (W / CITY_SCALE / UNITS_PER_METRE / 1000) * 2 ** (far / 2);
   return size >= Math.ceil(spanKm / KM_PER_NODE);

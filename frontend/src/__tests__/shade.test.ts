@@ -24,6 +24,7 @@ import {
   PALETTE_SLOTS,
   deepOf,
   edgeStrength,
+  FLUID_TONES,
   formCodes,
   grainStrength,
   heightsOf,
@@ -64,7 +65,7 @@ describe("paletteOf", () => {
       if (asked.includes("--biome-")) return "rgb(255, 0, 255)";
       return "rgb(10, 20, 30)";
     };
-    const palette = paletteOf(probe, "terra", ["forest", "nowhere"], computed);
+    const palette = paletteOf(probe, "terra", ["forest", "nowhere"], "water", computed);
     expect(seen).toEqual(["--pc=var(--planet-terra)"]);
     expect(palette.biomes.length).toBe(PALETTE_SLOTS * 3);
     expect(Array.from(palette.biomes.subarray(0, 3))).toEqual([0, 1, 0]);
@@ -75,6 +76,36 @@ describe("paletteOf", () => {
     expect(palette.lake).toEqual([0, 0, 1]);
     expect(palette).not.toHaveProperty("river");
     expect(palette.seaDeep).toEqual([10 / 255, 20 / 255, 30 / 255]);
+  });
+
+  it("asks for lava's own tones where the planet's fluid is lava", () => {
+    const probe = {
+      style: { color: "", setProperty: () => {} },
+    } as unknown as HTMLElement;
+    const asked: string[] = [];
+    const computed = (el: HTMLElement) => {
+      asked.push(el.style.color);
+      return "rgb(0, 0, 0)";
+    };
+    paletteOf(probe, "pyroxis", [], "lava", computed);
+    //: Its own three, not the sea repainted orange.
+    expect(asked).toContain(FLUID_TONES.lava.seaDeep);
+    expect(asked).not.toContain(FLUID_TONES.water.seaDeep);
+  });
+
+  it("falls back to water for a fluid this build has not heard of", () => {
+    const probe = {
+      style: { color: "", setProperty: () => {} },
+    } as unknown as HTMLElement;
+    const asked: string[] = [];
+    const computed = (el: HTMLElement) => {
+      asked.push(el.style.color);
+      return "rgb(0, 0, 0)";
+    };
+    //: A vault ahead of this build is a blue sea, not a hole in the map: an
+    //: unknown word must give a wrong answer rather than no answer at all.
+    paletteOf(probe, "terra", [], "quicksilver" as "water", computed);
+    expect(asked).toContain(FLUID_TONES.water.seaDeep);
   });
 });
 

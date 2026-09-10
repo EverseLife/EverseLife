@@ -15,7 +15,7 @@ import pytest
 
 from src.constants import Constants, RenameTable, load_constants
 from src.constants import registry as R
-from src.constants.spec import ConstantError, Num, Span, Table
+from src.constants.spec import Bands, ConstantError, Num, Span, Table, Words
 
 
 def test_all_declared_constants_exist_in_vault(constants: Constants) -> None:
@@ -51,6 +51,37 @@ def test_a_table_missing_a_key_the_engine_reads_breaks_the_boot() -> None:
         half.validate([axes])
     #: A table that names no keys is still checked for its shape alone.
     assert half[Table("biome.facet_axes")] == {"wave_m": 200.0}
+
+
+def test_a_band_and_a_word_declare_their_keys_too() -> None:
+    """`Bands` and `Words` name the entries the engine reads, as `Table` does.
+
+    Both learnt it when the planets were told apart (D-329): every world got
+    its own `terrain.temp_range` and its own `terrain.fluid`, and without the
+    keys a vault that dropped a planet passed the boot whole. The word table
+    also names the words it knows -- a misspelt `Lava` compares equal to
+    nothing, so the planet would have quietly turned watery with no reader
+    raising anywhere along the way.
+    """
+    ends = Bands("terrain.temp_range", keys=("terra", "aurora"))
+    both = {"terra": {"min": -15, "max": 35}, "aurora": {"min": -75, "max": -25}}
+    whole = Constants({"terrain.temp_range": both}, source="тест")
+    assert whole[ends]["aurora"] == {"min": -75.0, "max": -25.0}
+    half = Constants({"terrain.temp_range": {"terra": {"min": -15, "max": 35}}}, source="тест")
+    with pytest.raises(ConstantError, match="aurora"):
+        half.validate([ends])
+
+    fluid = Words("terrain.fluid", keys=("terra", "pyroxis"), allowed=("water", "lava"))
+    good = Constants({"terrain.fluid": {"terra": "water", "pyroxis": "lava"}}, source="тест")
+    assert good[fluid]["pyroxis"] == "lava"
+    typo = Constants({"terrain.fluid": {"terra": "water", "pyroxis": "Lava"}}, source="тест")
+    with pytest.raises(ConstantError, match="water, lava"):
+        typo.validate([fluid])
+    short = Constants({"terrain.fluid": {"terra": "water"}}, source="тест")
+    with pytest.raises(ConstantError, match="pyroxis"):
+        short.validate([fluid])
+    #: A word table that names neither is still checked for its shape alone.
+    assert typo[Words("terrain.fluid")]["pyroxis"] == "Lava"
 
 
 def test_range_with_min_above_max_rejected() -> None:

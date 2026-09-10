@@ -66,9 +66,12 @@ def horizon_m(radius: float, eye_m: float) -> float:
     """How far an eye this high above the sea sees on a sphere this big.
 
     The tangent from the eye to the sphere: `sqrt(h(2R + h))`. On Terra's
-    radius of 24.9 km it gives the ladder the plan reckoned with -- 316 m
-    from a standing man, 1.6 km from a fifty-metre hill, 6.2 km from the
-    highest summit there is -- and it is the reason the world is unknown.
+    radius of 12.4 km it gives the ladder the plan reckoned with -- 223 m
+    from a standing man, 789 m from a twenty-five-metre hill, 3.1 km from
+    the highest summit there is -- and it is the reason the world is
+    unknown. Halved with the radius by D-329, and it halved the ladder with
+    it: the two shrinks together have taken the standing man's horizon from
+    2.5 km to 223 m, so the world is more unknown than it was, not less.
     """
     high = max(0, eye_m)
     return math.sqrt(high * (radius + radius + high))

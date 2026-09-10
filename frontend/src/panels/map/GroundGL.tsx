@@ -313,7 +313,9 @@ export const GroundGL = forwardRef<
   const [palette, setPalette] = useState<Palette | null>(null);
   useLayoutEffect(() => {
     const probe = probeRef.current;
-    setPalette(probe && passport ? paletteOf(probe, planet, passport.biomes) : null);
+    setPalette(
+      probe && passport ? paletteOf(probe, planet, passport.biomes, passport.fluid) : null,
+    );
   }, [theme, planet, passport]);
 
   //: The context: once per life of the canvas, given back on unmount.

@@ -199,33 +199,35 @@ TILE_MAX_AGE_S = 3600
 RASTER_GZIP_MIN_BYTES = 4096
 #: The rasters the client draws by are the field thinned to this many cells
 #: at most (landscape plan §9.3, D-328): a texture a shader reads whole, not
-#: a planet a process holds. No field travels whole any more: with a cell of
-#: fifty metres the smallest of them, Pyroxis, is a million cells and Aurora
-#: is six and a quarter. The picture takes the finest copy that fits here and
-#: leaves a face of a power of two, which is the rule that mostly decides it:
-#: the copy's `nside` must be `2^k - 2`, so Terra's field of 509 cannot use
-#: 510 and drops to 254 whatever the budget is.
+#: a planet a process holds. The picture takes the finest copy that fits here
+#: and leaves a face of a power of two -- the copy's `nside` must be
+#: `2^k - 2` -- and that rule, not this budget, is what usually decides it.
 #:
-#: **This number moves one planet.** Measured on the built fields: at a
-#: million Terra, Aquatica and Pyroxis are already at 254 (cells of 100, 100
-#: and 58 m) and stay there; only Aurora goes 254 -> 510, its cell 142 m ->
-#: 71 m. It is bought at 24 MB more resident, five seconds more of
-#: `rasters.warm` at startup, and Aurora's atlas over the wire at 5.3 MB
-#: gzipped instead of 1.5. Owner's call, 2026-09-10: four million.
+#: **Since D-329 this number binds nothing at all, and that is worth saying
+#: rather than leaving to be discovered.** The second shrink put three of the
+#: four planets on a field `nside` of 255, which sits one above the rung 254:
+#: their pictures are all but the field itself -- 774 192 cells against
+#: 780 300, a cell wider by four hundredths of a per cent -- and Pyroxis's
+#: 147 goes to 126, a cell 1.17 times the field's. The largest picture is 774 192
+#: cells, so a budget of one million would give the same four answers as four
+#: million. It is kept as a ceiling with room over it, not as a setting: a
+#: planet enlarged past a rung would run into it before it ran into memory.
 #:
-#: What it does **not** fix is Terra's own gap -- a picture of 100 m over a
-#: field of 50 -- because that is the power of two, not the budget. Closing
-#: it means a `terrain.step_m` that lands Terra on 510 (about 49.9 m), and
-#: then every planet's atlas is 31 MB.
+#: The history is worth keeping because the trade was real while it lasted.
+#: Before the shrink Terra's field was 509 and could not use 510, so its
+#: picture was 254 and its cell twice the field's; Aurora's 720 could use
+#: 510 only if the budget allowed, and the owner raised it to four million
+#: on 2026-09-10 to buy exactly that -- 24 MB more resident, five seconds
+#: more of `rasters.warm`, 5.3 MB of atlas over the wire instead of 1.5.
+#: One shrink later the same gap closed for free, on three planets at once.
 #:
-#: And it would close it for **Terra alone**. The ladder a picture may sit on
+#: That it closed is luck, not design, and it can be lost again. The ladder
 #: doubles at every rung -- 62, 126, 254, 510, 1022 -- while the planets'
-#: radii are in ratios of 0.577, 1, 1 and 1.414, and one `terrain.step_m`
-#: serves all four (owner, 2026-09-09: one cell size everywhere or the scale
-#: is lost). Searched every step from 30 to 80 m by the centimetre: **at best
-#: two planets of the four** land on a rung, and those two are Terra and
-#: Aquatica, which share a radius. So the picture is a copy of the field and
-#: not the field itself, for good, and not merely because the field is large.
+#: radii are in ratios of 0.577, 1, 1, 1 and one `terrain.step_m` serves all
+#: four (owner, 2026-09-09: one cell size everywhere or the scale is lost).
+#: When the radii were 0.577, 1, 1 and 1.414, a search of every step from 30
+#: to 80 m by the centimetre found that **at best two of the four** could land
+#: on a rung. Three land now because three of them are the same size.
 RASTER_CELLS_MAX = 4_000_000
 MAP_HASH_STEP = 31
 MAP_HASH_SPAN = 65_521

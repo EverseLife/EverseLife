@@ -13,9 +13,19 @@ from __future__ import annotations
 
 from src.constants.spec import Bands, Book, Num, Shape, Table, Words
 
+#: The four worlds, by the same keys the vault writes them under. Spelled out
+#: rather than taken from `models.world.Planet`: the registry sits under the
+#: models in the stack (`api -> engine -> models -> constants`), and reaching
+#: up for an enum would be the first edge back. A fifth world is a line here
+#: and a line there, and the boot then refuses a vault that named only four.
+PLANETS = ("terra", "aquatica", "pyroxis", "aurora")
+
 #: The field of a planet (D-319, landscape plan wave 2): the vault's pipeline
-#: builds it from one seed for the world, a share of sea per planet and the
-#: land's rise in metres, and the engine reads the file (`src.field`). The
+#: builds it from the planet's own seed, its share of fluid, its own warm and
+#: cold ends and the land's rise in metres, and the engine reads the file
+#: (`src.field`). Seed and temperature became each planet's own 2026-09-10:
+#: one seed over four worlds could not be re-rolled for one of them, and one
+#: pair of ends left Pyroxis with ice and Aurora with dunes. The
 #: keys the engine still reads itself: the mountain line is the share of the
 #: land above it, within `terrain.river_reach_km` of fresh water a node has
 #: water, and the field's passport is checked against the seed, the sea,
@@ -23,8 +33,14 @@ from src.constants.spec import Bands, Book, Num, Shape, Table, Words
 #: registry edited without a rebuilt field fails loudly rather than scales
 #: the world quietly. A node bears a vein `biome.vein_k` times as often as
 #: its biome says (D-321).
-TERRAIN_SEED = Num("terrain.seed")
+TERRAIN_SEED = Table("terrain.seed", keys=PLANETS)
 TERRAIN_SEA_SHARE = Table("terrain.sea_share")
+#: What flows on this planet: water or lava. The water raster is one raster on
+#: every planet -- a cell is either land or under a fluid, and the engine
+#: refuses to walk into either -- but the substance is named and drawn apart.
+TERRAIN_FLUID = Words("terrain.fluid", keys=PLANETS, allowed=("water", "lava"))
+#: The warm and cold ends of a planet: the equator at sea level and the pole.
+TERRAIN_TEMP_RANGE = Bands("terrain.temp_range", keys=PLANETS)
 TERRAIN_MOUNTAIN_SHARE = Num("terrain.mountain_share")
 TERRAIN_LAPSE_C = Num("terrain.lapse_c")
 TERRAIN_RELIEF_M = Num("terrain.relief_m")
@@ -100,6 +116,8 @@ COMPLEX_SCHEMES = Shape("complex.schemes")
 __all__ = [
     "TERRAIN_SEED",
     "TERRAIN_SEA_SHARE",
+    "TERRAIN_FLUID",
+    "TERRAIN_TEMP_RANGE",
     "TERRAIN_MOUNTAIN_SHARE",
     "TERRAIN_LAPSE_C",
     "TERRAIN_RELIEF_M",

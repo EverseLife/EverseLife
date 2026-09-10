@@ -359,17 +359,23 @@ def build_dir(constants: Constants) -> Path:
 
 
 def _expected(constants: Constants, planet: Planet) -> dict[str, float]:
-    """The passport's numbers as the registry would have them."""
-    planets = list(Planet)
-    temp = constants[R.SITE_TEMP_RANGE]
+    """The passport's numbers as the registry would have them.
+
+    Seed and temperature are read **by planet**: one seed for four worlds
+    could not be re-rolled for one of them, and one pair of warm and cold
+    ends left Pyroxis with ice on a fifth of its land and Aurora with dunes
+    (owner, 2026-09-10). What the passport carries did not change shape --
+    it is still one seed and one pair per field -- only where they come from.
+    """
+    temp = constants[R.TERRAIN_TEMP_RANGE][planet.value]
     return {
-        "seed": float(int(constants[R.TERRAIN_SEED]) * len(planets) + planets.index(planet)),
+        "seed": float(constants[R.TERRAIN_SEED][planet.value]),
         "sea_share": float(constants[R.TERRAIN_SEA_SHARE].get(planet.value, 0.0)),
         "relief_m": float(constants[R.TERRAIN_RELIEF_M]),
         "step_m": float(constants[R.TERRAIN_STEP_M]),
         "version": float(constants[R.TERRAIN_VERSION]),
-        "warm_c": float(temp.max),
-        "cold_c": float(temp.min),
+        "warm_c": float(temp["max"]),
+        "cold_c": float(temp["min"]),
     }
 
 
