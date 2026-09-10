@@ -204,8 +204,11 @@ describe("the bands", () => {
     //: drawn at the floor.
     expect(cityPixels(20, 0)).toBe(20);
     expect(cityPixels(3, 0)).toBe(CITY_R_MIN);
-    expect(cityPixels(20, 2)).toBeCloseTo(20 * (1 + (0.6 * 2) / 8), 9);
-    expect(cityPixels(40, 40)).toBe(CITY_R_MAX);
+    expect(cityPixels(20, 2)).toBeCloseTo(20 * (1 + (CITY_GROWTH * 2) / 8), 9);
+    //: The ceiling is the biggest base grown by `CITY_GROWTH` exactly, so
+    //: it no longer clips: the largest city reaches it and stops there.
+    expect(40 * (1 + CITY_GROWTH)).toBe(CITY_R_MAX);
+    expect(cityPixels(40, 40)).toBeLessThanOrEqual(CITY_R_MAX);
     //: And what the drawing takes is map units, which are pixels only at
     //: scale one: divided by the scale of the band, the circle holds its
     //: size on the glass however far out the frame goes (D-323 addendum,
@@ -740,10 +743,39 @@ describe("a city never covers its own planet", () => {
   it("holds the circle to a share of the globe when the scene is one", () => {
     const globe = 1000;
     for (const far of [0, 4, 10, 20]) {
+      //: Unless the floor lifts it: the share shrinks with the frame and the
+      //: floor does not, so on the far frames the floor is the stronger of
+      //: the two and the share gives way. A toy globe of a thousand units is
+      //: all floor.
+      const floor = CITY_R_MIN / scaleAt(far);
       expect(cityRadius(40, far, globe)).toBeLessThanOrEqual(
-        globe * CITY_OF_GLOBE,
+        Math.max(floor, globe * CITY_OF_GLOBE),
       );
     }
+  });
+
+  //: On a toy globe every frame is the far frame and every rule is the
+  //: floor, which is how the share of the globe was once set to a
+  //: twenty-fifth and nobody noticed that it drew the capital at seven
+  //: pixels. This one stands on the planet the owner was looking at.
+  it("brings the capital down to a mark on a real planet and no further", () => {
+    //: Terra's ground after D-324: 99.5 km of radius in map units.
+    const globe = radiusUnits(99.546875);
+    const disk = farOf(globeScale(globe));
+    const edge = farOf(globeScale(globe) * MAP_FURTHEST);
+    const seen = (far: number) => cityRadius(26, far, globe) * scaleAt(far);
+    //: The capital counts twenty-six nodes. Two notches inside the planet's
+    //: own frame it is drawn at its own size; from there the share of the
+    //: globe brings it down as the world comes into the frame.
+    expect(seen(disk - 3)).toBeCloseTo(cityPixels(26, disk - 3), 6);
+    expect(seen(disk - 2)).toBeLessThan(cityPixels(26, disk - 2));
+    expect(seen(disk - 1)).toBeLessThan(seen(disk - 2));
+    //: And stops on the floor rather than through it -- at the planet's frame
+    //: and at the farthest frame the map has, where the share alone would
+    //: have drawn seven pixels.
+    expect(seen(disk)).toBeCloseTo(CITY_R_MIN, 6);
+    expect(seen(edge)).toBeCloseTo(CITY_R_MIN, 6);
+    expect(globe * CITY_OF_GLOBE * scaleAt(edge)).toBeLessThan(CITY_R_MIN);
   });
 
   it("leaves a flat scene alone: there the pixel ceiling is the whole rule", () => {

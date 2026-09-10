@@ -274,18 +274,39 @@ export function farOf(scale: number): number {
  * mark, with a name of thirteen pixels beside it (owner, 2026-09-09:
  * «абстрактный узел города становится очень большим при зуме»). It grows
  * towards `CITY_GROWTH` of its own size, half the way there at
- * `CITY_GROWTH_HALF` half-octaves out, so the mark stands within a fifth or
- * so of one size the whole way from the streets to the planet.
+ * `CITY_GROWTH_HALF` half-octaves out.
+ *
+ * Saturating was not enough, and the owner said so again 2026-09-10:
+ * «абстрактный узел столицы скейлится очень большим, надо чтобы скейлился
+ * слабее». Measured on the running map at that word: the capital counts
+ * twenty-six nodes, so its mark stood at twenty-six pixels where the cities
+ * close and thirty-seven and a half on the planet -- and a tenth of the
+ * planet's own radius. `CITY_GROWTH` went from three fifths to one fifth,
+ * so the mark grows by a seventh from the streets to a frame of ninety
+ * kilometres and by a fifth in the limit.
+ *
+ * The growth is only half of what the eye sees, and the smaller half. What
+ * a city is drawn at on the far frames is `cityRadius`, where the share of
+ * the globe takes over and brings the mark down to its floor: 26 pixels at
+ * the closing, 30 at ninety kilometres, 14 on the planet.
  */
 export const CITY_R_MIN = 14;
-//: The largest a city is drawn whatever its size and however far out: the
-//: biggest base grown by `CITY_GROWTH`, so a great city's own size is never
-//: clipped and no city ever passes it.
-export const CITY_R_MAX = 48;
-export const CITY_GROWTH = 0.6;
+//: And the largest a city's **base** is, whatever its count of nodes: past
+//: this a great city says only that it is great, and forty pixels is already
+//: three of the gaps its own nodes stand at.
+export const CITY_BASE_MAX = 40;
+export const CITY_GROWTH = 0.2;
 export const CITY_GROWTH_HALF = 6;
+//: The largest a city is drawn whatever its size and however far out. Not a
+//: number of its own: the biggest base grown by the whole of `CITY_GROWTH`,
+//: which is the limit the growth walks towards and never reaches. It was a
+//: literal 48 and a real clip -- at a growth of three fifths the biggest city
+//: ran into it and every city past 30 nodes was drawn the same -- and with
+//: the growth at a fifth the two meet, so the ceiling stopped clipping and
+//: became what it always said it was.
+export const CITY_R_MAX = CITY_BASE_MAX * (1 + CITY_GROWTH);
 export function cityPixels(size: number, far: number): number {
-  const base = Math.min(40, Math.max(CITY_R_MIN, size));
+  const base = Math.min(CITY_BASE_MAX, Math.max(CITY_R_MIN, size));
   const growth = 1 + (CITY_GROWTH * far) / (far + CITY_GROWTH_HALF);
   return Math.min(CITY_R_MAX, base * growth);
 }
@@ -311,13 +332,34 @@ export function cityRadius(
   //: a screen is a whole world: from afar the capital grew over half the
   //: planet (owner, 2026-09-08). A city is a place on a planet, and it must
   //: look like one.
-  return globe && globe > 0 ? Math.min(units, globe * CITY_OF_GLOBE) : units;
+  if (!globe || globe <= 0) return units;
+  //: **And never smaller than a mark.** The share of the globe shrinks with
+  //: the frame while the mark holds its pixels, so past some frame the share
+  //: is the smaller of the two and goes on halving every octave -- which is
+  //: exactly the shrinking-to-a-speck this function was written to stop
+  //: (owner, 2026-09-08: the city node is too small). Without this floor a
+  //: share of a twenty-fifth drew the capital at seven pixels on the map's
+  //: farthest frame. The floor is `CITY_R_MIN`, the same pixels that say
+  //: what still reads as a city, so the two rules meet instead of arguing:
+  //: the share brings the mark down as the world comes into the frame, and
+  //: sets it down on the floor rather than through it.
+  return Math.max(CITY_R_MIN / scaleAt(far), Math.min(units, globe * CITY_OF_GLOBE));
 }
 
-//: What share of the planet's radius a city's circle never passes. An eighth
-//: is a little more than a continent would take on Earth: the city is seen
-//: from afar and stays a point on the sphere rather than a blot over it.
-export const CITY_OF_GLOBE = 0.125;
+//: What share of the planet's radius a city's circle never passes.
+//:
+//: An eighth was a continent, and it never bound at all: on the frame that
+//: shows the planet whole the capital came out a tenth of the world's own
+//: radius, which is the shape of a sea and not of a town (owner, 2026-09-10:
+//: the capital's mark scales too big, make it scale weaker). A twenty-fifth
+//: is a third of that. It starts to bind two notches inside the planet's
+//: frame, so the mark is not clipped at one frame and whole at the next --
+//: it comes down over three half-octaves, 30 pixels to 27 to 19, as the
+//: world comes into the frame, and lands on the floor of `cityRadius` at 14.
+//:
+//: On Earth's radius a twenty-fifth would be two hundred and fifty
+//: kilometres: a great city with its country around it.
+export const CITY_OF_GLOBE = 0.04;
 
 /**
  * The mark of the node one stands in, **map units**, when the cities are
