@@ -41,16 +41,16 @@ export const WINDOW_MARGIN = 0.25;
  *  and canyons by the shade (plan §9.7) -- and each narrower frame steps
  *  down to the next interval. The bounded frames of the map are the
  *  ground's units (`bands.groundReach`), which are the planet's radius
- *  times a halving: on Terra about 29, 15, 7.4, 3.7 and 1.8 km across, so
- *  the ladder starts under the region's 29 km.
+ *  times a halving: on Terra about 21, 10, 5.2, 2.6 and 1.3 km across, so
+ *  the ladder starts under the region's 21 km.
  *
- *  Both columns were divided by the root of eight when the planets were
- *  shrunk eightfold by area (2026-09-10), and for two different reasons.
+ *  Both columns were divided by four when the planets were shrunk
+ *  sixteenfold by area (2026-09-10), and for two different reasons.
  *  The **widths** because the frames themselves are the radius: at the old
  *  ladder every bounded frame would have fallen under 45 km and the region
  *  frame would have gained lines it was never meant to have. The
- *  **intervals** because the relief was divided by the same root
- *  (`terrain.relief_m` 3000 to 1060) to keep the slopes: a frame narrower
+ *  **intervals** because the relief was divided by the same four
+ *  (`terrain.relief_m` 3000 to 750) to keep the slopes: a frame narrower
  *  by that much crosses that much less height, and an interval left alone
  *  would have left three lines where there were eight.
  *
@@ -58,10 +58,10 @@ export const WINDOW_MARGIN = 0.25;
  *  out of the registry, and the plan's §9.2 lets what the shader and the
  *  lines draw be merely beautiful, judging nothing. */
 export const CONTOUR_LADDER: readonly (readonly [frameM: number, intervalM: number])[] = [
-  [16_000, Infinity],
-  [10_600, 100],
-  [2_500, 40],
-  [0, 20],
+  [11_250, Infinity],
+  [7_500, 60],
+  [1_750, 25],
+  [0, 12],
 ];
 /** Every so many contours one is drawn heavier, as on a topographic sheet. */
 export const INDEX_EVERY = 5;

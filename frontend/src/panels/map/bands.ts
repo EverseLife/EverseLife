@@ -399,7 +399,7 @@ export function cityLabelEm(far: number): number {
  * it kept before -- two nodes on the planet's own frame, three on the
  * farthest the map goes.
  */
-export const KM_PER_NODE = 70;
+export const KM_PER_NODE = 50;
 export function citySeen(size: number, far: number): boolean {
   const spanKm = (W / CITY_SCALE / UNITS_PER_METRE / 1000) * 2 ** (far / 2);
   return size >= Math.ceil(spanKm / KM_PER_NODE);
