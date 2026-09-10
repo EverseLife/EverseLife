@@ -17,7 +17,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { ang2pix, atlasIndex, latticeOf, BANDS_PER_NSIDE } from "../panels/map/healpix";
+import { ang2pix, atlasIndex, latticeOf, Rings, BANDS_PER_NSIDE } from "../panels/map/healpix";
 import type { RasterPassport } from "../api";
 
 /** Points and the cells the server puts them in, by fineness. */
@@ -209,6 +209,61 @@ describe("the equal-area grid", () => {
       expect(Math.floor(col / side)).toBe(face % passport.across);
       expect(Math.floor(row / side)).toBe(Math.floor(face / passport.across));
     }
+  });
+
+  it("lays a ring out by asking the projection, and the rings hold the planet", () => {
+    //: A ring is laid out when it is first read, by asking the projection
+    //: for the middle of every place along it -- not by walking every cell
+    //: of the planet and putting each in its ring. The second is the shorter
+    //: arithmetic, but it is four hundred milliseconds of it before a line
+    //: can be drawn, and a frame touches a few dozen rings of four thousand.
+    //: What holds the two together is this: the rings, taken all at once,
+    //: are the planet's cells and each of them exactly once.
+    for (const nside of [1, 2, 3, 8, 13]) {
+      const rings = new Rings(nside);
+      const seen = new Set<number>();
+      for (let jr = 1; jr <= rings.count; jr++) {
+        for (const cell of rings.ring(jr)) seen.add(cell);
+      }
+      expect(seen.size).toBe(12 * nside * nside);
+      expect(Math.min(...seen)).toBe(0);
+      expect(Math.max(...seen)).toBe(12 * nside * nside - 1);
+    }
+  });
+
+  it("reads between the rings, and a constant field comes back constant", () => {
+    //: What the reading is for: a value taken as the cell's own is a field
+    //: of steps, and the level line of steps runs along their edges -- on
+    //: this grid a chain of straight runs at forty-five degrees, which is
+    //: the shape of a cell and not the shape of a shore.
+    const nside = 16;
+    const rings = new Rings(nside);
+    const cells = 12 * nside * nside;
+    //: The weights of a reading sum to one, so a flat field stays flat.
+    for (let i = 0; i < 40; i++) {
+      const lat = -89 + (i * 178) / 40;
+      const lon = -179 + (i * 358) / 40;
+      expect(rings.between(() => 7, lat, lon)).toBeCloseTo(7, 9);
+    }
+    //: A field that counts the rings from the north reads as a number that
+    //: only grows southward -- and grows **between** the rings, not in
+    //: steps at them: that is the whole of the difference.
+    const band = new Float64Array(cells);
+    for (let jr = 1; jr <= rings.count; jr++) {
+      for (const cell of rings.ring(jr)) band[cell] = jr;
+    }
+    let last = -Infinity;
+    const seen = new Set<number>();
+    for (let i = 0; i <= 200; i++) {
+      const lat = 89 - (i * 178) / 200;
+      const read = rings.between((cell) => band[cell], lat, 33);
+      expect(read).toBeGreaterThanOrEqual(last - 1e-9);
+      last = read;
+      seen.add(Math.round(read * 1000));
+    }
+    //: Two hundred readings down a meridian give two hundred different
+    //: numbers, not the sixty-odd rings they fall in.
+    expect(seen.size).toBeGreaterThan(150);
   });
 
   it("walks a mesh as fine as the cells are", () => {

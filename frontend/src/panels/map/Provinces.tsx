@@ -28,15 +28,20 @@ import { project, type Eye } from "./globe";
 import {
   closeFrame,
   frameMetres,
-  provinceLines,
-  underFrame,
-  type ProvinceLines,
+  provinceFrame,
+  provinceMarksOf,
+  quantisedEye,
+  type ProvinceMark,
 } from "./contours";
 import { useRasters } from "./rasters";
 import { provinceWord } from "./words";
 
-/** The provinces of a planet, read once for the life of the page. */
-const LINES = new Map<string, ProvinceLines>();
+/** Where a planet's names are written, read once for the life of the page:
+ *  the mean of each province's ground, which no frame changes. The
+ *  boundaries are not kept -- they are cut for the frame's own window and
+ *  at its own stride, so the planet's disk is walked two hundred samples
+ *  across and the region's at its cells. */
+const MARKS = new Map<string, ProvinceMark[]>();
 
 export function Provinces({
   planet,
@@ -59,22 +64,30 @@ export function Provinces({
   const names = useNames();
   //: Far frames only: the near ones belong to the relief's lines.
   const wide = !closeFrame(frameMetres(within));
-  const own = useMemo(() => {
+  const marks = useMemo(() => {
     if (!wide || !rasters || !passport) return null;
-    let held = LINES.get(planet);
-    if (!held) LINES.set(planet, (held = provinceLines(rasters, passport)));
+    let held = MARKS.get(planet);
+    if (!held) MARKS.set(planet, (held = provinceMarksOf(rasters, passport)));
     return held;
   }, [wide, planet, rasters, passport]);
+  const { lat, lon } = quantisedEye(eye, radius, within);
+  const edges = useMemo(
+    () =>
+      wide && rasters && passport
+        ? provinceFrame(rasters, passport, { lat, lon }, radius, within)
+        : null,
+    [wide, rasters, passport, lat, lon, radius, within],
+  );
   const drawn = useMemo(() => {
-    if (!own || !passport) return null;
+    if (!marks || !edges || !passport) return null;
     const parts: string[] = [];
-    for (const [a, b] of underFrame(own.edges, eye, radius, within)) {
+    for (const [a, b] of edges) {
       const p = project(eye, radius, a);
       const q = project(eye, radius, b);
       if (!p.front || !q.front) continue;
       parts.push(`M${p.x.toFixed(1)} ${p.y.toFixed(1)}L${q.x.toFixed(1)} ${q.y.toFixed(1)}`);
     }
-    const labels = own.marks.flatMap((mark) => {
+    const labels = marks.flatMap((mark) => {
       const id = passport.provinces?.[mark.code - 1];
       const word = id ? provinceWord({ province: id }, names) : null;
       const at = project(eye, radius, mark.at);
@@ -83,7 +96,7 @@ export function Provinces({
       return word && at.front ? [{ id, word, x: at.x, y: at.y }] : [];
     });
     return { edges: parts.join(""), labels };
-  }, [own, passport, names, eye, radius, within]);
+  }, [marks, edges, passport, names, eye, radius]);
   //: The name is set in map units by the stylesheet and grown to the pixels
   //: it wants, as a closed city's name is (`Nodes`): a `font-size` of many
   //: thousands of units is one the browser draws no glyphs for at all.

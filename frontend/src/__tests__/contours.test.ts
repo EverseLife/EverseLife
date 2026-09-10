@@ -12,31 +12,31 @@ import { describe, expect, it } from "vitest";
 
 import {
   BIN_DEG,
-  binKey,
   CLOSE_FRAME_M,
   COAST_FINE,
   closeFrame,
   CONTOUR_LADDER,
   SAMPLE_BUDGET,
-  binned,
   coast,
   contourInterval,
   contours,
   frameLines,
   hachures,
   isolines,
-  planetLines,
   provinceEdges,
-  provinceLines,
+  provinceFrame,
+  riverBands,
+  riverWidthM,
+  provinceMarksOf,
   provinceMarks,
   quantisedEye,
   rivers,
   samplesOf,
-  underFrame,
   wholeWindow,
   windowAbout,
 } from "../panels/map/contours";
 import type { Rasters } from "../panels/map/rasters";
+import type { River } from "../panels/map/contours";
 import type { Lattice } from "../panels/map/healpix";
 import type { RasterPassport } from "../api";
 import { UNITS_PER_METRE } from "../panels/map/globe";
@@ -317,43 +317,44 @@ describe("the ladder and the window's eye", () => {
     expect(closeFrame(CLOSE_FRAME_M)).toBe(true);
     expect(closeFrame(CLOSE_FRAME_M / 4)).toBe(true);
   });
-  it("draws the hachures only from a close frame, and the planet's lines at any", () => {
+  it("draws every line for the frame it stands in, and none from a wide one", () => {
     const { rasters, passport, lattice } = planet(6, (r, c) => c * 100, (r, c) => (r === 3 && c === 6 ? "cliff" : r === 2 && c > 3 ? "river" : "plain"));
     const far = frameLines(rasters, passport, { lat: 0, lon: 0 }, 1e6, CLOSE_FRAME_M * UNITS_PER_METRE, lattice);
     expect(far.hachures).toEqual([]);
     expect(far.contours).toEqual([]);
+    //: The shore and the rivers belong to the near frame with the rest: on
+    //: a region they would web the ground over (owner, 2026-09-09).
+    expect(far.rivers).toEqual([]);
+    expect(far.lakes).toEqual([]);
     const near = frameLines(rasters, passport, { lat: 0, lon: 0 }, 1e6, (CLOSE_FRAME_M / 4) * UNITS_PER_METRE, lattice);
     expect(near.hachures.length).toBeGreaterThan(0);
     expect(near.contours.length).toBeGreaterThan(0);
-    const own = planetLines(rasters, passport, lattice);
     //: The rivers come in bands of width, and every band is a river.
-    expect(own.rivers.length).toBeGreaterThan(0);
-    for (const band of own.rivers) expect(band.widthM).toBeGreaterThan(0);
-    const bins = own.rivers[own.rivers.length - 1].bins;
-    const all = [...bins.values()].flat().length;
-    expect(all).toBeGreaterThan(0);
-    //: From the planet frame, the hemisphere under the eye and not the one
-    //: behind it: those segments would project only to be thrown away for
-    //: facing away, and on the planet's disk they are half of everything.
-    const front = underFrame(bins, { lat: 0, lon: 0 }, 1e6, undefined).length;
-    expect(front).toBeGreaterThan(0);
-    //: Between the two eyes, nothing of the planet is lost.
-    const back = underFrame(bins, { lat: 0, lon: 180 }, 1e6, undefined).length;
-    expect(front + back).toBeGreaterThanOrEqual(all);
+    expect(near.rivers.length).toBeGreaterThan(0);
+    for (const band of near.rivers) {
+      expect(band.widthM).toBeGreaterThan(0);
+      expect(band.segments.length).toBeGreaterThan(0);
+    }
   });
-  it("bins the segments by their first end and hands a frame the bins under it", () => {
-    const bins = binned([
-      [{ lat: 1, lon: 1 }, { lat: 2, lon: 2 }],
-      [{ lat: 1 + BIN_DEG, lon: 1 }, { lat: 2, lon: 2 }],
-      [{ lat: -80, lon: 179 }, { lat: -80, lon: -179 }],
-    ]);
-    expect(bins.size).toBe(3);
-    //: A frame a few degrees about the equator sees the first two, not the pole's.
-    const radius = 1e6;
-    const near = underFrame(bins, { lat: 3, lon: 1 }, radius, radius * 0.1);
-    expect(near).toHaveLength(2);
-    expect(underFrame(bins, { lat: -80, lon: 178 }, radius, radius * 0.05)).toHaveLength(1);
+
+  it("keeps a river's width the planet's own, not the window's", () => {
+    //: The reaches are cut for the frame now, and the widest reach in a
+    //: window is whatever happens to be in it. A river that changed its
+    //: band as the eye moved would change its width under the hand, so the
+    //: widest is the planet's, off the passport -- and the same reach comes
+    //: out at the same width whatever else the window holds.
+    const brook: River = { at: [{ lat: 0, lon: 0 }, { lat: 0, lon: 1 }], flow: 20 };
+    const great: River = { at: [{ lat: 5, lon: 0 }, { lat: 5, lon: 1 }], flow: 4000 };
+    const alone = riverBands([brook], 4000);
+    const together = riverBands([brook, great], 4000);
+    const widthOf = (bands: { widthM: number; segments: Segment[] }[], lat: number) =>
+      bands.find((band) => band.segments.some(([a]) => a.lat === lat))?.widthM;
+    expect(widthOf(alone, 0)).toBe(widthOf(together, 0));
+    //: And the greatest of the planet is drawn at the width its catchment
+    //: says (`riverWidthM`), not at a share of whatever else is in view.
+    expect(widthOf(riverBands([great], 4000), 5)).toBeCloseTo(riverWidthM(4000), 6);
   });
+
 });
 
 describe("the provinces", () => {
@@ -385,33 +386,33 @@ describe("the provinces", () => {
     expect(edges.some(([end]) => Math.abs(end.lon + 180) < 1e-6)).toBe(false);
   });
 
-  it("files every joined run in the bin it actually lies in", () => {
-    //: `underFrame` hands back whole bins, so a run filed in a bin it does
-    //: not lie in would go missing from every frame that crosses it and
-    //: that bin does not. Joining may not make that worse than it is for
-    //: the coast, whose segments are single cells: runs are cut at the
-    //: bin's edge and filed by their middle, so the whole of a run is in
-    //: the bin it is under, but for the half cell an end stands out by.
+  it("cuts a joined run short enough to be drawn as a chord", () => {
+    //: A run is drawn as a straight line between its two ends, so a run
+    //: that followed a boundary across many degrees would be drawn through
+    //: the ground beside it -- and one reaching over the date line would be
+    //: drawn round the wrong side of the planet. Runs are cut at the edge
+    //: of a five-degree bin, which bounds both.
+    const radius = 1e6;
     for (const rows of [45, 180]) {
       const { rasters, passport, lattice } = twoLands(rows);
-      const lines = provinceLines(rasters, passport, lattice);
-      const cell = 180 / lattice.rows;
-      let seen = 0;
-      for (const [key, bin] of lines.edges) {
-        for (const [a, b] of bin) {
-          seen += 1;
-          expect(binKey((a.lat + b.lat) / 2, (a.lon + b.lon) / 2)).toBe(key);
-          //: Its ends too, but for the half cell between a centre and the
-          //: edge the line is drawn on.
-          for (const end of [a, b]) {
-            const band = Math.floor((end.lat + 90) / BIN_DEG);
-            const own = Math.floor(((a.lat + b.lat) / 2 + 90) / BIN_DEG);
-            expect(Math.abs(band - own)).toBeLessThanOrEqual(1);
-          }
-          expect(Math.abs(b.lat - a.lat)).toBeLessThanOrEqual(BIN_DEG + cell + 1e-6);
-        }
+      //: A near frame, where the window reads every cell: there a run is
+      //: bounded in degrees as well as in samples.
+      const near = provinceFrame(rasters, passport, { lat: 0, lon: 0 }, radius, radius * 0.02, lattice);
+      expect(near.length).toBeGreaterThan(0);
+      //: A bin, and the half cell each end stands out by: the boundary is
+      //: drawn between the centres, not through them (`MARK_HALF`).
+      const down = BIN_DEG + 180 / lattice.rows + 1e-9;
+      const along = BIN_DEG + 360 / lattice.cols + 1e-9;
+      for (const [a, b] of near) {
+        expect(Math.abs(a.lat - b.lat)).toBeLessThanOrEqual(down);
+        expect(Math.abs(a.lon - b.lon)).toBeLessThanOrEqual(along);
       }
-      expect(seen).toBeGreaterThan(0);
+      //: And on the planet's disk, where the window strides over cells, a
+      //: run may be as long as its own two samples -- but never round the
+      //: back of the planet.
+      const wide = provinceFrame(rasters, passport, { lat: 0, lon: 0 }, radius, undefined, lattice);
+      expect(wide.length).toBeGreaterThan(0);
+      for (const [a, b] of wide) expect(Math.abs(a.lon - b.lon)).toBeLessThan(180);
     }
   });
 
@@ -470,16 +471,20 @@ describe("the provinces", () => {
     expect(Math.abs(marks[0].at.lon)).toBeCloseTo(180, 6);
   });
 
-  it("keeps the province lines apart from the coast's own walk", () => {
+  it("keeps the province boundaries apart from the coast's own walk", () => {
     const { rasters, passport, lattice } = twoLands(8);
-    const lines = provinceLines(rasters, passport, lattice);
-    expect([...lines.edges.values()].flat().length).toBe(lattice.rows);
-    expect(lines.marks.length).toBe(2);
-    //: `planetLines` is the near frame's, and it says nothing of provinces.
-    expect(Object.keys(planetLines(rasters, passport, lattice))).toEqual([
-      "shores",
+    const edges = provinceFrame(rasters, passport, { lat: 0, lon: 0 }, 1e6, undefined, lattice);
+    expect(edges.length).toBe(lattice.rows);
+    expect(provinceMarksOf(rasters, passport, lattice).length).toBe(2);
+    //: The near frame's lines say nothing of provinces: the boundary is
+    //: drawn from the region outward, the shore from the city inward.
+    const near = frameLines(rasters, passport, { lat: 0, lon: 0 }, 1e6, 1e3, lattice);
+    expect(Object.keys(near).sort()).toEqual([
+      "contours",
+      "hachures",
       "lakes",
       "rivers",
+      "shores",
     ]);
   });
 });
