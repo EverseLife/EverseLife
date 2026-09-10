@@ -8,7 +8,7 @@
  * Drawn over the ground and under the nodes, thin at any zoom.
  *
  * Nothing at all from a frame wider than the city's (`closeFrame`): there
- * the ground is the shader's, and lines cut from cells of four hundred
+ * the ground is the shader's, and lines cut from cells of fifty
  * metres would web the region over (owner, 2026-09-09).
  *
  * Two memos, two costs: every line is cut on one mesh of ground about the
@@ -16,9 +16,9 @@
  * leaves the window it was cut for (`quantisedEye`) or the frame changes
  * width; the projection runs on every eye, because the frame's origin is
  * the eye. The coast and the rivers used to be cut for the **planet**
- * instead and kept in bins -- one walk over a million and a half cells,
+ * instead and kept in bins -- one walk over three million cells,
  * three seconds of it on the loop before a single line appeared, for a
- * shore that is only ever drawn from forty-five kilometres in. A near
+ * shore that is only ever drawn from eleven kilometres in. A near
  * frame's mesh is tens of thousands of samples; there is nothing to wait
  * for.
  */

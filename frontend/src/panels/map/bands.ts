@@ -38,7 +38,7 @@ export const STREET_SCALE = 1;
 export const CELL_DEG = 2;
 /** From this drawn cell and finer the ground is read off the tiles of the
  *  local relief (D-323): a sixteenth of a grid cell, the frame under some
- *  thirty kilometres on a small world. */
+ *  two and a half kilometres on a world this small. */
 export const TILE_UNIT = 1 / 16;
 /** The finest reading of the ground, a thirty-second of a grid cell: one
  *  halving under `TILE_UNIT`, so the tiles' features bend. */
@@ -390,14 +390,13 @@ export function cityLabelEm(far: number): number {
  * frame may hold one node of it per `KM_PER_NODE` of its span, so a hamlet
  * fades a few hundred kilometres out and the capital never does.
  *
- * Divided by the root of eight when the planets were shrunk eightfold by
- * area (2026-09-10). The frames of the map are the planet's radius
+ * Divided by four when the planets were shrunk sixteenfold by area
+ * (2026-09-10). The frames of the map are the planet's radius
  * (`groundReach`), and this rule is the only one on them written in absolute
- * kilometres: left at two hundred, the widest frame Terra has would have
- * been 180 km and the threshold would have been one node, so nothing would
- * have faded anywhere and the rule would have been off. Seventy keeps what
- * it kept before -- two nodes on the planet's own frame, three on the
- * farthest the map goes.
+ * kilometres -- so it is the only one that has to be moved by hand every
+ * time the radius changes, and the next such change will find it here again.
+ * Fifty keeps what two hundred kept: two nodes on the planet's own frame,
+ * fifteen on the farthest the map goes.
  */
 export const KM_PER_NODE = 50;
 export function citySeen(size: number, far: number): boolean {

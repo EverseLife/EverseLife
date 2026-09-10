@@ -43,7 +43,7 @@ TILE_KEEP = 64
 #: is a thousandth of a percent of the rise, well under any line drawn.
 TILE_DECIMALS = 5
 #: The tiles the ground is read from: degrees a side, steps a side. A tenth
-#: of a degree a step -- under two hundred metres on a small world -- and
+#: of a degree a step -- forty-odd metres on a world this small -- and
 #: ten thousand numbers a tile.
 TILE_DEG = 10.0
 TILE_N = 100

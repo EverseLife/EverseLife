@@ -9,19 +9,27 @@ a city opens on foot, node by node). What this module adds is that **the
 ground may take from that radius and never adds to it** (owner, 2026-09-09):
 a node inside the radius is seen unless the land between stands in the way.
 
-So nothing changes on the plain -- the horizon of an eye two metres up is six
-hundred metres and the radius is one -- and in broken country a neighbour
+So nothing changes on the plain -- the horizon of an eye two metres up is
+three hundred metres and the radius is one -- and in broken country a neighbour
 behind a rise is simply not there until one walks to it. Measured over Terra
 at the sight radius, eight ways out of every point of a four-degree grid:
-alpine hides 5.7 % of its neighbours, foothills 2.7 %, the coast 1.5 %, the
-floodplain 0.9 %, and the open country 0.6 % all told -- ten times less than
-the mountains. (Measured again on the equal-area grid, D-328: the numbers
-moved by tenths, which is the point -- a different grid, the same world.)
+alpine hides 6.4 % of its neighbours, the coast 4.1 %, the floodplain 2.0 %,
+foothills 1.0 %, and the open country next to nothing.
+
+These moved when the planets were shrunk sixteenfold (2026-09-10) and had to
+be measured again rather than carried over: the sight radius is a hundred
+metres and did not shrink, but the field's cell went from 398 m to 50, so a
+hundred metres is now two cells of real shape instead of a quarter of one
+almost-straight ramp. The rule held its meaning and swapped two of its
+numbers -- alpine 5.7 -> 6.4 and still first, the coast 1.5 -> 4.1 as its
+cliffs came into the cell, foothills 2.7 -> 1.0 as their rises spread over
+cells too small to block a hundred-metre look.
 
 The curve of the planet is carried even at these distances, because one walk
 answers the question at any range: the ground falls away from a straight line
-by `d² / 2R`, which is half a metre at ten kilometres and five centimetres at
-a hundred. Writing it once is cheaper than keeping two rules and choosing.
+by `d² / 2R`, which is fourteen centimetres at the hundred metres a sight
+reaches and two metres at the horizon itself. Writing it once is cheaper
+than keeping two rules and choosing.
 
 The geometry is pure and the field is read apart from it (`profile`), so the
 judging can be tested against a slope drawn by hand rather than against
@@ -58,8 +66,8 @@ def horizon_m(radius: float, eye_m: float) -> float:
     """How far an eye this high above the sea sees on a sphere this big.
 
     The tangent from the eye to the sphere: `sqrt(h(2R + h))`. On Terra's
-    radius of 35.2 km it gives the ladder the plan reckoned with -- 375 m
-    from a standing man, 1.9 km from a fifty-metre hill, 8.7 km from the
+    radius of 24.9 km it gives the ladder the plan reckoned with -- 316 m
+    from a standing man, 1.6 km from a fifty-metre hill, 6.2 km from the
     highest summit there is -- and it is the reason the world is unknown.
     """
     high = max(0, eye_m)

@@ -295,17 +295,17 @@ describe("the ladder and the window's eye", () => {
   it("steps the contour interval down as the frame narrows, none from the planet", () => {
     expect(contourInterval(Infinity)).toBe(Infinity);
     expect(contourInterval(CONTOUR_LADDER[0][0] + 1)).toBe(Infinity);
-    //: Terra's bounded frames after the planets were shrunk eightfold by
-    //: area: the region (29 km) bare, the next (15 km) at 100 m, then 40 m
-    //: twice (7.4 and 3.7 km), the nearest (1.8 km) at 20 m. The shape of
+    //: Terra's bounded frames after the planets were shrunk sixteenfold by
+    //: area: the region (21 km) bare, the next (10 km) at 60 m, then 25 m
+    //: twice (5.2 and 2.6 km), the nearest (1.3 km) at 12 m. The shape of
     //: the ladder is what the test holds -- five frames, four rungs, the
     //: widest bare -- and it survived the shrink because both columns were
-    //: divided by the same root of eight as the frames themselves.
-    expect(contourInterval(29_000)).toBe(Infinity);
-    expect(contourInterval(15_000)).toBe(100);
-    expect(contourInterval(7_400)).toBe(40);
-    expect(contourInterval(3_700)).toBe(40);
-    expect(contourInterval(1_800)).toBe(20);
+    //: divided by four, as the frames themselves were.
+    expect(contourInterval(21_000)).toBe(Infinity);
+    expect(contourInterval(10_000)).toBe(60);
+    expect(contourInterval(5_200)).toBe(25);
+    expect(contourInterval(2_600)).toBe(25);
+    expect(contourInterval(1_300)).toBe(12);
   });
   it("holds the window's eye still under a small drag and moves it under a big one", () => {
     const radius = 1e6;

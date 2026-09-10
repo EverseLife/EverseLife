@@ -11,9 +11,9 @@
  * planet. The near frames are cut on a mesh of ground about the eye, a cell
  * of the grid to the step (`localSamples`); the planet's own disk, which has
  * no bounded frame, is read whole and coarse (`provinceWhole`). Cutting for
- * the planet is what it was: one walk over a million and a half cells kept
+ * the planet is what it was: one walk over three million cells kept
  * in bins, three seconds of it before the first line appeared, for a shore
- * that is drawn from forty-five kilometres in.
+ * that is drawn from eleven kilometres in.
  *
  * A quantity of the rasters is read **between** the cells and never as the
  * cell's own value (`Samples.between`). A field of steps has its level line
@@ -863,7 +863,7 @@ export function provinceWhole(
  *  walk over every cell of it, kept in bins, and the frame picked the bins
  *  it could see -- and that walk was **three seconds** before the first
  *  line appeared, all of it on the loop, for a shore that is drawn from
- *  forty-five kilometres in and nearer. A frame's window is forty thousand
+ *  eleven kilometres in and nearer. A frame's window is forty thousand
  *  samples against a planet's million and a half; cutting it again when the
  *  eye leaves the window is milliseconds, and there is nothing to wait for
  *  at the start. What it costs is that the same shore is cut afresh when
