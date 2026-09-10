@@ -199,11 +199,16 @@ TILE_MAX_AGE_S = 3600
 RASTER_GZIP_MIN_BYTES = 4096
 #: The rasters the client draws by are the field thinned to this many cells
 #: at most (landscape plan §9.3, D-328): a texture a shader reads whole, not
-#: a planet a process holds. Terra, Aquatica and Pyroxis travel whole
-#: (786 432 and 262 848 cells); Aurora's field is a million and a half and
-#: would be three megabytes of height alone, so its picture goes at half the
-#: fineness -- `nside` 181 against the field's 362.
-RASTER_CELLS_MAX = 1_000_000
+#: a planet a process holds. No field travels whole any more: with a cell of
+#: fifty metres the smallest of them, Pyroxis, is two million cells and
+#: Aurora is twelve and a half. The picture takes the finest copy that fits
+#: here and leaves a face of a power of two -- `nside` 510, an atlas of
+#: 2048x1536, a cell of 71 m on Terra and 100 m on Aurora, six megabytes of
+#: height. Four million rather than one because the ground the eye stands on
+#: is drawn from this and nothing else: at a million the picture's cell was
+#: 141 m while the field's was 50, and the shore would have been drawn three
+#: cells away from where a walk meets it.
+RASTER_CELLS_MAX = 4_000_000
 MAP_HASH_STEP = 31
 MAP_HASH_SPAN = 65_521
 #: Width of the advisory-lock key that holds one group's map while a node

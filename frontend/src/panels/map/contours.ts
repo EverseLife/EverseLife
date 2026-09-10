@@ -40,17 +40,28 @@ export const WINDOW_MARGIN = 0.25;
  *  frame is the coast's and the biomes', the region frame reads its ridges
  *  and canyons by the shade (plan §9.7) -- and each narrower frame steps
  *  down to the next interval. The bounded frames of the map are the
- *  ground's units (`bands.groundReach`): on Terra about 83, 42, 21, 10 and
- *  5 km across, so the ladder starts under the region's 83 km.
+ *  ground's units (`bands.groundReach`), which are the planet's radius
+ *  times a halving: on Terra about 29, 15, 7.4, 3.7 and 1.8 km across, so
+ *  the ladder starts under the region's 29 km.
+ *
+ *  Both columns were divided by the root of eight when the planets were
+ *  shrunk eightfold by area (2026-09-10), and for two different reasons.
+ *  The **widths** because the frames themselves are the radius: at the old
+ *  ladder every bounded frame would have fallen under 45 km and the region
+ *  frame would have gained lines it was never meant to have. The
+ *  **intervals** because the relief was divided by the same root
+ *  (`terrain.relief_m` 3000 to 1060) to keep the slopes: a frame narrower
+ *  by that much crosses that much less height, and an interval left alone
+ *  would have left three lines where there were eight.
  *
  *  Picture, not balance: D-065 leaves the sizes and colours of the window
  *  out of the registry, and the plan's §9.2 lets what the shader and the
  *  lines draw be merely beautiful, judging nothing. */
 export const CONTOUR_LADDER: readonly (readonly [frameM: number, intervalM: number])[] = [
-  [45_000, Infinity],
-  [30_000, 250],
-  [7_000, 100],
-  [0, 50],
+  [16_000, Infinity],
+  [10_600, 100],
+  [2_500, 40],
+  [0, 20],
 ];
 /** Every so many contours one is drawn heavier, as on a topographic sheet. */
 export const INDEX_EVERY = 5;
@@ -60,8 +71,13 @@ export const INDEX_EVERY = 5;
  *  than this every one of them is a thread of whole cells laid over a
  *  region: a web rather than a line (owner, 2026-09-09), and the far
  *  frames are the shaded ground's alone -- the coast is seen there as the
- *  edge of the water's colour, which the shader cuts by the same zero. */
-export const CLOSE_FRAME_M = 45_000;
+ *  edge of the water's colour, which the shader cuts by the same zero.
+ *
+ *  It is the first rung of `CONTOUR_LADDER` and moved with it: the two
+ *  answer one question -- whether this frame is near enough to be read as
+ *  ground -- and a gap between them would be a frame with a shore and no
+ *  contours. */
+export const CLOSE_FRAME_M = CONTOUR_LADDER[0][0];
 
 /** Whether a frame of this width in metres is near enough to draw lines on. */
 export function closeFrame(frameM: number): boolean {
