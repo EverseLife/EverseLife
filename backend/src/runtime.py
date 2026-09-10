@@ -217,6 +217,15 @@ RASTER_GZIP_MIN_BYTES = 4096
 #: field of 50 -- because that is the power of two, not the budget. Closing
 #: it means a `terrain.step_m` that lands Terra on 510 (about 49.9 m), and
 #: then every planet's atlas is 31 MB.
+#:
+#: And it would close it for **Terra alone**. The ladder a picture may sit on
+#: doubles at every rung -- 62, 126, 254, 510, 1022 -- while the planets'
+#: radii are in ratios of 0.577, 1, 1 and 1.414, and one `terrain.step_m`
+#: serves all four (owner, 2026-09-09: one cell size everywhere or the scale
+#: is lost). Searched every step from 30 to 80 m by the centimetre: **at best
+#: two planets of the four** land on a rung, and those two are Terra and
+#: Aquatica, which share a radius. So the picture is a copy of the field and
+#: not the field itself, for good, and not merely because the field is large.
 RASTER_CELLS_MAX = 4_000_000
 MAP_HASH_STEP = 31
 MAP_HASH_SPAN = 65_521
