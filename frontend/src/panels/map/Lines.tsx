@@ -8,17 +8,19 @@
  * Drawn over the ground and under the nodes, thin at any zoom.
  *
  * Nothing at all from a frame wider than the city's (`closeFrame`): there
- * the ground is the shader's, and lines cut from cells of five hundred
- * metres would web the region over (owner, 2026-09-09). So the planet's
- * lines are not even read until a near frame asks for them -- and once
- * read they are kept for the page, so coming back costs nothing.
+ * the ground is the shader's, and lines cut from cells of four hundred
+ * metres would web the region over (owner, 2026-09-09).
  *
- * Three memos, three costs: the planet's own lines -- the coast, the lakes,
- * the rivers -- are read once per planet and kept in bins; the frame's
- * lines -- contours, hachures -- are read again only when the eye leaves
- * the window they were read for (`quantisedEye`) or the frame changes
- * width; the projection to the frame runs on every eye, over the bins
- * under the frame, because the frame's origin is the eye.
+ * Two memos, two costs: every line is cut on one mesh of ground about the
+ * eye, a cell of the grid to the step, and cut again only when the eye
+ * leaves the window it was cut for (`quantisedEye`) or the frame changes
+ * width; the projection runs on every eye, because the frame's origin is
+ * the eye. The coast and the rivers used to be cut for the **planet**
+ * instead and kept in bins -- one walk over a million and a half cells,
+ * three seconds of it on the loop before a single line appeared, for a
+ * shore that is only ever drawn from forty-five kilometres in. A near
+ * frame's mesh is tens of thousands of samples; there is nothing to wait
+ * for.
  */
 
 import { useMemo } from "react";
@@ -29,20 +31,11 @@ import {
   closeFrame,
   frameLines,
   frameMetres,
-  planetLines,
   quantisedEye,
-  underFrame,
-  type Bins,
-  type PlanetLines,
   type Segment,
 } from "./contours";
 import { UNITS_PER_METRE } from "./globe";
 import { useRasters } from "./rasters";
-
-/** The lines a planet's own rasters give, read once for the life of the
- *  page: a walk over every cell of the field, and the same answer every
- *  time -- as `Ground`'s sketch and `rasters`' bytes are kept. */
-const PLANET_LINES = new Map<string, PlanetLines>();
 
 /** Segments to one path, dropping what faces away from the eye. */
 function pathOf(segments: readonly Segment[], eye: Eye, radius: number): string {
@@ -72,12 +65,6 @@ export function Lines({
   const passport = useTerrain(planet)?.raster ?? null;
   //: Whether this frame has lines at all.
   const near = closeFrame(frameMetres(within));
-  const own = useMemo(() => {
-    if (!near || !rasters || !passport) return null;
-    let held = PLANET_LINES.get(planet);
-    if (!held) PLANET_LINES.set(planet, (held = planetLines(rasters, passport)));
-    return held;
-  }, [near, planet, rasters, passport]);
   const { lat, lon } = quantisedEye(eye, radius, within);
   const frame = useMemo(
     () =>
@@ -87,26 +74,26 @@ export function Lines({
     [near, rasters, passport, lat, lon, radius, within],
   );
   const drawn = useMemo(() => {
-    if (!own || !frame) return null;
-    const under = (bins: Bins) => pathOf(underFrame(bins, eye, radius, within), eye, radius);
+    if (!frame) return null;
+    const drawnOf = (segments: readonly Segment[]) => pathOf(segments, eye, radius);
     return {
-      contours: pathOf(frame.contours.filter((c) => !c.index).flatMap((c) => c.segments), eye, radius),
-      index: pathOf(frame.contours.filter((c) => c.index).flatMap((c) => c.segments), eye, radius),
-      hachures: pathOf(frame.hachures, eye, radius),
-      rock: under(own.shores.rock),
-      beach: under(own.shores.beach),
-      shore: under(own.shores.shore),
-      lakes: under(own.lakes),
+      contours: drawnOf(frame.contours.filter((c) => !c.index).flatMap((c) => c.segments)),
+      index: drawnOf(frame.contours.filter((c) => c.index).flatMap((c) => c.segments)),
+      hachures: drawnOf(frame.hachures),
+      rock: drawnOf(frame.shores.rock),
+      beach: drawnOf(frame.shores.beach),
+      shore: drawnOf(frame.shores.shore),
+      lakes: drawnOf(frame.lakes),
       //: A river is drawn at the width it is (`riverWidthM`), in units of
       //: the ground rather than of the glass: it is a part of the country,
       //: not a line laid over it (owner, 2026-09-09), so it grows under the
       //: zoom as the ground does and a brook stays a brook.
-      rivers: own.rivers.map((band) => ({
+      rivers: frame.rivers.map((band) => ({
         width: band.widthM * UNITS_PER_METRE,
-        path: under(band.bins),
+        path: drawnOf(band.segments),
       })),
     };
-  }, [own, frame, eye, radius, within]);
+  }, [frame, eye, radius]);
   if (!drawn) return null;
   return (
     <g

@@ -104,8 +104,17 @@ describe("mipChain", () => {
 describe("formCodes and the sun", () => {
   it("tells water and cliffs by the passport's table, and no code for a missing form", () => {
     const codes = formCodes({
-      rows: 1,
-      cols: 1,
+      //: The atlas of the equal-area grid (D-328): one cell a face, borders
+      //: counted -- the smallest passport there is, and the table is what
+      //: this test is about.
+      grid: "healpix",
+      nside: 1,
+      cells: 12,
+      rows: 9,
+      cols: 12,
+      across: 4,
+      down: 3,
+      border: 1,
       step_m: 500,
       relief_m: 3000,
       biomes: [],

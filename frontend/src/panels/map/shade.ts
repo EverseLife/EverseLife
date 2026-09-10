@@ -19,7 +19,6 @@
  */
 
 import type { RasterPassport } from "../../api";
-import { CLOSE_FRAME_M } from "./contours";
 import { UNITS_PER_METRE } from "./globe";
 
 /** The largest palette the shader holds: sixteen biomes today, room for more. */

@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest";
 
 import { bulk, long, nameWord, nodeWord, price, provinceWord, spread } from "../panels/map/words";
 import { DEFAULT_LOCALE, Words, learn } from "../locale";
+import type { Names } from "../names";
 
 //: The terms below are assembled from the client's own locale (D-251), which
 //: ships with the build rather than over the wire -- so an empty bundle is
@@ -83,7 +84,9 @@ describe("words", () => {
 
   it("names a find by the face its ground wears, before its biome", () => {
     const names = { forest: "Лес", desert: "Пустыня", coast: "Берег" };
-    const renames = { facets: { forest_edge: "Опушка" } };
+    //: Only the corner of the book this test reads; the rest of a rename
+    //: book is other domains, and none of them is asked here.
+    const renames = { facets: { forest_edge: "Опушка" } } as unknown as Names;
     //: The facet is what a find is called: six finds on one shore were six
     //: «Берега» (landscape plan wave 7).
     expect(

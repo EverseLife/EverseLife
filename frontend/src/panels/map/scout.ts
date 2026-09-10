@@ -208,8 +208,8 @@ export function warmthOf(
   //: A biome may hold several rectangles (a dry and a wet tundra, say):
   //: its line is the warmest edge among them.
   const edge = (biome: string): number =>
-    rows.reduce((warmest, r) => {
-      const row = r as { biome?: unknown; temp?: unknown };
+    rows.reduce<number>((warmest, one) => {
+      const row = one as { biome?: unknown; temp?: unknown };
       const top = Array.isArray(row.temp) ? Number(row.temp[1]) : NaN;
       return row.biome === biome && Number.isFinite(top) ? Math.max(warmest, top) : warmest;
     }, -Infinity);

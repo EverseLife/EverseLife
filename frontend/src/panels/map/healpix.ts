@@ -113,7 +113,7 @@ export type Lattice = {
 };
 
 /** One lattice per fineness: it carries a table of a million entries, and
- *  what is keyed by it (`contours.wholeSamples`) wants a stable key. */
+ *  it holds the rings, which are laid out as they are read. */
 const LATTICES = new Map<number, Lattice>();
 export function latticeOf(passport: RasterPassport): Lattice {
   const held = LATTICES.get(passport.nside);
@@ -141,8 +141,8 @@ function madeLattice(passport: RasterPassport): Lattice {
   };
 }
 
-/** The rings of a planet, made once and kept: the table is four megabytes
- *  and every frame of the vector layer reads it. */
+/** The rings of a planet, made once and kept: every frame of the vector
+ *  layer reads them, and a ring is laid out when it is first read. */
 const RINGS = new Map<number, Rings>();
 export function ringsOf(passport: RasterPassport): Rings {
   let held = RINGS.get(passport.nside);
@@ -150,17 +150,30 @@ export function ringsOf(passport: RasterPassport): Rings {
   return held;
 }
 
-/** The twelve faces by the ring they start on and where they stand round
- *  it -- the tables every HEALPix implementation carries. */
-const RING_OF_FACE = [2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4];
-const PLACE_OF_FACE = [1, 3, 5, 7, 0, 2, 4, 6, 1, 3, 5, 7];
-
 /** How many cells a ring holds, as a quarter of them, and whether it is the
  *  half-step-shifted kind. */
 function ringShape(nside: number, ring: number): [number, number] {
   if (ring < nside) return [ring, 0];
   if (ring > 3 * nside) return [4 * nside - ring, 0];
   return [nside, (ring - nside) & 1];
+}
+
+/** The latitude of a ring's cells, degrees. */
+function ringLat(nside: number, ring: number): number {
+  const three = 3 * nside * nside;
+  const z =
+    ring < nside
+      ? 1 - (ring * ring) / three
+      : ring > 3 * nside
+        ? ((4 * nside - ring) * (4 * nside - ring)) / three - 1
+        : ((2 * nside - ring) * 2) / (3 * nside);
+  return (Math.asin(Math.max(-1, Math.min(1, z))) * 180) / Math.PI;
+}
+
+/** The longitude of a place in a ring, degrees. Places run east and wrap. */
+function ringLon(quarter: number, shifted: number, place: number): number {
+  const phi = ((place + 0.5 - shifted / 2) * (Math.PI / 2)) / quarter;
+  return (((phi * 180) / Math.PI + 180) % 360) - 180;
 }
 
 /** Where a latitude stands among the rings, as a fraction: whole numbers
@@ -184,9 +197,15 @@ function ringOf(nside: number, latDeg: number): number {
  * shape of a cell and not the shape of a shore.
  */
 export class Rings {
-  private laid: Int32Array | null = null;
+  /** The rings already laid out, by ring number. A frame touches a few
+   *  dozen of a planet's `4 nside - 1` -- a thousand on Terra -- and all of
+   *  them together weigh what one solid table would. */
+  private laid = new Map<number, Int32Array>();
+  readonly nside: number;
 
-  constructor(readonly nside: number) {}
+  constructor(nside: number) {
+    this.nside = nside;
+  }
 
   get count(): number {
     return 4 * this.nside - 1;
@@ -196,43 +215,39 @@ export class Rings {
     return 4 * this.nside;
   }
 
-  /** `(rings, 4 nside)` cells. Built by walking the cells and putting each
-   *  in its ring -- integer arithmetic, no projection: asking the
-   *  projection for the middle of every place is a million calls and a
-   *  quarter of a second, and this is ten milliseconds. */
-  get table(): Int32Array {
-    if (this.laid) return this.laid;
+  /**
+   * One ring: `4 nside` cells by place along it, and a short ring repeated
+   * along the width so a place past its end is the ring come round.
+   *
+   * Laid out when the ring is first read and not before. Walking every cell
+   * of the planet to put it in its ring is the shorter arithmetic per ring,
+   * but it is four hundred milliseconds of it before a single line can be
+   * drawn, and a frame touches a few dozen of a planet's thousand. Asking
+   * the projection for the middle of every place of one ring is a fifth of
+   * a millisecond, and it is asked for the rings that are looked at.
+   */
+  ring(jr: number): Int32Array {
+    const held = this.laid.get(jr);
+    if (held) return held;
     const n = this.nside;
-    const table = new Int32Array(this.count * this.wide);
-    for (let pix = 0; pix < 12 * n * n; pix++) {
-      const face = Math.floor(pix / (n * n));
-      const rest = pix - face * n * n;
-      const iy = Math.floor(rest / n);
-      const ix = rest - iy * n;
-      const ring = RING_OF_FACE[face] * n - ix - iy - 1;
-      const [quarter, shifted] = ringShape(n, ring);
-      const place = Math.floor((PLACE_OF_FACE[face] * quarter + ix - iy + 1 + shifted) / 2);
-      const len = 4 * quarter;
-      table[(ring - 1) * this.wide + ((((place - 1) % len) + len) % len)] = pix;
+    const [quarter, shifted] = ringShape(n, jr);
+    const lat = ringLat(n, jr);
+    const len = 4 * quarter;
+    const row = new Int32Array(this.wide);
+    for (let seat = 0; seat < this.wide; seat++) {
+      const place = seat % len;
+      row[seat] = seat < len ? ang2pix(n, lat, ringLon(quarter, shifted, place)) : row[place];
     }
-    //: A short ring repeats along the width, so a place past its end is the
-    //: ring come round rather than a hole.
-    for (let ring = 1; ring <= this.count; ring++) {
-      const len = 4 * ringShape(n, ring)[0];
-      for (let seat = len; seat < this.wide; seat++) {
-        table[(ring - 1) * this.wide + seat] = table[(ring - 1) * this.wide + (seat % len)];
-      }
-    }
-    this.laid = table;
-    return table;
+    this.laid.set(jr, row);
+    return row;
   }
+
 
   /** A quantity read between the two rings around a point and the two
    *  places along each: the same reading the server makes (`healpix.Rings`)
    *  and the same surface the shader samples. */
   between(read: (cell: number) => number, latDeg: number, lonDeg: number): number {
     const n = this.nside;
-    const table = this.table;
     const fraction = Math.max(1, Math.min(this.count, ringOf(n, latDeg)));
     const low = Math.min(Math.floor(fraction), this.count - 1);
     const down = fraction - low;
@@ -248,10 +263,10 @@ export class Rings {
       const first = Math.floor(along);
       const across = along - first;
       const len = 4 * quarter;
-      const row = (ring - 1) * this.wide;
+      const row = this.ring(ring);
       const one = ((first % len) + len) % len;
       const two = (one + 1) % len;
-      out += weight * ((1 - across) * read(table[row + one]) + across * read(table[row + two]));
+      out += weight * ((1 - across) * read(row[one]) + across * read(row[two]));
     }
     return out;
   }
@@ -277,14 +292,12 @@ export class Rings {
     at: number,
   ): void {
     const n = this.nside;
-    const table = this.table;
-    const wide = this.wide;
     const fraction = Math.max(1, Math.min(this.count, ringOf(n, latDeg)));
     const low = Math.min(Math.floor(fraction), this.count - 1);
     const down = fraction - low;
     //: The two rings, each with its own length, its own half-step shift and
     //: its own share of the answer.
-    const rows = [(low - 1) * wide, low * wide];
+    const rows = [this.ring(low), this.ring(low + 1)];
     const weights = [1 - down, down];
     const scales = [0, 0];
     const shifts = [0, 0];
@@ -311,8 +324,8 @@ export class Rings {
         const row = rows[k];
         const one = ((first % len) + len) % len;
         const two = one + 1 === len ? 0 : one + 1;
-        const a = raster[seats[table[row + one]]];
-        const b = raster[seats[table[row + two]]];
+        const a = raster[seats[row[one]]];
+        const b = raster[seats[row[two]]];
         sum += weight * (a + (b - a) * across);
       }
       out[at + j] = sum;

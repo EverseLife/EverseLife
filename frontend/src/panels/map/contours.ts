@@ -2,29 +2,24 @@
 // Copyright (C) 2026 Nurlan Urazkulov
 
 /**
- * The lines of the relief (landscape plan wave 6, §9.5-9.6): contours,
- * the coast, the hachures of a cliff and the rivers -- geometry read off
- * the field's rasters, drawn by the vector layer over the shaded ground.
- * Lines are vector on purpose: thin and sharp at any zoom (§9.5), and the
- * SVG's business, not the shader's.
+ * The lines of the relief, cut from the picture's rasters (landscape plan
+ * wave 6): the contours, the coast by the form of its land, the lakes'
+ * shores, the rivers, the hachures of the cliffs and the boundaries of the
+ * provinces.
  *
- * Lines are a near frame's business (`closeFrame`): wider than the city
- * frame the ground is the shader's alone, and a line drawn from cells of
- * five hundred metres would be a web over the region rather than a line.
+ * Everything is cut **for the frame it is drawn on** and nothing for the
+ * planet. The near frames are cut on a mesh of ground about the eye, a cell
+ * of the grid to the step (`localSamples`); the planet's own disk, which has
+ * no bounded frame, is read whole and coarse (`provinceWhole`). Cutting for
+ * the planet is what it was: one walk over a million and a half cells kept
+ * in bins, three seconds of it before the first line appeared, for a shore
+ * that is drawn from forty-five kilometres in.
  *
- * Two kinds of line, two costs. The coast, the lakes' shores and the rivers
- * do not depend on the frame: they are read once per planet, cell by cell,
- * and kept in bins of a few degrees, so a frame takes the bins under it.
- * The contours and the hachures depend on the frame -- the interval on its
- * width, the cells on its window -- and are read for the window, at a
- * stride that keeps the samples within a budget.
- *
- * Nothing here judges: a coast drawn from the height's zero is a picture of
- * the sea, and whether a point is water stays the server's and the tiles'
- * (§9.1, rule two).
- *
- * Pure arithmetic over typed arrays, so it is tested without a DOM. Every
- * result is in degrees; the component projects them by the eye.
+ * A quantity of the rasters is read **between** the cells and never as the
+ * cell's own value (`Samples.between`). A field of steps has its level line
+ * along the edges of the steps, and on this grid that is a chain of straight
+ * runs at forty-five degrees -- the shape of a cell, not of a shore. It is
+ * also the surface the shader draws by, so the line and the colour agree.
  */
 
 import type { RasterPassport } from "../../api";
@@ -62,7 +57,7 @@ export const INDEX_EVERY = 5;
 /** Below this frame width the vector lines are drawn at all -- contours,
  *  the coast, the lakes' shores, the hachures, the rivers: the city frame
  *  and nearer (plan §9.7), where the window is read cell by cell. Wider
- *  than this every one of them is a thread of 500-metre cells laid over a
+ *  than this every one of them is a thread of whole cells laid over a
  *  region: a web rather than a line (owner, 2026-09-09), and the far
  *  frames are the shaded ground's alone -- the coast is seen there as the
  *  edge of the water's colour, which the shader cuts by the same zero. */
@@ -77,7 +72,15 @@ export const HACHURE_SHARE = 0.45;
 /** The landforms that get hachures: the cliffs, and the canyon, whose
  *  walls the pipeline classes as canyon rather than cliff (plan §4.3). */
 export const HACHURED_FORMS = ["cliff", "coast_cliff", "canyon"] as const;
-/** The bins the planet's lines are kept in, degrees a side. */
+/** How long a joined run of a province's boundary may grow, degrees.
+ *
+ *  A run is drawn as one straight line between its two ends, so a run that
+ *  followed a boundary across many degrees would be drawn through the
+ *  ground beside it, and one reaching over the date line would be drawn
+ *  round the back of the planet. `provinceEdges` cuts a run where its cells
+ *  would leave a square of this side, which bounds both. It was the side of
+ *  the bins the planet's lines were once kept in; the bins are gone with
+ *  the planet-wide cut, and the bound is not. */
 export const BIN_DEG = 5;
 
 /** The cells a frame looks at, read every `stride`-th: rows `r0..r1`,
@@ -108,7 +111,6 @@ function frameAngle(radius: number, within: number | undefined): number {
 /** The rows and columns under an angle about the eye: every column when a
  *  pole is in or the angle spans the planet. */
 function spanOf(
-  lattice: { rows: number; cols: number },
   eye: Eye,
   ang: number,
 ): { latLo: number; latHi: number; lonLo: number; lonHi: number; whole: boolean } {
@@ -117,7 +119,6 @@ function spanOf(
   const nearestPole = Math.max(Math.abs(latLo), Math.abs(latHi));
   const spread = ang / Math.max(1e-9, Math.cos(nearestPole * RAD));
   const whole = latLo <= -90 || latHi >= 90 || spread >= 180;
-  void lattice;
   return { latLo, latHi, lonLo: eye.lon - spread, lonHi: eye.lon + spread, whole };
 }
 
@@ -134,7 +135,7 @@ export function windowAbout(
   within: number | undefined,
 ): Window {
   const { rows, cols } = lattice;
-  const span = spanOf(lattice, eye, frameAngle(radius, within));
+  const span = spanOf(eye, frameAngle(radius, within));
   const r0 = Math.min(rows - 1, Math.max(0, Math.floor(((span.latLo + 90) * rows) / 180)));
   const r1 = Math.min(rows - 1, Math.max(0, Math.ceil(((span.latHi + 90) * rows) / 180)));
   let c0 = 0;
@@ -153,16 +154,98 @@ export function wholeWindow(lattice: Lattice): Window {
   return { r0: 0, r1: lattice.rows - 1, c0: 0, count: lattice.cols, stride: 1 };
 }
 
-/** The samples of the whole planet, made once and kept.
+/**
+ * The samples of a near frame: a square of **ground** about the eye, a cell
+ * of the grid to the step.
  *
- *  Two readers want them -- the coast with its rivers and the boundaries of
- *  the provinces -- and laying out a million samples is most of a second
- *  each time. They are the same million for both. */
-const WHOLE = new Map<Lattice, Samples>();
-export function wholeSamples(lattice: Lattice): Samples {
-  let held = WHOLE.get(lattice);
-  if (!held) WHOLE.set(lattice, (held = samplesOf(lattice, wholeWindow(lattice))));
-  return held;
+ * Not a box of latitude and longitude, which is what the wider frames use.
+ * A box has to reach as far east as the frame's corner does, and near the
+ * pole that is every meridian there is: at sixty-five degrees a frame of
+ * forty kilometres wanted the whole polar cap, and the budget answered by
+ * striding over cells -- the coast came out cut at eight hundred metres
+ * where the shader cuts water at four hundred, and the line left the edge
+ * of the colour. Away from the equator that was most of the planet.
+ *
+ * A mesh laid on the ground has no pole in it. Its rows are not lines of
+ * latitude, so a reading cannot be settled by the row (`Rings.row`); it is
+ * settled per sample, which costs a few milliseconds on the widest near
+ * frame and nothing on the ones a walk is made at.
+ *
+ * The chart is gnomonic -- a point is the eye's own plane pushed out onto
+ * the ball -- so the mesh stretches by a twentieth at the corner of the
+ * widest frame it is used for. That moves no ground: the same point places
+ * a sample and finds its cell.
+ */
+export function localSamples(
+  lattice: Lattice,
+  eye: Eye,
+  radius: number,
+  reachM: number,
+  stepM: number,
+): { samples: Samples; stepM: number } {
+  const across = Math.max(2, Math.ceil((2 * reachM) / stepM) + 1);
+  const side = Math.min(across, Math.floor(Math.sqrt(SAMPLE_BUDGET)));
+  const step = (2 * reachM) / (side - 1);
+  const middle = (side - 1) / 2;
+  const metres = radius / UNITS_PER_METRE;
+  //: The eye's own frame: up, and the two ways along the ground from it.
+  const lat = eye.lat * RAD;
+  const lon = eye.lon * RAD;
+  const up = [Math.cos(lat) * Math.cos(lon), Math.cos(lat) * Math.sin(lon), Math.sin(lat)];
+  const east = [-Math.sin(lon), Math.cos(lon), 0];
+  const north = [
+    -Math.sin(lat) * Math.cos(lon),
+    -Math.sin(lat) * Math.sin(lon),
+    Math.cos(lat),
+  ];
+  const geo = (i: number, j: number): Geo => {
+    const away = ((j - middle) * step) / metres;
+    const along = ((middle - i) * step) / metres;
+    const x = up[0] + east[0] * away + north[0] * along;
+    const y = up[1] + east[1] * away + north[1] * along;
+    const z = up[2] + east[2] * away + north[2] * along;
+    const size = Math.hypot(x, y, z);
+    return { lat: Math.asin(z / size) / RAD, lon: Math.atan2(y, x) / RAD };
+  };
+  const table = new Int32Array(side * side);
+  const places = new Float64Array(side * side * 2);
+  for (let i = 0; i < side; i++) {
+    for (let j = 0; j < side; j++) {
+      const at = geo(i, j);
+      places[(i * side + j) * 2] = at.lat;
+      places[(i * side + j) * 2 + 1] = at.lon;
+      table[i * side + j] = lattice.at(at.lat, at.lon);
+    }
+  }
+  const read = new Map<ArrayLike<number>, Float32Array>();
+  return {
+    stepM: step,
+    samples: {
+      nr: side,
+      nc: side,
+      cell: (i, j) => [i, j],
+      geo,
+      index: (i, j) => table[i * side + j],
+      between: (raster) => {
+        let held = read.get(raster);
+        if (held) return held;
+        held = new Float32Array(side * side);
+        for (let k = 0; k < side * side; k++) {
+          held[k] = lattice.between(raster, places[k * 2], places[k * 2 + 1]);
+        }
+        read.set(raster, held);
+        return held;
+      },
+    },
+  };
+}
+
+/** The whole planet within the budget: every n-th cell, for what is a mean
+ *  over the ground rather than a line along it. */
+export function coarseWindow(lattice: Lattice): Window {
+  const whole = wholeWindow(lattice);
+  const stride = Math.max(1, Math.ceil(Math.sqrt((lattice.rows * lattice.cols) / SAMPLE_BUDGET)));
+  return { ...whole, stride };
 }
 
 /** The samples of a window: a grid `nr` by `nc` of readings, and the place
@@ -499,7 +582,7 @@ export function hachures(
   rasters: Rasters,
   samples: Samples,
   passport: RasterPassport,
-  win: Window,
+  stepM: number,
   radius: number,
 ): Segment[] {
   const cliffs = new Set(
@@ -509,7 +592,7 @@ export function hachures(
   const out: Segment[] = [];
   const { nr, nc } = samples;
   const read = samples.between(rasters.height);
-  const step = passport.step_m * win.stride;
+  const step = stepM;
   const radiusM = radius / UNITS_PER_METRE;
   const length = HACHURE_SHARE * step;
   for (let i = 1; i < nr - 1; i++) {
@@ -575,86 +658,9 @@ export function frameMetres(within: number | undefined): number {
   return within === undefined ? Infinity : (2 * within) / UNITS_PER_METRE;
 }
 
-/** Segments in bins of `BIN_DEG` a side, so a frame takes the bins under it
- *  and no more.
- *
- *  Keyed by a segment's first end, which for a segment one cell long -- all
- *  the coast and the rivers are -- is the segment. `middle` keys by the
- *  point halfway instead, for the joined runs of `provinceEdges`: those are
- *  cut so that a run lies inside one bin, and its middle is the bin it lies
- *  in, while its first end may stand half a cell out of it. Safe for those
- *  and not in general: a segment across the date line has no halfway point
- *  worth the name, and a run is cut before it reaches one. */
-export type Bins = Map<string, Segment[]>;
-
-export function binKey(lat: number, lon: number): string {
-  const b = Math.floor((lat + 90) / BIN_DEG);
-  const l = ((Math.floor((lon + 180) / BIN_DEG) % (360 / BIN_DEG)) + 360 / BIN_DEG) % (360 / BIN_DEG);
-  return `${b}:${l}`;
-}
-
-export function binned(segments: readonly Segment[], middle = false): Bins {
-  const bins: Bins = new Map();
-  for (const segment of segments) {
-    const [a, b] = segment;
-    const key = middle ? binKey((a.lat + b.lat) / 2, (a.lon + b.lon) / 2) : binKey(a.lat, a.lon);
-    let bin = bins.get(key);
-    if (!bin) bins.set(key, (bin = []));
-    bin.push(segment);
-  }
-  return bins;
-}
-
-/**
- * The segments of the bins under a frame about the eye.
- *
- * The far side of the globe is dropped bin by bin, before any of it is
- * projected. On the planet's frame the window spans the whole sphere and
- * the bins of the hemisphere behind the eye are half of everything there
- * is; every segment of them projects only to be thrown away for facing
- * away. A bin is kept when its middle stands within a right angle of the
- * eye and a bin's own width -- past that its nearest corner is behind the
- * limb too.
- */
-export function underFrame(bins: Bins, eye: Eye, radius: number, within: number | undefined): Segment[] {
-  const span = spanOf({ rows: 0, cols: 0 }, eye, frameAngle(radius, within));
-  const out: Segment[] = [];
-  const bands = 360 / BIN_DEG;
-  const b0 = Math.max(0, Math.floor((span.latLo + 90) / BIN_DEG));
-  const b1 = Math.min(180 / BIN_DEG - 1, Math.floor((span.latHi + 90) / BIN_DEG));
-  const l0 = span.whole ? 0 : Math.floor((span.lonLo + 180) / BIN_DEG);
-  const l1 = span.whole ? bands - 1 : Math.floor((span.lonHi + 180) / BIN_DEG);
-  const seen = Math.cos((90 + BIN_DEG) * RAD);
-  const eyeLat = eye.lat * RAD;
-  for (let b = b0; b <= b1; b++) {
-    const lat = (b * BIN_DEG - 90 + BIN_DEG / 2) * RAD;
-    for (let l = l0; l <= l1; l++) {
-      const lane = ((l % bands) + bands) % bands;
-      const lon = (lane * BIN_DEG - 180 + BIN_DEG / 2 - eye.lon) * RAD;
-      const near =
-        Math.sin(eyeLat) * Math.sin(lat) + Math.cos(eyeLat) * Math.cos(lat) * Math.cos(lon);
-      if (near < seen) continue;
-      const bin = bins.get(`${b}:${lane}`);
-      if (bin) for (const segment of bin) out.push(segment);
-    }
-  }
-  return out;
-}
-
 /** Where a province's name is written: the mean of its ground, which for a
  *  patch of land is inside it. */
 export type ProvinceMark = { code: number; at: Geo };
-
-/** The lines of a planet that do not depend on the frame: the coast by
- *  the form of its land, the lakes' shores and the rivers, read once cell
- *  by cell and binned. The rivers are kept in bands of width rather than as
- *  one heap: a stroke has one thickness, and a river that widens downstream
- *  is drawn as a few strokes, each of the width its reaches share. */
-export type PlanetLines = {
-  shores: Record<Shore, Bins>;
-  lakes: Bins;
-  rivers: { widthM: number; bins: Bins }[];
-};
 
 /** Into how many widths the rivers of a planet are sorted. Five: fewer and
  *  a brook is drawn as a river, more and the map pays for strokes no eye
@@ -662,47 +668,47 @@ export type PlanetLines = {
 export const RIVER_BANDS = 5;
 
 /** The reaches sorted into bands by width, widest last so the great rivers
- *  are drawn over the brooks that feed them. */
-export function riverBands(reaches: readonly River[]): { widthM: number; bins: Bins }[] {
-  const widest = reaches.reduce((top, one) => Math.max(top, riverWidthM(one.flow)), 0);
+ *  are drawn over the brooks that feed them.
+ *
+ *  The widest is the **planet's** own, off the passport, and not the widest
+ *  in hand: the reaches are cut for the frame now, and a river that changed
+ *  its band as the eye moved would change its width under the hand. */
+export function riverBands(
+  reaches: readonly River[],
+  widestKm2: number,
+): { widthM: number; segments: Segment[] }[] {
+  const widest = riverWidthM(widestKm2);
   if (!(widest > 0)) return [];
   const bands: Segment[][] = Array.from({ length: RIVER_BANDS }, () => []);
   for (const reach of reaches) {
     //: By the square root of the width, so the narrow bands -- where most
     //: of a river system's length lies -- are not all one.
-    const share = Math.sqrt(riverWidthM(reach.flow) / widest);
+    const share = Math.sqrt(Math.min(1, riverWidthM(reach.flow) / widest));
     bands[Math.min(RIVER_BANDS - 1, Math.floor(share * RIVER_BANDS))].push(reach.at);
   }
   return bands
     .map((segments, band) => ({
       widthM: widest * ((band + 1) / RIVER_BANDS) ** 2,
-      bins: binned(segments),
+      segments,
     }))
-    .filter((band) => band.bins.size > 0);
+    .filter((band) => band.segments.length > 0);
 }
 
-/** A planet's provinces as the map draws them: the boundaries binned, and
- *  a place for every name. Read once per planet, like the coast -- and
- *  apart from it, because the two are drawn on opposite frames and the
- *  coast's walk must not be paid for on the planet's disk.
- *
- *  The lattice is an argument, not a fact of the passport: what this walks
- *  is a mesh of latitude and longitude, and where each of its points
- *  reaches into the rasters is the grid's business (D-328), not the
- *  drawing's. Left out, it is the planet's own. */
-export type ProvinceLines = { edges: Bins; marks: ProvinceMark[] };
-
-export function provinceLines(
-  rasters: Rasters,
-  passport: RasterPassport,
-  lattice: Lattice = latticeOf(passport),
-): ProvinceLines {
-  const samples = wholeSamples(lattice);
+/** The eye a window is read for: the eye itself, quantised to a share of
+ *  the frame's angle, so that a drag shorter than the window's margin does
+ *  not read the window again. */
+export function quantisedEye(eye: Eye, radius: number, within: number | undefined): Eye {
+  const reach = within === undefined ? radius : within * Math.SQRT2;
+  const ang = reach >= radius ? 90 : Math.asin(reach / radius) / RAD;
+  const grain = Math.max(0.01, (ang * WINDOW_MARGIN) / 2);
   return {
-    edges: binned(provinceEdges(rasters, samples), true),
-    marks: provinceMarks(rasters, samples),
+    lat: Math.round(eye.lat / grain) * grain,
+    lon: Math.round(eye.lon / grain) * grain,
   };
 }
+
+/** Half a cell: the boundary runs between the centres, not through them. */
+const MARK_HALF = 0.5;
 
 /**
  * The boundary between provinces: the edge two cells of different code
@@ -717,7 +723,7 @@ export function provinceLines(
  * segment rather than one a cell: a boundary of a province is thousands of
  * cells long, and the path is rebuilt for every turn of the eye. A run ends
  * where the two provinces it parts change -- one segment is one boundary --
- * and where it would leave the bin it is filed under.
+ * and where it would leave its own square.
  */
 export function provinceEdges(rasters: Rasters, samples: Samples): Segment[] {
   const out: Segment[] = [];
@@ -727,13 +733,12 @@ export function provinceEdges(rasters: Rasters, samples: Samples): Segment[] {
   //: province and the provinces differ; the pair, in one number, says which
   //: boundary it is, so a run can end where the boundary does.
   const seam = (a: number, b: number) => (a > 0 && b > 0 && a !== b ? a * 256 + b : 0);
-  //: Which bin a cell falls in, down and along. A run is cut where its
-  //: cells would leave one bin, so that the whole of a run lies in the bin
-  //: its middle is in and `binned(.., true)` can file it there exactly --
-  //: a run filed in a bin it does not lie in would go missing from every
-  //: frame that it crosses and that bin does not. A run reaching the date
-  //: line is cut by the same rule, which is also what keeps a run's middle
-  //: an honest average of its two ends.
+  //: Which square of `BIN_DEG` a cell falls in, down and along. A run is
+  //: cut where its cells would leave one square, so that a run is short enough to be
+  //: drawn as one straight line between its ends: a run that followed a
+  //: boundary across many degrees would be drawn through the ground beside
+  //: it. A run reaching the date line is cut by the same rule, which is
+  //: what keeps it from being drawn round the back of the planet.
   const lanes = 360 / BIN_DEG;
   const band = (i: number) => Math.floor((samples.geo(i, 0).lat + 90) / BIN_DEG);
   const lane = (j: number) =>
@@ -779,9 +784,6 @@ export function provinceEdges(rasters: Rasters, samples: Samples): Segment[] {
   return out;
 }
 
-/** Half a cell: the boundary runs between the centres, not through them. */
-const MARK_HALF = 0.5;
-
 /**
  * Where each province's name is written: the mean of the ground it holds.
  *
@@ -820,26 +822,56 @@ export function provinceMarks(rasters: Rasters, samples: Samples): ProvinceMark[
     }));
 }
 
-export function planetLines(
+/** The provinces of a planet as the planet's own disk draws them: where
+ *  each name is written, and the boundaries between them.
+ *
+ *  One coarse walk for both. The mean of a province does not move a pixel
+ *  for the tenth sample of a cell, and a boundary on the disk is a few
+ *  pixels long; what matters more is that this walk has a **fixed** phase.
+ *  A boundary cut on a mesh that moves with the eye is redrawn a sample to
+ *  the side after every step, and on the disk, where a sample is kilometres,
+ *  the line crawls under the hand. */
+export function provinceWhole(
   rasters: Rasters,
   passport: RasterPassport,
   lattice: Lattice = latticeOf(passport),
-): PlanetLines {
-  const samples = wholeSamples(lattice);
-  const { shores, lakes } = coast(rasters, samples, passport.forms);
-  return {
-    shores: { rock: binned(shores.rock), beach: binned(shores.beach), shore: binned(shores.shore) },
-    lakes: binned(lakes),
-    rivers: riverBands(rivers(rasters, samples, passport.water, passport.flow_max_km2 ?? 0)),
-  };
+): { marks: ProvinceMark[]; edges: Segment[] } {
+  const samples = samplesOf(lattice, coarseWindow(lattice));
+  return { marks: provinceMarks(rasters, samples), edges: provinceEdges(rasters, samples) };
 }
 
-/** The lines of a frame that depend on it: the contours at the frame's
- *  interval and, from the city frame in, the hachures. */
+/** The lines of a frame: everything the near frame draws, cut for the
+ *  window the frame stands in.
+ *
+ *  Cut for the frame and not for the planet. It was the planet once -- one
+ *  walk over every cell of it, kept in bins, and the frame picked the bins
+ *  it could see -- and that walk was **three seconds** before the first
+ *  line appeared, all of it on the loop, for a shore that is drawn from
+ *  forty-five kilometres in and nearer. A frame's window is forty thousand
+ *  samples against a planet's million and a half; cutting it again when the
+ *  eye leaves the window is milliseconds, and there is nothing to wait for
+ *  at the start. What it costs is that the same shore is cut afresh when
+ *  the eye comes back to it, which is the trade the contours already made.
+ */
 export type FrameLines = {
   contours: { level: number; index: boolean; segments: Segment[] }[];
   hachures: Segment[];
+  shores: Record<Shore, Segment[]>;
+  lakes: Segment[];
+  rivers: { widthM: number; segments: Segment[] }[];
 };
+
+/** No lines at all: built afresh each time, because it is handed out of an
+ *  exported function and a shared mutable record is a trap. */
+function nothing(): FrameLines {
+  return {
+    contours: [],
+    hachures: [],
+    shores: { rock: [], beach: [], shore: [] },
+    lakes: [],
+    rivers: [],
+  };
+}
 
 export function frameLines(
   rasters: Rasters,
@@ -850,26 +882,43 @@ export function frameLines(
   lattice: Lattice = latticeOf(passport),
 ): FrameLines {
   const frame = frameMetres(within);
+  //: The ladder has a rung for every frame a line is drawn on: the interval
+  //: is finite exactly where `closeFrame` is true, so one question answers
+  //: both and there is no frame with contours and no shore.
   const interval = contourInterval(frame);
-  const close = closeFrame(frame);
-  if (!Number.isFinite(interval) && !close) return { contours: [], hachures: [] };
-  const win = windowAbout(lattice, eye, radius, within);
-  const samples = samplesOf(lattice, win);
+  if (!closeFrame(frame)) return nothing();
+  //: Every line of a near frame is cut on one mesh of ground about the eye,
+  //: reaching to the frame's corner with the window's own margin.
+  const reach = (frame / 2) * Math.SQRT2 * (1 + WINDOW_MARGIN);
+  const { samples, stepM } = localSamples(lattice, eye, radius, reach, passport.step_m);
+  const { shores, lakes } = coast(rasters, samples, passport.forms);
   return {
     contours: contours(rasters, samples, interval),
-    hachures: close ? hachures(rasters, samples, passport, win, radius) : [],
+    hachures: hachures(rasters, samples, passport, stepM, radius),
+    shores,
+    lakes,
+    rivers: riverBands(
+      rivers(rasters, samples, passport.water, passport.flow_max_km2 ?? 0),
+      passport.flow_max_km2 ?? 0,
+    ),
   };
 }
 
-/** The eye a window is read for: the eye itself, quantised to a share of
- *  the frame's angle, so that a drag shorter than the window's margin does
- *  not read the window again. */
-export function quantisedEye(eye: Eye, radius: number, within: number | undefined): Eye {
-  const reach = within === undefined ? radius : within * Math.SQRT2;
-  const ang = reach >= radius ? 90 : Math.asin(reach / radius) / RAD;
-  const grain = Math.max(0.01, (ang * WINDOW_MARGIN) / 2);
-  return {
-    lat: Math.round(eye.lat / grain) * grain,
-    lon: Math.round(eye.lon / grain) * grain,
-  };
+/** The boundaries of the provinces about the eye, cut on a mesh of ground.
+ *
+ *  Drawn from the region's frame outward. A bounded frame gets its own mesh
+ *  at the frame's own step, as the near frames do; the planet's disk has no
+ *  bounded frame and is read whole and coarse instead (`provinceWhole`),
+ *  which is also the only shape whose phase does not move under the eye. */
+export function provinceFrame(
+  rasters: Rasters,
+  passport: RasterPassport,
+  eye: Eye,
+  radius: number,
+  within: number,
+  lattice: Lattice = latticeOf(passport),
+): Segment[] {
+  const reach = (frameMetres(within) / 2) * Math.SQRT2 * (1 + WINDOW_MARGIN);
+  const { samples } = localSamples(lattice, eye, radius, reach, passport.step_m);
+  return provinceEdges(rasters, samples);
 }
