@@ -51,8 +51,10 @@
    substituted where they are declared, and the probe is where `--pc` is
    set. */
 .map-field > .ground-probe {
+  /* No shallow end any more: a river, a lake and the sea are one water and
+     take one colour (owner, 2026-09-11), and the sea alone darkens by its
+     own depth. The shallow tone lost its last reader with `seaShallow`. */
   --gl-sea-deep: color-mix(in srgb, var(--pc) 22%, var(--base-900));
-  --gl-sea-shallow: color-mix(in srgb, var(--pc) 34%, var(--base-850));
   --gl-lake: color-mix(in srgb, var(--pc) 62%, var(--base-700));
   /* Lava, for a planet whose fluid is not water (`RasterPassport.fluid`).
      Not the sea in another hue: the sea darkens with depth because light
@@ -61,15 +63,18 @@
      white rather than towards the page's dark. Mixed the sea's way, a lava
      ocean came out muddy brown and read as a mud flat. */
   --gl-lava-deep: color-mix(in srgb, var(--pc) 70%, #ffd08a);
-  --gl-lava-shallow: color-mix(in srgb, var(--pc) 88%, var(--base-800));
   --gl-lava-lake: color-mix(in srgb, var(--pc) 76%, #ffd08a);
   --gl-high: color-mix(in srgb, var(--base-400) 40%, var(--base-700));
 }
+/* The canvas is laid over the **svg's** box, not the field's, and its box is
+   written from the svg's own rect as it draws (`GroundGL.draw`) -- one place,
+   so the two can never drift. It paints the ground by the svg's screen
+   matrix, so wherever it reaches it draws correct land; where it reached
+   past the svg it drew land with nothing on it -- on a narrow pane the bars
+   stand in flow under the map, and the ground ran on behind them (owner,
+   2026-09-11: the svg did not match the ground). */
 .map-field > .ground-gl {
   position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
   pointer-events: none;
 }
 .map-field > .ground-probe {
@@ -82,10 +87,11 @@
 .map-field > svg {
   position: relative;
 }
-/* The lines of the relief (landscape plan wave 6): contours, the coast by
-   the form of its land, the hachures of the cliffs, the rivers. Vector on
-   purpose -- thin and sharp at any zoom (plan §9.5) -- and a pixel wide
-   whatever the frame, like every line of the map. */
+/* The lines of the relief (landscape plan wave 6): contours, the hachures
+   of the cliffs, the trees of the woods. Vector on purpose -- thin and
+   sharp at any zoom (plan §9.5) -- and a pixel wide whatever the frame,
+   like every line of the map. The water -- sea, lakes, rivers -- is the
+   shader's, and so is the shore: no line runs along it (2026-09-11). */
 .relief-lines path {
   fill: none;
   stroke-linecap: round;
@@ -101,49 +107,22 @@
   stroke-opacity: 0.55;
   stroke-width: 1;
 }
-.relief-lines .coast {
-  stroke: var(--base-200);
-  stroke-opacity: 0.55;
-  stroke-width: 0.8;
-}
-.relief-lines .coast.beach {
-  stroke: var(--base-50);
-  stroke-opacity: 0.5;
-  stroke-width: 1;
-}
-.relief-lines .coast.rock {
-  stroke: var(--base-950);
-  stroke-opacity: 0.8;
-  stroke-width: 1.6;
-}
-.relief-lines .coast.lake {
-  stroke: var(--base-200);
-  stroke-opacity: 0.4;
-  stroke-width: 0.6;
-}
 .relief-lines .hachure {
   stroke: var(--base-950);
   stroke-opacity: 0.7;
   stroke-width: 0.8;
 }
-/* A river is ground, not a line over it (owner, 2026-09-09): it is drawn
-   in the water's own colour, at the width the land that drains through it
-   gives it (`contours.riverWidthM`), and that width is in **map units** --
-   metres of the country -- so it grows under the zoom like everything else
-   on the ground. Hence no `vector-effect` here, unlike every other line of
-   this layer: a river that kept its thickness on the glass would be the
-   line laid over the map that this stopped being. Round ends and joins, so
-   a chain of reaches reads as one channel. */
-.relief-lines .river {
-  /* The water's own tone, spelt here rather than borrowed: `--gl-lake` is
-     declared on the palette's probe, where `--pc` is set, and a `var()` that
-     resolves to nothing leaves `stroke` at its initial `none` -- which is
-     how the rivers vanished from the map entirely. */
-  stroke: color-mix(in srgb, var(--pc) 62%, var(--base-700));
-  stroke-opacity: 0.9;
-  stroke-linecap: round;
+/* The woods as woods and not only as a tint (owner, 2026-09-11): a scatter
+   of little trees over the ground's own colour, the way a topographic sheet
+   draws a wood. Dark green rather than the palette's ink: a tree is a thing
+   of the country, and the black lines of this layer are readings of it --
+   the contour, the hachure. Thin, so a wood running down to the water does
+   not blur the shore the colour draws. */
+.relief-lines .wood {
+  stroke: light-dark(#1d4023, #b7d6ae);
+  stroke-opacity: 0.55;
+  stroke-width: 0.7;
   stroke-linejoin: round;
-  vector-effect: none;
 }
 /* The provinces on the far frames (plan §9.7, wave 8): a hairline between
    two named lands and the name in the middle of what it encloses. Quieter
@@ -174,18 +153,15 @@
   stroke-width: 2.5;
 }
 
-/* The warmth as a layer over the GPU ground (plan §9.5): the three tones of
-   the climate, translucent, where the colour underneath is the biome's. */
-.ground.warmth .land {
-  fill-opacity: 0.45;
-  stroke: none;
-}
-/* The svg carries an intrinsic ratio from its viewBox, and inside a grid cell
-   that ratio wins over stretching -- the map kept sizing itself to 880:540 and
-   left the rest of the cell empty. Told to fill the height, it fills it. */
+/* The svg fills its column: `flex: 1` is set with the rest of its rules
+   below, and the box it ends up with is the frame the camera cuts its
+   viewBox to (`model.frameHeight`). Before that the viewBox kept a fixed
+   880 by 540 whatever the box was, and the browser fitted one shape inside
+   the other -- empty bands at the edges of a wide pane, and on a narrow one
+   a strip of GPU ground below the svg with no nodes, no roads and no night
+   drawn on it (owner, 2026-09-11: the svg did not match the ground). */
 .map-field > svg {
   align-self: stretch;
-  height: 100%;
 }
 /* Nothing stands in flow above the map any more, so the empty layer's line
    would sit under the switcher. It steps down past it. */
@@ -458,7 +434,10 @@
 .node-label,
 .node-hint {
   fill: currentColor;
-  font-size: 8px;
+  /* In step with `labels.LABEL_EM`, which weighs these for room: the two are
+     one size written twice, and parted they would let a name that does not
+     fit be drawn anyway. */
+  font-size: 6px;
   text-anchor: middle;
 }
 .edge-label {

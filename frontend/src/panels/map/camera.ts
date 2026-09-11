@@ -47,9 +47,11 @@ export const ARRIVED = 0.2;
  *  comes back with a gap of seconds, and one step must not swallow it. */
 export const LONGEST_STEP = 64;
 
-/** Where the frame's top-left stands for `middle` to be in its centre. */
-export function frameOn(middle: Point, scale: number): Point {
-  return { x: middle.x - W / (2 * scale), y: middle.y - H / (2 * scale) };
+/** Where the frame's top-left stands for `middle` to be in its centre.
+ *  `tall` is the frame's height in map units at scale 1 -- the field's own
+ *  shape (`model.frameHeight`), not the design one. */
+export function frameOn(middle: Point, scale: number, tall = H): Point {
+  return { x: middle.x - W / (2 * scale), y: middle.y - tall / (2 * scale) };
 }
 
 /**
@@ -90,9 +92,13 @@ export function arrived(from: Point, to: Point): boolean {
   return Math.hypot(to.x - from.x, to.y - from.y) < ARRIVED;
 }
 
-/** The frame as the `viewBox` attribute spells it. */
-export function viewBoxOf(frame: Frame): string {
-  return `${frame.x} ${frame.y} ${W / frame.scale} ${H / frame.scale}`;
+/** The frame as the `viewBox` attribute spells it.
+ *
+ *  The height is the field's, not the design's: a viewBox of another shape
+ *  than the box it is drawn in letterboxes the whole vector layer, and the
+ *  strip left over shows ground with nothing on it (`model.frameHeight`). */
+export function viewBoxOf(frame: Frame, tall = H): string {
+  return `${frame.x} ${frame.y} ${W / frame.scale} ${tall / frame.scale}`;
 }
 
 type Wiring = {
@@ -102,6 +108,10 @@ type Wiring = {
    *  starts closer -- its field is 375px wide, and the whole world across it
    *  puts a node's name at five pixels. */
   scale?: number;
+  /** The frame's height in map units at scale 1, asked afresh every time:
+   *  the field is measured as the window resizes, and the camera lives
+   *  outside React and cannot be re-made for it (`model.frameHeight`). */
+  tall?: () => number;
   /** Whether motion is unwanted altogether (`prefers-reduced-motion`). */
   still?: () => boolean;
   now?: () => number;
@@ -123,6 +133,7 @@ export type Camera = ReturnType<typeof createCamera>;
 export function createCamera({
   onFrame,
   scale = 1,
+  tall = () => H,
   still = () => false,
   now = () => performance.now(),
   raf = requestAnimationFrame,
@@ -157,10 +168,10 @@ export function createCamera({
       const scale = zoomStep(frame.scale, aimScale, dt);
       const middle = middleOf(frame);
       if (scale === aimScale) aimScale = null;
-      frame = { scale, ...frameOn(middle, scale) };
+      frame = { scale, ...frameOn(middle, scale, tall()) };
     }
     if (aim) {
-      const target = frameOn(aim, frame.scale);
+      const target = frameOn(aim, frame.scale, tall());
       if (arrived(frame, target)) {
         frame = { ...frame, ...target };
         aim = null;
@@ -188,7 +199,7 @@ export function createCamera({
    *  A descent under way goes on from the new place. */
   const cut = (middle: Point) => {
     drop();
-    frame = { ...frame, ...frameOn(middle, frame.scale) };
+    frame = { ...frame, ...frameOn(middle, frame.scale, tall()) };
     show();
     if (aimScale !== null) book();
   };
@@ -204,7 +215,7 @@ export function createCamera({
   /** Where the frame is looking now: the world point in its middle. */
   const middleOf = (f: Frame): Point => ({
     x: f.x + W / (2 * f.scale),
-    y: f.y + H / (2 * f.scale),
+    y: f.y + tall() / (2 * f.scale),
   });
 
   /**
@@ -218,13 +229,13 @@ export function createCamera({
   const zoomOnMiddle = (scale: number) => {
     aimScale = null;
     const middle = middleOf(frame);
-    frame = { scale, ...frameOn(middle, scale) };
+    frame = { scale, ...frameOn(middle, scale, tall()) };
     show();
   };
 
   return {
     frame: () => frame,
-    viewBox: () => viewBoxOf(frame),
+    viewBox: () => viewBoxOf(frame, tall()),
     /** The world point in the middle of the frame. */
     middle: () => middleOf(frame),
     aimAt,

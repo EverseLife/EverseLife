@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { bulk, long, nameWord, nodeWord, price, provinceWord, spread } from "../panels/map/words";
+import { bulk, long, markWord, nameWord, nodeWord, price, provinceWord, spread } from "../panels/map/words";
 import { DEFAULT_LOCALE, Words, learn } from "../locale";
 import type { Names } from "../names";
 
@@ -110,5 +110,27 @@ describe("words", () => {
     expect(nodeWord({ name: "", features: ["vein"] }, { forest: "Лес" })).toBe("Безымянный узел");
     expect(nodeWord({ name: "", features: ["forest"] }, undefined)).toBe("Безымянный узел");
     expect(nodeWord({}, { forest: "Лес" })).toBe("Безымянный узел");
+  });
+});
+
+describe("the name a mark wears", () => {
+  //: One node, two names (D-330): the abstract city node is gone, and the
+  //: bioprinter's own node carries both. Which is shown is a fact of the
+  //: frame -- there is no second node to carry the other any more.
+  const core = { name: "Ядро: Принтер Предтеч", city: "Столица Терры" };
+
+  it("writes the city's name where the whole city is one mark", () => {
+    expect(markWord(core, true)).toBe("Столица Терры");
+  });
+
+  it("writes the node's own name where one can walk into it", () => {
+    expect(markWord(core, false)).toBe("Ядро: Принтер Предтеч");
+  });
+
+  //: A dead city of the Forerunners is a settlement and not an institution:
+  //: no city row, no name over the wire -- and «Мерид» is its own name.
+  it("leaves a settlement without a city called what it is called", () => {
+    expect(markWord({ name: "Мерид" }, true)).toBe("Мерид");
+    expect(markWord({ name: "Мерид", city: null }, true)).toBe("Мерид");
   });
 });

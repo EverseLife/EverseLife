@@ -95,9 +95,9 @@ export const GLOBE_FILL = 1.2;
 /** The scale the surface opens at from the sky, from the planet's radius in
  *  map units: the disk `GLOBE_FILL` of the frame high. Without a radius the
  *  scene is flat, and it opens at the streets' scale as it always did. */
-export function globeScale(radius: number | null): number {
+export function globeScale(radius: number | null, tall = H): number {
   if (!radius) return STREET_SCALE;
-  return (H * GLOBE_FILL) / (2 * radius);
+  return (tall * GLOBE_FILL) / (2 * radius);
 }
 
 /**
@@ -108,15 +108,15 @@ export function globeScale(radius: number | null): number {
  * come there is no height to read, and the floor is set under any planet's
  * disk so that a surface opened from the sky does not at once fall back.
  */
-export function surfaceFloor(approachKm: number): number {
+export function surfaceFloor(approachKm: number, tall = H): number {
   if (!(approachKm > 0)) return UNBOOKED_FLOOR;
-  return H / (2 * approachKm * 1000 * UNITS_PER_METRE);
+  return tall / (2 * approachKm * 1000 * UNITS_PER_METRE);
 }
 /** The floor before the book has come: under any planet's disk. */
 const UNBOOKED_FLOOR = 1e-6;
 
-export function surfaceBounds(approachKm: number): Bounds {
-  return { nearest: SURFACE_NEAREST, furthest: surfaceFloor(approachKm) };
+export function surfaceBounds(approachKm: number, tall = H): Bounds {
+  return { nearest: SURFACE_NEAREST, furthest: surfaceFloor(approachKm, tall) };
 }
 
 /** How far out the map tab zooms, as a share of the scale the globe fills
@@ -313,16 +313,16 @@ export function farOf(scale: number): number {
  * so the mark grows by a seventh from the streets to a frame of ninety
  * kilometres and by a fifth in the limit.
  *
- * The growth is only half of what the eye sees, and the smaller half. What
- * a city is drawn at on the far frames is `cityRadius`, where the share of
- * the globe takes over and brings the mark down to its floor: 26 pixels at
- * the closing, 30 at ninety kilometres, 14 on the planet.
+ * What a city is drawn at is `cityRadius`, and nothing takes over from it:
+ * the share of the planet's radius that used to cap the mark is gone
+ * (D-329 addendum, 2026-09-11) -- see the note above `cityRadius` for why
+ * the two rules turned out to be one.
  */
-export const CITY_R_MIN = 14;
+export const CITY_R_MIN = 7;
 //: And the largest a city's **base** is, whatever its count of nodes: past
-//: this a great city says only that it is great, and forty pixels is already
-//: three of the gaps its own nodes stand at.
-export const CITY_BASE_MAX = 40;
+//: this a great city says only that it is great, and twenty pixels is
+//: already two of the gaps its own nodes stand at.
+export const CITY_BASE_MAX = 20;
 export const CITY_GROWTH = 0.2;
 export const CITY_GROWTH_HALF = 6;
 //: The largest a city is drawn whatever its size and however far out. Not a
@@ -349,45 +349,25 @@ export function cityPixels(size: number, far: number): number {
  * города слишком маленький»). Divided by the scale of its band, it holds its
  * size on the glass and the growth means what it says.
  */
-export function cityRadius(
-  size: number,
-  far: number,
-  globe: number | null = null,
-): number {
-  const units = cityPixels(size, far) / scaleAt(far);
-  //: And no larger than a share of the planet itself. The pixel ceiling
-  //: `CITY_R_MAX` keeps the circle within reason on a screen, but on the globe
-  //: a screen is a whole world: from afar the capital grew over half the
-  //: planet (owner, 2026-09-08). A city is a place on a planet, and it must
-  //: look like one.
-  if (!globe || globe <= 0) return units;
-  //: **And never smaller than a mark** -- but the mark yields to the share,
-  //: not the other way about. The floor is a size on the glass and the share
-  //: a size on the world, and on a small planet they argue: the floor stood
-  //: outside the share and always won, so on the farthest frame the capital
-  //: came out a sixth of the planet's own radius, a third of its disk
-  //: (owner, 2026-09-11: the capital's circle is wrong again). Clipping the
-  //: floor by the share settles it in favour of the world: the mark is as
-  //: large as a mark should be until the planet itself is smaller than that,
-  //: and from there it is the planet that says how big a town may look.
-  const floor = CITY_R_MIN / scaleAt(far);
-  return Math.min(Math.max(floor, units), globe * CITY_OF_GLOBE);
+export function cityRadius(size: number, far: number, scale: number): number {
+  //: Divided by the frame's **own** scale, not the band's. Held to the
+  //: band's, the mark swelled by half between one notch of the zoom and the
+  //: next and snapped back at the notch: it breathed (owner, 2026-09-11:
+  //: make it stop scaling when zoomed out). `far` still decides the growth,
+  //: because how much a great city outgrows a hamlet should not flicker.
+  return cityPixels(size, far) / (scale > 0 ? scale : scaleAt(far));
 }
 
-//: What share of the planet's radius a city's circle never passes.
+//: There is no share of the globe any more, and its going is worth a word.
 //:
-//: An eighth was a continent, and it never bound at all: on the frame that
-//: shows the planet whole the capital came out a tenth of the world's own
-//: radius, which is the shape of a sea and not of a town (owner, 2026-09-10:
-//: the capital's mark scales too big, make it scale weaker). A twenty-fifth
-//: is a third of that. It starts to bind two notches inside the planet's
-//: frame, so the mark is not clipped at one frame and whole at the next --
-//: it comes down over three half-octaves, 30 pixels to 27 to 19, as the
-//: world comes into the frame, and lands on the floor of `cityRadius` at 14.
-//:
-//: On Earth's radius a twenty-fifth would be two hundred and fifty
-//: kilometres: a great city with its country around it.
-export const CITY_OF_GLOBE = 0.04;
+//: The mark used to be capped at a fraction of the planet's radius, because
+//: held to a constant size in **units** it grew over half the world from
+//: afar. Held to a constant size in **pixels**, as it is now, it cannot: the
+//: frames of the map are the planet's own radius (`groundReach`), so every
+//: planet fills the same part of the glass at the same `far`, and a mark of
+//: seven pixels is the same small share of every world at every frame. Two
+//: rules that argued -- a size on the glass against a size on the world --
+//: turned out to be one once the first was measured on the glass for real.
 
 /**
  * The mark of the node one stands in, **map units**, when the cities are
@@ -404,13 +384,29 @@ export function hereRadius(far: number): number {
   return HERE_R_PX / scaleAt(far);
 }
 
+/**
+ * Whether the node underfoot needs a mark of its own on a closed map.
+ *
+ * Only where it stands for itself. Inside a city it does not: the city's own
+ * mark is drawn at that very point and already wears `me`, so a second mark
+ * put the dark dot of the node over the light dot of the city -- ten pixels
+ * of market on eleven of capital -- and from orbit one's own city read as a
+ * black hole (seen in the running game, 2026-09-11).
+ *
+ * `home` is what the node underfoot delegates to in this scene: itself out
+ * in the wild, its city inside one.
+ */
+export function standsAlone(here: string | null, home: string | null): boolean {
+  return home === null || home === here;
+}
+
 /** How tall a closed city's name is drawn, map units: the same pixels at
  *  every distance, for the same reason as the circle. A name that shrinks
  *  with the zoom is a name nobody can read from where cities are all there
  *  is. */
-export const CITY_LABEL_PX = 13;
-export function cityLabelEm(far: number): number {
-  return CITY_LABEL_PX / scaleAt(far);
+export const CITY_LABEL_PX = 11;
+export function cityLabelEm(far: number, scale: number): number {
+  return CITY_LABEL_PX / (scale > 0 ? scale : scaleAt(far));
 }
 
 /**

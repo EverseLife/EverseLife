@@ -20,12 +20,13 @@ texture. The layout is not a convenience -- it is why the grid was chosen
 over an icosphere: a face stays a square, so the picture is still a texture
 and the blending between cells inside a face is the hardware's, free.
 
-Every face carries a **border** of one cell taken from the face across the
-edge, because that blending would otherwise reach into the neighbouring
-tile of the atlas and drag a strip of the wrong face along all twelve
-seams. The border cell is found by geometry -- the cell reflected outwards
-past the edge -- so the picture is continuous over the whole sphere and the
-shader needs to know nothing about which face adjoins which.
+Every face carries a **border** of `healpix.BORDER` cells taken from the
+face across the edge, because that blending would otherwise reach into the
+neighbouring tile of the atlas and drag a strip of the wrong face along all
+twelve seams. The border cells are found by geometry -- the edge cell
+carried outwards past the edge -- so the picture is continuous over the
+whole sphere and the shader needs to know nothing about which face adjoins
+which.
 """
 
 from __future__ import annotations
@@ -39,7 +40,6 @@ from src import healpix
 from src.constants import Constants
 from src.engine import biome, terrain
 from src.models.world import Planet
-from src.runtime import RIVER_PAINT_M
 
 #: How far off nought a coast texel of the picture is held on the side its
 #: own class stands (`_shore`), as a share of the rise -- the sketch's own.
@@ -47,6 +47,17 @@ SHORE = fields.RASTER_SHORE
 #: The atlas is the grid's own layout, and it is read from there: the
 #: shader finds its texel by the same numbers (`shade.ts`).
 ACROSS, DOWN, BORDER = healpix.ACROSS, healpix.DOWN, healpix.BORDER
+#: What one step of the height raster is worth, metres. A whole metre was
+#: too coarse for the shore: the land there stands a few decimetres over
+#: the sea, and rounded to nought it made a flat plateau of cells at
+#: exactly zero -- the water's edge then ran along the middles of texels,
+#: which is the lattice, and the coast was straight runs at forty-five
+#: degrees with corners (owner, 2026-09-11: diamonds on the map). A
+#: decimetre keeps the shore's own slope; sixteen bits of them reach three
+#: kilometres either way, past any rise the registry names. The passport
+#: carries the unit (`height_unit_m`, from `field` -- this module and the
+#: passport's cannot import one another), and the picture divides by it.
+HEIGHT_UNIT_M = fields.HEIGHT_UNIT_M
 
 
 def raster_bytes(constants: Constants, planet: Planet, kind: str) -> bytes | None:
@@ -139,13 +150,19 @@ def _encode(constants: Constants, planet: Planet, field, kind: str) -> bytes:
 
     if kind == "height":
         share = _laid_height(field, nside)
-        metres = np.round(share * field.relief_m)
+        steps = np.round(share * field.relief_m / HEIGHT_UNIT_M)
         #: The sea stays under zero: the picture tells the water by the sign
         #: of the height, and a shallow cell rounded up to nought would be
         #: drawn as shore.
-        metres = np.where(share < 0, np.minimum(metres, -1), metres)
+        steps = np.where(share < 0, np.minimum(steps, -1), steps)
         short = np.iinfo(np.int16)
-        return np.clip(metres, short.min, short.max).astype("<i2").tobytes()
+        #: A rise the steps cannot count would be clipped to a plateau in
+        #: silence; the registry's rises are a tenth of the reach.
+        if field.relief_m / HEIGHT_UNIT_M > short.max:
+            raise ValueError(
+                f"relief {field.relief_m} m does not fit int16 steps of {HEIGHT_UNIT_M} m"
+            )
+        return np.clip(steps, short.min, short.max).astype("<i2").tobytes()
     if kind == "biome":
         return _bytes(laid(biome.raster(constants, planet)))
     if kind == "water":
@@ -169,27 +186,23 @@ def _encode(constants: Constants, planet: Planet, field, kind: str) -> bytes:
         wet = (field.water == fields.LAKE).astype(np.float64) * byte.max
         return _bytes(laid(wet, average=True))
     if kind == "stream":
-        #: A river as a **quantity**, so the picture can cut its bank between
-        #: the cells (owner, 2026-09-11: rivers as a raster, the vectors look
-        #: bad). But not as the share of the cell that is river, which is how
-        #: this began: a river is one cell wide, and a share read between the
-        #: cells and cut at a half falls apart on every diagonal step -- the
-        #: midpoint between two diagonal neighbours averages two wet corners
-        #: against two dry ones and lands under the knife. The ribbon came out
-        #: a string of beads.
+        #: The river's ribbon, straight out of the field: its width is the
+        #: flow of the river it belongs to, and the width was decided where
+        #: the flow lives (`field.pipeline`). Read as a class a river is a
+        #: chain of whole cells with right angles; as a share it fell apart
+        #: on every diagonal. As a ribbon it bends where the water bends.
         #:
-        #: A **distance** does not do that. `river_m` is the metres to the
-        #: nearest fresh water, and it is smooth by construction, so its level
-        #: sets are curves rather than crumbs. What travels is the ramp
-        #: `1 - river_m / RIVER_PAINT_M`, and the shader cuts it at a half:
-        #: a ribbon `RIVER_PAINT_M / 2` metres wide that bends where the water
-        #: bends. Lakes and the sea are excluded -- they have their own paint,
-        #: and near a lake shore this would otherwise draw a river.
+        #: Held to the class, as the height is (`_shore`): the ribbon is a
+        #: quantity and is thinned by the mean, the water a class and thinned
+        #: by the middle, and a texel of the channel whose mean took in a
+        #: cell beyond the bank read as dry ground where the class said
+        #: river. A channel texel is never under its own middle cell's value.
         byte = np.iinfo(np.uint8)
-        fresh = (field.water == fields.LAKE) | (field.water == fields.SEA)
-        far = np.where(fresh, RIVER_PAINT_M, field.river_m.astype(np.float64))
-        ramp = np.clip(1.0 - far / RIVER_PAINT_M, 0.0, 1.0) * byte.max
-        return _bytes(laid(ramp, average=True))
+        ribbon = field.stream.astype(np.float64)
+        mean = laid(ribbon, average=True)
+        own = laid(ribbon)
+        channel = laid(field.water) == fields.RIVER
+        return _bytes(np.clip(np.where(channel, np.maximum(mean, own), mean), 0, byte.max))
     if kind == "flow":
         #: The catchment on a log scale, because a river's catchment runs
         #: from twenty square kilometres to four thousand and the eye reads

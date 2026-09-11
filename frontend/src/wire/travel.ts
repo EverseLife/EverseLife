@@ -178,9 +178,18 @@ export type MapNode = {
   facet?: string;
   /** Shown dark: remembered or public, not in sight (D-319). */
   faded?: boolean;
+  /** The name of the city this node is the centre of. Sent on a **city's**
+   *  row alone, and it is the row of the node with the city's bioprinter
+   *  (D-330): standing in it one reads `name` -- «Ядро: Принтер Предтеч» --
+   *  and from afar, where the whole city is one mark, the map writes this
+   *  instead. The client cannot work it out (D-225): a city's name is copied
+   *  at founding and never follows the node. */
+  city?: string | null;
   /** The node the city grew from -- its bioprinter. Sent on a **city's** row
-   *  alone: from afar a city is drawn as that node's point (D-319), and the
-   *  client cannot work out which node holds the machine (D-225) -- the map
+   *  alone: from afar a city is drawn as that node's point (D-319). Normally
+   *  the row's own key, a city being founded where a printer stands; it parts
+   *  from it only where the machine the city grew from is gone and another is
+   *  the oldest left (D-312). The client cannot work it out (D-225) -- the map
    *  carries no machines, and "the oldest printer that is not the prison's"
    *  is the engine's own reading of a centre (`city.lookup.core`). */
   core?: string | null;
@@ -286,6 +295,11 @@ export type RasterPassport = {
   /** The metres a cell spans -- everywhere, not just at the equator. */
   step_m: number;
   relief_m: number;
+  /** What one step of the height raster is worth, metres (a decimetre):
+   *  whole metres flattened the shore and the water's edge ran along the
+   *  lattice. Required: guessed at a metre, every height would be ten
+   *  times over with nothing failing. */
+  height_unit_m: number;
   biomes: string[];
   forms: string[];
   /** The water raster's classes by code: land, sea, lake, river. */

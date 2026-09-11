@@ -156,18 +156,24 @@ async def _grid_alive(session: AsyncSession, constants: Constants, node: Node) -
     """Whether the **city pool** has anything for this node. A read: no pool is created.
 
     Only the pool: the Forerunners' reactor is another purse and pays only for
-    their own things (`_stove_works`). Remembered by the city rather than by the
-    node: every node of a city shares one pool, and `heated` asks about a whole
-    ring of neighbours at once.
+    their own things (`_stove_works`). Remembered by the **grid's node** rather
+    than by this node: every node of a city shares one pool, and `heated` asks
+    about a whole ring of neighbours at once. By the grid's node and not by the
+    parent: since D-330 the city's own node hangs on the planet beside the wild
+    ones, and a key by the parent gave the city and the wilderness one answer --
+    whichever was asked first.
     """
+    from src.engine import energy  # noqa: PLC0415 -- lazy: breaks the cycle with energy
+
+    grid = await energy.grid_node(session, node)
+    if grid is None:
+        return False
 
     async def read() -> bool:
-        from src.engine import energy  # noqa: PLC0415 -- lazy: breaks the cycle with energy
-
         pool = await energy.pool_of(session, constants, node, create=False)
         return pool is not None and float(pool.stored) > 0
 
-    return await remember(session, ("frost_grid", node.parent_id, node.layer), read)
+    return await remember(session, ("frost_grid", grid.id), read)
 
 
 async def _neighbours(session: AsyncSession, node: Node) -> list[Node]:

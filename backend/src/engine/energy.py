@@ -172,16 +172,28 @@ class NotEnough(EnergyError):
 async def grid_node(session: AsyncSession, node: Node) -> Node | None:
     """The delegate node of the city on whose territory this node stands.
 
-    The city's built-up area is its own node's children (D-045, D-319). The
-    floodplain and the gully hang directly on the planet and do not belong to
-    the city: there is no pool there.
+    The city's built-up area is its own node and its children (D-045, D-319,
+    D-330). The floodplain and the gully hang directly on the planet and do
+    not belong to the city: there is no pool there.
+
+    A city's own node answers with **itself**, and that is the whole of D-330
+    here: since the city stands on its bioprinter, that node hangs on the
+    planet, and answered by the parent alone it had no grid -- the one node
+    the pool itself lives on was outside the pool.
     """
-    if node.layer is not Layer.PLANET or node.parent_id is None:
+    if node.layer is not Layer.PLANET:
         return None
-    parent = await session.get(Node, node.parent_id)
-    if parent is None or parent.layer is not Layer.PLANET:
-        return None
-    return parent
+    #: The parent first: it is in the session's identity map for the common
+    #: case -- a plot under its city's node -- and costs no round trip, where
+    #: the city's row is a query. Only a node that hangs on the planet is
+    #: asked whether it is a city's own.
+    if node.parent_id is not None:
+        parent = await session.get(Node, node.parent_id)
+        if parent is not None and parent.layer is Layer.PLANET:
+            return parent
+    if await world.is_city_node(session, node):
+        return node
+    return None
 
 
 async def pool_of(

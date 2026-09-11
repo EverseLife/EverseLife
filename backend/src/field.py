@@ -72,6 +72,11 @@ SKETCH_SHORE = 1e-3
 #: And the same hair for a coast texel of the picture's rasters, which are
 #: thinned the same way and hold the same contract (`engine.rasters._shore`).
 RASTER_SHORE = SKETCH_SHORE
+#: What one step of the picture's height raster is worth, metres: a
+#: decimetre (`engine.rasters` writes it, `engine.terrain` puts it in the
+#: passport as `height_unit_m`). Here because both read it and the two
+#: cannot import one another.
+HEIGHT_UNIT_M = 0.1
 #: How many points across a sketch cell are sampled off the field to make
 #: it: the field is a flat run of cells with no rows to average, so the
 #: sketch is drawn by asking it, and a sample every few cells is enough for
@@ -127,6 +132,11 @@ class Field:
     #: and carried in the file since D-328: who a cell's neighbours are is a
     #: property of the grid, and the game keeps no table of them.
     river_flow_km2: np.ndarray  # float32, 0 away from every river
+    #: The river's ribbon as the picture draws it: one in the channel,
+    #: nought past the bank, and the width already in it -- the flow of
+    #: the river it belongs to decided it in the vault, where a cell's
+    #: neighbours are known. The shader cuts it at a half.
+    stream: np.ndarray  # uint8, 255 = 1.0
     sea_m: np.ndarray  # to the nearest sea, metres, uint16, capped
     temperature_c: np.ndarray  # int8
     rain: np.ndarray  # uint8, 255 = 1.0
@@ -467,6 +477,13 @@ def _loaded(directory: str, planet: str, mountain_share: float, expected: tuple)
         temperature = z["temperature_c"].astype(np.int8)
         rain = z["rain"].astype(np.uint8)
         ice = z["ice"].astype(bool)
+        #: Asked for outright, without a fallback to nought. A field built
+        #: before the ribbon has no such raster, and zeros would mean "no
+        #: rivers anywhere" -- drawn as dry ground, silently, on a world
+        #: whose rivers are in the water raster all the same. What stops
+        #: that is the passport: `terrain.version` went to 8 with this
+        #: raster, so an older field refuses at startup and says why.
+        stream = z["stream"].astype(np.uint8)
         province = (
             z["province"].astype(np.uint8)
             if "province" in z
@@ -511,6 +528,7 @@ def _loaded(directory: str, planet: str, mountain_share: float, expected: tuple)
         temperature_c=temperature,
         rain=rain,
         ice=ice,
+        stream=stream,
         province=province,
         forms=tuple(str(entry["id"]) for entry in meta.get("forms", [])),
         provinces=tuple(str(entry["id"]) for entry in provinces_table),

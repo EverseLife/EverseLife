@@ -42,6 +42,10 @@ QUARTER = math.pi / 2.0
 #: of the face over the edge each carries. The layout is a fact of the grid,
 #: not of the encoder: the shader finds a texel by it (`shade.ts`), the
 #: server writes one by it (`engine.rasters`), and both take it from here.
+#:
+#: One cell of border: the hardware's blend reaches one texel past the
+#: point and no further. The skirt below can carry any width, should a
+#: reading that reaches further ever be wanted.
 FACES = 12
 ACROSS, DOWN = 4, 3
 BORDER = 1
@@ -301,13 +305,17 @@ def skirt(nside: int, rings: Rings | None = None) -> np.ndarray:
     """For every texel of the atlas, the cell whose value goes in it.
 
     Inside a face it is that face's own cell. In the border it is the cell
-    one step past the edge, found by reflecting the edge cell outwards over
-    its inward neighbour -- the point at twice the angle along the same
-    great circle -- and asking the projection whose cell that is. Whatever
-    face lies across the edge, and whichever way round its own lattice runs,
-    the answer is right by construction; at the eight corners where three
-    faces meet the reflection lands a fraction of a cell off, which is a
-    corner texel of a border and is never the middle of anything.
+    one or two steps past the edge, found by carrying the edge cell outwards
+    over its inward neighbour -- the point one or two steps further along
+    the same great circle, a step being the angle between the two -- and
+    asking the projection whose cell that is. Whatever face lies across the
+    edge, and whichever way round its own lattice runs, the answer is right
+    by construction; at the eight corners where three faces meet the carry
+    lands a fraction of a cell off, which is a corner texel of a border and
+    is never the middle of anything. A corner texel of a **second** ring is
+    carried along the diagonal from the corner cell and lands a cell short of
+    its true place: the width is any, the corners are right for one ring,
+    and BORDER is one.
 
     Without the border, the blending between neighbouring cells would reach
     into the next tile of the atlas at every face edge and drag a strip of a
@@ -331,11 +339,23 @@ def skirt(nside: int, rings: Rings | None = None) -> np.ndarray:
     lat, lon = centres(nside, rings)
     edge = xyz(lat[here], lon[here])
     back = xyz(lat[inward], lon[inward])
-    beyond = float(BOTH) * (edge * back).sum(axis=0)[None, ...] * edge - back
-    outside = (out_x[None, None, :] != 0) | (out_y[None, :, None] != 0)
+    #: How many cells out this texel stands: the ring of the border it is in.
+    ring = np.maximum(np.abs(place - ix)[None, None, :], np.abs(place - iy)[None, :, None])
+    #: The edge cell carried on past itself by as many steps as the ring: a
+    #: turn about the axis of the two cells' great circle, the step being
+    #: the angle between them. One ring was a reflection; two is the same
+    #: turn taken twice, which a reflection cannot say.
+    cos = np.clip((edge * back).sum(axis=0), -1.0, 1.0)
+    theta = np.arccos(cos)
+    across = edge - cos[None, ...] * back
+    length = np.sqrt((across * across).sum(axis=0))
+    across = across / np.where(length > 0.0, length, 1.0)[None, ...]
+    turn = (1.0 + ring) * theta
+    beyond = back * np.cos(turn)[None, ...] + across * np.sin(turn)[None, ...]
+    outside = ring != 0
     over = ang2pix(
         nside,
-        np.degrees(np.arcsin(np.clip(beyond[BOTH], -1.0, 1.0))),
+        np.degrees(np.arcsin(np.clip(beyond[2], -1.0, 1.0))),
         np.degrees(np.arctan2(beyond[1], beyond[0])),
     )
     cells = np.where(outside, over, here)

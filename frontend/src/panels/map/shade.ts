@@ -117,7 +117,46 @@ export function grainStrength(cellPx: number): number {
  *  the picture long, and a wander longer than the teeth it hides does not
  *  break the staircase -- it carries the whole staircase sideways, which is
  *  the very look the constant exists to remove. */
-export const EDGE_CELLS = 1.1;
+export const EDGE_CELLS = 2.0;
+/** How far apart the four taps of a pixel stand on the glass, pixels. The
+ *  class of the ground is picked, never averaged (plan §9.3) -- but the
+ *  **colour** of a pixel is the mean of four picks on a rotated grid this
+ *  wide, and so is its wetness. Picked once at the pixel's own point, a
+ *  cell was a diamond -- the grid's own shape on the screen -- and every
+ *  boundary of biomes, every shore of a lake, was a row of them at any
+ *  frame where a cell is a few pixels (owner, 2026-09-11: diamonds on the
+ *  map, twice). Four taps are the edge anti-aliased; the wander (EDGE_CELLS)
+ *  is what breaks its straightness. */
+export const AA_PX = 3;
+/** The share of a water raster at which the edge of the water is cut
+ *  between the cells: a lake's share of the cell, a river's ribbon. The
+ *  vault writes the ribbon so that it falls to this at the bank
+ *  (`pipeline.ribbon`); the pair meets here and in the vault's
+ *  `test_the_river_ribbon_is_half_gone_at_its_bank`. */
+export const BANK_SHARE = 0.5;
+
+/** The Catmull-Rom weights of the four texels about a place `t` of the
+ *  way from one texel centre to the next, as polynomials in `t`: one row
+ *  per texel, the coefficients of 1, t, t^2, t^3. The one table serves
+ *  both readers -- `catmullRom` here and the shader's `cubicWeights`,
+ *  written from it -- so a test on the one holds the other. */
+const CATMULL_ROM: readonly (readonly [number, number, number, number])[] = [
+  [0, -0.5, 1, -0.5],
+  [1, 0, -2.5, 1.5],
+  [0, 0.5, 2, -1.5],
+  [0, 0, -0.5, 0.5],
+];
+
+export function catmullRom(t: number): [number, number, number, number] {
+  const t2 = t * t;
+  const t3 = t2 * t;
+  return CATMULL_ROM.map(([c0, c1, c2, c3]) => c0 + c1 * t + c2 * t2 + c3 * t3) as [
+    number, number, number, number,
+  ];
+}
+
+const glslWeight = ([c0, c1, c2, c3]: readonly [number, number, number, number]): string =>
+  `${c0.toFixed(1)} + ${c1.toFixed(1)} * t + ${c2.toFixed(1)} * t2 + ${c3.toFixed(1)} * t3`;
 export const EDGE_M = 65;
 /** And the same two pixel widths for it: a wander finer than a pixel is
  *  not a rough edge but salt and pepper, because neighbouring pixels then
@@ -194,12 +233,10 @@ uniform float u_high_from;
 uniform int u_shore;
 uniform vec3 u_light;
 uniform vec3 u_biomes[${PALETTE_SLOTS}];
-uniform vec3 u_sea_shallow;
 uniform vec3 u_sea_deep;
 uniform vec3 u_lake;
 uniform vec3 u_high;
 uniform sampler2D u_stream;
-uniform uvec3 u_water_forms;
 uniform uvec4 u_cliff_forms;
 uniform uvec4 u_stone_forms;
 uniform uvec2 u_sand_forms;
@@ -224,6 +261,8 @@ const float GRAIN_WHOLE = ${grainWhole().toFixed(4)};
 const float GRAIN_SEEN_PX = ${GRAIN_SEEN_PX.toFixed(2)};
 const float GRAIN_FULL_PX = ${GRAIN_FULL_PX.toFixed(2)};
 const float EDGE_M = ${EDGE_M.toFixed(1)};
+const float AA_PX = ${AA_PX.toFixed(1)};
+const float BANK_SHARE = ${BANK_SHARE.toFixed(2)};
 const float EDGE_CELLS = ${EDGE_CELLS.toFixed(2)};
 const float UNITS_PER_METRE = ${UNITS_PER_METRE.toFixed(1)};
 const float THIRD_TWO = 0.6666666666666666;
@@ -301,6 +340,63 @@ float heightAt(vec2 uv, float lod) { return textureLod(u_height, uv, lod).r; }
 //: projection, so a sample that steps off the edge of a face lands on
 //: whatever face is really there -- there is no wrapping to get wrong.
 float heightOf(vec3 p, float lod) { return heightAt(atlasUV(normalize(p)), lod); }
+
+//: Catmull-Rom along one axis: the weights of the four texels about a
+//: place t of the way from one texel centre to the next, written from
+//: the one table (CATMULL_ROM). They sum to one and pass through the
+//: samples -- the curve is the texels' own values joined smoothly, not a
+//: blur of them (a B-spline shrank every river's diagonal reach by a
+//: sixth when it was tried on the ribbon, plan sec. 17).
+vec4 cubicWeights(float t) {
+  float t2 = t * t;
+  float t3 = t2 * t;
+  return vec4(
+    ${CATMULL_ROM.map(glslWeight).join(",\n    ")}
+  );
+}
+
+//: The height between the cells read **cubically**, at the finest level.
+//:
+//: The hardware's bilinear blend is smooth inside a cell and breaks its
+//: slope at every cell's edge: on the near frames, where a cell is a
+//: quarter of the screen, the water's edge was a chain of arcs with a kink
+//: at each cell, and a lone cell of land in the sea was a diamond -- the
+//: last of the diamonds (owner, 2026-09-12), the one the field cannot
+//: take away because it is made by the reading. Sixteen texels weighed by
+//: Catmull-Rom join with their slope; the two middle texels of each axis
+//: are read as one bilinear tap placed between them by their weights, so
+//: the sixteen cost nine fetches. A tap is held inside the face's own tile
+//: (border included): the border is one cell wide, and the outer taps
+//: would otherwise reach a stranger's face across the atlas.
+float heightCubic(vec2 uv) {
+  vec2 p = uv * u_atlas - 0.5;
+  vec2 base = floor(p);
+  vec2 t = p - base;
+  vec4 wx = cubicWeights(t.x);
+  vec4 wy = cubicWeights(t.y);
+  vec2 w12 = vec2(wx.y + wx.z, wy.y + wy.z);
+  vec2 mid = base + vec2(wx.z, wy.z) / w12 + 0.5;
+  float side = u_nside + 2.0 * u_border;
+  vec2 tile = floor(uv * u_atlas / side) * side;
+  vec2 lo = tile + 0.5;
+  vec2 hi = tile + side - 0.5;
+  vec2 a = clamp(base - 0.5, lo, hi);
+  vec2 b = clamp(mid, lo, hi);
+  vec2 c = clamp(base + 2.5, lo, hi);
+  vec3 wxs = vec3(wx.x, w12.x, wx.w);
+  vec3 wys = vec3(wy.x, w12.y, wy.w);
+  vec3 xs = vec3(a.x, b.x, c.x);
+  vec3 ys = vec3(a.y, b.y, c.y);
+  float sum = 0.0;
+  for (int j = 0; j < 3; j++) {
+    float row = 0.0;
+    for (int i = 0; i < 3; i++) {
+      row += wxs[i] * textureLod(u_height, vec2(xs[i], ys[j]) / u_atlas, 0.0).r;
+    }
+    sum += wys[j] * row;
+  }
+  return sum;
+}
 
 //: Value noise on the sphere: the corners of a lattice cell hashed and
 //: blended smoothly. The lattice is wrapped to GRAIN_WRAP before it is
@@ -462,92 +558,112 @@ void main() {
   vec3 n = normalize(vec3(-slopeX * EXAGGERATION, -slopeY * EXAGGERATION, 1.0));
   float shade = max(dot(n, u_light), 0.0);
 
-  uint b = texture(u_biome, uv).r;
-  uint f = texture(u_form, uv).r;
-  //: The landform wanders with the biome, and for the same reason. The
-  //: picture darkens a cliff and roughens the ground by what the form says,
-  //: and a cliff is often a single cell: read at the pixel's own point it
-  //: came out as a hard diamond of shadow, scattered along a mountain front
-  //: like beads -- the shape of a cell and nothing of the country.
-  //: The colour's edge, roughened (wave 8). A biome is a class of a cell
-  //: a hundred metres wide, and on a near frame its edge is a straight
-  //: staircase across the ground -- the one thing on the map that says
-  //: "raster" out loud. The class is not blended (plan §9.3 keeps it a
-  //: class, not a mean of two): what wanders is the *point the class is
-  //: read at*, by less than a cell and by less than a slice of the frame
-  //: (see edgeCells), so the boundary between two biomes comes out ragged
-  //: as a real one is. It comes on with the grain and on the same ramp, or
-  //: a straight edge would turn ragged at a stroke on the way in. Only
-  //: between two lands: a sample
-  //: strayed onto the water would paint a shore where there is none, and
-  //: the water's own edge is the height's, cut to the pixel by the coast.
-  if (u_edge > 0.0 && b != ${NO_BIOME}u) {
-    vec3 j = u_edge_at + apart * (u_radius / UNITS_PER_METRE / EDGE_M);
-    //: Two ways to wander, and they must not be one way twice. Read off the
-    //: one lattice a step apart, the two came out of the same ridges and
-    //: the edge wandered along a diagonal, holding the right angles of the
-    //: raster it was meant to hide. Turned into its own lattice and taken
-    //: at two sizes each, they are two motions and the edge is a line.
-    vec3 k = vec3(j.z, j.x, j.y) * 1.7 + vec3(19.7, 5.3, 31.1);
-    vec2 astray = vec2(
-      0.65 * wave(j) + 0.35 * wave(j * 2.0),
-      0.65 * wave(k) + 0.35 * wave(k * 2.0)
-    ) * (EDGE_CELLS * u_edge);
-    //: The wander is a walk over the **ground** -- so many cells east and
-    //: north -- and not a walk over the raster's own axes: on this grid a
-    //: face's lattice stands at an angle to the compass that changes over
-    //: the sphere, and a wander along it would have followed the faces.
-    vec3 strayed = here + (pe * astray.x + pn * astray.y) * span;
-    vec2 juv = atlasUV(normalize(strayed));
-    uint near = texture(u_biome, juv).r;
-    if (near != ${NO_BIOME}u) b = near;
-    f = texture(u_form, juv).r;
-  }
-  vec3 col;
-  //: The sea is where the height, read between the cells, is under zero:
-  //: the same zero the vector coast is drawn on, so the water's edge and
-  //: its line agree to the pixel. A lake stands on land above zero and is
-  //: told by its form, cell by cell.
-  //: A lake is cut where its own share passes a half, read between the
-  //: cells: as a class it was whole five-hundred-metre cells, and a lake
-  //: of blue rectangles with right angles is not a lake (owner,
-  //: 2026-09-10). The sea is the height's own zero, as it was.
-  //: The river is a share of the cell like the lake (the stream raster),
-  //: and it is read the same way: between the cells, cut at a half. Drawn as
-  //: a class it was a chain of whole cells with right angles; drawn as a
-  //: vector line it was a thread laid over the ground rather than water in
-  //: it, and the owner said so on 2026-09-11. A raster read between the
-  //: cells bends where the water bends.
+  //: The level is named, not guessed. A class raster has a chain now, and
+  //: left to the plain texture() the hardware picks its level off the
+  //: derivative of uv -- which on this projection jumps at every seam of the
+  //: atlas and reads a far coarser level than the frame wants: the ground
+  //: came out in flat blotches with no rivers in them (seen in the running
+  //: game, 2026-09-11). The lod above is the frame's own answer to "how much
+  //: ground is a pixel", and the height has been read by it from day one.
   //:
-  //: No backticks in here: this is GLSL inside a template string, and a pair
-  //: of them closes it. The compiler said nothing -- the pair balanced --
-  //: and the bundler refused the file.
-  float run = texture(u_stream, uv).r;
-  if (h < 0.0 || texture(u_wet, uv).r > 0.5 || run > 0.5) {
-    if (h >= 0.0) {
-      col = u_lake;
-    } else {
-      col = mix(u_sea_shallow, u_sea_deep, clamp(-h / u_deep, 0.0, 1.0));
-    }
-    col *= 0.85 + 0.15 * shade;
-  } else {
+  //: No backticks in this comment, and none anywhere in here: this is GLSL
+  //: inside a template string, and a pair of them closes it.
+  //: The colour's edge, roughened (wave 8): the class is read at a point
+  //: that wanders by less than a cell or two (EDGE_CELLS) over a lattice
+  //: EDGE_M wide, so the boundary between two biomes comes out ragged as a
+  //: real one is, and not as the staircase of the raster. Two ways to
+  //: wander, and they must not be one way twice: read off one lattice a
+  //: step apart, the two came out of the same ridges and the edge wandered
+  //: along a diagonal, holding the right angles it was meant to hide.
+  //: Turned into its own lattice and taken at two sizes each, they are two
+  //: motions and the edge is a line. The wander is a walk over the
+  //: **ground** -- so many cells east and north -- and not over the
+  //: raster's own axes, which stand at an angle to the compass that changes
+  //: over the sphere. No branch on the strength: with the wander and the
+  //: grain each behind an if on its uniform, the frames stalled for a
+  //: second apiece on the near frames whenever both were on (measured
+  //: 2026-09-11, ANGLE over D3D11), and a strength of nought is a multiply
+  //: by nought.
+  vec3 j = u_edge_at + apart * (u_radius / UNITS_PER_METRE / EDGE_M);
+  vec3 k = vec3(j.z, j.x, j.y) * 1.7 + vec3(19.7, 5.3, 31.1);
+  vec2 astray = vec2(
+    0.65 * wave(j) + 0.35 * wave(j * 2.0),
+    0.65 * wave(k) + 0.35 * wave(k * 2.0)
+  ) * (EDGE_CELLS * u_edge);
+  vec3 wander = (pe * astray.x + pn * astray.y) * span;
+
+  //: Four taps on a rotated grid AA_PX wide on the glass, and the pixel is
+  //: their mean: of the ground's colour, each tap a **picked** class (the
+  //: plan keeps the class a class, §9.3), and of its wetness, each tap a
+  //: yes or no. One pick at the pixel's own point drew every cell as a
+  //: diamond -- the grid's shape on the screen -- wherever a cell is a few
+  //: pixels: boundaries of biomes and the shores of lakes were rows of them
+  //: (owner, 2026-09-11, twice). The taps are on the glass and not on the
+  //: raster, so the edge is softened by the same pixels at every frame: a
+  //: hair on the near ones, a cell or two on the far. Only between two
+  //: lands, as before: a tap's wander that strayed onto the water keeps the
+  //: tap's own class, so no shore is painted where there is none.
+  float metre_px = u_units / UNITS_PER_METRE;
+  float wet = 0.0;
+  vec3 ground = vec3(0.0);
+  for (int t = 0; t < 4; t++) {
+    vec2 o = AA_PX * (t == 0 ? vec2(0.375, 0.125) : t == 1 ? vec2(-0.125, 0.375) : t == 2 ? vec2(-0.375, -0.125) : vec2(0.125, -0.375)) * 2.0;
+    vec3 p = here + (pe * o.x + pn * o.y) * (metre_px / metres);
+    vec2 tuv = atlasUV(normalize(p));
+    //: The water's edge is cut on the cubic reading where a cell is a
+    //: pixel or more (level nought), and on the level's own bilinear blend
+    //: from there out: past a cell to the pixel the cubic would alias what
+    //: the mip averages, and the kink it removes is under a pixel anyway.
+    //: Behind a branch on the fragment's own level, not on a uniform (the
+    //: stalls of 2026-09-11 were gates on uniforms): the far frames would
+    //: otherwise pay nine fetches of the finest level per tap, each a
+    //: likely cache miss, for a weight of nought.
+    float s = min(lod, 1.0);
+    float th = heightAt(tuv, lod);
+    if (s < 1.0) th = mix(heightCubic(tuv), th, s);
+    //: The water's shares are read at the finest level and nowhere else: a
+    //: river is a cell or two wide, and the mean of four cells round it is
+    //: already under the knife. The river's ribbon is cut at its bank, a
+    //: half of the raster's measure (field.pipeline.ribbon).
+    bool water = th < 0.0 || textureLod(u_wet, tuv, 0.0).r > BANK_SHARE || textureLod(u_stream, tuv, 0.0).r > BANK_SHARE;
+    wet += water ? 0.25 : 0.0;
+    uint tb = textureLod(u_biome, tuv, lod).r;
+    uint near = textureLod(u_biome, atlasUV(normalize(p + wander)), lod).r;
+    tb = (tb != ${NO_BIOME}u && near != ${NO_BIOME}u) ? near : tb;
     //: A sea cell whose height, read between the cells, has come up over
     //: zero is the shore's last strip: it takes the coast's colour.
-    int code = b == ${NO_BIOME}u ? u_shore : int(b);
-    col = u_biomes[code < 0 ? ${PALETTE_SLOTS - 1} : min(code, ${PALETTE_SLOTS - 1})];
-    float share = clamp(h / u_relief, 0.0, 1.0);
-    col = mix(col, u_high, 0.6 * smoothstep(u_high_from, 1.0, share));
-    bool cliff = f == u_cliff_forms.x || f == u_cliff_forms.y || f == u_cliff_forms.z || f == u_cliff_forms.w;
-    float tone = 0.5 + 0.5 * shade;
-    if (cliff) tone *= 0.7;
-    //: The grain, on the near frames alone (wave 8): the ground says what
-    //: it is made of, while the hillshade goes on saying what shape it is.
-    if (u_grain > 0.0) {
-      float rock = texture(u_rock, uv).r;
-      tone *= 1.0 + GRAIN_DEPTH * u_grain * grainOf(apart, f, rock);
-    }
-    col *= tone;
+    int code = tb == ${NO_BIOME}u ? u_shore : int(tb);
+    ground += 0.25 * u_biomes[code < 0 ? ${PALETTE_SLOTS - 1} : min(code, ${PALETTE_SLOTS - 1})];
   }
+  //: The landform, at the pixel's own wandered point: the picture darkens
+  //: a cliff and roughens the ground by what the form says, and a cliff is
+  //: often a single cell -- read straight it was a hard diamond of shadow.
+  uint f = textureLod(u_form, uv, lod).r;
+  {
+    uint b0 = textureLod(u_biome, uv, lod).r;
+    uint form_near = textureLod(u_form, atlasUV(normalize(here + wander)), lod).r;
+    f = b0 != ${NO_BIOME}u ? form_near : f;
+  }
+
+  //: One colour for all water at the surface, and the sea darkens only
+  //: with its depth (owner, 2026-09-11: a river and the sea are one water,
+  //: they may be one colour). A river used to end at the shore in the
+  //: lake's tone and the sea begin in its own, and the step between them
+  //: was a seam across every mouth.
+  vec3 water_col = mix(u_lake, u_sea_deep, h >= 0.0 ? 0.0 : clamp(-h / u_deep, 0.0, 1.0));
+  water_col *= 0.85 + 0.15 * shade;
+  float share = clamp(h / u_relief, 0.0, 1.0);
+  ground = mix(ground, u_high, 0.6 * smoothstep(u_high_from, 1.0, share));
+  bool cliff = f == u_cliff_forms.x || f == u_cliff_forms.y || f == u_cliff_forms.z || f == u_cliff_forms.w;
+  float tone = 0.5 + 0.5 * shade;
+  if (cliff) tone *= 0.7;
+  //: The grain, on the near frames alone (wave 8): the ground says what
+  //: it is made of, while the hillshade goes on saying what shape it is.
+  float rock = textureLod(u_rock, uv, lod).r;
+  tone *= 1.0 + GRAIN_DEPTH * u_grain * grainOf(apart, f, rock);
+  ground *= tone;
+  //: The pixel: its ground and its water, by how many of its taps are wet.
+  vec3 col = mix(ground, water_col, wet);
   float alpha = 1.0 - smoothstep(1.0 - edge, 1.0 + edge, rho);
   o_color = vec4(col * alpha, alpha);
 }
@@ -595,7 +711,6 @@ export function parseColor(text: string): [number, number, number] | null {
 export type Palette = {
   /** Three floats a slot, `PALETTE_SLOTS` slots, by the raster's biome code. */
   biomes: Float32Array;
-  seaShallow: [number, number, number];
   seaDeep: [number, number, number];
   lake: [number, number, number];
   high: [number, number, number];
@@ -615,12 +730,10 @@ export type Palette = {
  *  planets were told apart at all. */
 export const FLUID_TONES = {
   water: {
-    seaShallow: "var(--gl-sea-shallow)",
     seaDeep: "var(--gl-sea-deep)",
     lake: "var(--gl-lake)",
   },
   lava: {
-    seaShallow: "var(--gl-lava-shallow)",
     seaDeep: "var(--gl-lava-deep)",
     lake: "var(--gl-lava-lake)",
   },
@@ -664,19 +777,18 @@ export function paletteOf(
   const tones = FLUID_TONES[fluid] ?? FLUID_TONES.water;
   return {
     biomes: table,
-    seaShallow: read(tones.seaShallow),
     seaDeep: read(tones.seaDeep),
     lake: read(tones.lake),
     high: read(TONES.high),
   };
 }
 
-/** The form codes the shader tells water and cliffs by, off the passport's
- *  table; a form the table lacks is a code no cell carries. The river's
- *  code is named but not painted: a river is a line of the vector layer
- *  (plan §9.2, wave 6), not a cell of colour. */
+/** The form codes the shader tells cliffs and the grain's kinds by, off the
+ *  passport's table; a form the table lacks is a code no cell carries. Water
+ *  is not among them: the shader tells the sea by the height's sign, a lake
+ *  by its share and a river by its ribbon (u_wet, u_stream), never by the
+ *  form. */
 export function formCodes(passport: RasterPassport): {
-  water: [number, number, number];
   cliff: [number, number, number, number];
   /** What the grain of a cell is made of: bare rock, loose sand, ice
    *  (wave 8). A landform in none of the three mottles as ground does. */
@@ -692,7 +804,6 @@ export function formCodes(passport: RasterPassport): {
     return at < 0 ? NO_BIOME : at;
   };
   return {
-    water: [code("sea"), code("lake"), code("river")],
     cliff: [code("cliff"), code("coast_cliff"), code("canyon"), code("scree")],
     stone: [code("scree"), code("rocky_desert"), code("cliff"), code("coast_cliff")],
     sand: [code("dunes"), code("beach")],
@@ -701,9 +812,14 @@ export function formCodes(passport: RasterPassport): {
   };
 }
 
-/** The heights as the texture wants them: metres as floats, row 0 the south. */
-export function heightsOf(bytes: ArrayBuffer): Float32Array {
-  return Float32Array.from(new Int16Array(bytes));
+/** The heights as the texture wants them: metres as floats, from the
+ *  raster's signed sixteen-bit steps of `unit` metres (the passport's
+ *  `height_unit_m`, a decimetre). */
+export function heightsOf(bytes: ArrayBuffer, unit: number): Float32Array {
+  const steps = new Int16Array(bytes);
+  const out = new Float32Array(steps.length);
+  for (let i = 0; i < steps.length; i++) out[i] = steps[i] * unit;
+  return out;
 }
 
 /** How deep the sea goes on this planet, metres, off the raster itself: the
@@ -751,6 +867,61 @@ export function mipChain(
         const x1 = Math.min(w - 1, 2 * x + 1);
         next[y * w2 + x] =
           (data[y0 * w + x0] + data[y0 * w + x1] + data[y1 * w + x0] + data[y1 * w + x1]) / 4;
+      }
+    }
+    chain.push({ data: next, cols: w2, rows: h2 });
+    data = next;
+    w = w2;
+    h = h2;
+  }
+  return chain;
+}
+
+/**
+ * The mip chain of a **byte** raster, the same halving as the height's.
+ *
+ * Two reducers, because two kinds of byte travel in these rasters and they
+ * cannot be coarsened the same way.
+ *
+ * * `mean` is for a **share** -- how much of the cell is lake, river, hard
+ *   rock. Half of a half is a quarter, and the mean says so.
+ * * `pick` is for a **class** -- which biome, which landform. A mean of two
+ *   codes is a third code that means something else entirely; the coarse
+ *   texel takes one of its four instead, and the one it takes is the first,
+ *   so the choice is the same on every machine.
+ *
+ * Why at all: without a chain a pixel that covers ten texels reads one of
+ * them and shimmers as the hand moves -- a one-texel river blinking in and
+ * out on the globe, a coast fizzing along its whole length. The height had
+ * its chain from the first day (`mipChain`); the rasters beside it did not,
+ * and that was the whole of the noise on the far frames.
+ */
+export function byteChain(
+  level0: Uint8Array,
+  cols: number,
+  rows: number,
+  how: "mean" | "pick",
+  tile = 0,
+): { data: Uint8Array; cols: number; rows: number }[] {
+  const deepest = tile > 1 ? Math.floor(Math.log2(tile)) : Infinity;
+  const chain = [{ data: level0, cols, rows }];
+  let { data, cols: w, rows: h } = chain[0];
+  while ((w > 1 || h > 1) && chain.length <= deepest) {
+    const w2 = Math.max(1, Math.floor(w / 2));
+    const h2 = Math.max(1, Math.floor(h / 2));
+    const next = new Uint8Array(w2 * h2);
+    for (let y = 0; y < h2; y++) {
+      const y0 = Math.min(h - 1, 2 * y);
+      const y1 = Math.min(h - 1, 2 * y + 1);
+      for (let x = 0; x < w2; x++) {
+        const x0 = Math.min(w - 1, 2 * x);
+        const x1 = Math.min(w - 1, 2 * x + 1);
+        next[y * w2 + x] =
+          how === "pick"
+            ? data[y0 * w + x0]
+            : Math.round(
+                (data[y0 * w + x0] + data[y0 * w + x1] + data[y1 * w + x0] + data[y1 * w + x1]) / 4,
+              );
       }
     }
     chain.push({ data: next, cols: w2, rows: h2 });

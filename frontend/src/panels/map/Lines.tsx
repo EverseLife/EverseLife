@@ -3,13 +3,15 @@
 
 /**
  * The lines of the relief on the globe (landscape plan wave 6): contours,
- * the coast by the form of its land, the hachures of the cliffs and the
- * rivers -- read off the rasters (`contours.ts`) and projected by the eye.
+ * the hachures of the cliffs and the little trees of the woods -- read off
+ * the rasters (`contours.ts`) and projected by the eye.
  *
  * The rivers left this layer 2026-09-11 and went into the shader: as a line
  * a river was a thread laid over the ground rather than water in it, and
- * the owner asked for the raster instead. `contours.rivers` is still cut --
- * the near frames measure a river's width by it -- but nothing draws it.
+ * the owner asked for the raster instead (the stream raster, cut at the
+ * bank). The coast and the lakes' rims left the same evening: the shader's water
+ * has its own edge, cut to the pixel, and a line along it said nothing the
+ * colour did not (owner, 2026-09-11: what is the coastline for at all).
  * Drawn over the ground and under the nodes, thin at any zoom.
  *
  * Nothing at all from a frame wider than the city's (`closeFrame`): there
@@ -39,7 +41,6 @@ import {
   quantisedEye,
   type Segment,
 } from "./contours";
-import { UNITS_PER_METRE } from "./globe";
 import { useRasters } from "./rasters";
 
 /** Segments to one path, dropping what faces away from the eye. */
@@ -85,10 +86,7 @@ export function Lines({
       contours: drawnOf(frame.contours.filter((c) => !c.index).flatMap((c) => c.segments)),
       index: drawnOf(frame.contours.filter((c) => c.index).flatMap((c) => c.segments)),
       hachures: drawnOf(frame.hachures),
-      rock: drawnOf(frame.shores.rock),
-      beach: drawnOf(frame.shores.beach),
-      shore: drawnOf(frame.shores.shore),
-      lakes: drawnOf(frame.lakes),
+      woods: drawnOf(frame.woods),
     };
   }, [frame, eye, radius]);
   if (!drawn) return null;
@@ -100,10 +98,10 @@ export function Lines({
     >
       {drawn.contours && <path className="contour" d={drawn.contours} />}
       {drawn.index && <path className="contour index" d={drawn.index} />}
-      {drawn.lakes && <path className="coast lake" d={drawn.lakes} />}
-      {drawn.shore && <path className="coast shore" d={drawn.shore} />}
-      {drawn.beach && <path className="coast beach" d={drawn.beach} />}
-      {drawn.rock && <path className="coast rock" d={drawn.rock} />}
+      {/* The woods under the lines of the relief and over the ground's own
+          colour: a wood is a thing of the country, a contour is a reading of
+          it, and a reading is written on top. */}
+      {drawn.woods && <path className="wood" d={drawn.woods} />}
       {drawn.hachures && <path className="hachure" d={drawn.hachures} />}
     </g>
   );

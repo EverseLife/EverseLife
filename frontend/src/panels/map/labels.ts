@@ -22,8 +22,13 @@
  */
 
 /** The name's size in map units. Mirrors `.node-label` in `map.css`: the
- *  text is drawn in user units, so its `font-size` is a length of the map. */
-export const LABEL_EM = 8;
+ *  text is drawn in user units, so its `font-size` is a length of the map.
+ *  8 -> 6 (owner, 2026-09-11: the names smaller), in step with the mark,
+ *  which went from nine units to seven when the gap they are derived from
+ *  was cut (`map.min_gap_m`). A closed city's name keeps its own size in
+ *  pixels: the transform that holds it there is measured against this
+ *  (`Nodes.grown`), so it followed on its own. */
+export const LABEL_EM = 6;
 /** A hull's name is set larger (`.node.ship .node-label`). */
 export const HULL_EM = 10;
 /** And a door's caption smaller and wider (`.node-door`): the letter-spacing

@@ -5,7 +5,7 @@
  * The lines of the relief (landscape plan wave 6), held without a DOM: the
  * window a frame reads and its stride, marching squares closing round a
  * hill, the coast styled by the land it touches, a hachure pointing down
- * the slope, the rivers joined cell to cell, the contour ladder.
+ * the slope, the contour ladder.
  */
 
 import { describe, expect, it } from "vitest";
@@ -13,32 +13,30 @@ import { describe, expect, it } from "vitest";
 import {
   BIN_DEG,
   CLOSE_FRAME_M,
-  COAST_FINE,
   closeFrame,
   CONTOUR_LADDER,
   SAMPLE_BUDGET,
-  coast,
   contourInterval,
   contours,
   frameLines,
   hachures,
   isolines,
   localSamples,
+  TREE_EVERY,
+  TREE_TIERS,
+  woods,
   provinceEdges,
   provinceFrame,
-  riverBands,
-  riverWidthM,
   provinceWhole,
   provinceMarks,
   quantisedEye,
-  rivers,
   samplesOf,
   wholeWindow,
   windowAbout,
 } from "../panels/map/contours";
 import type { Rasters } from "../panels/map/rasters";
-import type { River, Segment } from "../panels/map/contours";
-import type { Lattice } from "../panels/map/healpix";
+import type { Segment } from "../panels/map/contours";
+import { latticeOf, type Lattice } from "../panels/map/healpix";
 import type { RasterPassport } from "../api";
 import { UNITS_PER_METRE } from "../panels/map/globe";
 import { frameMetres } from "../panels/map/contours";
@@ -95,6 +93,7 @@ function planet(
     province: new Uint8Array(rows * cols),
     flow: new Uint8Array(rows * cols),
     lake: new Uint8Array(rows * cols),
+    stream: new Uint8Array(rows * cols),
   };
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
@@ -104,7 +103,7 @@ function planet(
       rasters.form[r * cols + c] = FORMS.indexOf(named === "river" ? "plain" : named);
       rasters.water[r * cols + c] = WATER.indexOf(named === "river" ? "river" : named === "sea" ? "sea" : named === "lake" ? "lake" : "land");
       //: A river cell drains something: half a byte of the log scale, so a
-      //: test planet's rivers have a width to be drawn at.
+      //: test planet's rivers carry a catchment.
       rasters.flow[r * cols + c] = named === "river" ? 128 : 0;
       //: A lake travels as a share, not as a class: the picture cuts its
       //: shore between the cells as it cuts the sea's by the height.
@@ -116,7 +115,7 @@ function planet(
     grid: "healpix", nside: rows, cells: 12 * rows * rows,
     rows, cols, across: 4, down: 3, border: 1,
     step_m: 500, relief_m: 3000, biomes: [], forms: FORMS, water: WATER,
-    flow_max_km2: 4000,
+    fluid: "water", flow_max_km2: 4000,
   };
   return { rasters, passport, lattice: meshOf(rows, cols) };
 }
@@ -137,13 +136,11 @@ describe("windowAbout", () => {
     const { rasters, lattice } = planet(8, (r) => (r === 3 || r === 4 ? 100 : -100));
     const samples = samplesOf(lattice, wholeWindow(lattice));
     expect(samples.nc).toBe(lattice.cols + 1);
-    const { shores } = coast(rasters, samples, FORMS);
-    const all = [...shores.rock, ...shores.beach, ...shores.shore];
+    const read = samples.between(rasters.height);
+    const [all] = isolines(samples, (i, j) => read[i * samples.nc + j], [0]);
     //: Two coasts, one north and one south of the ring, each `cols` cells
-    //: long -- and every crossed cell is cut into `COAST_FINE` pieces, so
-    //: the line follows the same curve inside a cell that the shader's
-    //: water does.
-    expect(all).toHaveLength(2 * lattice.cols * COAST_FINE);
+    //: long, one chord to the crossed cell.
+    expect(all).toHaveLength(2 * lattice.cols);
     const lons = all.map(([a]) => a.lon);
     expect(Math.min(...lons)).toBeLessThan(-160);
     expect(Math.max(...lons)).toBeGreaterThan(160);
@@ -202,7 +199,7 @@ describe("isolines and contours", () => {
     //: join -- the two cuts go round the low corners, top-right and
     //: bottom-left.
     const high = (i: number, j: number) => ((i + j) % 2 === 0 ? 10 : 0);
-    const cuts = isolines(samples, high, 5);
+    const [cuts] = isolines(samples, high, [5]);
     expect(cuts).toHaveLength(2);
     const top = samples.geo(0, 0.5);
     const right = samples.geo(0.5, 1);
@@ -213,64 +210,17 @@ describe("isolines and contours", () => {
     //: At a level over the mean the middle is low and each high corner is
     //: cut off on its own: top-left by left-top, bottom-right by right-bottom
     //: -- the cuts now four tenths from the high corners.
-    const apart = isolines(samples, high, 6);
+    const [apart] = isolines(samples, high, [6]);
     expect(apart[0]).toEqual([samples.geo(0.4, 0), samples.geo(0, 0.4)]);
     expect(apart[1]).toEqual([samples.geo(0.6, 1), samples.geo(1, 0.6)]);
+    //: A ladder in one walk is the levels one by one: the quad skips the
+    //: rungs it cannot cross (under its lowest corner, over its highest)
+    //: and cuts the two it does.
+    expect(isolines(samples, high, [-1, 5, 6, 11])).toEqual([[], cuts, apart, []]);
   });
 });
 
-describe("coast", () => {
-  it("styles the shore by the land it touches: rock, beach, plain", () => {
-    const rows = 6;
-    //: The sea on the west half, land on the east; the land's first column
-    //: a sea cliff in the north rows, a beach in the south rows.
-    const { rasters, lattice } = planet(
-      rows,
-      (_r, c) => (c < 6 ? -50 : 100),
-      (r, c) => (c < 6 ? "sea" : c === 6 ? (r < 3 ? "coast_cliff" : "beach") : "plain"),
-    );
-    const win = windowAbout(lattice, { lat: 0, lon: 0 }, 1e5, undefined);
-    const { shores, lakes } = coast(rasters, samplesOf(lattice, win), FORMS);
-    expect(shores.rock.length).toBeGreaterThan(0);
-    expect(shores.beach.length).toBeGreaterThan(0);
-    //: The planet closes on itself: the land's last column meets the sea's
-    //: first across the date line, plain shore there, one row's worth of
-    //: stretches a row (`COAST_FINE` pieces to the cell).
-    expect(shores.shore).toHaveLength((rows - 1) * COAST_FINE);
-    for (const [a, b] of shores.shore) for (const p of [a, b]) expect(Math.abs(p.lon)).toBeGreaterThan(160);
-    expect(lakes).toEqual([]);
-    //: Every stretch stands on the zero, cut between the sea column's centre
-    //: (-15, at -50 m) and the land's (15, at 100 m): a third of the way.
-    for (const [a, b] of [...shores.rock, ...shores.beach]) {
-      for (const p of [a, b]) expect(p.lon).toBeCloseTo(-5, 6);
-    }
-  });
-  it("closes a lake's shore round it, cut where its own share passes a half", () => {
-    //: Off the `lake` raster and not off the form: a share, so the shore is
-    //: cut between the cells, as the shader cuts it (`shade.ts`, u_wet). As
-    //: a class it was whole cells, and a lake with the corners of a cell is
-    //: not a lake (owner, 2026-09-10).
-    const { rasters, lattice } = planet(6, () => 100, (r, c) => (r === 3 && c === 6 ? "lake" : "plain"));
-    const win = windowAbout(lattice, { lat: 0, lon: 0 }, 1e5, undefined);
-    const { shores, lakes } = coast(rasters, samplesOf(lattice, win), FORMS);
-    expect(shores.rock.length + shores.beach.length + shores.shore.length).toBe(0);
-    //: A closed ring round the one wet cell, cut as finely inside a cell as
-    //: the sea's own edge is (`COAST_FINE`).
-    expect(lakes.length).toBeGreaterThanOrEqual(4 * COAST_FINE);
-    const middle = { lat: -90 + (3 + 0.5) * (180 / 6), lon: -180 + (6 + 0.5) * (360 / 12) };
-    for (const [a, b] of lakes) {
-      for (const p of [a, b]) {
-        expect(Math.abs(p.lat - middle.lat)).toBeLessThan(180 / 6);
-        expect(Math.abs(p.lon - middle.lon)).toBeLessThan(360 / 12);
-      }
-    }
-    //: And every end of every stretch is on the half itself.
-    const wet = samplesOf(lattice, win).between(rasters.lake);
-    expect(wet.some((v) => v > 200) && wet.some((v) => v < 50)).toBe(true);
-  });
-});
-
-describe("hachures and rivers", () => {
+describe("hachures", () => {
   it("ticks a cliff cell down its slope", () => {
     //: The land rises to the east: the slope falls west.
     const { rasters, passport, lattice } = planet(6, (_r, c) => c * 100, (r, c) => (r === 3 && c === 6 ? "cliff" : "plain"));
@@ -281,13 +231,6 @@ describe("hachures and rivers", () => {
     const [from, to] = ticks[0];
     expect(to.lon).toBeLessThan(from.lon);
     expect(Math.abs(to.lat - from.lat)).toBeLessThan(1e-9);
-  });
-  it("joins river cells to their river neighbours once", () => {
-    const { rasters, lattice } = planet(6, () => 100, (r, c) => (r === 2 && c >= 4 && c <= 6 ? "river" : r === 3 && c === 7 ? "river" : "plain"));
-    const win = windowAbout(lattice, { lat: 0, lon: 0 }, 1e5, undefined);
-    const threads = rivers(rasters, samplesOf(lattice, win), WATER);
-    //: 4-5, 5-6 along the row, 6 to the south-east 7.
-    expect(threads).toHaveLength(3);
   });
 });
 
@@ -333,19 +276,11 @@ describe("the ladder and the window's eye", () => {
     const far = frameLines(rasters, passport, { lat: 0, lon: 0 }, radius, CLOSE_FRAME_M * UNITS_PER_METRE, lattice);
     expect(far.hachures).toEqual([]);
     expect(far.contours).toEqual([]);
-    //: The shore and the rivers belong to the near frame with the rest: on
+    //: Everything belongs to the near frame: on
     //: a region they would web the ground over (owner, 2026-09-09).
-    expect(far.rivers).toEqual([]);
-    expect(far.lakes).toEqual([]);
     const near = frameLines(rasters, passport, { lat: 0, lon: 0 }, radius, (CLOSE_FRAME_M / 4) * UNITS_PER_METRE, lattice);
     expect(near.hachures.length).toBeGreaterThan(0);
     expect(near.contours.length).toBeGreaterThan(0);
-    //: The rivers come in bands of width, and every band is a river.
-    expect(near.rivers.length).toBeGreaterThan(0);
-    for (const band of near.rivers) {
-      expect(band.widthM).toBeGreaterThan(0);
-      expect(band.segments.length).toBeGreaterThan(0);
-    }
   });
 
   it("reads a near frame a cell of the ground to the step, at every latitude", () => {
@@ -386,23 +321,6 @@ describe("the ladder and the window's eye", () => {
     }
   });
 
-  it("keeps a river's width the planet's own, not the window's", () => {
-    //: The reaches are cut for the frame now, and the widest reach in a
-    //: window is whatever happens to be in it. A river that changed its
-    //: band as the eye moved would change its width under the hand, so the
-    //: widest is the planet's, off the passport -- and the same reach comes
-    //: out at the same width whatever else the window holds.
-    const brook: River = { at: [{ lat: 0, lon: 0 }, { lat: 0, lon: 1 }], flow: 20 };
-    const great: River = { at: [{ lat: 5, lon: 0 }, { lat: 5, lon: 1 }], flow: 4000 };
-    const alone = riverBands([brook], 4000);
-    const together = riverBands([brook, great], 4000);
-    const widthOf = (bands: { widthM: number; segments: Segment[] }[], lat: number) =>
-      bands.find((band) => band.segments.some(([a]) => a.lat === lat))?.widthM;
-    expect(widthOf(alone, 0)).toBe(widthOf(together, 0));
-    //: And the greatest of the planet is drawn at the width its catchment
-    //: says (`riverWidthM`), not at a share of whatever else is in view.
-    expect(widthOf(riverBands([great], 4000), 5)).toBeCloseTo(riverWidthM(4000), 6);
-  });
 
 });
 
@@ -528,12 +446,109 @@ describe("the provinces", () => {
     //: The near frame's lines say nothing of provinces: the boundary is
     //: drawn from the region outward, the shore from the city inward.
     const near = frameLines(rasters, passport, { lat: 0, lon: 0 }, 1e6, 1e3, lattice);
-    expect(Object.keys(near).sort()).toEqual([
-      "contours",
-      "hachures",
-      "lakes",
-      "rivers",
-      "shores",
-    ]);
+    expect(Object.keys(near).sort()).toEqual(["contours", "hachures", "woods"]);
   });
 });
+
+describe("the woods", () => {
+  //: A wood is drawn as a wood and not only tinted (owner, 2026-09-11):
+  //: little trees scattered over the ground's own colour. On the planet's
+  //: own grid, not the hand-drawn mesh: a tree belongs to a **cell**, and
+  //: the cell is what these tests are about.
+  const nside = 64;
+  //: A planet whose cells are the mesh's step: `R sqrt(pi/3) / nside`.
+  const radiusM = (nside * 50) / Math.sqrt(Math.PI / 3);
+  const radius = radiusM * UNITS_PER_METRE;
+  const wooded = (code: number, names: string[] = ["steppe", "forest"], eye = { lat: 0, lon: 0 }) => {
+    const side = nside + 2;
+    const rows = 3 * side;
+    const cols = 4 * side;
+    const n = rows * cols;
+    const rasters: Rasters = {
+      height: Float32Array.from({ length: n }, () => 100),
+      biome: Uint8Array.from({ length: n }, () => code),
+      form: new Uint8Array(n),
+      water: new Uint8Array(n),
+      rock: new Uint8Array(n),
+      province: new Uint8Array(n),
+      flow: new Uint8Array(n),
+      lake: new Uint8Array(n),
+      stream: new Uint8Array(n),
+    };
+    const passport: RasterPassport = {
+      grid: "healpix", nside, cells: 12 * nside * nside,
+      rows, cols, across: 4, down: 3, border: 1,
+      step_m: 50, relief_m: 1000,
+      biomes: names, forms: ["plain"], water: ["land"],
+      fluid: "water",
+    };
+    //: A frame of a few hundred metres, so the mesh is a handful of points
+    //: across and the count below means something.
+    const { samples, stepM } = localSamples(latticeOf(passport), eye, radius, 600, passport.step_m);
+    return { drawn: woods(rasters, samples, passport, stepM, radius), samples };
+  };
+  //: A tree is a trunk and a crown of `TREE_TIERS` tiers, two strokes
+  //: apiece. Counted rather than assumed, so a crown redrawn by eye says so
+  //: here.
+  const perTree = 1 + 2 * TREE_TIERS;
+  /** Where each tree's trunk stands, as a key. */
+  const trunks = (drawn: Segment[]) => {
+    const out = new Set<string>();
+    for (let k = 0; k < drawn.length; k += perTree) {
+      const foot = drawn[k][0];
+      out.add(`${foot.lat.toFixed(9)},${foot.lon.toFixed(9)}`);
+    }
+    return out;
+  };
+
+  it("grows nothing where nothing is wooded", () => {
+    expect(wooded(0).drawn).toEqual([]);
+  });
+
+  it("grows a tree of many strokes on a share of the wooded ground", () => {
+    const { drawn, samples } = wooded(1);
+    expect(drawn.length).toBeGreaterThan(0);
+    expect(drawn.length % perTree).toBe(0);
+    //: A scatter, not a mat: about one cell in `TREE_EVERY`, and the mesh
+    //: is a cell a point, less its rim, so a little under that many.
+    const trees = drawn.length / perTree;
+    expect(trees).toBeLessThanOrEqual((samples.nr * samples.nc) / TREE_EVERY);
+    expect(trees).toBeGreaterThan((samples.nr * samples.nc) / (2 * TREE_EVERY));
+  });
+
+  it("draws every wood as firs, the crown narrowing to the top", () => {
+    //: One figure for all the woods (owner, 2026-09-11): a conifer, the way
+    //: a wood is drawn on every map there has ever been. The lowest tier
+    //: reaches the widest and the top one is the point.
+    const { drawn } = wooded(1, ["steppe", "forest"]);
+    expect(drawn.length).toBeGreaterThan(0);
+    const reach = (segments: Segment[]) => {
+      const lons = segments.flat().map((q) => q.lon);
+      return Math.max(...lons) - Math.min(...lons);
+    };
+    for (let k = 0; k < drawn.length; k += perTree) {
+      const lowest = drawn.slice(k + 1, k + 3);
+      const top = drawn.slice(k + 1 + 2 * (TREE_TIERS - 1), k + 1 + 2 * TREE_TIERS);
+      expect(reach(lowest)).toBeGreaterThan(reach(top));
+    }
+  });
+
+  it("puts the same trees on the same ground twice", () => {
+    //: Rolled afresh, a scatter crawls over the ground every time the eye
+    //: moves, and a wood that shimmers is worse than no wood at all.
+    expect(wooded(1).drawn).toEqual(wooded(1).drawn);
+  });
+
+  it("keeps a tree where it stands when the eye moves", () => {
+    //: The mesh hangs off the eye and slides over the cells with it; the
+    //: trees must not (owner, 2026-09-11: the trees jittered as the camera
+    //: moved). Two eyes a hundred-odd metres apart see the
+    //: same ground in the middle, and the trees on it stand in one place.
+    const here = trunks(wooded(1).drawn);
+    const there = trunks(wooded(1, undefined, { lat: 0.002, lon: 0.003 }).drawn);
+    let shared = 0;
+    for (const key of here) if (there.has(key)) shared++;
+    expect(shared).toBeGreaterThan(Math.min(here.size, there.size) / 2);
+  });
+});
+

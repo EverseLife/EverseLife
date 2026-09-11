@@ -21,10 +21,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from frost_kit import HEATER, _ago, _charge, _dweller, _place, _sphere, _town
 from src.constants import Catalog, Constants
 from src.constants import registry as R
+from src.db.base import forget
 from src.engine import craft, death, energy, frost, rest, travel, world
+from src.models.city import City
 from src.models.estate import Building
 from src.models.identity import Identity
-from src.models.world import Layer, Planet
+from src.models.world import Layer, Node, Planet
 
 BENCH = "workbench"
 
@@ -99,6 +101,39 @@ async def test_the_heater_warms_its_node_on_the_pool(
     assert not await frost.is_warm(session, constants, yard), "без энергии обогреватель — железо"
     await _charge(session, constants, yard, constants[R.FROST_HEATER_DRAW])
     assert await frost.is_warm(session, constants, yard)
+
+
+async def test_the_city_node_and_a_wild_node_on_one_planet_are_warm_apart(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """Since D-330 the city's own node hangs on the planet beside the wild
+    ones. Its heater runs on the city's pool; a wild node's heater has no
+    pool. Asked in one session in either order, each keeps its own answer --
+    the memo of the pool's life is by the grid's node, not by the parent."""
+    city, yard = await _town(session)
+    session.add(City(node_id=city.id, name=f"Город {city.key}"))
+    wild = await world.create_node(
+        session,
+        f"{city.key}.wild",
+        "Пустошь",
+        planet=Planet.AURORA,
+        area_m2=100,
+        layer=Layer.PLANET,
+        parent=await session.get(Node, city.parent_id),
+    )
+    await session.flush()
+    await _place(session, city, HEATER)
+    await _place(session, wild, HEATER)
+    await _charge(session, constants, yard, constants[R.FROST_HEATER_DRAW])
+    #: The wilderness first, then the city: the first answer must not be
+    #: the second's.
+    assert not await frost.is_warm(session, constants, wild)
+    assert await frost.is_warm(session, constants, city)
+    #: And the other way round, with the command's memory forgotten: the
+    #: memo dies with the command (`db.base.forget`).
+    forget(session)
+    assert await frost.is_warm(session, constants, city)
+    assert not await frost.is_warm(session, constants, wild)
 
 
 async def test_an_empty_pool_is_a_cold_city(session: AsyncSession, constants: Constants) -> None:

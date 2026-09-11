@@ -132,10 +132,16 @@ async def seed(session: AsyncSession) -> Node:
     #: changes itself later. The prison and the spaceport are city land like
     #: the gate (D-176, D-206): a state location is never a "free plot".
     city = None
-    for delegate in applied.city_nodes(scenario):
-        founded = await town.found(session, current_catalog(), delegate, delegate.name)
+    for delegate, title in applied.city_nodes(scenario):
+        founded = await town.found(session, current_catalog(), delegate, title)
         city = city or founded
-        for node in applied.descendants(scenario, delegate.key):
+        #: The delegate is city land too, and not by exception: it is the node
+        #: the printer stands on (D-330), and the layout used to hand it over
+        #: as one of the children of an empty node above it. With that node
+        #: gone the core would have been the one plot of the built-up area
+        #: belonging to nobody -- and `establish` has always registered the
+        #: node a player founds on to the city, for the same reason (D-089).
+        for node in [delegate, *applied.descendants(scenario, delegate.key)]:
             if node.owner_identity_id is None:
                 node.owner_city_id = founded.id
         await session.flush()

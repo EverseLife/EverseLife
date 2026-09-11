@@ -324,8 +324,12 @@ def raster_passport(constants: Constants, planet: Planet, field: fields.Field) -
         #: any more: every cell of the grid is the same size (D-328).
         "step_m": healpix.cell_side_m(field.radius_m, nside),
         "relief_m": field.relief_m,
+        #: `height` is a signed sixteen-bit count of this many metres
+        #: (`field.HEIGHT_UNIT_M`): a decimetre, so the shore keeps its
+        #: slope. Carried here because the picture cannot derive it.
+        "height_unit_m": fields.HEIGHT_UNIT_M,
         #: `biome` is a byte a cell into this list, 255 on water; `form`
-        #: into the field's own table; `height` a signed metre, sixteen bits.
+        #: into the field's own table; `height` in the unit above.
         #: The list repeats the order of `biome.names` on `/public/constants`
         #: on purpose: it is the contract of the bytes, kept beside them, so
         #: a raster and the book it was cut against cannot be read apart.

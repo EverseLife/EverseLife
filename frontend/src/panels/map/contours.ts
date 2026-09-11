@@ -3,9 +3,11 @@
 
 /**
  * The lines of the relief, cut from the picture's rasters (landscape plan
- * wave 6): the contours, the coast by the form of its land, the lakes'
- * shores, the rivers, the hachures of the cliffs and the boundaries of the
- * provinces.
+ * wave 6): the contours, the hachures of the cliffs, the trees of the woods
+ * and the boundaries of the provinces. The rivers are the shader's (the
+ * stream raster), and the coast and the lakes' rims are not cut at all
+ * since 2026-09-11 -- the water's own edge is the shore (owner: what is
+ * the coastline for).
  *
  * Everything is cut **for the frame it is drawn on** and nothing for the
  * planet. The near frames are cut on a mesh of ground about the eye, a cell
@@ -23,7 +25,7 @@
  */
 
 import type { RasterPassport } from "../../api";
-import { latticeOf, type Lattice } from "./healpix";
+import { ang2pix, atlasIndex, cellCentre, latticeOf, type Lattice } from "./healpix";
 import { UNITS_PER_METRE, type Eye, type Geo } from "./globe";
 import type { Rasters } from "./rasters";
 
@@ -73,7 +75,7 @@ export const CONTOUR_LADDER: readonly (readonly [frameM: number, intervalM: numb
 /** Every so many contours one is drawn heavier, as on a topographic sheet. */
 export const INDEX_EVERY = 5;
 /** Below this frame width the vector lines are drawn at all -- contours,
- *  the coast, the lakes' shores, the hachures, the rivers: the city frame
+ *  the hachures, the trees: the city frame
  *  and nearer (plan §9.7), where the window is read cell by cell. Wider
  *  than this every one of them is a thread of whole cells laid over a
  *  region: a web rather than a line (owner, 2026-09-09), and the far
@@ -95,6 +97,35 @@ export const HACHURE_SHARE = 0.45;
 /** The landforms that get hachures: the cliffs, and the canyon, whose
  *  walls the pipeline classes as canyon rather than cliff (plan §4.3). */
 export const HACHURED_FORMS = ["cliff", "coast_cliff", "canyon"] as const;
+/** The biomes that carry trees (`biome.names`): the woods are drawn as woods
+ *  and not only tinted (owner, 2026-09-11). Four of the sixteen classes. */
+export const WOODED_BIOMES = ["forest", "taiga", "rainforest", "woodland"] as const;
+/** How tall a drawn tree is, as a share of the raster's cell: a tree of
+ *  twenty-odd metres on a cell of fifty, so the mark reads as a tree and not
+ *  as a blot, and it grows with the ground like a contour and a hachure. */
+export const TREE_SHARE = 0.5;
+/** How many wooded cells carry one: a tree on every cell is a mat of ink,
+ *  and a wood on a topographic sheet is a scatter. One in this many, chosen
+ *  by the cell's own numbers, so the same ground always grows the same trees
+ *  and the scatter does not crawl when the eye moves. */
+export const TREE_EVERY = 3;
+/**
+ * Below this frame width the woods are drawn, and not above it (owner,
+ * 2026-09-11: the trees are to be shown near, and near only).
+ *
+ * Nearer than the other lines, and for its own reason. A contour is a line
+ * and reads at any thickness; a tree is a **figure**, and a figure needs
+ * room to be one. A tree stands `TREE_SHARE` of a cell tall -- some
+ * twenty-five metres on a cell of fifty -- and across a frame of two
+ * kilometres in eight hundred pixels that is ten pixels: a little fir. On
+ * the frames where the rest of the lines still hold, five and a half
+ * kilometres wide, it would be three pixels, and three pixels of tree are
+ * not a tree but a smudge of ink over the whole wood.
+ */
+export const TREE_FRAME_M = 2_000;
+/** How many tiers of branches a fir is drawn with. Three is what reads as a
+ *  conifer and not as a bristle: two is an arrow, four is a comb. */
+export const TREE_TIERS = 3;
 /** How long a joined run of a province's boundary may grow, degrees.
  *
  *  A run is drawn as one straight line between its two ends, so a run that
@@ -190,9 +221,9 @@ export function wholeWindow(lattice: Lattice): Window {
  * of the colour. Away from the equator that was most of the planet.
  *
  * A mesh laid on the ground has no pole in it. Its rows are not lines of
- * latitude, so a reading cannot be settled by the row (`Rings.row`); it is
- * settled per sample, which costs a few milliseconds on the widest near
- * frame and nothing on the ones a walk is made at.
+ * latitude, so a reading cannot be settled by the row; it is settled per
+ * sample, which costs a few milliseconds on the widest near frame and
+ * nothing on the ones a walk is made at.
  *
  * The chart is gnomonic -- a point is the eye's own plane pushed out onto
  * the ball -- so the mesh stretches by a twentieth at the corner of the
@@ -291,10 +322,10 @@ export type Samples = {
    *  runs along the edges of cells -- on the equal-area grid that is a
    *  chain of straight runs at forty-five degrees, which is the shape of a
    *  cell and not the shape of a shore. It is also the surface the shader
-   *  draws by, so the coast's line and the water's colour agree.
+   *  draws by, so a line and the colour under it agree.
    *
-   *  Kept by raster: a window is walked once for the coast and again for
-   *  every contour of the ladder. */
+   *  Kept by raster: a window is walked once for every contour of the
+   *  ladder. */
   between: (raster: ArrayLike<number>) => Float32Array;
 };
 
@@ -351,41 +382,31 @@ export function samplesOf(lattice: Lattice, win: Window): Samples {
 export type Segment = [Geo, Geo];
 
 /** A reach of a river: where it runs and how much land drains through it,
- *  km2 -- which is how wide it is drawn (`riverWidthM`). */
-export type River = { at: Segment; flow: number };
+ *  km2. */
 
-/** A byte of a scaled raster at its full: 255 stands for one. */
-const BYTE = 255;
-
-/** How wide a river carrying this much land runs, metres.
- *
- *  `a·A^b` with the exponent at a half: the hydraulic geometry every river
- *  on Earth obeys. On Terra a brook of twenty square kilometres comes out
- *  thirteen metres across and the greatest river, draining four and a half
- *  thousand, two hundred -- which is what a river of that catchment looks
- *  like. Picture, not balance (D-065): what a river is worth to the game is
- *  its crossing and its water, and how wide it is drawn changes no rule --
- *  the same reason the contour ladder's numbers live in code (wave 6). */
-export const RIVER_WIDTH_A = 3;
-export const RIVER_WIDTH_B = 0.5;
-export function riverWidthM(catchmentKm2: number): number {
-  return catchmentKm2 > 0 ? RIVER_WIDTH_A * Math.pow(catchmentKm2, RIVER_WIDTH_B) : 0;
-}
 
 /**
- * Marching squares: the segments of the level line `level` of a value read
- * at every sample. The saddle is split by the mean of the four corners.
- * `each` is told the quad (i, j) of every segment as it is made, so a
- * caller can style by the quad without walking the quads again.
+ * Marching squares: the segments of the level lines `levels` (ascending)
+ * of a value read at every sample, one list per level. The saddle is
+ * split by the mean of the four corners.
+ *
+ * The whole ladder is drawn in **one** walk of the window. Level by level
+ * it was one walk each -- the same forty thousand quads read eight or ten
+ * times over, and nine of every ten of those readings only to learn that
+ * the quad is nowhere near the level. A quad knows its own lowest and
+ * highest corner, and that says which levels can possibly cross it:
+ * usually none, sometimes one. The map moves under the hand because of
+ * this. One chord to the crossed quad: the coast used to cut a quad finer,
+ * to follow the shader's bilinear water inside a cell; with the coast gone
+ * (2026-09-11) a contour's chord is enough.
  */
 export function isolines(
   samples: Samples,
   value: (i: number, j: number) => number,
-  level: number,
-  each?: (i: number, j: number) => void,
-  fine = 1,
-): Segment[] {
-  const out: Segment[] = [];
+  levels: readonly number[],
+): Segment[][] {
+  const out: Segment[][] = levels.map(() => []);
+  if (!levels.length) return out;
   const { nr, nc, geo } = samples;
   for (let i = 0; i < nr - 1; i++) {
     for (let j = 0; j < nc - 1; j++) {
@@ -395,42 +416,32 @@ export function isolines(
       const v10 = value(i + 1, j);
       const lo = Math.min(v00, v01, v11, v10);
       const hi = Math.max(v00, v01, v11, v10);
-      if (lo >= level || hi < level) continue;
-      //: A quad the line crosses may be read more finely than the raster
-      //: is: the four corners are all the shader has of it too, and inside
-      //: them it reads the same bilinear surface. One chord across the
-      //: whole cell is that surface's rope bridge -- on a cell five hundred
-      //: metres wide and a frame three metres to the pixel, the rope hangs
-      //: tens of metres away from the ground it stands for, and the coast's
-      //: line ran over the water the shader had drawn. Cut only here, where
-      //: the line actually is: the rest of the planet costs nothing.
-      for (let a = 0; a < fine; a++) {
-        for (let b = 0; b < fine; b++) {
-          const corner = (di: number, dj: number) =>
-            mix(v00, v01, v11, v10, (a + di) / fine, (b + dj) / fine);
-          const at = (di: number, dj: number): Geo =>
-            geo(i + (a + di) / fine, j + (b + dj) / fine);
-          for (const segment of quadLines(
-            corner(0, 0), corner(0, 1), corner(1, 1), corner(1, 0), level, at,
-          )) {
-            out.push(segment);
-            each?.(i, j);
-          }
-        }
+      //: The levels the quad crosses are those in (lo, hi]: the first over
+      //: the lowest corner, up to the last not over the highest -- found by
+      //: bisection, so a ladder of forty rungs costs a quad a dozen
+      //: comparisons and not forty.
+      let a = 0;
+      let b = levels.length;
+      while (a < b) {
+        const m = (a + b) >> 1;
+        if (levels[m] > lo) b = m;
+        else a = m + 1;
+      }
+      const first = a;
+      b = levels.length;
+      while (a < b) {
+        const m = (a + b) >> 1;
+        if (levels[m] <= hi) a = m + 1;
+        else b = m;
+      }
+      if (first >= a) continue;
+      const at = (di: number, dj: number): Geo => geo(i + di, j + dj);
+      for (let k = first; k < a; k++) {
+        for (const segment of quadLines(v00, v01, v11, v10, levels[k], at)) out[k].push(segment);
       }
     }
   }
   return out;
-}
-
-/** The value inside a quad, between its four corners: the very surface the
- *  shader samples when it reads the height texture with linear filtering. */
-function mix(
-  v00: number, v01: number, v11: number, v10: number, di: number, dj: number,
-): number {
-  const top = v00 + (v01 - v00) * dj;
-  const bottom = v10 + (v11 - v10) * dj;
-  return top + (bottom - top) * di;
 }
 
 /**
@@ -489,15 +500,8 @@ function quadLines(
 
 /** The contours of a window: the level lines of the height at `interval`
  *  metres from the first above the sea to the highest sampled, each
- *  marked whether it is an index contour.
- *
- *  The whole ladder is drawn in **one** walk of the window. Level by level
- *  it was one walk each -- the same forty thousand quads read eight or ten
- *  times over, and nine of every ten of those readings only to learn that
- *  the quad is nowhere near the level. A quad knows its own lowest and
- *  highest corner, and that says which rungs of the ladder can possibly
- *  cross it: usually none, sometimes one. The map moves under the hand
- *  because of this, so it is worth the extra dozen lines. */
+ *  marked whether it is an index contour -- the whole ladder in one walk
+ *  (`isolines`). */
 export function contours(
   rasters: Rasters,
   samples: Samples,
@@ -505,96 +509,22 @@ export function contours(
 ): { level: number; index: boolean; segments: Segment[] }[] {
   if (!Number.isFinite(interval) || interval <= 0) return [];
   const read = samples.between(rasters.height);
-  const { nr, nc, geo } = samples;
+  const { nc } = samples;
   let top = 0;
   for (let k = 0; k < read.length; k++) if (read[k] > top) top = read[k];
   const rungs = Math.max(0, Math.ceil(top / interval) - 1);
   if (!rungs) return [];
-  const held: Segment[][] = Array.from({ length: rungs }, () => []);
-  for (let i = 0; i < nr - 1; i++) {
-    for (let j = 0; j < nc - 1; j++) {
-      const v00 = read[i * nc + j];
-      const v01 = read[i * nc + j + 1];
-      const v11 = read[(i + 1) * nc + j + 1];
-      const v10 = read[(i + 1) * nc + j];
-      const lo = Math.min(v00, v01, v11, v10);
-      const hi = Math.max(v00, v01, v11, v10);
-      //: The rungs this quad can possibly cross, and no others: rung `r`
-      //: stands at `(r + 1) * interval`. A rung wide of the mark on either
-      //: side, because the exact word belongs to the test just below and a
-      //: float must not be trusted to sit on a whole multiple.
-      const first = Math.max(0, Math.floor(lo / interval) - 1);
-      const last = Math.min(rungs - 1, Math.floor(hi / interval));
-      for (let rung = first; rung <= last; rung++) {
-        const level = (rung + 1) * interval;
-        if (lo >= level || hi < level) continue;
-        const at = (di: number, dj: number): Geo => geo(i + di, j + dj);
-        for (const segment of quadLines(v00, v01, v11, v10, level, at)) {
-          held[rung].push(segment);
-        }
-      }
-    }
-  }
+  const levels = Array.from({ length: rungs }, (_, rung) => (rung + 1) * interval);
+  const held = isolines(samples, (i, j) => read[i * nc + j], levels);
   const out: { level: number; index: boolean; segments: Segment[] }[] = [];
   for (let rung = 0; rung < rungs; rung++) {
     if (!held[rung].length) continue;
-    const level = (rung + 1) * interval;
-    out.push({ level, index: (rung + 1) % INDEX_EVERY === 0, segments: held[rung] });
+    out.push({ level: levels[rung], index: (rung + 1) % INDEX_EVERY === 0, segments: held[rung] });
   }
   return out;
 }
 
 
-/** How a stretch of coast is drawn: a rock wall, a beach, or plain shore. */
-export type Shore = "rock" | "beach" | "shore";
-
-/** Into how many pieces a cell the coast crosses is cut. The shader draws
- *  the water by the same zero of the same bilinear surface, and one chord a
- *  cell was visibly not that surface: on a frame of two kilometres the line
- *  ran tens of metres from the colour's edge, sometimes over the water
- *  (owner, 2026-09-09). Four is where the two stop disagreeing by more than
- *  a pixel on the frames that draw them; only the cells the line crosses
- *  are cut, so the walk over the planet costs what it did. */
-export const COAST_FINE = 4;
-
-/** The coast: the height's zero, each stretch styled by the land it
- *  touches -- a sea cliff or a cliff is rock, a beach a beach. The lake
- *  shores come separately: the form raster says where a lake is. */
-export function coast(
-  rasters: Rasters,
-  samples: Samples,
-  forms: readonly string[],
-): { shores: Record<Shore, Segment[]>; lakes: Segment[] } {
-  const code = (name: string) => forms.indexOf(name);
-  const rock = new Set([code("coast_cliff"), code("cliff")]);
-  const beach = code("beach");
-  const lake = code("lake");
-  const read = samples.between(rasters.height);
-  const height = (i: number, j: number) => read[i * samples.nc + j];
-  const shores: Record<Shore, Segment[]> = { rock: [], beach: [], shore: [] };
-  //: The style of a quad is read off its land corners as its segment is made.
-  const styleOf = (i: number, j: number): Shore => {
-    let style: Shore = "shore";
-    for (const [ci, cj] of [[i, j], [i, j + 1], [i + 1, j + 1], [i + 1, j]] as const) {
-      if (height(ci, cj) < 0) continue;
-      const form = rasters.form[samples.index(ci, cj)];
-      if (rock.has(form)) return "rock";
-      if (form === beach) style = "beach";
-    }
-    return style;
-  };
-  const styles: Shore[] = [];
-  const segments = isolines(samples, height, 0, (i, j) => styles.push(styleOf(i, j)), COAST_FINE);
-  segments.forEach((segment, k) => shores[styles[k]].push(segment));
-  //: The lake is cut where its own share passes a half, read between the
-  //: cells -- the very number and the very threshold the shader cuts it by
-  //: (`shade.ts`, u_wet). As a class it was whole cells, and a lake with the
-  //: corners of a cell is not a lake.
-  const wet = samples.between(rasters.lake);
-  const lakes = isolines(samples, (i, j) => wet[i * samples.nc + j], BYTE / 2, undefined, COAST_FINE);
-  void lake;
-  return { shores, lakes };
-}
 
 /**
  * The hachures of the cliffs: from the centre of every cliff cell a tick
@@ -639,37 +569,84 @@ export function hachures(
   return out;
 }
 
-/** The rivers: every river cell of the water raster joined to its river
- *  neighbours to the east and the south (each pair once), so the cells
- *  read as threads. */
-export function rivers(
+/**
+ * The woods: a little tree standing on some of the wooded cells.
+ *
+ * Three segments apiece -- a trunk and the two sides of a crown -- because a
+ * segment is what the layer above already knows how to project, so a tree
+ * bends with the globe and grows with the ground like a contour does. Drawn
+ * over the biome's colour rather than instead of it (owner, 2026-09-11:
+ * besides the colour, a wood should be a pattern of svg trees).
+ *
+ * Where each tree stands is decided by the cell's own row and column, not by
+ * a die: a scatter that is rolled afresh would crawl over the ground every
+ * time the eye moved, and a wood that shimmers is worse than no wood at all.
+ */
+export function woods(
   rasters: Rasters,
   samples: Samples,
-  water: readonly string[],
-  topKm2 = 0,
-): River[] {
-  const river = water.indexOf("river");
-  if (river < 0) return [];
-  const out: River[] = [];
+  passport: RasterPassport,
+  stepM: number,
+  radius: number,
+): Segment[] {
+  const wooded = new Set(
+    WOODED_BIOMES.map((name) => passport.biomes.indexOf(name)).filter((c) => c >= 0),
+  );
+  if (!wooded.size) return [];
+  const out: Segment[] = [];
   const { nr, nc } = samples;
-  const is = (i: number, j: number) => rasters.water[samples.index(i, j)] === river;
-  //: How much land drains through the cell, off the flow raster: a byte on
-  //: a log scale to the greatest catchment of the planet (`flow_max_km2`).
-  const drains = (i: number, j: number) =>
-    topKm2 > 0
-      ? Math.expm1((rasters.flow[samples.index(i, j)] / BYTE) * Math.log1p(topKm2))
-      : 0;
-  for (let i = 0; i < nr; i++) {
-    for (let j = 0; j < nc - 1; j++) {
-      if (!is(i, j)) continue;
-      const here = samples.geo(i, j);
-      const flow = drains(i, j);
-      const joins: [number, number][] = [[i, j + 1], [i + 1, j], [i + 1, j + 1], [i + 1, j - 1]];
-      for (const [ni, nj] of joins) {
-        if (ni >= nr || nj < 0 || nj >= nc - 1) continue;
-        //: A reach carries what the smaller of its two ends does: a river
-        //: does not widen because it happens to run beside a bigger one.
-        if (is(ni, nj)) out.push({ at: [here, samples.geo(ni, nj)], flow: Math.min(flow, drains(ni, nj)) });
+  const radiusM = radius / UNITS_PER_METRE;
+  const tall = TREE_SHARE * stepM;
+  const wide = 0.35 * tall;
+  //: One tree per **cell**, and the cell is the tree's identity. The mesh
+  //: the window is read on hangs off the eye and slides over the cells as
+  //: the eye moves; a tree that was told apart by its place in the mesh
+  //: jumped to another cell at every step (owner, 2026-09-11: the trees
+  //: jittered as the camera moved). The cell's number is the same
+  //: from every eye, and so is its centre (`cellCentre`).
+  const seen = new Set<number>();
+  for (let i = 1; i < nr - 1; i++) {
+    for (let j = 1; j < nc - 1; j++) {
+      const point = samples.geo(i, j);
+      const cell = ang2pix(passport.nside, point.lat, point.lon);
+      if (seen.has(cell)) continue;
+      seen.add(cell);
+      const atlas = atlasIndex(passport, cell);
+      if (!wooded.has(rasters.biome[atlas])) continue;
+      //: Nothing under water: a wooded cell of the shore's last strip.
+      if (rasters.height[atlas] < 0) continue;
+      //: The cell's own number, mixed by two coprimes: a scatter that does
+      //: not line up into rows, and one that every eye agrees on.
+      if ((cell * 7 + (cell >> 3) * 13) % TREE_EVERY !== 0) continue;
+      const here = cellCentre(passport.nside, cell);
+      const cos = Math.max(Math.cos(here.lat * RAD), 0.05);
+      //: Metres of ground into degrees, at this latitude.
+      const north = (m: number) => here.lat + m / radiusM / RAD;
+      const east = (m: number) => here.lon + m / (radiusM * cos) / RAD;
+      //: Jittered within its own cell by the cell's own number, so the
+      //: trees do not stand in a lattice -- and stand still.
+      const dx = (((cell * 11) % 7) / 7 - 0.5) * stepM * 0.6;
+      const dy = (((cell * 3 + 17) % 7) / 7 - 0.5) * stepM * 0.6;
+      const at = (up: number, side: number): Geo => ({
+        lat: north(dy + up),
+        lon: east(dx + side),
+      });
+      //: The trunk, and then a crown: three tiers narrowing to the top, the
+      //: way a conifer is drawn on every map there has ever been. Every
+      //: wood is drawn as firs (owner, 2026-09-11: the trees are to be shown
+      //: as firs): a round head read as a hexagon on a stick at the near
+      //: frames and as a blot at the far ones, and one figure for all the
+      //: woods is the mark, not a botany. One stroke apiece, so a tree is a
+      //: figure and not the letter A it was when the crown was two lines.
+      out.push([at(0, 0), at(tall, 0)]);
+      for (let tier = 0; tier < TREE_TIERS; tier++) {
+        //: Each tier sits higher and reaches less far: the lowest is the
+        //: widest, and the top one is the point.
+        const share = tier / TREE_TIERS;
+        const up = tall * (0.3 + 0.7 * share);
+        const arm = wide * (1 - share);
+        const peak = { lat: north(dy + up + 0.22 * tall), lon: east(dx) };
+        out.push([at(up, -arm), peak], [peak, at(up, arm)]);
       }
     }
   }
@@ -684,38 +661,6 @@ export function frameMetres(within: number | undefined): number {
 /** Where a province's name is written: the mean of its ground, which for a
  *  patch of land is inside it. */
 export type ProvinceMark = { code: number; at: Geo };
-
-/** Into how many widths the rivers of a planet are sorted. Five: fewer and
- *  a brook is drawn as a river, more and the map pays for strokes no eye
- *  can tell apart. */
-export const RIVER_BANDS = 5;
-
-/** The reaches sorted into bands by width, widest last so the great rivers
- *  are drawn over the brooks that feed them.
- *
- *  The widest is the **planet's** own, off the passport, and not the widest
- *  in hand: the reaches are cut for the frame now, and a river that changed
- *  its band as the eye moved would change its width under the hand. */
-export function riverBands(
-  reaches: readonly River[],
-  widestKm2: number,
-): { widthM: number; segments: Segment[] }[] {
-  const widest = riverWidthM(widestKm2);
-  if (!(widest > 0)) return [];
-  const bands: Segment[][] = Array.from({ length: RIVER_BANDS }, () => []);
-  for (const reach of reaches) {
-    //: By the square root of the width, so the narrow bands -- where most
-    //: of a river system's length lies -- are not all one.
-    const share = Math.sqrt(Math.min(1, riverWidthM(reach.flow) / widest));
-    bands[Math.min(RIVER_BANDS - 1, Math.floor(share * RIVER_BANDS))].push(reach.at);
-  }
-  return bands
-    .map((segments, band) => ({
-      widthM: widest * ((band + 1) / RIVER_BANDS) ** 2,
-      segments,
-    }))
-    .filter((band) => band.segments.length > 0);
-}
 
 /** The eye a window is read for: the eye itself, quantised to a share of
  *  the frame's angle, so that a drag shorter than the window's margin does
@@ -739,7 +684,7 @@ const MARK_HALF = 0.5;
  * neighbours are equals: the line runs between them, along the cells.
  *
  * The sea has no province (code 0), and its edge with the land is the
- * coast's business, drawn there in the colour of the water: a boundary
+ * water's own, drawn by the shader in the colour of the water: a boundary
  * drawn over it would double the shore.
  *
  * A run of edges along one meridian or one parallel comes out as a single
@@ -879,9 +824,8 @@ export function provinceWhole(
 export type FrameLines = {
   contours: { level: number; index: boolean; segments: Segment[] }[];
   hachures: Segment[];
-  shores: Record<Shore, Segment[]>;
-  lakes: Segment[];
-  rivers: { widthM: number; segments: Segment[] }[];
+  /** The little trees standing on the wooded cells (`woods`). */
+  woods: Segment[];
 };
 
 /** No lines at all: built afresh each time, because it is handed out of an
@@ -890,9 +834,7 @@ function nothing(): FrameLines {
   return {
     contours: [],
     hachures: [],
-    shores: { rock: [], beach: [], shore: [] },
-    lakes: [],
-    rivers: [],
+    woods: [],
   };
 }
 
@@ -914,16 +856,12 @@ export function frameLines(
   //: reaching to the frame's corner with the window's own margin.
   const reach = (frame / 2) * Math.SQRT2 * (1 + WINDOW_MARGIN);
   const { samples, stepM } = localSamples(lattice, eye, radius, reach, passport.step_m);
-  const { shores, lakes } = coast(rasters, samples, passport.forms);
   return {
     contours: contours(rasters, samples, interval),
     hachures: hachures(rasters, samples, passport, stepM, radius),
-    shores,
-    lakes,
-    rivers: riverBands(
-      rivers(rasters, samples, passport.water, passport.flow_max_km2 ?? 0),
-      passport.flow_max_km2 ?? 0,
-    ),
+    //: Nearer than the rest of the lines: a tree is a figure and needs room
+    //: to be one (`TREE_FRAME_M`).
+    woods: frame <= TREE_FRAME_M ? woods(rasters, samples, passport, stepM, radius) : [],
   };
 }
 

@@ -17,7 +17,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { ang2pix, atlasIndex, latticeOf, Rings, BANDS_PER_NSIDE } from "../panels/map/healpix";
+import { ang2pix, atlasBetween, atlasIndex, cellCentre, faceUV, latticeOf, BANDS_PER_NSIDE } from "../panels/map/healpix";
 import type { RasterPassport } from "../api";
 
 /** Points and the cells the server puts them in, by fineness. */
@@ -155,6 +155,7 @@ function passportOf(nside: number, border = 1): RasterPassport {
     biomes: [],
     forms: [],
     water: ["land", "sea", "lake", "river"],
+    fluid: "water",
   };
 }
 
@@ -211,61 +212,6 @@ describe("the equal-area grid", () => {
     }
   });
 
-  it("lays a ring out by asking the projection, and the rings hold the planet", () => {
-    //: A ring is laid out when it is first read, by asking the projection
-    //: for the middle of every place along it -- not by walking every cell
-    //: of the planet and putting each in its ring. The second is the shorter
-    //: arithmetic, but it is four hundred milliseconds of it before a line
-    //: can be drawn, and a frame touches a few dozen rings of four thousand.
-    //: What holds the two together is this: the rings, taken all at once,
-    //: are the planet's cells and each of them exactly once.
-    for (const nside of [1, 2, 3, 8, 13]) {
-      const rings = new Rings(nside);
-      const seen = new Set<number>();
-      for (let jr = 1; jr <= rings.count; jr++) {
-        for (const cell of rings.ring(jr)) seen.add(cell);
-      }
-      expect(seen.size).toBe(12 * nside * nside);
-      expect(Math.min(...seen)).toBe(0);
-      expect(Math.max(...seen)).toBe(12 * nside * nside - 1);
-    }
-  });
-
-  it("reads between the rings, and a constant field comes back constant", () => {
-    //: What the reading is for: a value taken as the cell's own is a field
-    //: of steps, and the level line of steps runs along their edges -- on
-    //: this grid a chain of straight runs at forty-five degrees, which is
-    //: the shape of a cell and not the shape of a shore.
-    const nside = 16;
-    const rings = new Rings(nside);
-    const cells = 12 * nside * nside;
-    //: The weights of a reading sum to one, so a flat field stays flat.
-    for (let i = 0; i < 40; i++) {
-      const lat = -89 + (i * 178) / 40;
-      const lon = -179 + (i * 358) / 40;
-      expect(rings.between(() => 7, lat, lon)).toBeCloseTo(7, 9);
-    }
-    //: A field that counts the rings from the north reads as a number that
-    //: only grows southward -- and grows **between** the rings, not in
-    //: steps at them: that is the whole of the difference.
-    const band = new Float64Array(cells);
-    for (let jr = 1; jr <= rings.count; jr++) {
-      for (const cell of rings.ring(jr)) band[cell] = jr;
-    }
-    let last = -Infinity;
-    const seen = new Set<number>();
-    for (let i = 0; i <= 200; i++) {
-      const lat = 89 - (i * 178) / 200;
-      const read = rings.between((cell) => band[cell], lat, 33);
-      expect(read).toBeGreaterThanOrEqual(last - 1e-9);
-      last = read;
-      seen.add(Math.round(read * 1000));
-    }
-    //: Two hundred readings down a meridian give two hundred different
-    //: numbers, not the sixty-odd rings they fall in.
-    expect(seen.size).toBeGreaterThan(150);
-  });
-
   it("walks a mesh as fine as the cells are", () => {
     const passport = passportOf(64);
     const lattice = latticeOf(passport);
@@ -287,5 +233,75 @@ describe("the equal-area grid", () => {
     //: not so fine that it wastes work, nor so coarse that it skips cells.
     expect(jumps).toBeGreaterThan(lattice.rows / 3);
     expect(jumps).toBeLessThanOrEqual(lattice.rows);
+  });
+});
+
+describe("the centre of a cell", () => {
+  //: The inverse of `ang2pix` for the face's own (ix, iy): what a thing that
+  //: belongs to a cell stands on -- a tree of the woods -- so that it stands
+  //: still while the eye moves (owner, 2026-09-11).
+  it("comes back to the same cell it was asked about", () => {
+    for (const [nside, points] of Object.entries(CELLS)) {
+      const n = Number(nside);
+      for (const [, , cell] of points) {
+        const at = cellCentre(n, cell);
+        expect(ang2pix(n, at.lat, at.lon)).toBe(cell);
+      }
+    }
+  });
+
+  it("is where the face's own fraction says a whole cell is", () => {
+    //: Whole cells sit at halves of the face's (u, v) (`faceUV`): the
+    //: centre of a cell is a half in both.
+    for (const [nside, points] of Object.entries(CELLS)) {
+      const n = Number(nside);
+      for (const [, , cell] of points) {
+        const at = cellCentre(n, cell);
+        const { u, v } = faceUV(n, at.lat, at.lon);
+        expect(u - Math.floor(u)).toBeCloseTo(0.5, 6);
+        expect(v - Math.floor(v)).toBeCloseTo(0.5, 6);
+      }
+    }
+  });
+});
+
+describe("a quantity read the way the shader reads it", () => {
+  //: The coast is cut from this reading and the water is painted by the
+  //: shader's: they must be one surface, or the line runs beside the
+  //: colour (owner, 2026-09-11: the coast line did not match the texture).
+  //: A raster where every cell's texel holds the cell's own number, and the
+  //: border ring of each face holds its nearest cell of the same face --
+  //: enough for a reading inside the face, which is what these pin.
+  const nside = 8;
+  const passport = passportOf(nside);
+  const side = nside + 2 * passport.border;
+  const raster = new Float32Array(passport.rows * passport.cols);
+  for (let row = 0; row < passport.rows; row++) {
+    for (let col = 0; col < passport.cols; col++) {
+      const fr = Math.floor(row / side);
+      const fc = Math.floor(col / side);
+      const face = fr * passport.across + fc;
+      const iy = Math.min(nside - 1, Math.max(0, row - fr * side - passport.border));
+      const ix = Math.min(nside - 1, Math.max(0, col - fc * side - passport.border));
+      raster[row * passport.cols + col] = (face * nside + iy) * nside + ix;
+    }
+  }
+
+  it("gives a cell its own value at its centre", () => {
+    for (const [, , cell] of CELLS[nside]) {
+      const at = cellCentre(nside, cell);
+      expect(atlasBetween(passport, raster, at.lat, at.lon)).toBeCloseTo(cell, 6);
+    }
+  });
+
+  it("blends between two cells halfway between their centres", () => {
+    //: Two cells side by side on one face: halfway between their centres
+    //: the reading is the mean of the two, as the hardware's blend is.
+    const a = (4 * nside + 5) * nside + 5;
+    const b = a + 1;
+    const pa = cellCentre(nside, a);
+    const pb = cellCentre(nside, b);
+    const mid = { lat: (pa.lat + pb.lat) / 2, lon: (pa.lon + pb.lon) / 2 };
+    expect(atlasBetween(passport, raster, mid.lat, mid.lon)).toBeCloseTo((a + b) / 2, 1);
   });
 });

@@ -21,6 +21,7 @@ import {
   GRAIN_SEEN_PX,
   MISSING,
   NO_BIOME,
+  byteChain,
   PALETTE_SLOTS,
   deepOf,
   edgeStrength,
@@ -32,6 +33,9 @@ import {
   paletteOf,
   parseColor,
   sunDirection,
+  AA_PX,
+  BANK_SHARE,
+  catmullRom,
 } from "../panels/map/shade";
 
 describe("parseColor", () => {
@@ -126,14 +130,17 @@ describe("mipChain", () => {
   });
   it("reads the wire's signed metres as floats", () => {
     const bytes = new Int16Array([-2000, 0, 3000]).buffer;
-    expect(Array.from(heightsOf(bytes))).toEqual([-2000, 0, 3000]);
-    expect(deepOf(heightsOf(bytes))).toBe(2000);
+    expect(Array.from(heightsOf(bytes, 1))).toEqual([-2000, 0, 3000]);
+    expect(deepOf(heightsOf(bytes, 1))).toBe(2000);
+    //: The raster counts decimetres (`height_unit_m` of the passport), and
+    //: the metres come out of the unit.
+    expect(Array.from(heightsOf(bytes, 0.1))).toEqual([-200, 0, 300]);
     expect(deepOf(Float32Array.from([0, 5]))).toBe(1);
   });
 });
 
 describe("formCodes and the sun", () => {
-  it("tells water and cliffs by the passport's table, and no code for a missing form", () => {
+  it("tells cliffs by the passport's table, and no code for a missing form", () => {
     const codes = formCodes({
       //: The atlas of the equal-area grid (D-328): one cell a face, borders
       //: counted -- the smallest passport there is, and the table is what
@@ -151,8 +158,8 @@ describe("formCodes and the sun", () => {
       biomes: [],
       forms: ["sea", "lake", "plain", "cliff", "canyon"],
       water: ["land", "sea", "lake", "river"],
+      fluid: "water",
     });
-    expect(codes.water).toEqual([0, 1, NO_BIOME]);
     expect(codes.cliff).toEqual([3, NO_BIOME, 4, NO_BIOME]);
     expect(codes.shore).toBe(-1);
     //: The grain's three kinds by the same table, and a form the table
@@ -197,12 +204,85 @@ describe("the grain of the ground", () => {
     expect(grainStrength(middle)).toBeCloseTo(0.5, 6);
   });
 
-  it("is written into the shader behind one gate apiece", () => {
-    //: The grain and the roughened edge cost nothing on a frame that cannot
-    //: show them: the whole of each hangs off a uniform, and a zero there
-    //: is a branch not taken.
-    expect(FRAGMENT).toContain("if (u_grain > 0.0)");
-    expect(FRAGMENT).toContain("if (u_edge > 0.0");
+  it("cuts the river ribbon at a half, where the vault puts its bank", () => {
+    //: The pair the ribbon is made of: the vault writes a share that falls
+    //: to a half at the bank (`field/pipeline.ribbon`), and this is the
+    //: threshold that reads it. Written from **half** the width against the
+    //: same threshold, the knife stood at a quarter and the ribbon came out
+    //: twice as narrow as the vault's own numbers said -- on every river but
+    //: the largest that painted the channel cells alone, which is the chain
+    //: of whole cells with right angles the raster was made to leave behind.
+    //: Neither repository can import the other; they meet here and in the
+    //: vault's `test_the_river_ribbon_is_half_gone_at_its_bank`.
+    expect(BANK_SHARE).toBe(0.5);
+    //: Read at the finest level by the hardware's own blend, and nothing
+    //: cleverer: the ribbon is written so that the blend is right (the
+    //: vault's `ribbon`, the distance to the channel's line on a gentle
+    //: ramp with the bank at a half), and a cubic spline tried here
+    //: narrowed the diagonal reaches.
+    expect(FRAGMENT).toContain("textureLod(u_stream, tuv, 0.0).r > BANK_SHARE");
+  });
+
+  it("is written into the shader without a gate on its strength", () => {
+    //: The grain and the roughened edge each used to hang off an if on
+    //: their uniform, and with both on the frames stalled for a second
+    //: apiece on the near frames -- a pathology of the driver's, measured
+    //: 2026-09-11 (ANGLE over D3D11), gone with the gates. A strength of
+    //: nought is a multiply by nought now.
+    expect(FRAGMENT).not.toContain("if (u_grain > 0.0)");
+    expect(FRAGMENT).not.toContain("if (u_edge > 0.0");
+    //: Both strengths still reach the shader, as factors.
+    expect(FRAGMENT).toContain("* u_grain *");
+    expect(FRAGMENT).toContain("* u_edge)");
+    //: And the pixel is the mean of four taps a few pixels apart on the
+    //: glass -- of the colour and of the wetness alike: picked once at its
+    //: own point, a cell of a few pixels was a diamond (owner, 2026-09-11).
+    expect(AA_PX).toBeGreaterThan(1);
+    expect(FRAGMENT).toContain("const float AA_PX = 3.0;");
+  });
+});
+
+describe("the cubic reading of the height", () => {
+  it("passes through the samples and sums to one", () => {
+    //: A cubic that interpolates: at a texel centre the texel alone
+    //: counts, and every weight set sums to one, so a flat field reads
+    //: flat. Symmetric about the middle, so the curve does not lean.
+    expect(catmullRom(0)).toEqual([0, 1, 0, 0]);
+    expect(catmullRom(1).map((w) => Math.round(w * 1e9) / 1e9)).toEqual([0, 0, 1, 0]);
+    for (const t of [0.1, 0.25, 0.5, 0.9]) {
+      const w = catmullRom(t);
+      expect(w.reduce((a, b) => a + b, 0)).toBeCloseTo(1, 12);
+      const back = catmullRom(1 - t);
+      expect(w[0]).toBeCloseTo(back[3], 12);
+      expect(w[1]).toBeCloseTo(back[2], 12);
+    }
+    //: The outer weights are negative: this is Catmull-Rom, which passes
+    //: through the samples, and not a B-spline, which shrinks a river.
+    const [w0, , , w3] = catmullRom(0.5);
+    expect(w0).toBeLessThan(0);
+    expect(w3).toBeLessThan(0);
+    //: A lone cell of land among sea reads land at its own centre and sea
+    //: a cell away -- a hill, not a diamond: half-way to the neighbour the
+    //: reading is the mean of the two (nought) with a quarter of a lift
+    //: from the curve, where a bilinear read would be the mean alone.
+    const line = [-2, -2, -2, 2, -2, -2, -2];
+    const at = (x: number) => {
+      const i = Math.floor(x);
+      const w = catmullRom(x - i);
+      return w[0] * line[i - 1] + w[1] * line[i] + w[2] * line[i + 1] + w[3] * line[i + 2];
+    };
+    expect(at(3)).toBe(2);
+    expect(at(3.5)).toBeCloseTo(0.25, 12);
+    expect(at(4)).toBe(-2);
+  });
+  it("cuts the water on the cubic reading at the near frames", () => {
+    //: The shader's weights are written from the same table `catmullRom`
+    //: reads, so the test above holds both; here only that the table got
+    //: there, and that the cubic is read behind the fragment's own level
+    //: and not on the far frames, whose weight for it is nought.
+    expect(FRAGMENT).toContain("vec4 cubicWeights(float t)");
+    expect(FRAGMENT).toContain("0.0 + -0.5 * t + 1.0 * t2 + -0.5 * t3");
+    expect(FRAGMENT).toContain("if (s < 1.0) th = mix(heightCubic(tuv), th, s);");
   });
 });
 
@@ -217,8 +297,10 @@ describe("the roughened edge of the colour", () => {
     //: long as the old square's side, and at forty-five degrees, which
     //: reads as a drawn line rather than a step. Under a cell the teeth
     //: stayed countable; over two the boundary leaves the ground it names.
-    expect(EDGE_CELLS).toBeGreaterThan(0.8);
-    expect(EDGE_CELLS).toBeLessThan(2);
+    //: A cell or two: a good part of a cell left the diamonds of the raster
+    //: showing through at the mid frames (owner, 2026-09-11).
+    expect(EDGE_CELLS).toBeGreaterThan(1.5);
+    expect(EDGE_CELLS).toBeLessThanOrEqual(3);
   });
 
   it("goes out where its own wave falls under a pixel", () => {
@@ -233,5 +315,36 @@ describe("the roughened edge of the colour", () => {
     expect(edgeStrength(NaN)).toBe(0);
     const ramp = [2, 3, 4, 5, 6].map(edgeStrength);
     for (let i = 1; i < ramp.length; i++) expect(ramp[i]).toBeGreaterThanOrEqual(ramp[i - 1]);
+  });
+});
+
+describe("the mip chain of a byte raster", () => {
+  //: Two kinds of byte travel in these rasters and they cannot be coarsened
+  //: the same way: a share is averaged, a class is picked. Without a chain
+  //: at all a pixel covering ten texels read one of them and shimmered as
+  //: the hand moved -- the noise on the far frames (owner, 2026-09-11).
+  const level0 = () => Uint8Array.from([0, 255, 0, 255, 0, 255, 0, 255]);
+
+  it("averages a share, because half of a half is a quarter", () => {
+    const chain = byteChain(level0(), 4, 2, "mean");
+    expect(chain[0].data).toEqual(level0());
+    //: Two zeroes and two 255s to a texel: 128 after rounding, not 0 or 255.
+    expect(Array.from(chain[1].data)).toEqual([128, 128]);
+  });
+
+  it("picks a class, because the mean of two codes is a third code", () => {
+    const chain = byteChain(level0(), 4, 2, "pick");
+    expect(Array.from(chain[1].data)).toEqual([0, 0]);
+    //: And every code that comes out is a code that went in.
+    const seen = new Set(chain[1].data);
+    for (const code of seen) expect(Array.from(level0())).toContain(code);
+  });
+
+  it("stops where a face of the atlas would stop being whole texels", () => {
+    //: Past that a texel is a mixture of faces from opposite sides of the
+    //: planet -- the same bound the height's chain keeps.
+    const wide = new Uint8Array(16 * 8);
+    expect(byteChain(wide, 16, 8, "mean", 4).length).toBe(3);
+    expect(byteChain(wide, 16, 8, "mean").length).toBeGreaterThan(3);
   });
 });

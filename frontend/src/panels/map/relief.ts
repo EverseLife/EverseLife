@@ -26,8 +26,18 @@ import type { Terrain, Tile } from "../../api";
 import { project, type Eye, type Geo } from "./globe";
 import type { Point } from "./model";
 
-/** How many pieces the terminator and the limb are drawn in. */
-export const NIGHT_STEPS = 48;
+/**
+ * How many pieces the terminator and the limb are drawn in.
+ *
+ * The path is cut once in **map units** and the camera then scales it, so
+ * the chord that is fine on the whole disk is a long straight run across a
+ * frame a hundred times nearer. The sagitta of a chord is about
+ * `R * (pi / N)^2 / 2`: at forty-eight that was twenty-six metres on a
+ * planet of twelve kilometres -- a visible flat on a street frame -- and at
+ * 256 it is under a metre. The cost is a path of five hundred points, cut
+ * once per turn of the eye.
+ */
+export const NIGHT_STEPS = 256;
 /** The land's tone by the row's warmth: the two bounds of the climate. */
 export type Warmth = { cold: number; cool: number };
 export type Tone = "cold" | "cool" | "warm";
@@ -88,7 +98,7 @@ function axes(eye: Eye): { east: Vec; north: Vec; out: Vec } {
 export function nightPath(eye: Eye, radius: number, sun: Geo): string | null {
   const { east, north, out } = axes(eye);
   const s = toVec(sun);
-  const screen = (p: Vec) => `${radius * dot(p, east)},${-radius * dot(p, north)}`;
+  const seen = (p: Vec): Point => ({ x: radius * dot(p, east), y: -radius * dot(p, north) });
   const facing = dot(s, out);
   if (Math.abs(facing) > 1 - 1e-9) {
     return facing < 0 ? `M${radius},0A${radius},${radius} 0 1 1 ${-radius},0A${radius},${radius} 0 1 1 ${radius},0Z` : null;
@@ -98,7 +108,7 @@ export function nightPath(eye: Eye, radius: number, sun: Geo): string | null {
   const u = unit(cross(s, out));
   let w = cross(s, u);
   if (dot(w, out) < 0) w = [-w[0], -w[1], -w[2]];
-  const run: string[] = [];
+  const run: Point[] = [];
   for (let i = 0; i <= NIGHT_STEPS; i++) {
     const theta = (i / NIGHT_STEPS) * Math.PI;
     const p: Vec = [
@@ -106,7 +116,7 @@ export function nightPath(eye: Eye, radius: number, sun: Geo): string | null {
       Math.cos(theta) * u[1] + Math.sin(theta) * w[1],
       Math.cos(theta) * u[2] + Math.sin(theta) * w[2],
     ];
-    run.push(screen(p));
+    run.push(seen(p));
   }
   //: Back along the limb from -u to u, through `n` -- the point of the limb
   //: a quarter turn from both, on the side the sun does not reach.
@@ -119,9 +129,9 @@ export function nightPath(eye: Eye, radius: number, sun: Geo): string | null {
       -Math.cos(phi) * u[1] + Math.sin(phi) * n[1],
       -Math.cos(phi) * u[2] + Math.sin(phi) * n[2],
     ];
-    run.push(screen(p));
+    run.push(seen(p));
   }
-  return `M${run.join("L")}Z`;
+  return `M${run.map((p) => `${p.x},${p.y}`).join("L")}Z`;
 }
 
 /** The tone of a row of land by its warmth. */

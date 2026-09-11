@@ -11,7 +11,7 @@ import { Roads } from "./Roads";
 import { LAYER_NAME, offworld } from "./model";
 import { metresBetween } from "./scout";
 import { radiusOf } from "./useGlobe";
-import { nameWord, nodeWord, price, provinceWord } from "./words";
+import { markWord, nameWord, nodeWord, price, provinceWord } from "./words";
 
 /**
  * The column beside the map: everything about the node you picked.
@@ -37,6 +37,7 @@ export function Inspector({
   picked,
   byKey,
   groups,
+  closedCity,
   walkTargets,
   onExpand,
   onEnter,
@@ -45,6 +46,9 @@ export function Inspector({
   picked: string | null;
   byKey: Record<string, MapNode>;
   groups: Set<string>;
+  /** Whether the cities are drawn as one point each: only then is there a
+   *  city to open (D-330). */
+  closedCity: boolean;
   walkTargets: Record<string, { key: string; seconds: number }>;
   onExpand: (node: MapNode) => void;
   onEnter: () => void;
@@ -160,6 +164,10 @@ export function Inspector({
   const step = walkTargets[node.key];
   const exit = (look.exits ?? []).find((path) => path.key === step?.key);
   const group = groups.has(node.key);
+  //: Open what is still shut. Since D-330 a city's row is the node its
+  //: bioprinter stands on, and with the streets already drawn there is
+  //: nothing left to open: one is standing in the middle of it.
+  const opens = group && closedCity;
   //: One does not walk to a planet: the void has no edges, and the way there
   //: is a ship from a spaceport (D-201). The column says so instead of
   //: offering a step the server would refuse anyway. The same for any node
@@ -171,7 +179,7 @@ export function Inspector({
   return (
     <aside className="inspect">
       <h3>
-        {nodeWord(node, biomes, names)}
+        {markWord(node, opens, nodeWord(node, biomes, names))}
         <Rule>{t("ui-map-node-rule")}</Rule>
       </h3>
       {provinceWord(node, names) && <p className="sign">{provinceWord(node, names)}</p>}
@@ -191,7 +199,7 @@ export function Inspector({
             : LAYER_NAME[node.layer]
               ? t(LAYER_NAME[node.layer])
               : node.layer}
-        {group && !node.aboard && !off
+        {opens && !node.aboard && !off
           ? ` · ${t("ui-map-node-expandable")}`
           : ""}
         {off && !sphere ? ` · ${t("ui-map-node-far")}` : ""}
@@ -262,7 +270,7 @@ export function Inspector({
             Neither is another planet (D-240): its surface is not in the answer
             at all, and a button that opened an empty layer would promise a
             look nobody has -- one gets there by flying. */}
-        {group && !node.aboard && !off && (
+        {opens && !node.aboard && !off && (
           <button
             className="quiet"
             onClick={() => onExpand(node)}

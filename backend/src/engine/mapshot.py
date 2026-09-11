@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, NamedTuple
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -36,6 +36,13 @@ from src.models.snapshot import MapSnapshot
 from src.models.world import Edge, Layer, Node
 
 
+class CityMark(NamedTuple):
+    """What a city's row carries about the city: its name and its centre."""
+
+    name: str
+    core: str | None
+
+
 def node_row(
     node: Node,
     *,
@@ -46,7 +53,7 @@ def node_row(
     moored: bool = False,
     drawn: int | None = None,
     reach: tuple[float, float] | None = None,
-    core: str | None = None,
+    mark: CityMark | None = None,
 ) -> dict[str, Any]:
     """A node as the map draws it (D-045, D-097, D-237, D-238)."""
     row: dict[str, Any] = {
@@ -109,19 +116,34 @@ def node_row(
     #: client draws the scout's field by it and cannot read the biome (D-225).
     if reach is not None:
         row["reach"] = {"min": reach[0], "max": reach[1]}
-    #: The node a city grew from -- its bioprinter (D-319: from afar a city is
-    #: the printer's point). Sent on the city's own row, because that is the
-    #: row the map draws when the city is closed, and the client cannot work
-    #: it out (D-225): which node holds the machine is not on the map at all,
-    #: and "the oldest printer that is not the prison's" is the engine's own
-    #: reading of what a centre is (`city.lookup.core`).
-    if core is not None:
-        row["core"] = core
+    #: What a city puts on its own row, and only its own: that is the row the
+    #: map draws when the city is one point.
+    if mark is not None:
+        #: The city's name. The row is the bioprinter's node (D-330), and
+        #: standing in it one reads its own name: «Ядро: Принтер Предтеч», not
+        #: «Столица Терры». So from afar the map needs the other one, and it
+        #: cannot work it out (D-225) -- a city's name is copied at founding
+        #: and never follows the node.
+        row["city"] = mark.name
+        #: The node the city grew from -- its bioprinter (D-319: from afar a
+        #: city is the printer's point). Sent only when it is **another**
+        #: node: since D-330 a city stands on its own printer, so normally
+        #: this is the row's own key and saying so would be a key the client
+        #: reads off the key beside it (D-225). The two part where the
+        #: machine the city grew from is gone and another is the oldest left
+        #: (D-312) -- and then the mark moves onto that one, because that is
+        #: where a newcomer comes out. Which node holds the machine is not on
+        #: the map at all, and "the oldest printer that is not the prison's"
+        #: is the engine's own reading of a centre (`city.lookup.core`); the
+        #: client already draws a row without the key where it stands
+        #: (`model.drawnAt`).
+        if mark.core is not None and mark.core != node.key:
+            row["core"] = mark.core
     return row
 
 
-async def city_cores(session: AsyncSession) -> dict[uuid.UUID, str]:
-    """Each city's node id to the key of the node it grew from.
+async def city_marks(session: AsyncSession) -> dict[uuid.UUID, CityMark]:
+    """Each city's node id to its name and the key of the node it grew from.
 
     One reading for both maps, the public and the personal: two would part,
     and then a city would stand in one place for a newcomer and in another
@@ -129,11 +151,10 @@ async def city_cores(session: AsyncSession) -> dict[uuid.UUID, str]:
     """
     from src.engine.city import lookup  # noqa: PLC0415 -- lazy: city -> ... -> mapshot
 
-    out: dict[uuid.UUID, str] = {}
+    out: dict[uuid.UUID, CityMark] = {}
     for city in (await session.execute(select(City))).scalars():
         core = await lookup.core(session, city)
-        if core is not None:
-            out[city.node_id] = core.key
+        out[city.node_id] = CityMark(city.name, None if core is None else core.key)
     return out
 
 
@@ -298,7 +319,7 @@ async def personal(
     #: The surface beyond sight: what a stub points at. Insides are not
     #: hidden by the fog, they are simply not the map's (D-201, item 9).
     beyond = {node.id: node for node in _public_surface(every) if node.id not in shown}
-    cores = await city_cores(session)
+    marks = await city_marks(session)
     return {
         "nodes": [
             node_row(
@@ -310,7 +331,7 @@ async def personal(
                 moored=node.id in piers,
                 drawn=drawn_day(node) if node.id in view.faded else None,
                 reach=reach if standing is not None and node.id == standing.id else None,
-                core=cores.get(node.id),
+                mark=marks.get(node.id),
             )
             for node in nodes
         ],
@@ -343,14 +364,14 @@ async def take(session: AsyncSession, constants: Constants, now: datetime) -> Ma
     by_key = {node.id: node.key for node in every}
     ports = {node.id for node in await vessels.ports(session)}
     piers = await moored_at(session)
-    cores = await city_cores(session)
+    marks = await city_marks(session)
     rows = [
         node_row(
             node,
             parent_key=by_key.get(node.parent_id),
             port=node.id in ports,
             moored=node.id in piers,
-            core=cores.get(node.id),
+            mark=marks.get(node.id),
         )
         for node in nodes
     ]

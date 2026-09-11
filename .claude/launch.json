@@ -131,6 +131,26 @@
       ],
       "cwd": "frontend",
       "port": 5178
+    },
+    {
+      "name": "backend-look",
+      "runtimeExecutable": "powershell",
+      "runtimeArgs": [
+        "-Command",
+        "$env:EVERSELIFE_DATABASE_URL='postgresql+asyncpg://everselife:everselife@localhost/everselife_look'; $env:EVERSELIFE_VAULT_BUILD='C:/Users/nurla/PycharmProjects/everselife-vault/build'; & 'C:/Users/nurla/PycharmProjects/everselife/backend/.venv/Scripts/python.exe' -m uvicorn src.api.app:app --port 8004"
+      ],
+      "cwd": "backend",
+      "port": 8004
+    },
+    {
+      "name": "frontend-look",
+      "runtimeExecutable": "powershell",
+      "runtimeArgs": [
+        "-Command",
+        "$env:VITE_API='http://localhost:8004'; npm run dev -- --port 5200 --strictPort"
+      ],
+      "cwd": "frontend",
+      "port": 5200
     }
   ]
 }

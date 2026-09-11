@@ -30,24 +30,37 @@ describe("the names the map has room for", () => {
   });
 
   it("leaves off the name that would be written over one already placed", () => {
-    //: The capital's own case: «Ядро: Принтер Предтеч» and «Рынок» stand
-    //: fifty-five units apart and were drawn as «Ядро: Принтер ПредтечРынок».
+    //: The capital's own case, which was drawn as «Ядро: Принтер
+    //: ПредтечРынок». The distance is measured in **ems** and not in units
+    //: on purpose: the size of a name is tuned by eye (`LABEL_EM` went from
+    //: eight to six on 2026-09-11), and a fixture written in units stops
+    //: overlapping at the first such tuning and passes on saying nothing.
+    const apart = 3 * LABEL_EM;
     const kept = legible([
       name("core", 0, 0, "Ядро: Принтер Предтеч"),
-      name("market", 55, 0, "Рынок"),
+      name("market", apart, 0, "Рынок"),
     ]);
     expect([...kept]).toEqual(["core"]);
+    //: And far enough apart both are written: the rule is "what does not
+    //: fit", not "the second name".
+    expect([...legible([
+      name("core", 0, 0, "Ядро: Принтер Предтеч"),
+      name("market", 12 * LABEL_EM, 0, "Рынок"),
+    ])].sort()).toEqual(["core", "market"]);
   });
 
   it("keeps the one underfoot, then the hull, then the city, then what a step reaches", () => {
+    //: Stepped in half-ems, so the five span about one name's own width --
+    //: a crowd whatever the size is tuned to.
+    const step = LABEL_EM / 2;
     const crowd = [
       name("far", 0, 0, "Дальний", 4),
-      name("near", 6, 0, "Соседний", 3),
-      name("city", 12, 0, "Город", 2),
+      name("near", step, 0, "Соседний", 3),
+      name("city", 2 * step, 0, "Город", 2),
       //: A hull is the same diamond as every other and has nothing but its
       //: name; moored among a domed city's flats it is lost without it.
-      name("hull", 18, 0, "Заря", 1),
-      name("here", 24, 0, "Здесь", 0),
+      name("hull", 3 * step, 0, "Заря", 1),
+      name("here", 4 * step, 0, "Здесь", 0),
     ];
     //: All five sit within one name's width of each other: only the first
     //: wanted survives, and it is the one the player is standing in.

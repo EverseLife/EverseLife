@@ -228,7 +228,7 @@ async def test_a_node_the_world_changed_is_left_alone(
     """
     #: A plot somebody founded beside the forge -- the seed lays no free lots
     #: since D-323 -- and a road somebody paved to it.
-    city = await _node(session, "terra.capital")
+    city = await _node(session, "terra.capital.core")
     forge = await _node(session, "terra.capital.forge")
     assert city is not None and forge is not None
     identity = await world.create_identity(session, "Хозяйка")
@@ -268,7 +268,7 @@ def _spec(key: str, **changes) -> seed_world.NodeSpec:
             anchor=None,
             area_m2=100,
             place=None,
-            city=False,
+            city=None,
             properties={},
             machines=(),
             relics=(),

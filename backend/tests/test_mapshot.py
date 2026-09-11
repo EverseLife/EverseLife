@@ -69,6 +69,39 @@ async def test_a_city_names_the_node_it_grew_from(
     #: And a city alone: an ordinary node has no use for the field, and a
     #: spare key in the answer is what D-225 forbids.
     assert "core" not in rows[core.key]
+    #: The city's name travels on the same row, and only there: the row is a
+    #: node with a name of its own (D-330), and from afar the map writes the
+    #: city's instead -- which the client cannot work out, `City.name` being
+    #: copied at founding and never following the node.
+    assert rows[delegate.key]["city"] == city.name
+    assert "city" not in rows[core.key]
+
+
+async def test_a_city_on_its_own_printer_says_its_name_and_not_its_centre(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A city founded where a printer stands is its own centre (D-330), and
+    saying so would be a key read off the key beside it (D-225)."""
+    from src.engine.city import founding
+
+    planet = await world.create_node(session, "terra.sky", "Терра", area_m2=1, layer=Layer.SPACE)
+    core = await world.create_node(
+        session,
+        "terra.town",
+        "Ядро",
+        area_m2=100,
+        parent=planet,
+    )
+    yard = await world.node_container(session, core)
+    await world.grant_item(session, yard, world.BIOPRINTER, quality=60, origin="тест")
+    await founding.found(session, catalog, core, "Новоград")
+    await session.flush()
+
+    taken = await mapshot.take(session, constants, datetime.now(UTC))
+    row = {one["key"]: one for one in taken.data["nodes"]}[core.key]
+    assert row["name"] == "Ядро", "вблизи узел зовётся своим именем"
+    assert row["city"] == "Новоград", "издали — именем города"
+    assert "core" not in row, "ядро города — сама эта строка, и говорить это незачем"
 
 
 async def test_the_snapshot_carries_the_surface_and_not_the_insides(

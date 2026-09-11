@@ -17,6 +17,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { RecipeBook } from "../../api";
 import {
+  CITY_SCALE,
   SKY_BOUNDS,
   STREET_SCALE,
   boundsOf,
@@ -49,6 +50,13 @@ export type Facts = {
   unit: number;
   /** How far out past the cities' closing, half-octaves (`farOf`). */
   far: number;
+  /** The frame's own scale, not the band's. What is drawn at a size in
+   *  pixels divides by **this**: `scaleAt(far)` steps by half-octaves, so a
+   *  mark held to it swelled by half between one notch and the next and
+   *  snapped back at the notch -- which is the breathing the owner saw
+   *  (2026-09-11). `far` still decides what is drawn and how it is sorted,
+   *  where a number that flips a few times is exactly what is wanted. */
+  scale: number;
   /** The planet under the middle of the frame at the sky's ceiling, if any. */
   over: string | null;
   /** How far down the approach the frame is: 1 at the floor, 0 at the globe. */
@@ -62,6 +70,9 @@ export const NO_FACTS: Facts = {
   ground: false,
   unit: 1,
   far: 0,
+  //: Before the first frame is measured: the scale the cities close at, so
+  //: nothing is divided by nought.
+  scale: CITY_SCALE,
   over: null,
   descent: 0,
 };
@@ -88,6 +99,7 @@ export function factsOf(frame: Frame, surface: Surface, spheres: readonly Sphere
     ground: ground.shown,
     unit: ground.unit,
     far: farOf(frame.scale),
+    scale: frame.scale,
     over: ceiling ? (planetUnder(middle, spheres)?.planet ?? null) : null,
     descent: surface.console ? descentOf(frame.scale, surface.furthest, surface.globe) : 0,
   };
@@ -111,6 +123,7 @@ export function useBands({
   initialLayer,
   hasSubnodes,
   radius,
+  tall,
 }: {
   book: RecipeBook | null;
   /** Where the map opens: the ship's console opens on space, and only the
@@ -121,6 +134,10 @@ export function useBands({
   hasSubnodes: boolean;
   /** The shown planet's radius in map units, or null off the globe. */
   radius: number | null;
+  /** The frame's height in map units at scale 1: the field's own shape
+   *  (`model.frameHeight`). Everything vertical -- where the globe fits,
+   *  where the floor of the surface is -- is measured against it. */
+  tall: number;
 }) {
   //: The band of scale the map is in: the sky, the surface, or the inside --
   //: a window, not a height. The console opens on the sky.
@@ -142,16 +159,16 @@ export function useBands({
   //: through the book; read through a ref by the camera, which is made once.
   const onConsole = initialLayer === "space";
   const surface = useMemo<Surface>(() => {
-    const globe = globeScale(radius);
+    const globe = globeScale(radius, tall);
     return {
       ...(onConsole
-        ? surfaceBounds(Number(book?.constants?.["map.approach_km"]))
+        ? surfaceBounds(Number(book?.constants?.["map.approach_km"]), tall)
         : mapBounds(globe, radius)),
       globe,
       radius,
       console: onConsole,
     };
-  }, [book, radius, onConsole]);
+  }, [book, radius, onConsole, tall]);
   const surfaceRef = useRef(surface);
   surfaceRef.current = surface;
   const [zoomed, setZoomed] = useState<Facts>(NO_FACTS);

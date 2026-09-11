@@ -18,9 +18,33 @@
 
 import type { MapNode, Transit } from "../../api";
 
-/** The frame the map is drawn in. The camera (`viewBox`) moves over it. */
+/**
+ * The frame the map is drawn in. The camera (`viewBox`) moves over it.
+ *
+ * `W` is the **unit of scale**: a frame at scale 1 shows this many map units
+ * across, and every band, every threshold and every size in `bands.ts` is
+ * written against it. It does not follow the window and must not.
+ *
+ * `H` is only the shape the field has when nothing says otherwise -- a
+ * fallback until the field is measured. The real height comes from the field
+ * itself (`frameHeight`): the `<svg>` carries the aspect of its own viewBox,
+ * and a viewBox of a fixed 880x540 in a field of another shape letterboxed
+ * the whole vector layer. The ground is painted by the shader off the svg's
+ * own screen matrix, so it followed the letterbox and stayed in step -- but
+ * the strip of field outside the svg showed ground with no nodes, no roads
+ * and no night on it (owner, 2026-09-11: the svg did not match the ground).
+ */
 export const W = 880;
 export const H = 540;
+
+/** The frame's height in map units at scale 1, from the field's own shape:
+ *  the width is the unit of scale, and the height follows the box. Falls
+ *  back to the design shape before the field is measured, and where the box
+ *  is degenerate -- a field of no width would otherwise give infinity. */
+export function frameHeight(box?: { width: number; height: number } | null): number {
+  if (!box || !(box.width > 0) || !(box.height > 0)) return H;
+  return (W * box.height) / box.width;
+}
 
 /**
  * The four layers of the wire (D-045). Once tabs of a switcher, they are
@@ -129,13 +153,18 @@ export function delegate(
  * the printer is not in the scene, only the city is -- and got nothing, so
  * the city vanished from the map instead of moving onto it.
  *
- * With the cities open a city's own point is not drawn at all
- * (`useScene.visibleOf`), so this changes nothing there.
+ * Only while the city is **one point**. Since D-330 a city's row is the node
+ * its bioprinter stands on, so open the swap is almost always a no-op -- but
+ * not always: a city that lost the machine it grew from points at another
+ * node (D-312), and swapping there would draw two nodes of one street on one
+ * spot. Closed there is nothing to collide with, the members not being drawn.
  */
 export function drawnAt(
   byKey: Record<string, MapNode>,
   nodes: readonly MapNode[],
+  closed: boolean,
 ): MapNode[] {
+  if (!closed) return [...nodes];
   return nodes.map((node) => {
     const core = node.core ? byKey[node.core] : undefined;
     return core?.place ? { ...node, place: core.place } : node;

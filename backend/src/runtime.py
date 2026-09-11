@@ -229,19 +229,6 @@ RASTER_GZIP_MIN_BYTES = 4096
 #: to 80 m by the centimetre found that **at best two of the four** could land
 #: on a rung. Three land now because three of them are the same size.
 RASTER_CELLS_MAX = 4_000_000
-#: How wide a river is painted from the raster, metres: the ramp runs to zero
-#: at this distance and the shader cuts it at a half, so the ribbon comes out
-#: half this across -- a union of discs of that radius round every river cell.
-#:
-#: The floor is geometry, not taste. A river runs diagonally as often as
-#: straight, and diagonal neighbours stand a cell's **diagonal** apart -- 70.7
-#: metres on a fifty-metre cell. Discs any smaller than half of that do not
-#: reach one another and the river comes out a string of beads, which is what
-#: seventy metres gave. A hundred joins them exactly, with a pinch at every
-#: link; a hundred and twenty leaves a neck of 97 m against a body of 120 and
-#: reads as a ribbon. Wider than a real river of that catchment, and knowingly
-#: so: below this the grid, not the water, decides the shape.
-RIVER_PAINT_M = 120.0
 MAP_HASH_STEP = 31
 MAP_HASH_SPAN = 65_521
 #: Width of the advisory-lock key that holds one group's map while a node

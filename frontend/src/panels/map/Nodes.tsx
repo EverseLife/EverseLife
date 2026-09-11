@@ -26,9 +26,10 @@ import { placeAt, project, type Eye, type Geo } from "./globe";
 import { fieldBox, ringPath, wayShadow, type Field } from "./scout";
 import { SURFACE, spell, type MapNode } from "../../api";
 import { t } from "../../locale";
-import { cityLabelEm, cityRadius, citySeen, hereRadius, NODE_R } from "./bands";
+import { cityLabelEm, cityRadius, citySeen, hereRadius, NODE_R, standsAlone } from "./bands";
 import { DOOR_EM, HULL_EM, LABEL_EM, legible } from "./labels";
 import { DASH, SPHERE_R, type Link, type Point } from "./model";
+import { markWord } from "./words";
 
 /** How far under a hull its name hangs: above it there is already a planet's
  *  name, and two ships at one port would write over it and over each other. */
@@ -196,9 +197,9 @@ export function Nodes({
   here = null,
   closed = false,
   radius = NODE_R,
-  globe = null,
   size = () => 0,
   far = 0,
+  scale = 0,
   onPick,
   onMenu,
 }: {
@@ -219,9 +220,11 @@ export function Nodes({
   /** The radius a node is drawn with, map units (`bands.nodeRadius`): a fifth
    *  of the gap the engine seats by, so a circle never covers its neighbour. */
   radius?: number;
-  /** The planet's radius in map units, where the scene is a globe: a city's
-   *  circle is held to a share of it, so no city covers its own world. */
-  globe?: number | null;
+  /** The frame's own scale. A closed city's mark and name are drawn at a
+   *  size in **pixels**, and pixels are what this divides them into: the
+   *  band's `scaleAt(far)` steps by half-octaves, and a mark held to it
+   *  swelled by half between one notch and the next. */
+  scale?: number;
   picked: string | null;
   /** Whether a step leads there. The map knows; the drawing only lights up. */
   reachable: (node: MapNode) => boolean;
@@ -247,7 +250,12 @@ export function Nodes({
     //: player. Where the player is, is the dot on the road.
     const mine = node.key === standingAt;
     const near = reachable(node);
-    const settlement = group(node.key);
+    //: Drawn as a city, not "is a city": since D-330 the city's row is an
+    //: ordinary node -- the one its bioprinter stands on -- and with the
+    //: cities open it is drawn among its own streets, its own size and under
+    //: its own name. The big mark and the city's name are what the map puts
+    //: on it once the whole city is one point.
+    const settlement = group(node.key) && closed;
     //: A closed city is drawn as large as it is, larger the farther out,
     //: and a small one not at all from afar -- but one's own always. **One's
     //: own** is the city one is standing in, not the city node one is
@@ -261,9 +269,11 @@ export function Nodes({
     //: size in pixels; the node underfoot is the one ordinary node among
     //: them, and its six map units shrank below a pixel at the first notch
     //: out. Keeping it in the scene is half the promise -- it has to be seen.
+    //:
+    //: Unless it stands **for** something already drawn (`bands.standsAlone`).
     const spread = settlement
-      ? cityRadius(size(node.key), far, globe)
-      : node.key === here && closed
+      ? cityRadius(size(node.key), far, scale)
+      : node.key === here && closed && standsAlone(here, home)
         ? hereRadius(far)
         : 0;
     return [{ node, p, mine, near, settlement, spread }];
@@ -283,7 +293,7 @@ export function Nodes({
       //: room at that size too, or the declutter would judge a name three
       //: times the height it is drawn at by the height of a street's.
       const em = settlement
-        ? cityLabelEm(far)
+        ? cityLabelEm(far, scale)
         : node.aboard
           ? HULL_EM
           : LABEL_EM;
@@ -293,7 +303,7 @@ export function Nodes({
         y: node.aboard
           ? p.y + HULL_LABEL_Y
           : p.y - (Math.max(spread, 6) + em / 2),
-        text: node.name,
+        text: markWord(node, settlement),
         em,
         rank: mine ? 0 : node.aboard ? 1 : settlement ? 2 : near ? 3 : 4,
       };
@@ -326,7 +336,7 @@ export function Nodes({
         //: How much the stylesheet's own label has to grow for a closed city
         //: to keep its size on the glass (`bands.cityLabelEm`); one for
         //: everything else, and then nothing is transformed at all.
-        const grown = settlement ? cityLabelEm(far) / LABEL_EM : 1;
+        const grown = settlement ? cityLabelEm(far, scale) / LABEL_EM : 1;
         return (
           <g
             key={node.key}
@@ -421,7 +431,7 @@ export function Nodes({
                 whole of what it is called, and an empty label is not drawn. */}
             {/* And a name with nowhere to be written is not written: see
                 `labels`. */}
-            {node.name && named.has(node.key) && (
+            {markWord(node, settlement) && named.has(node.key) && (
               //: A closed city's name is a length in **pixels** and the map's
               //: units are pixels only at scale one, so from far out it wants
               //: to be many units tall. As a `font-size` that fails silently:
@@ -436,13 +446,13 @@ export function Nodes({
                     ? HULL_LABEL_Y
                     : -(
                         Math.max(spread, 6) +
-                        (settlement ? cityLabelEm(far) : LABEL_EM) / 2
+                        (settlement ? cityLabelEm(far, scale) : LABEL_EM) / 2
                       ) / grown
                 }
                 transform={grown === 1 ? undefined : `scale(${grown})`}
                 className="node-label"
               >
-                {node.name}
+                {markWord(node, settlement)}
               </text>
             )}
             {/* Aquatica is drawn precisely because one cannot go there

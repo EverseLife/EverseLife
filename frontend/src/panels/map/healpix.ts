@@ -72,6 +72,119 @@ export function ang2pix(nside: number, latDeg: number, lonDeg: number): number {
   return (face * nside + iy) * nside + ix;
 }
 
+/**
+ * Where a point of the sphere sits **inside its face**, as a fraction: the
+ * face, and (u, v) in [0, nside] with whole cells at halves. A port of the
+ * shader's `atlasUV` (`shade.ts`), figure for figure, and it has to be: this
+ * is the surface the ground is painted by, and a vector line cut from any
+ * other surface runs beside the colour it is meant to edge.
+ */
+export function faceUV(nside: number, latDeg: number, lonDeg: number): { face: number; u: number; v: number } {
+  const z = Math.max(-1, Math.min(1, Math.sin(latDeg * RAD)));
+  let phi = (lonDeg * RAD) % TAU;
+  if (phi < 0) phi += TAU;
+  const za = Math.abs(z);
+  const turns = phi / (Math.PI / 2);
+  const n = nside;
+  if (za <= POLAR_Z) {
+    const first = n * (0.5 + turns);
+    const second = n * z * 0.75;
+    const up = first - second;
+    const down = first + second;
+    const over = Math.floor(up / n);
+    const under = Math.floor(down / n);
+    const face = over === under ? (over & 3) + 4 : over < under ? over & 3 : (under & 3) + 8;
+    return { face, u: down - n * Math.floor(down / n), v: n - (up - n * Math.floor(up / n)) };
+  }
+  const quarter = Math.min(3, Math.floor(turns));
+  const along = turns - quarter;
+  const reach = n * Math.sqrt(Math.max(0, 3 * (1 - za)));
+  const a = Math.max(0, Math.min(n, along * reach));
+  const b = Math.max(0, Math.min(n, (1 - along) * reach));
+  return z >= 0 ? { face: quarter, u: n - b, v: n - a } : { face: quarter + 8, u: a, v: b };
+}
+
+/**
+ * A quantity read at a point **the way the shader reads it**: the four
+ * texels of the atlas about the point, blended by where it stands between
+ * their centres -- level nought of a LINEAR texture, in arithmetic. The
+ * face's border ring is what the blend reaches into at the edge, exactly as
+ * the hardware's does.
+ *
+ * The coast used to be cut from a reading between the grid's rings of
+ * latitude instead. That is a fine surface, and the server reads its nodes
+ * by it -- but it is not the shader's, and the two zero-lines ran apart:
+ * the owner saw the shore's line beside the water's colour (2026-09-11).
+ */
+export function atlasBetween(
+  passport: RasterPassport,
+  raster: ArrayLike<number>,
+  latDeg: number,
+  lonDeg: number,
+): number {
+  const { face, u, v } = faceUV(passport.nside, latDeg, lonDeg);
+  const side = passport.nside + 2 * passport.border;
+  //: Texel centres sit at halves: the texel left of and below the point.
+  const x = u - 0.5;
+  const y = v - 0.5;
+  const x0 = Math.floor(x);
+  const y0 = Math.floor(y);
+  const fx = x - x0;
+  const fy = y - y0;
+  const col0 = (face % passport.across) * side + passport.border + x0;
+  const row0 = Math.floor(face / passport.across) * side + passport.border + y0;
+  const at = (r: number, c: number) => raster[r * passport.cols + c];
+  return (
+    (1 - fy) * ((1 - fx) * at(row0, col0) + fx * at(row0, col0 + 1)) +
+    fy * ((1 - fx) * at(row0 + 1, col0) + fx * at(row0 + 1, col0 + 1))
+  );
+}
+
+/**
+ * The centre of a cell, in degrees: the inverse of `ang2pix` for the face's
+ * own (ix, iy). What a thing that belongs to a **cell** stands on -- a tree
+ * of the woods -- rather than on a point of the mesh the eye happens to
+ * carry, which slides over the cells as the eye moves (owner, 2026-09-11:
+ * the trees jittered as the camera moved).
+ */
+export function cellCentre(nside: number, cell: number): Geo {
+  const n = nside;
+  const face = Math.floor(cell / (n * n));
+  const rest = cell - face * n * n;
+  const iy = Math.floor(rest / n);
+  const ix = rest - iy * n;
+  //: The ring the cell sits on, counted from the north pole, and its place
+  //: along it -- the classic HEALPix figures, from the face's base-pixel
+  //: row and column (`JRLL`, `JPLL`).
+  const jr = JRLL[face] * n - (ix + iy) - 1;
+  let nr: number;
+  let z: number;
+  let shift: number;
+  if (jr < n) {
+    nr = jr;
+    z = 1 - (nr * nr * 4) / (12 * n * n);
+    shift = 0;
+  } else if (jr > 3 * n) {
+    nr = 4 * n - jr;
+    z = -1 + (nr * nr * 4) / (12 * n * n);
+    shift = 0;
+  } else {
+    nr = n;
+    z = ((2 * n - jr) * 2) / (3 * n);
+    shift = (jr - n) & 1;
+  }
+  let jp = (JPLL[face] * nr + (ix - iy) + 1 + shift) / 2;
+  if (jp > 4 * nr) jp -= 4 * nr;
+  if (jp < 1) jp += 4 * nr;
+  const phi = ((jp - (shift + 1) / 2) * Math.PI) / (2 * nr);
+  let lon = phi / RAD;
+  if (lon > 180) lon -= 360;
+  return { lat: Math.asin(Math.max(-1, Math.min(1, z))) / RAD, lon };
+}
+/** The base-pixel row and column of each of the twelve faces (HEALPix). */
+const JRLL = [2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4] as const;
+const JPLL = [1, 3, 5, 7, 0, 2, 4, 6, 1, 3, 5, 7] as const;
+
 /** Where a cell sits among the bytes of a raster: the atlas is row by row,
  *  and a face's tile carries its border. */
 export function atlasIndex(passport: RasterPassport, cell: number): number {
@@ -112,8 +225,7 @@ export type Lattice = {
   ) => void;
 };
 
-/** One lattice per fineness: it carries a table of a million entries, and
- *  it holds the rings, which are laid out as they are read. */
+/** One lattice per fineness: it carries a table of a million entries. */
 const LATTICES = new Map<number, Lattice>();
 export function latticeOf(passport: RasterPassport): Lattice {
   const held = LATTICES.get(passport.nside);
@@ -125,210 +237,22 @@ export function latticeOf(passport: RasterPassport): Lattice {
 
 function madeLattice(passport: RasterPassport): Lattice {
   const nside = passport.nside;
-  const rings = ringsOf(passport);
-  //: The rings hold cells of the grid, the rasters hold texels of the
-  //: atlas, and this is one in terms of the other. Laid out once: it is the
-  //: same arithmetic for every point and every frame.
+  //: The cells of the grid against the texels of the atlas, laid out once:
+  //: it is the same arithmetic for every point and every frame.
   const seats = new Int32Array(12 * nside * nside);
   for (let cell = 0; cell < seats.length; cell++) seats[cell] = atlasIndex(passport, cell);
+  //: `between` and `row` read the shader's own surface (`atlasBetween`):
+  //: the lines are drawn over the colour, and the two must come off one
+  //: surface or they part. A reading between the grid's rings of latitude
+  //: -- the server's own surface for its nodes -- used to stand here, and
+  //: the coast it cut ran beside the water's colour (owner, 2026-09-11).
   return {
     rows: BANDS_PER_NSIDE * nside,
     cols: 2 * BANDS_PER_NSIDE * nside,
     at: (lat, lon) => seats[ang2pix(nside, lat, lon)],
-    between: (raster, lat, lon) => rings.between((cell) => raster[seats[cell]], lat, lon),
-    row: (raster, lat, lon0, step, many, out, at) =>
-      rings.row(raster, seats, lat, lon0, step, many, out, at),
+    between: (raster, lat, lon) => atlasBetween(passport, raster, lat, lon),
+    row: (raster, lat, lon0, step, many, out, at) => {
+      for (let j = 0; j < many; j++) out[at + j] = atlasBetween(passport, raster, lat, lon0 + j * step);
+    },
   };
-}
-
-/** The rings of a planet, made once and kept: every frame of the vector
- *  layer reads them, and a ring is laid out when it is first read. */
-const RINGS = new Map<number, Rings>();
-export function ringsOf(passport: RasterPassport): Rings {
-  let held = RINGS.get(passport.nside);
-  if (!held) RINGS.set(passport.nside, (held = new Rings(passport.nside)));
-  return held;
-}
-
-/** How many cells a ring holds, as a quarter of them, and whether it is the
- *  half-step-shifted kind. */
-function ringShape(nside: number, ring: number): [number, number] {
-  if (ring < nside) return [ring, 0];
-  if (ring > 3 * nside) return [4 * nside - ring, 0];
-  return [nside, (ring - nside) & 1];
-}
-
-/** The latitude of a ring's cells, degrees. */
-function ringLat(nside: number, ring: number): number {
-  const three = 3 * nside * nside;
-  const z =
-    ring < nside
-      ? 1 - (ring * ring) / three
-      : ring > 3 * nside
-        ? ((4 * nside - ring) * (4 * nside - ring)) / three - 1
-        : ((2 * nside - ring) * 2) / (3 * nside);
-  return (Math.asin(Math.max(-1, Math.min(1, z))) * 180) / Math.PI;
-}
-
-/** The longitude of a place in a ring, degrees. Places run east and wrap. */
-function ringLon(quarter: number, shifted: number, place: number): number {
-  const phi = ((place + 0.5 - shifted / 2) * (Math.PI / 2)) / quarter;
-  return (((phi * 180) / Math.PI + 180) % 360) - 180;
-}
-
-/** Where a latitude stands among the rings, as a fraction: whole numbers
- *  are the middles of rings, counted from the north. */
-function ringOf(nside: number, latDeg: number): number {
-  const z = Math.max(-1, Math.min(1, Math.sin(latDeg * RAD)));
-  if (Math.abs(z) <= POLAR_Z) return 2 * nside - 1.5 * nside * z;
-  if (z > 0) return nside * Math.sqrt(Math.max(0, 3 * (1 - z)));
-  return 4 * nside - nside * Math.sqrt(Math.max(0, 3 * (1 + z)));
-}
-
-/**
- * The cells of a planet laid out by ring of equal latitude and by place
- * along it, and a quantity read **between** them.
- *
- * This is what the equal-area grid has instead of the four corners of a
- * square, and the vector layer needs it for the same reason the shader
- * does. A height read as the cell's own value is a field of steps, and the
- * level line of a field of steps runs along the edges of cells: the coast
- * came out as a chain of straight runs at forty-five degrees, which is the
- * shape of a cell and not the shape of a shore.
- */
-export class Rings {
-  /** The rings already laid out, by ring number. A frame touches a few
-   *  dozen of a planet's `4 nside - 1` -- a thousand on Terra -- and all of
-   *  them together weigh what one solid table would. */
-  private laid = new Map<number, Int32Array>();
-  readonly nside: number;
-
-  constructor(nside: number) {
-    this.nside = nside;
-  }
-
-  get count(): number {
-    return 4 * this.nside - 1;
-  }
-
-  get wide(): number {
-    return 4 * this.nside;
-  }
-
-  /**
-   * One ring: `4 nside` cells by place along it, and a short ring repeated
-   * along the width so a place past its end is the ring come round.
-   *
-   * Laid out when the ring is first read and not before. Walking every cell
-   * of the planet to put it in its ring is the shorter arithmetic per ring,
-   * but it is four hundred milliseconds of it before a single line can be
-   * drawn, and a frame touches a few dozen of a planet's thousand. Asking
-   * the projection for the middle of every place of one ring is a fifth of
-   * a millisecond, and it is asked for the rings that are looked at.
-   */
-  ring(jr: number): Int32Array {
-    const held = this.laid.get(jr);
-    if (held) return held;
-    const n = this.nside;
-    const [quarter, shifted] = ringShape(n, jr);
-    const lat = ringLat(n, jr);
-    const len = 4 * quarter;
-    const row = new Int32Array(this.wide);
-    for (let seat = 0; seat < this.wide; seat++) {
-      const place = seat % len;
-      row[seat] = seat < len ? ang2pix(n, lat, ringLon(quarter, shifted, place)) : row[place];
-    }
-    this.laid.set(jr, row);
-    return row;
-  }
-
-
-  /** A quantity read between the two rings around a point and the two
-   *  places along each: the same reading the server makes (`healpix.Rings`)
-   *  and the same surface the shader samples. */
-  between(read: (cell: number) => number, latDeg: number, lonDeg: number): number {
-    const n = this.nside;
-    const fraction = Math.max(1, Math.min(this.count, ringOf(n, latDeg)));
-    const low = Math.min(Math.floor(fraction), this.count - 1);
-    const down = fraction - low;
-    let phi = (lonDeg * RAD) % TAU;
-    if (phi < 0) phi += TAU;
-    let out = 0;
-    for (let k = 0; k < 2; k++) {
-      const weight = k === 0 ? 1 - down : down;
-      if (weight === 0) continue;
-      const ring = low + k;
-      const [quarter, shifted] = ringShape(n, ring);
-      const along = phi * ((2 * quarter) / Math.PI) - 0.5 + shifted / 2;
-      const first = Math.floor(along);
-      const across = along - first;
-      const len = 4 * quarter;
-      const row = this.ring(ring);
-      const one = ((first % len) + len) % len;
-      const two = (one + 1) % len;
-      out += weight * ((1 - across) * read(row[one]) + across * read(row[two]));
-    }
-    return out;
-  }
-
-  /**
-   * A whole row of one latitude, read between the cells and written out.
-   *
-   * The two rings a point falls between, and how it stands between them,
-   * are the latitude's business alone; only the place along each ring
-   * moves with the longitude. Settled once for the row, the reading of a
-   * sample is two lookups and two multiplies -- and the vector layer reads
-   * a million of them for a planet and forty thousand for every turn of
-   * the eye, so the difference is the map moving under the hand or not.
-   */
-  row(
-    raster: ArrayLike<number>,
-    seats: Int32Array,
-    latDeg: number,
-    lon0: number,
-    step: number,
-    many: number,
-    out: Float32Array,
-    at: number,
-  ): void {
-    const n = this.nside;
-    const fraction = Math.max(1, Math.min(this.count, ringOf(n, latDeg)));
-    const low = Math.min(Math.floor(fraction), this.count - 1);
-    const down = fraction - low;
-    //: The two rings, each with its own length, its own half-step shift and
-    //: its own share of the answer.
-    const rows = [this.ring(low), this.ring(low + 1)];
-    const weights = [1 - down, down];
-    const scales = [0, 0];
-    const shifts = [0, 0];
-    const lengths = [0, 0];
-    for (let k = 0; k < 2; k++) {
-      const ring = low + k;
-      const quarter = ring < n ? ring : ring > 3 * n ? 4 * n - ring : n;
-      const shifted = ring < n || ring > 3 * n ? 0 : (ring - n) & 1;
-      scales[k] = (2 * quarter) / Math.PI;
-      shifts[k] = shifted / 2 - 0.5;
-      lengths[k] = 4 * quarter;
-    }
-    for (let j = 0; j < many; j++) {
-      let phi = ((lon0 + j * step) * RAD) % TAU;
-      if (phi < 0) phi += TAU;
-      let sum = 0;
-      for (let k = 0; k < 2; k++) {
-        const weight = weights[k];
-        if (weight === 0) continue;
-        const along = phi * scales[k] + shifts[k];
-        const first = Math.floor(along);
-        const across = along - first;
-        const len = lengths[k];
-        const row = rows[k];
-        const one = ((first % len) + len) % len;
-        const two = one + 1 === len ? 0 : one + 1;
-        const a = raster[seats[row[one]]];
-        const b = raster[seats[row[two]]];
-        sum += weight * (a + (b - a) * across);
-      }
-      out[at + j] = sum;
-    }
-  }
 }

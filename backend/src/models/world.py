@@ -31,6 +31,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from src.db.base import Base, created_column, enum_column, uuid_pk
+from src.models.city import City
 
 
 class Planet(StrEnum):
@@ -117,14 +118,25 @@ def storey_of(node: Node) -> int | None:
 
 
 def built_up():
-    """The SQL clause for "stands in a city's built-up area" (D-319).
+    """The SQL clause for "stands in a city's built-up area" (D-319, D-330).
 
-    One surface level, so the mark is the parent: a surface node whose parent
-    is itself a surface node -- the city's own node, or a Forerunner city's --
+    Two marks, and the first is the parent: a surface node whose parent is
+    itself a surface node -- the city's own node, or a Forerunner city's --
     is inside the walls; a node hanging straight on its planet is not.
+
+    The second is the city's **own** node. Since D-330 it is the node its
+    bioprinter stands on and it hangs on the planet like a wild one, so read
+    by the parent alone it fell out of its own city: no pool, no meter, no
+    warmth from the grid, and a workshop in the middle of the capital asking
+    for cells to be carried in (review, 2026-09-11). The hole was older than
+    D-330 and only hidden by it -- a city a player founds is founded on a
+    wild node, and its delegate never had a parent on the surface either.
+    Asked of `City`, not of parenthood: a Forerunner ruin is the parent of
+    surface nodes too and is no city, and a pool for the dead is not wanted.
     """
-    delegates = select(Node.id).where(Node.layer == Layer.PLANET)
-    return (Node.layer == Layer.PLANET) & Node.parent_id.in_(delegates)
+    surface = Node.layer == Layer.PLANET
+    delegates = select(Node.id).where(surface)
+    return surface & (Node.parent_id.in_(delegates) | Node.id.in_(select(City.node_id)))
 
 
 def is_plot(node: Node) -> bool:

@@ -39,6 +39,11 @@ import { delegateAmong, settlementsOf, type LayerId, type Link } from "./model";
  * wild ground between cities -- a mine, a floodplain, a field -- is not
  * drawn at all, so that from afar the map is the cities (owner,
  * 2026-09-06); only the node under one's own feet is always there.
+ *
+ * With them open the members stand for the city, and a living city's own row
+ * stands among them: since D-330 it is the node its bioprinter is on. Only a
+ * group that is **not** a city is left out there -- the Forerunners' ruins,
+ * whose node is still an empty mark over its own rooms.
  */
 export function visibleOf(
   nodes: readonly MapNode[],
@@ -67,8 +72,17 @@ export function visibleOf(
     if (node.layer === "space") return !(node.aboard && !node.flight);
     if (sphereShown && node.planet !== sphereShown) return false;
     if (node.layer !== "planet") return true;
+    //: With the cities open a **living** city's own row is drawn among its
+    //: streets: since D-330 that row is a place -- the node the bioprinter
+    //: stands on -- and hiding it left the middle of the city empty, with
+    //: roads running into a gap. A group that is not a city stays hidden, as
+    //: every group used to be: the Forerunners' dead cities are still an
+    //: empty node with their rooms under it, and the first of those rooms is
+    //: pinned to the group's own point -- drawn together they would stand one
+    //: on top of the other. Closed, only the groups are drawn: the wild
+    //: ground between them says nothing from up there.
     const settlement = settlements.has(node.key);
-    return open ? !settlement : settlement;
+    return open ? !settlement || Boolean(node.city) : settlement;
   });
 }
 

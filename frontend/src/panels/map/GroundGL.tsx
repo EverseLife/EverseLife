@@ -57,6 +57,7 @@ import {
   formCodes,
   grainStrength,
   latticeAt,
+  byteChain,
   mipChain,
   paletteOf,
   sunDirection,
@@ -197,23 +198,58 @@ function upload(gl: WebGL2RenderingContext, passport: RasterPassport, rasters: R
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  const tile = passport.nside + 2 * passport.border;
+  //: Every raster gets the chain the height has had from the first day.
+  //: Without one a pixel covering ten texels reads one of them and shimmers
+  //: as the hand moves: a one-texel river blinking in and out on the globe,
+  //: a coast fizzing along its length, a biome speckling at the far frames.
+  //: How a level is made differs by what the byte means (`byteChain`) --
+  //: a share is averaged, a class is picked, because the mean of two codes
+  //: is a third code that means something else.
   const classes = (bytes: Uint8Array): WebGLTexture => {
     const texture = gl.createTexture();
     if (!texture) throw new Error("no texture");
     gl.bindTexture(gl.TEXTURE_2D, texture);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8UI, cols, rows, 0, gl.RED_INTEGER, gl.UNSIGNED_BYTE, bytes);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    const chain = byteChain(bytes, cols, rows, "pick", tile);
+    chain.forEach((level, index) => {
+      gl.texImage2D(
+        gl.TEXTURE_2D, index, gl.R8UI, level.cols, level.rows, 0,
+        gl.RED_INTEGER, gl.UNSIGNED_BYTE, level.data,
+      );
+    });
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAX_LEVEL, chain.length - 1);
+    //: An integer texture filters NEAREST and only NEAREST -- between the
+    //: levels as within one. The level itself is chosen by the lod the
+    //: shader asks for, and that is the whole of the cure here.
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST_MIPMAP_NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     return texture;
   };
-  const measure = (bytes: Uint8Array): WebGLTexture => {
+  const measure = (bytes: Uint8Array, mipped: boolean): WebGLTexture => {
     const texture = gl.createTexture();
     if (!texture) throw new Error("no texture");
     gl.bindTexture(gl.TEXTURE_2D, texture);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, cols, rows, 0, gl.RED, gl.UNSIGNED_BYTE, bytes);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    //: A chain where the coarse level still means something, and none where
+    //: it would not. The grain of the rock is a property of a region and
+    //: averages honestly; the lake's share and the river's ribbon are a cell
+    //: or two wide, and their mean over four cells is already under the
+    //: knife the shader cuts them by -- mipped, the rivers go out at the
+    //: first level up. So those two are read at the finest level and have
+    //: no other (`shade.ts` asks for level nought by name).
+    const chain = mipped ? byteChain(bytes, cols, rows, "mean", tile) : [{ data: bytes, cols, rows }];
+    chain.forEach((level, index) => {
+      gl.texImage2D(
+        gl.TEXTURE_2D, index, gl.R8, level.cols, level.rows, 0,
+        gl.RED, gl.UNSIGNED_BYTE, level.data,
+      );
+    });
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAX_LEVEL, chain.length - 1);
+    gl.texParameteri(
+      gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER,
+      mipped ? gl.LINEAR_MIPMAP_LINEAR : gl.LINEAR,
+    );
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
@@ -223,9 +259,9 @@ function upload(gl: WebGL2RenderingContext, passport: RasterPassport, rasters: R
     height,
     biome: classes(rasters.biome),
     form: classes(rasters.form),
-    rock: measure(rasters.rock),
-    lake: measure(rasters.lake),
-    stream: measure(rasters.stream),
+    rock: measure(rasters.rock, true),
+    lake: measure(rasters.lake, false),
+    stream: measure(rasters.stream, false),
     passport,
     deep: deepOf(heights),
   };
@@ -249,12 +285,10 @@ function sync(program: Program, planet: string, palette: Palette, highFrom: numb
   gl.uniform1f(at("u_deep"), textures.deep);
   gl.uniform1f(at("u_high_from"), highFrom);
   gl.uniform3fv(at("u_biomes[0]"), palette.biomes.subarray(0, PALETTE_SLOTS * 3));
-  gl.uniform3fv(at("u_sea_shallow"), palette.seaShallow);
   gl.uniform3fv(at("u_sea_deep"), palette.seaDeep);
   gl.uniform3fv(at("u_lake"), palette.lake);
   gl.uniform3fv(at("u_high"), palette.high);
   const codes = formCodes(passport);
-  gl.uniform3ui(at("u_water_forms"), ...codes.water);
   gl.uniform4ui(at("u_cliff_forms"), ...codes.cliff);
   gl.uniform4ui(at("u_stone_forms"), ...codes.stone);
   gl.uniform2ui(at("u_sand_forms"), ...codes.sand);
@@ -404,9 +438,38 @@ export const GroundGL = forwardRef<
     if (!sync(program, planet, palette, highFrom)) return;
     const { gl, at } = program;
     const dpr = window.devicePixelRatio || 1;
-    const box = canvas.getBoundingClientRect();
-    const width = Math.max(1, Math.round(box.width * dpr));
-    const height = Math.max(1, Math.round(box.height * dpr));
+    //: The canvas is laid over the svg's box and nowhere else. It paints the
+    //: ground by the svg's own screen matrix, so wherever it reaches it
+    //: draws correct land -- and where it reached past the svg it drew land
+    //: with nothing on it: on a narrow pane the bars stand in flow under the
+    //: map, and the ground ran on behind them (owner, 2026-09-11). Written
+    //: here rather than in the stylesheet because only here are both boxes
+    //: known: a rule that matched a sibling's size does not exist in CSS.
+    //: One read of the layout, and the styles written only when they
+    //: change -- **as the stylesheet keeps them**, to an eighth of a pixel.
+    //: Written as the box came, "648.7999877929688px" read back as
+    //: "648.8px", never matched, and was written again on every frame of
+    //: the camera; a style written on a WebGL canvas is a relayout of it,
+    //: and the pane stalled for a second on every frame that drew (owner,
+    //: 2026-09-11: the camera froze on the move). The write must be rare
+    //: for the same reason a read-after-write must not happen at all.
+    const over = svgEl.getBoundingClientRect();
+    const parent = canvas.offsetParent?.getBoundingClientRect();
+    if (parent) {
+      const eighth = (v: number) => `${Math.round(v * 8) / 8}px`;
+      const place = [
+        eighth(over.left - parent.left),
+        eighth(over.top - parent.top),
+        eighth(over.width),
+        eighth(over.height),
+      ] as const;
+      if (canvas.style.left !== place[0]) canvas.style.left = place[0];
+      if (canvas.style.top !== place[1]) canvas.style.top = place[1];
+      if (canvas.style.width !== place[2]) canvas.style.width = place[2];
+      if (canvas.style.height !== place[3]) canvas.style.height = place[3];
+    }
+    const width = Math.max(1, Math.round(over.width * dpr));
+    const height = Math.max(1, Math.round(over.height * dpr));
     if (canvas.width !== width || canvas.height !== height) {
       canvas.width = width;
       canvas.height = height;
@@ -416,7 +479,8 @@ export const GroundGL = forwardRef<
     if (!ctm || !(ctm.a > 0)) return;
     gl.clear(gl.COLOR_BUFFER_BIT);
     gl.uniform2f(at("u_size"), width, height);
-    gl.uniform2f(at("u_origin"), (ctm.e - box.left) * dpr, (ctm.f - box.top) * dpr);
+    //: The canvas stands exactly over the svg, so the svg's box is its own.
+    gl.uniform2f(at("u_origin"), (ctm.e - over.left) * dpr, (ctm.f - over.top) * dpr);
     const units = 1 / (ctm.a * dpr);
     gl.uniform1f(at("u_units"), units);
     gl.uniform1f(at("u_radius"), radius);
@@ -446,14 +510,17 @@ export const GroundGL = forwardRef<
   useEffect(() => {
     draw();
   }, [draw, eye, radius, palette, ready, planet, highFrom]);
-  //: The box: a resize of the pane is a resize of the canvas.
+  //: The box: a resize of the pane is a resize of the canvas. Watched on the
+  //: **svg**, because the canvas's own box is written by the draw above --
+  //: watching it would be watching one's own hand, and the canvas would keep
+  //: whatever size it was made with while the pane grew around it.
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+    const over = svg.current;
+    if (!over) return;
     const watcher = new ResizeObserver(() => draw());
-    watcher.observe(canvas);
+    watcher.observe(over);
     return () => watcher.disconnect();
-  }, [draw]);
+  }, [draw, svg]);
 
   return (
     <>

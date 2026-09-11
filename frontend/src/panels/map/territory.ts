@@ -84,12 +84,20 @@ export function cityOutlines(nodes: readonly MapNode[], radiusM: number): Map<st
     if (!node.parent || !node.place || !("lat" in node.place)) continue;
     members.set(node.parent, [...(members.get(node.parent) ?? []), node]);
   }
+  const byKey = new Map(nodes.map((node) => [node.key, node]));
   const out = new Map<string, Geo[][]>();
   for (const [city, own] of members) {
     //: A city is a node others hang under: a planet's node with no parent
     //: among the nodes given is the sphere, not a city.
-    if (!nodes.some((node) => node.key === city && node.layer !== "space")) continue;
-    const loops = outlineOf(own, radiusM);
+    const head = byKey.get(city);
+    if (!head || head.layer === "space") continue;
+    //: The city's own node is one of the discs, not the hole in the middle.
+    //: Until D-330 it was an empty mark with no land and stood outside the
+    //: outline by right; now it is the plot the bioprinter stands on, and
+    //: left out it took the centroid with it -- the middle of the city
+    //: covered by the spanning tree's isthmuses alone.
+    const whole = head.place && "lat" in head.place ? [head, ...own] : own;
+    const loops = outlineOf(whole, radiusM);
     if (loops.length) out.set(city, loops);
   }
   return out;

@@ -23,7 +23,7 @@ import { useEffect, useRef, type PointerEvent, type RefObject, type WheelEvent }
 
 import { SKY_BOUNDS, type Bounds } from "./bands";
 import type { Camera } from "./camera";
-import { H, W, type Point } from "./model";
+import { frameHeight, W, type Point } from "./model";
 
 /** How far the pointer travels before a press becomes a pan, in pixels. */
 const SLOP = 4;
@@ -53,9 +53,13 @@ export function lensFor(box: Box, worldW: number, worldH: number) {
   };
 }
 
-/** The same lens for the world map, whose frame is a scale over `W`×`H`. */
+/** The same lens for the world map, whose frame is a scale over `W` by the
+ *  field's own height (`model.frameHeight`). Read off the box itself: the
+ *  viewBox is cut to the same shape, so the lens has nothing to letterbox
+ *  and the offsets come out nought -- but the formula must still be the
+ *  frame's, or a hand would aim by one shape while the eye reads another. */
 export function lensOn(box: Box, scale: number) {
-  return lensFor(box, W / scale, H / scale);
+  return lensFor(box, W / scale, frameHeight(box) / scale);
 }
 
 /** Where a point on the screen is in the world. */

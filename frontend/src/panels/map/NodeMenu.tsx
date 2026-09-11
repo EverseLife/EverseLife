@@ -4,7 +4,7 @@
 import { spell, type Look, type MapNode } from "../../api";
 import { Refusal, useActions, useBook, useNames, useSession } from "../../actions";
 import { t } from "../../locale";
-import { nodeWord } from "./words";
+import { markWord, nodeWord } from "./words";
 
 /** The right-click menu on a node: go there, or open it up.
  *
@@ -17,6 +17,7 @@ export function NodeMenu({
   look,
   step,
   group,
+  opens,
   offworld,
   onExpand,
   onDone,
@@ -26,6 +27,9 @@ export function NodeMenu({
   look: Look;
   step?: { key: string; seconds: number };
   group: boolean;
+  /** The group is still shut: only then is there a city to open (D-330) --
+   *  with its streets already drawn one is standing in the middle of it. */
+  opens: boolean;
   /** The node stands on another planet: walked-to never, flown-to only. */
   offworld: boolean;
   onExpand: () => void;
@@ -64,7 +68,10 @@ export function NodeMenu({
       //: The window-wide listener shuts the menu; a click inside it must not.
       onPointerDown={(e) => e.stopPropagation()}
     >
-      <p className="menu-ask">{nodeWord(node, biomes, names)}</p>
+      {/* The city's name while the city is one mark on the map, the node's
+          own word otherwise (D-330): the menu and the circle it was opened
+          from must not disagree about what was clicked. */}
+      <p className="menu-ask">{markWord(node, opens, nodeWord(node, biomes, names))}</p>
       {may && (
         <button
           role="menuitem"
@@ -81,7 +88,7 @@ export function NodeMenu({
         </button>
       )}
       {/* Another planet is not opened either (D-240): one flies there. */}
-      {group && !node.aboard && !offworld && (
+      {opens && !node.aboard && !offworld && (
         <button role="menuitem" className="quiet" onClick={onExpand} disabled={busy}>
           {t("ui-map-expand")}
         </button>

@@ -52,6 +52,7 @@ from src.engine.world.land import (  # noqa: F401
     hand_over,
     has_place,
     is_built_up,
+    is_city_node,
     orbit_of,
     public_signs,
 )

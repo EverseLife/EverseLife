@@ -344,8 +344,8 @@ def test_the_rasters_are_the_field_thinned_and_named(constants: Constants) -> No
     passport = terrain.sketch(constants, Planet.TERRA)["raster"]
     nside = terrain.raster_nside(field)
     #: The picture is the same grid as the field, only coarser where it has
-    #: to be: twelve square faces of `nside` cells, each with a border of one
-    #: cell from the face across the edge (D-328).
+    #: to be: twelve square faces of `nside` cells, each with a border of
+    #: `healpix.BORDER` cells from the face across the edge (D-328).
     assert passport["grid"] == "healpix" and passport["nside"] == nside
     assert nside <= field.nside, "картинка не тоньше поля"
     assert healpix.npix(nside) <= RASTER_CELLS_MAX
@@ -354,7 +354,7 @@ def test_the_rasters_are_the_field_thinned_and_named(constants: Constants) -> No
     #: is drawn from a chain of ever coarser copies, the hardware halves each
     #: exactly, and only an even halving keeps a coarse texel inside one face.
     assert side & (side - 1) == 0, f"грань атласа {side} — не степень двойки"
-    assert (nside + 2) * 2 > field.nside, "картинка не грубее, чем должна быть"
+    assert (nside + 2 * healpix.BORDER) * 2 > field.nside, "картинка не грубее, чем должна быть"
     assert passport["rows"] == healpix.DOWN * side
     assert passport["cols"] == healpix.ACROSS * side
     assert passport["cells"] == healpix.npix(nside)
@@ -374,12 +374,30 @@ def test_the_rasters_are_the_field_thinned_and_named(constants: Constants) -> No
 
     height = np.frombuffer(rasters.raster_bytes(constants, Planet.TERRA, "height"), dtype="<i2")
     assert height.size == n
-    assert height.min() < 0 < height.max() <= field.relief_m, "море ниже нуля, суша до размаха"
-    for kind in ("biome", "form", "water", "rock", "province"):
+    #: In decimetres (`rasters.HEIGHT_UNIT_M`), and the passport says so:
+    #: a whole metre flattened the shore to a plateau of noughts, and the
+    #: water's edge ran along the lattice.
+    assert passport["height_unit_m"] == rasters.HEIGHT_UNIT_M == 0.1
+    metres = height * passport["height_unit_m"]
+    assert metres.min() < 0 < metres.max() <= field.relief_m, "море ниже нуля, суша до размаха"
+    assert (height[height > 0] % 10 != 0).any(), "у берега есть дециметры, не только метры"
+    for kind in ("biome", "form", "water", "rock", "province", "stream"):
         got = np.frombuffer(rasters.raster_bytes(constants, Planet.TERRA, kind), dtype=np.uint8)
         assert got.size == n, kind
     water = np.frombuffer(rasters.raster_bytes(constants, Planet.TERRA, "water"), dtype=np.uint8)
     assert passport["water"][fields.RIVER] == "river" and (water == fields.RIVER).any()
+    #: The ribbon: a share of the cell under the channel, which the shader
+    #: cuts at a half like the lake's (D-329 addendum, 2026-09-11). Wider
+    #: than the channel by construction -- that is the whole of it: drawn as
+    #: whole cells a river was a chain of squares with right angles. Pinned
+    #: here because the raster is new with `terrain.version` 8 and an older
+    #: field carries none: what refuses such a field is the passport, and
+    #: `field.py` reads the array outright, with no fallback to nought.
+    stream = np.frombuffer(rasters.raster_bytes(constants, Planet.TERRA, "stream"), dtype=np.uint8)
+    ribbon = stream > 127
+    assert ribbon.any(), "лента реки пуста"
+    assert ribbon.sum() > (water == fields.RIVER).sum(), "лента шире русла"
+    assert ribbon[water == fields.RIVER].all(), "русло закрашено целиком"
     assert rasters.raster_bytes(constants, Planet.TERRA, "rivers") is None
     #: Sea and land keep their sign through the thinning: the picture tells
     #: the water by it, and a coast texel whose height was averaged across

@@ -7,9 +7,9 @@ import { describe, expect, it } from "vitest";
 
 import type { MapNode } from "../api";
 import {
+  CITY_BASE_MAX,
   CITY_GROWTH,
   CITY_GROWTH_HALF,
-  CITY_OF_GLOBE,
   CITY_SCALE,
   GLOBE_FILL,
   OPEN_REACH,
@@ -51,6 +51,7 @@ import {
   NODE_R_MAX,
   NODE_R_MIN,
   nodeRadius,
+  standsAlone,
 } from "../panels/map/bands";
 import { edgesOf, visibleOf } from "../panels/map/useScene";
 import type { Scouting } from "../api";
@@ -202,23 +203,23 @@ describe("the bands", () => {
     //: The radius **in pixels** is the node count at the closing and grows
     //: with the distance, to a ceiling; a city smaller than the floor is
     //: drawn at the floor.
-    expect(cityPixels(20, 0)).toBe(20);
+    expect(cityPixels(15, 0)).toBe(15);
     expect(cityPixels(3, 0)).toBe(CITY_R_MIN);
-    expect(cityPixels(20, 2)).toBeCloseTo(20 * (1 + (CITY_GROWTH * 2) / 8), 9);
+    expect(cityPixels(15, 2)).toBeCloseTo(15 * (1 + (CITY_GROWTH * 2) / 8), 9);
     //: The ceiling is the biggest base grown by `CITY_GROWTH` exactly, so
     //: it no longer clips: the largest city reaches it and stops there.
-    expect(40 * (1 + CITY_GROWTH)).toBe(CITY_R_MAX);
+    expect(CITY_BASE_MAX * (1 + CITY_GROWTH)).toBe(CITY_R_MAX);
     expect(cityPixels(40, 40)).toBeLessThanOrEqual(CITY_R_MAX);
     //: And what the drawing takes is map units, which are pixels only at
-    //: scale one: divided by the scale of the band, the circle holds its
+    //: scale one: divided by the frame's own scale, the circle holds its
     //: size on the glass however far out the frame goes (D-323 addendum,
     //: 2026-09-08). Drawn in units it shrank to a speck.
-    expect(cityRadius(20, 0)).toBeCloseTo(20 / CITY_SCALE, 9);
-    expect(cityRadius(20, 2) * scaleAt(2)).toBeCloseTo(cityPixels(20, 2), 9);
-    expect(cityRadius(20, 8) * scaleAt(8)).toBeCloseTo(cityPixels(20, 8), 9);
+    expect(cityRadius(15, 0, CITY_SCALE)).toBeCloseTo(15 / CITY_SCALE, 9);
+    expect(cityRadius(15, 2, scaleAt(2)) * scaleAt(2)).toBeCloseTo(cityPixels(15, 2), 9);
+    expect(cityRadius(15, 8, scaleAt(8)) * scaleAt(8)).toBeCloseTo(cityPixels(15, 8), 9);
     //: The name goes with it: the same pixels at every distance.
-    expect(cityLabelEm(0) * scaleAt(0)).toBeCloseTo(CITY_LABEL_PX, 9);
-    expect(cityLabelEm(10) * scaleAt(10)).toBeCloseTo(CITY_LABEL_PX, 9);
+    expect(cityLabelEm(0, CITY_SCALE) * CITY_SCALE).toBeCloseTo(CITY_LABEL_PX, 9);
+    expect(cityLabelEm(10, scaleAt(10)) * scaleAt(10)).toBeCloseTo(CITY_LABEL_PX, 9);
     //: A band's scale is the closing halved every octave, and `far` counts
     //: half-octaves.
     expect(scaleAt(0)).toBe(CITY_SCALE);
@@ -313,7 +314,9 @@ describe("planetUnder", () => {
 describe("delegateAmong", () => {
   const byKey: Record<string, MapNode> = {
     terra: node({ key: "terra", layer: "space" }),
-    city: node({ key: "city", layer: "planet", parent: "terra" }),
+    //: A living city: the row carries the city's name, because since D-330 it
+    //: is the node its bioprinter stands on (`MapNode.city`).
+    city: node({ key: "city", layer: "planet", parent: "terra", city: "Новоград" } as Partial<MapNode>),
     //: The `"city"` layer is put on by the client (`geo.withCityScene`)
     //: before the scene reads it: a member of a city is a surface node whose
     //: parent stands on the surface too. The fixture describes the world as
@@ -382,7 +385,9 @@ describe("the scene", () => {
   const byKey: Record<string, MapNode> = {
     terra: node({ key: "terra", layer: "space" }),
     aurora: node({ key: "aurora", layer: "space", planet: "aurora" }),
-    city: node({ key: "city", layer: "planet", parent: "terra" }),
+    //: A living city: the row carries the city's name, because since D-330 it
+    //: is the node its bioprinter stands on (`MapNode.city`).
+    city: node({ key: "city", layer: "planet", parent: "terra", city: "Новоград" } as Partial<MapNode>),
     gate: node({ key: "gate", layer: "city", parent: "city" }),
     field: node({ key: "field", layer: "planet", parent: "terra" }),
     floor: node({ key: "floor", layer: "location", parent: "gate" }),
@@ -459,7 +464,7 @@ describe("the scene", () => {
       }),
     };
     const laid = Object.fromEntries(
-      drawnAt(map, Object.values(map)).map((n) => [n.key, n.place]),
+      drawnAt(map, Object.values(map), true).map((n) => [n.key, n.place]),
     );
     expect(laid.city).toEqual(map.gate.place);
     expect(laid.gate).toEqual(map.gate.place);
@@ -470,7 +475,20 @@ describe("the scene", () => {
       layer: "planet",
       place: { lat: 41, lon: 24 },
     });
-    expect(drawnAt({ city: older }, [older])[0].place).toEqual(older.place);
+    expect(drawnAt({ city: older }, [older], true)[0].place).toEqual(older.place);
+  });
+
+  it("marks the node underfoot only where it stands for itself", () => {
+    //: Inside a city the city's own mark is drawn at that very point and
+    //: already wears `me`; a second mark put the dark dot of the node over
+    //: the light dot of the city, and from orbit one's own capital read as
+    //: a black hole (owner's world, 2026-09-11).
+    expect(standsAlone("gate", "gate")).toBe(true);
+    expect(standsAlone("gate", "city")).toBe(false);
+    //: Off the graph -- on the road, aboard, nowhere -- there is nothing to
+    //: delegate to and the dot is the only mark there is.
+    expect(standsAlone(null, null)).toBe(true);
+    expect(standsAlone("gate", null)).toBe(true);
   });
 
   it("draws a surface's own planet, and an inside only its base's", () => {
@@ -482,10 +500,12 @@ describe("the scene", () => {
     expect(
       visibleOf(nodes, ["planet"], "gate", "terra", "field").map((n) => n.key),
     ).toEqual(["city", "field"]);
-    //: Open, the members stand for the city and its own point is not drawn.
+    //: Open, a living city's own row is drawn among its streets: since D-330
+    //: it is the node its bioprinter stands on, and leaving it out emptied
+    //: the middle of every city, with roads running into a gap.
     expect(
       visibleOf(nodes, ["city", "planet"], "gate", "terra").map((n) => n.key),
-    ).toEqual(["gate", "field"]);
+    ).toEqual(["city", "gate", "field"]);
     expect(
       visibleOf(nodes, ["location"], "gate", "terra").map((n) => n.key),
     ).toEqual(["floor"]);
@@ -494,6 +514,26 @@ describe("the scene", () => {
     expect(
       visibleOf(nodes, ["space"], "gate", "terra").map((n) => n.key),
     ).toEqual(["terra", "aurora", "flying"]);
+  });
+
+  it("leaves a group that is no city out of the open scene", () => {
+    //: The Forerunners' dead cities are still an empty node with their rooms
+    //: under it, and the first room is pinned to the group's own point
+    //: (D-330, «Чего решение не трогает»): drawn together they would stand
+    //: one on top of the other. No `city` on the row, no row in the scene.
+    const ruins: Record<string, MapNode> = {
+      aurora: node({ key: "aurora", layer: "space", planet: "aurora" }),
+      merid: node({ key: "merid", layer: "planet", parent: "aurora", planet: "aurora" }),
+      hall: node({ key: "hall", layer: "city", parent: "merid", planet: "aurora" }),
+    };
+    const every = Object.values(ruins);
+    expect(
+      visibleOf(every, ["city", "planet"], "hall", "aurora").map((n) => n.key),
+    ).toEqual(["hall"]);
+    //: Closed it is the one thing drawn, exactly as a city is.
+    expect(
+      visibleOf(every, ["planet"], "hall", "aurora").map((n) => n.key),
+    ).toEqual(["merid"]);
   });
 
   it("joins the delegates of an edge's ends: the city and the field when the city is closed", () => {
@@ -735,58 +775,43 @@ describe("nodeRadius", () => {
   });
 });
 
-describe("a city never covers its own planet", () => {
-  //: The pixel ceiling keeps the circle within reason on a screen, but on
-  //: the globe a screen is a whole world, and from afar the capital grew over
-  //: half the planet (owner, 2026-09-08). A city is a place on a planet, and
-  //: it must look like one.
-  it("holds the circle to a share of the globe when the scene is one", () => {
-    const globe = 1000;
-    for (const far of [0, 4, 10, 20]) {
-      //: The share is the ceiling and nothing lifts it -- not even the mark's
-      //: own floor. It used to: the floor stood outside the share and won on
-      //: every far frame, so on a small planet the capital came out a sixth
-      //: of its radius (owner, 2026-09-11). A toy globe of a thousand units
-      //: is all ceiling, and that is the point of asking it here.
-      expect(cityRadius(40, far, globe)).toBeLessThanOrEqual(globe * CITY_OF_GLOBE);
+describe("a city's mark is a size on the glass", () => {
+  //: It was a size in **units** once, and from afar the capital grew over
+  //: half the planet (owner, 2026-09-08). Then it was held to a share of the
+  //: globe, and on a small world the two rules argued over which gave way.
+  //: Measured on the glass instead, there is one rule and no argument: the
+  //: frames of the map are the planet's own radius, so a mark of a fixed few
+  //: pixels is the same small share of every world at every frame.
+  it("holds the same pixels however far out the frame is", () => {
+    //: The scale of a frame, halving octave by octave. What is drawn in
+    //: pixels must come out the same number of them at every one.
+    for (const scale of [0.25, 0.1, 0.05, 0.01, 0.002]) {
+      const far = farOf(scale);
+      expect(cityRadius(26, far, scale) * scale).toBeCloseTo(cityPixels(26, far), 6);
     }
   });
 
-  //: On a toy globe every frame is the far frame and every rule is the
-  //: floor, which is how the share of the globe was once set to a
-  //: twenty-fifth and nobody noticed that it drew the capital at seven
-  //: pixels. This one stands on the planet the owner was looking at.
-  it("brings the capital down to a mark on a real planet and no further", () => {
-    //: Terra's ground after D-324: 99.5 km of radius in map units.
-    const globe = radiusUnits(99.546875);
-    const disk = farOf(globeScale(globe));
-    const edge = farOf(globeScale(globe) * MAP_FURTHEST);
-    const seen = (far: number) => cityRadius(26, far, globe) * scaleAt(far);
-    //: The capital counts twenty-six nodes. Two notches inside the planet's
-    //: own frame it is drawn at its own size; from there the share of the
-    //: globe brings it down as the world comes into the frame.
-    expect(seen(disk - 3)).toBeCloseTo(cityPixels(26, disk - 3), 6);
-    expect(seen(disk - 2)).toBeLessThan(cityPixels(26, disk - 2));
-    expect(seen(disk - 1)).toBeLessThan(seen(disk - 2));
-    //: And comes to rest at a mark's size -- near enough at the planet's own
-    //: frame, where the share has only just begun to bite (13.7 px against a
-    //: floor of 14), and never above it.
-    expect(seen(disk)).toBeLessThanOrEqual(CITY_R_MIN);
-    expect(seen(disk)).toBeGreaterThan(CITY_R_MIN * 0.9);
-    //: On the farthest frame the share is the smaller of the two, and there
-    //: the share wins -- the mark goes under a mark's size rather than take
-    //: a sixth of the world. Which of the two rules gives way is the whole
-    //: question, and this is the line that answers it.
-    expect(globe * CITY_OF_GLOBE * scaleAt(edge)).toBeLessThan(CITY_R_MIN);
-    expect(seen(edge)).toBeCloseTo(globe * CITY_OF_GLOBE * scaleAt(edge), 6);
-    expect(cityRadius(26, edge, globe)).toBe(globe * CITY_OF_GLOBE);
+  it("does not breathe between one notch of the zoom and the next", () => {
+    //: The bug this rule was written for. `scaleAt(far)` steps by
+    //: half-octaves while the frame's own scale runs smoothly, so a mark
+    //: divided by the band's scale swelled by half across a band and snapped
+    //: back at its edge. Across a whole half-octave the drawn size must not
+    //: move by more than the growth itself allows.
+    const band: number[] = [];
+    for (let k = 0; k <= 8; k++) {
+      const scale = 0.05 / Math.pow(2, k / 16);
+      band.push(cityRadius(26, farOf(scale), scale) * scale);
+    }
+    const low = Math.min(...band);
+    const high = Math.max(...band);
+    expect(high / low).toBeLessThan(1.05);
   });
 
-  it("leaves a flat scene alone: there the pixel ceiling is the whole rule", () => {
-    //: With no globe there is no share to take: a city's streets are drawn
-    //: flat.
+  it("falls back to the band's scale when there is no frame yet", () => {
+    //: The first render, before a frame has been measured: better the band's
+    //: scale than a division by nought.
     for (const far of [0, 4, 10]) {
-      expect(cityRadius(40, far, null)).toBe(cityRadius(40, far));
+      expect(cityRadius(40, far, 0)).toBe(cityPixels(40, far) / scaleAt(far));
     }
   });
 

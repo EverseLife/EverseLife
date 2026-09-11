@@ -25,12 +25,20 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src import seed_catchup, seed_parts, seed_world, sky
-from src.constants import Catalog, ConstantError, Constants, current_catalog, display_name
+from src.constants import (
+    Catalog,
+    ConstantError,
+    Constants,
+    current,
+    current_catalog,
+    display_name,
+)
 from src.constants import registry as R
 from src.constants.catalog import ItemKind
 from src.engine import (
     access,
     death,
+    energy,
     estate,
     events,
     frost,
@@ -87,7 +95,7 @@ async def _plot(session: AsyncSession, key: str = "terra.capital.plot") -> Node:
     """A city plot of one's own, for the tests of the catch-up: the seed lays
     no free lots since D-323 -- plots are bought from the city ring by ring
     (D-319) -- so a test that needs one makes it, as a founding would."""
-    city = await session.scalar(select(Node).where(Node.key == "terra.capital"))
+    city = await session.scalar(select(Node).where(Node.key == "terra.capital.core"))
     assert city is not None
     polity = await town.of_node(session, city)
     assert polity is not None
@@ -165,6 +173,42 @@ async def test_the_engine_recognises_the_city_it_was_handed(
     assert await justice.is_prison(session, await node("terra.capital.jail"))
     #: The door into the world never closes (D-028).
     assert await world.is_door(session, await node("terra.capital.core"))
+
+
+async def test_the_capital_stands_on_its_own_bioprinter(
+    capital: Node, session: AsyncSession, catalog: Catalog
+) -> None:
+    """The city is the printer's node, and there is no empty node above it (D-330).
+
+    Four things at once, because they are one arrangement and each was a
+    defect on its own: the city hangs on the node that holds the machine; the
+    node is called its own name and the city its; that node is the city's
+    land; and it is inside its own grid -- read by the parent alone it was
+    not, and the one node the pool lives on had no pool (review, 2026-09-11).
+    """
+    core = (
+        await session.execute(select(Node).where(Node.key == "terra.capital.core"))
+    ).scalar_one()
+    city = await town.by_node(session, core.id)
+    assert city is not None, "город стоит на узле с биопринтером"
+    assert city.name == "Столица Терры"
+    assert core.name != city.name, "вблизи узел зовётся своим именем"
+    assert await world.has_station(session, core, world.BIOPRINTER)
+    #: The layout has no empty mark above it any more.
+    assert (
+        await session.execute(select(Node).where(Node.key == "terra.capital"))
+    ).scalar_one_or_none() is None
+    #: And the children hang on it, not on that mark.
+    market = (
+        await session.execute(select(Node).where(Node.key == "terra.capital.market"))
+    ).scalar_one()
+    assert market.parent_id == core.id
+
+    assert core.owner_city_id == city.id, "узел с принтером — городская земля"
+    assert await world.is_built_up(session, core), "узел города — его же застройка"
+    grid = await energy.grid_node(session, core)
+    assert grid is not None and grid.id == core.id, "узел города — сам себе сеть"
+    assert await energy.pool_of(session, current(), core, create=False) is not None
 
 
 async def test_the_capital_is_assembled_from_recipes(

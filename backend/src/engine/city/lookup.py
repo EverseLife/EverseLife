@@ -112,9 +112,11 @@ async def core(session: AsyncSession, city: City) -> Node | None:
 
     A city is founded where a bioprinter already stands (`establish`), so a city
     on one node is its own core: that very machine became the ground of the
-    city. The capital is laid out otherwise -- its delegate node holds no
-    machines -- and there the core is the node under it the capital was rebuilt
-    from, the one with the Forerunners' Printer.
+    city. Since D-330 the capital is laid out the same way -- its delegate is
+    the node with the Forerunners' Printer, and not an empty mark above it --
+    so the first branch below answers for every city there is. The walk that
+    follows is for the city that **lost** the machine it grew from (D-312):
+    there the core is the oldest printer left standing on its land.
 
     Only the core is a door into the world (D-208, `world.is_door`). Printers
     built later print the dead and the returning, but a newcomer does not come

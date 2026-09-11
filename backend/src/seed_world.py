@@ -101,9 +101,13 @@ class NodeSpec:
     #: there is no anchor); inside a house, `{"x", "y"}` in the floor plan's
     #: own units.
     place: dict[str, float] | None
-    #: An institutional city is founded here (D-154). The founding itself is
-    #: `seed.py`'s: a charter and a treasury are rules, not layout.
-    city: bool
+    #: The name of the institutional city founded here, or None (D-154).
+    #: The founding itself is `seed.py`'s: a charter and a treasury are
+    #: rules, not layout. The city stands on **this** node and not on an
+    #: empty one beside it (D-330), so the node wears two names: its own
+    #: where one stands in it, the city's where the map draws the whole
+    #: city as one point.
+    city: str | None
     properties: dict
     machines: tuple[Machine, ...]
     relics: tuple[str, ...]
@@ -144,8 +148,14 @@ class Applied:
     #: Keys created by this very run: veins and starting stocks go only here.
     created: set[str] = field(default_factory=set)
 
-    def city_nodes(self, scenario: Scenario) -> list[Node]:
-        return [self.nodes[spec.key] for spec in scenario.nodes if spec.city]
+    def city_nodes(self, scenario: Scenario) -> list[tuple[Node, str]]:
+        """The nodes a city is founded on, each with the city's name.
+
+        The name is the layout's and not the node's (D-330): the node is
+        the bioprinter the city grew from, and where one stands in it, it
+        is called «Ядро: Принтер Предтеч», not «Столица Терры».
+        """
+        return [(self.nodes[spec.key], spec.city) for spec in scenario.nodes if spec.city]
 
     def descendants(self, scenario: Scenario, root: str) -> list[Node]:
         """The scenario nodes under this one, any depth -- a city's own land."""
@@ -161,6 +171,27 @@ class Applied:
 #: Water is the one property whose VALUE is a word of the vault ("нет"/"река");
 #: everything else is numbers and booleans.
 _WATER_VALUES = {"нет": world.NO_WATER, "река": world.RIVER}
+
+
+def _city_name(node: dict) -> str | None:
+    """The name of the city the layout founds on this node, or None (D-330).
+
+    Anything that is not a name is refused rather than passed on: the seed is
+    the one door a vault name comes through, and a city is named once and
+    never renamed.
+    """
+    title = node.get("city")
+    if title is None:
+        return None
+    if not isinstance(title, str) or not title.strip():
+        #: Without the code: this string is scanned as text somebody reads
+        #: (`test_no_decision_codes`), and the decision belongs in the
+        #: docstring above, where it already is.
+        raise RuntimeError(
+            f"узел «{node.get('key')}»: в `city` не имя города, а {title!r} — "
+            "городом помечает имя, а не галочка"
+        )
+    return title
 
 
 def _renamed_properties(properties: dict, renames: RenameTable) -> dict:
@@ -210,7 +241,12 @@ def load_scenario(build_dir: Path | None = None) -> Scenario:
                     if node.get("place")
                     else None
                 ),
-                city=bool(node.get("city")),
+                #: A name, and nothing else. `city: true` was the old
+                #: spelling (D-330), and taken as it came it would seed a
+                #: city called «True» -- the vault complains about it, but
+                #: the engine reads whatever build it is pointed at, and a
+                #: half-updated pair is an ordinary situation here.
+                city=_city_name(node),
                 properties=_renamed_properties(dict(node.get("properties") or {}), renames),
                 machines=tuple(
                     Machine(

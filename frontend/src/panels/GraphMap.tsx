@@ -74,8 +74,10 @@ import {
   tilted,
 } from "./map/bands";
 import {
+  H,
   delegate,
   drawnAt,
+  frameHeight,
   journeyOf,
   offworld,
   sceneKey,
@@ -242,11 +244,28 @@ export function GraphMap({
     () => radiusOf(book, sphereShown),
     [book, sphereShown],
   );
+  //: The frame's own shape, measured off the svg itself. The viewBox used to
+  //: keep a fixed 880 by 540 whatever box it was drawn in, and the browser
+  //: fitted one shape inside the other: empty bands at the edges of a wide
+  //: pane, and the vector layer standing shorter than the ground under it
+  //: (owner, 2026-09-11: the svg did not match the ground). Now the viewBox is
+  //: cut to the box, and there is nothing left to fit.
+  //:
+  //: Not a loop, though the svg is what the viewBox is written onto: the
+  //: element's size is settled by the layout around it -- `flex: 1` in the
+  //: column on a wide pane, a CSS `aspect-ratio` on a narrow one -- and
+  //: never by the viewBox's own proportions. Kept in a ref as well as in
+  //: state: the camera lives outside React and asks on every frame it paints.
+  const [tall, setTall] = useState(H);
+  const tallRef = useRef(tall);
+  tallRef.current = tall;
+
   const { band, bandRef, enter, surface, surfaceRef, zoomed, tell } = useBands({
     book,
     initialLayer: initialLayer ?? "planet",
     hasSubnodes,
     radius: sphereRadius,
+    tall,
   });
   const epoch = look.clock?.epoch ?? null;
   //: The scene the band draws -- which nodes, which edges, who stands for
@@ -270,6 +289,26 @@ export function GraphMap({
     shownEdges,
   } = scene;
 
+  //: Measured after the scene is settled: the svg is not in the tree at all
+  //: while the map has nothing to draw, and an observer set on a mount that
+  //: had no svg would never see the one that follows.
+  const anyVisible = visible.length > 0;
+  useEffect(() => {
+    const field = svgRef.current;
+    if (!field) return;
+    const measure = () => {
+      const next = frameHeight(field.getBoundingClientRect());
+      //: Compared before it is set: a resize that changes nothing -- and the
+      //: observer fires on every layout -- must not redraw the map.
+      setTall((was) => (Math.abs(was - next) < 0.5 ? was : next));
+    };
+    measure();
+    const watch = new ResizeObserver(measure);
+    watch.observe(field);
+    return () => watch.disconnect();
+  }, [anyVisible]);
+
+
   // --- where everything stands ----------------------------------------------
 
   const svgRef = useRef<SVGSVGElement | null>(null);
@@ -284,10 +323,6 @@ export function GraphMap({
   //: must not see an empty disk where the globe used to be.
   const [shading, setShading] = useState<GroundGLState>("loading");
   const shaded = shadeable && shading !== "failed";
-  //: The warmth as a layer (plan §9.5): the colour is the biome's, and the
-  //: three tones of the climate are laid over it only when asked.
-  const [warmth, setWarmth] = useState(false);
-
   /**
    * The camera (`map/camera`): outside React, painted straight onto the
    * `viewBox`. The render reads the same object, so a render that happens for
@@ -305,7 +340,7 @@ export function GraphMap({
   if (!camera.current) {
     camera.current = createCamera({
       onFrame: (f) => {
-        svgRef.current?.setAttribute("viewBox", viewBoxOf(f));
+        svgRef.current?.setAttribute("viewBox", viewBoxOf(f, tallRef.current));
         shadedRef.current?.draw();
         //: The slider rides with the frame, off React like the viewBox.
         if (zoomRef.current) {
@@ -318,6 +353,7 @@ export function GraphMap({
         tell(factsOf(f, surfaceRef.current, spheres.current()));
       },
       scale: window.matchMedia(PHONE).matches ? PHONE_SCALE : 1,
+      tall: () => tallRef.current,
       still: () =>
         window.matchMedia("(prefers-reduced-motion: reduce)").matches,
     });
@@ -357,13 +393,13 @@ export function GraphMap({
     //: A closed city goes in standing on its bioprinter (`model.drawnAt`):
     //: the swap is made before the projection, so the circle, the roads, the
     //: name and the camera's aim all read one point and cannot part.
-    const laid = drawnAt(byKey, visible);
+    const laid = drawnAt(byKey, visible, !citiesOpen);
     //: Every place is the server's (D-237): what has none, or faces away
     //: from the eye, is not drawn -- nothing is made up for it (wave 6).
     return globeScene && eye && radius
       ? projectAll(eye, radius, laid)
       : flatten(laid);
-  }, [visible, byKey, orbiting, globeScene, eye, radius]);
+  }, [visible, byKey, orbiting, globeScene, eye, radius, citiesOpen]);
   //: Whether the layers that read the field's rasters may draw at all: a
   //: globe under the eye rather than an approach from the sky, and the GPU
   //: ground already under them. Both of them read the same rasters, and on
@@ -732,8 +768,13 @@ export function GraphMap({
       enterBand("inside");
       return;
     }
+    //: Only while the city is one point. Since D-330 the city's row is the
+    //: node its bioprinter stands on, and with the streets already drawn a
+    //: click on it is a click on a node one walks to -- not an invitation to
+    //: zoom into a city one is standing in the middle of.
     if (
       band === "surface" &&
+      !citiesOpen &&
       groups.has(node.key) &&
       node.place &&
       "lat" in node.place
@@ -815,9 +856,7 @@ export function GraphMap({
                   radius={radius}
                   book={book}
                   clock={look.clock}
-                  mode={
-                    shaded && shading === "ready" ? (warmth ? "warmth" : "under") : "svg"
-                  }
+                  mode={shaded && shading === "ready" ? "under" : "svg"}
                   detailed={zoomed.ground}
                   coarse={zoomed.descent > 0}
                   unit={zoomed.descent > 0 ? undefined : zoomed.unit}
@@ -895,7 +934,7 @@ export function GraphMap({
                 here={here || null}
                 closed={!citiesOpen}
                 radius={nodeRadius(book)}
-                globe={globeScene ? radius : null}
+                scale={zoomed.scale}
                 size={(key) => sizes.get(key) ?? 0}
                 far={citiesOpen ? 0 : zoomed.far}
                 onPick={click}
@@ -927,8 +966,6 @@ export function GraphMap({
             //: promise what will not happen.
             scouting={scout.onGround && !run ? scout.scouting : null}
             onScout={scout.arm}
-            warmth={shaded && globeScene ? warmth : null}
-            onWarmth={setWarmth}
           />
           <Zoom
             slider={zoomRef}
@@ -953,6 +990,7 @@ export function GraphMap({
             look={look}
             step={walkTargets[menu.key]}
             group={groups.has(menu.key)}
+            opens={groups.has(menu.key) && !citiesOpen}
             offworld={Boolean(
               byKey[menu.key] && offworld(byKey, here, byKey[menu.key]),
             )}
@@ -973,6 +1011,7 @@ export function GraphMap({
           picked={picked}
           byKey={byKey}
           groups={groups}
+          closedCity={!citiesOpen}
           walkTargets={walkTargets}
           onExpand={expand}
           onEnter={onEnter}

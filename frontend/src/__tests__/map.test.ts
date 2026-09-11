@@ -26,7 +26,7 @@ import {
   slerp,
   turn,
 } from "../panels/map/globe";
-import { clampScale, lensOn, pinchScale, pinchTo, worldAt } from "../panels/map/hand";
+import { clampScale, lensFor, lensOn, pinchScale, pinchTo, worldAt } from "../panels/map/hand";
 import {
   DEPTH,
   H,
@@ -330,11 +330,29 @@ describe("the hand's arithmetic", () => {
     expect(lensOn(snug, 2).k).toBe(2);
   });
 
-  it("counts the empty room the kept proportions leave at the edges", () => {
-    //: A field twice as wide as the world's shape: the picture is as tall as
-    //: it can be and the room left over is split between left and right.
-    const wide = { left: 0, top: 0, width: 2 * W, height: H };
-    const m = lensOn(wide, 1);
+  it("leaves no empty room on the map, whatever shape the field is", () => {
+    //: The frame takes the field's shape (`model.frameHeight`), so there is
+    //: nothing left to letterbox. It did not, once: the viewBox kept a fixed
+    //: 880 by 540 and the svg sized itself by it, leaving a strip of field
+    //: with ground drawn on it and no nodes (owner, 2026-09-11).
+    for (const box of [
+      { left: 0, top: 0, width: 2 * W, height: H },
+      { left: 0, top: 0, width: W, height: 3 * H },
+      { left: 0, top: 0, width: 503, height: 358 },
+    ]) {
+      const m = lensOn(box, 1);
+      expect(m.offX).toBeCloseTo(0, 9);
+      expect(m.offY).toBeCloseTo(0, 9);
+      //: And the width is what sets the scale: `W` units across, always.
+      expect(m.k).toBeCloseTo(box.width / W, 9);
+    }
+  });
+
+  it("still counts the empty room where the frame's shape is fixed", () => {
+    //: A ship's floor plan is given as a width and a height and cannot bend
+    //: to its pane (`ship/Plan`), so the letterbox arithmetic stays -- and
+    //: it is the same formula, not a second copy.
+    const m = lensFor({ left: 0, top: 0, width: 2 * W, height: H }, W, H);
     expect(m.k).toBe(1);
     expect(m.offX).toBe(W / 2);
     expect(m.offY).toBe(0);
@@ -349,11 +367,12 @@ describe("the hand's arithmetic", () => {
       x: 110,
       y: 54,
     });
-    //: On a field wider than the world's shape, a click in the left margin
-    //: lands left of the picture -- and must not be read as a click on it.
+    //: On a field of another shape there is no margin any more -- the frame
+    //: is cut to the field -- and the left edge of the box is the left edge
+    //: of the world. What changes with the shape is the scale, not an offset.
     const wide = { left: 0, top: 0, width: 2 * W, height: H };
-    expect(worldAt(wide, frame, { clientX: 0, clientY: 0 }).x).toBe(-W / 2);
-    expect(worldAt(wide, frame, { clientX: W / 2, clientY: 0 }).x).toBe(0);
+    expect(worldAt(wide, frame, { clientX: 0, clientY: 0 }).x).toBe(0);
+    expect(worldAt(wide, frame, { clientX: W, clientY: 0 }).x).toBeCloseTo(W / 2, 9);
   });
 
   it("reads the same point back after a zoom to it", () => {

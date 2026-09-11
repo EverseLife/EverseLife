@@ -114,6 +114,31 @@ describe("the night", () => {
     expect(Math.min(...xs)).toBeCloseTo(-R, 3);
   });
 
+  it("is cut fine enough that a near frame sees a curve, not a chord", () => {
+    //: The path is cut once in map units and the camera then scales it: a
+    //: chord that is a fine line on the whole disk is a ruler-straight edge
+    //: across a frame a hundred times nearer, and the night came over the
+    //: near frames as a dark rectangle with a corner in the middle of the
+    //: map (owner's world, 2026-09-11). The sagitta is the measure.
+    const eye = { lat: 0, lon: 0 };
+    const points = nightPath(eye, R, { lat: 0, lon: 91 })!
+      .slice(1, -1)
+      .split("L")
+      .map((pair) => pair.split(",").map(Number));
+    //: The greatest gap between neighbouring points, as a share of the
+    //: radius: the sagitta is about an eighth of its square.
+    let widest = 0;
+    for (let i = 1; i < points.length; i++) {
+      const [ax, ay] = points[i - 1];
+      const [bx, by] = points[i];
+      widest = Math.max(widest, Math.hypot(bx - ax, by - ay) / R);
+    }
+    const sagitta = (widest * widest) / 8;
+    //: Under a thousandth of the planet's radius -- below a pixel on the
+    //: nearest frame the map draws.
+    expect(sagitta).toBeLessThan(1e-3);
+  });
+
   it("is the whole disk with the sun behind the planet, and nothing with the sun overhead", () => {
     const eye = { lat: 0, lon: 0 };
     expect(nightPath(eye, R, { lat: 0, lon: 180 })).toContain("A");

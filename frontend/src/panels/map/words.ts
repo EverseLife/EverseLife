@@ -95,6 +95,33 @@ export function nodeWord(
   return t("ui-map-node-unnamed");
 }
 
+/**
+ * What the map writes beside a node's mark.
+ *
+ * A city's name where the whole city is one point, the node's own where one
+ * can walk into it: «Столица Терры» from orbit, «Ядро: Принтер Предтеч» from
+ * the street (D-330). One node, two names, and which is shown is a fact of
+ * the frame -- there is no second node to carry the other any more.
+ *
+ * The city's name comes from the server on the city's row alone and the
+ * client cannot work it out (D-225); a row without one -- a dead city of the
+ * Forerunners, an older server -- is called what it is called.
+ *
+ * `own` is the node's own word where that is more than its `name`: the
+ * column and the menu head a nameless find by its signs (`nodeWord`), and
+ * the rule which of the two names is shown must not be written a second
+ * time next to them. Clicking the mark «Столица Терры» from orbit and
+ * reading «Ядро: Принтер Предтеч» in the column beside it is two names of
+ * one circle in one frame.
+ */
+export function markWord(
+  face: { name: string; city?: string | null },
+  settlement: boolean,
+  own?: string,
+): string {
+  return (settlement && face.city) || own || face.name;
+}
+
 /** The province a node lies in, in the vault's word for it (landscape plan,
  *  wave 3; D-251): the wire carries the id, `/public/renames` the name in
  *  the reader's language. Nothing for a node without a province, and the id

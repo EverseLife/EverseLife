@@ -57,10 +57,20 @@ from src.units import METRES_PER_KM
 def _capital() -> tuple[float, float]:
     """Where the layout pins the capital: read off the build the tests run
     on, because the field decides where land is and the pin follows it
-    (landscape plan, wave 2)."""
+    (landscape plan, wave 2).
+
+    Asked by the mark and not by the key: the capital is the first node the
+    layout founds a city on, and which node that is has moved once already --
+    D-330 put the city on its bioprinter and took away the empty node above
+    it, and a test that knew the old key stopped collecting at import.
+    """
     layout = json.loads((VAULT_BUILD / "world.json").read_text(encoding="utf-8"))
     nodes = layout["nodes"] if isinstance(layout, dict) else layout
-    place = next(node["place"] for node in nodes if node.get("key") == "terra.capital")
+    place = next(
+        node["place"]
+        for node in nodes
+        if node.get("city") and (node.get("place") or {}).get("lat") is not None
+    )
     return float(place["lat"]), float(place["lon"])
 
 

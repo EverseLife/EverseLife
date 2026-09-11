@@ -114,7 +114,7 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
     #: A city the scenario gained after this world was laid (D-243) is founded
     #: by the catch-up like everything else. The capital is standing by here,
     #: so this loop skips it.
-    for delegate in applied.city_nodes(scenario):
+    for delegate, title in applied.city_nodes(scenario):
         if await town.by_node(session, delegate.id) is not None:
             continue
         #: A player got to the name first. A city name is one city's
@@ -124,21 +124,23 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
         #: nothing is broken, two names simply met, and no rename exists in the
         #: game to undo it from inside. So this one step is allowed to continue
         #: where the rest of the seed stops, and says loudly what it skipped.
-        taken = await town.by_name(session, delegate.name)
+        taken = await town.by_name(session, title)
         if taken is not None:
             log.error(
                 "city not founded by catch-up: the name %r of node %s is already "
                 "a city on node %s. The layout's city is missing until one of "
                 "them is renamed",
-                delegate.name,
+                title,
                 delegate.key,
                 taken.node_id,
             )
             continue
-        founded = await town.found(session, current_catalog(), delegate, delegate.name)
+        founded = await town.found(session, current_catalog(), delegate, title)
         founded.laws = {"newcomer_grant": parts.NEWCOMER_GRANT}
         await parts.treasury(session, founded)
-        for node in applied.descendants(scenario, delegate.key):
+        #: The delegate among its own land: it is the printer's node (D-330),
+        #: not an empty mark above it. Same reading as the fresh seed's.
+        for node in [delegate, *applied.descendants(scenario, delegate.key)]:
             if node.owner_city_id is None and node.owner_identity_id is None:
                 node.owner_city_id = founded.id
         log.info("city founded by catch-up: %s", founded.name)

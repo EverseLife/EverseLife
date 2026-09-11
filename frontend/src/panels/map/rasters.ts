@@ -10,8 +10,26 @@
 import { useEffect, useState } from "react";
 
 import * as api from "../../api";
-import type { RasterKind } from "../../api";
+import type { RasterKind, Terrain } from "../../api";
 import { heightsOf } from "./shade";
+
+/** The planet's terrain passport, asked for once for the life of the page
+ *  and shared by the ground (`Ground.tsx`) and the rasters, which read the
+ *  height raster's unit off it. A failed fetch is not a fact about the
+ *  planet: the next ask asks again. */
+const RELIEF = new Map<string, Promise<Terrain>>();
+
+export function reliefOf(planet: string): Promise<Terrain> {
+  let asked = RELIEF.get(planet);
+  if (!asked) {
+    asked = api.terrain(planet).catch((why) => {
+      RELIEF.delete(planet);
+      throw why;
+    });
+    RELIEF.set(planet, asked);
+  }
+  return asked;
+}
 
 /** The rasters decoded: heights in metres, classes as bytes. */
 export type Rasters = {
@@ -23,8 +41,9 @@ export type Rasters = {
   province: Uint8Array;
   flow: Uint8Array;
   lake: Uint8Array;
-  /** The river as a share of the cell (`stream`), so the shader can cut its
-   *  bank between the cells as it cuts a lake's. */
+  /** The river's ribbon (`stream`): a measure that falls to a half at the
+   *  bank (the vault's `pipeline.ribbon`), so the shader cuts it between
+   *  the cells as it cuts a lake's. */
   stream: Uint8Array;
 };
 
@@ -35,15 +54,21 @@ const RASTERS = new Map<string, Promise<Rasters>>();
 export function rastersOf(planet: string): Promise<Rasters> {
   let asked = RASTERS.get(planet);
   if (!asked) {
-    asked = Promise.all(
-      (
-        [
-          "height", "biome", "form", "water", "rock", "province", "flow", "lake", "stream",
-        ] as const satisfies
-          readonly RasterKind[]
-      ).map((kind) => api.terrainRaster(planet, kind)),
-    ).then(([height, biome, form, water, rock, province, flow, lake, stream]) => ({
-      height: heightsOf(height),
+    const kinds = [
+      "height", "biome", "form", "water", "rock", "province", "flow", "lake", "stream",
+    ] as const satisfies readonly RasterKind[];
+    asked = Promise.all([
+      //: The passport says what a step of the height raster is worth, and
+      //: nothing here guesses it: read as whole metres, decimetres would
+      //: put every height ten times over with nothing failing.
+      reliefOf(planet).then((terrain) => {
+        const unit = terrain.raster?.height_unit_m;
+        if (unit === undefined) throw new Error(`no raster passport for ${planet}`);
+        return unit;
+      }),
+      ...kinds.map((kind) => api.terrainRaster(planet, kind)),
+    ]).then(([unit, height, biome, form, water, rock, province, flow, lake, stream]) => ({
+      height: heightsOf(height, unit),
       biome: new Uint8Array(biome),
       form: new Uint8Array(form),
       water: new Uint8Array(water),

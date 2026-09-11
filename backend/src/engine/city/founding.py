@@ -30,6 +30,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
+from src.db.base import forget
 from src.engine import death, energy, events, market, travel, world
 from src.engine.city._base import (
     FOUNDER_POWERS,
@@ -80,14 +81,14 @@ async def found(
     **The name is taken as given, and nothing measures it here.** Two
     doors lead in and they are bounded in different places. `establish` is the
     player's, and it measures what was typed. This one is the seed's: the
-    capital and the delegate cities are founded from node names written in the
+    capital and the delegate cities are founded from names written in the
     vault (`seed.py`, `seed_catchup.py`), and a vault name is content, not a
     typed one -- so it is bounded where content is checked, by
     `WORLD_CITY_NAME_LIMIT` in the vault's `tools/world.py`, which complains
-    about a `city: true` node named longer. That is the flag
-    `seed_world.city_nodes` selects on, and so the node every seed call arrives
-    with; the catch-up's capital reaches it as `core.parent_id`, the same
-    flagged node.
+    about a `city:` longer than that. The name is the layout's own and not the
+    node's (D-330): the node is the bioprinter the city grew from, and where
+    one stands in it, it is «Ядро: Принтер Предтеч». `seed_world.city_nodes`
+    hands over both, and so does the catch-up.
 
     What hangs on the bound is not the city card. `_open_channel` below gives
     the city its official channel named after it, straight from the model --
@@ -135,6 +136,10 @@ async def found(
     )
     session.add(city)
     await session.flush()
+    #: The command may have asked whether a city stands here before there
+    #: was one (`world.is_city_node` remembers its answer): the memory is
+    #: thrown away, so the grid and the built-up area see the new city.
+    forget(session)
     await _open_channel(session, city)
 
     if founder is not None:

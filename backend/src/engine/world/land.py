@@ -28,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.db.base import remember
 from src.engine import events, places
 from src.engine.errors import Refusal
+from src.models.city import City
 from src.models.event import EventKind
 from src.models.identity import Identity
 from src.models.inventory import Container, ContainerKind
@@ -126,15 +127,39 @@ def orbit_of(node: Node) -> dict[str, float] | None:
 
 
 async def is_built_up(session: AsyncSession, node: Node) -> bool:
-    """Whether the node stands in a city's built-up area (D-319): its parent is a surface node.
+    """Whether the node stands in a city's built-up area (D-319, D-330).
 
-    The Python twin of `models.world.built_up`: a wild node hangs on its planet
-    and is nobody's; a plot, a hall or a Forerunner room hangs on a city's node.
+    The Python twin of `models.world.built_up`, and the two must answer alike:
+    a wild node hangs on its planet and is nobody's; a plot, a hall or a
+    Forerunner room hangs on a city's node; and the city's **own** node is its
+    own built-up area, because since D-330 it hangs on the planet like a wild
+    one. Why that second mark is asked of `City` rather than of parenthood is
+    written out over the clause.
     """
-    if node.layer is not Layer.PLANET or node.parent_id is None:
+    if node.layer is not Layer.PLANET:
         return False
-    parent = await session.get(Node, node.parent_id)
-    return parent is not None and parent.layer is Layer.PLANET
+    #: The parent first, as `energy.grid_node` does: the identity map answers
+    #: it for free, and the city's row is a query.
+    if node.parent_id is not None:
+        parent = await session.get(Node, node.parent_id)
+        if parent is not None and parent.layer is Layer.PLANET:
+            return True
+    return await is_city_node(session, node)
+
+
+async def is_city_node(session: AsyncSession, node: Node) -> bool:
+    """Whether a city stands on this very node -- it is the city's delegate
+    (D-330). One reading for the built-up area and for the grid: two would
+    part, and the node would be in the city for one of them and out for the
+    other. Remembered for the command: the grid and the built-up area ask
+    it of the same node many times over."""
+
+    async def read() -> bool:
+        return (
+            await session.execute(select(City.id).where(City.node_id == node.id).limit(1))
+        ).scalar_one_or_none() is not None
+
+    return await remember(session, ("city_node", node.id), read)
 
 
 async def create_node(
