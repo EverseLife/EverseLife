@@ -203,6 +203,12 @@ async def _from_aboard(
             for edge in ways
             if edge.node_a_id in keys and edge.node_b_id in keys
         ],
+        #: Whether the hull is off its pier -- under way or adrift -- as
+        #: against moored at a pier or on its parking circle. The rooms carry
+        #: no pier and no orbit, and the hull itself is not in this answer
+        #: once it has cast off, so nothing else here could say it (D-225).
+        #: The music aboard is what asks (D-333).
+        "underway": ship.docked_node_id is None and ship.lost_at is None,
     }
 
 

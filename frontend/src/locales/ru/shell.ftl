@@ -184,6 +184,15 @@ ui-top-source-title = исходный код этой версии
 ui-top-more = ещё: сводка, кто вы, обновить, исходники
 ui-top-intro = кто вы
 
+## Музыка: громкость и выключатель в шапке.
+
+ui-top-music = музыка: громкость и выключатель
+ui-top-music-off-title = музыка выключена
+ui-top-music-volume = громкость музыки
+ui-top-music-mute = выключить
+ui-top-music-unmute = включить
+ui-top-music-note = помнит этот браузер, не аккаунт
+
 ## Счёт в шапке и быстрый перевод под ним.
 
 ui-top-money = { $money } ₭

@@ -50,7 +50,8 @@ import { Stand } from "./panels/Stand";
 import { TopBar } from "./panels/TopBar";
 import { VIEWS, type View } from "./views";
 import { powSettings, type PowSettings } from "./pow";
-import { wearPlanet } from "./theme";
+import { skinFor, wearPlanet } from "./theme";
+import { playFor } from "./music";
 import { useNarrow } from "./narrow";
 import { ActionsProvider, type LocaleState } from "./actions";
 import { DEFAULT_LOCALE, forget, learn, loadWords, t, type Words } from "./locale";
@@ -408,7 +409,12 @@ export default function App() {
     if (!look) return;
     //: "aboard" is a node property id, like "woods" or "stones": the vault
     //: sets it in data, and the client only reads it.
-    wearPlanet(look.clock?.planet ?? null, (look.node?.features ?? []).includes("aboard"));
+    const aboard = (look.node?.features ?? []).includes("aboard");
+    wearPlanet(look.clock?.planet ?? null, aboard);
+    //: The music follows the same place as the theme, and aboard it also
+    //: follows whether the hull is off its pier (D-333). Not `look.travel`:
+    //: that is the body's own step between rooms, not the ship's flight.
+    playFor(skinFor(look.clock?.planet ?? null, aboard), Boolean(look.ships?.underway));
   }, [look]);
 
   //: The server speaks first (D-226): whatever happens to the player arrives

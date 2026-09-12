@@ -33,6 +33,7 @@ import { Glyph } from "../Glyph";
 import { askSidebarTab } from "../hud";
 import { t } from "../locale";
 import { Logo } from "../Logo";
+import { DEFAULT_VOLUME, setMuted, setVolume, useMusic } from "../music";
 import { term } from "./map/orbits";
 import { usePopover } from "../popover";
 import { VIEWS, type View } from "../views";
@@ -150,6 +151,7 @@ export function TopBar({ look, waiting, narrow, onSummary, onIntro, onRefresh, v
           first line of the world. Behind the overflow they are the same four,
           and the summary's count rides the button so that "something is
           waiting" is still read without opening it. */}
+      <MusicQuick />
       {narrow ? (
         <More waiting={waiting} onSummary={onSummary} onIntro={onIntro} onRefresh={onRefresh} />
       ) : (
@@ -185,6 +187,73 @@ export function TopBar({ look, waiting, narrow, onSummary, onIntro, onRefresh, v
         </>
       )}
     </header>
+  );
+}
+
+/**
+ * The music, one click from anywhere (D-333).
+ *
+ * A note in the strip; under it a slider and the switch. The setting is the
+ * browser's, not the account's (D-298), and the popover says so in one line
+ * so that nobody looks for it in the account tab. Moving the slider switches
+ * the music on; the button is the only way to switch it off, so that a nudge
+ * of the slider never silences the game by accident.
+ */
+function MusicQuick() {
+  const music = useMusic();
+  const [open, setOpen] = useState(false);
+  const anchor = useRef<HTMLSpanElement | null>(null);
+  const toggle = useRef<HTMLButtonElement | null>(null);
+  const pop = useRef<HTMLDivElement | null>(null);
+  const close = useCallback(() => setOpen(false), []);
+  usePopover({ open, close, anchor, toggle, pop });
+  //: Off is off: muted, or a slider at nought. The button reads the same
+  //: flag as the mark, and switching on from nought lifts the slider too --
+  //: an "on" that stays silent would be a lie.
+  const off = music.muted || music.volume === 0;
+  const flip = () => {
+    if (!off) {
+      setMuted(true);
+      return;
+    }
+    if (music.volume === 0) setVolume(DEFAULT_VOLUME);
+    else setMuted(false);
+  };
+
+  return (
+    <span className="hud-anchor" ref={anchor}>
+      <button
+        ref={toggle}
+        className={`bare hud${off ? " dim" : ""}`}
+        onClick={() => setOpen((was) => !was)}
+        aria-expanded={open}
+        aria-label={t("ui-top-music")}
+        title={off ? t("ui-top-music-off-title") : t("ui-top-music")}
+      >
+        <Glyph name={off ? "music-off" : "music"} />
+      </button>
+      {open && (
+        <div ref={pop} className="hud-pop" role="dialog" aria-label={t("ui-top-music")}>
+          <label className="slider">
+            <input
+              type="range"
+              min={0}
+              max={100}
+              step={5}
+              value={Math.round(music.volume * 100)}
+              aria-label={t("ui-top-music-volume")}
+              onChange={(e) => setVolume(Number(e.target.value) / 100)}
+            />
+          </label>
+          <div className="row">
+            <button type="button" className="quiet" onClick={flip}>
+              {t(off ? "ui-top-music-unmute" : "ui-top-music-mute")}
+            </button>
+            <span className="note">{t("ui-top-music-note")}</span>
+          </div>
+        </div>
+      )}
+    </span>
   );
 }
 

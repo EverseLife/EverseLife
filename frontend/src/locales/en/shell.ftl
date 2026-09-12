@@ -186,6 +186,15 @@ ui-top-source-title = the source code of this version
 ui-top-more = more: summary, who you are, refresh, source
 ui-top-intro = who you are
 
+## Music: the volume and the switch in the top bar.
+
+ui-top-music = music: volume and on/off
+ui-top-music-off-title = music is off
+ui-top-music-volume = music volume
+ui-top-music-mute = turn off
+ui-top-music-unmute = turn on
+ui-top-music-note = this browser remembers it, not the account
+
 ## The account in the top bar, and the quick transfer under it.
 
 ui-top-money = { $money } ₭

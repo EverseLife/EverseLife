@@ -72,6 +72,8 @@ export type GlyphName =
   | "voice"
   | "whisper"
   | "more"
+  | "music"
+  | "music-off"
   | "alpha";
 
 /** One stroke width for all of them, so a row of icons reads as one set. */
@@ -175,6 +177,10 @@ export const SHAPES: Record<GlyphName, string> = {
   layers: "M8 2.4L14 5.6 8 8.8 2 5.6zM2 8.6l6 3.2 6-3.2M2 11.4l6 3.2 6-3.2",
   //: Two places and the way between them: the map's "lay a way" (D-321 addendum).
   way: "M3.2 12.8a1.5 1.5 0 100-3 1.5 1.5 0 100 3M12.8 6.2a1.5 1.5 0 100-3 1.5 1.5 0 100 3M4.4 10.4l6.8-3.2",
+  //: A note -- head, stem and flag -- for the background music (D-333), and
+  //: the same note struck through when it is off.
+  music: "M5.4 10.4a1.9 1.9 0 100 3.8 1.9 1.9 0 100-3.8M7.3 12.3V2.6c1.4.4 3.4 1.4 3.4 3.6",
+  "music-off": "M5.4 10.4a1.9 1.9 0 100 3.8 1.9 1.9 0 100-3.8M7.3 12.3V2.6c1.4.4 3.4 1.4 3.4 3.6M2.4 13.6L13.6 2.4",
   //: The phone's four sections (brief section 9): where the body stands is a
   //: marker on the ground, the map is a folded sheet, the talk is a bubble.
   here: "M8 14.2c-2.8-3.4-4.2-6-4.2-8a4.2 4.2 0 118.4 0c0 2-1.4 4.6-4.2 8zM8 4.8a1.4 1.4 0 100 2.8 1.4 1.4 0 100-2.8",

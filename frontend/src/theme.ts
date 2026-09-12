@@ -43,10 +43,15 @@ export function wearPlanet(
   //: it, and neither has a meaning of its own on board. So the look is taken
   //: from a node property instead, and the theme changes on the one edge where
   //: the connectors meet -- a step aboard, not an arrival in orbit.
-  const skin = aboard ? "void" : pick(planet);
+  const skin = skinFor(planet, aboard);
   if (skin === current) return;
   current = skin;
   document.documentElement.dataset.planet = skin;
+}
+
+/** The skin a place wears; the music reads the same answer (D-333). */
+export function skinFor(planet: string | null | undefined, aboard: boolean): Skin {
+  return aboard ? "void" : pick(planet);
 }
 
 function pick(planet: string | null | undefined): Skin {

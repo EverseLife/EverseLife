@@ -69,6 +69,17 @@ button.hud:not(:disabled):hover {
   justify-content: space-between;
   margin: 0.25rem 0;
 }
+/* The music (D-333): the slider takes the width, the switch and the note
+   sit under it. The note is dimmed while the music is off, like a reading
+   at rest -- the mark stays, so the place to switch it back on does too. */
+.hud-pop .slider {
+  display: flex;
+  width: 100%;
+  margin-bottom: 0.4rem;
+}
+button.hud.dim .glyph {
+  color: var(--base-600);
+}
 
 /* The body's readings, pushed to the right edge of the strip. */
 .vitals {

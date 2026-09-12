@@ -378,7 +378,14 @@ export type WorldMap = {
  *  (D-201): at a pier the moored ships, aboard the rooms between which one
  *  walks. None of it is on the public map -- from outside a ship is a single
  *  hull, and its layout is what a boarder would want to know. */
-export type InSight = { nodes: MapNode[]; edges: MapEdge[] };
+export type InSight = {
+  nodes: MapNode[];
+  edges: MapEdge[];
+  /** Aboard: the hull is off its pier, under way or adrift, as against moored
+   *  at a pier or in orbit (D-333). The rooms say nothing of it themselves.
+   *  Absent from a pier, and from older servers. */
+  underway?: boolean;
+};
 
 /** Surface in words, by message key: a module-scope map holds keys, not text. */
 export const SURFACE: Record<Exit["surface"], string> = {

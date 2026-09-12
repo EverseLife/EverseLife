@@ -13,6 +13,7 @@ way home in `test_ship_console.py`, other worlds in `test_ship_orbits.py`.
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -522,3 +523,36 @@ async def test_a_hull_off_its_pier_lends_no_place(
         assert all(one["key"] != delegate.key for one in seen["nodes"]), (
             "корпуса на поверхности нет"
         )
+
+
+async def test_aboard_one_is_told_whether_the_hull_is_off_its_pier(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """The rooms carry no pier and no orbit, and the hull leaves the answer
+    once it casts off -- so the answer says it in one word (D-333, D-225):
+    off the pier under way or adrift, moored at a pier or on the circle.
+    From the pier there is no such word: the hull is in sight itself."""
+    port = await _port(session)
+    _, body = await _shipwright(session, port)
+    vessel = await _laid(session, constants, body, port)
+    connector = await session.get(Node, vessel.connector_node_id)
+    body.node_id = connector.id
+    await session.flush()
+
+    seen = await ship.in_sight(session, constants, connector)
+    assert seen is not None and seen["underway"] is False, "у причала — стоит"
+    from_pier = await ship.in_sight(session, constants, port)
+    assert from_pier is not None and "underway" not in from_pier
+
+    orbit = await _orbit(session)
+    for pier, off in ((None, True), (orbit.id, False)):
+        vessel.docked_node_id = pier
+        await session.flush()
+        seen = await ship.in_sight(session, constants, connector)
+        assert seen is not None and seen["underway"] is off, f"pier={pier}"
+
+    vessel.docked_node_id = None
+    vessel.lost_at = datetime.now(UTC)
+    await session.flush()
+    seen = await ship.in_sight(session, constants, connector)
+    assert seen is not None and seen["underway"] is False, "потерянный не летит"
