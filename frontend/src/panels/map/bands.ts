@@ -88,6 +88,19 @@ export function groundReach(
   if (!radius || unit >= 1) return undefined;
   return HALVE_BELOW * radius * CELL_DEG * RAD * unit;
 }
+/** The frame's width in half-octaves of map units (`Facts.near`): what is
+ *  cut to the frame itself -- the figures of the growth -- is cut again
+ *  when this steps, and React hears of the frame only through it. Not the
+ *  scale: a fact that changed at every notch would re-render the map at
+ *  every notch, and a half-octave is the step the far frames already take
+ *  (`farOf`). */
+export function nearOf(scale: number): number {
+  return Math.round(2 * Math.log2(W / Math.max(scale, 1e-9)));
+}
+/** The frame's width at that step, metres of ground. */
+export function nearFrameM(near: number): number {
+  return 2 ** (near / 2) / UNITS_PER_METRE;
+}
 /** How much of the frame's height the globe takes when the sky opens a
  *  surface: a little more than all of it, so the marker becomes the disk. */
 export const GLOBE_FILL = 1.2;

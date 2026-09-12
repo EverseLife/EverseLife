@@ -53,6 +53,10 @@ export type Names = {
   /** Faces of the ground (landscape plan wave 7): «Опушка» by `forest_edge`.
    *  What a find is called on the map, in its menu and in the inspector. */
   facets?: Record<string, string>;
+  /** Biomes (D-331 addendum): «Тайга» by `taiga`, for the legend of the
+   *  biomes layer and a found node's word. The vault's own word is the
+   *  constant `biome.names`; here it is in the reader's language. */
+  biomes?: Record<string, string>;
 };
 
 /**

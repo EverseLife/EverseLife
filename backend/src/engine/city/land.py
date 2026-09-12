@@ -9,17 +9,18 @@ Split out of `engine/city.py` along its sections (review 2026-08-23, wave 3).
 from __future__ import annotations
 
 import random
+import uuid
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import energy, estate, events, ground, places, travel, utility, world
+from src.engine import biome, energy, estate, events, ground, places, travel, utility, world
 from src.engine.city._base import CityError, NoCity, NotYours
 from src.engine.city.hall import require_at_hall
 from src.engine.city.law import shown
-from src.engine.city.lookup import by_id, territory
+from src.engine.city.lookup import by_id, of_node, territory
 from src.engine.city.office import offices, require
 from src.engine.city.treasury import treasury_balance
 from src.models.city import (
@@ -29,7 +30,7 @@ from src.models.city import (
 from src.models.estate import Deed
 from src.models.event import EventKind
 from src.models.identity import BodyState, Identity
-from src.models.world import Layer, Node, NodePass, Surface, is_plot, storey_of
+from src.models.world import ABOARD, Edge, Layer, Node, NodePass, Surface, is_plot, storey_of
 from src.units import ENERGY_PER_TARIFF_UNIT, money, money_str
 
 #: The plot's ring, a record of its birth (D-089): the first ring is the
@@ -72,6 +73,74 @@ async def lay_ring(
         plots.append(plot)
     await session.flush()
     return plots
+
+
+async def annex_by_way(
+    session: AsyncSession, constants: Constants, edge: Edge, *, by: uuid.UUID | None = None
+) -> tuple[City, Node] | None:
+    """A paved way from a city's land takes the node at its far end into the city (D-332).
+
+    The city grows where it paves: a find joined to the city's land by a
+    paved way is the city's from the day the paving is done, and from then
+    on laws, taxes, customs and the right to build read it so -- the one
+    reading of whose land a node is (`lookup.of_node`) is the one written
+    here. Judged from both ends, since a crew paves standing at either; the
+    end that has a city is the near one.
+
+    What changes nothing: a way whose ends both stand on somebody's land
+    already -- a node between two cities is the first one's, and a city does
+    not take another's land by paving to it -- and a way with no city at
+    either end, which is a road in the wild. Only ground is taken: a hull's
+    rooms hang under a pier by the gangway and are not land (D-201). The
+    land stays the city's when the highway sags back to a road (`road.decay`):
+    the surface is the crew's upkeep, the land is the city's title.
+
+    Both ends are locked, in one order whichever end the crew stood at: two
+    paved ways from two cities finishing in the same second on one find would
+    otherwise both read it as nobody's and the later write would win.
+
+    The event is the crew's (`by`, the identity that laid the paving) and
+    the node's: the return digest asks for it both ways, by actor and by
+    the place one stands in (`world.TOLD_OF_THE_PLACE`), so the one who
+    paved and the one who stands on the land it took are both told. The
+    node goes into the payload as the word the refusals call it by
+    (`biome.word_of`): a find has no name (D-321), and the digest's line
+    names its detail off the payload.
+    """
+    #: `populate_existing`: the lock alone re-selects the row but leaves an
+    #: object already in the session as it was read, and `of_node` reads
+    #: `owner_city_id` off the object -- the second crew would then judge by
+    #: what it saw before the first one's write.
+    ends = [
+        await session.get(Node, node_id, with_for_update=True, populate_existing=True)
+        for node_id in sorted((edge.node_a_id, edge.node_b_id))
+    ]
+    if any(end is None for end in ends):  # pragma: no cover -- an edge's ends outlive it
+        return None
+    cities = [await of_node(session, end) for end in ends]
+    for near, far, own, theirs in (
+        (ends[0], ends[1], cities[0], cities[1]),
+        (ends[1], ends[0], cities[1], cities[0]),
+    ):
+        if own is None or theirs is not None:
+            continue
+        if far.layer is not Layer.PLANET or (far.properties or {}).get(ABOARD):
+            return None
+        far.owner_city_id = own.id
+        await session.flush()
+        await events.record(
+            session,
+            EventKind.LAND_ANNEXED,
+            actor_identity_id=by,
+            node_id=far.id,
+            city_id=str(own.id),
+            edge_id=str(edge.id),
+            near=near.key,
+            node=biome.word_of(constants, far),
+            city=own.name,
+        )
+        return own, far
+    return None
 
 
 async def allot(

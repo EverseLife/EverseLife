@@ -39,7 +39,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as api from "../api";
 import { type Look, type MapNode, type WorldMap } from "../api";
-import { useActions, useBook, useSession } from "../actions";
+import { useActions, useBook, useSession, useNames } from "../actions";
 import { createCamera, viewBoxOf, type Camera } from "./map/camera";
 import { UNFLAG, useKept } from "../kept";
 import { t } from "../locale";
@@ -53,11 +53,15 @@ import { useHand } from "./map/hand";
 import { flatten, oneEach, withCityScene } from "./map/geo";
 import { placeAt, projectAll, UNITS_PER_METRE } from "./map/globe";
 import { firstOnGlobe, needsTurn } from "./map/follow";
-import { Ground } from "./map/Ground";
+import { Ground, sunOf } from "./map/Ground";
 import { GroundGL, type GroundGLHandle, type GroundGLState } from "./map/GroundGL";
 import { Provinces } from "./map/Provinces";
+import { Legend } from "./map/Legend";
+import { Probe } from "./map/Probe";
 import { Lines } from "./map/Lines";
+import { nodeWord } from "./map/words";
 import { supportsShadedGround } from "./map/shade";
+import { useLayers } from "./map/useLayers";
 import { useArcs, useGlobe, radiusOf } from "./map/useGlobe";
 import { factsOf, useBands, useHandOver, type Sphere } from "./map/useBands";
 import { SkyBackdrop, SkyClock } from "./map/Sky";
@@ -70,6 +74,7 @@ import {
   STREET_SCALE,
   boundsOf,
   groundReach,
+  nearFrameM,
   nodeRadius,
   tilted,
 } from "./map/bands";
@@ -144,7 +149,10 @@ export function GraphMap({
   const here = look.node?.key ?? "";
   //: The map opens by walking (D-319): what one sees changes with one's own
   //: node and the set of exits from it, so those are the reasons to reread.
-  const exits = (look.exits ?? []).map((path) => path.key).join("|");
+  //: With their surface: a paving finished from here changes the map's own
+  //: row of the way and -- since D-332 -- whose land the far node is, and
+  //: the outline drawn round it; neither comes with `look`.
+  const exits = (look.exits ?? []).map((path) => `${path.key}:${path.surface}`).join("|");
   useEffect(() => {
     //: Shared with the ship's console, which wants the same map from the same
     //: stand: one walk of the graph, not one per window (`standingMap`).
@@ -193,6 +201,8 @@ export function GraphMap({
   );
 
   const book = useBook();
+
+  const names = useNames();
   //: The node the inspector talks about. Where you stand, until you pick another.
   const [picked, setPicked] = useState<string | null>(null);
   //: A right-click menu on a node. A left click picks -- which is what makes a
@@ -215,6 +225,8 @@ export function GraphMap({
   //: Tied is the default, hence the wire whose default is yes: with `FLAG` a
   //: deliberate "loose" would leave no key and read back as tied.
   const [tethered, tether] = useKept(CAMERA, true, UNFLAG);
+  const { layer, setLayer, overlays, setOverlays } = useLayers();
+  const { provinces, cities, contours, figures } = overlays;
   //: Whose surface the planet layer shows. There are four planets in the sky
   //: now, and "everything of layer `planet`" would mix their nodes into one
   //: heap the first time a second planet gets a node of its own.
@@ -514,6 +526,7 @@ export function GraphMap({
         ? cityOutlines(
             (map?.nodes ?? []).filter((node) => node.planet === sphereShown),
             radius / UNITS_PER_METRE,
+            map?.edges ?? [],
           )
         : new Map(),
     [map, radius, sphereShown],
@@ -790,6 +803,12 @@ export function GraphMap({
 
   const click = (node: MapNode) => {
     if (busy) return;
+    //: With the way's aim armed a tap on a node names the way's far end
+    //: (D-321 addendum) and opens nothing.
+    if (scout.joining) {
+      scout.join(node);
+      return;
+    }
     setPicked(node.key);
   };
 
@@ -804,7 +823,9 @@ export function GraphMap({
           height it can get, and what used to be three strips beneath it is now
           one column that speaks about the node you picked. */}
       <div className="map-face">
-        <div className="map-field">
+        {/* The ground's colouring on the field, for the stylesheet: the
+            lines of the relief are drawn stronger on the relief layer. */}
+        <div className="map-field" data-ground={layer}>
           {/* The bar and the slider stand after the svg in the DOM: positioned
               siblings paint in DOM order, and the svg is positioned now so
               that it paints over the GPU's canvas before it. */}
@@ -819,6 +840,8 @@ export function GraphMap({
                 eye={eye}
                 radius={radius}
                 svg={svgRef}
+                sun={sunOf(sphereShown, look.clock, book)}
+                layer={layer}
                 onState={setShading}
               />
             )}
@@ -879,12 +902,17 @@ export function GraphMap({
                     radius={radius}
                     within={groundReach(zoomed.unit, radius)}
                     far={zoomed.far}
+                    on={provinces}
                   />
                   <Lines
                     planet={sphereShown}
                     eye={eye}
                     radius={radius}
                     within={groundReach(zoomed.unit, radius)}
+                    frameM={nearFrameM(zoomed.near)}
+                    //: The relief layer is read by its contours (owner,
+                    //: 2026-09-12): on it they are on whatever the switch says.
+                    show={{ contours: contours || layer === "relief", figures }}
                   />
                 </>
               )}
@@ -894,6 +922,7 @@ export function GraphMap({
                   eye={eye}
                   radius={radius}
                   open={citiesOpen}
+                  filled={cities}
                 />
               )}
               {!run && (
@@ -966,6 +995,12 @@ export function GraphMap({
             //: promise what will not happen.
             scouting={scout.onGround && !run ? scout.scouting : null}
             onScout={scout.arm}
+            joining={scout.onGround && !run ? scout.joining : null}
+            onJoin={scout.armJoin}
+            layer={layer}
+            onLayer={setLayer}
+            overlays={overlays}
+            onOverlays={setOverlays}
           />
           <Zoom
             slider={zoomRef}
@@ -975,6 +1010,17 @@ export function GraphMap({
               )
             }
           />
+          {/* The legend of a layer that is read (D-331 addendum): in the
+              field's lower left corner, off the bar and the slider -- and
+              only over a ground: the sky has no biomes to explain. */}
+          {globeScene && !orbiting && sphereShown && (
+            <Legend layer={layer} planet={sphereShown} />
+          )}
+          {/* The reading under the cursor (D-331 addendum): the biome, the
+              height, the temperature of the point, by the layer. */}
+          {globeScene && !orbiting && sphereShown && eye && radius && (
+            <Probe svg={svgRef} eye={eye} radius={radius} planet={sphereShown} layer={layer} />
+          )}
 
           {/* The winder belongs to the sky it winds, so it floats on it -- opposite
           the switcher, along the bottom edge, where a scrubber is looked for.
@@ -1004,7 +1050,19 @@ export function GraphMap({
         )}
 
         {!run && (
-          <ScoutPanel scout={scout} busy={busy} trouble={trouble} act={act} />
+          <ScoutPanel
+            scout={scout}
+            planet={sphereShown}
+            //: A find has no name: it is called by its face or its biome, as the
+            //: inspector calls it (`nodeWord`).
+            nameOf={(key) => {
+              const node = byKey[key];
+              return node ? nodeWord(node, book?.constants?.["biome.names"], names) : null;
+            }}
+            busy={busy}
+            trouble={trouble}
+            act={act}
+          />
         )}
         <Inspector
           look={look}

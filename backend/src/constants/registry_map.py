@@ -98,6 +98,15 @@ BIOME_NAMES = Words("biome.names")
 BIOME_REACH_M = Bands("biome.reach_m")
 BIOME_SWING_C = Table("biome.swing_c")
 BIOME_MARKS = Book("biome.marks")
+#: The figure the map draws a biome's growth with on the near frames
+#: (D-331): a word the client knows, or `none`. The engine never reads it --
+#: the client takes it off `/public/constants` with the marks' shares -- and
+#: it is declared here so that a misspelt figure is refused at the boot
+#: rather than drawn as nothing.
+BIOME_FIGURE = Words(
+    "biome.figure",
+    allowed=("fir", "broadleaf", "palm", "acacia", "bush", "grass", "reed", "moss", "none"),
+)
 BIOME_VEIN_K = Table("biome.vein_k")
 #: How a point is sorted into one (landscape plan, wave 4): the zonal table
 #: -- rectangles of mean temperature and rain, the vault build checks they
@@ -148,6 +157,7 @@ __all__ = [
     "BIOME_REACH_M",
     "BIOME_SWING_C",
     "BIOME_MARKS",
+    "BIOME_FIGURE",
     "BIOME_VEIN_K",
     "BIOME_ZONAL",
     "BIOME_FACET_AXES",

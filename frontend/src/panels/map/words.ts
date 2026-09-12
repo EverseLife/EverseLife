@@ -69,9 +69,11 @@ export function nameWord(name: string | null | undefined): string {
  *
  *  The facet first because that is the point of it: six finds on one shore
  *  were six «Берега», and they are a beach, a spit, a rock shelf. The word
- *  comes off `/public/renames` in the reader's language; the biome's off
- *  `/public/constants`. Either table may not have arrived yet -- then the
- *  general word stands in, as it does for a node whose kind was not told.
+ *  comes off `/public/renames` in the reader's language, and so does the
+ *  biome's where the vault's overlay has it (`biomes`, D-331 addendum) --
+ *  off `/public/constants`, the vault's own word, otherwise. Either table
+ *  may not have arrived yet -- then the general word stands in, as it does
+ *  for a node whose kind was not told.
  *
  *  The refusals of the world still say the biome (`biome.word_of`): the
  *  engine hands out no facet words until the words of a node move into the
@@ -89,10 +91,26 @@ export function nodeWord(
   }
   const table = (names ?? {}) as Record<string, unknown>;
   for (const sign of face.features ?? []) {
+    const said = renames?.biomes?.[sign];
+    if (said) return said;
     const word = table[sign];
     if (typeof word === "string" && word) return word;
   }
   return t("ui-map-node-unnamed");
+}
+
+/** The biome's word in the reader's language: the vault's overlay off
+ *  `/public/renames` (`biomes`, D-331 addendum), the vault's own word off
+ *  the book failing that, the id failing both. One place for the legend,
+ *  the probe and the scout's panel. */
+export function biomeWord(
+  id: string,
+  names: Names | null | undefined,
+  book: { constants?: Record<string, unknown> | null } | null | undefined,
+): string {
+  const words = (book?.constants?.["biome.names"] ?? {}) as Record<string, unknown>;
+  const said = names?.biomes?.[id] ?? words[id];
+  return typeof said === "string" && said ? said : id;
 }
 
 /**

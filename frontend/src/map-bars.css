@@ -1,0 +1,318 @@
+/* SPDX-License-Identifier: AGPL-3.0-only
+   Copyright (C) 2026 Nurlan Urazkulov */
+
+/*
+ * What floats over the map and asks about the view rather than the world:
+ * the switcher's bar with its layer menu, the zoom slider, the sky's winder,
+ * and the legend of a layer that is read. Out of `map.css` 2026-09-12, which
+ * was past the eight-hundred-line bar: the map's own drawing -- the ground,
+ * the lines, the nodes, the roads -- stays there, and the controls over it
+ * are here.
+ */
+
+/* Two bars float over the field, and they are one thing in two places (D-238):
+   the layer switcher along the top edge, the sky's winder along the bottom.
+   Both ask about the view rather than about the world -- from what height am I
+   looking, does the camera come with me, at what hour do the planets stand --
+   so both belong on the map, where the eye already is, and neither may steal a
+   line of the field's height. What they cost is honest: each hides a strip at
+   its own edge -- a node or two a step north of the body, the same to the
+   south -- and that is why they are as small as they are, and why on a narrow
+   screen they go back into the flow instead. */
+.map-layers,
+.map-field > .sky {
+  position: absolute;
+  /* No `z-index`. Being positioned is enough to paint over the map: the svg
+     is positioned too since the GPU ground (landscape plan wave 5), and
+     positioned siblings paint in DOM order, the bar coming after the svg
+     -- and a `z-index` here would make each bar a stacking
+     context, trapping the hint's popup (fixed, z-index 20) at the bar's own
+     level, under the node menu and the strip of talk. The one layer that must
+     float over everything would have ended up under two of them. */
+  /* Centred by two zero offsets and an auto margin, not by `left: 50%` and a
+     shift back: from half-way a bar has only half the field to be wide in,
+     and it wrapped into two lines while the room beside it stood empty. */
+  left: 0;
+  right: 0;
+  max-width: calc(100% - 1rem);
+  margin: 0 auto;
+  padding: 0.2rem 0.35rem;
+  background: var(--base-900);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-pop);
+}
+/* The layer bar stands on the map bare (owner, 2026-09-06): no box, no
+   ground, no hint -- its buttons are their own frame. The sky's winder
+   keeps its box: a scrubber over stars needs a ground to be read on. */
+.map-layers {
+  background: none;
+  border: 0;
+  padding: 0;
+}
+
+/* The zoom slider (owner, 2026-09-06): a vertical range at the right edge
+   of the map in place of the two loupe buttons -- up is nearer. On a phone
+   it runs the map's whole height; on a wide screen it is shorter, centred.
+   A native range, written vertically: the browser draws it, the finger
+   knows it. */
+.map-zoom {
+  position: absolute;
+  right: 0.6rem;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 40%;
+  width: 1.6rem;
+  margin: 0;
+  writing-mode: vertical-lr;
+  direction: rtl;
+  accent-color: var(--act);
+  cursor: pointer;
+}
+@media (max-width: 56rem) {
+  .map-zoom {
+    top: 0.5rem;
+    bottom: 0.5rem;
+    height: auto;
+    transform: none;
+  }
+}
+.map-layers {
+  top: 0.4rem;
+  width: fit-content;
+  gap: 0.15rem;
+}
+/* The winder is not as wide as it likes: its slider would take whatever it is
+   given, and a scrubber across the whole sky is a control that hides its own
+   subject. A fixed measure, and the field around it stays sky. */
+.map-field > .sky {
+  bottom: 0.5rem;
+  width: min(32rem, calc(100% - 1rem));
+}
+
+/* The words go when the map's column is too narrow for them. The threshold is
+   the window's width and not the column's, and that is deliberate: a container
+   query would make the field a containing block, and the hint's popup is
+   `fixed` precisely so that no panel can clip it.
+   So the number is measured rather than guessed. The column comes out 627px
+   narrower than the window (the sidebar and the inspector take the rest), and
+   the bar with its words wants 470 -- about 560 in the rare case of a fourth
+   layer and a long city name. 76rem (1216px) leaves the column 589: room for
+   the usual bar with a hundred to spare, and for the rare one exactly. Below
+   that the marks stand alone, which fits any width down to a phone. */
+@media (max-width: 76rem) {
+  .map-layers .tab-word {
+    display: none;
+  }
+  /* A mark alone is 14px wide; a finger needs more than that. The hint keeps
+     its own circle -- it is round, and a minimum width would make it an egg. */
+  .map-layers button:not(.hint) {
+    min-width: 2rem;
+    justify-content: center;
+  }
+}
+/* The tether is a state, not a fifth layer. Left alone it wore the act
+   underline a chosen tab wears, and two underlined things in a bar where
+   exactly one layer is ever chosen read as two chosen tabs. So it says "on"
+   the way every other chosen toggle does -- a frame in the action colour and
+   the full tone -- and the underline stays the mark of the open layer alone.
+   The word and the mark change with the state as well -- tied or free, the
+   pin or the loose one -- so the colour is not carrying this by itself even
+   where the word is hidden. */
+.tabs button.cam-tie:not(.quiet):not(.link):not(.bare):not(:disabled),
+.tabs button.scout:not(.quiet):not(.link):not(.bare):not(:disabled),
+.tabs button.join:not(.quiet):not(.link):not(.bare):not(:disabled) {
+  box-shadow: none;
+  border-color: var(--act);
+}
+
+/* The two questions are not one row of equals: the height is a set of
+   alternatives, the tether is a state of its own. */
+.map-sep {
+  width: 1px;
+  align-self: stretch;
+  margin: 0.1rem 0.25rem;
+  background: var(--hairline);
+}
+
+/* Each button its own ground (owner, 2026-09-12): bare on the map since
+   2026-09-06, the buttons vanished on the white of a glacier and on the
+   summits of the relief layer. The bar stays bare -- no box around the
+   three -- and every button carries a translucent slab of the panel's tone
+   under itself, as the sky's winder does under its whole row. Two
+   selectors, because a quiet button and a chosen one are painted by two
+   rules of `controls.css` of two weights, and each has to be outranked. */
+.map-layers button.quiet,
+.map-layers.tabs button:not(.quiet):not(.link):not(.bare):not(:disabled):not([role^="menuitem"]) {
+  background-color: color-mix(in srgb, var(--base-900) 82%, transparent);
+}
+/* The layers' word is the state and stays at every width (`Switcher.tsx`
+   says why); the others hide under 76rem with the rest of the bar. */
+@media (max-width: 76rem) {
+  .map-layers .tab-word.named {
+    display: inline;
+  }
+}
+
+/* The layer menu (D-331, redrawn 2026-09-12 as the system's own menu --
+   `menu.css` paints it, `popover.ts` shuts it): off the switcher's first
+   button. On a wide screen the bar floats along the map's top edge and the
+   menu hangs down from it over the map; on a narrow one the menu is a
+   sheet at the screen's bottom edge instead (below) -- **not** up over the
+   field, as it first did: the field is 230px tall on a phone and a menu of
+   eleven lines is 420, so it ran off the top of the screen. (Before that
+   it never showed at all: the narrow rule's `top: auto` stood before the
+   base `top` in the file and lost to it by order, the menu had a top and a
+   bottom both, and was squeezed to its padding -- owner, 2026-09-12.)
+   Taller than the screen allows, it scrolls inside itself rather than
+   past the edge. */
+.map-layer-menu {
+  top: calc(100% + 0.4rem);
+  left: 0;
+  max-height: min(30rem, calc(100vh - 10rem));
+  overflow-y: auto;
+}
+
+/* The legend of a layer that is read rather than looked at (D-331
+   addendum, owner 2026-09-12): the biomes by colour and name, a climate's
+   ramp between its ends, the soil's between dry and wet. In the field's
+   lower left corner, where neither the bar nor the slider stands, on the
+   same translucent slab the buttons wear; it is read, not pressed. */
+.map-legend {
+  position: absolute;
+  left: 0.6rem;
+  bottom: 0.6rem;
+  max-width: min(19rem, calc(100% - 3.4rem));
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.45rem 0.65rem;
+  background: color-mix(in srgb, var(--base-900) 82%, transparent);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-pop);
+  font-size: 0.78rem;
+  color: var(--base-200);
+  pointer-events: none;
+}
+.map-legend .legend-title {
+  color: var(--base-50);
+  font-weight: 600;
+  text-transform: lowercase;
+}
+.map-legend .legend-ramp {
+  height: 0.55rem;
+  border-radius: 2px;
+}
+.map-legend .legend-ends {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  font-family: var(--font-num);
+  font-variant-numeric: tabular-nums;
+}
+.map-legend .legend-swatches {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.15rem 0.8rem;
+}
+.map-legend .legend-swatches li {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  white-space: nowrap;
+}
+.map-legend .legend-swatches i {
+  flex: none;
+  width: 0.8rem;
+  height: 0.8rem;
+  border-radius: 2px;
+}
+
+/* The reading under the cursor (D-331 addendum): a slab beside the pointer
+   with one word or one number on it, the legend's own slab. Never under
+   the hand -- it is offset from the pointer -- and never in its way. */
+.map-probe {
+  position: absolute;
+  padding: 0.2rem 0.5rem;
+  background: color-mix(in srgb, var(--base-900) 85%, transparent);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-control);
+  font-size: 0.8rem;
+  color: var(--base-50);
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 3;
+}
+
+/* What the field says at an aimed point (D-321 addendum): a list of
+   readings under the distance, terms and values on one line each. */
+.survey .peek {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.15rem 0.8rem;
+  margin: 0.2rem 0 0.4rem;
+  font-size: 0.85rem;
+}
+.survey .peek dt {
+  color: var(--base-400);
+}
+.survey .peek dd {
+  margin: 0;
+  color: var(--base-100);
+}
+
+/* Narrow screen: the bars step out of the way, into the flow under the map
+   (the rest of the narrow rules are in `map.css`). */
+@media (max-width: 56rem) {
+  /* Both bars step out of the way here, into the flow under the map. The
+     field is 230px tall on a 375px screen, and the switcher floating over its
+     top edge hid 50px of it -- a fifth of the world, and the fifth the body
+     usually stands in, because the camera centres on it. Under the map the
+     bars cost the height they take instead of the height they cover, and the
+     thumb reaches them where a phone's controls are looked for.
+     `order`, not markup: on a wide screen these float, and a bar that floats
+     belongs at the top of the field it floats over. */
+  .map-layers {
+    /* In the flow, but still a box the layer menu can hang off (D-331):
+       relative keeps a bar in the flow and anchors its children; `top`
+       back to auto, or the wide screen's offset would shift it instead of
+       the margin making room. */
+    position: relative;
+    top: auto;
+    order: 1;
+    margin: 0.4rem auto 0;
+  }
+  /* On a phone the menu is a sheet off the viewport's bottom edge, above
+     the four-zone bar (`nav.bottom`, shell.css), and not off the switcher's
+     bar: hung off the bar it ran past the column's scroll edge, and the
+     touch that scrolls the column is the touch that shuts a menu. Fixed,
+     so nothing the column does moves it; no taller than the screen less
+     the bars, scrolling inside itself past that. */
+  .map-layer-menu {
+    position: fixed;
+    top: auto;
+    bottom: calc(56px + env(safe-area-inset-bottom, 0px) + 0.6rem);
+    left: 50%;
+    transform: translateX(-50%);
+    max-height: calc(100vh - 56px - env(safe-area-inset-bottom, 0px) - 5rem);
+  }
+  .map-field > .sky {
+    position: static;
+    order: 2;
+    width: auto;
+    max-width: none;
+    justify-content: center;
+    margin: 0.4rem 0 0;
+  }
+  /* The legend goes into the flow with the bars, after them: over the
+     field it hid the very ground it explained. */
+  .map-legend {
+    position: static;
+    order: 3;
+    max-width: none;
+    margin: 0.4rem 0 0;
+    pointer-events: auto;
+  }
+}

@@ -151,6 +151,15 @@
       ],
       "cwd": "frontend",
       "port": 5200
+    },
+    {
+      "name": "backend-worker-look",
+      "runtimeExecutable": "powershell",
+      "runtimeArgs": [
+        "-Command",
+        "$env:EVERSELIFE_DATABASE_URL='postgresql+asyncpg://everselife:everselife@localhost/everselife_look'; $env:EVERSELIFE_VAULT_BUILD='C:/Users/nurla/PycharmProjects/everselife-vault/build'; & 'C:/Users/nurla/PycharmProjects/everselife/backend/.venv/Scripts/python.exe' -m src.worker"
+      ],
+      "cwd": "backend"
     }
   ]
 }

@@ -44,6 +44,10 @@
 .menu a,
 .node-menu button {
   display: block;
+  /* The whole width of the layer: a button is as wide as its word unless
+     told otherwise, and a menu whose lines end where their words do is a
+     ragged one to point at (owner, 2026-09-12, on the map's layers). */
+  width: 100%;
   text-align: left;
   border: 0;
   border-radius: var(--r-control);
@@ -66,4 +70,20 @@
   font-family: var(--font-num);
   font-size: 0.78rem;
   color: var(--base-400);
+}
+
+/* A menu that chooses (D-331, owner 2026-09-12: the map's layers as the
+   system's own menu): a radio item for the one layer the ground is
+   coloured by, a check item for each overlay. The chosen line says so the
+   way the open tab does -- a bar in the action colour and the weight --
+   and never by the colour alone. */
+.menu [role="menuitemradio"],
+.menu [role="menuitemcheckbox"] {
+  padding-left: 0.9rem;
+}
+.menu [role="menuitemradio"][aria-checked="true"],
+.menu [role="menuitemcheckbox"][aria-checked="true"] {
+  color: var(--base-50);
+  font-weight: 600;
+  box-shadow: inset 3px 0 0 var(--act);
 }

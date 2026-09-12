@@ -113,6 +113,28 @@ ui-map-cam-tied = камера за вами
 ui-map-cam-free = камера свободна
 ui-map-zoom = приблизить или отдалить
 
+## Слои карты (D-331): чем окрашена земля и что лежит поверх.
+
+ui-map-layers = слои
+ui-map-layers-now = слои: { $layer }
+ui-map-layers-ground = окраска земли
+ui-map-layers-over = поверх
+ui-map-layer-terrain = местность
+ui-map-layer-relief = рельеф
+ui-map-layer-biomes = биомы
+ui-map-layer-temperature = температура
+ui-map-layer-rain = осадки
+ui-map-layer-moisture = влажность почвы
+ui-map-layer-provinces = провинции
+ui-map-layer-city-lands = городские земли
+ui-map-layer-contours = горизонтали
+ui-map-layer-figures = растительность
+ui-map-degrees = { $c }°
+ui-map-legend-rain-less = меньше дождей
+ui-map-legend-rain-more = больше дождей
+ui-map-legend-moisture-fast = сохнет быстро
+ui-map-legend-moisture-slow = сохнет медленно
+
 ## Само поле карты.
 
 ui-map-loading = карта грузится…
@@ -484,6 +506,30 @@ ui-ship-course-failed = Небо не ответило: { $why }
 ## Разведка: точка на земле и отправка тела (D-321).
 
 ui-map-scout = разведка
+ui-map-join = путь
+ui-map-join-aim = Путь к узлу «{ $node }»: { $metres } м
+ui-map-join-go = Проложить путь
 ui-map-survey-aim = Точка разведки: { $metres } м от вас
 ui-map-survey = Разведать
 ui-map-survey-clear = Снять точку
+ui-map-peek-asking = читаю поле…
+ui-map-peek-found = уже найдено
+ui-map-peek-found-there = путь ляжет туда
+ui-map-peek-ground = земля
+ui-map-peek-water = вода
+ui-map-peek-water-river = река
+ui-map-peek-water-lake = озеро
+ui-map-peek-water-none = нет
+ui-map-peek-stream = ручей { $percent }%
+ui-map-peek-mountain = горы
+ui-map-peek-climate = климат
+ui-map-peek-climate-value = { $c }° ± { $swing }°, осадки { $rain } из 100
+ui-map-peek-moisture = влажность почвы
+ui-map-peek-marks = приметы, шансы
+ui-map-peek-mark = { $mark } { $percent }%
+ui-map-peek-vein = шанс жилы
+ui-map-peek-complex = шанс комплекса
+ui-map-peek-percent = { $percent }%
+ui-map-probe-height = { $m } м
+ui-map-probe-rain = осадки { $percent } из 100
+ui-map-probe-moisture = влажность { $percent }%

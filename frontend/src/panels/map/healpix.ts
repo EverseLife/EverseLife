@@ -20,6 +20,7 @@
  * `6 nside` of longitude a cell apart at the equator.
  */
 
+import type { Geo } from "./globe";
 import type { RasterPassport } from "../../api";
 
 const RAD = Math.PI / 180;

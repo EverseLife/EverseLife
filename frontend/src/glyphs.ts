@@ -62,6 +62,8 @@ export type GlyphName =
   | "loose"
   | "eye"
   | "fold"
+  | "layers"
+  | "way"
   | "nearer"
   | "farther"
   | "here"
@@ -169,6 +171,10 @@ export const SHAPES: Record<GlyphName, string> = {
   //: A chevron at a wall: the sidebar folds to its rail and opens again.
   //: Drawn pointing left; the folded state mirrors it in CSS.
   fold: "M10.2 3.2L5.4 8l4.8 4.8M2.6 3v10",
+  //: Three sheets laid one over another: the layers of the map (D-331).
+  layers: "M8 2.4L14 5.6 8 8.8 2 5.6zM2 8.6l6 3.2 6-3.2M2 11.4l6 3.2 6-3.2",
+  //: Two places and the way between them: the map's "lay a way" (D-321 addendum).
+  way: "M3.2 12.8a1.5 1.5 0 100-3 1.5 1.5 0 100 3M12.8 6.2a1.5 1.5 0 100-3 1.5 1.5 0 100 3M4.4 10.4l6.8-3.2",
   //: The phone's four sections (brief section 9): where the body stands is a
   //: marker on the ground, the map is a folded sheet, the talk is a bubble.
   here: "M8 14.2c-2.8-3.4-4.2-6-4.2-8a4.2 4.2 0 118.4 0c0 2-1.4 4.6-4.2 8zM8 4.8a1.4 1.4 0 100 2.8 1.4 1.4 0 100-2.8",

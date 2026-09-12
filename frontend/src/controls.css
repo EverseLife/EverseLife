@@ -61,8 +61,10 @@ button:not(:disabled) {
    (D-238): a refused button must fall through to the muted rule below, not
    wear the slab it cannot honour. A menu's item is not a button-shaped thing
    either: `menu.css` paints it as a line of the layer, and this rule used to
-   outrank that by specificity alone -- every menu was a stack of slabs. */
-button:not(.quiet):not(.link):not(.bare):not(:disabled):not([role="menuitem"]) {
+   outrank that by specificity alone -- every menu was a stack of slabs.
+   By the start of the role, so a menu's radio and check (the map's
+   layers, D-331) are lines of the layer as well. */
+button:not(.quiet):not(.link):not(.bare):not(:disabled):not([role^="menuitem"]) {
   background-color: var(--base-50);
   color: var(--base-900);
   border-color: var(--base-50);
@@ -118,15 +120,17 @@ button[aria-pressed="true"]:not(.quiet):not(.link):not(.bare):not(:disabled):hov
  * white, and with it a black glyph, since a glyph strokes in `currentColor`.
  * Written beside the rule it has to beat, it wins by standing after it, and
  * the next `.tabs` selector somebody adds cannot quietly bring the bug back.
+ * A menu's item is left out by its role: the map's layers hang their menu
+ * off a bar of tabs, and every item of it wore the open tab's underline.
  */
-.tabs button:not(.quiet):not(.link):not(.bare):not(:disabled) {
+.tabs button:not(.quiet):not(.link):not(.bare):not(:disabled):not([role^="menuitem"]) {
   background-color: transparent;
   color: var(--base-50);
   border-color: transparent;
   font-weight: 600;
   box-shadow: inset 0 -2px 0 var(--act);
 }
-.tabs button:not(.quiet):not(.link):not(.bare):not(:disabled):hover {
+.tabs button:not(.quiet):not(.link):not(.bare):not(:disabled):not([role^="menuitem"]):hover {
   filter: none;
   background-color: var(--wash);
 }
@@ -145,7 +149,7 @@ button:not(.link):disabled {
   font-weight: 400;
   cursor: not-allowed;
 }
-button:not(.quiet):not(.link):not(.bare):not(:disabled):not([role="menuitem"]):hover {
+button:not(.quiet):not(.link):not(.bare):not(:disabled):not([role^="menuitem"]):hover {
   filter: brightness(0.9);
 }
 button.quiet:not(:disabled):hover,

@@ -194,6 +194,7 @@ export type {
   RasterPassport,
   Terrain,
   Tile,
+  Peek,
   Scouting,
   Transit,
   Vehicle,

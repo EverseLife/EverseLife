@@ -74,11 +74,17 @@ export function ScoutLayer({
 /** The offer beside the map: how far the point is, and the run. */
 export function ScoutPanel({
   scout,
+  planet,
+  nameOf,
   busy,
   trouble,
   act,
 }: {
   scout: Scout;
+  /** Whose surface the aim is on: the moisture is read on its passport. */
+  planet: string | null;
+  /** The name of a node the client knows by its key, for a cell already found. */
+  nameOf: (key: string) => string | null;
   busy: boolean;
   trouble: string | null;
   act: (what: () => Promise<unknown>) => Promise<void>;
@@ -89,6 +95,11 @@ export function ScoutPanel({
   return (
     <Survey
       metres={scout.metres}
+      preview={scout.preview}
+      planet={planet}
+      nameOf={nameOf}
+      joining={scout.target !== null}
+      target={scout.target === null ? null : (nameOf(scout.target) ?? scout.target)}
       busy={busy}
       trouble={trouble}
       onGo={() => {

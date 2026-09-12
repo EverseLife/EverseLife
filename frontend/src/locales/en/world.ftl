@@ -113,6 +113,28 @@ ui-map-cam-tied = camera follows you
 ui-map-cam-free = camera is free
 ui-map-zoom = zoom in or out
 
+## The map's layers (D-331): what the ground is coloured by and what lies over it.
+
+ui-map-layers = layers
+ui-map-layers-now = layers: { $layer }
+ui-map-layers-ground = ground colouring
+ui-map-layers-over = on top
+ui-map-layer-terrain = terrain
+ui-map-layer-relief = relief
+ui-map-layer-biomes = biomes
+ui-map-layer-temperature = temperature
+ui-map-layer-rain = rainfall
+ui-map-layer-moisture = soil moisture
+ui-map-layer-provinces = provinces
+ui-map-layer-city-lands = city lands
+ui-map-layer-contours = contours
+ui-map-layer-figures = vegetation
+ui-map-degrees = { $c }°
+ui-map-legend-rain-less = less rain
+ui-map-legend-rain-more = more rain
+ui-map-legend-moisture-fast = dries fast
+ui-map-legend-moisture-slow = dries slowly
+
 ## The map field itself.
 
 ui-map-loading = the map is loading…
@@ -484,6 +506,30 @@ ui-ship-course-failed = The sky did not answer: { $why }
 ## Scouting: a point on the ground and sending the body (D-321).
 
 ui-map-scout = scouting
+ui-map-join = way
+ui-map-join-aim = Way to the node “{ $node }”: { $metres } m
+ui-map-join-go = Lay the way
 ui-map-survey-aim = Scouting point: { $metres } m from you
 ui-map-survey = Scout
 ui-map-survey-clear = Clear the point
+ui-map-peek-asking = reading the field…
+ui-map-peek-found = already found
+ui-map-peek-found-there = the way will lead there
+ui-map-peek-ground = ground
+ui-map-peek-water = water
+ui-map-peek-water-river = river
+ui-map-peek-water-lake = lake
+ui-map-peek-water-none = none
+ui-map-peek-stream = stream { $percent }%
+ui-map-peek-mountain = mountains
+ui-map-peek-climate = climate
+ui-map-peek-climate-value = { $c }° ± { $swing }°, rainfall { $rain } of 100
+ui-map-peek-moisture = soil moisture
+ui-map-peek-marks = marks, chances
+ui-map-peek-mark = { $mark } { $percent }%
+ui-map-peek-vein = vein chance
+ui-map-peek-complex = complex chance
+ui-map-peek-percent = { $percent }%
+ui-map-probe-height = { $m } m
+ui-map-probe-rain = rainfall { $percent } of 100
+ui-map-probe-moisture = moisture { $percent }%

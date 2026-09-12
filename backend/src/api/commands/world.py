@@ -269,8 +269,16 @@ async def _world_summary(state: dict, db: AsyncSession, message: dict) -> dict:
 
 #: What the place lived through, with nobody to call its actor. Asked about the
 #: node the body stands in, and only about ends of things there: the ground
-#: moved, and the ground is about to move.
-TOLD_OF_THE_PLACE = frozenset({EventKind.PLATES_ERUPTED.value, EventKind.PLATES_WARNED.value})
+#: moved, and the ground is about to move -- and the ground became a city's
+#: (D-332): whoever stands on a find a paved way took in is told whose land it
+#: is now, though the crew that paved it is the actor and hears of it as its own.
+TOLD_OF_THE_PLACE = frozenset(
+    {
+        EventKind.PLATES_ERUPTED.value,
+        EventKind.PLATES_WARNED.value,
+        EventKind.LAND_ANNEXED.value,
+    }
+)
 
 #: What is worth telling about on return. The journal records everything -- the
 #: swing of a pick, every ledger posting -- and a feed of that is not a summary
@@ -303,6 +311,7 @@ TOLD = frozenset(
         EventKind.ROAD_LAID.value,
         EventKind.DEED_SOLD.value,
         EventKind.LAND_RECLAIMED.value,
+        EventKind.LAND_ANNEXED.value,
         EventKind.CITY_GRANT_PAID.value,
         EventKind.ESTATE_SITE_READY.value,
         EventKind.SHIP_ADRIFT.value,

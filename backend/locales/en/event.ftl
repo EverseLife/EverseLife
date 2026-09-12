@@ -47,6 +47,10 @@ event-ship-undocked_ship = undocked from the hull
 event-road-laid = road laid
 event-deed-sold = deed sold
 event-land-reclaimed = the city took its location back
+# A city grows by paved ways (D-332): the node at the far end of a paved way
+# from the city's land passed to the city. The detail after the separator is
+# the node's word off the payload.
+event-land-annexed = land at the end of the paved way passed to the city
 event-city-grant_paid = settlement grant paid
 event-estate-site_ready = the build is done: the house waits for its owner
 

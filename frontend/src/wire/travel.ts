@@ -109,6 +109,32 @@ export type Scouting = {
   arrives_at: string;
 };
 
+/** What the field says at an aimed point, before the walk (D-321 addendum,
+ *  owner 2026-09-12; `explore.peek`): the readings of the public field at
+ *  the cell and the chances of what the run rolls there -- never the roll,
+ *  which is the find's own. */
+export type Peek = {
+  /** The node already standing in the cell, when somebody found it first. */
+  found: string | null;
+  biome: string;
+  facet: string | null;
+  province: string | null;
+  water: "river" | "lake" | "none";
+  /** Where the map draws no water, the chance the run rolls a stream the
+   *  relief is too coarse to draw, per cent (`site.river_share`). */
+  stream_chance: number;
+  mountain: boolean;
+  temperature_c: number;
+  /** Per cent of the vault's scale (`site.rain_range`). */
+  rain: number;
+  /** The day's swing, degrees. */
+  swing_c: number;
+  /** The chances of the place's marks, per cent, by mark (woods, stones, meadow). */
+  marks: Record<string, number>;
+  vein_chance: number;
+  complex_chance: number;
+};
+
 /** The world map: nodes and edges. Cities and highways are public (D-097). */
 export type MapNode = {
   key: string;
@@ -178,6 +204,11 @@ export type MapNode = {
   facet?: string;
   /** Shown dark: remembered or public, not in sight (D-319). */
   faded?: boolean;
+  /** The city on whose land the node stands, by the key of the city's own
+   *  node (D-332) -- sent only where `parent` does not say: a plot under
+   *  its city is the city's by its parent, a find taken in by a highway
+   *  still hangs under the planet. The city's outline is drawn round it. */
+  territory?: string;
   /** The name of the city this node is the centre of. Sent on a **city's**
    *  row alone, and it is the row of the node with the city's bioprinter
    *  (D-330): standing in it one reads `name` -- «Ядро: Принтер Предтеч» --
@@ -268,7 +299,10 @@ export type RasterKind =
   /** The river as a share of the cell, as `lake` is: the shader cuts its
    *  bank between the cells off this, so a stream bends where the water
    *  bends and not where the grid does. */
-  | "stream";
+  | "stream"
+  | "temperature"
+  | "rain"
+  | "river";
 export type RasterPassport = {
   /** What flows on this planet: water on Terra and Aquatica, lava on
    *  Pyroxis. One raster says where the fluid lies on every planet -- a cell
@@ -307,6 +341,10 @@ export type RasterPassport = {
   /** The provinces by the code of the province raster (0 is none, k is the
    *  k-th of this list): the map draws their boundary and their name. */
   provinces?: string[];
+  /** The temperature raster's scale: a byte a cell is `min + byte * step`
+   *  degrees on the planet's own scale, and `cold` to `hot` is the planet's
+   *  range, the ends of the climate layer's ramp (D-331). */
+  temperature_c: { min: number; step: number; cold: number; hot: number };
   /** What a full byte of the flow raster stands for on a log scale: how
    *  much land drains through the river a cell belongs to. The map draws a
    *  river of its own width by it -- a brook a thread, the continent's

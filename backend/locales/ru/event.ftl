@@ -47,6 +47,9 @@ event-ship-undocked_ship = расстыковка
 event-road-laid = дорога уложена
 event-deed-sold = бумага продана
 event-land-reclaimed = город забрал свою локацию
+# Город растёт трактами (D-332): узел на дальнем конце тракта от земли
+# города отошёл городу. Деталь за разделителем — слово об узле из payload.
+event-land-annexed = земля на конце тракта отошла городу
 event-city-grant_paid = подъёмные выплачены
 event-estate-site_ready = стройка готова: дом ждёт хозяина
 

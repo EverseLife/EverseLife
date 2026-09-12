@@ -222,7 +222,10 @@ export function warmthOf(
   return null;
 }
 
-export type Block = { at: Point; r: number };
+/** A node's land: `r` is the circle a find must stay out of (the node's
+ *  radius plus a find's), `core` the node's own radius -- what a way must
+ *  not pass through (D-321 addendum of 2026-09-12). */
+export type Block = { at: Point; r: number; core: number };
 export type Way = [Point, Point];
 
 export type Field = {
@@ -254,12 +257,14 @@ export function fieldOf(
     //: (`aim.check`), so a wide node one stands in shuts the near half of the
     //: ring. Leaving it out drew green where the answer was "слишком тесно"
     //: (owner, 2026-09-09).
-    blocks: nodes.map((node) => ({
-      at: node.at,
-      r:
-        (Math.sqrt(Math.max(1, node.area ?? 60) / Math.PI) + rules.room) *
-        UNITS_PER_METRE,
-    })),
+    blocks: nodes.map((node) => {
+      const core = Math.sqrt(Math.max(1, node.area ?? 60) / Math.PI);
+      return {
+        at: node.at,
+        r: (core + rules.room) * UNITS_PER_METRE,
+        core: core * UNITS_PER_METRE,
+      };
+    }),
     ways: [...ways],
   };
 }
@@ -276,12 +281,33 @@ export function segmentsCross(a: Point, b: Point, c: Point, d: Point): boolean {
 }
 
 /** Whether a point may be aimed at, the ground under it read as `land`. */
+/** How far `p` stands from the segment `a`-`b`. */
+export function segmentGap(a: Point, b: Point, p: Point): number {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const length = dx * dx + dy * dy;
+  if (length <= 0) return Math.hypot(p.x - a.x, p.y - a.y);
+  const share = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / length));
+  return Math.hypot(p.x - (a.x + share * dx), p.y - (a.y + share * dy));
+}
+
+/** Whether a block stands in the way of the origin at all: the node
+ *  underfoot and any whose land already covers it are the way's start,
+ *  not its obstacles (`aim.check` reads it the same way). */
+function inTheWay(field: Field, block: Block): boolean {
+  return Math.hypot(block.at.x - field.origin.x, block.at.y - field.origin.y) >= block.core;
+}
+
 export function scoutable(field: Field, p: Point, land: boolean): boolean {
   const d = Math.hypot(p.x - field.origin.x, p.y - field.origin.y);
   if (d < field.near || d > field.far) return false;
   if (!land) return false;
   for (const block of field.blocks) {
     if (Math.hypot(p.x - block.at.x, p.y - block.at.y) < block.r) return false;
+    //: And the way there passes through no node's land (D-321 addendum of
+    //: 2026-09-12): the same rule the server judges by, so the ring does
+    //: not show green what the aim would refuse.
+    if (inTheWay(field, block) && segmentGap(field.origin, p, block.at) < block.core) return false;
   }
   for (const [a, b] of field.ways) {
     if (segmentsCross(field.origin, p, a, b)) return false;
@@ -317,6 +343,29 @@ export function ringPath(field: Field): string {
  * seen from the origin, out past the reach -- a quadrilateral of the way's
  * ends and the same ends pushed along their rays. Cut from the field.
  */
+/** The shadow a node's land casts over the field from the origin: the
+ *  ground behind it, out to the ring's edge, where a way would have to
+ *  pass through the node (D-321 addendum of 2026-09-12). Null for the node
+ *  underfoot and for any whose land covers the origin. */
+export function nodeShadow(field: Field, block: Block): string | null {
+  if (!inTheWay(field, block)) return null;
+  const dx = block.at.x - field.origin.x;
+  const dy = block.at.y - field.origin.y;
+  const d = Math.hypot(dx, dy);
+  if (d > field.far * 2) return null;
+  //: The two edges of the land as the origin sees them, and the same two
+  //: pushed past the ring: the strip between is the shadow.
+  const px = (-dy / d) * block.core;
+  const py = (dx / d) * block.core;
+  const k = (field.far * 2) / d;
+  const left = { x: block.at.x + px, y: block.at.y + py };
+  const right = { x: block.at.x - px, y: block.at.y - py };
+  const push = (p: Point) => ({ x: field.origin.x + (p.x - field.origin.x) * k, y: field.origin.y + (p.y - field.origin.y) * k });
+  const farLeft = push(left);
+  const farRight = push(right);
+  return `M${left.x} ${left.y}L${right.x} ${right.y}L${farRight.x} ${farRight.y}L${farLeft.x} ${farLeft.y}Z`;
+}
+
 export function wayShadow(field: Field, way: Way): string | null {
   const [a, b] = way;
   const push = (p: Point): Point | null => {
@@ -340,6 +389,23 @@ export function wayShadow(field: Field, way: Way): string | null {
 }
 
 /** The point in the plane for a place, when the caller has it in degrees. */
+/** What a tap on a node while the way's aim is armed names (D-321 addendum
+ *  of 2026-09-12): the node's own place, for a node of this ground that is
+ *  not the one underfoot -- and never a hull or a body of the sky, which
+ *  stand in `byKey` with a place of their own and are no node of the
+ *  surface. Null when the tap names nothing. */
+export function joinAim(
+  node: { key: string; planet?: string | null; place?: unknown; aboard?: boolean; orbit?: unknown },
+  where: { here: string; planet: string | null },
+): Geo | null {
+  if (node.key === where.here || node.planet !== where.planet) return null;
+  if (node.aboard || node.orbit) return null;
+  const place = node.place;
+  if (!place || typeof place !== "object" || !("lat" in place) || !("lon" in place)) return null;
+  const { lat, lon } = place as { lat: unknown; lon: unknown };
+  return typeof lat === "number" && typeof lon === "number" ? { lat, lon } : null;
+}
+
 export type Placed = {
   key: string;
   at: Point;

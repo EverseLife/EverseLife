@@ -17,7 +17,7 @@ import { useEffect, useId, useMemo, useState } from "react";
 
 import * as api from "../../api";
 import type { Look, RecipeBook, Terrain, Tile } from "../../api";
-import { diskPath, type Eye } from "./globe";
+import { diskPath, type Eye, type Geo } from "./globe";
 import { TILE_UNIT } from "./bands";
 import {
   COARSE_STRIDE,
@@ -122,6 +122,19 @@ export function useTerrain(planet: string | null): Terrain | null {
   return terrain;
 }
 
+/** The subsolar point of a planet as of this render, from the clock: the
+ *  standing planet's with `look`, another planet's day from the book. Null
+ *  without a clock. Read at render and never on a timer (D-226): a quarter
+ *  of a degree a minute is not a motion the eye sees. */
+export function sunOf(planet: string, clock: Look["clock"], book: RecipeBook | null): Geo | null {
+  const dayHours =
+    clock?.planet === planet ? clock.day_hours : Number(book?.constants?.[`time.day_${planet}`] ?? 0);
+  const sun = subsolar(clock?.epoch ?? null, dayHours, Date.now());
+  //: To a quarter of a degree: two renders a moment apart then agree on the
+  //: sun, and the ground is not drawn again for a difference no eye sees.
+  return sun && { lat: Math.round(sun.lat * 4) / 4, lon: Math.round(sun.lon * 4) / 4 };
+}
+
 export function Ground({
   planet,
   eye,
@@ -160,7 +173,8 @@ export function Ground({
   unit?: number;
   /** What this SVG ground is beside the GPU's (landscape plan wave 5):
    *  `svg` -- the whole ground, the path without WebGL2; `under` -- the GPU
-   *  draws the land and the sea, this draws the night alone.
+   *  draws the land, the sea and the night (2026-09-12), and this draws
+   *  nothing but keeps the tiles under the frame for the scout's aim.
    *
    *  There was a third, `warmth`: the climate's three tones laid over the
    *  GPU's colour, switched on from the map (plan §9.5). The owner took the
@@ -173,10 +187,7 @@ export function Ground({
    *  (D-065). Null until the book carries them -- and then no ground is
    *  drawn at all, rather than land of a tone made up here. */
   const bands = useMemo<Warmth | null>(() => warmthOf(book?.constants?.["biome.zonal"]), [book]);
-  //: The sun as of this render, from the clock: no timer (D-226).
-  const dayHours =
-    clock?.planet === planet ? clock.day_hours : Number(book?.constants?.[`time.day_${planet}`] ?? 0);
-  const sun = subsolar(clock?.epoch ?? null, dayHours, Date.now());
+  const sun = sunOf(planet, clock, book);
   const unit = chosen ?? (coarse ? COARSE_STRIDE : fine ? FINE_UNIT : 1);
   const tiles = useTiles(planet, terrain, eye, radius, unit, within);
   const drawn = mode !== "under";
@@ -188,7 +199,13 @@ export function Ground({
     [terrain, eye, radius, bands, detailed, drawn, unit, within, tiles],
   );
   const under = terrain && bands && !detailed && drawn ? kindAt(terrain, eye, bands, tiles) : null;
-  const night = useMemo(() => (sun ? nightPath(eye, radius, sun) : null), [eye, radius, sun]);
+  //: The night is the shader's wherever the shader draws (owner,
+  //: 2026-09-12: a flat dark region with an edge is not a shadow); this
+  //: path stands only where the SVG ground does.
+  const night = useMemo(
+    () => (sun && mode !== "under" ? nightPath(eye, radius, sun) : null),
+    [eye, radius, sun, mode],
+  );
   //: The clip's id is this instance's own: a second ground on the page --
   //: the entry screen's beside the map's -- must not share it.
   const clip = `ground-${useId().replace(/[^A-Za-z0-9_-]/g, "")}`;

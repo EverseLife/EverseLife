@@ -51,6 +51,13 @@ class RenameTable(BaseModel):
     #: A found node carries the id of the face its ground wears; the word is
     #: read off this table, as a province's is.
     facets: dict[str, str] = Field(default_factory=dict)
+    #: Biomes (D-331 addendum): «Тайга» -> `taiga`. The vault's own word is
+    #: the constant `biome.names`; the domain exists so the word has a
+    #: second language on the client -- the map's legend, the inspector's
+    #: word for a find. The world's refusals still say the vault's word
+    #: (`biome.word_of`) until the words of a node move into the locales
+    #: (OQ-162).
+    biomes: dict[str, str] = Field(default_factory=dict)
     #: Each thing's name per language: domain -> id -> word. Russian is derived
     #: by inverting the maps above (the vault is written in Russian and the id
     #: is derived from the name); the others arrive as an overlay by id

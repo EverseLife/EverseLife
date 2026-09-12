@@ -11,7 +11,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  FRAGMENT,
   EDGE_CELLS,
   EDGE_FULL_PX,
   EDGE_M,
@@ -33,10 +32,22 @@ import {
   paletteOf,
   parseColor,
   sunDirection,
+  sunVector,
+  LAYERS,
+  NIGHT_TINT,
+  RAMPS,
+  cssRamp,
+  dryLaw,
+  glslRamp,
+  moistureOf,
+  RIVER_FAINT,
+  RIVER_FULL,
+  TWILIGHT,
   AA_PX,
   BANK_SHARE,
   catmullRom,
 } from "../panels/map/shade";
+import { FRAGMENT } from "../panels/map/fragment";
 
 describe("parseColor", () => {
   it("reads what the browser computes: rgb, rgba, color(srgb)", () => {
@@ -140,7 +151,7 @@ describe("mipChain", () => {
 });
 
 describe("formCodes and the sun", () => {
-  it("tells cliffs by the passport's table, and no code for a missing form", () => {
+  it("tells the grain's forms by the passport's table, and no code for a missing form", () => {
     const codes = formCodes({
       //: The atlas of the equal-area grid (D-328): one cell a face, borders
       //: counted -- the smallest passport there is, and the table is what
@@ -155,12 +166,13 @@ describe("formCodes and the sun", () => {
       border: 1,
       step_m: 500,
       relief_m: 3000,
+      height_unit_m: 0.1,
       biomes: [],
+      temperature_c: { min: -64, step: 0.5, cold: -15, hot: 35 },
       forms: ["sea", "lake", "plain", "cliff", "canyon"],
       water: ["land", "sea", "lake", "river"],
       fluid: "water",
     });
-    expect(codes.cliff).toEqual([3, NO_BIOME, 4, NO_BIOME]);
     expect(codes.shore).toBe(-1);
     //: The grain's three kinds by the same table, and a form the table
     //: lacks is a code no cell carries -- it mottles as ground does.
@@ -220,7 +232,8 @@ describe("the grain of the ground", () => {
     //: vault's `ribbon`, the distance to the channel's line on a gentle
     //: ramp with the bank at a half), and a cubic spline tried here
     //: narrowed the diagonal reaches.
-    expect(FRAGMENT).toContain("textureLod(u_stream, tuv, 0.0).r > BANK_SHARE");
+    expect(FRAGMENT).toContain("float run0 = textureLod(u_stream, tuv, 0.0).r;");
+    expect(FRAGMENT).toContain("run0 > BANK_SHARE");
   });
 
   it("is written into the shader without a gate on its strength", () => {
@@ -239,6 +252,51 @@ describe("the grain of the ground", () => {
     //: own point, a cell of a few pixels was a diamond (owner, 2026-09-11).
     expect(AA_PX).toBeGreaterThan(1);
     expect(FRAGMENT).toContain("const float AA_PX = 3.0;");
+  });
+});
+
+describe("the sun in the shader", () => {
+  it("places the subsolar point on the ball as the shader places every point", () => {
+    expect(sunVector({ lat: 0, lon: 0 }).map((v) => +v.toFixed(9))).toEqual([1, 0, 0]);
+    expect(sunVector({ lat: 0, lon: 90 }).map((v) => +v.toFixed(9))).toEqual([0, 1, 0]);
+    expect(sunVector({ lat: 90, lon: 0 }).map((v) => +v.toFixed(9))).toEqual([0, 0, 1]);
+  });
+  it("lights, shadows and darkens in the fragment, with no cut of shade on a cliff", () => {
+    //: The subsolar point and whether there is one go in as uniforms; the
+    //: night is a fade over the twilight and a tint, the shadow a march
+    //: toward the sun, the relief its lie at the frame's scale. The cliff's
+    //: own darkening and its uniform are gone with the hachures (owner,
+    //: 2026-09-12: a dark smear with black lines).
+    expect(FRAGMENT).toContain("uniform vec3 u_sun;");
+    expect(FRAGMENT).toContain("uniform float u_sunlit;");
+    expect(FRAGMENT).not.toContain("u_cliff_forms");
+    expect(FRAGMENT).not.toContain("tone *= 0.7");
+    //: And the numbers are what a night and a twilight are: a night keeps
+    //: some light, the twilight is a band and not an edge.
+    expect(NIGHT_TINT.every((v) => v > 0.2 && v < 0.8)).toBe(true);
+    expect(TWILIGHT).toBeGreaterThan(0.02);
+    expect(TWILIGHT).toBeLessThan(0.5);
+  });
+  it("reads the rivers as a share on the far frames and as a cut on the near", () => {
+    expect(FRAGMENT).toContain("RIVER_FULL");
+    expect(RIVER_FAINT).toBeGreaterThan(0);
+    expect(RIVER_FAINT).toBeLessThan(RIVER_FULL);
+    expect(RIVER_FULL).toBeLessThanOrEqual(1);
+  });
+});
+
+describe("the layers of the map", () => {
+  it("blends the layer's colour by weights off one uniform, never by a branch", () => {
+    //: The stalls of 2026-09-11 were branches on uniforms; the layer is a
+    //: set of weights, one of them one, and the fragment is a sum.
+    expect(LAYERS).toEqual(["terrain", "relief", "biomes", "temperature", "rain", "moisture"]);
+    expect(FRAGMENT).toContain("uniform int u_layer;");
+    expect(FRAGMENT).not.toContain("if (u_layer");
+    //: The climate's ramp runs between the planet's own ends, from the
+    //: passport: one ramp for all four planets was a red Pyroxis and a
+    //: blue Aurora.
+    expect(FRAGMENT).toContain("uniform float u_temp_cold;");
+    expect(FRAGMENT).toContain("uniform float u_temp_hot;");
   });
 });
 
@@ -325,6 +383,18 @@ describe("the mip chain of a byte raster", () => {
   //: the hand moved -- the noise on the far frames (owner, 2026-09-11).
   const level0 = () => Uint8Array.from([0, 255, 0, 255, 0, 255, 0, 255]);
 
+  it("cuts a measure at the bank once, then averages the cut as a share", () => {
+    //: A ribbon of the river: over the bank in the left column, under it
+    //: in the right. Cut, the first level is the share of river in each
+    //: two-by-two -- a half -- and the level above averages the halves as
+    //: they are, never cutting again.
+    const ribbon = new Uint8Array([200, 100, 200, 100, 200, 100, 200, 100, 200, 100, 200, 100, 200, 100, 200, 100]);
+    const chain = byteChain(ribbon, 4, 4, "cut");
+    expect(Array.from(chain[1].data)).toEqual([128, 128, 128, 128]);
+    expect(Array.from(chain[2].data)).toEqual([128]);
+    //: The plain mean would have read the ramp itself, which is not a share.
+    expect(Array.from(byteChain(ribbon, 4, 4, "mean")[1].data)).toEqual([150, 150, 150, 150]);
+  });
   it("averages a share, because half of a half is a quarter", () => {
     const chain = byteChain(level0(), 4, 2, "mean");
     expect(chain[0].data).toEqual(level0());
@@ -346,5 +416,89 @@ describe("the mip chain of a byte raster", () => {
     const wide = new Uint8Array(16 * 8);
     expect(byteChain(wide, 16, 8, "mean", 4).length).toBe(3);
     expect(byteChain(wide, 16, 8, "mean").length).toBeGreaterThan(3);
+  });
+});
+
+describe("the ramps and the drying law", () => {
+  it("writes one table as the shader's ramp and the legend's bar", () => {
+    //: The stops are blended pairwise in GLSL and laid out as a gradient
+    //: in CSS, off the same table -- and the shader carries the result.
+    const glsl = glslRamp("rampRain", RAMPS.rain);
+    expect(glsl).toContain("vec3 rampRain(float share)");
+    expect(glsl).toContain(
+      "share < 0.50 ? mix(vec3(0.85, 0.75, 0.50), vec3(0.45, 0.63, 0.62), (share - 0.00) / 0.50)",
+    );
+    expect(glsl).toContain(": mix(vec3(0.45, 0.63, 0.62), vec3(0.12, 0.30, 0.60), (share - 0.50) / 0.50)");
+    expect(cssRamp(RAMPS.rain)).toBe(
+      "linear-gradient(to right, rgb(217 191 128) 0%, rgb(115 161 158) 50%, rgb(31 77 153) 100%)",
+    );
+    expect(FRAGMENT).toContain(glsl);
+    expect(FRAGMENT).toContain(glslRamp("rampMoist", RAMPS.moisture));
+    expect(FRAGMENT).toContain("uniform vec4 u_dry;");
+  });
+
+  it("reads the drying law off the book in shares, and has no law without it", () => {
+    const law = dryLaw({
+      "site.rain_water_offset": 60,
+      "farm.river_dry_share": 50,
+      "farm.dry_per_degree": 3,
+      "farm.dry_temp_ref": 15,
+      "terrain.river_reach_km": 0.1,
+    });
+    expect(law).toEqual({ offset: 0.6, share: 0.5, perDegree: 0.03, ref: 15, reachM: 100 });
+    expect(dryLaw(null)).toEqual({ offset: 0, share: 1, perDegree: 0, ref: 0, reachM: 0 });
+    //: The reach and the river raster meet in the shader: metres against
+    //: metres, with a cell's soft edge.
+    expect(FRAGMENT).toContain("uniform sampler2D u_river;");
+    expect(FRAGMENT).toContain("smoothstep(u_reach_m, u_reach_m + u_step, river_m)");
+  });
+
+  it("marches the shadow far enough for the edge of the day, with a penumbra and a depth", () => {
+    //: Nine doubling steps reach two hundred and fifty-six cells: the
+    //: shadow of a ridge with the sun four degrees high. The far steps
+    //: read coarser levels, the edge is the sun's disc, the depth follows
+    //: the sun's height.
+    expect(FRAGMENT).toContain("const int SHADOW_STEPS = 9;");
+    expect(FRAGMENT).toContain("float level = lod + max(0.0, float(k) - SHADOW_COARSE_FROM);");
+    expect(FRAGMENT).toContain("rise / (dist * SHADOW_SOFT) + 0.5");
+    expect(FRAGMENT).toContain("mix(SHADOW_LOW, 1.0, smoothstep(0.0, SHADOW_FULL_SIN, high))");
+  });
+
+  it("blends a four-stop ramp leg by leg", () => {
+    const glsl = glslRamp("rampTemp", RAMPS.temperature);
+    expect(glsl).toContain("share < 0.33 ? mix(vec3(0.16, 0.30, 0.70), vec3(0.75, 0.85, 0.95), (share - 0.00) / 0.33)");
+    expect(glsl).toContain("share < 0.66 ? mix(vec3(0.75, 0.85, 0.95), vec3(0.95, 0.80, 0.30), (share - 0.33) / 0.33)");
+    expect(glsl).toContain(": mix(vec3(0.95, 0.80, 0.30), vec3(0.75, 0.15, 0.10), (share - 0.66) / 0.34)");
+    expect(FRAGMENT).toContain(glsl);
+  });
+
+  it("works the soil's moisture out as the engine's drying law does", () => {
+    //: The vault's numbers (D-296): the rain closes 60 % of the drying at
+    //: the wettest, water within reach leaves 50 %, three per cent a degree
+    //: over fifteen. Terra's hot end is 35 -- bare ground there dries at
+    //: 1.6 of the reference, and that is the ramp's dry end.
+    const law = dryLaw({
+      "site.rain_water_offset": 60,
+      "farm.river_dry_share": 50,
+      "farm.dry_per_degree": 3,
+      "farm.dry_temp_ref": 15,
+      "terrain.river_reach_km": 0.1,
+    });
+    //: `farm.life.dry_rate` less its constant factor: heat x rain x river.
+    const pace = (t: number, rain: number, river: boolean) =>
+      Math.max(0, 1 + 0.03 * (t - 15)) * (1 - 0.6 * rain) * (river ? 0.5 : 1);
+    const moisture = (t: number, rain: number, river: boolean) => 1 - pace(t, rain, river) / pace(35, 0, false);
+    expect(moistureOf(law, 15, 0, 0, 35)).toBeCloseTo(moisture(15, 0, false), 6);
+    expect(moistureOf(law, 15, 1, 1, 35)).toBeCloseTo(moisture(15, 1, true), 6);
+    expect(moistureOf(law, 28, 0.5, 0, 35)).toBeCloseTo(moisture(28, 0.5, false), 6);
+    //: The ends: bare ground at the hot end is the dry end of the ramp; a
+    //: bed that would dry faster still (no such place on the planet) is
+    //: clipped there, not sent negative.
+    expect(moistureOf(law, 35, 0, 0, 35)).toBe(0);
+    expect(moistureOf(law, 40, 0, 0, 35)).toBe(0);
+    //: Cold ground barely dries and reads wet, as the law says it is.
+    expect(moistureOf(law, -15, 0, 0, 35)).toBeGreaterThan(0.9);
+    //: Without the book there is no law and the ground is one moisture.
+    expect(moistureOf(dryLaw(null), 30, 0.2, 1, 35)).toBe(0);
   });
 });

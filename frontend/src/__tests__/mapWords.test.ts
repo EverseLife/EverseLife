@@ -106,6 +106,16 @@ describe("words", () => {
     ).toBe("Лес");
   });
 
+  it("names a find's biome in the reader's language when the overlay has it", () => {
+    //: The vault's own word off the book stands until the overlay comes
+    //: (D-331 addendum): «Тайга» to everyone, "Taiga" once `biomes` is here.
+    const names = { forest: "Лес", taiga: "Тайга" };
+    const renames = { biomes: { taiga: "Taiga" } } as unknown as Names;
+    expect(nodeWord({ name: "", features: ["taiga"] }, names, renames)).toBe("Taiga");
+    expect(nodeWord({ name: "", features: ["taiga"] }, names, null)).toBe("Тайга");
+    expect(nodeWord({ name: "", features: ["forest"] }, names, renames)).toBe("Лес");
+  });
+
   it("falls back to the general word when the kind is unknown or untold", () => {
     expect(nodeWord({ name: "", features: ["vein"] }, { forest: "Лес" })).toBe("Безымянный узел");
     expect(nodeWord({ name: "", features: ["forest"] }, undefined)).toBe("Безымянный узел");

@@ -37,10 +37,13 @@ from src.models.world import Edge, Layer, Node
 
 
 class CityMark(NamedTuple):
-    """What a city's row carries about the city: its name and its centre."""
+    """What a city's row carries about the city: its name and its centre --
+    and the city's own id, so the rows of the land it owns can name the node
+    it stands on (`territory_key`) off the same reading."""
 
     name: str
     core: str | None
+    city_id: uuid.UUID
 
 
 def node_row(
@@ -54,6 +57,7 @@ def node_row(
     drawn: int | None = None,
     reach: tuple[float, float] | None = None,
     mark: CityMark | None = None,
+    territory: str | None = None,
 ) -> dict[str, Any]:
     """A node as the map draws it (D-045, D-097, D-237, D-238)."""
     row: dict[str, Any] = {
@@ -139,7 +143,35 @@ def node_row(
         #: (`model.drawnAt`).
         if mark.core is not None and mark.core != node.key:
             row["core"] = mark.core
+    #: The city on whose land the node stands, by the key of the city's own
+    #: node (D-332) -- sent only where the client could not tell (D-225): a
+    #: plot hanging under its city is the city's by its `parent` already; a
+    #: find taken in by a highway still hangs under the planet, and its city
+    #: is on no row but this. The outline of the city is drawn round it.
+    if territory is not None and territory != parent_key:
+        row["territory"] = territory
     return row
+
+
+def homes_of(marks: dict[uuid.UUID, CityMark]) -> dict[uuid.UUID, uuid.UUID]:
+    """Each city's id to the node it stands on, off the marks already read."""
+    return {mark.city_id: node_id for node_id, mark in marks.items()}
+
+
+def territory_key(
+    node: Node, homes: dict[uuid.UUID, uuid.UUID], by_key: dict[uuid.UUID, str]
+) -> str | None:
+    """The key of the node the owning city stands on, for a node a city owns.
+
+    Nothing for the city's own node: the delegate owns itself from founding
+    (`founding.establish`, the seed), and a row naming its own key as its
+    territory would say what the key beside it says (D-225) -- and the
+    client, taking the word, would count the city's node twice.
+    """
+    if node.owner_city_id is None:
+        return None
+    home = homes.get(node.owner_city_id)
+    return None if home is None or home == node.id else by_key.get(home)
 
 
 async def city_marks(session: AsyncSession) -> dict[uuid.UUID, CityMark]:
@@ -154,7 +186,7 @@ async def city_marks(session: AsyncSession) -> dict[uuid.UUID, CityMark]:
     out: dict[uuid.UUID, CityMark] = {}
     for city in (await session.execute(select(City))).scalars():
         core = await lookup.core(session, city)
-        out[city.node_id] = CityMark(city.name, None if core is None else core.key)
+        out[city.node_id] = CityMark(city.name, None if core is None else core.key, city.id)
     return out
 
 
@@ -320,6 +352,7 @@ async def personal(
     #: hidden by the fog, they are simply not the map's (D-201, item 9).
     beyond = {node.id: node for node in _public_surface(every) if node.id not in shown}
     marks = await city_marks(session)
+    homes = homes_of(marks)
     return {
         "nodes": [
             node_row(
@@ -332,6 +365,7 @@ async def personal(
                 drawn=drawn_day(node) if node.id in view.faded else None,
                 reach=reach if standing is not None and node.id == standing.id else None,
                 mark=marks.get(node.id),
+                territory=territory_key(node, homes, by_key),
             )
             for node in nodes
         ],
@@ -365,6 +399,7 @@ async def take(session: AsyncSession, constants: Constants, now: datetime) -> Ma
     ports = {node.id for node in await vessels.ports(session)}
     piers = await moored_at(session)
     marks = await city_marks(session)
+    homes = homes_of(marks)
     rows = [
         node_row(
             node,
@@ -372,6 +407,7 @@ async def take(session: AsyncSession, constants: Constants, now: datetime) -> Ma
             port=node.id in ports,
             moored=node.id in piers,
             mark=marks.get(node.id),
+            territory=territory_key(node, homes, by_key),
         )
         for node in nodes
     ]

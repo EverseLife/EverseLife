@@ -22,11 +22,16 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from city_kit import _capital
+from src.api.commands.world import _world_summary
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import biome, jobs, road, transport, travel, world
+from src.engine import biome, jobs, mapshot, road, transport, travel, world
+from src.engine.city import land as city_land
+from src.engine.city import lookup
 from src.models.event import Event, EventKind
-from src.models.world import Edge, Surface
+from src.models.identity import Identity
+from src.models.world import Edge, Node, Surface
 from src.units import SCALE_MAX
 
 
@@ -458,3 +463,177 @@ async def test_the_column_picks_its_road_by_key_not_by_name(
     #: узел». What tells it from the namesakes is still only its key.
     assert by_key[find.key]["to"] == biome.word_of(constants, find)
     assert by_key[find.key]["to"] not in {"", "Там"}, "и слово у находки своё"
+
+
+# --- the city grows where it paves (D-332) ---------------------------------
+
+
+async def _paved_to(
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    stand: Node,
+    other: Node,
+    *,
+    surface: Surface = Surface.ROAD,
+) -> tuple[Edge, Identity]:
+    """A crew standing at `stand` lays the next tier on the way to `other`, to the end."""
+    stamp = uuid.uuid4().hex[:8]
+    edge = await travel.connect(session, stand, other, base_seconds=600, surface=surface)
+    identity = await world.create_identity(session, f"Мостильщик-{stamp}")
+    body = await world.print_body(session, identity, stand)
+    pocket = await world.body_container(session, body)
+    await world.grant_item(
+        session,
+        pocket,
+        "road_paving",
+        amount=constants[R.ROAD_SURFACE_PER_EDGE],
+        origin="сценарий теста",
+    )
+    await _finish(session, await road.lay(session, constants, catalog, body, edge))
+    return edge, identity
+
+
+async def test_a_highway_from_the_city_takes_the_far_node_into_it(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A find joined to the city's land by a paved way is the city's land (D-332).
+
+    From either end: the crew paves standing at whichever end it likes, and
+    the end that has a city is the near one. The digest names it to the crew
+    and to whoever stands on the find, and the map's row says whose land the
+    find is, since its parent is the planet and could not.
+    """
+    city, core = await _capital(session, catalog)
+    stamp = uuid.uuid4().hex[:8]
+    find = await world.create_node(session, f"terra.find.{stamp}", "", area_m2=100)
+    assert await lookup.of_node(session, find) is None
+    #: Somebody already standing on the find, who paved nothing.
+    bystander = await world.create_identity(session, f"Стоящий-{stamp}")
+    await world.print_body(session, bystander, find)
+
+    edge, crew = await _paved_to(session, constants, catalog, core, find)
+    assert edge.surface is Surface.PAVED
+    assert find.owner_city_id == city.id
+    assert (await lookup.of_node(session, find)).id == city.id, (
+        "законы и налоги читают землю тем же правилом"
+    )
+    told = (
+        (
+            await session.execute(
+                select(Event).where(
+                    Event.kind == EventKind.LAND_ANNEXED.value, Event.node_id == find.id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(told) == 1 and told[0].actor_identity_id == crew.id
+    assert told[0].payload["near"] == core.key
+    #: And the road itself is the crew's doing: it used to be nobody's, and
+    #: reached nobody -- neither live nor in the digest.
+    laid = (
+        await session.execute(
+            select(Event).where(
+                Event.kind == EventKind.ROAD_LAID.value,
+                Event.payload["edge_id"].astext == str(edge.id),
+            )
+        )
+    ).scalar_one()
+    assert laid.actor_identity_id == crew.id
+    assert told[0].payload["node"] == biome.word_of(constants, find)
+    #: The digest: by actor to the crew, by place to the bystander.
+    for reader in (crew, bystander):
+        digest = await _world_summary({"identity_id": reader.id}, session, {})
+        lines = [
+            line for line in digest["happened"] if line["kind"] == EventKind.LAND_ANNEXED.value
+        ]
+        assert len(lines) == 1, reader.name
+        assert lines[0]["payload"]["node"] == biome.word_of(constants, find)
+
+    #: Paved from the far end: the crew stands on the find, the city is at
+    #: the other end, and the find is taken in all the same.
+    beyond = await world.create_node(session, f"terra.beyond.{stamp}", "", area_m2=100)
+    await _paved_to(session, constants, catalog, beyond, find)
+    assert beyond.owner_city_id == city.id, "тракт от новой земли города берёт и следующий узел"
+
+    #: The map says whose land the find is, and says nothing where the
+    #: parent already does (D-225): the core hangs under the city's node --
+    #: nor on the city's own row, which owns itself as the seed and
+    #: `establish` leave it (the kit does not, so it is set here).
+    delegate = await session.get(Node, city.node_id)
+    delegate.owner_city_id = city.id
+    await session.flush()
+    rows = {
+        row["key"]: row
+        for row in (await mapshot.take(session, constants, datetime.now(UTC))).data["nodes"]
+    }
+    assert rows[find.key]["territory"] == delegate.key
+    assert rows[find.key]["parent"] != delegate.key
+    assert "territory" not in rows[core.key]
+    assert "territory" not in rows[delegate.key]
+
+
+async def test_two_cities_paving_to_one_find_at_once_take_it_once(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    constants: Constants,
+    catalog: Catalog,
+) -> None:
+    """Both ends are locked and read afresh: the second crew sees the first one's title."""
+    stamp = uuid.uuid4().hex[:8]
+    find = await world.create_node(session, f"terra.find.{stamp}", "", area_m2=100)
+    edges = []
+    for _ in range(2):
+        _, core = await _capital(session, catalog)
+        edges.append(
+            await travel.connect(session, core, find, base_seconds=600, surface=Surface.PAVED)
+        )
+    await session.commit()
+
+    async def one(edge: Edge) -> None:
+        async with factory() as own:
+            await city_land.annex_by_way(own, constants, edge)
+            await own.commit()
+
+    await asyncio.gather(*(one(edge) for edge in edges))
+    await session.refresh(find)
+    assert find.owner_city_id is not None
+    told = (
+        (
+            await session.execute(
+                select(Event).where(
+                    Event.kind == EventKind.LAND_ANNEXED.value, Event.node_id == find.id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(told) == 1, "одна находка отходит одному городу, и журнал говорит это один раз"
+
+
+async def test_a_road_or_another_city_s_land_takes_nothing(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Only a highway grows the city, and never onto land that is a city's already (D-332)."""
+    city, core = await _capital(session, catalog)
+    stamp = uuid.uuid4().hex[:8]
+    find = await world.create_node(session, f"terra.find.{stamp}", "", area_m2=100)
+
+    #: A road is a road: the land stays nobody's.
+    edge, _ = await _paved_to(session, constants, catalog, core, find, surface=Surface.TRAIL)
+    assert edge.surface is Surface.ROAD
+    assert find.owner_city_id is None
+
+    #: Another city's core at the far end of a highway keeps its own city.
+    other, other_core = await _capital(session, catalog)
+    await _paved_to(session, constants, catalog, core, other_core)
+    assert other_core.owner_city_id == other.id
+    assert core.owner_city_id == city.id
+
+    #: A highway between two finds in the wild takes nothing: no city at either end.
+    lone = await world.create_node(session, f"terra.lone.{stamp}", "", area_m2=100)
+    await _paved_to(session, constants, catalog, find, lone)
+    assert find.owner_city_id is None and lone.owner_city_id is None

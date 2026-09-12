@@ -129,4 +129,75 @@ describe("a city's outline", () => {
     expect([...outlines.keys()]).toEqual(["city"]);
     expect(outlines.get("city")).toHaveLength(1);
   });
+
+  //: A ring of five nodes six hundred metres out, four of them forty
+  //: degrees apart and the fifth across the ring from them: the near ones
+  //: merge by their own land, the two long chords do not, and the tree
+  //: that joins them bridges one long chord and leaves the other open.
+  const ring = [0, 40, 80, 120, 240].map((deg, k) =>
+    at(`n${k}`, 600 * DEG * Math.sin((deg * Math.PI) / 180), 600 * DEG * Math.cos((deg * Math.PI) / 180)),
+  );
+  const chords: [string, string][] = [
+    ["n0", "n1"],
+    ["n1", "n2"],
+    ["n2", "n3"],
+    ["n3", "n4"],
+    ["n4", "n0"],
+  ];
+
+  it("closes the land inside a ring of ways, and leaves it open without them (D-332)", () => {
+    //: Without the ways the blot is a horseshoe: the middle of the ring is
+    //: outside, reached through the open chord.
+    const open = outlineOf(ring, R_M);
+    expect(open).toHaveLength(1);
+    expect(inside(open[0], { lat: 0, lon: 0 })).toBe(false);
+    //: With every chord a way the ring closes and the middle is the city's:
+    //: a hole in the blot, and the city has none.
+    const closed = outlineOf(ring, R_M, chords);
+    expect(closed).toHaveLength(1);
+    expect(inside(closed[0], { lat: 0, lon: 0 })).toBe(true);
+    for (const m of ring) expect(inside(closed[0], m.place as { lat: number; lon: number })).toBe(true);
+    //: And no wider than the ring: a kilometre and a half out is not the city's.
+    expect(inside(closed[0], { lat: 1500 * DEG, lon: 0 })).toBe(false);
+    //: A way to a node that is not a member is nobody's street.
+    const astray = outlineOf(ring, R_M, [["n3", "elsewhere"]]);
+    expect(inside(astray[0], { lat: 0, lon: 0 })).toBe(false);
+  });
+
+  it("counts the city's own node once, whatever its row says of its land", () => {
+    //: The delegate owns itself from founding; a wire that said so on its
+    //: row would group it under itself as well as head the city.
+    const plain = [
+      node({ key: "terra", layer: "space", parent: null }),
+      node({ key: "city", parent: "terra", place: { lat: 0, lon: 0 }, area: 100 }),
+      at("a", 0, 60 * DEG),
+    ];
+    const selfOwned = plain.map((one) => (one.key === "city" ? { ...one, territory: "city" } : one));
+    expect(cityOutlines(selfOwned, R_M)).toEqual(cityOutlines(plain, R_M));
+  });
+
+  it("groups a node by the land the wire says it is on, and lays the city's streets (D-332)", () => {
+    //: A find taken in by a highway hangs under the planet and says whose
+    //: land it is; the map's edges among the city's nodes are its streets.
+    const nodes = [
+      node({ key: "terra", layer: "space", parent: null }),
+      node({ key: "city", parent: "terra", place: { lat: 0, lon: 0 }, area: 100 }),
+      ...ring.map((member) => ({ ...member, parent: "terra", territory: "city" })),
+      node({ key: "wild", parent: "terra", place: { lat: 0, lon: 3000 * DEG } }),
+    ];
+    const ways = chords.map(([a, b]) => ({ a, b, surface: "paved" as const, seconds: 1 }));
+    const outlines = cityOutlines(nodes, R_M, ways);
+    expect([...outlines.keys()]).toEqual(["city"]);
+    const loops = outlines.get("city")!;
+    expect(loops).toHaveLength(1);
+    for (const m of ring) expect(inside(loops[0], m.place as { lat: number; lon: number })).toBe(true);
+    expect(inside(loops[0], { lat: 0, lon: 3000 * DEG })).toBe(false);
+    //: Without the ways the same nodes are grouped the same and the ring
+    //: stays open: the grouping is the wire's, the closing is the streets'.
+    //: The ground west of the ring's open chord: outside the horseshoe,
+    //: under the street once it is laid.
+    const bare = cityOutlines(nodes, R_M);
+    expect(inside(bare.get("city")![0], { lat: 0, lon: -400 * DEG })).toBe(false);
+    expect(inside(loops[0], { lat: 0, lon: -400 * DEG })).toBe(true);
+  });
 });

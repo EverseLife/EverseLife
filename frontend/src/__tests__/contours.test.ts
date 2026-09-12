@@ -19,12 +19,8 @@ import {
   contourInterval,
   contours,
   frameLines,
-  hachures,
   isolines,
   localSamples,
-  TREE_EVERY,
-  TREE_TIERS,
-  woods,
   provinceEdges,
   provinceFrame,
   provinceWhole,
@@ -35,6 +31,16 @@ import {
   windowAbout,
 } from "../panels/map/contours";
 import type { Rasters } from "../panels/map/rasters";
+import {
+  FIGURE_DENSITY,
+  FIGURE_OF_NODE,
+  FIGURE_SPACING_M,
+  GROUND_DENSITY,
+  TREE_TIERS,
+  figures,
+  growthOf,
+  type Growth,
+} from "../panels/map/figures";
 import type { Segment } from "../panels/map/contours";
 import { latticeOf, type Lattice } from "../panels/map/healpix";
 import type { RasterPassport } from "../api";
@@ -94,6 +100,9 @@ function planet(
     flow: new Uint8Array(rows * cols),
     lake: new Uint8Array(rows * cols),
     stream: new Uint8Array(rows * cols),
+    temperature: new Uint8Array(rows * cols),
+    rain: new Uint8Array(rows * cols),
+    river: new Uint8Array(rows * cols),
   };
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
@@ -114,8 +123,8 @@ function planet(
   const passport: RasterPassport = {
     grid: "healpix", nside: rows, cells: 12 * rows * rows,
     rows, cols, across: 4, down: 3, border: 1,
-    step_m: 500, relief_m: 3000, biomes: [], forms: FORMS, water: WATER,
-    fluid: "water", flow_max_km2: 4000,
+    step_m: 500, relief_m: 3000, height_unit_m: 0.1, biomes: [], forms: FORMS, water: WATER,
+    fluid: "water", flow_max_km2: 4000, temperature_c: { min: -64, step: 0.5, cold: -15, hot: 35 },
   };
   return { rasters, passport, lattice: meshOf(rows, cols) };
 }
@@ -220,20 +229,6 @@ describe("isolines and contours", () => {
   });
 });
 
-describe("hachures", () => {
-  it("ticks a cliff cell down its slope", () => {
-    //: The land rises to the east: the slope falls west.
-    const { rasters, passport, lattice } = planet(6, (_r, c) => c * 100, (r, c) => (r === 3 && c === 6 ? "cliff" : "plain"));
-    const win = windowAbout(lattice, { lat: 0, lon: 0 }, 1e5, undefined);
-    const step = (Math.PI * (1e5 / UNITS_PER_METRE)) / lattice.rows;
-    const ticks = hachures(rasters, samplesOf(lattice, win), passport, step, 1e5);
-    expect(ticks).toHaveLength(1);
-    const [from, to] = ticks[0];
-    expect(to.lon).toBeLessThan(from.lon);
-    expect(Math.abs(to.lat - from.lat)).toBeLessThan(1e-9);
-  });
-});
-
 describe("the ladder and the window's eye", () => {
   it("steps the contour interval down as the frame narrows, none from the planet", () => {
     expect(contourInterval(Infinity)).toBe(Infinity);
@@ -274,12 +269,10 @@ describe("the ladder and the window's eye", () => {
     //: sit inside one of them and see no slope at all.
     const radius = 1e5;
     const far = frameLines(rasters, passport, { lat: 0, lon: 0 }, radius, CLOSE_FRAME_M * UNITS_PER_METRE, lattice);
-    expect(far.hachures).toEqual([]);
     expect(far.contours).toEqual([]);
     //: Everything belongs to the near frame: on
     //: a region they would web the ground over (owner, 2026-09-09).
     const near = frameLines(rasters, passport, { lat: 0, lon: 0 }, radius, (CLOSE_FRAME_M / 4) * UNITS_PER_METRE, lattice);
-    expect(near.hachures.length).toBeGreaterThan(0);
     expect(near.contours.length).toBeGreaterThan(0);
   });
 
@@ -446,20 +439,30 @@ describe("the provinces", () => {
     //: The near frame's lines say nothing of provinces: the boundary is
     //: drawn from the region outward, the shore from the city inward.
     const near = frameLines(rasters, passport, { lat: 0, lon: 0 }, 1e6, 1e3, lattice);
-    expect(Object.keys(near).sort()).toEqual(["contours", "hachures", "woods"]);
+    expect(Object.keys(near).sort()).toEqual(["contours", "figures"]);
+    //: And no figures without the frame's own width: they are cut to the
+    //: frame, never to the window.
+    expect(near.figures).toEqual({});
   });
 });
 
-describe("the woods", () => {
-  //: A wood is drawn as a wood and not only tinted (owner, 2026-09-11):
-  //: little trees scattered over the ground's own colour. On the planet's
-  //: own grid, not the hand-drawn mesh: a tree belongs to a **cell**, and
+describe("the figures of the growth", () => {
+  //: A wood is drawn as a wood and not only tinted (owner, 2026-09-11), and
+  //: every biome with its own figure (owner, 2026-09-12): little trees,
+  //: bushes, tufts scattered over the ground's own colour. On the planet's
+  //: own grid, not the hand-drawn mesh: a figure belongs to a **cell**, and
   //: the cell is what these tests are about.
   const nside = 64;
   //: A planet whose cells are the mesh's step: `R sqrt(pi/3) / nside`.
   const radiusM = (nside * 50) / Math.sqrt(Math.PI / 3);
   const radius = radiusM * UNITS_PER_METRE;
-  const wooded = (code: number, names: string[] = ["steppe", "forest"], eye = { lat: 0, lon: 0 }) => {
+  const NAMES = ["desert", "taiga", "forest", "steppe", "marsh"];
+  const FIGURE = ["none", "fir", "broadleaf", "grass", "reed"];
+  const WOODS = [0, 85, 90, 5, 20];
+  const MEADOW = [0, 5, 10, 80, 40];
+  //: A figure a little under the node's circle: two and a half metres or so.
+  const TALL = 2.4;
+  const grown = (code: number, eye = { lat: 0, lon: 0 }) => {
     const side = nside + 2;
     const rows = 3 * side;
     const cols = 4 * side;
@@ -474,81 +477,117 @@ describe("the woods", () => {
       flow: new Uint8Array(n),
       lake: new Uint8Array(n),
       stream: new Uint8Array(n),
+      temperature: new Uint8Array(n),
+      rain: new Uint8Array(n),
+      river: new Uint8Array(n),
     };
     const passport: RasterPassport = {
       grid: "healpix", nside, cells: 12 * nside * nside,
       rows, cols, across: 4, down: 3, border: 1,
-      step_m: 50, relief_m: 1000,
-      biomes: names, forms: ["plain"], water: ["land"],
+      step_m: 50, relief_m: 1000, height_unit_m: 0.1,
+      biomes: NAMES, forms: ["plain"], water: ["land"],
       fluid: "water",
+      temperature_c: { min: -64, step: 0.5, cold: -15, hot: 35 },
     };
+    const growth: Growth = { figure: FIGURE, woods: WOODS, meadow: MEADOW, tallM: TALL };
     //: A frame of a few hundred metres, so the mesh is a handful of points
     //: across and the count below means something.
-    const { samples, stepM } = localSamples(latticeOf(passport), eye, radius, 600, passport.step_m);
-    return { drawn: woods(rasters, samples, passport, stepM, radius), samples };
+    const { samples } = localSamples(latticeOf(passport), eye, radius, 600, passport.step_m);
+    return { drawn: figures(rasters, samples, passport, growth, radius), samples, passport };
   };
-  //: A tree is a trunk and a crown of `TREE_TIERS` tiers, two strokes
+  //: A fir is a trunk and a crown of `TREE_TIERS` tiers, two strokes
   //: apiece. Counted rather than assumed, so a crown redrawn by eye says so
   //: here.
-  const perTree = 1 + 2 * TREE_TIERS;
-  /** Where each tree's trunk stands, as a key. */
+  const perFir = 1 + 2 * TREE_TIERS;
+  /** Where each fir's trunk stands, as a key. */
   const trunks = (drawn: Segment[]) => {
     const out = new Set<string>();
-    for (let k = 0; k < drawn.length; k += perTree) {
+    for (let k = 0; k < drawn.length; k += perFir) {
       const foot = drawn[k][0];
       out.add(`${foot.lat.toFixed(9)},${foot.lon.toFixed(9)}`);
     }
     return out;
   };
 
-  it("grows nothing where nothing is wooded", () => {
-    expect(wooded(0).drawn).toEqual([]);
+  it("draws a figure in metres of ground, a little under the node's circle", () => {
+    //: The fir's first stroke is its trunk, foot to top: the growth's
+    //: height, whatever the frame -- the figure grows with the map as the
+    //: nodes do (owner, 2026-09-12). And the height comes off the seating
+    //: gap the circle comes off: a gap of seven metres is a circle of
+    //: seven units, one and two-fifths metres in radius.
+    const rise = (drawn: Segment[]) =>
+      Math.abs(drawn[0][1].lat - drawn[0][0].lat) * (Math.PI / 180) * (radius / UNITS_PER_METRE);
+    expect(rise(grown(1).drawn.fir!)).toBeCloseTo(TALL, 2);
+    const growth = growthOf(
+      { "biome.figure": { taiga: "fir" }, "biome.marks": { taiga: { woods: 85, meadow: 5 } }, "map.min_gap_m": 7 },
+      grown(1).passport,
+    );
+    expect(growth?.tallM).toBeCloseTo((FIGURE_OF_NODE * 2 * 7) / UNITS_PER_METRE, 6);
   });
 
-  it("grows a tree of many strokes on a share of the wooded ground", () => {
-    const { drawn, samples } = wooded(1);
-    expect(drawn.length).toBeGreaterThan(0);
-    expect(drawn.length % perTree).toBe(0);
-    //: A scatter, not a mat: about one cell in `TREE_EVERY`, and the mesh
-    //: is a cell a point, less its rim, so a little under that many.
-    const trees = drawn.length / perTree;
-    expect(trees).toBeLessThanOrEqual((samples.nr * samples.nc) / TREE_EVERY);
-    expect(trees).toBeGreaterThan((samples.nr * samples.nc) / (2 * TREE_EVERY));
+  it("grows nothing where the biome names no figure", () => {
+    expect(grown(0).drawn).toEqual({});
   });
 
-  it("draws every wood as firs, the crown narrowing to the top", () => {
-    //: One figure for all the woods (owner, 2026-09-11): a conifer, the way
-    //: a wood is drawn on every map there has ever been. The lowest tier
-    //: reaches the widest and the top one is the point.
-    const { drawn } = wooded(1, ["steppe", "forest"]);
+  it("grows each biome its own figure, by its own share", () => {
+    //: The taiga's firs by its share of woods, the steppe's grass by its
+    //: share of meadow, the marsh's reeds likewise -- thinned to a scatter
+    //: (FIGURE_DENSITY) on the lattice within each cell (FIGURE_SPACING_M),
+    //: and the mesh is a cell a point less its rim, so a little under that
+    //: many.
+    const lattice = Math.round(50 / FIGURE_SPACING_M) ** 2;
+    const cells = (samples: { nr: number; nc: number }) => samples.nr * samples.nc * lattice;
+    const taiga = grown(1);
+    expect(Object.keys(taiga.drawn)).toEqual(["fir"]);
+    const firs = taiga.drawn.fir!.length / perFir;
+    expect(taiga.drawn.fir!.length % perFir).toBe(0);
+    expect(firs).toBeLessThanOrEqual(cells(taiga.samples) * (WOODS[1] / 100) * FIGURE_DENSITY);
+    expect(firs).toBeGreaterThan(cells(taiga.samples) * (WOODS[1] / 100) * FIGURE_DENSITY * 0.5);
+    const forest = grown(2);
+    expect(Object.keys(forest.drawn)).toEqual(["broadleaf"]);
+    const steppe = grown(3);
+    expect(Object.keys(steppe.drawn)).toEqual(["grass"]);
+    const tufts = steppe.drawn.grass!.length / 3;
+    expect(steppe.drawn.grass!.length % 3).toBe(0);
+    expect(tufts).toBeGreaterThan(cells(steppe.samples) * (MEADOW[3] / 100) * GROUND_DENSITY * 0.5);
+    expect(Object.keys(grown(4).drawn)).toEqual(["reed"]);
+  });
+
+  it("draws a fir with the crown narrowing to the top", () => {
+    //: A conifer the way a wood is drawn on every map there has ever been:
+    //: the lowest tier reaches the widest and the top one is the point.
+    const drawn = grown(1).drawn.fir!;
     expect(drawn.length).toBeGreaterThan(0);
     const reach = (segments: Segment[]) => {
       const lons = segments.flat().map((q) => q.lon);
       return Math.max(...lons) - Math.min(...lons);
     };
-    for (let k = 0; k < drawn.length; k += perTree) {
+    for (let k = 0; k < drawn.length; k += perFir) {
       const lowest = drawn.slice(k + 1, k + 3);
       const top = drawn.slice(k + 1 + 2 * (TREE_TIERS - 1), k + 1 + 2 * TREE_TIERS);
       expect(reach(lowest)).toBeGreaterThan(reach(top));
     }
   });
 
-  it("puts the same trees on the same ground twice", () => {
+  it("puts the same figures on the same ground twice", () => {
     //: Rolled afresh, a scatter crawls over the ground every time the eye
     //: moves, and a wood that shimmers is worse than no wood at all.
-    expect(wooded(1).drawn).toEqual(wooded(1).drawn);
+    expect(grown(1).drawn).toEqual(grown(1).drawn);
   });
 
-  it("keeps a tree where it stands when the eye moves", () => {
+  it("keeps a figure where it stands when the eye moves", () => {
     //: The mesh hangs off the eye and slides over the cells with it; the
     //: trees must not (owner, 2026-09-11: the trees jittered as the camera
-    //: moved). Two eyes a hundred-odd metres apart see the
-    //: same ground in the middle, and the trees on it stand in one place.
-    const here = trunks(wooded(1).drawn);
-    const there = trunks(wooded(1, undefined, { lat: 0.002, lon: 0.003 }).drawn);
+    //: moved). Two eyes a hundred-odd metres apart see the same ground in
+    //: the middle, and the trees on it stand in one place. A shift of a
+    //: thousandth of a degree, so the second window still holds most of the
+    //: first's cells: the count below is of shared trunks, and a wider
+    //: shift would slide the window off them and prove nothing.
+    const here = trunks(grown(1).drawn.fir!);
+    const moved = trunks(grown(1, { lat: 0.001, lon: 0.001 }).drawn.fir!);
     let shared = 0;
-    for (const key of here) if (there.has(key)) shared++;
-    expect(shared).toBeGreaterThan(Math.min(here.size, there.size) / 2);
+    for (const key of moved) if (here.has(key)) shared++;
+    expect(shared).toBeGreaterThan(here.size / 2);
   });
 });
 

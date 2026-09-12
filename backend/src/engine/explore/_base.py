@@ -62,6 +62,10 @@ class CrossesWay(ExploreError):
     """The new way would cross an existing one."""
 
 
+class ThroughNode(ExploreError):
+    """The new way would pass through a node standing beside it (owner, 2026-09-12)."""
+
+
 class AlreadyOut(ExploreError):
     """The body is already on a run."""
 

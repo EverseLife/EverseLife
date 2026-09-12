@@ -10,9 +10,9 @@ import math
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src import globe
-from src.api.commands.common import _alive
+from src.api.commands.common import _alive, _alive_read
 from src.api.registry import Refused, command
-from src.constants import current
+from src.constants import current, current_catalog
 from src.engine import explore
 
 
@@ -48,6 +48,24 @@ async def _explore_survey(state: dict, db: AsyncSession, message: dict) -> dict:
         "arrives_at": job.run_at.isoformat(),
         "cell": job.payload["cell"],
     }
+
+
+@command("explore.peek", readonly=True)
+async def _explore_peek(state: dict, db: AsyncSession, message: dict) -> dict:
+    """What the field says at the point `lat`, `lon`, before the walk (D-321 addendum).
+
+    The aim is judged as a run's would be, so a refusal comes here first; a
+    lawful one answers with the readings of the public field and the chances
+    of what is rolled -- never the roll, which is the find's own.
+    """
+    #: A read: the body's row is read, not locked -- a peek goes out on
+    #: every tap and must not queue behind the body's own actions.
+    body = await _alive_read(state, db)
+    point = (
+        _degrees(message, "lat", globe.QUARTER_TURN),
+        globe.wrap_lon(_degrees(message, "lon", globe.FULL_TURN)),
+    )
+    return await explore.peek(db, current(), current_catalog(), body, point)
 
 
 @command("explore.stop")

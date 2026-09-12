@@ -56,6 +56,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Catalog, Constants, current
 from src.constants import registry as R
 from src.engine import biome, events, occupation, stock, travel, works, world
+from src.engine.city import land as city_land
 from src.engine.errors import Refusal
 from src.engine.jobs import enqueue, handler
 from src.models.event import EventKind
@@ -244,20 +245,35 @@ async def finished(session: AsyncSession, job: Job) -> None:
         edge.paving = paving
     await session.flush()
 
+    #: The crew is the actor: the event reaches it live (`push.pump`, by
+    #: party) and on return (`world.TOLD`, by actor). Without one it reached
+    #: nobody -- an edge is no room, and the digest asked by actor found no
+    #: row -- and the crew learnt of its own road at its next step.
+    worker = None if job.body_id is None else await session.get(Body, job.body_id)
     await events.record(
         session,
         EventKind.ROAD_LAID,
+        actor_identity_id=None if worker is None else worker.identity_id,
         edge_id=str(edge.id),
         was=before.value,
         surface=edge.surface.value,
         mend=bool(job.payload.get("mend")),
         paving=edge.paving,
     )
+    #: A paved way from a city's land takes the node at its far end into the
+    #: city (D-332): the city grows where it paves. Asked whenever the work
+    #: leaves the edge paved -- a mend of a paved way laid before the rule
+    #: takes the node in as well; a road is not enough. The crew is the
+    #: event's actor: it is told on return that the land it paved to is the
+    #: city's now.
+    if edge.surface is Surface.PAVED:
+        await city_land.annex_by_way(
+            session, current(), edge, by=None if worker is None else worker.identity_id
+        )
     #: A mend with an open state order on this edge collects its pay (D-248):
     #: the engine just verified the work in its own data -- the condition is
     #: back at full. Laying a new tier is a different project, no order pays for it.
     if bool(job.payload.get("mend")):
-        worker = None if job.body_id is None else await session.get(Body, job.body_id)
         await works.pay_road_order(
             session,
             current(),

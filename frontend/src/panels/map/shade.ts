@@ -19,17 +19,13 @@
  */
 
 import type { RasterPassport } from "../../api";
-import { UNITS_PER_METRE } from "./globe";
+import type { Geo } from "./globe";
 
 /** The largest palette the shader holds: sixteen biomes today, room for more. */
 export const PALETTE_SLOTS = 32;
 /** The raster's word for water, which has no biome. */
 export const NO_BIOME = 255;
 
-export const VERTEX = `#version 300 es
-in vec2 a_pos;
-void main() { gl_Position = vec4(a_pos, 0.0, 1.0); }
-`;
 
 /**
  * Where the light comes from: north-west, forty-five degrees up -- the
@@ -41,6 +37,216 @@ export const SUN_ALTITUDE_DEG = 45;
 /** The slope is drawn steeper than it is: at hundreds of kilometres a
  *  frame, a rise of seven hundred metres is nothing to the eye without it. */
 export const EXAGGERATION = 2;
+
+/** How much of the light the ground keeps in full shadow of its own slope:
+ *  the hillshade runs from this to one. */
+export const AMBIENT = 0.5;
+
+/** The sun in the shader (owner, 2026-09-12: the shadow is to play with the
+ *  relief, not darken a region). The night used to be a flat path laid
+ *  over the map in SVG with a hard edge; now the subsolar point goes to the
+ *  shader and every pixel knows how high its sun stands.
+ *
+ *  The relief is lit from the sun's own side, but never from straight
+ *  overhead -- at noon every slope would read alike -- so for the shading
+ *  the sun is held at least this high, degrees. The cast shadow takes the
+ *  true height. */
+export const LIGHT_ALT_MIN_DEG = 28;
+/** The terminator's width, as the sine of the sun's height: the day's tone
+ *  fades to the night's over twice this, and there is no edge. */
+export const TWILIGHT = 0.12;
+/** What the night does to a colour: the ground keeps a third of its light
+ *  and turns toward the blue of a night sky, so the relief still reads. */
+export const NIGHT_TINT: readonly [number, number, number] = [0.32, 0.4, 0.62];
+/** The cast shadow: so many steps back along the ground toward the sun,
+ *  each twice the last, the first a cell (or a pixel's ground on the far
+ *  frames). Nine reach two hundred and fifty-six cells -- thirteen
+ *  kilometres at fifty metres a cell -- which is the shadow of a ridge at
+ *  the edge of the day, where the sun stands SHADOW_ALT_MIN_DEG high and a
+ *  rise of three hundred metres shades ten kilometres of ground. Five
+ *  reached sixteen, and every long shadow ended at a wall sixteen cells
+ *  from what cast it (owner, 2026-09-12: at the edge of day and night the
+ *  big shadows are cut off). */
+export const SHADOW_STEPS = 9;
+/** From this step on the march reads the height a level coarser with every
+ *  step: a ridge kilometres off shades by its silhouette, not by its
+ *  cells, and the coarser level is that silhouette -- and a fetch that is
+ *  likely in the cache, so the four steps added cost little. */
+export const SHADOW_COARSE_FROM = 3;
+/** The sun's height the shadow is cast at when it stands lower, degrees:
+ *  at the horizon itself a shadow would be endless. */
+export const SHADOW_ALT_MIN_DEG = 4;
+/** The penumbra: the sun is a disc, not a point, and ground that only just
+ *  tops the ray hides only part of it. This is the disc's width as the
+ *  shadow draws it, radians -- three times the real half degree, so the
+ *  soft edge is seen at all at the frames the map is looked at. The edge
+ *  of a shadow is this share of the distance to what casts it: sharp under
+ *  a near bank, soft a valley away, as a shadow is (owner, 2026-09-12: the
+ *  shadow's darkness and blur are to be worked out, not only its reach). */
+export const SHADOW_SOFT = 0.03;
+/** How much of its light the ground loses in a full cast shadow with the
+ *  sun well up... */
+export const SHADOW_DEPTH = 0.45;
+/** ...and the share of that left with the sun on the horizon: the low
+ *  sun's light comes through more air and the sky lights what the sun does
+ *  not reach, so the long shadow of the evening is a paler one than the
+ *  short shadow of noon. The whole depth from SHADOW_FULL_SIN of the sun's
+ *  height up (the sine; 0.35 is twenty degrees). */
+export const SHADOW_LOW = 0.6;
+export const SHADOW_FULL_SIN = 0.35;
+/** The lie of the land: the height read this many levels coarser is the
+ *  mean of the ground about the point, and the point's height over or
+ *  under it is the valley or the ridge as a whole. */
+export const RELIEF_LEVELS = 3;
+/** Over or under the mean by this many metres is a whole valley or crest. */
+export const RELIEF_M = 80;
+/** What a whole valley or crest does to the tone. */
+export const RELIEF_DEPTH = 0.12;
+/** The layers of the map (D-331, owner 2026-09-12): what the ground is
+ *  coloured by. `terrain` is the map as it is -- the biome's colour under
+ *  the relief's light; `relief` the height alone, a hypsometric ramp under
+ *  the same light; `biomes` the biome's colour flat, a legend; `temperature`
+ *  and `rain` the climate's two rasters on their ramps; `moisture` the
+ *  soil's -- how slowly a bed dries here, by the drying law of D-296, for
+ *  the farmer (owner, 2026-09-12: the water layer was to be the soil's
+ *  moisture and not the water alone). The order is the shader's `u_layer`. */
+export const LAYERS = ["terrain", "relief", "biomes", "temperature", "rain", "moisture"] as const;
+export type Layer = (typeof LAYERS)[number];
+
+/** The legends' light (D-331): a layer that is read keeps this much of the
+ *  ground's tone flat and takes the rest from the relief, so the shape
+ *  still shows under a flat colour and the colour still reads as itself. */
+export const LEGEND_AMBIENT = 0.6;
+/** How much darker a legend's colour goes under water, so the water shows
+ *  through a climate's ramp without a colour of its own. */
+export const LEGEND_WET_DIM = 0.75;
+/** How sharply the moisture layer's water comes up from the wet share of
+ *  the pixel: past two-thirds wet the pixel is water outright. */
+export const LEGEND_WET_EDGE = 1.5;
+/** On the far frames the water on the land takes this share of the deep
+ *  tone: a river drawn as a line reads by being darker than the ground. */
+export const FAR_WATER_DEEP = 0.4;
+
+/** A ramp: colours at shares of the way, nought to one, the way a climate
+ *  map or a hypsometric one has always been drawn. One table for the
+ *  shader (`glslRamp`) and the legend in the corner (`cssRamp`), so the
+ *  bar and the ground under it cannot come apart. */
+export type Stop = { at: number; rgb: readonly [number, number, number] };
+export const RAMPS = {
+  /** Cold blue to white to warm yellow to hot red. */
+  temperature: [
+    { at: 0, rgb: [0.16, 0.3, 0.7] },
+    { at: 0.33, rgb: [0.75, 0.85, 0.95] },
+    { at: 0.66, rgb: [0.95, 0.8, 0.3] },
+    { at: 1, rgb: [0.75, 0.15, 0.1] },
+  ],
+  /** Dry sand to the teal of a damp land to the blue of a wet one. */
+  rain: [
+    { at: 0, rgb: [0.85, 0.75, 0.5] },
+    { at: 0.5, rgb: [0.45, 0.63, 0.62] },
+    { at: 1, rgb: [0.12, 0.3, 0.6] },
+  ],
+  /** The soil: pale where it dries in a day, the green of a damp ground,
+   *  the dark of a ground that holds its water. Not the rain's blues, so
+   *  the two layers are told apart at a glance. */
+  moisture: [
+    { at: 0, rgb: [0.84, 0.72, 0.5] },
+    { at: 0.5, rgb: [0.5, 0.62, 0.34] },
+    { at: 1, rgb: [0.1, 0.36, 0.34] },
+  ],
+  /** The land from the brown of the soil through ochre to the grey of the
+   *  stone and the white of the summits -- no green anywhere the ground is
+   *  not green: the height is the rock's, and green means growth alone
+   *  (D-329 p. 20). */
+  height: [
+    { at: 0, rgb: [0.56, 0.47, 0.34] },
+    { at: 0.3, rgb: [0.78, 0.68, 0.45] },
+    { at: 0.7, rgb: [0.6, 0.57, 0.53] },
+    { at: 1, rgb: [0.95, 0.95, 0.95] },
+  ],
+} as const satisfies Record<string, readonly Stop[]>;
+
+/** The ramp as a GLSL function of the share, the stops blended pairwise. */
+export function glslRamp(name: string, stops: readonly Stop[]): string {
+  const vec = (rgb: readonly [number, number, number]) =>
+    `vec3(${rgb.map((v) => v.toFixed(2)).join(", ")})`;
+  const legs: string[] = [];
+  for (let i = 0; i + 1 < stops.length; i++) {
+    const a = stops[i];
+    const b = stops[i + 1];
+    const leg = `mix(${vec(a.rgb)}, ${vec(b.rgb)}, (share - ${a.at.toFixed(2)}) / ${(b.at - a.at).toFixed(2)})`;
+    legs.push(i + 2 < stops.length ? `share < ${b.at.toFixed(2)} ? ${leg}` : leg);
+  }
+  return `vec3 ${name}(float share) {\n  return ${legs.join("\n    : ")};\n}`;
+}
+
+/** The ramp as a CSS gradient, left to right, for the legend. */
+export function cssRamp(stops: readonly Stop[]): string {
+  const at = (s: Stop) =>
+    `rgb(${s.rgb.map((v) => Math.round(v * 255)).join(" ")}) ${Math.round(s.at * 100)}%`;
+  return `linear-gradient(to right, ${stops.map(at).join(", ")})`;
+}
+
+/** The drying law of a bed (D-296, `farm.life.dry_rate`) as the moisture
+ *  layer reads it off the book of constants (D-225: the client derives what
+ *  it can): what share of the drying the rain closes at the wettest
+ *  (`site.rain_water_offset`), what share is left beside water
+ *  (`farm.river_dry_share`), how much a degree over the reference adds
+ *  (`farm.dry_per_degree`, `farm.dry_temp_ref`), and how near water has to
+ *  be to count (`terrain.river_reach_km`). Without the book there is no
+ *  law: the offsets are nought and the layer is one moisture everywhere,
+ *  and the picture says so rather than guessing. */
+export type DryLaw = { offset: number; share: number; perDegree: number; ref: number; reachM: number };
+export function dryLaw(constants: Record<string, unknown> | null | undefined): DryLaw {
+  const num = (key: string, fallback: number) => {
+    const v = Number(constants?.[key]);
+    return Number.isFinite(v) ? v : fallback;
+  };
+  return {
+    offset: num("site.rain_water_offset", 0) / 100,
+    share: num("farm.river_dry_share", 100) / 100,
+    perDegree: num("farm.dry_per_degree", 0) / 100,
+    ref: num("farm.dry_temp_ref", 0),
+    reachM: num("terrain.river_reach_km", 0) * 1000,
+  };
+}
+
+/** The moisture layer's number for a point, as the shader works it out
+ *  (`fragment.ts`, the soil's moisture): the pace a bed dries at by the
+ *  law of D-296 -- the heat over the reference, the rain's share closed,
+ *  the share left beside water -- against the fastest the planet has,
+ *  bare ground at its hottest, and one minus that. Kept beside the GLSL so
+ *  a test can hold the two to the engine's numbers; the GLSL cannot run
+ *  in a test. `beside` is nought to one: one within the reach of fresh
+ *  water by the river raster, nought a cell past it, as the shader reads
+ *  it. */
+export function moistureOf(
+  law: DryLaw,
+  tC: number,
+  rain01: number,
+  beside: number,
+  hotC: number,
+): number {
+  const heat = Math.max(0, 1 + law.perDegree * (tC - law.ref));
+  const pace = heat * (1 - law.offset * rain01) * (1 + (law.share - 1) * beside);
+  const fastest = Math.max(1 + law.perDegree * (hotC - law.ref), 0.05);
+  return Math.min(1, Math.max(0, 1 - pace / fastest));
+}
+
+
+/** The rivers on the far frames: a river narrower than a pixel is drawn as
+ *  the share of the pixel it wets, put through a ramp -- nothing under
+ *  RIVER_FAINT, a full line from RIVER_FULL. The ramp is what keeps a line
+ *  a line: the hardware's blend between texels lays a halo of small shares
+ *  a texel wide on either side, and drawn as they were the halo made every
+ *  river a band four pixels wide (2026-09-12). Lakes and the sea keep their
+ *  share: they are areas, and a halo on an area is its shore. */
+export const RIVER_FAINT = 0.12;
+export const RIVER_FULL = 0.5;
+/** The water at night keeps this much of its light on top of the night's
+ *  tint: water is darker than the land in the dark, and drawn with the
+ *  lake's own light tone the rivers glowed on the night side. */
+export const NIGHT_WATER = 0.55;
 
 /** The grain of the ground (landscape plan wave 8, §9.5): the texture that
  *  says what one is standing on -- stone, sand, ice, turf -- laid over the
@@ -140,7 +346,7 @@ export const BANK_SHARE = 0.5;
  *  per texel, the coefficients of 1, t, t^2, t^3. The one table serves
  *  both readers -- `catmullRom` here and the shader's `cubicWeights`,
  *  written from it -- so a test on the one holds the other. */
-const CATMULL_ROM: readonly (readonly [number, number, number, number])[] = [
+export const CATMULL_ROM: readonly (readonly [number, number, number, number])[] = [
   [0, -0.5, 1, -0.5],
   [1, 0, -2.5, 1.5],
   [0, 0.5, 2, -1.5],
@@ -155,7 +361,7 @@ export function catmullRom(t: number): [number, number, number, number] {
   ];
 }
 
-const glslWeight = ([c0, c1, c2, c3]: readonly [number, number, number, number]): string =>
+export const glslWeight = ([c0, c1, c2, c3]: readonly [number, number, number, number]): string =>
   `${c0.toFixed(1)} + ${c1.toFixed(1)} * t + ${c2.toFixed(1)} * t2 + ${c3.toFixed(1)} * t3`;
 export const EDGE_M = 65;
 /** And the same two pixel widths for it: a wander finer than a pixel is
@@ -206,468 +412,17 @@ export function latticeAt(
  *  the way -- a texture nobody would see. Measured, not guessed: the spread
  *  of the blend is about a seventh of the range. */
 export const NOISE_GAIN = 3;
-export const FRAGMENT = `#version 300 es
-precision highp float;
-precision highp int;
-precision highp sampler2D;
-precision highp usampler2D;
+//: The GLSL itself lives in `fragment.ts`, written from the constants above.
 
-uniform sampler2D u_height;
-uniform usampler2D u_biome;
-uniform usampler2D u_form;
-uniform sampler2D u_rock;
-uniform sampler2D u_wet;
-uniform vec2 u_size;
-uniform vec2 u_origin;
-uniform float u_units;
-uniform float u_radius;
-uniform vec2 u_eye;
-uniform vec2 u_atlas;
-uniform float u_nside;
-uniform float u_border;
-uniform float u_across;
-uniform float u_step;
-uniform float u_relief;
-uniform float u_deep;
-uniform float u_high_from;
-uniform int u_shore;
-uniform vec3 u_light;
-uniform vec3 u_biomes[${PALETTE_SLOTS}];
-uniform vec3 u_sea_deep;
-uniform vec3 u_lake;
-uniform vec3 u_high;
-uniform sampler2D u_stream;
-uniform uvec4 u_cliff_forms;
-uniform uvec4 u_stone_forms;
-uniform uvec2 u_sand_forms;
-uniform uvec3 u_ice_forms;
-uniform float u_grain;
-uniform float u_edge;
-uniform vec3 u_grain_at;
-uniform vec3 u_edge_at;
 
-out vec4 o_color;
-
-const float PI = 3.141592653589793;
-const float TAU = 6.283185307179586;
-const float EXAGGERATION = ${EXAGGERATION.toFixed(1)};
-const float GRAIN_DEPTH = ${GRAIN_DEPTH.toFixed(2)};
-const float GRAIN_WRAP = ${GRAIN_WRAP.toFixed(1)};
-const float NOISE_GAIN = ${NOISE_GAIN.toFixed(1)};
-const float GRAIN_M = ${GRAIN_M.toFixed(1)};
-const int GRAIN_OCTAVES = ${GRAIN_OCTAVES};
-const float GRAIN_FALL = ${GRAIN_FALL.toFixed(2)};
-const float GRAIN_WHOLE = ${grainWhole().toFixed(4)};
-const float GRAIN_SEEN_PX = ${GRAIN_SEEN_PX.toFixed(2)};
-const float GRAIN_FULL_PX = ${GRAIN_FULL_PX.toFixed(2)};
-const float EDGE_M = ${EDGE_M.toFixed(1)};
-const float AA_PX = ${AA_PX.toFixed(1)};
-const float BANK_SHARE = ${BANK_SHARE.toFixed(2)};
-const float EDGE_CELLS = ${EDGE_CELLS.toFixed(2)};
-const float UNITS_PER_METRE = ${UNITS_PER_METRE.toFixed(1)};
-const float THIRD_TWO = 0.6666666666666666;
-
-//: Where a point of the sphere sits on the picture's texture (D-328).
-//:
-//: The field is HEALPix: twelve square faces of u_nside cells a side, all
-//: of the same area. The projection is arithmetic -- two families of
-//: slanting lines over the belt, a Collignon diamond over each cap -- and
-//: it is the same arithmetic the vault cut the field by and the server
-//: reads it by (src/healpix.py). What comes back is not the cell but the
-//: **place inside the face**, a fraction: whole cells sit at halves, and
-//: the blending between them is then the hardware's own.
-//:
-//: This is where the grid pays for itself. On the old lattice of latitude
-//: and longitude a column at the pole was a hundredth of a column at the
-//: equator, everything read across it was noise, and it took a floor on the
-//: cosine and a cap on the step to keep the shading from tearing. Here the
-//: pole is not a place at all: it is the middle of four ordinary cells.
-vec2 atlasUV(vec3 p) {
-  float z = clamp(p.z, -1.0, 1.0);
-  float phi = atan(p.y, p.x);
-  if (phi < 0.0) phi += TAU;
-  float za = abs(z);
-  float turns = phi / (PI * 0.5);
-  float n = u_nside;
-  float u;
-  float v;
-  int face;
-  if (za <= THIRD_TWO) {
-    //: The belt: which side of the rising and the falling line the point
-    //: falls on says which of the twelve faces it is on.
-    float first = n * (0.5 + turns);
-    float second = n * z * 0.75;
-    float up = first - second;
-    float down = first + second;
-    int over = int(floor(up / n));
-    int under = int(floor(down / n));
-    if (over == under) face = (over & 3) + 4;
-    else if (over < under) face = over & 3;
-    else face = (under & 3) + 8;
-    u = down - n * floor(down / n);
-    v = n - (up - n * floor(up / n));
-  } else {
-    //: The caps: the point goes into the Collignon diamond of its quarter.
-    float quarter = min(3.0, floor(turns));
-    float along = turns - quarter;
-    float reach = n * sqrt(max(0.0, 3.0 * (1.0 - za)));
-    float a = clamp(along * reach, 0.0, n);
-    float b = clamp((1.0 - along) * reach, 0.0, n);
-    if (z >= 0.0) { face = int(quarter); u = n - b; v = n - a; }
-    else { face = int(quarter) + 8; u = a; v = b; }
-  }
-  //: The atlas: the faces laid out u_across wide, each with a border of
-  //: u_border cells taken from the face over the edge, so the blending
-  //: never reaches into the tile of a stranger.
-  float side = n + 2.0 * u_border;
-  int across = int(u_across);
-  float column = float(face - (face / across) * across);
-  float row = float(face / across);
-  return vec2(column * side + u_border + u, row * side + u_border + v) / u_atlas;
+/** The subsolar point as a direction on the unit ball, the way the shader
+ *  places every point of the sphere: x along the prime meridian, z to the
+ *  north pole. */
+export function sunVector(sun: Geo): [number, number, number] {
+  const lat = (sun.lat * Math.PI) / 180;
+  const lon = (sun.lon * Math.PI) / 180;
+  return [Math.cos(lat) * Math.cos(lon), Math.cos(lat) * Math.sin(lon), Math.sin(lat)];
 }
-
-//: The height, at a level of the texture chosen by the caller.
-//:
-//: **Chosen**, and never left to the hardware: it picks the level from how
-//: fast the texture's coordinates run across the screen, and atlasUV jumps
-//: by a quarter of the atlas at every edge of a face. A level chosen from
-//: that jump is the coarsest there is, so along all twelve seams -- and at
-//: the pole, where four faces meet -- the ground would be drawn at the mean
-//: height of half a planet. The old grid had the same fault on exactly one
-//: meridian, where the longitude wrapped; twelve of them is a picture.
-float heightAt(vec2 uv, float lod) { return textureLod(u_height, uv, lod).r; }
-//: The height at a point of the sphere. Every reading goes through the
-//: projection, so a sample that steps off the edge of a face lands on
-//: whatever face is really there -- there is no wrapping to get wrong.
-float heightOf(vec3 p, float lod) { return heightAt(atlasUV(normalize(p)), lod); }
-
-//: Catmull-Rom along one axis: the weights of the four texels about a
-//: place t of the way from one texel centre to the next, written from
-//: the one table (CATMULL_ROM). They sum to one and pass through the
-//: samples -- the curve is the texels' own values joined smoothly, not a
-//: blur of them (a B-spline shrank every river's diagonal reach by a
-//: sixth when it was tried on the ribbon, plan sec. 17).
-vec4 cubicWeights(float t) {
-  float t2 = t * t;
-  float t3 = t2 * t;
-  return vec4(
-    ${CATMULL_ROM.map(glslWeight).join(",\n    ")}
-  );
-}
-
-//: The height between the cells read **cubically**, at the finest level.
-//:
-//: The hardware's bilinear blend is smooth inside a cell and breaks its
-//: slope at every cell's edge: on the near frames, where a cell is a
-//: quarter of the screen, the water's edge was a chain of arcs with a kink
-//: at each cell, and a lone cell of land in the sea was a diamond -- the
-//: last of the diamonds (owner, 2026-09-12), the one the field cannot
-//: take away because it is made by the reading. Sixteen texels weighed by
-//: Catmull-Rom join with their slope; the two middle texels of each axis
-//: are read as one bilinear tap placed between them by their weights, so
-//: the sixteen cost nine fetches. A tap is held inside the face's own tile
-//: (border included): the border is one cell wide, and the outer taps
-//: would otherwise reach a stranger's face across the atlas.
-float heightCubic(vec2 uv) {
-  vec2 p = uv * u_atlas - 0.5;
-  vec2 base = floor(p);
-  vec2 t = p - base;
-  vec4 wx = cubicWeights(t.x);
-  vec4 wy = cubicWeights(t.y);
-  vec2 w12 = vec2(wx.y + wx.z, wy.y + wy.z);
-  vec2 mid = base + vec2(wx.z, wy.z) / w12 + 0.5;
-  float side = u_nside + 2.0 * u_border;
-  vec2 tile = floor(uv * u_atlas / side) * side;
-  vec2 lo = tile + 0.5;
-  vec2 hi = tile + side - 0.5;
-  vec2 a = clamp(base - 0.5, lo, hi);
-  vec2 b = clamp(mid, lo, hi);
-  vec2 c = clamp(base + 2.5, lo, hi);
-  vec3 wxs = vec3(wx.x, w12.x, wx.w);
-  vec3 wys = vec3(wy.x, w12.y, wy.w);
-  vec3 xs = vec3(a.x, b.x, c.x);
-  vec3 ys = vec3(a.y, b.y, c.y);
-  float sum = 0.0;
-  for (int j = 0; j < 3; j++) {
-    float row = 0.0;
-    for (int i = 0; i < 3; i++) {
-      row += wxs[i] * textureLod(u_height, vec2(xs[i], ys[j]) / u_atlas, 0.0).r;
-    }
-    sum += wys[j] * row;
-  }
-  return sum;
-}
-
-//: Value noise on the sphere: the corners of a lattice cell hashed and
-//: blended smoothly. The lattice is wrapped to GRAIN_WRAP before it is
-//: hashed, and only there -- the cell's own fraction is taken first, so
-//: the wrap costs nothing but the seam nobody reaches.
-float hash3(vec3 cell) {
-  vec3 c = mod(cell, GRAIN_WRAP);
-  return fract(sin(dot(c, vec3(127.1, 311.7, 74.7))) * 43758.5453123);
-}
-
-float vnoise(vec3 p) {
-  vec3 i = floor(p);
-  vec3 f = p - i;
-  f = f * f * (3.0 - 2.0 * f);
-  float n00 = mix(hash3(i), hash3(i + vec3(1.0, 0.0, 0.0)), f.x);
-  float n10 = mix(hash3(i + vec3(0.0, 1.0, 0.0)), hash3(i + vec3(1.0, 1.0, 0.0)), f.x);
-  float n01 = mix(hash3(i + vec3(0.0, 0.0, 1.0)), hash3(i + vec3(1.0, 0.0, 1.0)), f.x);
-  float n11 = mix(hash3(i + vec3(0.0, 1.0, 1.0)), hash3(i + vec3(1.0, 1.0, 1.0)), f.x);
-  return mix(mix(n00, n10, f.y), mix(n01, n11, f.y), f.z);
-}
-
-//: The noise about zero and spread over the whole of -1..1. Value noise is
-//: a blend of eight uniform draws and so heaps about a half: taken raw, its
-//: swing is a tenth, and a texture built on it comes out invisible. The
-//: gain is that heap widened, and the clamp keeps the tails honest.
-float wave(vec3 p) {
-  return clamp((vnoise(p) - 0.5) * NOISE_GAIN, -1.0, 1.0);
-}
-
-//: What the ground is made of, in one number about zero: rock speckles
-//: coarsely, sand lies in waves across the wind, ice cracks in thin dark
-//: lines, and everything that grows mottles softly. The hardness sharpens
-//: whatever it is -- hard ground breaks into grains, soft ground smears.
-//:
-//: apart is how far the pixel stands from the eye, on the unit ball; the
-//: eye's own place in the lattice comes as u_grain_at, already wrapped to
-//: GRAIN_WRAP by the frame. So the lattice coordinate is a number of a
-//: few hundred rather than of five figures, and every figure of it is the
-//: ground. The octaves are whole doublings for the same reason: a wrap of
-//: the eye's place then lands on a wrap of every octave, and the texture
-//: does not jump when the eye crosses one.
-//: The ground's texture at every size it has, added up: each octave half
-//: the last and a little quieter, and each drawn only so far as its own
-//: cell is worth pixels. Divided by what they all come to, so the loudest
-//: is the same at every zoom -- what the zoom changes is which octaves are
-//: there to be seen, never the shape of the ones already visible.
-float fractal(vec3 p, float metre_px) {
-  float sum = 0.0;
-  float amp = 1.0;
-  float step = 1.0;
-  for (int o = 0; o < GRAIN_OCTAVES; o++) {
-    float cell_px = (GRAIN_M / step) / metre_px;
-    float seen = clamp((cell_px - GRAIN_SEEN_PX) / (GRAIN_FULL_PX - GRAIN_SEEN_PX), 0.0, 1.0);
-    if (seen > 0.0) sum += amp * seen * wave(p * step);
-    amp *= GRAIN_FALL;
-    step *= 2.0;
-  }
-  return sum / GRAIN_WHOLE;
-}
-
-float grainOf(vec3 apart, uint form, float rock) {
-  float metre_px = u_units / UNITS_PER_METRE;
-  vec3 p = u_grain_at + apart * (u_radius / UNITS_PER_METRE / GRAIN_M);
-  bool stone = form == u_stone_forms.x || form == u_stone_forms.y
-    || form == u_stone_forms.z || form == u_stone_forms.w;
-  bool sand = form == u_sand_forms.x || form == u_sand_forms.y;
-  bool ice = form == u_ice_forms.x || form == u_ice_forms.y || form == u_ice_forms.z;
-  float grain;
-  if (sand) {
-    //: The lattice squeezed along one way, so the ground runs in ridges
-    //: across it, as dunes lie across the wind.
-    grain = fractal(vec3(p.x, p.y * 0.25, p.z), metre_px);
-  } else if (ice) {
-    //: A ridge of the ground, thin and dark: a crack, not a speckle. It
-    //: goes one way only -- ice is white and cracks are lines in it.
-    grain = -pow(1.0 - abs(fractal(p, metre_px)), 6.0);
-  } else if (stone) {
-    //: Grains of rock: the same ground, harder-edged.
-    grain = clamp(fractal(p, metre_px) * 1.5, -1.0, 1.0);
-  } else {
-    //: Turf, field, forest floor.
-    grain = fractal(p, metre_px);
-  }
-  return grain * (0.7 + 0.6 * rock);
-}
-
-void main() {
-  vec2 px = vec2(gl_FragCoord.x, u_size.y - gl_FragCoord.y);
-  vec2 p = (px - u_origin) * u_units;
-  float X = p.x / u_radius;
-  float Y = -p.y / u_radius;
-  float rho = length(vec2(X, Y));
-  float edge = max(fwidth(rho), 1e-6);
-  if (rho > 1.0 + edge) discard;
-  float rc = min(rho, 1.0);
-  //: The angle from the eye is never taken: what the projection wants is
-  //: its sine and its cosine, and both are the radius itself. The sine of
-  //: the arc IS rho -- that is what an orthographic projection is -- and
-  //: the cosine is the root of one less its square. Asked for through asin
-  //: and sin instead, the pair came back with an error of an absolute size
-  //: about a value of a vanishing one, which is a relative error of tens of
-  //: per cent at the middle of the frame; the grain's lattice multiplied it
-  //: by the planet's radius over its cell, and a star of rays stood over
-  //: the eye. Not an approximation -- the shorter road is the exact one.
-  float cc = sqrt(max(0.0, 1.0 - rc * rc));
-  float lat0 = u_eye.x;
-  float lon0 = u_eye.y;
-  float lat = asin(clamp(cc * sin(lat0) + Y * cos(lat0), -1.0, 1.0));
-  float lon = lon0 + atan(X, cc * cos(lat0) - Y * sin(lat0));
-  //: The eye's own frame: which way is up, east and north where it stands.
-  vec3 up = vec3(cos(lat0) * cos(lon0), cos(lat0) * sin(lon0), sin(lat0));
-  vec3 east = vec3(-sin(lon0), cos(lon0), 0.0);
-  vec3 north = vec3(-sin(lat0) * cos(lon0), -sin(lat0) * sin(lon0), cos(lat0));
-  //: How far this pixel's point stands from the eye's own, on the unit
-  //: ball. A difference from the start rather than a place and a
-  //: subtraction: the drop of the chord, cos - 1, is taken as
-  //: -rho^2 / (1 + cos), which keeps its figures where the plain
-  //: difference would have lost them all. The eye's own place never enters
-  //: the fragment at all: what the lattices need of it is a small number
-  //: the frame hands over ready-made (u_grain_at, u_edge_at).
-  vec3 apart = up * (-rc * rc / (1.0 + cc)) + east * X + north * Y;
-  //: This pixel's own point on the ball, and the ground's compass there.
-  //: Built from the eye's frame rather than from the latitude and the
-  //: longitude that were just found: apart is the careful difference and
-  //: adding it back costs nothing.
-  vec3 here = normalize(up + apart);
-  vec3 sideways = cross(vec3(0.0, 0.0, 1.0), here);
-  float turn = length(sideways);
-  //: At the pole itself every direction is east; any one of them will do,
-  //: and no reading depends on which, because the ground there is a cell
-  //: like every other one (D-328).
-  vec3 pe = turn > 1e-6 ? sideways / turn : vec3(1.0, 0.0, 0.0);
-  vec3 pn = cross(here, pe);
-  vec2 uv = atlasUV(here);
-  //: How much ground one pixel covers, taken from the point on the ball --
-  //: which runs smoothly across the screen everywhere, seams included --
-  //: and turned into a level of the texture. One cell to the pixel is level
-  //: nought; every doubling is one level up.
-  float metres = u_radius / UNITS_PER_METRE;
-  float across = max(length(dFdx(apart)), length(dFdy(apart))) * metres;
-  float lod = max(0.0, log2(max(across / u_step, 1.0)));
-
-  //: The slope, taken a cell of the ground east and north of the point --
-  //: **metres of the ground**, not steps of the raster. On the old lattice
-  //: of latitude and longitude a step of one column was cos(lat) of a step
-  //: of one row, and near the pole a slope read across it was not a slope
-  //: but the noise of the interpolation: that was the fan of streaks that
-  //: stood over the pole. Here the two steps are the same length of ground
-  //: everywhere, and the pole needs no special case at all.
-  //: The slope is read a cell of the ground apart on the near frames and a
-  //: pixel's worth of ground apart on the far ones: read a cell apart at a
-  //: frame where a pixel covers ten, the two samples fall in the same texel
-  //: of the level being drawn and the shading goes flat.
-  float reach = max(u_step, across);
-  float span = reach / metres;
-  float h = heightAt(uv, lod);
-  float slopeX = (heightOf(here + pe * span, lod) - heightOf(here - pe * span, lod)) / (2.0 * reach);
-  float slopeY = (heightOf(here + pn * span, lod) - heightOf(here - pn * span, lod)) / (2.0 * reach);
-  vec3 n = normalize(vec3(-slopeX * EXAGGERATION, -slopeY * EXAGGERATION, 1.0));
-  float shade = max(dot(n, u_light), 0.0);
-
-  //: The level is named, not guessed. A class raster has a chain now, and
-  //: left to the plain texture() the hardware picks its level off the
-  //: derivative of uv -- which on this projection jumps at every seam of the
-  //: atlas and reads a far coarser level than the frame wants: the ground
-  //: came out in flat blotches with no rivers in them (seen in the running
-  //: game, 2026-09-11). The lod above is the frame's own answer to "how much
-  //: ground is a pixel", and the height has been read by it from day one.
-  //:
-  //: No backticks in this comment, and none anywhere in here: this is GLSL
-  //: inside a template string, and a pair of them closes it.
-  //: The colour's edge, roughened (wave 8): the class is read at a point
-  //: that wanders by less than a cell or two (EDGE_CELLS) over a lattice
-  //: EDGE_M wide, so the boundary between two biomes comes out ragged as a
-  //: real one is, and not as the staircase of the raster. Two ways to
-  //: wander, and they must not be one way twice: read off one lattice a
-  //: step apart, the two came out of the same ridges and the edge wandered
-  //: along a diagonal, holding the right angles it was meant to hide.
-  //: Turned into its own lattice and taken at two sizes each, they are two
-  //: motions and the edge is a line. The wander is a walk over the
-  //: **ground** -- so many cells east and north -- and not over the
-  //: raster's own axes, which stand at an angle to the compass that changes
-  //: over the sphere. No branch on the strength: with the wander and the
-  //: grain each behind an if on its uniform, the frames stalled for a
-  //: second apiece on the near frames whenever both were on (measured
-  //: 2026-09-11, ANGLE over D3D11), and a strength of nought is a multiply
-  //: by nought.
-  vec3 j = u_edge_at + apart * (u_radius / UNITS_PER_METRE / EDGE_M);
-  vec3 k = vec3(j.z, j.x, j.y) * 1.7 + vec3(19.7, 5.3, 31.1);
-  vec2 astray = vec2(
-    0.65 * wave(j) + 0.35 * wave(j * 2.0),
-    0.65 * wave(k) + 0.35 * wave(k * 2.0)
-  ) * (EDGE_CELLS * u_edge);
-  vec3 wander = (pe * astray.x + pn * astray.y) * span;
-
-  //: Four taps on a rotated grid AA_PX wide on the glass, and the pixel is
-  //: their mean: of the ground's colour, each tap a **picked** class (the
-  //: plan keeps the class a class, §9.3), and of its wetness, each tap a
-  //: yes or no. One pick at the pixel's own point drew every cell as a
-  //: diamond -- the grid's shape on the screen -- wherever a cell is a few
-  //: pixels: boundaries of biomes and the shores of lakes were rows of them
-  //: (owner, 2026-09-11, twice). The taps are on the glass and not on the
-  //: raster, so the edge is softened by the same pixels at every frame: a
-  //: hair on the near ones, a cell or two on the far. Only between two
-  //: lands, as before: a tap's wander that strayed onto the water keeps the
-  //: tap's own class, so no shore is painted where there is none.
-  float metre_px = u_units / UNITS_PER_METRE;
-  float wet = 0.0;
-  vec3 ground = vec3(0.0);
-  for (int t = 0; t < 4; t++) {
-    vec2 o = AA_PX * (t == 0 ? vec2(0.375, 0.125) : t == 1 ? vec2(-0.125, 0.375) : t == 2 ? vec2(-0.375, -0.125) : vec2(0.125, -0.375)) * 2.0;
-    vec3 p = here + (pe * o.x + pn * o.y) * (metre_px / metres);
-    vec2 tuv = atlasUV(normalize(p));
-    //: The water's edge is cut on the cubic reading where a cell is a
-    //: pixel or more (level nought), and on the level's own bilinear blend
-    //: from there out: past a cell to the pixel the cubic would alias what
-    //: the mip averages, and the kink it removes is under a pixel anyway.
-    //: Behind a branch on the fragment's own level, not on a uniform (the
-    //: stalls of 2026-09-11 were gates on uniforms): the far frames would
-    //: otherwise pay nine fetches of the finest level per tap, each a
-    //: likely cache miss, for a weight of nought.
-    float s = min(lod, 1.0);
-    float th = heightAt(tuv, lod);
-    if (s < 1.0) th = mix(heightCubic(tuv), th, s);
-    //: The water's shares are read at the finest level and nowhere else: a
-    //: river is a cell or two wide, and the mean of four cells round it is
-    //: already under the knife. The river's ribbon is cut at its bank, a
-    //: half of the raster's measure (field.pipeline.ribbon).
-    bool water = th < 0.0 || textureLod(u_wet, tuv, 0.0).r > BANK_SHARE || textureLod(u_stream, tuv, 0.0).r > BANK_SHARE;
-    wet += water ? 0.25 : 0.0;
-    uint tb = textureLod(u_biome, tuv, lod).r;
-    uint near = textureLod(u_biome, atlasUV(normalize(p + wander)), lod).r;
-    tb = (tb != ${NO_BIOME}u && near != ${NO_BIOME}u) ? near : tb;
-    //: A sea cell whose height, read between the cells, has come up over
-    //: zero is the shore's last strip: it takes the coast's colour.
-    int code = tb == ${NO_BIOME}u ? u_shore : int(tb);
-    ground += 0.25 * u_biomes[code < 0 ? ${PALETTE_SLOTS - 1} : min(code, ${PALETTE_SLOTS - 1})];
-  }
-  //: The landform, at the pixel's own wandered point: the picture darkens
-  //: a cliff and roughens the ground by what the form says, and a cliff is
-  //: often a single cell -- read straight it was a hard diamond of shadow.
-  uint f = textureLod(u_form, uv, lod).r;
-  {
-    uint b0 = textureLod(u_biome, uv, lod).r;
-    uint form_near = textureLod(u_form, atlasUV(normalize(here + wander)), lod).r;
-    f = b0 != ${NO_BIOME}u ? form_near : f;
-  }
-
-  //: One colour for all water at the surface, and the sea darkens only
-  //: with its depth (owner, 2026-09-11: a river and the sea are one water,
-  //: they may be one colour). A river used to end at the shore in the
-  //: lake's tone and the sea begin in its own, and the step between them
-  //: was a seam across every mouth.
-  vec3 water_col = mix(u_lake, u_sea_deep, h >= 0.0 ? 0.0 : clamp(-h / u_deep, 0.0, 1.0));
-  water_col *= 0.85 + 0.15 * shade;
-  float share = clamp(h / u_relief, 0.0, 1.0);
-  ground = mix(ground, u_high, 0.6 * smoothstep(u_high_from, 1.0, share));
-  bool cliff = f == u_cliff_forms.x || f == u_cliff_forms.y || f == u_cliff_forms.z || f == u_cliff_forms.w;
-  float tone = 0.5 + 0.5 * shade;
-  if (cliff) tone *= 0.7;
-  //: The grain, on the near frames alone (wave 8): the ground says what
-  //: it is made of, while the hillshade goes on saying what shape it is.
-  float rock = textureLod(u_rock, uv, lod).r;
-  tone *= 1.0 + GRAIN_DEPTH * u_grain * grainOf(apart, f, rock);
-  ground *= tone;
-  //: The pixel: its ground and its water, by how many of its taps are wet.
-  vec3 col = mix(ground, water_col, wet);
-  float alpha = 1.0 - smoothstep(1.0 - edge, 1.0 + edge, rho);
-  o_color = vec4(col * alpha, alpha);
-}
-`;
 
 /** The sun's direction as the shader takes it: east, north, up. */
 export function sunDirection(azimuthDeg = SUN_AZIMUTH_DEG, altitudeDeg = SUN_ALTITUDE_DEG): [number, number, number] {
@@ -789,7 +544,6 @@ export function paletteOf(
  *  by its share and a river by its ribbon (u_wet, u_stream), never by the
  *  form. */
 export function formCodes(passport: RasterPassport): {
-  cliff: [number, number, number, number];
   /** What the grain of a cell is made of: bare rock, loose sand, ice
    *  (wave 8). A landform in none of the three mottles as ground does. */
   stone: [number, number, number, number];
@@ -804,7 +558,6 @@ export function formCodes(passport: RasterPassport): {
     return at < 0 ? NO_BIOME : at;
   };
   return {
-    cliff: [code("cliff"), code("coast_cliff"), code("canyon"), code("scree")],
     stone: [code("scree"), code("rocky_desert"), code("cliff"), code("coast_cliff")],
     sand: [code("dunes"), code("beach")],
     ice: [code("ice"), code("glacial"), code("fjord")],
@@ -885,6 +638,14 @@ export function mipChain(
  *
  * * `mean` is for a **share** -- how much of the cell is lake, river, hard
  *   rock. Half of a half is a quarter, and the mean says so.
+ * * `cut` is for a **measure cut at the bank** -- the river's ribbon, a
+ *   distance to the channel on a ramp with the bank at `BANK_SHARE`. Its
+ *   mean is not a share of water; the first halving cuts every byte at the
+ *   bank to nought or all and takes the mean of that, and the levels above
+ *   are the mean of the cut: how much of the texel is river. So the far
+ *   frames read a river as the share of the pixel it wets, and a river
+ *   narrower than a pixel is a line and not a row of dashes (owner,
+ *   2026-09-12: the rivers break).
  * * `pick` is for a **class** -- which biome, which landform. A mean of two
  *   codes is a third code that means something else entirely; the coarse
  *   texel takes one of its four instead, and the one it takes is the first,
@@ -900,16 +661,21 @@ export function byteChain(
   level0: Uint8Array,
   cols: number,
   rows: number,
-  how: "mean" | "pick",
+  how: "mean" | "pick" | "cut",
   tile = 0,
 ): { data: Uint8Array; cols: number; rows: number }[] {
   const deepest = tile > 1 ? Math.floor(Math.log2(tile)) : Infinity;
   const chain = [{ data: level0, cols, rows }];
   let { data, cols: w, rows: h } = chain[0];
+  const bank = BANK_SHARE * 255;
   while ((w > 1 || h > 1) && chain.length <= deepest) {
     const w2 = Math.max(1, Math.floor(w / 2));
     const h2 = Math.max(1, Math.floor(h / 2));
     const next = new Uint8Array(w2 * h2);
+    //: The cut happens once, on the finest level: above it the bytes are
+    //: shares already and average as shares do.
+    const read =
+      how === "cut" && chain.length === 1 ? (v: number) => (v > bank ? 255 : 0) : (v: number) => v;
     for (let y = 0; y < h2; y++) {
       const y0 = Math.min(h - 1, 2 * y);
       const y1 = Math.min(h - 1, 2 * y + 1);
@@ -920,7 +686,7 @@ export function byteChain(
           how === "pick"
             ? data[y0 * w + x0]
             : Math.round(
-                (data[y0 * w + x0] + data[y0 * w + x1] + data[y1 * w + x0] + data[y1 * w + x1]) / 4,
+                (read(data[y0 * w + x0]) + read(data[y0 * w + x1]) + read(data[y1 * w + x0]) + read(data[y1 * w + x1])) / 4,
               );
       }
     }

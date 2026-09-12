@@ -192,6 +192,9 @@ class EventKind(StrEnum):
     #: A city location taken back from a private title it should never have
     #: had (D-282): the holder did not choose this, so they are told by name.
     LAND_RECLAIMED = "land.reclaimed"
+    #: A node taken into a city by the highway paved to it from the city's
+    #: land (D-332): the city grows where it paves.
+    LAND_ANNEXED = "land.annexed"
     #: A deed for a plot: issued, listed, sold (D-116).
     DEED_ISSUED = "deed.issued"
     DEED_OFFERED = "deed.offered"

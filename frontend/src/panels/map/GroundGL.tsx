@@ -40,16 +40,16 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  useMemo,
 } from "react";
 
 import type { RasterPassport } from "../../api";
+import { useBook } from "../../actions";
 import { useTerrain } from "./Ground";
-import { UNITS_PER_METRE, type Eye } from "./globe";
+import { UNITS_PER_METRE, type Eye, type Geo } from "./globe";
 import { rastersOf, type Rasters } from "./rasters";
 import {
-  FRAGMENT,
   PALETTE_SLOTS,
-  VERTEX,
   deepOf,
   EDGE_M,
   GRAIN_M,
@@ -61,8 +61,14 @@ import {
   mipChain,
   paletteOf,
   sunDirection,
+  sunVector,
+  LAYERS,
+  dryLaw,
+  type DryLaw,
+  type Layer,
   type Palette,
 } from "./shade";
+import { FRAGMENT, VERTEX } from "./fragment";
 
 export type GroundGLHandle = { draw: () => void };
 /** How the GPU ground is doing: on its way, drawing, or given up. */
@@ -81,6 +87,12 @@ type Textures = {
   /** And the rivers the same way, for the same reason (owner, 2026-09-11):
    *  as a class a river is a chain of whole cells with right angles. */
   stream: WebGLTexture;
+  /** The climate's two, for the climate layers (D-331). */
+  temperature: WebGLTexture;
+  rain: WebGLTexture;
+  /** Metres to the nearest fresh water, for the moisture layer: the
+   *  engine's own "beside water" (D-331 addendum). */
+  river: WebGLTexture;
   passport: RasterPassport;
   /** The deepest sea of the raster, metres: the water's shade runs to it. */
   deep: number;
@@ -93,7 +105,7 @@ type Program = {
   textures: Map<string, Textures>;
   /** What the shader was last handed of the things that do not move
    *  between frames: the planet's textures, the palette, the mountain line. */
-  synced: { planet: string; palette: Palette; highFrom: number } | null;
+  synced: { planet: string; palette: Palette; highFrom: number; law: DryLaw } | null;
 };
 
 function compile(gl: WebGL2RenderingContext, kind: number, source: string): WebGLShader {
@@ -147,6 +159,9 @@ function setUp(canvas: HTMLCanvasElement): Program | null {
   gl.uniform1i(at("u_rock"), 3);
   gl.uniform1i(at("u_wet"), 4);
   gl.uniform1i(at("u_stream"), 5);
+  gl.uniform1i(at("u_temp"), 6);
+  gl.uniform1i(at("u_rain"), 7);
+  gl.uniform1i(at("u_river"), 8);
   return { gl, program, at, textures: new Map(), synced: null };
 }
 
@@ -227,18 +242,19 @@ function upload(gl: WebGL2RenderingContext, passport: RasterPassport, rasters: R
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     return texture;
   };
-  const measure = (bytes: Uint8Array, mipped: boolean): WebGLTexture => {
+  const measure = (bytes: Uint8Array, how: "mean" | "cut"): WebGLTexture => {
     const texture = gl.createTexture();
     if (!texture) throw new Error("no texture");
     gl.bindTexture(gl.TEXTURE_2D, texture);
-    //: A chain where the coarse level still means something, and none where
-    //: it would not. The grain of the rock is a property of a region and
-    //: averages honestly; the lake's share and the river's ribbon are a cell
-    //: or two wide, and their mean over four cells is already under the
-    //: knife the shader cuts them by -- mipped, the rivers go out at the
-    //: first level up. So those two are read at the finest level and have
-    //: no other (`shade.ts` asks for level nought by name).
-    const chain = mipped ? byteChain(bytes, cols, rows, "mean", tile) : [{ data: bytes, cols, rows }];
+    //: A chain whose coarse levels mean the share of the texel that is the
+    //: thing: the rock's grain and the lake's share average honestly, the
+    //: river's ribbon is cut at its bank first and then averaged (`cut`).
+    //: The near frames read the finest level and cut it; the far frames
+    //: read the share at the frame's own level, and a river narrower than
+    //: a pixel stays a line (owner, 2026-09-12: the rivers break). The two
+    //: were read at the finest level alone before, and the far frames
+    //: sampled one cell of the ten under a pixel.
+    const chain = byteChain(bytes, cols, rows, how, tile);
     chain.forEach((level, index) => {
       gl.texImage2D(
         gl.TEXTURE_2D, index, gl.R8, level.cols, level.rows, 0,
@@ -246,10 +262,7 @@ function upload(gl: WebGL2RenderingContext, passport: RasterPassport, rasters: R
       );
     });
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAX_LEVEL, chain.length - 1);
-    gl.texParameteri(
-      gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER,
-      mipped ? gl.LINEAR_MIPMAP_LINEAR : gl.LINEAR,
-    );
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
@@ -259,9 +272,12 @@ function upload(gl: WebGL2RenderingContext, passport: RasterPassport, rasters: R
     height,
     biome: classes(rasters.biome),
     form: classes(rasters.form),
-    rock: measure(rasters.rock, true),
-    lake: measure(rasters.lake, false),
-    stream: measure(rasters.stream, false),
+    rock: measure(rasters.rock, "mean"),
+    lake: measure(rasters.lake, "mean"),
+    stream: measure(rasters.stream, "cut"),
+    temperature: measure(rasters.temperature, "mean"),
+    rain: measure(rasters.rain, "mean"),
+    river: measure(rasters.river, "mean"),
     passport,
     deep: deepOf(heights),
   };
@@ -269,11 +285,24 @@ function upload(gl: WebGL2RenderingContext, passport: RasterPassport, rasters: R
 
 /** Hand the shader what does not move between frames, when it changed:
  *  the planet's textures and their passport, the palette, the mountain line. */
-function sync(program: Program, planet: string, palette: Palette, highFrom: number): boolean {
+function sync(
+  program: Program,
+  planet: string,
+  palette: Palette,
+  highFrom: number,
+  law: DryLaw,
+): boolean {
   const textures = program.textures.get(planet);
   if (!textures) return false;
   const was = program.synced;
-  if (was && was.planet === planet && was.palette === palette && was.highFrom === highFrom) return true;
+  if (
+    was &&
+    was.planet === planet &&
+    was.palette === palette &&
+    was.highFrom === highFrom &&
+    was.law === law
+  )
+    return true;
   const { gl, at } = program;
   const { passport } = textures;
   gl.uniform2f(at("u_atlas"), passport.cols, passport.rows);
@@ -289,7 +318,6 @@ function sync(program: Program, planet: string, palette: Palette, highFrom: numb
   gl.uniform3fv(at("u_lake"), palette.lake);
   gl.uniform3fv(at("u_high"), palette.high);
   const codes = formCodes(passport);
-  gl.uniform4ui(at("u_cliff_forms"), ...codes.cliff);
   gl.uniform4ui(at("u_stone_forms"), ...codes.stone);
   gl.uniform2ui(at("u_sand_forms"), ...codes.sand);
   gl.uniform3ui(at("u_ice_forms"), ...codes.ice);
@@ -304,7 +332,18 @@ function sync(program: Program, planet: string, palette: Palette, highFrom: numb
   bind(3, textures.rock);
   bind(4, textures.lake);
   bind(5, textures.stream);
-  program.synced = { planet, palette, highFrom };
+  bind(6, textures.temperature);
+  bind(7, textures.rain);
+  bind(8, textures.river);
+  gl.uniform1f(at("u_temp_min"), passport.temperature_c.min);
+  gl.uniform1f(at("u_temp_step"), passport.temperature_c.step);
+  gl.uniform1f(at("u_temp_cold"), passport.temperature_c.cold);
+  gl.uniform1f(at("u_temp_hot"), passport.temperature_c.hot);
+  //: The drying law for the moisture layer (D-331 addendum): off the book,
+  //: with the reach in metres, read against the river raster.
+  gl.uniform4f(at("u_dry"), law.offset, law.share, law.perDegree, law.ref);
+  gl.uniform1f(at("u_reach_m"), law.reachM);
+  program.synced = { planet, palette, highFrom, law };
   return true;
 }
 
@@ -318,10 +357,16 @@ export const GroundGL = forwardRef<
     radius: number;
     /** The SVG the ground lies under: its screen matrix places the eye. */
     svg: React.RefObject<SVGSVGElement | null>;
+    /** The subsolar point as of this render (`Ground.sunOf`), for the
+     *  light and the night; null without a clock, and then the light is
+     *  the map's own north-west and there is no night. */
+    sun: Geo | null;
+    /** What the ground is coloured by (D-331): the map's layer. */
+    layer: Layer;
     /** Told when the ground starts drawing, and when it gives up. */
     onState: (state: GroundGLState) => void;
   }
->(function GroundGL({ planet, eye, radius, svg, onState }, ref) {
+>(function GroundGL({ planet, eye, radius, svg, sun, layer, onState }, ref) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const probeRef = useRef<HTMLSpanElement | null>(null);
   const programRef = useRef<Program | null>(null);
@@ -426,16 +471,20 @@ export const GroundGL = forwardRef<
   //: where the SVG ground greys and the biome turns alpine, not at a line
   //: of the shader's own.
   const highFrom = terrain?.mountain_level ?? 1;
-  const state = useRef({ eye, radius, palette, planet, highFrom });
-  state.current = { eye, radius, palette, planet, highFrom };
+  //: The drying law off the book of constants, one object per book, so
+  //: `sync` sees the same law until the book changes.
+  const book = useBook();
+  const law = useMemo(() => dryLaw(book?.constants), [book]);
+  const state = useRef({ eye, radius, palette, planet, highFrom, sun, layer, law });
+  state.current = { eye, radius, palette, planet, highFrom, sun, layer, law };
 
   const draw = useCallback(() => {
     const program = programRef.current;
     const canvas = canvasRef.current;
     const svgEl = svg.current;
-    const { eye, radius, palette, planet, highFrom } = state.current;
+    const { eye, radius, palette, planet, highFrom, sun, layer, law } = state.current;
     if (!program || !canvas || !svgEl || !palette) return;
-    if (!sync(program, planet, palette, highFrom)) return;
+    if (!sync(program, planet, palette, highFrom, law)) return;
     const { gl, at } = program;
     const dpr = window.devicePixelRatio || 1;
     //: The canvas is laid over the svg's box and nowhere else. It paints the
@@ -485,6 +534,11 @@ export const GroundGL = forwardRef<
     gl.uniform1f(at("u_units"), units);
     gl.uniform1f(at("u_radius"), radius);
     gl.uniform2f(at("u_eye"), eye.lat * RAD, eye.lon * RAD);
+    //: The sun, for the light and the night (owner, 2026-09-12): the
+    //: subsolar point as a direction on the ball, and whether there is one.
+    gl.uniform3fv(at("u_sun"), sun ? sunVector(sun) : [0, 0, 1]);
+    gl.uniform1f(at("u_sunlit"), sun ? 1 : 0);
+    gl.uniform1i(at("u_layer"), Math.max(0, LAYERS.indexOf(layer)));
     //: Both textures of the ground -- its grain and the roughening of the
     //: colour's edge -- are fixed sizes **in metres of the country**, so
     //: what the zoom changes is never their shape, only whether they can be
@@ -506,10 +560,14 @@ export const GroundGL = forwardRef<
   useImperativeHandle(ref, () => ({ draw }), [draw]);
 
   //: What React knows of -- the eye, the planet, the palette, the rasters'
-  //: arrival -- redraws; the camera's frames redraw through the handle.
+  //: arrival, the layer, the sun's place -- redraws; the camera's frames
+  //: redraw through the handle. The sun as a key and not as the object:
+  //: `sunOf` makes the point afresh on every render, quantised to a quarter
+  //: of a degree, so a render that moved nothing draws nothing.
+  const sunKey = sun ? `${sun.lat},${sun.lon}` : "";
   useEffect(() => {
     draw();
-  }, [draw, eye, radius, palette, ready, planet, highFrom]);
+  }, [draw, eye, radius, palette, ready, planet, highFrom, layer, sunKey, law]);
   //: The box: a resize of the pane is a resize of the canvas. Watched on the
   //: **svg**, because the canvas's own box is written by the draw above --
   //: watching it would be watching one's own hand, and the canvas would keep

@@ -45,7 +45,9 @@ export function usePopover({ open, close, anchor, toggle, pop }: Popover): void 
       if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
       const layer = pop.current;
       if (!layer || layer.getAttribute("role") !== "menu") return;
-      const items = [...layer.querySelectorAll<HTMLElement>('[role="menuitem"]')];
+      //: Every kind of item the role allows -- a plain one, a radio, a
+      //: check (the map's layers, D-331): the arrows walk them all.
+      const items = [...layer.querySelectorAll<HTMLElement>('[role^="menuitem"]')];
       if (!items.length) return;
       event.preventDefault();
       const at = items.indexOf(document.activeElement as HTMLElement);

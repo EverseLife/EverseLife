@@ -2,9 +2,9 @@
 // Copyright (C) 2026 Nurlan Urazkulov
 
 /**
- * The lines of the relief on the globe (landscape plan wave 6): contours,
- * the hachures of the cliffs and the little trees of the woods -- read off
- * the rasters (`contours.ts`) and projected by the eye.
+ * The lines of the relief on the globe (landscape plan wave 6): the
+ * contours and the figures of the growth (`figures.ts`) -- read off the
+ * rasters (`contours.ts`) and projected by the eye.
  *
  * The rivers left this layer 2026-09-11 and went into the shader: as a line
  * a river was a thread laid over the ground rather than water in it, and
@@ -32,15 +32,19 @@
 
 import { useMemo } from "react";
 
+import { useBook } from "../../actions";
+import { growthOf } from "./figures";
 import { useTerrain } from "./Ground";
 import { project, type Eye } from "./globe";
 import {
   closeFrame,
+  figureLines,
   frameLines,
   frameMetres,
   quantisedEye,
   type Segment,
 } from "./contours";
+import { UNITS_PER_METRE } from "./globe";
 import { useRasters } from "./rasters";
 
 /** Segments to one path, dropping what faces away from the eye. */
@@ -60,24 +64,52 @@ export function Lines({
   eye,
   radius,
   within,
+  frameM,
+  show = { contours: true, figures: true },
 }: {
   planet: string;
   eye: Eye;
   radius: number;
   /** Half the frame's width in map units; undefined from the planet frame. */
   within: number | undefined;
+  /** The frame's own width, metres, stepped by half-octaves
+   *  (`bands.nearFrameM`): the figures are cut to it, not to the window. */
+  frameM?: number;
+  /** Which of the layer's lines are on (D-331): the contours, the growth. */
+  show?: { contours: boolean; figures: boolean };
 }) {
   const rasters = useRasters(planet);
   const passport = useTerrain(planet)?.raster ?? null;
+  //: The figure and the shares of each biome, off the book of constants
+  //: (D-225: the client derives what it can).
+  const book = useBook();
+  const growth = useMemo(() => growthOf(book?.constants, passport), [book, passport]);
   //: Whether this frame has lines at all.
   const near = closeFrame(frameMetres(within));
   const { lat, lon } = quantisedEye(eye, radius, within);
   const frame = useMemo(
     () =>
       near && rasters && passport
-        ? frameLines(rasters, passport, { lat, lon }, radius, within)
+        ? frameLines(rasters, passport, { lat, lon }, radius, within, undefined, {
+            contours: show.contours,
+            figures: false,
+            growth,
+          })
         : null,
-    [near, rasters, passport, lat, lon, radius, within],
+    [near, rasters, passport, lat, lon, radius, within, show.contours, growth],
+  );
+  //: The figures on a memo of their own, cut to the frame: their eye is
+  //: quantised to the frame's own window, finer than the contours', and
+  //: a step of the zoom (`frameM`) recuts them without recutting the
+  //: contours.
+  const figureEye = quantisedEye(eye, radius, frameM === undefined ? within : (frameM * UNITS_PER_METRE) / 2);
+  const grown = useMemo(
+    () =>
+      near && rasters && passport && show.figures && growth && frameM !== undefined
+        ? figureLines(rasters, passport, figureEye, radius, frameM, undefined, growth)
+        : null,
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the eye by its two numbers, not the object
+    [near, rasters, passport, figureEye.lat, figureEye.lon, radius, frameM, show.figures, growth],
   );
   const drawn = useMemo(() => {
     if (!frame) return null;
@@ -85,10 +117,9 @@ export function Lines({
     return {
       contours: drawnOf(frame.contours.filter((c) => !c.index).flatMap((c) => c.segments)),
       index: drawnOf(frame.contours.filter((c) => c.index).flatMap((c) => c.segments)),
-      hachures: drawnOf(frame.hachures),
-      woods: drawnOf(frame.woods),
+      figures: Object.entries(grown ?? {}).map(([name, segments]) => [name, drawnOf(segments ?? [])] as const),
     };
-  }, [frame, eye, radius]);
+  }, [frame, grown, eye, radius]);
   if (!drawn) return null;
   return (
     <g
@@ -98,11 +129,11 @@ export function Lines({
     >
       {drawn.contours && <path className="contour" d={drawn.contours} />}
       {drawn.index && <path className="contour index" d={drawn.index} />}
-      {/* The woods under the lines of the relief and over the ground's own
+      {/* The growth under the lines of the relief and over the ground's own
           colour: a wood is a thing of the country, a contour is a reading of
-          it, and a reading is written on top. */}
-      {drawn.woods && <path className="wood" d={drawn.woods} />}
-      {drawn.hachures && <path className="hachure" d={drawn.hachures} />}
+          it, and a reading is written on top. One path a figure, so the
+          stylesheet gives each its colour (D-331). */}
+      {drawn.figures.map(([name, d]) => d && <path key={name} className={`figure ${name}`} d={d} />)}
     </g>
   );
 }

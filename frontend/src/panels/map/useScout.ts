@@ -21,7 +21,9 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import type { MapNode, RecipeBook } from "../../api";
+import { useSession } from "../../actions";
+import type { MapNode, Peek, RecipeBook } from "../../api";
+import { Refused } from "../../session";
 import { tilesHeld, useTerrain } from "./Ground";
 import {
   geoUnder,
@@ -36,6 +38,7 @@ import type { Link, Point } from "./model";
 import { kindAt, type Warmth } from "./relief";
 import {
   fieldOf,
+  joinAim,
   metresBetween,
   nearestCell,
   rulesOf,
@@ -45,14 +48,37 @@ import {
   type Way,
 } from "./scout";
 
+/** What the field says at the aimed point (D-321 addendum): on its way,
+ *  here, or refused -- the run's own refusal, said before the run. */
+export type Preview = {
+  peek: Peek | null;
+  trouble: string | null;
+  /** Whether the trouble is the world's refusal of the aim -- then the
+   *  walk is not offered -- or the wire's, which says nothing of the aim. */
+  refused: boolean;
+  pending: boolean;
+};
+const NO_PREVIEW: Preview = { peek: null, trouble: null, refused: false, pending: false };
+
 export type Scout = {
   /** The point named, or nothing: the panel below the map speaks about it. */
   aim: Geo | null;
+  /** What the field says there, asked of the server on every aim. */
+  preview: Preview;
   /** How far it is from where one stands, metres; null with no aim. */
   metres: number | null;
   /** Whether the next tap on the ground would be taken as an aim. */
   scouting: boolean;
   arm: (on: boolean) => void;
+  /** Whether the next tap on a known node names it as the way's far end
+   *  (D-321 addendum): the run then lays the way. Armed apart from the
+   *  scout's aim, and the one puts the other away. */
+  joining: boolean;
+  armJoin: (on: boolean) => void;
+  /** The node the way is aimed at, or null: the panel's verb reads it. */
+  target: string | null;
+  /** The hand's tap on a node while the way's aim is armed. */
+  join: (node: MapNode) => void;
   /** Take the point back and leave the mode armed: the hand is choosing
    *  again, not done. */
   unaim: () => void;
@@ -100,6 +126,37 @@ export function useScout({
 }): Scout {
   const [aim, setAim] = useState<Geo | null>(null);
   const [scouting, setScouting] = useState(false);
+  const [joining, setJoining] = useState(false);
+  const [target, setTarget] = useState<string | null>(null);
+  //: The peek (D-321 addendum): asked once per aim, forgotten with it. The
+  //: answer that comes for a point already taken back is dropped.
+  const session = useSession();
+  const [preview, setPreview] = useState<Preview>(NO_PREVIEW);
+  useEffect(() => {
+    if (!aim) {
+      setPreview(NO_PREVIEW);
+      return;
+    }
+    let live = true;
+    setPreview({ peek: null, trouble: null, refused: false, pending: true });
+    session.send<Peek>("explore.peek", { lat: aim.lat, lon: aim.lon }).then(
+      (told) => {
+        if (live) setPreview({ peek: told, trouble: null, refused: false, pending: false });
+      },
+      (error: unknown) => {
+        if (live)
+          setPreview({
+            peek: null,
+            trouble: error instanceof Error ? error.message : String(error),
+            refused: error instanceof Refused,
+            pending: false,
+          });
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [aim, session]);
 
   const stand = byKey[here]?.place;
   const standing = stand && "lat" in stand ? (stand as Geo) : null;
@@ -208,19 +265,48 @@ export function useScout({
 
   return {
     aim,
+    preview,
     metres:
       aim && standing && radius ? metresBetween(standing, aim, radius) : null,
     scouting,
     arm: (on: boolean) => {
       setScouting(on);
       //: Disarming takes the aim with it: the panel spoke about a point
-      //: nobody was going to walk to any more.
-      if (!on) setAim(null);
+      //: nobody was going to walk to any more. Arming puts the way's aim
+      //: away: one hand, one question.
+      if (on) setJoining(false);
+      setAim(null);
+      setTarget(null);
     },
-    unaim: () => setAim(null),
+    joining,
+    armJoin: (on: boolean) => {
+      setJoining(on);
+      if (on) setScouting(false);
+      setAim(null);
+      setTarget(null);
+    },
+    target,
+    join: (node: MapNode) => {
+      //: A known node of this ground, and not the one underfoot (`joinAim`):
+      //: the aim is its place, and the server judges it as any aim -- the
+      //: reach, the water, the ways and the nodes on the straight line
+      //: (`aim.check`) -- and answers with the node already found there
+      //: (`explore.peek`).
+      if (!joining || !onGround) return;
+      const at = joinAim(node, { here, planet });
+      if (!at) return;
+      setTarget(node.key);
+      setAim(at);
+    },
+    unaim: () => {
+      setAim(null);
+      setTarget(null);
+    },
     clear: () => {
       setAim(null);
+      setTarget(null);
       setScouting(false);
+      setJoining(false);
     },
     onGround,
     field,

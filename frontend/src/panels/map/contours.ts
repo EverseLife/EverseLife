@@ -3,8 +3,11 @@
 
 /**
  * The lines of the relief, cut from the picture's rasters (landscape plan
- * wave 6): the contours, the hachures of the cliffs, the trees of the woods
- * and the boundaries of the provinces. The rivers are the shader's (the
+ * wave 6): the contours, and the boundaries of the provinces. The hachures
+ * of the cliffs went 2026-09-12 with the shader's cut of shade on a cliff:
+ * the owner read the pair as a dark smear with black lines, and a wall
+ * reads by its own cast shadow now; the trees went the same day into
+ * `figures.ts`, one figure a biome. The rivers are the shader's (the
  * stream raster), and the coast and the lakes' rims are not cut at all
  * since 2026-09-11 -- the water's own edge is the shore (owner: what is
  * the coastline for).
@@ -25,9 +28,10 @@
  */
 
 import type { RasterPassport } from "../../api";
-import { ang2pix, atlasIndex, cellCentre, latticeOf, type Lattice } from "./healpix";
+import { latticeOf, type Lattice } from "./healpix";
 import { UNITS_PER_METRE, type Eye, type Geo } from "./globe";
 import type { Rasters } from "./rasters";
+import { FIGURE_ACROSS, FIGURE_SPACING_M, figures, type Figure, type Growth } from "./figures";
 
 const RAD = Math.PI / 180;
 
@@ -75,7 +79,7 @@ export const CONTOUR_LADDER: readonly (readonly [frameM: number, intervalM: numb
 /** Every so many contours one is drawn heavier, as on a topographic sheet. */
 export const INDEX_EVERY = 5;
 /** Below this frame width the vector lines are drawn at all -- contours,
- *  the hachures, the trees: the city frame
+ *  the trees: the city frame
  *  and nearer (plan §9.7), where the window is read cell by cell. Wider
  *  than this every one of them is a thread of whole cells laid over a
  *  region: a web rather than a line (owner, 2026-09-09), and the far
@@ -92,40 +96,12 @@ export const CLOSE_FRAME_M = CONTOUR_LADDER[0][0];
 export function closeFrame(frameM: number): boolean {
   return frameM <= CLOSE_FRAME_M;
 }
-/** A hachure's length as a share of a cell's side. */
-export const HACHURE_SHARE = 0.45;
-/** The landforms that get hachures: the cliffs, and the canyon, whose
- *  walls the pipeline classes as canyon rather than cliff (plan §4.3). */
-export const HACHURED_FORMS = ["cliff", "coast_cliff", "canyon"] as const;
-/** The biomes that carry trees (`biome.names`): the woods are drawn as woods
- *  and not only tinted (owner, 2026-09-11). Four of the sixteen classes. */
-export const WOODED_BIOMES = ["forest", "taiga", "rainforest", "woodland"] as const;
-/** How tall a drawn tree is, as a share of the raster's cell: a tree of
- *  twenty-odd metres on a cell of fifty, so the mark reads as a tree and not
- *  as a blot, and it grows with the ground like a contour and a hachure. */
-export const TREE_SHARE = 0.5;
-/** How many wooded cells carry one: a tree on every cell is a mat of ink,
- *  and a wood on a topographic sheet is a scatter. One in this many, chosen
- *  by the cell's own numbers, so the same ground always grows the same trees
- *  and the scatter does not crawl when the eye moves. */
-export const TREE_EVERY = 3;
-/**
- * Below this frame width the woods are drawn, and not above it (owner,
- * 2026-09-11: the trees are to be shown near, and near only).
- *
- * Nearer than the other lines, and for its own reason. A contour is a line
- * and reads at any thickness; a tree is a **figure**, and a figure needs
- * room to be one. A tree stands `TREE_SHARE` of a cell tall -- some
- * twenty-five metres on a cell of fifty -- and across a frame of two
- * kilometres in eight hundred pixels that is ten pixels: a little fir. On
- * the frames where the rest of the lines still hold, five and a half
- * kilometres wide, it would be three pixels, and three pixels of tree are
- * not a tree but a smudge of ink over the whole wood.
- */
-export const TREE_FRAME_M = 2_000;
-/** How many tiers of branches a fir is drawn with. Three is what reads as a
- *  conifer and not as a bristle: two is an arrow, four is a comb. */
-export const TREE_TIERS = 3;
+/** The frames the figures are drawn on: this wide and nearer, metres. A
+ *  figure is a little under a node's circle (`figures.FIGURE_OF_NODE`), a
+ *  couple of metres of ground, and at four hundred metres a frame that is
+ *  a few pixels -- a texture, not a tree; wider than this it was a dust
+ *  (owner, 2026-09-12: the figures are to come in closer). */
+export const TREE_FRAME_M = 400;
 /** How long a joined run of a province's boundary may grow, degrees.
  *
  *  A run is drawn as one straight line between its two ends, so a run that
@@ -524,135 +500,6 @@ export function contours(
   return out;
 }
 
-
-
-/**
- * The hachures of the cliffs: from the centre of every cliff cell a tick
- * down the slope, `HACHURE_SHARE` of a cell long -- the classic mark of a
- * wall on a topographic sheet (§9.6). Read at the stride the window is.
- */
-export function hachures(
-  rasters: Rasters,
-  samples: Samples,
-  passport: RasterPassport,
-  stepM: number,
-  radius: number,
-): Segment[] {
-  const cliffs = new Set(
-    HACHURED_FORMS.map((name) => passport.forms.indexOf(name)).filter((c) => c >= 0),
-  );
-  if (!cliffs.size) return [];
-  const out: Segment[] = [];
-  const { nr, nc } = samples;
-  const read = samples.between(rasters.height);
-  const step = stepM;
-  const radiusM = radius / UNITS_PER_METRE;
-  const length = HACHURE_SHARE * step;
-  for (let i = 1; i < nr - 1; i++) {
-    for (let j = 1; j < nc - 1; j++) {
-      if (!cliffs.has(rasters.form[samples.index(i, j)])) continue;
-      const here = samples.geo(i, j);
-      const cos = Math.max(Math.cos(here.lat * RAD), 0.05);
-      const east = (read[i * nc + j + 1] - read[i * nc + j - 1]) / (2 * step * cos);
-      const north = (read[(i + 1) * nc + j] - read[(i - 1) * nc + j]) / (2 * step);
-      const norm = Math.hypot(east, north);
-      if (norm === 0) continue;
-      //: Down the slope: against the gradient, in metres, then in degrees.
-      const dx = (-east / norm) * length;
-      const dy = (-north / norm) * length;
-      out.push([
-        here,
-        { lat: here.lat + dy / radiusM / RAD, lon: here.lon + dx / (radiusM * cos) / RAD },
-      ]);
-    }
-  }
-  return out;
-}
-
-/**
- * The woods: a little tree standing on some of the wooded cells.
- *
- * Three segments apiece -- a trunk and the two sides of a crown -- because a
- * segment is what the layer above already knows how to project, so a tree
- * bends with the globe and grows with the ground like a contour does. Drawn
- * over the biome's colour rather than instead of it (owner, 2026-09-11:
- * besides the colour, a wood should be a pattern of svg trees).
- *
- * Where each tree stands is decided by the cell's own row and column, not by
- * a die: a scatter that is rolled afresh would crawl over the ground every
- * time the eye moved, and a wood that shimmers is worse than no wood at all.
- */
-export function woods(
-  rasters: Rasters,
-  samples: Samples,
-  passport: RasterPassport,
-  stepM: number,
-  radius: number,
-): Segment[] {
-  const wooded = new Set(
-    WOODED_BIOMES.map((name) => passport.biomes.indexOf(name)).filter((c) => c >= 0),
-  );
-  if (!wooded.size) return [];
-  const out: Segment[] = [];
-  const { nr, nc } = samples;
-  const radiusM = radius / UNITS_PER_METRE;
-  const tall = TREE_SHARE * stepM;
-  const wide = 0.35 * tall;
-  //: One tree per **cell**, and the cell is the tree's identity. The mesh
-  //: the window is read on hangs off the eye and slides over the cells as
-  //: the eye moves; a tree that was told apart by its place in the mesh
-  //: jumped to another cell at every step (owner, 2026-09-11: the trees
-  //: jittered as the camera moved). The cell's number is the same
-  //: from every eye, and so is its centre (`cellCentre`).
-  const seen = new Set<number>();
-  for (let i = 1; i < nr - 1; i++) {
-    for (let j = 1; j < nc - 1; j++) {
-      const point = samples.geo(i, j);
-      const cell = ang2pix(passport.nside, point.lat, point.lon);
-      if (seen.has(cell)) continue;
-      seen.add(cell);
-      const atlas = atlasIndex(passport, cell);
-      if (!wooded.has(rasters.biome[atlas])) continue;
-      //: Nothing under water: a wooded cell of the shore's last strip.
-      if (rasters.height[atlas] < 0) continue;
-      //: The cell's own number, mixed by two coprimes: a scatter that does
-      //: not line up into rows, and one that every eye agrees on.
-      if ((cell * 7 + (cell >> 3) * 13) % TREE_EVERY !== 0) continue;
-      const here = cellCentre(passport.nside, cell);
-      const cos = Math.max(Math.cos(here.lat * RAD), 0.05);
-      //: Metres of ground into degrees, at this latitude.
-      const north = (m: number) => here.lat + m / radiusM / RAD;
-      const east = (m: number) => here.lon + m / (radiusM * cos) / RAD;
-      //: Jittered within its own cell by the cell's own number, so the
-      //: trees do not stand in a lattice -- and stand still.
-      const dx = (((cell * 11) % 7) / 7 - 0.5) * stepM * 0.6;
-      const dy = (((cell * 3 + 17) % 7) / 7 - 0.5) * stepM * 0.6;
-      const at = (up: number, side: number): Geo => ({
-        lat: north(dy + up),
-        lon: east(dx + side),
-      });
-      //: The trunk, and then a crown: three tiers narrowing to the top, the
-      //: way a conifer is drawn on every map there has ever been. Every
-      //: wood is drawn as firs (owner, 2026-09-11: the trees are to be shown
-      //: as firs): a round head read as a hexagon on a stick at the near
-      //: frames and as a blot at the far ones, and one figure for all the
-      //: woods is the mark, not a botany. One stroke apiece, so a tree is a
-      //: figure and not the letter A it was when the crown was two lines.
-      out.push([at(0, 0), at(tall, 0)]);
-      for (let tier = 0; tier < TREE_TIERS; tier++) {
-        //: Each tier sits higher and reaches less far: the lowest is the
-        //: widest, and the top one is the point.
-        const share = tier / TREE_TIERS;
-        const up = tall * (0.3 + 0.7 * share);
-        const arm = wide * (1 - share);
-        const peak = { lat: north(dy + up + 0.22 * tall), lon: east(dx) };
-        out.push([at(up, -arm), peak], [peak, at(up, arm)]);
-      }
-    }
-  }
-  return out;
-}
-
 /** The frame's width in metres from half its width in map units. */
 export function frameMetres(within: number | undefined): number {
   return within === undefined ? Infinity : (2 * within) / UNITS_PER_METRE;
@@ -823,9 +670,8 @@ export function provinceWhole(
  */
 export type FrameLines = {
   contours: { level: number; index: boolean; segments: Segment[] }[];
-  hachures: Segment[];
-  /** The little trees standing on the wooded cells (`woods`). */
-  woods: Segment[];
+  /** The figures of the growth standing on the cells, by figure (`figures`). */
+  figures: Partial<Record<Figure, Segment[]>>;
 };
 
 /** No lines at all: built afresh each time, because it is handed out of an
@@ -833,8 +679,7 @@ export type FrameLines = {
 function nothing(): FrameLines {
   return {
     contours: [],
-    hachures: [],
-    woods: [],
+    figures: {},
   };
 }
 
@@ -845,6 +690,11 @@ export function frameLines(
   radius: number,
   within: number | undefined,
   lattice: Lattice = latticeOf(passport),
+  wanted: { contours: boolean; figures: boolean; growth: Growth | null; frameM?: number } = {
+    contours: true,
+    figures: true,
+    growth: null,
+  },
 ): FrameLines {
   const frame = frameMetres(within);
   //: The ladder has a rung for every frame a line is drawn on: the interval
@@ -855,14 +705,48 @@ export function frameLines(
   //: Every line of a near frame is cut on one mesh of ground about the eye,
   //: reaching to the frame's corner with the window's own margin.
   const reach = (frame / 2) * Math.SQRT2 * (1 + WINDOW_MARGIN);
-  const { samples, stepM } = localSamples(lattice, eye, radius, reach, passport.step_m);
+  const { samples } = localSamples(lattice, eye, radius, reach, passport.step_m);
+  //: What the map has switched off is not cut at all (D-331): a hidden
+  //: line that was still walked and projected on every eye was a cost for
+  //: nothing.
   return {
-    contours: contours(rasters, samples, interval),
-    hachures: hachures(rasters, samples, passport, stepM, radius),
-    //: Nearer than the rest of the lines: a tree is a figure and needs room
-    //: to be one (`TREE_FRAME_M`).
-    woods: frame <= TREE_FRAME_M ? woods(rasters, samples, passport, stepM, radius) : [],
+    contours: wanted.contours ? contours(rasters, samples, interval) : [],
+    //: The figures are cut to the frame itself, not to the window
+    //: (`figureLines`): with the frame's width told, here; without it,
+    //: none -- the window is a kilometre across at its finest, and the
+    //: figures of a kilometre are thousands of marks of three pixels.
+    figures:
+      wanted.figures && wanted.growth && wanted.frameM !== undefined
+        ? figureLines(rasters, passport, eye, radius, wanted.frameM, lattice, wanted.growth)
+        : {},
   };
+}
+
+/**
+ * The figures of the growth, cut to the **frame** rather than to the
+ * window the contours are cut on: a figure is a couple of metres of ground
+ * (`figures.FIGURE_OF_NODE`) and is drawn from TREE_FRAME_M in, where the
+ * window stands at its finest -- a kilometre across -- whatever the frame;
+ * cut to the window, a frame of a hundred metres paid for the figures of a
+ * kilometre on every step of the eye. Its own mesh about the eye, reaching
+ * to the frame's corner with the window's margin, and its lattice opens
+ * with the frame so that the widest frame holds FIGURE_ACROSS figures
+ * across and not a mat of them.
+ */
+export function figureLines(
+  rasters: Rasters,
+  passport: RasterPassport,
+  eye: Eye,
+  radius: number,
+  frameM: number,
+  lattice: Lattice = latticeOf(passport),
+  growth: Growth,
+): Partial<Record<Figure, Segment[]>> {
+  if (!(frameM <= TREE_FRAME_M)) return {};
+  const reach = (frameM / 2) * Math.SQRT2 * (1 + WINDOW_MARGIN);
+  const { samples } = localSamples(lattice, eye, radius, reach, passport.step_m);
+  const spacing = Math.max(FIGURE_SPACING_M, frameM / FIGURE_ACROSS);
+  return figures(rasters, samples, passport, growth, radius, spacing);
 }
 
 /** The boundaries of the provinces about the eye, cut on a mesh of ground.

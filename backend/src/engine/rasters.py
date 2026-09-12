@@ -38,6 +38,7 @@ import numpy as np
 from src import field as fields
 from src import healpix
 from src.constants import Constants
+from src.constants import registry as R
 from src.engine import biome, terrain
 from src.models.world import Planet
 
@@ -203,6 +204,16 @@ def _encode(constants: Constants, planet: Planet, field, kind: str) -> bytes:
         own = laid(ribbon)
         channel = laid(field.water) == fields.RIVER
         return _bytes(np.clip(np.where(channel, np.maximum(mean, own), mean), 0, byte.max))
+    if kind == "temperature":
+        #: The climate as the map's climate layer reads it (D-331): the
+        #: mean over the thinned cells, in the field's half-degree steps.
+        byte = np.iinfo(np.uint8)
+        warm = laid(field.temperature_c.astype(np.float64), average=True)
+        span = constants[R.TERRAIN_TEMP_RANGE][planet.value]
+        floor, step = fields.temperature_scale(span["min"], span["max"])
+        return _bytes(np.clip(np.round((warm - floor) / step), byte.min, byte.max))
+    if kind == "rain":
+        return _bytes(laid(field.rain.astype(np.float64), average=True))
     if kind == "flow":
         #: The catchment on a log scale, because a river's catchment runs
         #: from twenty square kilometres to four thousand and the eye reads

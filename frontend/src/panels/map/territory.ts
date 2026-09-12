@@ -24,12 +24,21 @@
  * the discs instead would have done it too, and would have blown the land of
  * every node of a spread-out city up to half its farthest gap.
  *
+ * The **ways between the city's own nodes** are capsules of the same kind
+ * (D-332, owner: "a ring of ways should close the land"): a tree has no cycles, so a
+ * ring of nodes joined by ways was bridged open at its widest gap and the
+ * ground the ring encloses lay outside the city. With the streets in the
+ * field the ring closes, the middle is a hole, and a hole is dropped -- the
+ * city has none. Whose land a node is comes from the wire (`territory`,
+ * failing that `parent`): the engine takes a find into the city by the
+ * highway paved to it, and the picture only follows.
+ *
  * The field is rastered, its contour traced (marching squares), the trace
  * smoothed (Chaikin) and given back in degrees, so the globe projects it
  * like any way. Pure arithmetic, once per map.
  */
 
-import type { MapNode } from "../../api";
+import type { MapEdge, MapNode } from "../../api";
 import type { Geo } from "./globe";
 
 const RAD = Math.PI / 180;
@@ -75,14 +84,25 @@ const SMOOTHING = 2;
 type Disc = { x: number; y: number; r: number };
 /** An isthmus: a capsule of the same field, laid between two nodes. */
 type Bridge = { ax: number; ay: number; bx: number; by: number };
+/** A way between two members, by their keys. */
+export type Way = readonly [string, string];
 
 /** The outlines of the cities among these nodes, by the city's key: each a
- *  list of closed loops of lat/lon. A city with no placed member has none. */
-export function cityOutlines(nodes: readonly MapNode[], radiusM: number): Map<string, Geo[][]> {
+ *  list of closed loops of lat/lon. A city with no placed member has none.
+ *  The ways are the map's edges; those between two nodes of one city are
+ *  its streets and close its land (D-332). */
+export function cityOutlines(
+  nodes: readonly MapNode[],
+  radiusM: number,
+  ways: readonly MapEdge[] = [],
+): Map<string, Geo[][]> {
   const members = new Map<string, MapNode[]>();
   for (const node of nodes) {
-    if (!node.parent || !node.place || !("lat" in node.place)) continue;
-    members.set(node.parent, [...(members.get(node.parent) ?? []), node]);
+    //: Whose land: the wire's word where it has one (D-332), the parent
+    //: otherwise -- a plot under its city, a find under the planet.
+    const city = node.territory ?? node.parent;
+    if (!city || !node.place || !("lat" in node.place)) continue;
+    members.set(city, [...(members.get(city) ?? []), node]);
   }
   const byKey = new Map(nodes.map((node) => [node.key, node]));
   const out = new Map<string, Geo[][]>();
@@ -96,15 +116,31 @@ export function cityOutlines(nodes: readonly MapNode[], radiusM: number): Map<st
     //: outline by right; now it is the plot the bioprinter stands on, and
     //: left out it took the centroid with it -- the middle of the city
     //: covered by the spanning tree's isthmuses alone.
-    const whole = head.place && "lat" in head.place ? [head, ...own] : own;
-    const loops = outlineOf(whole, radiusM);
+    //: Once each: a row that names the city's own node as its territory --
+    //: the wire does not, but the picture must not depend on it -- would
+    //: put the head in `own` as well, and a second disc on the same spot
+    //: halves the typical spacing and lays a bridge of no length.
+    const whole = [
+      ...new Map((head.place && "lat" in head.place ? [head, ...own] : own).map((node) => [node.key, node])).values(),
+    ];
+    const keys = new Set(whole.map((node) => node.key));
+    const streets: Way[] = ways
+      .filter((way) => keys.has(way.a) && keys.has(way.b))
+      .map((way) => [way.a, way.b]);
+    const loops = outlineOf(whole, radiusM, streets);
     if (loops.length) out.set(city, loops);
   }
   return out;
 }
 
-/** One city's outline, loops of lat/lon. */
-export function outlineOf(members: readonly MapNode[], radiusM: number): Geo[][] {
+/** One city's outline, loops of lat/lon. The ways are its streets: those
+ *  between two of its members close the land between them (D-332); one to
+ *  anybody else is not the city's and is passed over. */
+export function outlineOf(
+  members: readonly MapNode[],
+  radiusM: number,
+  ways: readonly Way[] = [],
+): Geo[][] {
   //: Members and places are picked in one pass, not two: a member with no
   //: place used to shift every disc after it onto its neighbour's centre,
   //: and the last of them onto nothing at all -- a disc at `undefined`, a
@@ -135,8 +171,18 @@ export function outlineOf(members: readonly MapNode[], radiusM: number): Geo[][]
     ...centres[i],
     r: Math.max(least, Math.sqrt(Math.max(1, node.area ?? FALLBACK_AREA_M2) / Math.PI)),
   }));
-  return traceField(discs, spacing, least).map((loop) => loop.map(toGeo));
+  const index = new Map(placed.map((node, i) => [node.key, i]));
+  const streets: Pair[] = [];
+  for (const [a, b] of ways) {
+    const i = index.get(a);
+    const j = index.get(b);
+    if (i !== undefined && j !== undefined && i !== j) streets.push([i, j]);
+  }
+  return traceField(discs, spacing, least, streets).map((loop) => loop.map(toGeo));
 }
+
+/** Two of the discs, by index. */
+type Pair = [number, number];
 
 /** The median distance from a node to its nearest neighbour. */
 function typicalSpacing(points: readonly { x: number; y: number }[]): number {
@@ -186,14 +232,14 @@ function fieldAt(
 }
 
 /**
- * The shortest tree that joins every node (Prim), as isthmuses.
+ * The shortest tree that joins every node (Prim), as pairs of discs.
  *
  * Every node ends up on it, so the blot is one however the city is spread;
  * and it is the *shortest* such tree, so nothing is bridged that a nearer
  * pair has already joined. Order does not enter it: the tree is a property
  * of the points.
  */
-function spanOf(discs: readonly Disc[]): Bridge[] {
+function spanOf(discs: readonly Disc[]): Pair[] {
   if (discs.length < 2) return [];
   //: Prim over the points, each carrying the nearest one already on the tree
   //: and how far that is -- so every node is looked at once per step rather
@@ -201,7 +247,7 @@ function spanOf(discs: readonly Disc[]): Bridge[] {
   const onTree = discs.map(() => false);
   const run = discs.map(() => Infinity);
   const from = discs.map(() => 0);
-  const bridges: Bridge[] = [];
+  const pairs: Pair[] = [];
   onTree[0] = true;
   for (let i = 1; i < discs.length; i++) {
     run[i] = (discs[0].x - discs[i].x) ** 2 + (discs[0].y - discs[i].y) ** 2;
@@ -211,9 +257,8 @@ function spanOf(discs: readonly Disc[]): Bridge[] {
     for (let i = 0; i < discs.length; i++) {
       if (!onTree[i] && (next < 0 || run[i] < run[next])) next = i;
     }
-    const a = discs[from[next]];
     const b = discs[next];
-    bridges.push({ ax: a.x, ay: a.y, bx: b.x, by: b.y });
+    pairs.push([from[next], next]);
     onTree[next] = true;
     for (let i = 0; i < discs.length; i++) {
       if (onTree[i]) continue;
@@ -224,14 +269,35 @@ function spanOf(discs: readonly Disc[]): Bridge[] {
       }
     }
   }
-  return bridges;
+  return pairs;
 }
 
-/** The contour of the field at one, rastered and traced: closed loops. */
+/** The isthmuses of the tree and the streets, each pair once: a street that
+ *  is also a limb of the tree would otherwise count twice in the field and
+ *  swell to a wider neck than its neighbours. */
+function capsules(discs: readonly Disc[], ...laid: readonly (readonly Pair[])[]): Bridge[] {
+  const seen = new Set<string>();
+  const out: Bridge[] = [];
+  for (const pairs of laid) {
+    for (const [i, j] of pairs) {
+      const key = i < j ? `${i}:${j}` : `${j}:${i}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const a = discs[i];
+      const b = discs[j];
+      out.push({ ax: a.x, ay: a.y, bx: b.x, by: b.y });
+    }
+  }
+  return out;
+}
+
+/** The contour of the field at one, rastered and traced: closed loops. The
+ *  streets are pairs of discs joined by a way (D-332). */
 function traceField(
   discs: readonly Disc[],
   spacing: number,
   least: number,
+  streets: readonly Pair[] = [],
 ): { x: number; y: number }[][] {
   //: The blot cannot reach past twice a disc's radius from its centre: the
   //: raster covers that and a cell more.
@@ -251,7 +317,7 @@ function traceField(
     spanX / (MAX_CELLS - MARGIN_CELLS),
     spanY / (MAX_CELLS - MARGIN_CELLS),
   );
-  const bridges = spanOf(discs);
+  const bridges = capsules(discs, spanOf(discs), streets);
   //: As wide as the smallest node's land, and never narrower than the grid
   //: can see (`BRIDGE_CELLS`). The margin grows with it: an isthmus swells a
   //: little past its own axis, as a disc does past its centre.

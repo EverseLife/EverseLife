@@ -17,6 +17,9 @@ import {
   segmentsCross,
   snapTo,
   warmthOf,
+  joinAim,
+  nodeShadow,
+  segmentGap,
   wayShadow,
   type Rules,
 } from "../panels/map/scout";
@@ -263,5 +266,68 @@ describe("the lattice under the finger", () => {
         () => true,
       ),
     ).toBe(null);
+  });
+});
+
+describe("the way against the nodes beside it (D-321 addendum, 2026-09-12)", () => {
+  //: A small hut eight metres east -- its land three metres round, its
+  //: exclusion eight -- and the ring reaching twenty: the ground straight
+  //: behind the hut lies outside its exclusion and still in its shadow.
+  const small = fieldOf(
+    origin,
+    { min: 5, max: 20 },
+    [
+      { key: "here", at: origin, area: 100 },
+      { key: "hut", at: { x: 8 * M, y: 0 }, area: 25 },
+    ],
+    [],
+    LOOSE,
+  );
+  const behind = { x: 18 * M, y: 0 };
+  const beside = { x: 16 * M, y: 8 * M };
+  it("passes through no node's land", () => {
+    expect(scoutable(small, behind, true)).toBe(false);
+    expect(scoutable(small, beside, true)).toBe(true);
+    expect(segmentGap(origin, behind, { x: 8 * M, y: 0 })).toBe(0);
+    expect(segmentGap(origin, beside, { x: 8 * M, y: 0 })).toBeGreaterThan(small.blocks[1].core);
+  });
+  it("casts the hut's shadow over the field, and none for the node underfoot", () => {
+    const [here, hut] = field.blocks;
+    expect(nodeShadow(field, here)).toBeNull();
+    const shadow = nodeShadow(field, hut);
+    expect(shadow).not.toBeNull();
+    //: The shadow's near edge is the hut's own width, at the hut.
+    expect(shadow).toContain(`M${10 * M} ${hut.core}L${10 * M} ${-hut.core}`);
+  });
+  it("is not cast by a node whose land covers the origin", () => {
+    const covered = fieldOf(
+      origin,
+      { min: 5, max: 20 },
+      [
+        { key: "here", at: origin, area: 100 },
+        { key: "wide", at: { x: 2 * M, y: 0 }, area: 400 },
+      ],
+      [],
+      LOOSE,
+    );
+    expect(nodeShadow(covered, covered.blocks[1])).toBeNull();
+    //: Aimed away from the wide node, past its exclusion, the way starts
+    //: inside its land and is not refused for passing through it -- as
+    //: `aim.check` reads it.
+    expect(scoutable(covered, { x: -18 * M, y: 0 }, true)).toBe(true);
+  });
+});
+
+describe("the way's aim (D-321 addendum, 2026-09-12)", () => {
+  const where = { here: "camp", planet: "terra" };
+  it("names a known node of this ground by its place", () => {
+    expect(joinAim({ key: "hut", planet: "terra", place: { lat: 1, lon: 2 } }, where)).toEqual({ lat: 1, lon: 2 });
+  });
+  it("names nothing for the node underfoot, another ground, a hull or a body of the sky", () => {
+    expect(joinAim({ key: "camp", planet: "terra", place: { lat: 1, lon: 2 } }, where)).toBeNull();
+    expect(joinAim({ key: "hut", planet: "aurora", place: { lat: 1, lon: 2 } }, where)).toBeNull();
+    expect(joinAim({ key: "hull", planet: "terra", place: { lat: 1, lon: 2 }, aboard: true }, where)).toBeNull();
+    expect(joinAim({ key: "moon", planet: "terra", place: { lat: 1, lon: 2 }, orbit: { radius: 1 } }, where)).toBeNull();
+    expect(joinAim({ key: "room", planet: "terra", place: { x: 1, y: 2 } }, where)).toBeNull();
   });
 });

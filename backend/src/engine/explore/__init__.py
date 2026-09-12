@@ -11,7 +11,8 @@ field and becomes a node (`run`). The same cell is the same node for everybody
 (`_base`): the lattice, not a row, is what the world agrees on.
 
 The package is a stack: `_base` is the floor (the lattice and the refusals),
-`aim` reads the world to judge a target, `run` writes it.
+`aim` reads the world to judge a target, `peek` tells what the field says
+there before the walk (D-321 addendum), `run` writes it.
 """
 
 from src.engine.explore._base import (  # noqa: F401
@@ -29,6 +30,7 @@ from src.engine.explore._base import (  # noqa: F401
     NotOut,
     ScoutGone,
     Shut,
+    ThroughNode,
     TooFar,
     TooNear,
     cell_of,
@@ -37,6 +39,7 @@ from src.engine.explore._base import (  # noqa: F401
     point_of,
 )
 from src.engine.explore.aim import area_for, check, crosses_water, radius_of, word_of  # noqa: F401
+from src.engine.explore.peek import peek  # noqa: F401
 from src.engine.explore.run import (  # noqa: F401
     FORD,
     NAMELESS,

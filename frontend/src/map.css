@@ -87,8 +87,8 @@
 .map-field > svg {
   position: relative;
 }
-/* The lines of the relief (landscape plan wave 6): contours, the hachures
-   of the cliffs, the trees of the woods. Vector on purpose -- thin and
+/* The lines of the relief (landscape plan wave 6): contours and the trees
+   of the woods. Vector on purpose -- thin and
    sharp at any zoom (plan §9.5) -- and a pixel wide whatever the frame,
    like every line of the map. The water -- sea, lakes, rivers -- is the
    shader's, and so is the shore: no line runs along it (2026-09-11). */
@@ -107,23 +107,41 @@
   stroke-opacity: 0.55;
   stroke-width: 1;
 }
-.relief-lines .hachure {
-  stroke: var(--base-950);
+/* On the relief layer the lines are the point (owner, 2026-09-12): a
+   hypsometric ground is read by its contours, and the hairline that is
+   right over the country's own colours is too faint over ochre and stone.
+   The field carries the ground's name (`data-ground`, `GraphMap.tsx`). */
+.map-field[data-ground="relief"] .relief-lines .contour {
+  stroke: var(--base-200);
   stroke-opacity: 0.7;
   stroke-width: 0.8;
+}
+.map-field[data-ground="relief"] .relief-lines .contour.index {
+  stroke-opacity: 0.95;
+  stroke-width: 1.3;
 }
 /* The woods as woods and not only as a tint (owner, 2026-09-11): a scatter
    of little trees over the ground's own colour, the way a topographic sheet
    draws a wood. Dark green rather than the palette's ink: a tree is a thing
    of the country, and the black lines of this layer are readings of it --
-   the contour, the hachure. Thin, so a wood running down to the water does
+   the contour. Thin, so a wood running down to the water does
    not blur the shore the colour draws. */
-.relief-lines .wood {
-  stroke: light-dark(#1d4023, #b7d6ae);
-  stroke-opacity: 0.55;
+.relief-lines .figure {
+  stroke-opacity: 0.6;
   stroke-width: 0.7;
   stroke-linejoin: round;
 }
+/* Each figure its own green (D-331): the biome names the figure, the
+   figure names the tone -- a taiga's firs are darker than a savanna's
+   umbrellas, a marsh's reeds are the water's green. */
+.relief-lines .figure.fir { stroke: light-dark(#1d4023, #b7d6ae); }
+.relief-lines .figure.broadleaf { stroke: light-dark(#2f6b2a, #a6d69b); }
+.relief-lines .figure.palm { stroke: light-dark(#1f6b3a, #9fd6b0); }
+.relief-lines .figure.acacia { stroke: light-dark(#5b6b1e, #c9d48a); }
+.relief-lines .figure.bush { stroke: light-dark(#6b6a2a, #cbc78a); }
+.relief-lines .figure.grass { stroke: light-dark(#7a8a2a, #d3d98a); stroke-width: 0.6; }
+.relief-lines .figure.reed { stroke: light-dark(#3a6b60, #9fd0c4); stroke-width: 0.6; }
+.relief-lines .figure.moss { stroke: light-dark(#6f7f5a, #c0c8a8); stroke-width: 0.6; }
 /* The provinces on the far frames (plan §9.7, wave 8): a hairline between
    two named lands and the name in the middle of what it encloses. Quieter
    than the coast -- a province is an agreement about a place, not a thing
@@ -172,128 +190,6 @@
   padding-inline: 0.6rem;
 }
 
-/* Two bars float over the field, and they are one thing in two places (D-238):
-   the layer switcher along the top edge, the sky's winder along the bottom.
-   Both ask about the view rather than about the world -- from what height am I
-   looking, does the camera come with me, at what hour do the planets stand --
-   so both belong on the map, where the eye already is, and neither may steal a
-   line of the field's height. What they cost is honest: each hides a strip at
-   its own edge -- a node or two a step north of the body, the same to the
-   south -- and that is why they are as small as they are, and why on a narrow
-   screen they go back into the flow instead. */
-.map-layers,
-.map-field > .sky {
-  position: absolute;
-  /* No `z-index`. Being positioned is enough to paint over the map: the svg
-     is positioned too since the GPU ground (landscape plan wave 5), and
-     positioned siblings paint in DOM order, the bar coming after the svg
-     -- and a `z-index` here would make each bar a stacking
-     context, trapping the hint's popup (fixed, z-index 20) at the bar's own
-     level, under the node menu and the strip of talk. The one layer that must
-     float over everything would have ended up under two of them. */
-  /* Centred by two zero offsets and an auto margin, not by `left: 50%` and a
-     shift back: from half-way a bar has only half the field to be wide in,
-     and it wrapped into two lines while the room beside it stood empty. */
-  left: 0;
-  right: 0;
-  max-width: calc(100% - 1rem);
-  margin: 0 auto;
-  padding: 0.2rem 0.35rem;
-  background: var(--base-900);
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-pop);
-}
-/* The layer bar stands on the map bare (owner, 2026-09-06): no box, no
-   ground, no hint -- its buttons are their own frame. The sky's winder
-   keeps its box: a scrubber over stars needs a ground to be read on. */
-.map-layers {
-  background: none;
-  border: 0;
-  padding: 0;
-}
-
-/* The zoom slider (owner, 2026-09-06): a vertical range at the right edge
-   of the map in place of the two loupe buttons -- up is nearer. On a phone
-   it runs the map's whole height; on a wide screen it is shorter, centred.
-   A native range, written vertically: the browser draws it, the finger
-   knows it. */
-.map-zoom {
-  position: absolute;
-  right: 0.6rem;
-  top: 50%;
-  transform: translateY(-50%);
-  height: 40%;
-  width: 1.6rem;
-  margin: 0;
-  writing-mode: vertical-lr;
-  direction: rtl;
-  accent-color: var(--act);
-  cursor: pointer;
-}
-@media (max-width: 56rem) {
-  .map-zoom {
-    top: 0.5rem;
-    bottom: 0.5rem;
-    height: auto;
-    transform: none;
-  }
-}
-.map-layers {
-  top: 0.4rem;
-  width: fit-content;
-  gap: 0.15rem;
-}
-/* The winder is not as wide as it likes: its slider would take whatever it is
-   given, and a scrubber across the whole sky is a control that hides its own
-   subject. A fixed measure, and the field around it stays sky. */
-.map-field > .sky {
-  bottom: 0.5rem;
-  width: min(32rem, calc(100% - 1rem));
-}
-
-/* The words go when the map's column is too narrow for them. The threshold is
-   the window's width and not the column's, and that is deliberate: a container
-   query would make the field a containing block, and the hint's popup is
-   `fixed` precisely so that no panel can clip it.
-   So the number is measured rather than guessed. The column comes out 627px
-   narrower than the window (the sidebar and the inspector take the rest), and
-   the bar with its words wants 470 -- about 560 in the rare case of a fourth
-   layer and a long city name. 76rem (1216px) leaves the column 589: room for
-   the usual bar with a hundred to spare, and for the rare one exactly. Below
-   that the marks stand alone, which fits any width down to a phone. */
-@media (max-width: 76rem) {
-  .map-layers .tab-word {
-    display: none;
-  }
-  /* A mark alone is 14px wide; a finger needs more than that. The hint keeps
-     its own circle -- it is round, and a minimum width would make it an egg. */
-  .map-layers button:not(.hint) {
-    min-width: 2rem;
-    justify-content: center;
-  }
-}
-/* The tether is a state, not a fifth layer. Left alone it wore the act
-   underline a chosen tab wears, and two underlined things in a bar where
-   exactly one layer is ever chosen read as two chosen tabs. So it says "on"
-   the way every other chosen toggle does -- a frame in the action colour and
-   the full tone -- and the underline stays the mark of the open layer alone.
-   The word and the mark change with the state as well -- tied or free, the
-   pin or the loose one -- so the colour is not carrying this by itself even
-   where the word is hidden. */
-.tabs button.cam-tie:not(.quiet):not(.link):not(.bare):not(:disabled),
-.tabs button.scout:not(.quiet):not(.link):not(.bare):not(:disabled) {
-  box-shadow: none;
-  border-color: var(--act);
-}
-
-/* The two questions are not one row of equals: the height is a set of
-   alternatives, the tether is a state of its own. */
-.map-sep {
-  width: 1px;
-  align-self: stretch;
-  margin: 0.1rem 0.25rem;
-  background: var(--hairline);
-}
 /* The column takes the air the panel no longer gives: it is words, and words
    set against a frame read as a fault. */
 .inspect {
@@ -355,27 +251,6 @@
     border-left: 0;
     border-top: 1px solid var(--line);
     overflow: visible;
-  }
-  /* Both bars step out of the way here, into the flow under the map. The
-     field is 230px tall on a 375px screen, and the switcher floating over its
-     top edge hid 50px of it -- a fifth of the world, and the fifth the body
-     usually stands in, because the camera centres on it. Under the map the
-     bars cost the height they take instead of the height they cover, and the
-     thumb reaches them where a phone's controls are looked for.
-     `order`, not markup: on a wide screen these float, and a bar that floats
-     belongs at the top of the field it floats over. */
-  .map-layers {
-    position: static;
-    order: 1;
-    margin: 0.4rem auto 0;
-  }
-  .map-field > .sky {
-    position: static;
-    order: 2;
-    width: auto;
-    max-width: none;
-    justify-content: center;
-    margin: 0.4rem 0 0;
   }
   /* Nothing floats over the field any more, so the empty layer's line has
      nothing to step down past. */
@@ -734,4 +609,11 @@ polyline.edge {
   stroke: var(--warning);
   stroke-dasharray: 2 4;
   opacity: 0.7;
+}
+
+/* The city-lands layer: the city's lands washed under the edge, a
+   political map's fill over any ground. The planet's own tint, not the
+   accent: the accent means a living person and nothing else (D-238). */
+.territory.filled .city-edge {
+  fill: color-mix(in srgb, var(--pc, #9aa) 22%, transparent);
 }

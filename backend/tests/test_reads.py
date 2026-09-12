@@ -646,6 +646,7 @@ READS: dict[str, dict[str, object]] = {
     "build.repair_estimate": {},
     "craft.most": {"output": "nails"},
     "craft.plan": {"output": "nails", "units": 3},
+    "explore.peek": {"lat": 0, "lon": 0},
     "deeds": {},
     "knowledge": {},
     "library.care": {"culture": "spelt"},
@@ -666,7 +667,9 @@ READS: dict[str, dict[str, object]] = {
 #: a write, and it is the path most of the nine leaked on -- "no such machine
 #: here" left a yard behind -- so they are swept too, they are simply not
 #: proof that the answering path was walked.
-REFUSING = {"library.care", "line.view", "ship.course"}
+#: The peek has nothing to tell a body that stands on no planet's ground
+#: (`explore-not-from-here`), and the forecaster stands in the old world.
+REFUSING = {"explore.peek", "library.care", "line.view", "ship.course"}
 
 #: And the ones a place without a yard has nothing to answer either: no yard,
 #: no machine standing in it, no batch to price. Pinned rather than left to

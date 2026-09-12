@@ -381,7 +381,7 @@ def test_the_rasters_are_the_field_thinned_and_named(constants: Constants) -> No
     metres = height * passport["height_unit_m"]
     assert metres.min() < 0 < metres.max() <= field.relief_m, "море ниже нуля, суша до размаха"
     assert (height[height > 0] % 10 != 0).any(), "у берега есть дециметры, не только метры"
-    for kind in ("biome", "form", "water", "rock", "province", "stream"):
+    for kind in ("biome", "form", "water", "rock", "province", "stream", "temperature", "rain"):
         got = np.frombuffer(rasters.raster_bytes(constants, Planet.TERRA, kind), dtype=np.uint8)
         assert got.size == n, kind
     water = np.frombuffer(rasters.raster_bytes(constants, Planet.TERRA, "water"), dtype=np.uint8)
@@ -426,6 +426,23 @@ def test_the_rasters_are_the_field_thinned_and_named(constants: Constants) -> No
         rasters.raster_bytes(constants, Planet.TERRA, "province"), dtype=np.uint8
     )
     assert passport["provinces"] == list(field.provinces)
+    #: The climate rasters for the map's climate layer (D-331): a byte of
+    #: half-degrees from the passport's floor, and the rain as it is.
+    scale = passport["temperature_c"]
+    assert scale["cold"] < scale["hot"] and scale["min"] < scale["cold"] and scale["step"] >= 0.5
+    warm = np.frombuffer(
+        rasters.raster_bytes(constants, Planet.TERRA, "temperature"), dtype=np.uint8
+    )
+    degrees = scale["min"] + warm * scale["step"]
+    assert scale["cold"] - 30 <= degrees.min() < degrees.max() <= scale["hot"] + 30
+    #: And a planet the one scale did not fit (Pyroxis runs past a hundred):
+    #: its own scale reaches its own range.
+    hot = terrain.raster_passport(constants, Planet.PYROXIS, fields.of(constants, Planet.PYROXIS))
+    fire = hot["temperature_c"]
+    assert fire["min"] + 255 * fire["step"] >= fire["hot"]
+    #: The growth's figures and shares are the book's, not the passport's
+    #: (D-225): the client reads them off `/public/constants`.
+    assert "figures" not in passport and "woods" not in passport
     assert province.max() == len(field.provinces)
     assert (province[seats][wet] == 0).all(), "the sea is in no province"
     assert (province[seats][~wet] > 0).all(), "every cell of the land is in one"

@@ -45,6 +45,17 @@ export type Rasters = {
    *  bank (the vault's `pipeline.ribbon`), so the shader cuts it between
    *  the cells as it cuts a lake's. */
   stream: Uint8Array;
+  /** The climate, for the map's climate layers (D-331): the temperature in
+   *  the passport's steps; the rain a byte of the field's own share, nought
+   *  to one over `site.rain_range` -- the scale a node's `precipitation`
+   *  and the drying law read it on (D-126), not a share of the wettest
+   *  cell. */
+  temperature: Uint8Array;
+  rain: Uint8Array;
+  /** Metres to the nearest river or lake, a byte (255 and past it: far),
+   *  the engine's own measure of "beside water" (`terrain.marks_at`), for
+   *  the moisture layer (D-331 addendum). */
+  river: Uint8Array;
 };
 
 const RASTERS = new Map<string, Promise<Rasters>>();
@@ -56,6 +67,7 @@ export function rastersOf(planet: string): Promise<Rasters> {
   if (!asked) {
     const kinds = [
       "height", "biome", "form", "water", "rock", "province", "flow", "lake", "stream",
+      "temperature", "rain", "river",
     ] as const satisfies readonly RasterKind[];
     asked = Promise.all([
       //: The passport says what a step of the height raster is worth, and
@@ -67,7 +79,7 @@ export function rastersOf(planet: string): Promise<Rasters> {
         return unit;
       }),
       ...kinds.map((kind) => api.terrainRaster(planet, kind)),
-    ]).then(([unit, height, biome, form, water, rock, province, flow, lake, stream]) => ({
+    ]).then(([unit, height, biome, form, water, rock, province, flow, lake, stream, temperature, rain, river]) => ({
       height: heightsOf(height, unit),
       biome: new Uint8Array(biome),
       form: new Uint8Array(form),
@@ -77,6 +89,9 @@ export function rastersOf(planet: string): Promise<Rasters> {
       flow: new Uint8Array(flow),
       lake: new Uint8Array(lake),
       stream: new Uint8Array(stream),
+      temperature: new Uint8Array(temperature),
+      rain: new Uint8Array(rain),
+      river: new Uint8Array(river),
     }));
     asked.catch(() => RASTERS.delete(planet));
     RASTERS.set(planet, asked);

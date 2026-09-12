@@ -7,11 +7,14 @@
  * boundary between two named lands, and the name written in the middle of
  * what it encloses.
  *
- * Drawn on the far frames alone, and given up exactly where the relief's
- * lines begin (`closeFrame`). One ladder in two halves: far out the map
- * answers "what land is this", close in it answers "what is the ground
- * here", and neither crowds the other's frame. Close in the province is
- * not lost -- the inspector names it under every find (wave 3).
+ * Drawn on every frame while the provinces overlay is on, and on none
+ * when it is off (D-331 addendum). They used to be the far frames' alone,
+ * given up where the relief's lines begin (`closeFrame`), and the overlay
+ * only added them to the near frames -- so on the frames a player looks
+ * at most the switch did nothing visible (owner, 2026-09-12: the button
+ * switches nothing). On by default: the far frames answer "what land is
+ * this" as they always have; off, the map is the ground alone, and the
+ * inspector still names the province under every find (wave 3).
  *
  * Where each name is written is read once per planet -- a mean over the
  * ground, which no frame changes -- and so are the boundaries **as the
@@ -31,8 +34,6 @@ import { useTerrain } from "./Ground";
 import { PROVINCE_EM } from "./labels";
 import { project, type Eye } from "./globe";
 import {
-  closeFrame,
-  frameMetres,
   provinceFrame,
   provinceWhole,
   quantisedEye,
@@ -55,12 +56,16 @@ export function Provinces({
   radius,
   within,
   far,
+  on = true,
 }: {
   planet: string;
   eye: Eye;
   radius: number;
   /** Half the frame's width in map units; undefined from the planet frame. */
   within: number | undefined;
+  /** Whether the provinces overlay is on (D-331): boundaries and names on
+   *  every frame, or nothing at all. */
+  on?: boolean;
   /** How far out the frame stands, in half-octaves: the names are drawn at
    *  a size in pixels, and the map's units are pixels only at scale one. */
   far: number;
@@ -68,8 +73,8 @@ export function Provinces({
   const rasters = useRasters(planet);
   const passport = useTerrain(planet)?.raster ?? null;
   const names = useNames();
-  //: Far frames only: the near ones belong to the relief's lines.
-  const wide = !closeFrame(frameMetres(within));
+  //: The overlay's switch, and nothing else: on, every frame; off, none.
+  const wide = on;
   const whole = useMemo(() => {
     if (!wide || !rasters || !passport) return null;
     let held = WHOLE.get(planet);

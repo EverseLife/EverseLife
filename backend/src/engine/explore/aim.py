@@ -46,6 +46,7 @@ from src.engine.explore._base import (
     NotFromHere,
     NotLand,
     Shut,
+    ThroughNode,
     TooFar,
     TooNear,
     cell_of,
@@ -107,6 +108,17 @@ def _flat(radius: float, origin: globe.Geo, point: globe.Geo) -> tuple[float, fl
         math.radians(globe.wrap_lon(point[1] - origin[1])) * radius / globe.lon_stretch(origin[0]),
         math.radians(point[0] - origin[0]) * radius,
     )
+
+
+def _gap(a: tuple[float, float], b: tuple[float, float], p: tuple[float, float]) -> float:
+    """How far the point `p` stands from the segment `a`-`b`, on the plane."""
+    ax, ay = a
+    dx, dy = b[0] - ax, b[1] - ay
+    length = dx * dx + dy * dy
+    if length <= 0.0:
+        return math.hypot(p[0] - ax, p[1] - ay)
+    share = max(0.0, min(1.0, ((p[0] - ax) * dx + (p[1] - ay) * dy) / length))
+    return math.hypot(p[0] - (ax + share * dx), p[1] - (ay + share * dy))
 
 
 def _side(p: tuple[float, float], q: tuple[float, float], r: tuple[float, float]) -> float:
@@ -298,6 +310,23 @@ async def check(
             continue
         if segments_cross(a, b, ends[0], ends[1]):
             raise CrossesWay(key="explore-crosses-way")
+    #: And against every node standing beside it, on the same plane: a way
+    #: through somebody's land would be a way through their door (owner,
+    #: 2026-09-12: an edge is not laid through a node). The origin and the
+    #: cell's own node are the way's ends, not its obstacles; a target
+    #: beside a node is refused for the room first, as it always was.
+    for node, _ in placed:
+        if node.id == origin.id or (existing is not None and node.id == existing.id):
+            continue
+        #: A node whose land already covers the origin is not in the way:
+        #: the seats of a city overlap (`map.min_gap_m` against
+        #: `explore.node_area`, the vault's own note), and a gate that stands
+        #: inside the oil field's circle could otherwise aim at nothing at
+        #: all. The way starts inside that land; it does not pass through it.
+        if math.hypot(*flat[node.id]) < radius_of(node.area_m2):
+            continue
+        if _gap(a, b, flat[node.id]) < radius_of(node.area_m2):
+            raise ThroughNode(key="explore-through-node", node=word_of(constants, node))
     return Aim(
         origin_id=origin.id,
         planet=planet,

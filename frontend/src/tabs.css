@@ -5,8 +5,10 @@
  * Tabs and their marks: a glyph beside the label, never instead of it.
  */
 
-/* Sidebar tabs: a mark beside the label, never instead of it. */
-.tabs button {
+/* Sidebar tabs: a mark beside the label, never instead of it. A menu's
+   item is not a tab, wherever the menu hangs -- the map's layers open off
+   the switcher's bar, which is a row of tabs (D-331). */
+.tabs button:not([role^="menuitem"]) {
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;

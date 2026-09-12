@@ -17,6 +17,7 @@ explore-not-land = there is water or the edge of the world there: a node has not
 explore-into-water = the straight way there lies across water: from the shore one does not scout into the sea, a river is crossed at a ford
 explore-no-room = it is crowded there: the ground is already taken — { $node }
 explore-crosses-way = the way there would cross one already laid: one scouts between ways, not across them
+explore-through-node = the way there would pass through the node “{ $node }”: ways lead past nodes, not through them
 explore-already-out = scouting is already under way
 explore-harnessed = one does not scout in harness: a cart does not cross wild ground — unharness it
 explore-shut = { $node } stands there already, and its door is shut to you

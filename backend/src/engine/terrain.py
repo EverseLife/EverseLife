@@ -250,6 +250,8 @@ RASTER_KINDS = (
     "flow",
     "lake",
     "stream",
+    "temperature",
+    "rain",
 )
 
 
@@ -287,12 +289,19 @@ def raster_nside(field: fields.Field) -> int:
     return best
 
 
+def _temperature_passport(constants: Constants, planet: Planet) -> dict:
+    span = constants[R.TERRAIN_TEMP_RANGE][planet.value]
+    floor, step = fields.temperature_scale(span["min"], span["max"])
+    return {"min": floor, "step": step, "cold": float(span["min"]), "hot": float(span["max"])}
+
+
 def raster_passport(constants: Constants, planet: Planet, field: fields.Field) -> dict:
     """What the rasters are: the grid they are cut on, how they are laid out
     as a texture, the rise a height is a share of, the code tables, and what
     the planet's fluid is."""
     nside = raster_nside(field)
     rows, cols = healpix.tile_shape(nside)
+    biomes = list(constants[R.BIOME_NAMES])
     return {
         #: What flows here: `water` or `lava` (the registry). One raster
         #: says where the fluid is on every planet -- the engine refuses to
@@ -333,7 +342,10 @@ def raster_passport(constants: Constants, planet: Planet, field: fields.Field) -
         #: The list repeats the order of `biome.names` on `/public/constants`
         #: on purpose: it is the contract of the bytes, kept beside them, so
         #: a raster and the book it was cut against cannot be read apart.
-        "biomes": list(constants[R.BIOME_NAMES]),
+        "biomes": biomes,
+        #: What the map draws a biome's growth with (`biome.figure`) and how
+        #: thickly (`biome.marks`) is not here: the client reads both off
+        #: `/public/constants` by the biome's name (D-225, D-331).
         "forms": list(field.forms),
         #: `water` a byte a cell into this list: the rivers are cells of it,
         #: not a landform, and the vector layer threads them by it (wave 6).
@@ -354,4 +366,11 @@ def raster_passport(constants: Constants, planet: Planet, field: fields.Field) -
         #: writes the name in the middle of what it encloses (wave 8); the
         #: word itself comes from `/public/renames`, as a node's does.
         "provinces": list(field.provinces),
+        #: `temperature` is a byte a cell: `min + byte * step` degrees on the
+        #: planet's own scale (`field.temperature_scale`), the climate's raster
+        #: for the map's climate layer (D-331), with the planet's range for
+        #: the legend; `rain` a byte a cell of the field's own share, nought
+        #: to one over `site.rain_range` -- the scale `climate_of` and the
+        #: drying law read it on, not a share of the planet's wettest cell.
+        "temperature_c": _temperature_passport(constants, planet),
     }

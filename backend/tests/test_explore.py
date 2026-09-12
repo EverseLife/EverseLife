@@ -31,11 +31,13 @@ from src import field as fields
 from src import globe, seed_planets
 from src.constants import Catalog, Constants
 from src.constants import registry as R
+from src.db.readonly import writes_forbidden
 from src.engine import (
     access,
     biome,
     explore,
     facet,
+    ground,
     jobs,
     occupation,
     places,
@@ -51,7 +53,7 @@ from src.models.identity import Body, BodyState
 from src.models.inventory import Container, ContainerKind, Item
 from src.models.job import Job, JobState
 from src.models.world import Edge, Layer, Node, Planet, Surface, Vein
-from src.units import METRES_PER_KM
+from src.units import METRES_PER_KM, PERCENT
 
 
 def _capital() -> tuple[float, float]:
@@ -230,6 +232,66 @@ async def test_the_landscape_refuses_too_near_too_far_and_the_water(
         await explore.check(session, constants, catalog, shore, water)
 
 
+async def test_a_peek_tells_the_field_and_the_chances_before_the_run(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Before the walk the scout learns what the map already knows (D-321
+    addendum, owner 2026-09-12): the field's readings at the cell -- biome,
+    face, water, climate -- and the chances of what the run rolls, never the
+    roll. The aim is judged first, by the run's own rule."""
+    _, camp, scout = await _camp(session, constants)
+    here = places.geo_of(camp)
+    assert here is not None
+    near, far = _reach(constants, catalog, camp)
+    target = _step(constants, Planet.TERRA, here, (near + far) / 2)
+    #: Under the socket's own guard: the answering path is a read.
+    async with writes_forbidden(session, "explore.peek", mode="raise"):
+        told = await explore.peek(session, constants, catalog, scout, target)
+    aim = await explore.check(session, constants, catalog, camp, target)
+    #: The **cell's** biome, as the run classifies it -- `aim.biome` is the
+    #: camp's, kept for the band of reach, and the two part at a biome's edge.
+    assert told["biome"] == biome.classify(constants, Planet.TERRA, *aim.point)
+    assert told["found"] is None and "metres" not in told
+    assert told["stream_chance"] == (
+        0 if told["water"] != world.NO_WATER else round(float(constants[R.SITE_RIVER_SHARE]))
+    )
+    assert told["water"] in {world.RIVER, world.LAKE, world.NO_WATER}
+    assert set(told["marks"]) == {ground.WOODS, ground.STONES, ground.MEADOW}
+    assert all(0 <= share <= 100 for share in told["marks"].values())
+    assert 0 <= told["vein_chance"] <= 100 and 0 <= told["complex_chance"] <= 100
+    #: The chance is the run's own arithmetic, not a second one.
+    face = facet.at(constants, catalog, Planet.TERRA, *aim.point, here=aim.biome)
+    field = terrain.field_of(constants, Planet.TERRA)
+    expected = (
+        float(constants[R.GROUND_VEIN_SHARE])
+        / PERCENT
+        * facet.vein_k(constants, aim.biome, face)
+        * field.province_vein_k_at(*aim.point)
+    )
+    assert told["vein_chance"] == round(min(expected, 1.0) * PERCENT)
+    assert told["facet"] == (face.id if face is not None else None)
+    assert told["temperature_c"] == terrain.climate_at(constants, Planet.TERRA, *aim.point)[0]
+    #: What may not be aimed at tells nothing, in the run's own words.
+    with pytest.raises(explore.TooFar):
+        await explore.peek(
+            session, constants, catalog, scout, _step(constants, Planet.TERRA, here, far * 3)
+        )
+    #: Across a biome's edge, where the band of reach holds one: the peek
+    #: says the cell's biome, not the camp's. Looked for round the compass;
+    #: a camp with one biome all round proves nothing here and says so.
+    home = biome.of_node(constants, camp)
+    for k in range(24):
+        candidate = _step(constants, Planet.TERRA, here, (near + far) / 2, bearing=k * math.pi / 12)
+        if biome.classify(constants, Planet.TERRA, *candidate) in (None, home):
+            continue
+        try:
+            over = await explore.peek(session, constants, catalog, scout, candidate)
+        except explore.ExploreError:
+            continue
+        assert over["biome"] != home
+        break
+
+
 def _shoreline(constants: Constants, catalog: Catalog) -> tuple[globe.Geo, globe.Geo]:
     """A dry point just inland of the sea's edge and a wet one a lawful step
     out: the edge is bisected along a row between a dry centre and a wet one,
@@ -321,7 +383,53 @@ async def test_no_room_beside_a_node_and_no_way_across_another(
             camp,
             _step(constants, Planet.TERRA, here, far * 0.85, bearing=math.pi / 2),
         )
-    assert other is not None
+    #: The way to a node itself is lawful: the node is the way's end, and
+    #: «Taken» is found again rather than refused (the map's «way» mode,
+    #: D-321 addendum of 2026-09-12).
+    joined = await explore.check(session, constants, catalog, camp, taken)
+    assert joined.existing is not None and joined.existing.id == other.id
+
+
+async def test_a_way_is_not_laid_through_a_node(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """An edge is not laid through a node standing beside its line (owner,
+    2026-09-12): a small node set on the straight way to a lawful aim refuses
+    the aim -- for the way, not for the room, which the far target has."""
+    sphere, camp, _ = await _camp(session, constants)
+    here = places.geo_of(camp)
+    assert here is not None
+    _, far = _reach(constants, catalog, camp)
+    target = _step(constants, Planet.TERRA, here, far * 0.75, bearing=0.0)
+    #: On the way to the **snapped** aim, a quarter along it, so the snap to
+    #: the lattice cannot slip the line past the node.
+    point = explore.point_of(
+        constants, Planet.TERRA, explore.cell_of(constants, Planet.TERRA, target)
+    )
+    between = (here[0] + 0.25 * (point[0] - here[0]), here[1] + 0.25 * (point[1] - here[1]))
+    await world.create_node(
+        session, "terra.between", "Between", area_m2=30, parent=sphere, properties=_pin(between)
+    )
+    with pytest.raises(explore.ThroughNode):
+        await explore.check(session, constants, catalog, camp, target)
+    #: A node whose land covers the camp -- a city's seats overlap -- is not
+    #: in the way of an aim in another direction: the way starts inside it.
+    await world.create_node(
+        session,
+        "terra.over",
+        "Over",
+        area_m2=200,
+        parent=sphere,
+        properties=_pin(_step(constants, Planet.TERRA, here, 3.0, bearing=1.0)),
+    )
+    aside = await explore.check(
+        session,
+        constants,
+        catalog,
+        camp,
+        _step(constants, Planet.TERRA, here, far * 0.8, bearing=2.9),
+    )
+    assert aside.existing is None
 
 
 # --- the run ------------------------------------------------------------------

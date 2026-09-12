@@ -23,7 +23,7 @@
 import { SHAPES } from "../../glyphs";
 import { nodeGlyph } from "../../marks";
 import { placeAt, project, type Eye, type Geo } from "./globe";
-import { fieldBox, ringPath, wayShadow, type Field } from "./scout";
+import { fieldBox, ringPath, nodeShadow, wayShadow, type Field } from "./scout";
 import { SURFACE, spell, type MapNode } from "../../api";
 import { t } from "../../locale";
 import { cityLabelEm, cityRadius, citySeen, hereRadius, NODE_R, standsAlone } from "./bands";
@@ -483,6 +483,7 @@ export function Outlines({
   eye,
   radius,
   open,
+  filled = false,
 }: {
   outlines: ReadonlyMap<string, Geo[][]>;
   eye: Eye;
@@ -490,9 +491,12 @@ export function Outlines({
   /** Whether the cities are open: near, the edge is dashed among the
    *  streets; from afar it is a line, a dash being no line at all. */
   open: boolean;
+  /** Whether the lands are washed with the city's tint: the holdings
+   *  layer (D-331), a political map's fill. */
+  filled?: boolean;
 }) {
   return (
-    <g className={`territory ${open ? "near" : "far"}`} aria-hidden="true">
+    <g className={`territory ${open ? "near" : "far"}${filled ? " filled" : ""}`} aria-hidden="true">
       {[...outlines.entries()].map(([city, loops]) => {
         const d = loops
           .map((loop) => {
@@ -551,6 +555,13 @@ export function ScoutField({ field, id }: { field: Field; id: string }) {
         {field.ways.map((way, i) => {
           const d = wayShadow(field, way);
           return d ? <path key={`w${i}`} d={d} fill="black" /> : null;
+        })}
+        {/* The ground behind every node's land, where a way would have to
+            pass through it (D-321 addendum, 2026-09-12): the same rule the
+            server judges by, so the ring does not offer what it refuses. */}
+        {field.blocks.map((block, i) => {
+          const d = nodeShadow(field, block);
+          return d ? <path key={`n${i}`} d={d} fill="black" /> : null;
         })}
       </mask>
       <path d={ringPath(field)} fillRule="evenodd" mask={`url(#${id})`} />

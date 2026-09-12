@@ -77,6 +77,24 @@ RASTER_SHORE = SKETCH_SHORE
 #: passport as `height_unit_m`). Here because both read it and the two
 #: cannot import one another.
 HEIGHT_UNIT_M = 0.1
+#: How far past the planet's own range (`terrain.temp_range`) the
+#: temperature raster reaches, degrees: the lapse takes Aurora's poles
+#: under the registry's floor, and Pyroxis's summits over its ceiling.
+TEMP_MARGIN_C = 30.0
+
+
+def temperature_scale(cold: float, hot: float) -> tuple[float, float]:
+    """The temperature raster's scale for a planet whose range is `cold` to
+    `hot` (D-331): a byte a cell is `floor + byte * step` degrees. The floor
+    is the cold edge less the margin, the step what fits the span into a
+    byte and never finer than a half degree. One scale for all four planets
+    did not fit two of them (Pyroxis runs to a hundred and twenty). Carried
+    in the passport as `temperature_c`."""
+    floor = float(cold) - TEMP_MARGIN_C
+    span = float(hot) + TEMP_MARGIN_C - floor
+    return floor, max(0.5, span / 255.0)
+
+
 #: How many points across a sketch cell are sampled off the field to make
 #: it: the field is a flat run of cells with no rows to average, so the
 #: sketch is drawn by asking it, and a sample every few cells is enough for

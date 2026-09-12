@@ -28,6 +28,7 @@ import {
   groundOf,
   leavesSurface,
   mapBounds,
+  nearOf,
   openScale,
   planetUnder,
   reachesSurface,
@@ -50,6 +51,9 @@ export type Facts = {
   unit: number;
   /** How far out past the cities' closing, half-octaves (`farOf`). */
   far: number;
+  /** The frame's width in half-octaves of map units (`nearOf`): the one
+   *  fact of the frame itself, for what is cut to the frame (the figures). */
+  near: number;
   /** The frame's own scale, not the band's. What is drawn at a size in
    *  pixels divides by **this**: `scaleAt(far)` steps by half-octaves, so a
    *  mark held to it swelled by half between one notch and the next and
@@ -70,6 +74,7 @@ export const NO_FACTS: Facts = {
   ground: false,
   unit: 1,
   far: 0,
+  near: 0,
   //: Before the first frame is measured: the scale the cities close at, so
   //: nothing is divided by nought.
   scale: CITY_SCALE,
@@ -99,6 +104,7 @@ export function factsOf(frame: Frame, surface: Surface, spheres: readonly Sphere
     ground: ground.shown,
     unit: ground.unit,
     far: farOf(frame.scale),
+    near: nearOf(frame.scale),
     scale: frame.scale,
     over: ceiling ? (planetUnder(middle, spheres)?.planet ?? null) : null,
     descent: surface.console ? descentOf(frame.scale, surface.furthest, surface.globe) : 0,
@@ -113,6 +119,7 @@ export function sameFacts(a: Facts, b: Facts): boolean {
     a.ground === b.ground &&
     a.unit === b.unit &&
     a.far === b.far &&
+    a.near === b.near &&
     a.over === b.over &&
     a.descent === b.descent
   );
