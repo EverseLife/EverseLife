@@ -15,9 +15,6 @@ import {
   EDGE_FULL_PX,
   EDGE_M,
   EDGE_SEEN_PX,
-  GRAIN_FULL_PX,
-  GRAIN_M,
-  GRAIN_SEEN_PX,
   MISSING,
   NO_BIOME,
   byteChain,
@@ -26,7 +23,6 @@ import {
   edgeStrength,
   FLUID_TONES,
   formCodes,
-  grainStrength,
   heightsOf,
   mipChain,
   paletteOf,
@@ -46,7 +42,21 @@ import {
   AA_PX,
   BANK_SHARE,
   catmullRom,
+  topChain,
+  SHADOW_LEVEL_MAX,
+  SHADOW_FAR_FROM,
+  SHADOW_STEPS,
 } from "../panels/map/shade";
+import {
+  GRAIN_FULL_PX,
+  GRAIN_M,
+  GRAIN_SEEN_PX,
+  grainStrength,
+  GRAIN_KINDS,
+  GRAIN_FALLBACK,
+  GRAIN_SHAPE,
+  grainTable,
+} from "../panels/map/grain";
 import { FRAGMENT } from "../panels/map/fragment";
 
 describe("parseColor", () => {
@@ -190,6 +200,36 @@ describe("formCodes and the sun", () => {
 });
 
 describe("the grain of the ground", () => {
+  it("has a kind for every word the vault may say, and a fallback for the rest", () => {
+    //: The vault's word per biome (biome.grain), the picture's numbers per
+    //: word: the table is four floats a slot in the passport's order.
+    const biomes = ["forest", "desert", "ice", "nowhere"];
+    const table = grainTable({ forest: "canopy", desert: "dunes", ice: "cracks", nowhere: "???" }, biomes);
+    expect(table.length).toBe(PALETTE_SLOTS * 4);
+    //: Read back off float32, so the contrast is rounded to what it holds.
+    const slot = (at: number) => Array.from(table.subarray(at * 4, at * 4 + 4)).map((v) => +v.toFixed(3));
+    expect(slot(0)).toEqual([2, 1, 1, GRAIN_SHAPE.clumps]);
+    expect(slot(1)).toEqual([1, 0.25, 1.1, GRAIN_SHAPE.plain]);
+    expect(slot(2)).toEqual([2, 1, 1, GRAIN_SHAPE.cracks]);
+    //: A word the picture does not know, a biome the book has no word for,
+    //: and no book at all: the soft mottle every ground had before.
+    const turf = GRAIN_KINDS[GRAIN_FALLBACK];
+    const soft = [turf.scale, turf.stretch, turf.contrast, turf.shape];
+    expect(slot(3)).toEqual(soft);
+    expect(slot(4)).toEqual(soft);
+    expect(Array.from(grainTable(null, biomes).subarray(0, 4)).map((v) => +v.toFixed(3))).toEqual(soft);
+    //: Whole scales and quarter stretches, or the wrap of the lattice
+    //: lands between two cells and the ground jumps when the eye crosses it.
+    for (const kind of Object.values(GRAIN_KINDS)) {
+      expect(Number.isInteger(kind.scale) && kind.scale >= 1).toBe(true);
+      expect(Number.isInteger(kind.stretch * 4) && kind.stretch > 0 && kind.stretch <= 1).toBe(true);
+    }
+    //: Sixteen words for sixteen biomes: each its own (owner, 2026-09-12).
+    expect(Object.keys(GRAIN_KINDS)).toHaveLength(16);
+    expect(FRAGMENT).toContain("uniform vec4 u_grains[");
+    expect(FRAGMENT).toContain("grainOf(apart, f, gcode, rock)");
+  });
+
   it("is the same size on the ground at every zoom", () => {
     //: The one thing the owner asked of it after seeing it (2026-09-09):
     //: the country must not be rearranged by looking closer. The cell is a
@@ -454,14 +494,67 @@ describe("the ramps and the drying law", () => {
   });
 
   it("marches the shadow far enough for the edge of the day, with a penumbra and a depth", () => {
-    //: Nine doubling steps reach two hundred and fifty-six cells: the
-    //: shadow of a ridge with the sun four degrees high. The far steps
-    //: read coarser levels, the edge is the sun's disc, the depth follows
-    //: the sun's height.
-    expect(FRAGMENT).toContain("const int SHADOW_STEPS = 9;");
-    expect(FRAGMENT).toContain("float level = lod + max(0.0, float(k) - SHADOW_COARSE_FROM);");
-    expect(FRAGMENT).toContain("rise / (dist * SHADOW_SOFT) + 0.5");
+    //: Nine doubling stretches reach five hundred cells: the shadow of a
+    //: ridge with the sun four degrees high. Each stretch is read whole
+    //: off the top chain at the level whose texel is the stretch, the far
+    //: ones in several texels of the deepest level allowed; the edge is
+    //: the sun's disc, the depth follows the sun's height.
+    expect(FRAGMENT).toContain("const int SHADOW_STEPS = 10;");
+    expect(FRAGMENT).toContain("uniform sampler2D u_top;");
+    expect(FRAGMENT).toContain(
+      "float up = min(float(k), SHADOW_LEVEL_MAX + max(0.0, float(k) - SHADOW_FAR_FROM));",
+    );
+    //: No step on the horizon: the shadow comes in over the twilight, or
+    //: the ground under a range jumps brighter across the line of the day.
+    expect(FRAGMENT).not.toContain("* u_sunlit * step(0.0, high);");
+    expect(FRAGMENT).toContain("* u_sunlit * smoothstep(0.0, TWILIGHT, high);");
+    //: Under a hundred reads for the whole march at the edge of the day.
+    let reads = 0;
+    for (let k = 0; k < SHADOW_STEPS; k++) {
+      const up = Math.min(k, SHADOW_LEVEL_MAX + Math.max(0, k - SHADOW_FAR_FROM));
+      reads += 2 ** (k - up);
+    }
+    expect(reads).toBeLessThan(100);
+    expect(FRAGMENT).toContain("int taps = int(exp2(float(k) - up) + 0.5);");
+    //: Along the great circle, against the top chain's own reading of the
+    //: pixel, with the ball falling away under the ray.
+    expect(FRAGMENT).toContain("float h_top = topOf(here, lod);");
+    expect(FRAGMENT).toContain("vec3 q = here * cos(turn) + sunward * sin(turn);");
+    expect(FRAGMENT).toContain(
+      "float rise = topOf(q, level) - h_top - climb * along - along * along / (2.0 * metres);",
+    );
+    expect(FRAGMENT).toContain("rise / (along * SHADOW_SOFT) + 0.5");
     expect(FRAGMENT).toContain("mix(SHADOW_LOW, 1.0, smoothstep(0.0, SHADOW_FULL_SIN, high))");
+    //: A texel no wider across the ray than four pixels, or the shadow
+    //: comes in blocks; and the march stops where the tallest ground
+    //: could not shade this pixel, so the reads are few except at the
+    //: edge of the day.
+    expect(SHADOW_LEVEL_MAX).toBeLessThanOrEqual(2);
+    expect(FRAGMENT).toContain("uniform float u_top_m;");
+    //: The horizon of the tallest ground, and nothing at night or without a clock.
+    expect(FRAGMENT).toContain(
+      "float longest = metres * (sqrt(climb * climb + 2.0 * over / metres) - climb) * step(0.0, high) * u_sunlit;",
+    );
+    expect(FRAGMENT).toContain("if (dist > longest || dark >= 1.0) break;");
+    //: A coarse read keeps a texel inside its own face: the atlas lays a
+    //: stranger's tile beside it, and the border is one cell.
+    expect(FRAGMENT).toContain("float marginOf(float level) { return max(0.0, exp2(level) * 0.5 - u_border); }");
+    expect(FRAGMENT).toContain("atlasAt(facePlace(normalize(p)), marginOf(lod))");
+    //: The grain's GLSL is glued in whole, and its shapes keep to the spec:
+    //: a smoothstep with its edges the wrong way round is undefined.
+    expect(FRAGMENT).toContain("float grainOf(vec3 apart, uint form, int code, float rock)");
+    expect(FRAGMENT).not.toContain("smoothstep(-0.25, -0.55, f)");
+  });
+
+  it("keeps the top of the ground in a chain of its own, the highest of four", () => {
+    //: A ridge one cell wide is the highest cell at every level, where the
+    //: mean chain buries it.
+    const level0 = new Float32Array([0, 0, 0, 0, 0, 900, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    const chain = topChain(level0, 4, 4, 4);
+    expect(chain.map((level) => level.cols)).toEqual([4, 2, 1]);
+    expect(Array.from(chain[1].data)).toEqual([900, 0, 0, 0]);
+    expect(chain[2].data[0]).toBe(900);
+    expect(mipChain(level0, 4, 4, 4)[2].data[0]).toBeCloseTo(900 / 16, 6);
   });
 
   it("blends a four-stop ramp leg by leg", () => {

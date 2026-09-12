@@ -46,19 +46,18 @@ import {
 import type { RasterPassport } from "../../api";
 import { useBook } from "../../actions";
 import { useTerrain } from "./Ground";
+import { retile, widen } from "./atlas";
 import { UNITS_PER_METRE, type Eye, type Geo } from "./globe";
 import { rastersOf, type Rasters } from "./rasters";
 import {
   PALETTE_SLOTS,
   deepOf,
   EDGE_M,
-  GRAIN_M,
   edgeStrength,
   formCodes,
-  grainStrength,
-  latticeAt,
   byteChain,
   mipChain,
+  topChain,
   paletteOf,
   sunDirection,
   sunVector,
@@ -68,6 +67,12 @@ import {
   type Layer,
   type Palette,
 } from "./shade";
+import {
+  GRAIN_M,
+  grainTable,
+  grainStrength,
+  latticeAt,
+} from "./grain";
 import { FRAGMENT, VERTEX } from "./fragment";
 
 export type GroundGLHandle = { draw: () => void };
@@ -76,6 +81,11 @@ export type GroundGLState = "loading" | "ready" | "failed";
 
 type Textures = {
   height: WebGLTexture;
+  /** The top of the ground: the height's max chain, read by the cast
+   *  shadow a stretch at a time (`topChain`), and the tallest ground of
+   *  the planet, metres, past which the march has nothing to find. */
+  top: WebGLTexture;
+  topM: number;
   biome: WebGLTexture;
   form: WebGLTexture;
   /** The hardness of the ground, a byte read back as nought to one: the
@@ -105,7 +115,13 @@ type Program = {
   textures: Map<string, Textures>;
   /** What the shader was last handed of the things that do not move
    *  between frames: the planet's textures, the palette, the mountain line. */
-  synced: { planet: string; palette: Palette; highFrom: number; law: DryLaw } | null;
+  synced: {
+    planet: string;
+    palette: Palette;
+    highFrom: number;
+    law: DryLaw;
+    grains: Record<string, unknown> | null;
+  } | null;
 };
 
 function compile(gl: WebGL2RenderingContext, kind: number, source: string): WebGLShader {
@@ -162,6 +178,7 @@ function setUp(canvas: HTMLCanvasElement): Program | null {
   gl.uniform1i(at("u_temp"), 6);
   gl.uniform1i(at("u_rain"), 7);
   gl.uniform1i(at("u_river"), 8);
+  gl.uniform1i(at("u_top"), 9);
   return { gl, program, at, textures: new Map(), synced: null };
 }
 
@@ -176,11 +193,15 @@ function tearDown(program: Program | null, canvas: HTMLCanvasElement): void {
   const { gl } = program;
   for (const t of program.textures.values()) {
     gl.deleteTexture(t.height);
+    gl.deleteTexture(t.top);
     gl.deleteTexture(t.biome);
     gl.deleteTexture(t.form);
     gl.deleteTexture(t.rock);
     gl.deleteTexture(t.stream);
     gl.deleteTexture(t.lake);
+    gl.deleteTexture(t.temperature);
+    gl.deleteTexture(t.rain);
+    gl.deleteTexture(t.river);
   }
   program.textures.clear();
   program.synced = null;
@@ -198,7 +219,19 @@ function tearDown(program: Program | null, canvas: HTMLCanvasElement): void {
 //: latitude and longitude: nothing wraps round its right edge any more, and
 //: a sample that walks off a face lands on the face that is really there,
 //: because the projection put it there. Both axes clamp.
-function upload(gl: WebGL2RenderingContext, passport: RasterPassport, rasters: Rasters): Textures {
+function upload(gl: WebGL2RenderingContext, served: RasterPassport, came: Rasters): Textures {
+  //: The picture's own layout: the faces as they came, each tile grown to
+  //: a power of two and the room round the face filled from over the edge
+  //: (`atlas.widen`), so the coarse levels of every chain stay within
+  //: their own face and no seam shows. The passport kept with the textures
+  //: is this one; what the vector layer reads is untouched.
+  const wide = widen(served);
+  const passport = wide.passport;
+  const rasters: Rasters = wide.map
+    ? (Object.fromEntries(
+        Object.entries(came).map(([name, raster]) => [name, retile(wide.map as Int32Array, raster)]),
+      ) as Rasters)
+    : came;
   const { rows, cols } = passport;
   const height = gl.createTexture();
   if (!height) throw new Error("no texture");
@@ -214,6 +247,20 @@ function upload(gl: WebGL2RenderingContext, passport: RasterPassport, rasters: R
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
   const tile = passport.nside + 2 * passport.border;
+  //: The same height once more, its coarse levels the top of the ground
+  //: rather than its mean: what the cast shadow reads a stretch by.
+  const top = gl.createTexture();
+  if (!top) throw new Error("no texture");
+  gl.bindTexture(gl.TEXTURE_2D, top);
+  const tops = topChain(heights, cols, rows, tile);
+  tops.forEach((level, index) => {
+    gl.texImage2D(gl.TEXTURE_2D, index, gl.R16F, level.cols, level.rows, 0, gl.RED, gl.FLOAT, level.data);
+  });
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAX_LEVEL, tops.length - 1);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
   //: Every raster gets the chain the height has had from the first day.
   //: Without one a pixel covering ten texels reads one of them and shimmers
   //: as the hand moves: a one-texel river blinking in and out on the globe,
@@ -268,8 +315,13 @@ function upload(gl: WebGL2RenderingContext, passport: RasterPassport, rasters: R
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     return texture;
   };
+  //: The tallest ground: the last level of the max chain is the max of
+  //: all, over the few texels the faces come down to.
+  const topM = Math.max(...tops[tops.length - 1].data);
   return {
     height,
+    top,
+    topM,
     biome: classes(rasters.biome),
     form: classes(rasters.form),
     rock: measure(rasters.rock, "mean"),
@@ -291,6 +343,7 @@ function sync(
   palette: Palette,
   highFrom: number,
   law: DryLaw,
+  grains: Record<string, unknown> | null,
 ): boolean {
   const textures = program.textures.get(planet);
   if (!textures) return false;
@@ -300,7 +353,8 @@ function sync(
     was.planet === planet &&
     was.palette === palette &&
     was.highFrom === highFrom &&
-    was.law === law
+    was.law === law &&
+    was.grains === grains
   )
     return true;
   const { gl, at } = program;
@@ -314,6 +368,9 @@ function sync(
   gl.uniform1f(at("u_deep"), textures.deep);
   gl.uniform1f(at("u_high_from"), highFrom);
   gl.uniform3fv(at("u_biomes[0]"), palette.biomes.subarray(0, PALETTE_SLOTS * 3));
+  //: The grain of each biome, by the passport's own order of them: the
+  //: vault's word for the biome, the picture's numbers for the word.
+  gl.uniform4fv(at("u_grains[0]"), grainTable(grains, passport.biomes));
   gl.uniform3fv(at("u_sea_deep"), palette.seaDeep);
   gl.uniform3fv(at("u_lake"), palette.lake);
   gl.uniform3fv(at("u_high"), palette.high);
@@ -335,6 +392,8 @@ function sync(
   bind(6, textures.temperature);
   bind(7, textures.rain);
   bind(8, textures.river);
+  bind(9, textures.top);
+  gl.uniform1f(at("u_top_m"), textures.topM);
   gl.uniform1f(at("u_temp_min"), passport.temperature_c.min);
   gl.uniform1f(at("u_temp_step"), passport.temperature_c.step);
   gl.uniform1f(at("u_temp_cold"), passport.temperature_c.cold);
@@ -343,7 +402,7 @@ function sync(
   //: with the reach in metres, read against the river raster.
   gl.uniform4f(at("u_dry"), law.offset, law.share, law.perDegree, law.ref);
   gl.uniform1f(at("u_reach_m"), law.reachM);
-  program.synced = { planet, palette, highFrom, law };
+  program.synced = { planet, palette, highFrom, law, grains };
   return true;
 }
 
@@ -475,16 +534,22 @@ export const GroundGL = forwardRef<
   //: `sync` sees the same law until the book changes.
   const book = useBook();
   const law = useMemo(() => dryLaw(book?.constants), [book]);
-  const state = useRef({ eye, radius, palette, planet, highFrom, sun, layer, law });
-  state.current = { eye, radius, palette, planet, highFrom, sun, layer, law };
+  //: The vault's word for each biome's grain (biome.grain), one object per
+  //: book like the law, so `sync` sees the same table until the book changes.
+  const grains = useMemo(
+    () => (book?.constants?.["biome.grain"] as Record<string, unknown> | undefined) ?? null,
+    [book],
+  );
+  const state = useRef({ eye, radius, palette, planet, highFrom, sun, layer, law, grains });
+  state.current = { eye, radius, palette, planet, highFrom, sun, layer, law, grains };
 
   const draw = useCallback(() => {
     const program = programRef.current;
     const canvas = canvasRef.current;
     const svgEl = svg.current;
-    const { eye, radius, palette, planet, highFrom, sun, layer, law } = state.current;
+    const { eye, radius, palette, planet, highFrom, sun, layer, law, grains } = state.current;
     if (!program || !canvas || !svgEl || !palette) return;
-    if (!sync(program, planet, palette, highFrom, law)) return;
+    if (!sync(program, planet, palette, highFrom, law, grains)) return;
     const { gl, at } = program;
     const dpr = window.devicePixelRatio || 1;
     //: The canvas is laid over the svg's box and nowhere else. It paints the
@@ -567,7 +632,7 @@ export const GroundGL = forwardRef<
   const sunKey = sun ? `${sun.lat},${sun.lon}` : "";
   useEffect(() => {
     draw();
-  }, [draw, eye, radius, palette, ready, planet, highFrom, layer, sunKey, law]);
+  }, [draw, eye, radius, palette, ready, planet, highFrom, layer, sunKey, law, grains]);
   //: The box: a resize of the pane is a resize of the canvas. Watched on the
   //: **svg**, because the canvas's own box is written by the draw above --
   //: watching it would be watching one's own hand, and the canvas would keep

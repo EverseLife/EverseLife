@@ -25,19 +25,11 @@ import {
   EDGE_M,
   EXAGGERATION,
   FAR_WATER_DEEP,
-  GRAIN_DEPTH,
-  GRAIN_FALL,
-  GRAIN_FULL_PX,
-  GRAIN_M,
-  GRAIN_OCTAVES,
-  GRAIN_SEEN_PX,
-  GRAIN_WRAP,
   LEGEND_AMBIENT,
   LEGEND_WET_DIM,
   LEGEND_WET_EDGE,
   LIGHT_ALT_MIN_DEG,
   NIGHT_TINT,
-  NOISE_GAIN,
   NO_BIOME,
   PALETTE_SLOTS,
   RAMPS,
@@ -48,7 +40,8 @@ import {
   RIVER_FAINT,
   RIVER_FULL,
   SHADOW_ALT_MIN_DEG,
-  SHADOW_COARSE_FROM,
+  SHADOW_FAR_FROM,
+  SHADOW_LEVEL_MAX,
   SHADOW_DEPTH,
   SHADOW_FULL_SIN,
   SHADOW_LOW,
@@ -57,8 +50,20 @@ import {
   TWILIGHT,
   glslRamp,
   glslWeight,
-  grainWhole,
 } from "./shade";
+import { GRAIN_GLSL } from "./grainGlsl";
+import {
+  GRAIN_DEPTH,
+  GRAIN_FALL,
+  GRAIN_FULL_PX,
+  GRAIN_M,
+  GRAIN_OCTAVES,
+  GRAIN_SEEN_PX,
+  GRAIN_WRAP,
+  NOISE_GAIN,
+  GRAIN_SHAPE,
+  grainWhole,
+} from "./grain";
 
 export const VERTEX = `#version 300 es
 in vec2 a_pos;
@@ -108,6 +113,14 @@ uniform float u_temp_hot;
 uniform vec4 u_dry;
 uniform float u_reach_m;
 uniform sampler2D u_river;
+//: The top of the ground, the max chain of the height (shade.topChain):
+//: what the cast shadow reads a stretch of ground by; and the planet's
+//: tallest ground, past which no shadow reaches.
+uniform sampler2D u_top;
+uniform float u_top_m;
+//: The grain of each biome, by the raster's code: scale, stretch,
+//: contrast, shape (shade.grainTable off the vault's biome.grain).
+uniform vec4 u_grains[${PALETTE_SLOTS}];
 uniform uvec4 u_stone_forms;
 uniform uvec2 u_sand_forms;
 uniform uvec3 u_ice_forms;
@@ -123,6 +136,8 @@ const float TAU = 6.283185307179586;
 const float EXAGGERATION = ${EXAGGERATION.toFixed(1)};
 const float GRAIN_DEPTH = ${GRAIN_DEPTH.toFixed(2)};
 const float GRAIN_WRAP = ${GRAIN_WRAP.toFixed(1)};
+//: The roughened edge's lattice is the base one, unscaled: it wraps with it.
+const vec3 EDGE_WRAP = vec3(GRAIN_WRAP);
 const float NOISE_GAIN = ${NOISE_GAIN.toFixed(1)};
 const float GRAIN_M = ${GRAIN_M.toFixed(1)};
 const int GRAIN_OCTAVES = ${GRAIN_OCTAVES};
@@ -148,7 +163,14 @@ const int SHADOW_STEPS = ${SHADOW_STEPS};
 const float SHADOW_CLIMB_MIN = ${Math.tan((SHADOW_ALT_MIN_DEG * Math.PI) / 180).toFixed(4)};
 const float SHADOW_SOFT = ${SHADOW_SOFT.toFixed(3)};
 const float SHADOW_DEPTH = ${SHADOW_DEPTH.toFixed(2)};
-const float SHADOW_COARSE_FROM = ${SHADOW_COARSE_FROM.toFixed(1)};
+const float SHADOW_LEVEL_MAX = ${SHADOW_LEVEL_MAX.toFixed(1)};
+const float SHADOW_FAR_FROM = ${SHADOW_FAR_FROM.toFixed(1)};
+const int SHAPE_CLUMPS = ${GRAIN_SHAPE.clumps};
+const int SHAPE_CRACKS = ${GRAIN_SHAPE.cracks};
+const int SHAPE_POOLS = ${GRAIN_SHAPE.pools};
+const int SHAPE_PATCHES = ${GRAIN_SHAPE.patches};
+const int SHAPE_NET = ${GRAIN_SHAPE.net};
+const int SHAPE_SPECKLE = ${GRAIN_SHAPE.speckle};
 const float SHADOW_LOW = ${SHADOW_LOW.toFixed(2)};
 const float SHADOW_FULL_SIN = ${SHADOW_FULL_SIN.toFixed(2)};
 const float RELIEF_LEVELS = ${RELIEF_LEVELS.toFixed(1)};
@@ -173,7 +195,7 @@ const float THIRD_TWO = 0.6666666666666666;
 //: equator, everything read across it was noise, and it took a floor on the
 //: cosine and a cap on the step to keep the shading from tearing. Here the
 //: pole is not a place at all: it is the middle of four ordinary cells.
-vec2 atlasUV(vec3 p) {
+vec3 facePlace(vec3 p) {
   float z = clamp(p.z, -1.0, 1.0);
   float phi = atan(p.y, p.x);
   if (phi < 0.0) phi += TAU;
@@ -207,15 +229,39 @@ vec2 atlasUV(vec3 p) {
     if (z >= 0.0) { face = int(quarter); u = n - b; v = n - a; }
     else { face = int(quarter) + 8; u = a; v = b; }
   }
-  //: The atlas: the faces laid out u_across wide, each with a border of
-  //: u_border cells taken from the face over the edge, so the blending
-  //: never reaches into the tile of a stranger.
+  return vec3(u, v, float(face));
+}
+
+//: Where a place of a face sits on the atlas: the faces laid out u_across
+//: wide, each with a border of u_border cells taken from the face over
+//: the edge, so the blending never reaches into the tile of a stranger.
+//: The margin keeps the place so many cells inside its face: the border
+//: covers the finest level's blend and no more, and a read at a coarser
+//: level -- a texel of exp2(level) cells, blended with the texel over --
+//: would reach past it into the tile beside, another face entirely, laid
+//: there by the atlas and not by the sphere. The shadow's far reads did,
+//: and the shadow was cut by a straight line along every seam -- and so
+//: the client lays the atlas out with a border wide enough for every
+//: level (atlas.ts); the margin is the rule that layout is built to.
+vec2 atlasAt(vec3 place, float margin) {
+  float n = u_nside;
+  float m = min(margin, n * 0.5);
+  vec2 uv = clamp(place.xy, vec2(m), vec2(n - m));
   float side = n + 2.0 * u_border;
   int across = int(u_across);
+  int face = int(place.z);
   float column = float(face - (face / across) * across);
   float row = float(face / across);
-  return vec2(column * side + u_border + u, row * side + u_border + v) / u_atlas;
+  return vec2(column * side + u_border + uv.x, row * side + u_border + uv.y) / u_atlas;
 }
+
+vec2 atlasUV(vec3 p) { return atlasAt(facePlace(p), 0.0); }
+
+//: A level's margin: half a texel of it -- what a blend reaches past the
+//: sample -- less the border already there. With the wide border the
+//: client lays the atlas out with (atlas.ts) this is nought for every
+//: level a frame reads; it stays as the rule the layout is built to.
+float marginOf(float level) { return max(0.0, exp2(level) * 0.5 - u_border); }
 
 //: The height, at a level of the texture chosen by the caller.
 //:
@@ -227,10 +273,19 @@ vec2 atlasUV(vec3 p) {
 //: height of half a planet. The old grid had the same fault on exactly one
 //: meridian, where the longitude wrapped; twelve of them is a picture.
 float heightAt(vec2 uv, float lod) { return textureLod(u_height, uv, lod).r; }
+//: The top of the ground about a point, at a level: the highest cell
+//: under the texel, kept inside the point's own face (shade.topChain).
+float topOf(vec3 p, float lod) {
+  //: Normalised first, as every reading is: what comes in need not stand
+  //: on the ball, and facePlace takes the height of a point as its z.
+  return textureLod(u_top, atlasAt(facePlace(normalize(p)), marginOf(lod)), lod).r;
+}
 //: The height at a point of the sphere. Every reading goes through the
 //: projection, so a sample that steps off the edge of a face lands on
 //: whatever face is really there -- there is no wrapping to get wrong.
-float heightOf(vec3 p, float lod) { return heightAt(atlasUV(normalize(p)), lod); }
+float heightOf(vec3 p, float lod) {
+  return heightAt(atlasAt(facePlace(normalize(p)), marginOf(lod)), lod);
+}
 
 //: Catmull-Rom along one axis: the weights of the four texels about a
 //: place t of the way from one texel centre to the next, written from
@@ -293,86 +348,7 @@ float heightCubic(vec2 uv) {
 //: blended smoothly. The lattice is wrapped to GRAIN_WRAP before it is
 //: hashed, and only there -- the cell's own fraction is taken first, so
 //: the wrap costs nothing but the seam nobody reaches.
-float hash3(vec3 cell) {
-  vec3 c = mod(cell, GRAIN_WRAP);
-  return fract(sin(dot(c, vec3(127.1, 311.7, 74.7))) * 43758.5453123);
-}
-
-float vnoise(vec3 p) {
-  vec3 i = floor(p);
-  vec3 f = p - i;
-  f = f * f * (3.0 - 2.0 * f);
-  float n00 = mix(hash3(i), hash3(i + vec3(1.0, 0.0, 0.0)), f.x);
-  float n10 = mix(hash3(i + vec3(0.0, 1.0, 0.0)), hash3(i + vec3(1.0, 1.0, 0.0)), f.x);
-  float n01 = mix(hash3(i + vec3(0.0, 0.0, 1.0)), hash3(i + vec3(1.0, 0.0, 1.0)), f.x);
-  float n11 = mix(hash3(i + vec3(0.0, 1.0, 1.0)), hash3(i + vec3(1.0, 1.0, 1.0)), f.x);
-  return mix(mix(n00, n10, f.y), mix(n01, n11, f.y), f.z);
-}
-
-//: The noise about zero and spread over the whole of -1..1. Value noise is
-//: a blend of eight uniform draws and so heaps about a half: taken raw, its
-//: swing is a tenth, and a texture built on it comes out invisible. The
-//: gain is that heap widened, and the clamp keeps the tails honest.
-float wave(vec3 p) {
-  return clamp((vnoise(p) - 0.5) * NOISE_GAIN, -1.0, 1.0);
-}
-
-//: What the ground is made of, in one number about zero: rock speckles
-//: coarsely, sand lies in waves across the wind, ice cracks in thin dark
-//: lines, and everything that grows mottles softly. The hardness sharpens
-//: whatever it is -- hard ground breaks into grains, soft ground smears.
-//:
-//: apart is how far the pixel stands from the eye, on the unit ball; the
-//: eye's own place in the lattice comes as u_grain_at, already wrapped to
-//: GRAIN_WRAP by the frame. So the lattice coordinate is a number of a
-//: few hundred rather than of five figures, and every figure of it is the
-//: ground. The octaves are whole doublings for the same reason: a wrap of
-//: the eye's place then lands on a wrap of every octave, and the texture
-//: does not jump when the eye crosses one.
-//: The ground's texture at every size it has, added up: each octave half
-//: the last and a little quieter, and each drawn only so far as its own
-//: cell is worth pixels. Divided by what they all come to, so the loudest
-//: is the same at every zoom -- what the zoom changes is which octaves are
-//: there to be seen, never the shape of the ones already visible.
-float fractal(vec3 p, float metre_px) {
-  float sum = 0.0;
-  float amp = 1.0;
-  float step = 1.0;
-  for (int o = 0; o < GRAIN_OCTAVES; o++) {
-    float cell_px = (GRAIN_M / step) / metre_px;
-    float seen = clamp((cell_px - GRAIN_SEEN_PX) / (GRAIN_FULL_PX - GRAIN_SEEN_PX), 0.0, 1.0);
-    if (seen > 0.0) sum += amp * seen * wave(p * step);
-    amp *= GRAIN_FALL;
-    step *= 2.0;
-  }
-  return sum / GRAIN_WHOLE;
-}
-
-float grainOf(vec3 apart, uint form, float rock) {
-  float metre_px = u_units / UNITS_PER_METRE;
-  vec3 p = u_grain_at + apart * (u_radius / UNITS_PER_METRE / GRAIN_M);
-  bool stone = form == u_stone_forms.x || form == u_stone_forms.y
-    || form == u_stone_forms.z || form == u_stone_forms.w;
-  bool sand = form == u_sand_forms.x || form == u_sand_forms.y;
-  bool ice = form == u_ice_forms.x || form == u_ice_forms.y || form == u_ice_forms.z;
-  float grain;
-  if (sand) {
-    //: The lattice squeezed along one way, so the ground runs in ridges
-    //: across it, as dunes lie across the wind.
-    grain = fractal(vec3(p.x, p.y * 0.25, p.z), metre_px);
-  } else if (ice) {
-    //: A ridge of the ground, thin and dark: a crack, not a speckle. It
-    //: goes one way only -- ice is white and cracks are lines in it.
-    grain = -pow(1.0 - abs(fractal(p, metre_px)), 6.0);
-  } else if (stone) {
-    //: Grains of rock: the same ground, harder-edged.
-    grain = clamp(fractal(p, metre_px) * 1.5, -1.0, 1.0);
-  } else {
-    //: Turf, field, forest floor.
-    grain = fractal(p, metre_px);
-  }
-  return grain * (0.7 + 0.6 * rock);
-}
+${GRAIN_GLSL}
 
 //: The ramps of the climate layers, the soil's and the relief's (D-331):
 //: the stops of shade.RAMPS, blended pairwise -- the same table the
@@ -473,29 +449,59 @@ void main() {
   vec3 light = normalize(mix(u_light, vec3(toward * cos(alt), sin(alt)), u_sunlit));
   float shade = max(dot(n, light), 0.0);
   //: The cast shadow: back along the ground toward the sun in SHADOW_STEPS
-  //: steps of doubling length, and the point is in shadow where the ground
-  //: on the way stands higher than the sun's ray does there. The ray climbs
-  //: at the sun's true height over the ground as the slope is drawn
-  //: (EXAGGERATION), so the shadows lie long at dawn and dusk and short at
-  //: noon. The near steps read the frame's own level -- the far frames see
-  //: the shadow of a range and the near ones that of every rise -- and
-  //: from SHADOW_COARSE_FROM on each step reads a level coarser: a ridge
-  //: kilometres off shades by its silhouette, and the coarser level is
-  //: that silhouette. No branch on the uniform: at night and without a
-  //: clock the depth is multiplied away.
+  //: stretches, each from some distance to twice it, and the point is in
+  //: shadow where the ground on the way stands higher than the sun's ray
+  //: does there. The ray climbs at the sun's true height over the ground
+  //: as the slope is drawn (EXAGGERATION), so the shadows lie long at dawn
+  //: and dusk and short at noon. A stretch is read **whole**: the top of
+  //: the ground over it (u_top, the max chain) at the level whose texel is
+  //: the stretch, so no ridge falls between two reads -- one read a
+  //: stretch, off the mean chain, missed the ridges between its points and
+  //: lost the far ones in the mean, and the long shadows of the edge of
+  //: the day came out cut (owner, 2026-09-12). Past SHADOW_LEVEL_MAX
+  //: levels over the frame's own the texel is wider across the ray than a
+  //: shadow, and the stretch is read in as many texels of that level as
+  //: it holds instead. The march ends where no shadow can reach: the
+  //: tallest ground there is (u_top_m), over this pixel, at the sun's
+  //: climb -- a few reads at noon, the whole way only at the edge of the
+  //: day. No branch on the uniform: at night and without a clock the
+  //: depth is multiplied away.
   float climb = max(tan(asin(clamp(high, 0.0, 1.0))), SHADOW_CLIMB_MIN) / EXAGGERATION;
+  //: The pixel's own height off the same chain the stretches are read by:
+  //: the mean of a far frame's pixel against the top of the texel beside
+  //: it shaded every hill of a range at a low sun.
+  float h_top = topOf(here, lod);
+  //: How far a shadow can reach at all. The planet is a ball, and a small
+  //: one: the ground falls away under the ray as the square of the
+  //: distance (along^2 / 2R), so even the shadow of the edge of the day
+  //: ends where the ray clears the tallest ground there is -- the horizon
+  //: of the tallest peak, a few kilometres on Terra. Nought on the night
+  //: side and with no clock: the march ends before its first read, and
+  //: no branch on the uniform is needed for it.
+  float over = max(u_top_m - h_top, 0.0);
+  float longest = metres * (sqrt(climb * climb + 2.0 * over / metres) - climb) * step(0.0, high) * u_sunlit;
   float dark = 0.0;
   float dist = reach;
+  vec3 sunward = pe * toward.x + pn * toward.y;
   for (int k = 0; k < SHADOW_STEPS; k++) {
-    vec3 q = here + (pe * toward.x + pn * toward.y) * (dist / metres);
-    float level = lod + max(0.0, float(k) - SHADOW_COARSE_FROM);
-    float rise = heightOf(q, level) - h - climb * dist;
-    //: The penumbra: the ray is aimed at the sun's centre, so ground level
-    //: with it hides half the disc, and a rise of the disc's width at this
-    //: distance (SHADOW_SOFT) hides it all. The edge is soft in proportion
-    //: to the distance to what casts it: sharp under a bank, soft a valley
-    //: away.
-    dark = max(dark, rise / (dist * SHADOW_SOFT) + 0.5);
+    if (dist > longest || dark >= 1.0) break;
+    float up = min(float(k), SHADOW_LEVEL_MAX + max(0.0, float(k) - SHADOW_FAR_FROM));
+    float level = lod + up;
+    int taps = int(exp2(float(k) - up) + 0.5);
+    for (int j = 0; j < taps; j++) {
+      float along = dist * (1.0 + (float(j) + 0.5) / float(taps));
+      //: Along the great circle, not the tangent: a run of a few
+      //: kilometres on a ball twelve kilometres across stands well off it.
+      float turn = along / metres;
+      vec3 q = here * cos(turn) + sunward * sin(turn);
+      float rise = topOf(q, level) - h_top - climb * along - along * along / (2.0 * metres);
+      //: The penumbra: the ray is aimed at the sun's centre, so ground
+      //: level with it hides half the disc, and a rise of the disc's width
+      //: at this distance (SHADOW_SOFT) hides it all. The edge is soft in
+      //: proportion to the distance to what casts it: sharp under a bank,
+      //: soft a valley away.
+      dark = max(dark, rise / (along * SHADOW_SOFT) + 0.5);
+    }
     dist *= 2.0;
   }
   //: The depth of the shadow by the sun's height: the low sun's light
@@ -504,7 +510,13 @@ void main() {
   //: noon -- SHADOW_LOW of the depth at the horizon, the whole from
   //: SHADOW_FULL_SIN up.
   float depth = SHADOW_DEPTH * mix(SHADOW_LOW, 1.0, smoothstep(0.0, SHADOW_FULL_SIN, high));
-  float lit = 1.0 - clamp(dark, 0.0, 1.0) * depth * u_sunlit * step(0.0, high);
+  //: And in over the twilight, not at a step on the horizon: with the
+  //: shadow switched off at nought the ground under a range at the edge
+  //: of the day jumped a quarter brighter across one line, and every long
+  //: shadow ended on it (owner, 2026-09-12: a sharp line of day and night,
+  //: shadows cut). The sun rising through the twilight band lights the
+  //: ground more and shades it more together.
+  float lit = 1.0 - clamp(dark, 0.0, 1.0) * depth * u_sunlit * smoothstep(0.0, TWILIGHT, high);
   //: Day and night without an edge: the terminator is a band TWILIGHT wide
   //: in the sine of the sun's height, over which the day's colour fades to
   //: the night's tint -- and the night is not black: the relief reads in
@@ -538,10 +550,13 @@ void main() {
   //: 2026-09-11, ANGLE over D3D11), and a strength of nought is a multiply
   //: by nought.
   vec3 j = u_edge_at + apart * (u_radius / UNITS_PER_METRE / EDGE_M);
-  vec3 k = vec3(j.z, j.x, j.y) * 1.7 + vec3(19.7, 5.3, 31.1);
+  //: The second motion on the same lattice turned and doubled -- a whole
+  //: number, so a wrap of the eye's place is a wrap of it too (1.7 was
+  //: not, and the edge shifted when the eye crossed one).
+  vec3 k = vec3(j.z, j.x, j.y) * 2.0 + vec3(19.7, 5.3, 31.1);
   vec2 astray = vec2(
-    0.65 * wave(j) + 0.35 * wave(j * 2.0),
-    0.65 * wave(k) + 0.35 * wave(k * 2.0)
+    0.65 * wave(j, EDGE_WRAP) + 0.35 * wave(j * 2.0, EDGE_WRAP * 2.0),
+    0.65 * wave(k, EDGE_WRAP * 2.0) + 0.35 * wave(k * 2.0, EDGE_WRAP * 4.0)
   ) * (EDGE_CELLS * u_edge);
   vec3 wander = (pe * astray.x + pn * astray.y) * span;
 
@@ -618,10 +633,17 @@ void main() {
   //: the ground by what the form says (the grain), and a form is often a
   //: single cell -- read straight it was a hard diamond.
   uint f = textureLod(u_form, uv, lod).r;
+  //: And the biome there, for the grain, read at the same wandered point
+  //: -- a grain that switched by the raster's own cells under a colour
+  //: that wanders would show the diamonds again; the shore's on a sea cell.
+  int gcode = u_shore;
   {
     uint b0 = textureLod(u_biome, uv, lod).r;
-    uint form_near = textureLod(u_form, atlasUV(normalize(here + wander)), lod).r;
+    vec2 wuv = atlasUV(normalize(here + wander));
+    uint form_near = textureLod(u_form, wuv, lod).r;
+    uint biome_near = textureLod(u_biome, wuv, lod).r;
     f = b0 != ${NO_BIOME}u ? form_near : f;
+    gcode = b0 != ${NO_BIOME}u ? int(biome_near != ${NO_BIOME}u ? biome_near : b0) : u_shore;
   }
 
   //: One colour for all water at the surface, and the sea darkens only
@@ -634,6 +656,11 @@ void main() {
   //: and the lake's own light tone made every river a bright thread.
   vec3 water_col = mix(u_lake, u_sea_deep, h >= 0.0 ? FAR_WATER_DEEP * s : clamp(-h / u_deep, 0.0, 1.0));
   water_col *= 0.85 + 0.15 * shade;
+  //: And the cast shadow lies on the water as on the land (owner,
+  //: 2026-09-12): a lake under a range is in its shadow at dusk, and a
+  //: river running out of the shadow into the light was a bright thread
+  //: through a dark valley.
+  water_col *= lit;
   //: Water is darker than the land in the dark: on top of the night's tint
   //: it keeps NIGHT_WATER of its light, or the rivers glow on the night side.
   water_col *= mix(NIGHT_WATER, 1.0, daylight);
@@ -649,13 +676,13 @@ void main() {
   //: used to be cut darker by its form on top of all this and ticked with
   //: hachures in the vector layer; the owner read the pair as a smear with
   //: black lines on it, and a wall now reads by its own shadow and stone.
-  float around = heightAt(uv, lod + RELIEF_LEVELS);
+  float around = heightOf(here, lod + RELIEF_LEVELS);
   float lie = clamp((h - around) / RELIEF_M, -1.0, 1.0);
   tone *= 1.0 + RELIEF_DEPTH * lie;
   //: The grain, on the near frames alone (wave 8): the ground says what
   //: it is made of, while the hillshade goes on saying what shape it is.
   float rock = textureLod(u_rock, uv, lod).r;
-  tone *= 1.0 + GRAIN_DEPTH * u_grain * grainOf(apart, f, rock);
+  tone *= 1.0 + GRAIN_DEPTH * u_grain * grainOf(apart, f, gcode, rock);
   ground *= tone;
   //: The pixel: its ground and its water, by how many of its taps are wet.
   vec3 col = mix(ground, water_col, wet);

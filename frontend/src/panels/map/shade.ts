@@ -26,7 +26,6 @@ export const PALETTE_SLOTS = 32;
 /** The raster's word for water, which has no biome. */
 export const NO_BIOME = 255;
 
-
 /**
  * Where the light comes from: north-west, forty-five degrees up -- the
  * convention of every topographic map, and the debug render's too
@@ -58,21 +57,39 @@ export const TWILIGHT = 0.12;
 /** What the night does to a colour: the ground keeps a third of its light
  *  and turns toward the blue of a night sky, so the relief still reads. */
 export const NIGHT_TINT: readonly [number, number, number] = [0.32, 0.4, 0.62];
-/** The cast shadow: so many steps back along the ground toward the sun,
- *  each twice the last, the first a cell (or a pixel's ground on the far
- *  frames). Nine reach two hundred and fifty-six cells -- thirteen
- *  kilometres at fifty metres a cell -- which is the shadow of a ridge at
- *  the edge of the day, where the sun stands SHADOW_ALT_MIN_DEG high and a
- *  rise of three hundred metres shades ten kilometres of ground. Five
- *  reached sixteen, and every long shadow ended at a wall sixteen cells
- *  from what cast it (owner, 2026-09-12: at the edge of day and night the
- *  big shadows are cut off). */
-export const SHADOW_STEPS = 9;
-/** From this step on the march reads the height a level coarser with every
- *  step: a ridge kilometres off shades by its silhouette, not by its
- *  cells, and the coarser level is that silhouette -- and a fetch that is
- *  likely in the cache, so the four steps added cost little. */
-export const SHADOW_COARSE_FROM = 3;
+/** The cast shadow: so many stretches back along the ground toward the
+ *  sun, each from some distance to twice it, the first a cell (or a
+ *  pixel's ground on the far frames) long. Each stretch is read **whole**,
+ *  as the top of the ground over it (`topChain`), not at one point of it:
+ *  a march that read one point a stretch missed every ridge that fell
+ *  between two points, and the shadow of a range came out in bands with
+ *  gaps, and read off the mean chain the far stretches saw no ridge at
+ *  all, so the long shadows of dawn and dusk ended where the mean took
+ *  over (owner, 2026-09-12, three times: the big shadows are cut off).
+ *  Ten stretches reach a thousand cells, more than any frame needs: the
+ *  march ends at the horizon of the tallest ground (`u_top_m`), which on
+ *  a ball as small as Terra is a few kilometres however low the sun. */
+export const SHADOW_STEPS = 10;
+/** How many levels over the frame's own the top of a stretch may be read
+ *  at: at that level a texel is as long as the stretch, and just as wide
+ *  across the ray -- and a texel wider across than a few pixels shades
+ *  ground the ridge in it never reaches, in blocks with straight edges
+ *  (seen at five levels, 2026-09-12: bands forty pixels wide). Two levels
+ *  is a texel four pixels across, and the blend between texels rounds
+ *  that off. The stretches beyond are read in as many texels of this
+ *  level as they hold, which is a read every four pixels of the ray; what
+ *  keeps that cheap is the march ending where no shadow can reach
+ *  (`u_top_m`): the tallest ground of the planet over this pixel's height,
+ *  at the sun's climb -- a few reads at noon, and only at the edge of the
+ *  day and on the near frames the whole way. */
+export const SHADOW_LEVEL_MAX = 2;
+/** From this stretch on each stretch reads a level coarser again: these
+ *  are the far shadows of the edge of the day, kilometres from what casts
+ *  them, and there the penumbra (SHADOW_SOFT of the distance) is as wide
+ *  as the texel and rounds its blocks off -- while sixteen reads a stretch
+ *  instead of a hundred and twenty-eight keep the whole march under a
+ *  hundred reads. */
+export const SHADOW_FAR_FROM = 6;
 /** The sun's height the shadow is cast at when it stands lower, degrees:
  *  at the horizon itself a shadow would be endless. */
 export const SHADOW_ALT_MIN_DEG = 4;
@@ -233,7 +250,6 @@ export function moistureOf(
   return Math.min(1, Math.max(0, 1 - pace / fastest));
 }
 
-
 /** The rivers on the far frames: a river narrower than a pixel is drawn as
  *  the share of the pixel it wets, put through a ramp -- nothing under
  *  RIVER_FAINT, a full line from RIVER_FULL. The ramp is what keeps a line
@@ -247,61 +263,6 @@ export const RIVER_FULL = 0.5;
  *  tint: water is darker than the land in the dark, and drawn with the
  *  lake's own light tone the rivers glowed on the night side. */
 export const NIGHT_WATER = 0.55;
-
-/** The grain of the ground (landscape plan wave 8, §9.5): the texture that
- *  says what one is standing on -- stone, sand, ice, turf -- laid over the
- *  hillshade.
- *
- *  It decides nothing, and it is not the facet drawn (§9.2: "зерно от
- *  шейдера ничего не решает... ему разрешено быть просто красивым"). The
- *  face a find wears is the engine's (`engine/facet.py`), off the field's
- *  own numbers; what the eye sees here is the same ground's character read
- *  off the landform and the rock.
- *
- *  **A cell is eight metres of ground and stays eight metres at every
- *  zoom.** It followed the pixel once, stepping by octaves so as to stay
- *  the same size on the glass, and that was wrong for a reason no measure
- *  would have caught: the ground then changes when the hand zooms, and a
- *  map whose country is rearranged by looking closer is not a map (owner,
- *  2026-09-09). What the zoom may change is only whether the grain can be
- *  seen at all -- and that it must, or a texture finer than a pixel turns
- *  into a shimmer of noise. */
-export const GRAIN_M = 32;
-/** How many octaves of it there are, each half the last, and how much
- *  quieter each finer one is. Five from thirty-two metres reach down to
- *  two: the ground is one fixed texture with detail at many sizes, as real
- *  ground is, so coming closer **uncovers** the fine detail instead of
- *  rearranging the coarse -- which is the whole of what the owner asked
- *  for. An octave is drawn only where its own cell is worth pixels, so
- *  none of them is ever aliasing. */
-export const GRAIN_OCTAVES = 5;
-export const GRAIN_FALL = 0.6;
-
-/** What the octaves add up to when every one of them shows: the sum the
- *  grain is divided by, so its loudest is the same wherever one stands. */
-export function grainWhole(): number {
-  let whole = 0;
-  let amp = 1;
-  for (let o = 0; o < GRAIN_OCTAVES; o++) {
-    whole += amp;
-    amp *= GRAIN_FALL;
-  }
-  return whole;
-}
-/** How much of the tone the grain may take at its strongest. */
-export const GRAIN_DEPTH = 0.15;
-/** Over what width of a grain cell, in device pixels, the grain comes in:
- *  nothing under the first, whole from the second. Below a pixel a texture
- *  is not a texture but aliasing, and above a couple it is itself. */
-export const GRAIN_SEEN_PX = 1.5;
-export const GRAIN_FULL_PX = 4;
-
-/** How strong the grain is where a cell of it is this many pixels wide. */
-export function grainStrength(cellPx: number): number {
-  if (!Number.isFinite(cellPx)) return 0;
-  const span = GRAIN_FULL_PX - GRAIN_SEEN_PX;
-  return Math.min(1, Math.max(0, (cellPx - GRAIN_SEEN_PX) / span));
-}
 
 /** How far the biome is read astray of the pixel, in cells of the raster,
  *  and over what length of ground that wander waves. Both are metres of the
@@ -376,44 +337,7 @@ export function edgeStrength(wavePx: number): number {
   return Math.min(1, Math.max(0, (wavePx - EDGE_SEEN_PX) / (EDGE_FULL_PX - EDGE_SEEN_PX)));
 }
 
-/** How many cells a lattice repeats in. A lattice that counted to the
- *  planet's radius would be five figures long before it reached the ground,
- *  and the ground would get what the float had left -- which it did: a star
- *  of rays stood in the middle of the map, where the figures ran out first.
- *  Wrapped, and counted from the eye rather than from the planet's centre,
- *  a lattice coordinate is a few hundred and every figure of it is ground.
- *  The seam repeats every 512 cells, which no frame that draws is wide
- *  enough to reach. */
-export const GRAIN_WRAP = 512;
-
-/** Where the eye itself stands in a lattice of cells this big, wrapped into
- *  the first period. Reckoned here, where a number carries sixteen figures,
- *  and handed to the shader, where it would carry seven: this is the whole
- *  of the trick that keeps the grain steady under the eye. */
-export function latticeAt(
-  lat: number,
-  lon: number,
-  radiusM: number,
-  cellM: number,
-): [number, number, number] {
-  const scale = radiusM / cellM;
-  const up: [number, number, number] = [
-    Math.cos(lat) * Math.cos(lon),
-    Math.cos(lat) * Math.sin(lon),
-    Math.sin(lat),
-  ];
-  return up.map((one) => {
-    const at = one * scale;
-    return at - Math.floor(at / GRAIN_WRAP) * GRAIN_WRAP;
-  }) as [number, number, number];
-}
-/** What the value noise is multiplied by to fill -1..1: a blend of eight
- *  uniform draws heaps about its middle, and untouched it swings a tenth of
- *  the way -- a texture nobody would see. Measured, not guessed: the spread
- *  of the blend is about a seventh of the range. */
-export const NOISE_GAIN = 3;
 //: The GLSL itself lives in `fragment.ts`, written from the constants above.
-
 
 /** The subsolar point as a direction on the unit ball, the way the shader
  *  places every point of the sphere: x along the prime meridian, z to the
@@ -620,6 +544,49 @@ export function mipChain(
         const x1 = Math.min(w - 1, 2 * x + 1);
         next[y * w2 + x] =
           (data[y0 * w + x0] + data[y0 * w + x1] + data[y1 * w + x0] + data[y1 * w + x1]) / 4;
+      }
+    }
+    chain.push({ data: next, cols: w2, rows: h2 });
+    data = next;
+    w = w2;
+    h = h2;
+  }
+  return chain;
+}
+
+/**
+ * The chain of the **top** of the ground: each level the highest of the
+ * four cells under it, where `mipChain` takes their mean. The cast shadow
+ * reads it (SHADOW_STEPS): a stretch of ground read at the level whose
+ * texel is the stretch then answers "what is the highest point on it",
+ * which is what a shadow is cast by -- the mean of a ridge and the valleys
+ * beside it is a hill that casts nothing.
+ */
+export function topChain(
+  level0: Float32Array,
+  cols: number,
+  rows: number,
+  tile = 0,
+): { data: Float32Array; cols: number; rows: number }[] {
+  const deepest = tile > 1 ? Math.floor(Math.log2(tile)) : Infinity;
+  const chain = [{ data: level0, cols, rows }];
+  let { data, cols: w, rows: h } = chain[0];
+  while ((w > 1 || h > 1) && chain.length <= deepest) {
+    const w2 = Math.max(1, Math.floor(w / 2));
+    const h2 = Math.max(1, Math.floor(h / 2));
+    const next = new Float32Array(w2 * h2);
+    for (let y = 0; y < h2; y++) {
+      const y0 = Math.min(h - 1, 2 * y);
+      const y1 = Math.min(h - 1, 2 * y + 1);
+      for (let x = 0; x < w2; x++) {
+        const x0 = Math.min(w - 1, 2 * x);
+        const x1 = Math.min(w - 1, 2 * x + 1);
+        next[y * w2 + x] = Math.max(
+          data[y0 * w + x0],
+          data[y0 * w + x1],
+          data[y1 * w + x0],
+          data[y1 * w + x1],
+        );
       }
     }
     chain.push({ data: next, cols: w2, rows: h2 });

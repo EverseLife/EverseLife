@@ -107,6 +107,30 @@ BIOME_FIGURE = Words(
     "biome.figure",
     allowed=("fir", "broadleaf", "palm", "acacia", "bush", "grass", "reed", "moss", "none"),
 )
+#: The grain the map roughens a biome's ground with on the near frames
+#: (D-331 addendum, 2026-09-12): a word the client knows (`shade.GRAIN_KINDS`),
+#: read off `/public/constants` like the figure, declared for the same reason.
+BIOME_GRAIN = Words(
+    "biome.grain",
+    allowed=(
+        "sand",
+        "turf",
+        "canopy",
+        "blades",
+        "dunes",
+        "needles",
+        "polygons",
+        "pools",
+        "rubble",
+        "scree",
+        "cracks",
+        "clinker",
+        "jungle",
+        "tussocks",
+        "patches",
+        "groves",
+    ),
+)
 BIOME_VEIN_K = Table("biome.vein_k")
 #: How a point is sorted into one (landscape plan, wave 4): the zonal table
 #: -- rectangles of mean temperature and rain, the vault build checks they
@@ -158,6 +182,7 @@ __all__ = [
     "BIOME_SWING_C",
     "BIOME_MARKS",
     "BIOME_FIGURE",
+    "BIOME_GRAIN",
     "BIOME_VEIN_K",
     "BIOME_ZONAL",
     "BIOME_FACET_AXES",
