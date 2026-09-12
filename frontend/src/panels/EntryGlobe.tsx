@@ -5,35 +5,36 @@
  * The globe before the world (D-319, D-013): one half of the login and
  * registration screens is the planet itself, from the public map.
  *
- * The same globe as the map's -- the true sphere, the ground of the relief,
- * north up, turning by itself until the hand takes it, zoomed by the
- * wheel -- with what the
- * public map shows to everybody: the cities and the ways between them, as
- * of the delayed snapshot (D-319 item 7). There is no session yet, so the
- * book is read from the public catalog and there is no clock, hence no
- * night. At the last step of registration the doors -- the printers a
- * newcomer may be printed at -- appear as marks; a mark chosen names the
- * door whose card the other half shows.
+ * The same planet as the map's, drawn by the map's own component
+ * (`map/Planet`): the GPU's ground with its relief, its water, its snow and
+ * its clouds, and the overlays the player last left on the map -- north up,
+ * turning by itself until the hand takes it, zoomed by the wheel. On it,
+ * what the public map shows to everybody: the cities and the ways between
+ * them, as of the delayed snapshot (D-319 item 7). There is no session yet,
+ * so the book and the names are read from the public catalogs, and there is
+ * no clock, hence no night. At the last step of registration the doors --
+ * the printers a newcomer may be printed at -- appear as marks; a mark
+ * chosen names the door whose card the other half shows.
  */
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import * as api from "../api";
 import type { Door, MapNode, RecipeBook, WorldMap } from "../api";
-import { t } from "../locale";
-import { Ground } from "./map/Ground";
-import { arc, projectAll, type Geo } from "./map/globe";
+import { CatalogProvider } from "../actions";
+import { currentLocale, t } from "../locale";
+import { namesOf, type Names } from "../names";
+import { CELL_DEG, FINEST_UNIT, farOf, nearFrameM, nearOf } from "./map/bands";
+import { arc, placeAt, projectAll, type Geo } from "./map/globe";
+import { W } from "./map/model";
 import { markShare, paper, type Box } from "./map/paper";
+import { Planet } from "./map/Planet";
+import { useClimateView } from "./map/useClimateView";
 import { useGlobe } from "./map/useGlobe";
+import { useLayers } from "./map/useLayers";
 
 /** How much of the frame the disk takes at the outermost zoom. */
 const FRAME = 1.05;
-/** The radius the globe is drawn at, in the picture's own units -- not the
- *  map's. A planet in map units is tens of millions, and the browser reads
- *  a circle's centre as a length and saturates it at 2^25 device pixels
- *  (see `diskPath`): a dot near the limb would slide inward on any display
- *  scaled past one. The hand's drags are turned back to map units. */
-const DISK = 1000;
 /** How fast the globe turns by itself, degrees of longitude a second: a
  *  slow turn on the login screen, stopped by the hand and on the door step. */
 const SPIN_DEG_PER_S = 2;
@@ -41,20 +42,18 @@ const RAD = Math.PI / 180;
 /** How far in the zoom may go, and one notch of it. */
 const ZOOM_MAX = 400;
 const NOTCH = 1.25;
-/** Sizes in shares of the frame: a node's dot and a label. */
+/** Sizes in shares of the square the planet stands in: a node's dot and a
+ *  label. */
 const DOT = 1 / 300;
 /** A door's mark, in **pixels** of the screen -- of a door with nobody behind
- *  it; `markShare` grows it with the citizens. Not a share of the frame like
+ *  it; `markShare` grows it with the citizens. Not a share of the square like
  *  the rest: the mark is a target for a finger before it is a picture, and a
- *  share of the frame made it three pixels across on a phone, where the globe
- *  is a third of the size it has on a desktop. */
+ *  share of the square made it three pixels across on a phone, where the
+ *  globe is a third of the size it has on a desktop. */
 const MARK_PX = 10;
 const LABEL = 1 / 36;
 /** Below this many drawn cells across the frame the ground is one flat colour. */
 const CELLS_ACROSS = 1.5;
-/** The finest reading of the ground: a thirty-second of a grid cell, where
- *  the tiles of the local relief are read (D-323, `Ground`). */
-const FINEST_UNIT = 1 / 32;
 /** How often the turning globe is redrawn, a second: at two degrees a
  *  second the ground moves an eighth of a degree between redraws -- under
  *  a cell's width at any zoom -- and a redraw is the whole frame's ground. */
@@ -64,8 +63,6 @@ const SPIN_FPS = 15;
 const NODES_ZOOM = 2;
 const LABELS_ZOOM = 4;
 
-/** The relief's cell, degrees. */
-const CELL_DEG = 2;
 const EQUATOR: Geo = { lat: 0, lon: 0 };
 
 /**
@@ -127,16 +124,37 @@ export function EntryGlobe({
   //: The planet's radius and the ground's tones come from the vault, and
   //: the vault's book is public: read it once, before any identification.
   const [book, setBook] = useState<RecipeBook | null>(null);
+  //: The provinces' names, in the language the screen speaks: public too.
+  const [names, setNames] = useState<Names | null>(null);
   const [world, setWorld] = useState<WorldMap | null>(null);
   useEffect(() => {
     let live = true;
     api.constants().then(
       //: Only the constants are needed here; the rest of the book is the
-      //: session's, and a door has none.
-      (got) => live && setBook({ constants: got.values } as unknown as RecipeBook),
+      //: session's, and a door has none. Empty rather than missing: the book
+      //: goes into the context the map's layers read (`CatalogProvider`),
+      //: and a reader there that walks the recipes must find none, not crash.
+      (got) =>
+        live &&
+        setBook({
+          bulk: [],
+          materials: [],
+          units: {},
+          operations: [],
+          recipes: [],
+          classes: {},
+          tool_classes: {},
+          synonyms: {},
+          constants: got.values,
+        }),
       //: A bare half of the screen is what the player sees; the reason goes
       //: to the console.
       (why) => console.warn("constants:", why),
+    );
+    api.renames().then(
+      (got) => live && setNames(namesOf(got, currentLocale())),
+      //: A province then wears its id, as it does on the map without them.
+      (why) => console.warn("renames:", why),
     );
     api.worldMap().then(
       (got) => live && setWorld(got),
@@ -167,6 +185,14 @@ export function EntryGlobe({
   );
   const globe = useGlobe({ book, planet: shown, active: true });
   const { eye, radius, lookAt } = globe;
+  //: The sky over the ground as the map shows it. No clock before a
+  //: session: the season and the weather of the world's first day, and no
+  //: sun -- the ground is lit from the map's own north-west.
+  const view = useClimateView(book, shown, radius, undefined);
+  //: The overlays the player left on the map, as the terrain wears them:
+  //: the planet before the door is the one behind it. Not the layer -- a
+  //: legend layer would colour this planet with no legend beside it.
+  const { overlays } = useLayers();
   //: The eye stands over the chosen door, else the first door, else the
   //: first placed node of the planet -- a city, the capital first.
   const chosen = onPlanet.find((door) => door.node === picked) ?? onPlanet[0];
@@ -290,7 +316,10 @@ export function EntryGlobe({
       </div>
     );
   }
-  const span = (2 * DISK * FRAME) / zoom;
+  //: In map units, as the map draws: the ground's layers measure the frame
+  //: in metres of the planet, and a picture of its own size would tell them
+  //: of another planet.
+  const span = (2 * radius * FRAME) / zoom;
   //: The paper (`map/paper`): where the planet lands on a canvas that is the
   //: window, how far the ground is laid, how fine the grid is read. Until the
   //: first measurement the drawing is the square it always was -- one frame
@@ -307,19 +336,26 @@ export function EntryGlobe({
         across: span,
         viewBox: `${-span / 2} ${-span / 2} ${span} ${span}`,
       };
-  //: A pixel of the hand in map units: the eye turns by the planet's
-  //: measure, not the picture's.
-  const unitsPerPixel = () => sheet.perPixel * (radius / DISK);
   //: The closer, the finer the grid is read, so that the cells in the frame
   //: stay about as many as at the outermost zoom -- and the frame, not the
   //: planet, is what a redraw costs.
   const unit = Math.max(FINEST_UNIT, Math.min(1, sheet.spread / zoom));
-  const cellUnits = DISK * CELL_DEG * RAD * unit;
+  const cellUnits = radius * CELL_DEG * RAD * unit;
   const detailed = sheet.across > CELLS_ACROSS * cellUnits;
-  const placed = projectAll(eye, DISK, surface);
+  //: The map's scale counts a map unit as a pixel of a frame `W` wide
+  //: (`map/model`), whatever the pane; the names of `bands` are sized in
+  //: those pixels. The paper knows the true one, so the provinces' names
+  //: come out at the pixels `bands` means rather than at a pane's guess.
+  const scale = 1 / sheet.perPixel;
+  //: The frame's width is the seen half's, not an 880-pixel pane's: the
+  //: lines of the relief ask how many metres the frame really holds.
+  const frameScale = W / sheet.across;
+  //: The square's side, pixels: what the dots and the names are sized by.
+  const side = span * scale;
+  const placed = projectAll(eye, radius, surface);
   const marks = projectAll(
     eye,
-    DISK,
+    radius,
     onPlanet.map((door) => ({ key: door.node, place: door.place })),
   );
   const byKey = new Map(surface.map((node) => [node.key, node]));
@@ -329,137 +365,156 @@ export function EntryGlobe({
   return (
     <div className="entry-globe">
       <div className="globe-space" ref={space} />
-      <svg
-        ref={svg}
-        viewBox={sheet.viewBox}
-        //: A group, not a picture: `role="img"` takes the whole drawing for
-        //: one image and hides what is inside it, and inside it are the doors
-        //: -- controls a keyboard has to reach (D-077).
-        role="group"
-        aria-label={t("ui-entry-globe-label")}
-        style={{ "--pc": `var(--planet-${shown})` } as React.CSSProperties}
-        onPointerDown={(e) => {
-          //: A finger is the page's first: it scrolls, and only a sideways
-          //: drag turns the globe (`touch-action: pan-y` in the stylesheet).
-          //: The mouse turns it outright.
-          drag.current = { x: e.clientX, y: e.clientY };
-          e.currentTarget.setPointerCapture(e.pointerId);
-        }}
-        onPointerMove={(e) => {
-          const from = drag.current;
-          if (!from || !globe.rotate) return;
-          const k = unitsPerPixel();
-          globe.rotate((e.clientX - from.x) * k, (e.clientY - from.y) * k);
-          drag.current = { x: e.clientX, y: e.clientY };
-        }}
-        onPointerUp={() => {
-          drag.current = null;
-        }}
-        onPointerCancel={() => {
-          drag.current = null;
-        }}
-      >
-        <Ground
-          planet={shown}
-          eye={eye}
-          radius={DISK}
-          book={book}
+      <CatalogProvider book={book} names={names}>
+        {/* No camera here: the ground redraws by itself as the eye turns
+            and as the viewBox moves (`Planet`), so nobody holds its handle. */}
+        <Planet
+          svg={svg}
+          field={{
+            viewBox: sheet.viewBox,
+            //: A group, not a picture: `role="img"` takes the whole drawing
+            //: for one image and hides what is inside it, and inside it are
+            //: the doors -- controls a keyboard has to reach (D-077).
+            role: "group",
+            "aria-label": t("ui-entry-globe-label"),
+            style: { "--pc": `var(--planet-${shown})` } as React.CSSProperties,
+            onPointerDown: (e) => {
+              //: A finger is the page's first: it scrolls, and only a
+              //: sideways drag turns the globe (`touch-action: pan-y` in the
+              //: stylesheet). The mouse turns it outright.
+              drag.current = { x: e.clientX, y: e.clientY };
+              e.currentTarget.setPointerCapture(e.pointerId);
+            },
+            onPointerMove: (e) => {
+              const from = drag.current;
+              if (!from || !globe.rotate) return;
+              //: A pixel of the hand in map units: the eye turns by the
+              //: planet's measure.
+              const k = sheet.perPixel;
+              globe.rotate((e.clientX - from.x) * k, (e.clientY - from.y) * k);
+              drag.current = { x: e.clientX, y: e.clientY };
+            },
+            onPointerUp: () => {
+              drag.current = null;
+            },
+            onPointerCancel: () => {
+              drag.current = null;
+            },
+          }}
+          ball={{ planet: shown, eye, radius }}
           clock={undefined}
-          detailed={detailed}
-          coarse={false}
-          unit={unit}
-          within={sheet.reach}
-        />
-        <g className="ways">
-          {(world?.edges ?? []).map((edge) => {
-            const a = byKey.get(edge.a)?.place;
-            const b = byKey.get(edge.b)?.place;
-            if (!a || !b || !("lat" in a) || !("lat" in b)) return null;
-            const run = arc(eye, DISK, a, b);
-            if (!run) return null;
-            return (
-              <polyline
-                key={`${edge.a}|${edge.b}`}
-                className={`way ${edge.surface}`}
-                points={run.map((p) => `${p.x},${p.y}`).join(" ")}
-              />
-            );
-          })}
-        </g>
-        <g className="places">
-          {surface.map((node) => {
-            const at = placed.get(node.key);
-            const city = cities.has(node.key);
-            //: Far out a city is a dot and a node nothing: a hundred dots
-            //: on a disk the size of a coin is a smudge, and a name on it
-            //: cannot be read at all.
-            if (!at || (!city && zoom < NODES_ZOOM)) return null;
-            return (
-              <g key={node.key} className={`place ${city ? "city" : ""}`}>
-                <circle cx={at.x} cy={at.y} r={span * DOT * (city ? 2 : 1)} />
-                {city && zoom >= LABELS_ZOOM && (
-                  <text x={at.x} y={at.y - span * DOT * 4} fontSize={span * LABEL}>
-                    {node.name}
-                  </text>
-                )}
-              </g>
-            );
-          })}
-        </g>
-        <g className="doors">
-          {onPlanet.map((door) => {
-            const at = marks.get(door.node);
-            if (!at) return null;
-            const mine = door.node === picked;
-            return (
-              <g
-                key={door.node}
-                className={`door ${mine ? "picked" : ""}`}
-                //: A control, and reachable without a hand: the row of names
-                //: beside the globe is gone, so this mark is the whole of how
-                //: a door is chosen, and "full keyboard navigation" is not a
-                //: wish of the vault's but a rule (D-077, 50-interface/00).
-                role="button"
-                tabIndex={0}
-                aria-label={door.city ? `${door.name} · ${door.city}` : door.name}
-                aria-pressed={mine}
-                onKeyDown={(e) => {
-                  if (e.key !== "Enter" && e.key !== " ") return;
-                  //: Space scrolls a page and Enter submits a form: neither is
-                  //: what a pressed button means here.
-                  e.preventDefault();
-                  onPick(door.node);
-                }}
-                //: A press, not a click, and it does not reach the globe
-                //: beneath -- the map picks a node the same way (`Nodes`).
-                //: A click would never come: the field takes the pointer to
-                //: turn the globe, and a captured pointer's click is fired
-                //: at the field, not at what was under the finger. So the
-                //: mark was dead to the hand, and only the list of names
-                //: beside it worked.
-                onPointerDown={(e) => {
-                  //: The primary button only: a right click opens a menu the
-                  //: browser draws, and choosing a door under it would be a
-                  //: choice nobody asked for.
-                  if (e.button !== 0) return;
-                  e.stopPropagation();
-                  onPick(door.node);
-                }}
-              >
-                <title>{door.city ? `${door.name} · ${door.city}` : door.name}</title>
-                {/* The mark grows with the people printed there, by the
-                    logarithm of them (`markShare`): the chosen one a little
-                    larger again, so the hand sees what it picked. */}
-                <circle
-                  cx={at.x}
-                  cy={at.y}
-                  r={sheet.perPixel * MARK_PX * markShare(door.citizens) * (mine ? 1.3 : 1)}
+          view={view}
+          layer="terrain"
+          shown={overlays}
+          frame={{
+            detailed,
+            unit,
+            //: The whole disk while a drawn cell is a whole one: the frame
+            //: holds the planet, and the provinces read the walk made once
+            //: for it rather than cutting their own at every turn of the eye.
+            within: unit >= 1 ? undefined : sheet.reach,
+            far: farOf(scale),
+            frameM: nearFrameM(nearOf(frameScale)),
+            approach: false,
+          }}
+        >
+          <g className="ways">
+            {(world?.edges ?? []).map((edge) => {
+              const a = byKey.get(edge.a)?.place;
+              const b = byKey.get(edge.b)?.place;
+              if (!a || !b || !("lat" in a) || !("lat" in b)) return null;
+              const run = arc(eye, radius, a, b);
+              if (!run) return null;
+              return (
+                <polyline
+                  key={`${edge.a}|${edge.b}`}
+                  className={`way ${edge.surface}`}
+                  points={run.map((p) => `${p.x},${p.y}`).join(" ")}
                 />
-              </g>
-            );
-          })}
-        </g>
-      </svg>
+              );
+            })}
+          </g>
+          {/* What stands on the planet is drawn in pixels about its own
+              origin and stood on the sphere by a matrix that scales it
+              (`placeAt`): a centre in map units saturates short of the limb
+              (`diskPath`), and a `font-size` in map units is one the browser
+              draws no glyphs for. */}
+          <g className="places">
+            {surface.map((node) => {
+              const at = placed.get(node.key);
+              const city = cities.has(node.key);
+              //: Far out a city is a dot and a node nothing: a hundred dots
+              //: on a disk the size of a coin is a smudge, and a name on it
+              //: cannot be read at all.
+              if (!at || (!city && zoom < NODES_ZOOM)) return null;
+              return (
+                <g
+                  key={node.key}
+                  className={`place ${city ? "city" : ""}`}
+                  transform={placeAt(at, sheet.perPixel)}
+                >
+                  <circle r={side * DOT * (city ? 2 : 1)} />
+                  {city && zoom >= LABELS_ZOOM && (
+                    <text y={-side * DOT * 4} fontSize={side * LABEL}>
+                      {node.name}
+                    </text>
+                  )}
+                </g>
+              );
+            })}
+          </g>
+          <g className="doors">
+            {onPlanet.map((door) => {
+              const at = marks.get(door.node);
+              if (!at) return null;
+              const mine = door.node === picked;
+              return (
+                <g
+                  key={door.node}
+                  className={`door ${mine ? "picked" : ""}`}
+                  transform={placeAt(at, sheet.perPixel)}
+                  //: A control, and reachable without a hand: the row of names
+                  //: beside the globe is gone, so this mark is the whole of how
+                  //: a door is chosen, and "full keyboard navigation" is not a
+                  //: wish of the vault's but a rule (D-077, 50-interface/00).
+                  role="button"
+                  tabIndex={0}
+                  aria-label={door.city ? `${door.name} · ${door.city}` : door.name}
+                  aria-pressed={mine}
+                  onKeyDown={(e) => {
+                    if (e.key !== "Enter" && e.key !== " ") return;
+                    //: Space scrolls a page and Enter submits a form: neither is
+                    //: what a pressed button means here.
+                    e.preventDefault();
+                    onPick(door.node);
+                  }}
+                  //: A press, not a click, and it does not reach the globe
+                  //: beneath -- the map picks a node the same way (`Nodes`).
+                  //: A click would never come: the field takes the pointer to
+                  //: turn the globe, and a captured pointer's click is fired
+                  //: at the field, not at what was under the finger. So the
+                  //: mark was dead to the hand, and only the list of names
+                  //: beside it worked.
+                  onPointerDown={(e) => {
+                    //: The primary button only: a right click opens a menu the
+                    //: browser draws, and choosing a door under it would be a
+                    //: choice nobody asked for.
+                    if (e.button !== 0) return;
+                    e.stopPropagation();
+                    onPick(door.node);
+                  }}
+                >
+                  <title>{door.city ? `${door.name} · ${door.city}` : door.name}</title>
+                  {/* The mark grows with the people printed there, by the
+                      logarithm of them (`markShare`): the chosen one a little
+                      larger again, so the hand sees what it picked. */}
+                  <circle r={MARK_PX * markShare(door.citizens) * (mine ? 1.3 : 1)} />
+                </g>
+              );
+            })}
+          </g>
+        </Planet>
+      </CatalogProvider>
       {/* Only while it is worth saying: with a door chosen the card is what
           the screen is about, and on a phone that card stands over this line
           anyway. An empty world has no dots to point at either. */}

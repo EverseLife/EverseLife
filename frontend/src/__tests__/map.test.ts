@@ -51,7 +51,7 @@ import {
 import { DEFAULT_LOCALE, Words, learn } from "../locale";
 
 /** The map's drawing, as text: the guard below reads it rather than runs it. */
-const SOURCES = import.meta.glob(["../panels/GraphMap.tsx", "../panels/map/*.ts*"], {
+const SOURCES = import.meta.glob(["../panels/GraphMap.tsx", "../panels/EntryGlobe.tsx", "../panels/map/*.ts*"], {
   query: "?raw",
   import: "default",
   eager: true,
@@ -748,6 +748,11 @@ describe("the globe", () => {
     expect(numbers?.slice(0, 4)).toEqual([1, 0, 0, 1]);
     expect(numbers?.[4]).toBe(far.x);
     expect(numbers?.[5]).toBeCloseTo(far.y, 9);
+    //: A mark drawn in pixels is stood with the map units a pixel makes: the
+    //: scale grows its own frame and leaves where it stands alone.
+    const grown = placeAt(far, 250).match(/^matrix\(([^)]+)\)$/)?.[1].split(" ").map(Number);
+    expect(grown?.slice(0, 4)).toEqual([250, 0, 0, 250]);
+    expect(grown?.[4]).toBe(far.x);
   });
 
   it("gives no scene coordinate to a length: a mark is stood, not centred", () => {
@@ -758,12 +763,13 @@ describe("the globe", () => {
     //: scene are read as text: a circle's middle there is its own origin,
     //: and where it stands is a matrix (`placeAt`).
     //: `map/Sky` is not among them -- the sky's places are fitted to the
-    //: frame (`useSky`), never map units -- and neither is the entry
-    //: screen's globe, which draws at a constant radius of its own.
+    //: frame (`useSky`), never map units. The entry screen's globe is: it
+    //: draws the map's own planet now (`map/Planet`), in the map's units,
+    //: and the provinces' names stand on the same sphere.
     const drawn = Object.entries(SOURCES).filter(([path]) =>
-      /(GraphMap\.tsx|map\/Nodes\.tsx|map\/useWalker\.ts)$/.test(path),
+      /(GraphMap\.tsx|EntryGlobe\.tsx|map\/Nodes\.tsx|map\/Provinces\.tsx|map\/useWalker\.ts)$/.test(path),
     );
-    expect(drawn.length).toBe(3);
+    expect(drawn.length).toBe(5);
     for (const [path, source] of drawn) {
       source.split("\n").forEach((line, i) => {
         const at = `${path}:${i + 1}`;

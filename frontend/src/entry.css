@@ -405,7 +405,9 @@ button.eye:not(:disabled):active {
    square's edge -- a seam across the screen with the page behind it -- and the
    half the globe sits in was never filled. Fixed and behind everything: on a
    desktop the way in is opaque and covers its own half, and on a phone it is
-   a wash the planet shows through. */
+   a wash the planet shows through. The GPU's ground under it (`.ground-gl`,
+   map.css) is laid over this box by `GroundGL` itself, against `.entry-globe`
+   -- positioned in both layouts below -- so the two cannot part. */
 .entry-globe svg {
   display: block;
   position: fixed;

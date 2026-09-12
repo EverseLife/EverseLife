@@ -32,7 +32,7 @@ import { useNames } from "../../actions";
 import { limbShare, provinceLabelEm } from "./bands";
 import { useTerrain } from "./Ground";
 import { PROVINCE_EM } from "./labels";
-import { project, type Eye } from "./globe";
+import { placeAt, project, type Eye } from "./globe";
 import {
   provinceFrame,
   provinceWhole,
@@ -125,7 +125,9 @@ export function Provinces({
     <g className="province-lines" aria-hidden="true">
       {drawn.edges && <path className="province" d={drawn.edges} />}
       {drawn.labels.map((label) => (
-        <g key={label.id} transform={`translate(${label.x} ${label.y})`}>
+        //: Stood by a matrix, not a `translate`, whose arguments are lengths
+        //: the browser saturates short of the limb (`placeAt`).
+        <g key={label.id} transform={placeAt(label)}>
           <text
             className="province-label"
             transform={`scale(${(grown * label.limb).toFixed(4)})`}

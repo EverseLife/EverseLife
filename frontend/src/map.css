@@ -49,8 +49,10 @@
    ground's own expressions (below), spelt once here for both paths -- on
    the probe they are read through, because `var(--pc)` inside them is
    substituted where they are declared, and the probe is where `--pc` is
-   set. */
-.map-field > .ground-probe {
+   set. Not scoped to the map's field: the entry screen draws the same planet
+   (`map/Planet`), and a probe that read no tones there would give the shader
+   a black sea. */
+.ground-probe {
   /* No shallow end any more: a river, a lake and the sea are one water and
      take one colour (owner, 2026-09-11), and the sea alone darkens by its
      own depth. The shallow tone lost its last reader with `seaShallow`. */
@@ -73,11 +75,11 @@
    past the svg it drew land with nothing on it -- on a narrow pane the bars
    stand in flow under the map, and the ground ran on behind them (owner,
    2026-09-11: the svg did not match the ground). */
-.map-field > .ground-gl {
+.ground-gl {
   position: absolute;
   pointer-events: none;
 }
-.map-field > .ground-probe {
+.ground-probe {
   position: absolute;
   width: 0;
   height: 0;

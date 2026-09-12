@@ -105,9 +105,13 @@ export function diskPath(radius: number): string {
  *
  * So a node is drawn about its own origin and stood here, and its circles,
  * its glyph and its label keep the small coordinates they had.
+ *
+ * `scale` grows the shape's own frame by as much: the entry screen draws its
+ * marks in pixels and stands them with the map units a pixel makes, since a
+ * `font-size` in map units is one the browser draws no glyphs for.
  */
-export function placeAt(p: Point): string {
-  return `matrix(1 0 0 1 ${p.x} ${p.y})`;
+export function placeAt(p: Point, scale = 1): string {
+  return `matrix(${scale} 0 0 ${scale} ${p.x} ${p.y})`;
 }
 
 /**

@@ -53,16 +53,13 @@ import { useHand } from "./map/hand";
 import { flatten, oneEach, withCityScene } from "./map/geo";
 import { placeAt, projectAll, UNITS_PER_METRE } from "./map/globe";
 import { firstOnGlobe, needsTurn } from "./map/follow";
-import { Ground } from "./map/Ground";
 import { useClimateView } from "./map/useClimateView";
 import { YearClock } from "./map/Year";
-import { GroundGL, type GroundGLHandle, type GroundGLState } from "./map/GroundGL";
-import { Provinces } from "./map/Provinces";
+import type { GroundGLHandle } from "./map/GroundGL";
+import { Planet } from "./map/Planet";
 import { Legend } from "./map/Legend";
 import { Probe } from "./map/Probe";
-import { Lines } from "./map/Lines";
 import { nodeWord } from "./map/words";
-import { supportsShadedGround } from "./map/shade";
 import { useLayers } from "./map/useLayers";
 import { useArcs, useGlobe, radiusOf } from "./map/useGlobe";
 import { factsOf, useBands, useHandOver, type Sphere } from "./map/useBands";
@@ -313,14 +310,8 @@ export function GraphMap({
   const zoomRef = useRef<HTMLInputElement | null>(null);
   //: The ground the GPU draws under the svg (landscape plan wave 5): asked
   //: to redraw with every frame the camera paints, off React like the
-  //: viewBox. Without WebGL2 the svg ground stands whole, as before.
+  //: viewBox. Without WebGL2 the svg ground stands whole (`map/Planet`).
   const shadedRef = useRef<GroundGLHandle | null>(null);
-  const shadeable = useMemo(supportsShadedGround, []);
-  //: How the GPU ground is doing: the SVG ground draws the land until the
-  //: textures are up, and for good once the GPU has given up -- a player
-  //: must not see an empty disk where the globe used to be.
-  const [shading, setShading] = useState<GroundGLState>("loading");
-  const shaded = shadeable && shading !== "failed";
   /**
    * The camera (`map/camera`): outside React, painted straight onto the
    * `viewBox`. The render reads the same object, so a render that happens for
@@ -425,12 +416,6 @@ export function GraphMap({
       ? projectAll(eye, radius, laid)
       : flatten(laid);
   }, [visible, byKey, orbiting, globeScene, eye, radius, citiesOpen]);
-  //: Whether the layers that read the field's rasters may draw at all: a
-  //: globe under the eye rather than an approach from the sky, and the GPU
-  //: ground already under them. Both of them read the same rasters, and on
-  //: the SVG path there are none to read.
-  const overGround =
-    globeScene && eye && radius && sphereShown && zoomed.descent === 0 && shaded && shading === "ready";
   const { curve, stubCurve } = useArcs({
     globeScene,
     eye,
@@ -855,37 +840,42 @@ export function GraphMap({
             <p className="note">{t("ui-map-empty")}</p>
           ) : (
             <>
-            {shaded && globeScene && eye && radius && sphereShown && (
-              <GroundGL
-                ref={shadedRef}
-                planet={sphereShown}
-                eye={eye}
-                radius={radius}
-                svg={svgRef}
-                sun={view.sun}
-                season={view.season}
-                weather={weather}
-                weatherDays={weatherDays}
-                clouds={shown.clouds}
-                layer={layer}
-                onState={setShading}
-              />
-            )}
-            <svg
-              ref={svgRef}
-              viewBox={vb}
-              role="img"
-              aria-label={t("ui-map-world")}
-              className={tethered ? "tethered" : undefined}
-              onPointerDown={grabField}
-              onPointerMove={(e) => {
-                movePointer(e);
-                scout.followCursor(e);
+            <Planet
+              ref={shadedRef}
+              camera
+              svg={svgRef}
+              field={{
+                viewBox: vb,
+                role: "img",
+                "aria-label": t("ui-map-world"),
+                className: tethered ? "tethered" : undefined,
+                onPointerDown: grabField,
+                onPointerMove: (e) => {
+                  movePointer(e);
+                  scout.followCursor(e);
+                },
+                onPointerUp: releasePointer,
+                onPointerLeave: releasePointer,
+                onPointerCancel: releasePointer,
+                onWheel: zoom,
               }}
-              onPointerUp={releasePointer}
-              onPointerLeave={releasePointer}
-              onPointerCancel={releasePointer}
-              onWheel={zoom}
+              ball={
+                globeScene && eye && radius && sphereShown
+                  ? { planet: sphereShown, eye, radius }
+                  : null
+              }
+              clock={look.clock}
+              view={view}
+              layer={layer}
+              shown={shown}
+              frame={{
+                detailed: zoomed.ground,
+                unit: zoomed.unit,
+                within: groundReach(zoomed.unit, radius),
+                far: zoomed.far,
+                frameM: nearFrameM(zoomed.near),
+                approach: zoomed.descent > 0,
+              }}
             >
               {orbiting && (
                 <SkyBackdrop
@@ -896,50 +886,6 @@ export function GraphMap({
                   fit={fit}
                   day={sky.day}
                 />
-              )}
-
-              {globeScene && eye && radius && sphereShown && (
-                <Ground
-                  planet={sphereShown}
-                  eye={eye}
-                  radius={radius}
-                  book={book}
-                  clock={look.clock}
-                  at={year.atMs}
-                  mode={shaded && shading === "ready" ? "under" : "svg"}
-                  detailed={zoomed.ground}
-                  coarse={zoomed.descent > 0}
-                  unit={zoomed.descent > 0 ? undefined : zoomed.unit}
-                  within={
-                    zoomed.descent > 0
-                      ? undefined
-                      : groundReach(zoomed.unit, radius)
-                  }
-                />
-              )}
-              {/* What is drawn on the ground itself, and only where the GPU
-                  drew it: the province's outline and name on the far frames,
-                  the relief's lines on the near ones. On the SVG path there
-                  are no rasters to read either from. */}
-              {overGround && (
-                <>
-                  <Provinces
-                    planet={sphereShown}
-                    eye={eye}
-                    radius={radius}
-                    within={groundReach(zoomed.unit, radius)}
-                    far={zoomed.far}
-                    on={shown.provinces}
-                  />
-                  <Lines
-                    planet={sphereShown}
-                    eye={eye}
-                    radius={radius}
-                    within={groundReach(zoomed.unit, radius)}
-                    frameM={nearFrameM(zoomed.near)}
-                    show={{ contours: shown.contours, figures: shown.figures }}
-                  />
-                </>
               )}
               {globeScene && eye && radius && (
                 <Outlines
@@ -1007,7 +953,7 @@ export function GraphMap({
                   <circle cx={0} cy={0} r={5} className="walker" />
                 </g>
               )}
-            </svg>
+            </Planet>
             </>
           )}
           <Switcher

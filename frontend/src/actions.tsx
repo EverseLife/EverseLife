@@ -89,13 +89,33 @@ export function ActionsProvider({
   return (
     <Refresh.Provider value={refresh}>
       <SessionContext.Provider value={session}>
-        <BookContext.Provider value={book}>
-          <NamesContext.Provider value={names}>
-            <LocaleContext.Provider value={locale}>{children}</LocaleContext.Provider>
-          </NamesContext.Provider>
-        </BookContext.Provider>
+        <CatalogProvider book={book} names={names}>
+          <LocaleContext.Provider value={locale}>{children}</LocaleContext.Provider>
+        </CatalogProvider>
       </SessionContext.Provider>
     </Refresh.Provider>
+  );
+}
+
+/**
+ * The book and the names without a session: the globe before the world
+ * draws its planet with the map's own layers (`map/Planet`), and those read
+ * both from here. Both are public catalogs, so a screen with nobody signed
+ * in may hold them; what it may not hold is a session, and this gives none.
+ */
+export function CatalogProvider({
+  book,
+  names,
+  children,
+}: {
+  book: RecipeBook | null;
+  names: Names | null;
+  children: ReactNode;
+}) {
+  return (
+    <BookContext.Provider value={book}>
+      <NamesContext.Provider value={names}>{children}</NamesContext.Provider>
+    </BookContext.Provider>
   );
 }
 
