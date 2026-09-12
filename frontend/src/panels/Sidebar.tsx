@@ -152,9 +152,12 @@ const TAB_WIRE = oneOf<Tab>([
 export function Sidebar({
   look,
   onLogout,
+  onIntro,
 }: {
   look: Look;
   onLogout: () => void;
+  /** Opens the intro: it lives in the account tab since it left the header. */
+  onIntro: () => void;
 }) {
   const session = useSession();
   //: This panel's own waiting and its own refusal: one action here
@@ -339,7 +342,7 @@ export function Sidebar({
 
         {current === "me" &&
           (look.profile ? (
-            <Account profile={look.profile} onLogout={onLogout} />
+            <Account profile={look.profile} onLogout={onLogout} onIntro={onIntro} />
           ) : (
             <p className="note">{t("ui-side-no-account")}</p>
           ))}

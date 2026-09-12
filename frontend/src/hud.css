@@ -69,16 +69,21 @@ button.hud:not(:disabled):hover {
   justify-content: space-between;
   margin: 0.25rem 0;
 }
-/* The music (D-333): the slider takes the width, the switch and the note
-   sit under it. The note is dimmed while the music is off, like a reading
-   at rest -- the mark stays, so the place to switch it back on does too. */
+/* The music (D-333): the slider alone takes the popover's width. In the
+   phone's overflow it is a line of the menu, the mark before it. */
 .hud-pop .slider {
   display: flex;
   width: 100%;
-  margin-bottom: 0.4rem;
 }
-button.hud.dim .glyph {
-  color: var(--base-600);
+.menu-music {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0.5rem;
+  min-height: 36px;
+}
+.menu-music .slider {
+  flex: 1;
 }
 
 /* The body's readings, pushed to the right edge of the strip. */

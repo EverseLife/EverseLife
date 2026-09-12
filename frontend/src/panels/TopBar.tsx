@@ -15,9 +15,9 @@
  * not for a second door into a room one is already standing in.
  *
  * Right of the divide: the body's readings -- stamina, satiety, warmth --
- * and the service row (summary, intro, refresh, sources). Account controls
- * left the header for the sidebar's "аккаунт" tab: nothing here manages
- * the account any more.
+ * and the service row (the summary and the music). Account controls left
+ * the header for the sidebar's "аккаунт" tab, and so did the intro and the
+ * sources: nothing here manages the account any more.
  *
  * The current node's name is not repeated here -- the scene names where you
  * are. The header only says what overrides everything: on the road, in the
@@ -33,35 +33,24 @@ import { Glyph } from "../Glyph";
 import { askSidebarTab } from "../hud";
 import { t } from "../locale";
 import { Logo } from "../Logo";
-import { DEFAULT_VOLUME, setMuted, setVolume, useMusic } from "../music";
+import { setVolume, useMusic } from "../music";
 import { term } from "./map/orbits";
 import { usePopover } from "../popover";
 import { VIEWS, type View } from "../views";
 import { leftNow, reserveNow } from "../warmth";
 import { NumberField } from "../NumberField";
 
-//: Where the source of this build lives -- AGPL §13 asks for the source of
-//: *this* version, and the repository's head is not it. `VITE_RELEASE` is
-//: baked in by the image build (`Dockerfile`, CI passes `github.sha`); without
-//: it -- a hand build, a dev server -- the repository is the honest answer.
-const REPOSITORY = "https://github.com/EverseLife/EverseLife";
-const SOURCE_URL = import.meta.env.VITE_RELEASE
-  ? `${REPOSITORY}/tree/${import.meta.env.VITE_RELEASE}`
-  : REPOSITORY;
-
 type Props = {
   look: Look;
   waiting: number;
   narrow: boolean;
   onSummary: () => void;
-  onIntro: () => void;
-  onRefresh: () => void;
   /** The scene tabs; absent when there is no scene to switch (no body). */
   view?: View;
   onView?: (view: View) => void;
 };
 
-export function TopBar({ look, waiting, narrow, onSummary, onIntro, onRefresh, view, onView }: Props) {
+export function TopBar({ look, waiting, narrow, onSummary, view, onView }: Props) {
   const embodied = look.body != null;
   const ongoing = Boolean(look.travel);
   const asleep = Boolean(look.body?.sleeping_since);
@@ -145,15 +134,17 @@ export function TopBar({ look, waiting, narrow, onSummary, onIntro, onRefresh, v
         </nav>
       )}
 
-      {/* The service row: four controls on a desktop, one button on a phone.
-          The strip there is 375px wide and the four framed boxes took two
+      {/* The service row: the summary and the music on a desktop, one button
+          on a phone. The strip there is 375px wide, and framed boxes took two
           lines of it -- a third of the screen went to the header before the
-          first line of the world. Behind the overflow they are the same four,
+          first line of the world. Behind the overflow they are the same two,
           and the summary's count rides the button so that "something is
-          waiting" is still read without opening it. */}
-      <MusicQuick />
+          waiting" is still read without opening it. The intro, the refresh
+          and the sources left the strip (owner, 2026-09-12): the intro and
+          the sources live in the account tab, the refresh is gone -- the
+          server speaks (D-226). */}
       {narrow ? (
-        <More waiting={waiting} onSummary={onSummary} onIntro={onIntro} onRefresh={onRefresh} />
+        <More waiting={waiting} onSummary={onSummary} />
       ) : (
         <>
           <button
@@ -164,40 +155,37 @@ export function TopBar({ look, waiting, narrow, onSummary, onIntro, onRefresh, v
             {t("ui-top-summary")}
             {waiting > 0 && <span className="tally alarm">{waiting}</span>}
           </button>
-          {/* The intro stays within reach: once read it must not become
-              unreachable, and unread it must not become mandatory (D-182). */}
-          <button className="quiet" onClick={onIntro} title={t("ui-top-intro-title")}>
-            ?
-          </button>
-          <button className="quiet" onClick={onRefresh}>
-            {t("ui-top-refresh")}
-          </button>
-          {/* The sources of this version. AGPL §13: whoever plays over the
-              network must be offered them, not sent to a README. The
-              machine-readable answer to the same question is `/public/source`. */}
-          <a
-            className="quiet"
-            href={SOURCE_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            title={t("ui-top-source-title")}
-          >
-            {t("ui-top-source")}
-          </a>
+          <MusicQuick />
         </>
       )}
     </header>
   );
 }
 
+/** The slider alone: nought is off, and the mark says so (D-333). */
+function MusicSlider() {
+  const music = useMusic();
+  return (
+    <label className="slider">
+      <input
+        type="range"
+        min={0}
+        max={100}
+        step={5}
+        value={Math.round(music.volume * 100)}
+        aria-label={t("ui-top-music-volume")}
+        onChange={(e) => setVolume(Number(e.target.value) / 100)}
+      />
+    </label>
+  );
+}
+
 /**
  * The music, one click from anywhere (D-333).
  *
- * A note in the strip; under it a slider and the switch. The setting is the
- * browser's, not the account's (D-298), and the popover says so in one line
- * so that nobody looks for it in the account tab. Moving the slider switches
- * the music on; the button is the only way to switch it off, so that a nudge
- * of the slider never silences the game by accident.
+ * A framed note in the strip, like the summary beside it; under it the
+ * slider and nothing else. The setting is the browser's (D-298), and the
+ * slider's left end is the switch: nought is off.
  */
 function MusicQuick() {
   const music = useMusic();
@@ -207,24 +195,13 @@ function MusicQuick() {
   const pop = useRef<HTMLDivElement | null>(null);
   const close = useCallback(() => setOpen(false), []);
   usePopover({ open, close, anchor, toggle, pop });
-  //: Off is off: muted, or a slider at nought. The button reads the same
-  //: flag as the mark, and switching on from nought lifts the slider too --
-  //: an "on" that stays silent would be a lie.
-  const off = music.muted || music.volume === 0;
-  const flip = () => {
-    if (!off) {
-      setMuted(true);
-      return;
-    }
-    if (music.volume === 0) setVolume(DEFAULT_VOLUME);
-    else setMuted(false);
-  };
+  const off = music.volume === 0;
 
   return (
     <span className="hud-anchor" ref={anchor}>
       <button
         ref={toggle}
-        className={`bare hud${off ? " dim" : ""}`}
+        className="quiet"
         onClick={() => setOpen((was) => !was)}
         aria-expanded={open}
         aria-label={t("ui-top-music")}
@@ -234,23 +211,7 @@ function MusicQuick() {
       </button>
       {open && (
         <div ref={pop} className="hud-pop" role="dialog" aria-label={t("ui-top-music")}>
-          <label className="slider">
-            <input
-              type="range"
-              min={0}
-              max={100}
-              step={5}
-              value={Math.round(music.volume * 100)}
-              aria-label={t("ui-top-music-volume")}
-              onChange={(e) => setVolume(Number(e.target.value) / 100)}
-            />
-          </label>
-          <div className="row">
-            <button type="button" className="quiet" onClick={flip}>
-              {t(off ? "ui-top-music-unmute" : "ui-top-music-mute")}
-            </button>
-            <span className="note">{t("ui-top-music-note")}</span>
-          </div>
+          <MusicSlider />
         </div>
       )}
     </span>
@@ -261,15 +222,11 @@ function MusicQuick() {
  * The phone's overflow: the service row behind one mark (brief section 9).
  *
  * A menu, not a second toolbar -- the same layer the inventory's row handle
- * opens, hanging off the strip's right edge. The sources link stays a link:
- * AGPL section 13 is answered by the same `href`, only a line lower.
+ * opens, hanging off the strip's right edge. The music is a line of it with
+ * the slider in place: a second layer under a menu is one tap too many.
  */
-function More({
-  waiting,
-  onSummary,
-  onIntro,
-  onRefresh,
-}: Pick<Props, "waiting" | "onSummary" | "onIntro" | "onRefresh">) {
+function More({ waiting, onSummary }: Pick<Props, "waiting" | "onSummary">) {
+  const music = useMusic();
   const [open, setOpen] = useState(false);
   const anchor = useRef<HTMLSpanElement | null>(null);
   const toggle = useRef<HTMLButtonElement | null>(null);
@@ -305,22 +262,13 @@ function More({
             {t("ui-top-summary")}
             {waiting > 0 && <span className="tally alarm">{waiting}</span>}
           </button>
-          <button role="menuitem" onClick={pick(onIntro)} title={t("ui-top-intro-title")}>
-            {t("ui-top-intro")}
-          </button>
-          <button role="menuitem" onClick={pick(onRefresh)}>
-            {t("ui-top-refresh")}
-          </button>
-          <a
-            role="menuitem"
-            href={SOURCE_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            title={t("ui-top-source-title")}
-            onClick={pick(() => undefined)}
-          >
-            {t("ui-top-source")}
-          </a>
+          {/* Not a menu item: the slider inside has its own keys, and a
+              role on the wrapper would promise a screen reader a line that
+              is not one. The arrows reach it through `usePopover`. */}
+          <div className="menu-music">
+            <Glyph name={music.volume === 0 ? "music-off" : "music"} />
+            <MusicSlider />
+          </div>
         </div>
       )}
     </span>

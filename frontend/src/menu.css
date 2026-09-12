@@ -38,8 +38,8 @@
   z-index: 30;
   min-width: 13rem;
 }
-/* An item is a button or, for the sources, a link: one line of the layer
-   either way, and the two must not be told apart by eye. */
+/* An item is a button or a link: one line of the layer either way, and
+   the two must not be told apart by eye. */
 .menu button,
 .menu a,
 .node-menu button {

@@ -16,7 +16,6 @@ import {
   peekMusicForTests,
   playFor,
   resetMusicForTests,
-  setMuted,
   setVolume,
   trackFor,
   trackUrl,
@@ -40,14 +39,14 @@ function storage(): Storage {
 /** What the browser's audio element would do, counted. */
 class FakeAudio {
   static made: FakeAudio[] = [];
+  /** Whether `play` refuses, as a browser does before a gesture. */
+  static refusing = false;
   loop = false;
   preload = "";
   paused = true;
   /** Times the source was set: setting it again restarts a download. */
   sets = 0;
   plays = 0;
-  /** Whether `play` refuses, as a browser does before a gesture. */
-  static refusing = false;
   private source = "";
   private readonly handlers = new Map<string, (() => void)[]>();
   constructor() {
@@ -136,33 +135,16 @@ describe("the volume setting", () => {
     resetMusicForTests();
   });
 
-  it("opens half way and on", () => {
+  it("opens half way", () => {
     resetMusicForTests();
-    expect(getMusic()).toEqual({ volume: DEFAULT_VOLUME, muted: false });
+    expect(getMusic()).toEqual({ volume: DEFAULT_VOLUME });
   });
 
   it("comes back as it was left", () => {
     resetMusicForTests();
     setVolume(0.3);
-    setMuted(true);
     resetMusicForTests();
-    expect(getMusic()).toEqual({ volume: 0.3, muted: true });
-  });
-
-  it("switching back on returns the level, not nought", () => {
-    resetMusicForTests();
-    setVolume(0.8);
-    setMuted(true);
-    expect(gainFor(getMusic())).toBe(0);
-    setMuted(false);
-    expect(getMusic().volume).toBe(0.8);
-  });
-
-  it("moving the slider switches the music on", () => {
-    resetMusicForTests();
-    setMuted(true);
-    setVolume(0.6);
-    expect(getMusic()).toEqual({ volume: 0.6, muted: false });
+    expect(getMusic()).toEqual({ volume: 0.3 });
   });
 
   it("keeps the slider within its ends and ignores a box that lies", () => {
@@ -174,10 +156,19 @@ describe("the volume setting", () => {
     expect(getMusic().volume).toBe(DEFAULT_VOLUME);
   });
 
-  it("gives the ear the square of the slider", () => {
-    expect(gainFor({ volume: 0.5, muted: false })).toBe(0.25);
-    expect(gainFor({ volume: 1, muted: false })).toBe(1);
-    expect(gainFor({ volume: 1, muted: true })).toBe(0);
+  it("turns the old switch into nought on the slider, once", () => {
+    localStorage.setItem("everselife.music.volume", "0.7");
+    localStorage.setItem("everselife.music.muted", "1");
+    resetMusicForTests();
+    expect(getMusic().volume).toBe(0);
+    expect(localStorage.getItem("everselife.music.muted")).toBeNull();
+    expect(localStorage.getItem("everselife.music.volume")).toBe("0");
+  });
+
+  it("gives the ear the square of the slider, and nought at nought", () => {
+    expect(gainFor({ volume: 0.5 })).toBe(0.25);
+    expect(gainFor({ volume: 1 })).toBe(1);
+    expect(gainFor({ volume: 0 })).toBe(0);
   });
 
   it("does nothing without a browser to play in", () => {
@@ -205,7 +196,7 @@ describe("the player", () => {
     resetMusicForTests();
   });
 
-  /** A place asked for, then the setting touched: that gesture births the player. */
+  /** A place asked for, then the slider touched: that gesture births the player. */
   async function born(track = "terra" as const): Promise<FakeAudio> {
     playFor(track, false);
     expect(peekMusicForTests().born).toBe(false);
@@ -217,7 +208,7 @@ describe("the player", () => {
     return FakeAudio.made[0];
   }
 
-  it("is born on the setting's gesture and plays the place's track", async () => {
+  it("is born on the slider's gesture and plays the place's track", async () => {
     const audio = await born();
     expect(audio.loop).toBe(true);
     expect(audio.src).toBe("/music/terra.m4a");
@@ -226,24 +217,24 @@ describe("the player", () => {
     expect(gain.level).toBeCloseTo(0.36);
   });
 
-  it("switched off, fades and then pauses; switched on, plays again", async () => {
+  it("at nought, fades and then pauses; raised again, plays again", async () => {
     const audio = await born();
-    setMuted(true);
+    setVolume(0);
     expect(gain.level).toBe(0);
     expect(audio.paused).toBe(false);
     vi.advanceTimersByTime(ms + 10);
     expect(audio.paused).toBe(true);
-    setMuted(false);
+    setVolume(0.6);
     await settle();
     expect(audio.paused).toBe(false);
     expect(gain.level).toBeCloseTo(0.36);
   });
 
-  it("switched on within the tail of switching off, keeps playing", async () => {
+  it("raised within the tail of switching off, keeps playing", async () => {
     const audio = await born();
-    setMuted(true);
+    setVolume(0);
     vi.advanceTimersByTime(ms / 2);
-    setMuted(false);
+    setVolume(0.6);
     vi.advanceTimersByTime(ms * 2);
     expect(audio.paused).toBe(false);
     expect(gain.level).toBeCloseTo(0.36);

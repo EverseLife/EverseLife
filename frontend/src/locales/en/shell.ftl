@@ -176,24 +176,16 @@ ui-top-satiety-title = { $fed ->
 
 ui-top-summary = summary
 ui-top-summary-title = what happened while you were away
-ui-top-intro-title = who you are and where to start
-ui-top-refresh = refresh
-ui-top-source = source
-ui-top-source-title = the source code of this version
 
-## On a phone the utility row folds behind one button: the instrument strip has no room for four.
+## On a phone the utility row folds behind one button: the instrument strip has no room even for two.
 
-ui-top-more = more: summary, who you are, refresh, source
-ui-top-intro = who you are
+ui-top-more = more: summary, music
 
-## Music: the volume and the switch in the top bar.
+## Music: the volume in the top bar, nought is off.
 
-ui-top-music = music: volume and on/off
+ui-top-music = music: volume
 ui-top-music-off-title = music is off
 ui-top-music-volume = music volume
-ui-top-music-mute = turn off
-ui-top-music-unmute = turn on
-ui-top-music-note = this browser remembers it, not the account
 
 ## The account in the top bar, and the quick transfer under it.
 

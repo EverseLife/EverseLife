@@ -20,8 +20,9 @@
 }
 
 /* `a.quiet` is here for the one link the client has -- the source of this
-   version in the header (AGPL §13). It stands in a row of quiet buttons and
-   would read as a different kind of thing left to the browser's default. */
+   version in the account tab (AGPL §13). It stands in a row of quiet
+   buttons and would read as a different kind of thing left to the
+   browser's default. */
 button,
 select,
 input,

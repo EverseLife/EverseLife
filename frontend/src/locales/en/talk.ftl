@@ -71,6 +71,13 @@ ui-account-email-submit = Change email
 ui-account-logout = Sign out of the account
 ui-account-logout-note = The token of this session will be revoked.
 
+## The intro and the sources of this version.
+
+ui-account-intro = Who you are
+ui-account-intro-title = who you are and where to start
+ui-account-source = Source
+ui-account-source-title = the source code of this version
+
 ## View: how this person reads the screen.
 
 ui-account-density = density

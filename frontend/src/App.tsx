@@ -559,11 +559,9 @@ export default function App() {
           waiting={waiting}
           narrow={narrow}
           onSummary={() => setDigestShown(true)}
-          onIntro={() => setIntro(true)}
-          onRefresh={() => void refresh()}
         />
         <div className="frame">
-          <Sidebar look={look} onLogout={() => void logout()} />
+          <Sidebar look={look} onLogout={() => void logout()} onIntro={() => setIntro(true)} />
           <div className="main">
             {/* No body, no place: the only thing to do here is print one. The
                 sidebar stays -- the account, the orders and the knowledge
@@ -593,15 +591,13 @@ export default function App() {
         waiting={waiting}
         narrow={narrow}
         onSummary={() => setDigestShown(true)}
-        onIntro={() => setIntro(true)}
-        onRefresh={() => void refresh()}
         view={view}
         onView={setView}
       />
 
       <div className={`frame${narrow ? " one" : ""}`}>
         {(!narrow || where_ === "me") && (
-          <Sidebar look={look} onLogout={() => void logout()} />
+          <Sidebar look={look} onLogout={() => void logout()} onIntro={() => setIntro(true)} />
         )}
 
         {(!narrow || where_ !== "me") && (

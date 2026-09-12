@@ -16,11 +16,10 @@
  * timers in this file are the tails of a fade, and they schedule sound, not
  * data.
  *
- * Volume and mute are view settings under D-298: they live in `localStorage`,
- * belong to the browser rather than the account, and survive a logout --
- * `forgetKept` never sees the `everselife.music.` prefix. Two keys and not
- * one, so that switching the music back on returns the level it was at
- * instead of nought.
+ * The volume is a view setting under D-298: it lives in `localStorage`,
+ * belongs to the browser rather than the account, and survives a logout --
+ * `forgetKept` never sees the `everselife.music.` prefix. One number, and
+ * nought is off: the slider's left end is the switch (owner, 2026-09-12).
  *
  * A browser will not play a sound before the person has touched the page.
  * So nothing is created until the first pointer or key after `playFor` has
@@ -63,14 +62,14 @@ export function trackUrl(track: Track): string {
 }
 
 const VOLUME_KEY = "everselife.music.volume";
+/** The key of the struck switch, cleared when found (see `readSetting`). */
 const MUTED_KEY = "everselife.music.muted";
 /** Half way, on by default: the owner's call. */
 export const DEFAULT_VOLUME = 0.5;
 
 export type MusicSetting = {
-  /** 0..1, the slider's position. */
+  /** 0..1, the slider's position; nought is off. */
   volume: number;
-  muted: boolean;
 };
 
 const listeners = new Set<() => void>();
@@ -79,8 +78,16 @@ let setting: MusicSetting = readSetting();
 function readSetting(): MusicSetting {
   const raw = readKept(VOLUME_KEY);
   const parsed = raw === null ? NaN : Number(raw);
-  const volume = Number.isFinite(parsed) ? clamp(parsed) : DEFAULT_VOLUME;
-  return { volume, muted: readKept(MUTED_KEY) === "1" };
+  let volume = Number.isFinite(parsed) ? clamp(parsed) : DEFAULT_VOLUME;
+  //: For one evening (2026-09-12) the switch was a key of its own. A
+  //: browser that still holds it keeps the silence it chose -- as nought
+  //: on the slider -- and the key goes.
+  if (readKept(MUTED_KEY) !== null) {
+    if (readKept(MUTED_KEY) === "1") volume = 0;
+    writeKept(MUTED_KEY, null);
+    writeKept(VOLUME_KEY, String(volume));
+  }
+  return { volume };
 }
 
 function clamp(value: number): number {
@@ -91,20 +98,12 @@ export function getMusic(): MusicSetting {
   return setting;
 }
 
-/** Move the slider; unmutes, because moving a muted slider means "I want to hear it". */
+/** Move the slider. Nought switches the music off, anything above it on. */
 export function setVolume(volume: number): void {
-  const next = { volume: clamp(volume), muted: false };
-  if (next.volume === setting.volume && next.muted === setting.muted) return;
+  const next = { volume: clamp(volume) };
+  if (next.volume === setting.volume) return;
   setting = next;
   writeKept(VOLUME_KEY, String(next.volume));
-  writeKept(MUTED_KEY, null);
-  changed();
-}
-
-export function setMuted(muted: boolean): void {
-  if (muted === setting.muted) return;
-  setting = { ...setting, muted };
-  writeKept(MUTED_KEY, muted ? "1" : null);
   changed();
 }
 
@@ -123,15 +122,15 @@ export function useMusic(): MusicSetting {
  * the loud half is all the same and the quiet half does everything -- so the
  * gain is the square of the position.
  */
-export function gainFor({ volume, muted }: MusicSetting): number {
-  return muted ? 0 : volume * volume;
+export function gainFor({ volume }: MusicSetting): number {
+  return volume * volume;
 }
 
 function changed(): void {
   for (const notify of [...listeners]) notify();
-  //: The slider and the switch are gestures themselves: a browser that
-  //: refused to play before one lets the player be born right here. `wake`
-  //: applies the setting to a player it makes; an existing one is told.
+  //: The slider is a gesture itself: a browser that refused to play before
+  //: one lets the player be born right here. `wake` applies the setting to
+  //: a player it makes; an existing one is told.
   if (player) player.apply();
   else wake();
 }
@@ -325,7 +324,7 @@ export function resetMusicForTests(): void {
   setting = readSetting();
 }
 
-/** For tests: is there a player, and what does it hold. */
+/** For tests: is there a player. */
 export function peekMusicForTests(): { born: boolean } {
   return { born: player !== null };
 }

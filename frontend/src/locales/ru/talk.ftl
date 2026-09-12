@@ -70,6 +70,13 @@ ui-account-email-submit = Сменить почту
 ui-account-logout = Выйти из аккаунта
 ui-account-logout-note = Жетон этой сессии будет отозван.
 
+## Вводная и исходники этой версии.
+
+ui-account-intro = Кто вы
+ui-account-intro-title = кто вы и с чего начать
+ui-account-source = Исходники
+ui-account-source-title = исходный код этой версии
+
 ## Вид: как этот человек читает экран.
 
 ui-account-density = плотность

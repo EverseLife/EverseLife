@@ -45,12 +45,19 @@ export function usePopover({ open, close, anchor, toggle, pop }: Popover): void 
       if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
       const layer = pop.current;
       if (!layer || layer.getAttribute("role") !== "menu") return;
+      //: A slider in the layer (the music, D-333) owns its arrows: up and
+      //: down move its value, and the walk continues from it with Tab.
+      const focused = document.activeElement as HTMLElement | null;
+      if (focused instanceof HTMLInputElement && focused.type === "range") return;
       //: Every kind of item the role allows -- a plain one, a radio, a
-      //: check (the map's layers, D-331): the arrows walk them all.
-      const items = [...layer.querySelectorAll<HTMLElement>('[role^="menuitem"]')];
+      //: check (the map's layers, D-331) -- and a slider: the arrows walk
+      //: them all.
+      const items = [
+        ...layer.querySelectorAll<HTMLElement>('[role^="menuitem"], input[type="range"]'),
+      ];
       if (!items.length) return;
       event.preventDefault();
-      const at = items.indexOf(document.activeElement as HTMLElement);
+      const at = items.indexOf(focused as HTMLElement);
       const step = event.key === "ArrowDown" ? 1 : -1;
       items[(at + step + items.length) % items.length]?.focus();
     };

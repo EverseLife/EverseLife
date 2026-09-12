@@ -25,7 +25,17 @@ import { Secret } from "./Secret";
 type Props = {
   profile: Profile;
   onLogout: () => void;
+  onIntro: () => void;
 };
+
+//: Where the source of this build lives -- AGPL §13 asks for the source of
+//: *this* version, and the repository's head is not it. `VITE_RELEASE` is
+//: baked in by the image build (`Dockerfile`, CI passes `github.sha`); without
+//: it -- a hand build, a dev server -- the repository is the honest answer.
+const REPOSITORY = "https://github.com/EverseLife/EverseLife";
+const SOURCE_URL = import.meta.env.VITE_RELEASE
+  ? `${REPOSITORY}/tree/${import.meta.env.VITE_RELEASE}`
+  : REPOSITORY;
 
 /** How short the new password may be. The same floor as registration's. */
 const PASSWORD_MIN = 8;
@@ -43,7 +53,7 @@ type Tab = (typeof TABS)[number]["id"];
 
 const TAB_WIRE = oneOf<Tab>(TABS.map((each) => each.id));
 
-export function Account({ profile, onLogout }: Props) {
+export function Account({ profile, onLogout, onIntro }: Props) {
   const session = useSession();
   const { locale } = useLocale();
   //: The tab's own waiting and refusal: saving a surname must not grey out
@@ -258,6 +268,27 @@ export function Account({ profile, onLogout }: Props) {
             {t("ui-account-logout")}
           </button>
           <span className="note">{t("ui-account-logout-note")}</span>
+        </footer>
+
+        {/* The intro and the sources, out of the header since 2026-09-12. The
+            intro stays within reach: once read it must not become
+            unreachable, and unread it must not become mandatory (D-182). The
+            sources of this version: AGPL §13 -- whoever plays over the
+            network must be offered them, not sent to a README; the
+            machine-readable answer to the same question is `/public/source`. */}
+        <footer className="row">
+          <button className="quiet" onClick={onIntro} title={t("ui-account-intro-title")}>
+            {t("ui-account-intro")}
+          </button>
+          <a
+            className="quiet"
+            href={SOURCE_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            title={t("ui-account-source-title")}
+          >
+            {t("ui-account-source")}
+          </a>
         </footer>
     </div>
   );
