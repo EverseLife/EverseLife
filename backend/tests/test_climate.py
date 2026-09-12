@@ -177,72 +177,71 @@ async def test_the_place_feels_its_season(session: AsyncSession, constants: Cons
     assert climate.season_c(constants, Planet.TERRA, 0, origin, midnight) == 0
 
 
-async def test_the_weather_is_one_law_everywhere(constants: Constants) -> None:
-    """The weather (D-335) is a function of the place and the moment and of
-    nothing else, on an integer hash: what the map draws the engine reads.
-    The numbers here are the ones the client's `shade.test.ts` pins too."""
+async def test_the_weather_is_one_law_everywhere(
+    constants: Constants, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The weather (D-335, D-336) is a function of the place and the moment
+    and of nothing else, on an integer hash: what the map draws the engine
+    reads. The numbers here are the ones the client's `weather.test.ts`
+    pins too."""
     import math
 
-    from src.engine.climate import WeatherLaw, _wx_hash, weather_cover, weather_hold, wind_west
+    from src.engine.climate import WeatherLaw, _wx_hash, weather_cover, weather_sky, wind_shear
 
     assert _wx_hash(3, -7, 12, 5) == pytest.approx(0.4038313031196594, abs=1e-12)
     assert _wx_hash(0, 0, 0, 0) == 0
     law = WeatherLaw(
-        scale=4.0,
-        wind_per_day=math.radians(90),
+        cell_deg=360.0 * 3000.0 / (2.0 * math.pi * 12_000.0),
+        wind_deg=90.0,
         change_days=1.5,
         bias=0.4,
         cloud_from=0.45,
         cloud_full=0.65,
         rain_from=0.6,
         rain_full=0.85,
-        gain=2.4,
+        gain=2.0,
         trade_lat=math.radians(30),
         westerly_lat=math.radians(60),
-        belt_edge=math.radians(8),
-        block=0.5,
-        block_from=0.25,
-        block_full=0.9,
+        belt_edge=math.radians(25),
+        spin=math.radians(90),
     )
-
-    def point(lat: float, lon: float) -> tuple[float, float, float]:
-        r, lam = math.radians(lat), math.radians(lon)
-        return (math.cos(r) * math.cos(lam), math.cos(r) * math.sin(lam), math.sin(r))
-
-    assert weather_cover(law, point(32.66, -105.56), 0.0) == pytest.approx(0.7076900709491378)
-    assert weather_cover(law, point(-60.0, 20.0), 3.3) == pytest.approx(0.15980205323178104)
-    assert weather_cover(law, point(0.0, 0.0), 12.25) == pytest.approx(0.07784397429914314)
-    #: Held by the high ground (D-336): half the deck standing, all of it.
-    assert weather_cover(law, point(32.66, -105.56), 0.74, 0.5) == pytest.approx(0.4554350318900343)
-    assert weather_cover(law, point(45.0, 10.0), 2.2, 1.0) == pytest.approx(0.5266620650409106)
-    #: The wind by the vault's belts: west in the trades and past the
-    #: westerlies, east between, turning over the belt's edge.
-    z = lambda lat: math.sin(math.radians(lat))  # noqa: E731
-    assert wind_west(law, z(10)) == 0.0 and wind_west(law, z(-10)) == 0.0
-    assert wind_west(law, z(30)) == pytest.approx(0.5)
-    assert wind_west(law, z(32)) == pytest.approx(0.84375)
-    assert wind_west(law, z(45)) == 1.0 and wind_west(law, z(75)) == 0.0
-    assert weather_hold(law, 0.0) == 0.0 and weather_hold(law, 1.0) == 0.5
-    assert weather_hold(law, 0.575) == pytest.approx(0.25)
-    #: The field is continuous where one slice hands over to the next.
-    handover = point(20, 40)
-    assert (
-        abs(weather_cover(law, handover, 1.5 - 1e-7) - weather_cover(law, handover, 1.5 + 1e-7))
-        < 1e-4
-    )
-    #: A slice is carried for its own age: on the day it is born the field
-    #: is the same whatever the wind.
-    assert weather_cover(law, point(45, 10), 0.0, 0.0) == weather_cover(
-        law, point(45, 10), 0.0, 1.0
-    )
-    #: Deterministic, bounded, and moving: the same place another day is
-    #: another sky.
-    twice = [weather_cover(law, point(10, 10), 2.0) for _ in range(2)]
-    assert twice[0] == twice[1] and 0.0 <= twice[0] <= 1.0
-    assert weather_cover(law, point(10, 10), 2.0) != weather_cover(law, point(10, 10), 5.0)
+    assert law.cell_deg == pytest.approx(14.32394487827058)
+    assert weather_cover(law, 32.66, -105.56, 0.0) == pytest.approx(GOLD[0])
+    assert weather_cover(law, 32.66, -105.56, 0.74) == pytest.approx(GOLD[1])
+    assert weather_cover(law, -60.0, 20.0, 3.3) == pytest.approx(GOLD[2])
+    assert weather_cover(law, 0.0, 0.0, 12.25) == pytest.approx(GOLD[3])
+    assert weather_cover(law, 45.0, 10.0, 2.2) == pytest.approx(GOLD[4])
+    #: The shear: cyclonic on the polar front, anticyclonic on the
+    #: subtropical edge, nought in the middle of a belt.
+    assert wind_shear(law, math.radians(60)) > 0.5
+    assert wind_shear(law, math.radians(30)) < -0.5
+    assert wind_shear(law, math.radians(45)) == 0.0
+    #: Continuous over place and time, bounded, and moving: the same place
+    #: another day is another sky.
+    here = weather_sky(law, 20.0, 40.0, 1.5)
+    assert abs(weather_sky(law, 20.001, 40.0, 1.5) - here) < 2e-3
+    assert abs(weather_sky(law, 20.0, 40.001, 1.5) - here) < 2e-3
+    assert abs(weather_sky(law, 20.0, 40.0, 1.5001) - here) < 2e-3
+    assert 0.0 <= here <= 1.0
+    assert weather_sky(law, 10.0, 10.0, 2.0) != weather_sky(law, 10.0, 10.0, 5.0)
     #: On the planet itself, off the book: the capital's sky now.
     origin = datetime(2026, 1, 1, tzinfo=UTC)
     cloud, rain = climate.weather_at(constants, Planet.TERRA, 32.66, -105.56, origin, origin)
     assert 0.0 <= cloud <= 1.0 and 0.0 <= rain <= 1.0
     #: Rain wants cloud: nothing rains out of a clear sky.
     assert rain <= cloud or rain == 0.0
+    #: Over the sea the raster is a hole, not a measure (D-336 item 10): the
+    #: sky there reads the neutral half whatever the raster says.
+    from src.engine import terrain
+
+    field = terrain.field_of(constants, Planet.TERRA)
+    at_sea = next((0.0, float(lon)) for lon in range(-180, 180, 5) if field.is_sea(0.0, lon))
+    answers = []
+    for share in (0.0, 1.0):
+        monkeypatch.setattr(type(field), "rain_at", lambda self, lat, lon, share=share: share)
+        answers.append(climate.weather_at(constants, Planet.TERRA, *at_sea, origin, origin))
+    assert answers[0] == answers[1]
+
+
+#: The law's numbers at five points, the ones the client pins (`weather.test.ts`).
+GOLD = [0.2320697855030931, 0.0, 0.09181303824912512, 0.7960877399788777, 0.0]

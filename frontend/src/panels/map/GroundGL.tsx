@@ -653,11 +653,11 @@ export const GroundGL = forwardRef<
     //: carried it, which slice of time the field is in, the gates from
     //: cover to cloud and to rain, and whether the clouds are shown.
     const moment = weatherMoment(weather, weatherDays);
-    gl.uniform1f(at("u_wx_scale"), weather.scale);
-    gl.uniform1f(at("u_wx_spin"), moment.spin);
+    gl.uniform1f(at("u_wx_cell"), weather.cellDeg);
+    gl.uniform1f(at("u_wx_wind"), weather.windDeg);
+    gl.uniform2f(at("u_wx_time"), moment.days, moment.changeDays);
     gl.uniform3f(at("u_wx_belts"), weather.tradeLat, weather.westerlyLat, weather.beltEdge);
-    gl.uniform3f(at("u_wx_block"), weather.block, weather.blockFrom, weather.blockFull);
-    gl.uniform1f(at("u_wx_slice"), moment.slice);
+    gl.uniform1f(at("u_wx_spin"), weather.spin);
     gl.uniform4f(at("u_wx_gates"), weather.cloudFrom, weather.cloudFull, weather.rainFrom, weather.rainFull);
     gl.uniform1f(at("u_wx_bias"), weather.bias);
     gl.uniform1f(at("u_wx_gain"), weather.gain);
@@ -693,7 +693,7 @@ export const GroundGL = forwardRef<
   //: The weather redraws by its own moment, to a thousandth of a slice (a
   //: couple of minutes of Terra's day, not every render), and by the law
   //: itself -- one object per book and radius (`useClimateView`).
-  const weatherKey = [weatherMoment(weather, weatherDays).slice.toFixed(3), clouds].join(",");
+  const weatherKey = [(weatherDays / weather.changeDays).toFixed(3), clouds].join(",");
   useEffect(() => {
     draw();
   }, [draw, eye, radius, palette, ready, planet, highFrom, layer, sunKey, seasonKey, weather, weatherKey, law, grains]);

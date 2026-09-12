@@ -132,12 +132,13 @@ export function Probe({
         }
         case "weather": {
           //: The same law the layer is drawn by (`weather.weatherAt`).
+          //: The sea is the ground below nought -- the floor -- as the
+          //: fragment reads it.
           const now = weatherAt(
             weather,
             at.lat,
             at.lon,
-            reading.rainPercent / 100,
-            Math.min(1, Math.max(0, reading.heightM / passport.relief_m)),
+            { rain01: reading.rainPercent / 100, sea: reading.heightM < 0 },
             weatherDays,
           );
           text =

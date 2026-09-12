@@ -722,15 +722,6 @@ export const CLOUD_SUN_MIN = 0.3;
  *  tint (D-336): a cloud is lit by its own horizon, not the ground's, so it
  *  stays white a good way past the terminator and goes dark past that. */
 export const CLOUD_NIGHT = 0.75;
-/** The grain of a cloud (D-336 item 9; owner: clouds that are not one
- *  white, with edges that fray): two octaves of the weather's noise, this
- *  many times and twice that finer than the weather's cell. Picture, not
- *  law -- the probe and the engine never read it. */
-export const CLOUD_DETAIL_SCALE = 4;
-/** How many octaves the grain has, each twice finer and half as loud as
- *  the one before; the finest at a hundred cells to the radius, past which
- *  the cells fall under a pixel of the far frames. */
-export const CLOUD_DETAIL_OCTAVES = 3;
 /** How far the grain frays a cloud's edge, in cover: added to the cover
  *  before the gate, plus or minus half of this. */
 export const CLOUD_DETAIL = 0.15;

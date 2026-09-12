@@ -59,7 +59,6 @@ import {
 import { GRAIN_GLSL } from "./grainGlsl";
 import {
   CLOUDS_CONSTS_GLSL,
-  CLOUDS_DETAIL_GLSL,
   CLOUDS_FIELD_GLSL,
   CLOUDS_OVER_GLSL,
   CLOUDS_SHELL_GLSL,
@@ -143,14 +142,16 @@ uniform vec2 u_snow_dry;
 //: slice of time, the gates cover -> cloud (xy) and cover -> rain (zw),
 //: how far the ground's own rain pulls the cover, and whether the clouds
 //: are drawn at all (the overlay).
-uniform float u_wx_scale;
-//: D-336: the wind's turn over a slice's life, the belts it blows by
-//: (trade edge, westerly edge, the turn's width; radians of latitude)
-//: and the block of the high ground (share, from, full of the rise).
-uniform float u_wx_spin;
+//: The weather (D-335, D-336 item 13): a cell of the systems' lattice,
+//: degrees; the wind, degrees a day; the days since the epoch and the
+//: slice's length; the belts (trade edge, westerly edge, the turn's
+//: width, radians); the spin at full shear, radians a day; the gates,
+//: the wet bias and the gain.
+uniform float u_wx_cell;
+uniform float u_wx_wind;
+uniform vec2 u_wx_time;
 uniform vec3 u_wx_belts;
-uniform vec3 u_wx_block;
-uniform float u_wx_slice;
+uniform float u_wx_spin;
 uniform vec4 u_wx_gates;
 uniform float u_wx_bias;
 uniform float u_wx_gain;
@@ -390,7 +391,6 @@ float heightCubic(vec2 uv) {
 //: hashed, and only there -- the cell's own fraction is taken first, so
 //: the wrap costs nothing but the seam nobody reaches.
 ${WEATHER_GLSL}
-${CLOUDS_DETAIL_GLSL}
 ${GRAIN_GLSL}
 
 //: The ramps of the climate layers, the soil's and the relief's (D-331):
