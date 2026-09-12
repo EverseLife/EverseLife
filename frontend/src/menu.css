@@ -87,3 +87,8 @@
   font-weight: 600;
   box-shadow: inset 3px 0 0 var(--act);
 }
+/* An overlay that the chosen layer does not show (D-336): the check keeps
+   its state and is greyed, still there to be turned for later. */
+.menu [role="menuitemcheckbox"][data-off="true"] {
+  opacity: 0.55;
+}

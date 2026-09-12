@@ -41,15 +41,6 @@ import {
   RIVER_FULL,
   SHADOW_ALT_MIN_DEG,
   SHADOW_FAR_FROM,
-  CLOUD_TONE,
-  CLOUD_OPACITY,
-  CLOUD_SHADE,
-  CLOUD_KM,
-  CLOUD_NEAR_MPX,
-  CLOUD_FAR_MPX,
-  CLOUD_SUN_MIN,
-  CLOUD_NIGHT,
-  WX_HAZE,
   SHADOW_LEVEL_MAX,
   SHADOW_DEPTH,
   SHADOW_FULL_SIN,
@@ -66,6 +57,13 @@ import {
   ICE_TONE,
 } from "./season";
 import { GRAIN_GLSL } from "./grainGlsl";
+import {
+  CLOUDS_CONSTS_GLSL,
+  CLOUDS_DETAIL_GLSL,
+  CLOUDS_FIELD_GLSL,
+  CLOUDS_OVER_GLSL,
+  CLOUDS_SHELL_GLSL,
+} from "./cloudsGlsl";
 import { LAYERS_GLSL } from "./layersGlsl";
 import { WEATHER_GLSL } from "./weatherGlsl";
 import {
@@ -146,7 +144,12 @@ uniform vec2 u_snow_dry;
 //: how far the ground's own rain pulls the cover, and whether the clouds
 //: are drawn at all (the overlay).
 uniform float u_wx_scale;
-uniform float u_wx_drift;
+//: D-336: the wind's turn over a slice's life, the belts it blows by
+//: (trade edge, westerly edge, the turn's width; radians of latitude)
+//: and the block of the high ground (share, from, full of the rise).
+uniform float u_wx_spin;
+uniform vec3 u_wx_belts;
+uniform vec3 u_wx_block;
 uniform float u_wx_slice;
 uniform vec4 u_wx_gates;
 uniform float u_wx_bias;
@@ -196,15 +199,7 @@ const vec3 NIGHT_TINT = vec3(${NIGHT_TINT.map((v) => v.toFixed(2)).join(", ")});
 const vec3 SNOW_TONE = vec3(${SNOW_TONE.map((v) => v.toFixed(2)).join(", ")});
 const vec3 ICE_TONE = vec3(${ICE_TONE.map((v) => v.toFixed(2)).join(", ")});
 const float SNOW_OVER_GRAIN = ${SNOW_OVER_GRAIN.toFixed(2)};
-const vec3 CLOUD_TONE = vec3(${CLOUD_TONE.map((v) => v.toFixed(2)).join(", ")});
-const float CLOUD_OPACITY = ${CLOUD_OPACITY.toFixed(2)};
-const float CLOUD_SHADE = ${CLOUD_SHADE.toFixed(2)};
-const float CLOUD_KM = ${CLOUD_KM.toFixed(2)};
-const float CLOUD_NEAR_MPX = ${CLOUD_NEAR_MPX.toFixed(1)};
-const float CLOUD_FAR_MPX = ${CLOUD_FAR_MPX.toFixed(1)};
-const float CLOUD_SUN_MIN = ${CLOUD_SUN_MIN.toFixed(2)};
-const float CLOUD_NIGHT = ${CLOUD_NIGHT.toFixed(2)};
-const float WX_HAZE = ${WX_HAZE.toFixed(2)};
+${CLOUDS_CONSTS_GLSL}
 const int SHADOW_STEPS = ${SHADOW_STEPS};
 const float SHADOW_CLIMB_MIN = ${Math.tan((SHADOW_ALT_MIN_DEG * Math.PI) / 180).toFixed(4)};
 const float SHADOW_SOFT = ${SHADOW_SOFT.toFixed(3)};
@@ -395,6 +390,7 @@ float heightCubic(vec2 uv) {
 //: hashed, and only there -- the cell's own fraction is taken first, so
 //: the wrap costs nothing but the seam nobody reaches.
 ${WEATHER_GLSL}
+${CLOUDS_DETAIL_GLSL}
 ${GRAIN_GLSL}
 
 //: The ramps of the climate layers, the soil's and the relief's (D-331):
@@ -413,7 +409,16 @@ void main() {
   float Y = -p.y / u_radius;
   float rho = length(vec2(X, Y));
   float edge = max(fwidth(rho), 1e-6);
-  if (rho > 1.0 + edge) discard;
+  float metres = u_radius / UNITS_PER_METRE;
+  //: The clouds show on the far frames alone, by the frame's own scale
+  //: (u_units), not the pixel's ground: toward the limb of the ball a
+  //: pixel covers more ground, and gated by that the clouds showed at the
+  //: edges of the globe and hid in its middle (owner, 2026-09-12). With
+  //: them the drawing runs to the rim of their shell, CLOUD_KM over the
+  //: ground (D-336 item 7); without, to the ground's own edge.
+  float far_sky = smoothstep(CLOUD_NEAR_MPX, CLOUD_FAR_MPX, u_units / UNITS_PER_METRE) * u_clouds;
+  float shell = 1.0 + CLOUD_KM * 1000.0 / metres;
+  if (rho > (far_sky > 0.0 ? shell : 1.0) + edge) discard;
   float rc = min(rho, 1.0);
   //: The angle from the eye is never taken: what the projection wants is
   //: its sine and its cosine, and both are the radius itself. The sine of
@@ -459,9 +464,9 @@ void main() {
   //: which runs smoothly across the screen everywhere, seams included --
   //: and turned into a level of the texture. One cell to the pixel is level
   //: nought; every doubling is one level up.
-  float metres = u_radius / UNITS_PER_METRE;
   float across = max(length(dFdx(apart)), length(dFdy(apart))) * metres;
   float lod = max(0.0, log2(max(across / u_step, 1.0)));
+${CLOUDS_SHELL_GLSL}
 
   //: The slope, taken a cell of the ground east and north of the point --
   //: **metres of the ground**, not steps of the raster. On the old lattice
@@ -519,7 +524,17 @@ void main() {
   //: The pixel's own height off the same chain the stretches are read by:
   //: the mean of a far frame's pixel against the top of the texel beside
   //: it shaded every hill of a range at a low sun.
-  float h_top = textureLod(u_top, atlasAt(place, marginOf(lod)), lod).r;
+  //: The water's surface is the ground for light (owner, 2026-09-12: the
+  //: shadows of the sea floor's own ridges showed on the sea): under the
+  //: sea the heights are the floor's, below nought, and light does not
+  //: reach it -- a pixel of the sea (its mean height under the sea's
+  //: level) stands on the surface, at nought, not on the top chain,
+  //: whose max at a coarse level leaks the coast's own height into the
+  //: water beside it and left that water unshaded (owner, 2026-09-12);
+  //: and the march reads nothing below nought, so the coast's range
+  //: shades the water and the floor shades nothing. Lakes are filled
+  //: flat and stand above nought as they are.
+  float h_top = h < 0.0 ? 0.0 : max(textureLod(u_top, atlasAt(place, marginOf(lod)), lod).r, 0.0);
   //: How far a shadow can reach at all. The planet is a ball, and a small
   //: one: the ground falls away under the ray as the square of the
   //: distance (along^2 / 2R), so even the shadow of the edge of the day
@@ -547,7 +562,7 @@ void main() {
       //: kilometres on a ball twenty-five kilometres across stands well off it.
       float turn = along / metres;
       vec3 q = here * cos(turn) + sunward * sin(turn);
-      float rise = topOf(q, level) - h_top - climb * along - along * along / (2.0 * metres * EXAGGERATION);
+      float rise = max(topOf(q, level), 0.0) - h_top - climb * along - along * along / (2.0 * metres * EXAGGERATION);
       //: The penumbra: the ray is aimed at the sun's centre, so ground
       //: level with it hides half the disc, and a rise of the disc's width
       //: at this distance (SHADOW_SOFT) hides it all. The edge is soft in
@@ -723,24 +738,7 @@ void main() {
   float snow = (1.0 - smoothstep(u_snow.x - u_snow.y, u_snow.x, t_now))
     * mix(u_snow_dry.y, 1.0, smoothstep(0.0, max(u_snow_dry.x, 1e-3), rain01));
   float ice = 1.0 - smoothstep(u_snow.z - u_snow.y, u_snow.z, t_now);
-  //: The weather (D-335): the cover of the sky over this point, pulled by
-  //: the ground's own rain share, gated to cloud and to rain -- the law
-  //: of weatherGlsl.ts, the same the engine reads. The clouds show on the
-  //: far frames alone, and only with the overlay on; a cloud's shadow
-  //: falls away from the sun by the cloud's height over the sun's climb,
-  //: so it is the cloud toward the sun by as much that shades this ground.
-  float cover = wxCover(here) + u_wx_bias * (rain01 - 0.5);
-  float cloud = smoothstep(u_wx_gates.x, u_wx_gates.y, cover);
-  float rain_now = smoothstep(u_wx_gates.z, u_wx_gates.w, cover);
-  //: By the frame's own scale (u_units), not the pixel's ground: toward
-  //: the limb of the ball a pixel covers more ground, and gated by that
-  //: the clouds showed at the edges of the globe and hid in its middle
-  //: (owner, 2026-09-12).
-  float far_sky = smoothstep(CLOUD_NEAR_MPX, CLOUD_FAR_MPX, u_units / UNITS_PER_METRE) * u_clouds;
-  float cloud_alt = max(asin(clamp(high, 0.0, 1.0)), CLOUD_SUN_MIN);
-  float cloud_turn = (CLOUD_KM * 1000.0 / tan(cloud_alt)) / metres;
-  vec3 q_cloud = here * cos(cloud_turn) + sunward * sin(cloud_turn);
-  float cloud_over = smoothstep(u_wx_gates.x, u_wx_gates.y, wxCover(q_cloud) + u_wx_bias * (rain01 - 0.5));
+${CLOUDS_FIELD_GLSL}
   vec3 water_col = mix(u_lake, u_sea_deep, h >= 0.0 ? FAR_WATER_DEEP * s : clamp(-h / u_deep, 0.0, 1.0));
   water_col = mix(water_col, ICE_TONE, ice);
   water_col *= 0.85 + 0.15 * shade;
@@ -755,7 +753,9 @@ void main() {
   float share = clamp(h / u_relief, 0.0, 1.0);
   ground = mix(ground, u_high, 0.6 * smoothstep(u_high_from, 1.0, share));
   float tone = (AMBIENT + (1.0 - AMBIENT) * shade) * lit;
-  tone *= 1.0 - CLOUD_SHADE * cloud_over * far_sky * step(0.0, high) * u_sunlit;
+  //: The cloud's shadow fades out with the twilight as the cast shadows
+  //: do (D-336): a step at the terminator cut it.
+  tone *= 1.0 - CLOUD_SHADE * cloud_over * far_sky * smoothstep(0.0, TWILIGHT, high) * u_sunlit;
   //: The lie of the land at the frame's scale: how far the point stands
   //: over or under the mean of the ground about it, read RELIEF_LEVELS
   //: levels coarser -- the valley and the ridge as wholes. A valley floor
@@ -777,11 +777,9 @@ void main() {
   ground = mix(ground, SNOW_TONE * tone, snow);
   //: The pixel: its ground and its water, by how many of its taps are wet.
   vec3 col = mix(ground, water_col, wet);
-  //: The clouds, lit as the ground under them is lit, before the night
-  //: tints them with everything else.
-  col = mix(col, CLOUD_TONE * (CLOUD_NIGHT + (1.0 - CLOUD_NIGHT) * lit), cloud * far_sky * CLOUD_OPACITY);
   col = mix(col * NIGHT_TINT, col, daylight);
 ${LAYERS_GLSL}
+${CLOUDS_OVER_GLSL}
   float alpha = 1.0 - smoothstep(1.0 - edge, 1.0 + edge, rho);
   o_color = vec4(col * alpha, alpha);
 }

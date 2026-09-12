@@ -214,6 +214,22 @@ describe("the camera", () => {
     y: f.y + H / (2 * f.scale),
   });
 
+  it("keeps its middle through a resize of the field, tied or loose", () => {
+    //: The frame stores its corner: a pane resized under it moved the middle
+    //: and left a tied body off the frame, with the tether -- tied already
+    //: -- nothing left to do (owner, 2026-09-13).
+    const { cam } = rig();
+    const mid = (f: Frame, tall: number) => ({ x: f.x + W / (2 * f.scale), y: f.y + tall / (2 * f.scale) });
+    cam.cut({ x: 300, y: 200 });
+    cam.zoomOnMiddle(2);
+    const before = mid(cam.frame(), H);
+    cam.reshape(H, H / 2);
+    expect(mid(cam.frame(), H / 2).y).toBeCloseTo(before.y, 9);
+    cam.reshape(H / 2, H * 1.5);
+    expect(mid(cam.frame(), H * 1.5).y).toBeCloseTo(before.y, 9);
+    expect(mid(cam.frame(), H * 1.5).x).toBe(before.x);
+  });
+
   it("cuts to a place at once and books no frames", () => {
     const { beat, cam } = rig();
     cam.cut({ x: 300, y: 100 });

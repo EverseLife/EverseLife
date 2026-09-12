@@ -271,35 +271,46 @@ def _smooth(f: float) -> float:
 def _wx_noise(x: float, y: float, z: float, w: int) -> float:
     ix, iy, iz = math.floor(x), math.floor(y), math.floor(z)
     fx, fy, fz = _smooth(x - ix), _smooth(y - iy), _smooth(z - iz)
-
-    def mix(a: float, b: float, t: float) -> float:
-        return a + (b - a) * t
-
-    n00 = mix(_wx_hash(ix, iy, iz, w), _wx_hash(ix + 1, iy, iz, w), fx)
-    n10 = mix(_wx_hash(ix, iy + 1, iz, w), _wx_hash(ix + 1, iy + 1, iz, w), fx)
-    n01 = mix(_wx_hash(ix, iy, iz + 1, w), _wx_hash(ix + 1, iy, iz + 1, w), fx)
-    n11 = mix(_wx_hash(ix, iy + 1, iz + 1, w), _wx_hash(ix + 1, iy + 1, iz + 1, w), fx)
-    return mix(mix(n00, n10, fy), mix(n01, n11, fy), fz)
+    n00 = _lerp(_wx_hash(ix, iy, iz, w), _wx_hash(ix + 1, iy, iz, w), fx)
+    n10 = _lerp(_wx_hash(ix, iy + 1, iz, w), _wx_hash(ix + 1, iy + 1, iz, w), fx)
+    n01 = _lerp(_wx_hash(ix, iy, iz + 1, w), _wx_hash(ix + 1, iy, iz + 1, w), fx)
+    n11 = _lerp(_wx_hash(ix, iy + 1, iz + 1, w), _wx_hash(ix + 1, iy + 1, iz + 1, w), fx)
+    return _lerp(_lerp(n00, n10, fy), _lerp(n01, n11, fy), fz)
 
 
 @dataclass(frozen=True)
 class WeatherLaw:
-    """The weather's numbers for one planet, off the book (D-335)."""
+    """The weather's numbers for one planet, off the book (D-335, D-336)."""
 
     scale: float
     wind_per_day: float
     change_days: float
+    #: A factor on the cover, not a summand (D-336): the wet windward slope
+    #: thickens what the wind brings, the dry lee thins it.
     bias: float
     cloud_from: float
     cloud_full: float
     rain_from: float
     rain_full: float
     gain: float
+    #: The belts of the wind, radians of latitude (`terrain.wind_belts`): to
+    #: the trades' edge the wind is west, to the westerlies' edge east, past
+    #: it west again; the two fields crossfade over the belts' own edge.
+    trade_lat: float
+    westerly_lat: float
+    belt_edge: float
+    #: How much of the deck stands still over the tallest ground, from this
+    #: share of the planet's rise to that one (`weather.block*`).
+    block: float
+    block_from: float
+    block_full: float
 
 
 def weather_law(constants: Constants, planet: Planet) -> WeatherLaw:
     """The law for a planet: its own radius over the vault's cell, the rest as written."""
     cell_m = float(constants[R.WEATHER_CELL_KM]) * METRES_PER_KM
+    belts = constants[R.TERRAIN_WIND_BELTS]
+    block_from = float(constants[R.WEATHER_BLOCK_FROM])
     return WeatherLaw(
         scale=globe.radius_m(constants, planet) / cell_m,
         wind_per_day=math.radians(float(constants[R.WEATHER_WIND_DEG_PER_DAY])),
@@ -310,18 +321,64 @@ def weather_law(constants: Constants, planet: Planet) -> WeatherLaw:
         rain_from=float(constants[R.WEATHER_RAIN_FROM]),
         rain_full=float(constants[R.WEATHER_RAIN_FULL]),
         gain=float(constants[R.WEATHER_GAIN]),
+        trade_lat=math.radians(float(belts["trade_lat"])),
+        westerly_lat=math.radians(float(belts["westerly_lat"])),
+        belt_edge=math.radians(max(float(belts["edge_deg"]), 1e-3)),
+        block=float(constants[R.WEATHER_BLOCK]),
+        block_from=block_from,
+        #: A step with no width is undefined in the GLSL: the full mark
+        #: stands past the from mark whatever the book says.
+        block_full=max(float(constants[R.WEATHER_BLOCK_FULL]), block_from + 1e-3),
     )
 
 
-def weather_cover(law: WeatherLaw, point: tuple[float, float, float], days: float) -> float:
-    """The cover of the sky over a point of the unit ball at so many real days
-    since the epoch, nought to one, before the ground's wetness pulls it."""
-    #: The field goes west to east, as the note says: the sample point is
-    #: turned the other way.
-    drift = -law.wind_per_day * days
+def _belt(x: float) -> float:
+    """The rain march's own edge: a smooth step a belt's edge wide, centred."""
+    t = min(1.0, max(0.0, x + 0.5))
+    return t * t * (3.0 - 2.0 * t)
+
+
+def _lerp(a: float, b: float, t: float) -> float:
+    """The GPU's own mix: exact at both ends, so a blend of nought is the one field."""
+    return a * (1.0 - t) + b * t
+
+
+def wind_west(law: WeatherLaw, z: float) -> float:
+    """How much of the westerlies blow at the latitude given by the ball's
+    z: one between the belts' edges, nought in the trades and past the
+    westerlies, the edge's own step between (D-336)."""
+    a = abs(math.asin(min(1.0, max(-1.0, z))))
+    return _belt((a - law.trade_lat) / law.belt_edge) * (
+        1.0 - _belt((a - law.westerly_lat) / law.belt_edge)
+    )
+
+
+def _smoothstep(lo: float, hi: float, x: float) -> float:
+    t = min(1.0, max(0.0, (x - lo) / max(hi - lo, 1e-9)))
+    return t * t * (3.0 - 2.0 * t)
+
+
+def weather_hold(law: WeatherLaw, relief01: float) -> float:
+    """How much of the deck stands still over ground this high (a share of
+    the planet's rise): nought on the plain, the block over the tallest
+    ground -- the systems pile up on the ranges and stream past (D-336)."""
+    return law.block * _smoothstep(law.block_from, law.block_full, relief01)
+
+
+def _wx_field(
+    law: WeatherLaw, point: tuple[float, float, float], days: float, turn: float
+) -> float:
+    """One field, nought to one before the gain: two slices of time blended,
+    each carried for its own age by a turn of so many radians a slice's life
+    (signed: east positive; nought stands still), two octaves."""
     slice_ = days / law.change_days
     wi = math.floor(slice_)
     wf = _smooth(slice_ - wi)
+    #: Each slice is carried for its own age -- the one fading out for the
+    #: slice's life, the one fading in from before its birth -- against the
+    #: wind's direction, so the field moves with it.
+    age0 = slice_ - wi
+    age1 = age0 - 1.0
 
     def turned(angle: float, k: float) -> tuple[float, float, float]:
         x, y, z = point
@@ -331,16 +388,33 @@ def weather_cover(law: WeatherLaw, point: tuple[float, float, float], days: floa
             z * k,
         )
 
-    p1 = turned(drift, law.scale)
-    p2 = turned(drift * 1.6, law.scale * 2.0)
-    n1 = _wx_noise(*p1, wi) + (_wx_noise(*p1, wi + 1) - _wx_noise(*p1, wi)) * wf
-    n2 = _wx_noise(*p2, wi + 1000) + (_wx_noise(*p2, wi + 1001) - _wx_noise(*p2, wi + 1000)) * wf
-    return min(1.0, max(0.0, 0.5 + (0.65 * n1 + 0.35 * n2 - 0.5) * law.gain))
+    def octave(scale: float, drift: float, w0: int) -> float:
+        a = _wx_noise(*turned(-turn * age0 * drift, scale), w0)
+        b = _wx_noise(*turned(-turn * age1 * drift, scale), w0 + 1)
+        return _lerp(a, b, wf)
+
+    return 0.65 * octave(law.scale, 1.0, wi) + 0.35 * octave(law.scale * 2.0, 1.6, wi + 1000)
 
 
-def _smoothstep(lo: float, hi: float, x: float) -> float:
-    t = min(1.0, max(0.0, (x - lo) / max(hi - lo, 1e-9)))
-    return t * t * (3.0 - 2.0 * t)
+def weather_cover(
+    law: WeatherLaw, point: tuple[float, float, float], days: float, hold: float = 0.0
+) -> float:
+    """The cover of the sky over a point of the unit ball at so many real days
+    since the epoch, nought to one, before the ground's wetness stretches it;
+    `hold` is how much of the deck stands still there. The westward and the
+    eastward fields crossfade over the belt's edge, and the standing field is
+    blended in over the high ground: blends, never a turn that varies with
+    the place -- that stretches the cells into threads along the parallels."""
+    spin = law.wind_per_day * law.change_days
+    west = wind_west(law, point[2])
+    if west <= 0.0:
+        moving = _wx_field(law, point, days, -spin)
+    elif west >= 1.0:
+        moving = _wx_field(law, point, days, spin)
+    else:
+        moving = _lerp(_wx_field(law, point, days, -spin), _wx_field(law, point, days, spin), west)
+    raw = _lerp(moving, _wx_field(law, point, days, 0.0), hold) if hold > 0.0 else moving
+    return min(1.0, max(0.0, 0.5 + (raw - 0.5) * law.gain))
 
 
 def weather_at(
@@ -352,14 +426,21 @@ def weather_at(
     moment: datetime,
 ) -> tuple[float, float]:
     """How clouded the sky is and how hard it rains at a point now, nought to
-    one each (D-335): the cover pulled by the field's own rain share -- a wet
-    country is under cloud more often -- and gated by the vault's numbers."""
+    one each (D-335): the cover stretched by the field's own rain share -- a
+    wet windward slope thickens what the wind brings, a dry lee thins it --
+    over ground that holds the deck by its height, and gated by the vault's
+    numbers."""
     law = weather_law(constants, planet)
     days = 0.0 if origin is None else (moment - origin).total_seconds() / (24 * SECONDS_PER_HOUR)
     rad, lam = math.radians(lat), math.radians(lon)
     point = (math.cos(rad) * math.cos(lam), math.cos(rad) * math.sin(lam), math.sin(rad))
-    rain01 = float(terrain.field_of(constants, planet).rain_at(lat, lon))
-    cover = weather_cover(law, point, days) + law.bias * (rain01 - 0.5)
+    field = terrain.field_of(constants, planet)
+    rain01 = float(field.rain_at(lat, lon))
+    hold = weather_hold(law, float(field.relief(lat, lon)))
+    cover = min(
+        1.0,
+        max(0.0, weather_cover(law, point, days, hold) * (1.0 + law.bias * (2.0 * rain01 - 1.0))),
+    )
     return (
         _smoothstep(law.cloud_from, law.cloud_full, cover),
         _smoothstep(law.rain_from, law.rain_full, cover),

@@ -654,7 +654,9 @@ export const GroundGL = forwardRef<
     //: cover to cloud and to rain, and whether the clouds are shown.
     const moment = weatherMoment(weather, weatherDays);
     gl.uniform1f(at("u_wx_scale"), weather.scale);
-    gl.uniform1f(at("u_wx_drift"), moment.drift);
+    gl.uniform1f(at("u_wx_spin"), moment.spin);
+    gl.uniform3f(at("u_wx_belts"), weather.tradeLat, weather.westerlyLat, weather.beltEdge);
+    gl.uniform3f(at("u_wx_block"), weather.block, weather.blockFrom, weather.blockFull);
     gl.uniform1f(at("u_wx_slice"), moment.slice);
     gl.uniform4f(at("u_wx_gates"), weather.cloudFrom, weather.cloudFull, weather.rainFrom, weather.rainFull);
     gl.uniform1f(at("u_wx_bias"), weather.bias);
@@ -688,13 +690,13 @@ export const GroundGL = forwardRef<
   //: of a degree, so a render that moved nothing draws nothing.
   const sunKey = sun ? `${sun.lat},${sun.lon}` : "";
   const seasonKey = [season.turns, season.swingC, season.snowC, season.bandC, season.iceC, season.dryRain, season.dryKeep].join(",");
-  //: The weather redraws by its own moment, to a hundredth of a slice and
-  //: of a radian of drift: a minute of Terra's day, not every render.
-  const wx = weatherMoment(weather, weatherDays);
-  const weatherKey = [weather.scale, wx.drift.toFixed(2), wx.slice.toFixed(2), weather.bias, weather.gain, clouds].join(",");
+  //: The weather redraws by its own moment, to a thousandth of a slice (a
+  //: couple of minutes of Terra's day, not every render), and by the law
+  //: itself -- one object per book and radius (`useClimateView`).
+  const weatherKey = [weatherMoment(weather, weatherDays).slice.toFixed(3), clouds].join(",");
   useEffect(() => {
     draw();
-  }, [draw, eye, radius, palette, ready, planet, highFrom, layer, sunKey, seasonKey, weatherKey, law, grains]);
+  }, [draw, eye, radius, palette, ready, planet, highFrom, layer, sunKey, seasonKey, weather, weatherKey, law, grains]);
   //: The box: a resize of the pane is a resize of the canvas. Watched on the
   //: **svg**, because the canvas's own box is written by the draw above --
   //: watching it would be watching one's own hand, and the canvas would keep

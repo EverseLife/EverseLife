@@ -183,7 +183,7 @@ async def test_the_weather_is_one_law_everywhere(constants: Constants) -> None:
     The numbers here are the ones the client's `shade.test.ts` pins too."""
     import math
 
-    from src.engine.climate import WeatherLaw, _wx_hash, weather_cover
+    from src.engine.climate import WeatherLaw, _wx_hash, weather_cover, weather_hold, wind_west
 
     assert _wx_hash(3, -7, 12, 5) == pytest.approx(0.4038313031196594, abs=1e-12)
     assert _wx_hash(0, 0, 0, 0) == 0
@@ -197,6 +197,12 @@ async def test_the_weather_is_one_law_everywhere(constants: Constants) -> None:
         rain_from=0.6,
         rain_full=0.85,
         gain=2.4,
+        trade_lat=math.radians(30),
+        westerly_lat=math.radians(60),
+        belt_edge=math.radians(8),
+        block=0.5,
+        block_from=0.25,
+        block_full=0.9,
     )
 
     def point(lat: float, lon: float) -> tuple[float, float, float]:
@@ -204,7 +210,31 @@ async def test_the_weather_is_one_law_everywhere(constants: Constants) -> None:
         return (math.cos(r) * math.cos(lam), math.cos(r) * math.sin(lam), math.sin(r))
 
     assert weather_cover(law, point(32.66, -105.56), 0.0) == pytest.approx(0.7076900709491378)
-    assert weather_cover(law, point(-60.0, 20.0), 3.3) == pytest.approx(0.1565911461648059)
+    assert weather_cover(law, point(-60.0, 20.0), 3.3) == pytest.approx(0.15980205323178104)
+    assert weather_cover(law, point(0.0, 0.0), 12.25) == pytest.approx(0.07784397429914314)
+    #: Held by the high ground (D-336): half the deck standing, all of it.
+    assert weather_cover(law, point(32.66, -105.56), 0.74, 0.5) == pytest.approx(0.4554350318900343)
+    assert weather_cover(law, point(45.0, 10.0), 2.2, 1.0) == pytest.approx(0.5266620650409106)
+    #: The wind by the vault's belts: west in the trades and past the
+    #: westerlies, east between, turning over the belt's edge.
+    z = lambda lat: math.sin(math.radians(lat))  # noqa: E731
+    assert wind_west(law, z(10)) == 0.0 and wind_west(law, z(-10)) == 0.0
+    assert wind_west(law, z(30)) == pytest.approx(0.5)
+    assert wind_west(law, z(32)) == pytest.approx(0.84375)
+    assert wind_west(law, z(45)) == 1.0 and wind_west(law, z(75)) == 0.0
+    assert weather_hold(law, 0.0) == 0.0 and weather_hold(law, 1.0) == 0.5
+    assert weather_hold(law, 0.575) == pytest.approx(0.25)
+    #: The field is continuous where one slice hands over to the next.
+    handover = point(20, 40)
+    assert (
+        abs(weather_cover(law, handover, 1.5 - 1e-7) - weather_cover(law, handover, 1.5 + 1e-7))
+        < 1e-4
+    )
+    #: A slice is carried for its own age: on the day it is born the field
+    #: is the same whatever the wind.
+    assert weather_cover(law, point(45, 10), 0.0, 0.0) == weather_cover(
+        law, point(45, 10), 0.0, 1.0
+    )
     #: Deterministic, bounded, and moving: the same place another day is
     #: another sky.
     twice = [weather_cover(law, point(10, 10), 2.0) for _ in range(2)]

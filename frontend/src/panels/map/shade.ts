@@ -706,16 +706,40 @@ export function supportsShadedGround(): boolean {
 export const CLOUD_TONE: readonly [number, number, number] = [0.96, 0.97, 0.99];
 export const CLOUD_OPACITY = 0.85;
 export const CLOUD_SHADE = 0.35;
-export const CLOUD_KM = 1.5;
+//: Half a kilometre, down from one and a half (D-336 item 7): the clouds
+//: stand on their own shell now, and on a ball twelve kilometres across
+//: a shell a kilometre and a half up is a rim of an eighth of the radius
+//: and a parallax a hand wide; half a kilometre is a thin rim, a shorter
+//: shadow and the sun seen sixteen degrees past the ground's terminator.
+export const CLOUD_KM = 0.5;
 export const CLOUD_NEAR_MPX = 8;
 export const CLOUD_FAR_MPX = 25;
 /** The lowest the sun is taken to stand for a cloud's shadow, radians: at
  *  the horizon a cloud a kilometre up would shade ground a hundred
  *  kilometres off, which is more planet than there is. */
 export const CLOUD_SUN_MIN = 0.3;
-/** How dark a cloud goes where the ground under it is unlit: this much of
- *  its tone stays, the rest comes with the ground's light. */
+/** How much of its tone a cloud keeps on its own night, under the night's
+ *  tint (D-336): a cloud is lit by its own horizon, not the ground's, so it
+ *  stays white a good way past the terminator and goes dark past that. */
 export const CLOUD_NIGHT = 0.75;
+/** The grain of a cloud (D-336 item 9; owner: clouds that are not one
+ *  white, with edges that fray): two octaves of the weather's noise, this
+ *  many times and twice that finer than the weather's cell. Picture, not
+ *  law -- the probe and the engine never read it. */
+export const CLOUD_DETAIL_SCALE = 4;
+/** How many octaves the grain has, each twice finer and half as loud as
+ *  the one before; the finest at a hundred cells to the radius, past which
+ *  the cells fall under a pixel of the far frames. */
+export const CLOUD_DETAIL_OCTAVES = 3;
+/** How far the grain frays a cloud's edge, in cover: added to the cover
+ *  before the gate, plus or minus half of this. */
+export const CLOUD_DETAIL = 0.15;
+/** How far below the vault's cloud gate the drawn cloud starts to show,
+ *  in cover: the feather of its edge, which fades out rather than stops.
+ *  The gate the probe reads is the vault's. */
+export const CLOUD_FEATHER = 0.12;
+/** How grey the grain's hollows go: this much of the tone off. */
+export const CLOUD_MOTTLE = 0.35;
 /** How much of the cloud's tone the weather layer lays over its ramp as
  *  haze at full cover: a legend, so lighter than the terrain's clouds. */
 export const WX_HAZE = 0.35;

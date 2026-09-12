@@ -11,15 +11,18 @@
  * says which moment it is showing. Nothing of the world changes for it:
  * the engine keeps its own clock, and the winder is a hand on the map's.
  * Not a timer on data (D-226): the wind runs only while the hand holds it.
+ * The pace of the wind is the watcher's to pick (owner, 2026-09-12) and is
+ * kept in the browser, as the map's layer is.
  */
 
 import { useEffect, useRef, useState } from "react";
 
+import { oneOf, useKept } from "../../kept";
 import type { Winding } from "./Winder";
 
 const MS_PER_REAL_DAY = 86_400_000;
-/** How long a wound year takes on the glass, seconds: a season a few
- *  seconds, long enough to see the snow come and go. */
+/** How long a wound year takes on the glass at the plain pace, seconds: a
+ *  season a few seconds, long enough to see the snow come and go. */
 export const YEAR_WIND_SECONDS = 30;
 /** How often the winding hand moves the map while it runs, a second: the
  *  ground redraws at each move, and the whole map with it; ten a second
@@ -28,6 +31,25 @@ export const YEAR_WIND_HZ = 10;
 /** Without a book there is no year to wind over: a day, and the winder
  *  is inert. */
 export const YEAR_FALLBACK_DAYS = 1;
+
+/** The paces the year may be wound at, as multiples of the plain one: a
+ *  sixteenth (a day in a quarter of a minute, to watch a shadow swing), an
+ *  eighth, a quarter (a season in half a minute, to watch the snow line
+ *  creep), the plain, four (a year in a few breaths) and sixteen (a year
+ *  in two seconds, to find a day). Named, not numbered, as the book keeps
+ *  them. */
+export const PACES = ["sixteenth", "eighth", "quarter", "one", "four", "sixteen"] as const;
+export type Pace = (typeof PACES)[number];
+export const PACE_OF: Record<Pace, number> = {
+  sixteenth: 1 / 16,
+  eighth: 1 / 8,
+  quarter: 1 / 4,
+  one: 1,
+  four: 4,
+  sixteen: 16,
+};
+/** The pace kept across sessions, next to the map's layer (`kept.ts`). */
+const PACE = "everselife.map.year-pace";
 
 /** The planet's year, real days (`orbit.period_days`), as the sky counts
  *  it; a planet the book has no year for is wound over Terra's, as
@@ -43,21 +65,26 @@ export function yearOf(constants: Record<string, unknown> | null | undefined, pl
 export type Year = Winding & {
   /** The moment shown, as the sun and the season are asked for it. */
   atMs: number;
+  pace: Pace;
+  setPace: (pace: Pace) => void;
 };
 
 export function useYear(horizon: number): Year {
   const [ahead, setAhead] = useState(0);
   const aheadRef = useRef(0);
   const [winding, setWinding] = useState(false);
+  const [pace, setPace] = useKept<Pace>(PACE, "one", oneOf(PACES));
 
   useEffect(() => {
     if (!winding) return;
     let raf = 0;
     let last = performance.now();
     let shown = last;
+    //: A pace picked mid-wind restarts the loop here; the day ahead lives
+    //: in the ref and carries over, so the hand does not jump.
+    const perSecond = (horizon / YEAR_WIND_SECONDS) * PACE_OF[pace];
     const step = (now: number) => {
-      aheadRef.current =
-        (aheadRef.current + ((now - last) / 1000) * (horizon / YEAR_WIND_SECONDS)) % horizon;
+      aheadRef.current = (aheadRef.current + ((now - last) / 1000) * perSecond) % horizon;
       last = now;
       //: The hand moves every frame, the map YEAR_WIND_HZ times a second.
       if (now - shown >= 1000 / YEAR_WIND_HZ) {
@@ -68,7 +95,7 @@ export function useYear(horizon: number): Year {
     };
     raf = requestAnimationFrame(step);
     return () => cancelAnimationFrame(raf);
-  }, [winding, horizon]);
+  }, [winding, horizon, pace]);
 
   const wind = (day: number) => {
     setWinding(false);
@@ -77,5 +104,14 @@ export function useYear(horizon: number): Year {
     setAhead(clamped);
   };
 
-  return { ahead, horizon, winding, setWinding, wind, atMs: Date.now() + ahead * MS_PER_REAL_DAY };
+  return {
+    ahead,
+    horizon,
+    winding,
+    setWinding,
+    wind,
+    atMs: Date.now() + ahead * MS_PER_REAL_DAY,
+    pace,
+    setPace,
+  };
 }

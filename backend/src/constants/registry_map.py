@@ -181,6 +181,15 @@ WEATHER_CLOUD_FULL = Num("weather.cloud_full")
 WEATHER_RAIN_FROM = Num("weather.rain_from")
 WEATHER_RAIN_FULL = Num("weather.rain_full")
 WEATHER_GAIN = Num("weather.gain")
+#: D-336: the clouds blow by the rain march's belts (`terrain.wind_belts`:
+#: the trades' and the westerlies' edges and the edge's width, all three read
+#: by name), the westward and the eastward fields crossfading over the edge;
+#: over the high ground `weather.block` of the deck stands still, between
+#: two shares of the planet's rise.
+TERRAIN_WIND_BELTS = Table("terrain.wind_belts", keys=("trade_lat", "westerly_lat", "edge_deg"))
+WEATHER_BLOCK = Num("weather.block")
+WEATHER_BLOCK_FROM = Num("weather.block_from")
+WEATHER_BLOCK_FULL = Num("weather.block_full")
 
 __all__ = [
     "TERRAIN_SEED",
@@ -237,4 +246,8 @@ __all__ = [
     "WEATHER_RAIN_FROM",
     "WEATHER_RAIN_FULL",
     "WEATHER_GAIN",
+    "TERRAIN_WIND_BELTS",
+    "WEATHER_BLOCK",
+    "WEATHER_BLOCK_FROM",
+    "WEATHER_BLOCK_FULL",
 ]

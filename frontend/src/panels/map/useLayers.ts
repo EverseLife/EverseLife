@@ -26,8 +26,15 @@ const ON_BY_DEFAULT = new Set<string>(["provinces", "figures", "clouds"]);
 export function useLayers(): {
   layer: Layer;
   setLayer: (layer: Layer) => void;
+  /** The overlays as switched, whatever the layer: what the menu shows. */
   overlays: Overlays;
   setOverlays: (next: Overlays) => void;
+  /** Whether the ground is the terrain, the one layer the overlays dress. */
+  onGround: boolean;
+  /** The overlays as drawn (D-336): on the terrain as switched, on a legend
+   *  layer none of them -- a cloud's shadow or a province's line is a mark
+   *  the legend never made -- but the relief keeps its own contours. */
+  shown: Overlays;
 } {
   const [layer, setLayer] = useKept<Layer>(GROUND, "terrain", oneOf(LAYERS));
   const [on, setOn] = useKept<Set<string>>(OVERLAYS, ON_BY_DEFAULT, KEYS);
@@ -40,5 +47,13 @@ export function useLayers(): {
   };
   const setOverlays = (next: Overlays) =>
     setOn(new Set(OVERLAY_NAMES.filter((name) => next[name])));
-  return { layer, setLayer, overlays, setOverlays };
+  const onGround = layer === "terrain";
+  const shown: Overlays = {
+    provinces: overlays.provinces && onGround,
+    cities: overlays.cities && onGround,
+    contours: (overlays.contours && onGround) || layer === "relief",
+    figures: overlays.figures && onGround,
+    clouds: overlays.clouds && onGround,
+  };
+  return { layer, setLayer, overlays, setOverlays, onGround, shown };
 }

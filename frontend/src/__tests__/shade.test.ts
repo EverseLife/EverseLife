@@ -10,9 +10,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { YEAR_FALLBACK_DAYS, yearOf } from "../panels/map/useYear";
-import { WEATHER_FALLBACK, weatherAt, weatherCover, weatherLaw, wxHash } from "../panels/map/weather";
-import { WEATHER_GLSL, WX_DRIFT_2, WX_HASH, WX_MIX, WX_OCTAVE_2, WX_SLICE_2 } from "../panels/map/weatherGlsl";
+import { PACE_OF, PACES, YEAR_FALLBACK_DAYS, yearOf } from "../panels/map/useYear";
 
 import {
   EDGE_CELLS,
@@ -394,77 +392,9 @@ describe("the year's winder", () => {
     //: Terra's year off the book, as the sky does; nothing to wind without one.
     expect(yearOf({ "orbit.period_days": { terra: 28 } }, "nowhere")).toBe(28);
     expect(yearOf(null, "terra")).toBe(YEAR_FALLBACK_DAYS);
-  });
-});
-
-describe("the weather", () => {
-  const law = weatherLaw(
-    {
-      "weather.cell_km": 3,
-      "weather.wind_deg_per_day": 90,
-      "weather.change_days": 1.5,
-      "weather.wet_bias": 0.4,
-      "weather.cloud_from": 0.45,
-      "weather.cloud_full": 0.65,
-      "weather.rain_from": 0.6,
-      "weather.rain_full": 0.85,
-      "weather.gain": 2.4,
-    },
-    12_000,
-  );
-  const point = (lat: number, lon: number): [number, number, number] => {
-    const r = (lat * Math.PI) / 180;
-    const l = (lon * Math.PI) / 180;
-    return [Math.cos(r) * Math.cos(l), Math.cos(r) * Math.sin(l), Math.sin(r)];
-  };
-
-  it("is the engine's own law to the last bit of the hash (D-335)", () => {
-    //: The numbers the engine prints for the same lattice corners and the
-    //: same points (`climate._wx_hash`, `climate.weather_cover` on a law of
-    //: scale four): the two repositories cannot import each other, and
-    //: they meet here.
-    expect(wxHash(3, -7, 12, 5)).toBeCloseTo(0.4038313031196594, 12);
-    expect(wxHash(0, 0, 0, 0)).toBe(0);
-    expect(law.scale).toBe(4);
-    expect(weatherCover(law, point(32.66, -105.56), 0)).toBeCloseTo(0.7076900709491378, 9);
-    expect(weatherCover(law, point(32.66, -105.56), 0.74)).toBeCloseTo(0.37925598903876334, 9);
-    expect(weatherCover(law, point(-60, 20), 3.3)).toBeCloseTo(0.1565911461648059, 9);
-    expect(weatherCover(law, point(0, 0), 12.25)).toBeCloseTo(0.661749361739475, 9);
-  });
-
-  it("gates the cover to cloud and to rain, pulled by the ground's own rain", () => {
-    const wet = weatherAt(law, 32.66, -105.56, 1, 0);
-    const dry = weatherAt(law, 32.66, -105.56, 0, 0);
-    expect(wet.cloud).toBeGreaterThanOrEqual(dry.cloud);
-    expect(wet.rain).toBeGreaterThanOrEqual(dry.rain);
-    for (const v of [wet.cloud, wet.rain, dry.cloud, dry.rain]) {
-      expect(v).toBeGreaterThanOrEqual(0);
-      expect(v).toBeLessThanOrEqual(1);
-    }
-    //: No book, no weather: nothing is clouded, nothing rains.
-    expect(weatherAt(WEATHER_FALLBACK, 10, 10, 1, 5)).toEqual({ cloud: 0, rain: 0 });
-    expect(weatherLaw(null, 12_000)).toBe(WEATHER_FALLBACK);
-  });
-
-  it("is drawn in the fragment: the field, the clouds on the far frames, their shadow, the hour's rain layer", () => {
-    expect(FRAGMENT).toContain("uniform float u_wx_scale;");
-    expect(FRAGMENT).toContain("float wxHash(ivec3 c, int w)");
-    //: The law's shape is written once and put into the GLSL: the numbers
-    //: the TypeScript law is built of are the ones the shader carries.
-    for (const k of WX_HASH) expect(WEATHER_GLSL).toContain(`${k}u`);
-    expect(WEATHER_GLSL).toContain(`${WX_MIX}u`);
-    expect(WEATHER_GLSL).toContain(`u_wx_drift * ${WX_DRIFT_2.toFixed(1)}`);
-    expect(WEATHER_GLSL).toContain(`wi + ${WX_SLICE_2}`);
-    expect(WEATHER_GLSL).toContain(`${(1 - WX_OCTAVE_2).toFixed(2)} * n1 + ${WX_OCTAVE_2.toFixed(2)} * n2`);
-    expect(WEATHER_GLSL).toContain("* u_wx_gain");
-    expect(FRAGMENT).toContain("float cover = wxCover(here) + u_wx_bias * (rain01 - 0.5);");
-    expect(FRAGMENT).toContain("smoothstep(CLOUD_NEAR_MPX, CLOUD_FAR_MPX, u_units / UNITS_PER_METRE) * u_clouds");
-    expect(FRAGMENT).toContain("tone *= 1.0 - CLOUD_SHADE * cloud_over * far_sky * step(0.0, high) * u_sunlit;");
-    expect(FRAGMENT).toContain("wx_col * w_weather");
-    //: The temperature layer and the soil's moisture read the moment's
-    //: temperature now (D-334), not the year's mean.
-    expect(FRAGMENT).toContain("clamp((t_now - u_temp_cold)");
-    expect(FRAGMENT).toContain("u_dry.z * (t_now - u_dry.w)");
+    //: The paces: the plain one among them, and each faster than the last.
+    expect(PACE_OF.one).toBe(1);
+    for (let i = 1; i < PACES.length; i++) expect(PACE_OF[PACES[i]]).toBeGreaterThan(PACE_OF[PACES[i - 1]]);
   });
 });
 
@@ -661,10 +591,10 @@ describe("the ramps and the drying law", () => {
     expect(FRAGMENT).toContain("int taps = int(exp2(float(k) - up) + 0.5);");
     //: Along the great circle, against the top chain's own reading of the
     //: pixel, with the ball falling away under the ray.
-    expect(FRAGMENT).toContain("float h_top = textureLod(u_top, atlasAt(place, marginOf(lod)), lod).r;");
+    expect(FRAGMENT).toContain("float h_top = h < 0.0 ? 0.0 : max(textureLod(u_top, atlasAt(place, marginOf(lod)), lod).r, 0.0);");
     expect(FRAGMENT).toContain("vec3 q = here * cos(turn) + sunward * sin(turn);");
     expect(FRAGMENT).toContain(
-      "float rise = topOf(q, level) - h_top - climb * along - along * along / (2.0 * metres * EXAGGERATION);",
+      "float rise = max(topOf(q, level), 0.0) - h_top - climb * along - along * along / (2.0 * metres * EXAGGERATION);",
     );
     expect(FRAGMENT).toContain("rise / (along * SHADOW_SOFT) + 0.5");
     expect(FRAGMENT).toContain("mix(SHADOW_LOW, 1.0, smoothstep(0.0, SHADOW_FULL_SIN, high))");

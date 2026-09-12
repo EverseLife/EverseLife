@@ -132,7 +132,14 @@ export function Probe({
         }
         case "weather": {
           //: The same law the layer is drawn by (`weather.weatherAt`).
-          const now = weatherAt(weather, at.lat, at.lon, reading.rainPercent / 100, weatherDays);
+          const now = weatherAt(
+            weather,
+            at.lat,
+            at.lon,
+            reading.rainPercent / 100,
+            Math.min(1, Math.max(0, reading.heightM / passport.relief_m)),
+            weatherDays,
+          );
           text =
             now.rain > WX_RAIN_WORD
               ? t("ui-map-probe-weather-rain", { percent: Math.round(now.rain * 100) })

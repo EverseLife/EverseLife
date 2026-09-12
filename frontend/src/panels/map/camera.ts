@@ -280,6 +280,19 @@ export function createCamera({
 
     zoomOnMiddle,
 
+    /** The field's own shape changed under the frame -- a pane resized,
+     *  a phone turned: keep the middle where it was. The frame stores its
+     *  corner, and a corner kept through a resize puts the middle
+     *  elsewhere: the tied body slid off the frame, and the tether, tied
+     *  already, had nothing left to do (owner, 2026-09-13: «камера за
+     *  вами» did nothing with the body off the frame). Every camera,
+     *  tied or loose: what was centred stays centred. */
+    reshape(fromTall: number, toTall: number) {
+      if (fromTall === toTall) return;
+      frame = { ...frame, y: frame.y + (fromTall - toTall) / (2 * frame.scale) };
+      show();
+    },
+
     /** A zoom to the cursor: the point under it stays under it. The hand's,
      *  so it ends a descent too. */
     zoomTo(under: Point, scale: number) {

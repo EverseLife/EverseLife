@@ -4,7 +4,9 @@
 /**
  * Winding time forward on the map: the one control the sky (D-271) and
  * the planet's year (D-334) share. A map showing anything but now must
- * say so, and it says so here: the day ahead, and a way back to now.
+ * say so, and it says so here: the day ahead, and a way back to now. A
+ * winder that runs at more than one pace shows its paces as pressed
+ * buttons, the way the account shows its density.
  */
 
 import { Hint } from "../../Hint";
@@ -21,11 +23,21 @@ export type Winding = {
   wind: (day: number) => void;
 };
 
+/** The paces a winder offers: each by its key and its word, the one
+ *  pressed, and what pressing another does. */
+export type Paces = {
+  label: string;
+  options: readonly { key: string; word: string }[];
+  current: string;
+  pick: (key: string) => void;
+};
+
 export function Winder({
   state,
   wind,
   slider,
   rule,
+  paces,
 }: {
   state: Winding;
   /** The message that starts the wind, the slider's label and the rule
@@ -33,6 +45,7 @@ export function Winder({
   wind: string;
   slider: string;
   rule: string;
+  paces?: Paces;
 }) {
   const { ahead, winding, setWinding } = state;
   return (
@@ -40,6 +53,21 @@ export function Winder({
       <button className="quiet" onClick={() => setWinding((on) => !on)}>
         {winding ? t("ui-map-sky-stop") : wind}
       </button>
+      {paces && (
+        <div className="row pace" role="group" aria-label={paces.label}>
+          {paces.options.map(({ key, word }) => (
+            <button
+              key={key}
+              type="button"
+              className={paces.current === key ? "" : "quiet"}
+              aria-pressed={paces.current === key}
+              onClick={() => paces.pick(key)}
+            >
+              {word}
+            </button>
+          ))}
+        </div>
+      )}
       <input
         type="range"
         min={0}

@@ -64,6 +64,7 @@ export type GlyphName =
   | "fold"
   | "layers"
   | "way"
+  | "clock"
   | "nearer"
   | "farther"
   | "here"
@@ -177,6 +178,9 @@ export const SHAPES: Record<GlyphName, string> = {
   layers: "M8 2.4L14 5.6 8 8.8 2 5.6zM2 8.6l6 3.2 6-3.2M2 11.4l6 3.2 6-3.2",
   //: Two places and the way between them: the map's "lay a way" (D-321 addendum).
   way: "M3.2 12.8a1.5 1.5 0 100-3 1.5 1.5 0 100 3M12.8 6.2a1.5 1.5 0 100-3 1.5 1.5 0 100 3M4.4 10.4l6.8-3.2",
+  //: A clock face: the winding of time on the map (D-271, D-334), a
+  //: button that opens the winder rather than the winder itself.
+  clock: "M8 2.4a5.6 5.6 0 100 11.2 5.6 5.6 0 100-11.2M8 4.8V8l2.4 1.6",
   //: A note -- head, stem and flag -- for the background music (D-333), and
   //: the same note struck through when it is off.
   music: "M5.4 10.4a1.9 1.9 0 100 3.8 1.9 1.9 0 100-3.8M7.3 12.3V2.6c1.4.4 3.4 1.4 3.4 3.6",

@@ -108,6 +108,13 @@ ui-map-sky-now = Now
 # Winding the planet's year (D-334): the season, the snow and the ice a year ahead.
 ui-map-year-wind = Wind the year
 ui-map-year-slider = how many days ahead the planet is shown for
+ui-map-year-pace = winding pace
+ui-map-year-pace-sixteenth = ×¹⁄₁₆
+ui-map-year-pace-eighth = ×⅛
+ui-map-year-pace-quarter = ×¼
+ui-map-year-pace-one = ×1
+ui-map-year-pace-four = ×4
+ui-map-year-pace-sixteen = ×16
 ui-map-year-rule = The planet leans to its orbit: over a year the sun walks in latitude, and the snow and the ice come and go with it. Winding shows the year ahead — the light, the shadows and the snow; the planet itself does not change for it.
 ui-map-sky-rule = The planets go round the star each on its own term, and the distance between them changes by itself. The eye does not catch it: an orbit passes fractions of a degree in an hour — so the run of time is shown by winding on, not by waiting.
 
@@ -123,6 +130,7 @@ ui-map-layers = layers
 ui-map-layers-now = layers: { $layer }
 ui-map-layers-ground = ground colouring
 ui-map-layers-over = on top
+ui-map-layers-over-terrain = shown on the “{ ui-map-layer-terrain }” layer
 ui-map-layer-terrain = terrain
 ui-map-layer-relief = relief
 ui-map-layer-biomes = biomes
@@ -515,6 +523,7 @@ ui-ship-course-failed = The sky did not answer: { $why }
 
 ui-map-scout = scouting
 ui-map-join = way
+ui-map-time = time
 ui-map-join-aim = Way to the node “{ $node }”: { $metres } m
 ui-map-join-go = Lay the way
 ui-map-survey-aim = Scouting point: { $metres } m from you

@@ -41,7 +41,7 @@ import * as api from "../api";
 import { type Look, type MapNode, type WorldMap } from "../api";
 import { useActions, useBook, useSession, useNames } from "../actions";
 import { createCamera, viewBoxOf, type Camera } from "./map/camera";
-import { UNFLAG, useKept } from "../kept";
+import { FLAG, UNFLAG, useKept } from "../kept";
 import { t } from "../locale";
 import { PHONE } from "../narrow";
 import { Inspector } from "./map/Inspector";
@@ -116,6 +116,8 @@ import { STAR, horizon } from "./map/orbits";
  * A pointer relative to the body is not a setting.
  */
 const CAMERA = "everselife.map.tethered";
+/** Whether the winder of time is out; away by default (owner, 2026-09-12). */
+const WINDER = "everselife.map.winder";
 
 /**
  * How close the frame starts on a phone (brief section 9). Twice: the field
@@ -227,8 +229,8 @@ export function GraphMap({
   //: Tied is the default, hence the wire whose default is yes: with `FLAG` a
   //: deliberate "loose" would leave no key and read back as tied.
   const [tethered, tether] = useKept(CAMERA, true, UNFLAG);
-  const { layer, setLayer, overlays, setOverlays } = useLayers();
-  const { provinces, cities, contours, figures, clouds } = overlays;
+  const [winderOut, setWinderOut] = useKept(WINDER, false, FLAG);
+  const { layer, setLayer, overlays, setOverlays, onGround, shown } = useLayers();
   //: Whose surface the planet layer shows. There are four planets in the sky
   //: now, and "everything of layer `planet`" would mix their nodes into one
   //: heap the first time a second planet gets a node of its own.
@@ -303,24 +305,6 @@ export function GraphMap({
     shownEdges,
   } = scene;
 
-  //: Measured after the scene is settled: the svg is not in the tree at all
-  //: while the map has nothing to draw, and an observer set on a mount that
-  //: had no svg would never see the one that follows.
-  const anyVisible = visible.length > 0;
-  useEffect(() => {
-    const field = svgRef.current;
-    if (!field) return;
-    const measure = () => {
-      const next = frameHeight(field.getBoundingClientRect());
-      //: Compared before it is set: a resize that changes nothing -- and the
-      //: observer fires on every layout -- must not redraw the map.
-      setTall((was) => (Math.abs(was - next) < 0.5 ? was : next));
-    };
-    measure();
-    const watch = new ResizeObserver(measure);
-    watch.observe(field);
-    return () => watch.disconnect();
-  }, [anyVisible]);
 
 
   // --- where everything stands ----------------------------------------------
@@ -373,6 +357,33 @@ export function GraphMap({
     });
   }
   const cam = camera.current;
+
+  //: Measured after the scene is settled (and below the camera, which the
+  //: measure tells of the change): the svg is not in the tree at all
+  //: while the map has nothing to draw, and an observer set on a mount that
+  //: had no svg would never see the one that follows.
+  const anyVisible = visible.length > 0;
+  useEffect(() => {
+    const field = svgRef.current;
+    if (!field) return;
+    const measure = () => {
+      const next = frameHeight(field.getBoundingClientRect());
+      //: Compared before it is set: a resize that changes nothing -- and the
+      //: observer fires on every layout -- must not redraw the map. Through
+      //: the ref, not a setter's updater: the camera is told of the change
+      //: right here, and an updater may be run twice.
+      const was = tallRef.current;
+      if (Math.abs(was - next) < 0.5) return;
+      //: The frame keeps its middle through the resize, not its corner.
+      cam.reshape(was, next);
+      tallRef.current = next;
+      setTall(next);
+    };
+    measure();
+    const watch = new ResizeObserver(measure);
+    watch.observe(field);
+    return () => watch.disconnect();
+  }, [anyVisible, cam]);
   //: Nothing of the camera outlives the map.
   useEffect(() => () => cam.stop(), [cam]);
 
@@ -592,7 +603,12 @@ export function GraphMap({
     const middle = orbiting
       ? (skyPlaces.current.get(myRepr ?? "") ?? STAR)
       : (laid.get(myRepr ?? "") ?? [...laid.values()][0]);
-    if (!middle) return;
+    //: On a globe the middle is found by turning the eye (below), not in
+    //: the layout: a scene with nothing laid -- the body on the far side of
+    //: the ball, nothing drawn -- still has a place to turn to (owner,
+    //: 2026-09-13: tied back on with the body round the far side, the
+    //: camera froze; the empty layout sent the tether away right here).
+    if (!middle && !globeScene) return;
     const scene = sceneKey(band, inside ? locationBase : null, sphereShown);
     const cut = shownScene.current !== scene;
     shownScene.current = scene;
@@ -620,7 +636,7 @@ export function GraphMap({
     //: an empty field. The walker cannot bring it back either -- on somebody
     //: else's city the legs of the transit are not drawn at all.
     if (cut) {
-      cam.cut(middle);
+      if (middle) cam.cut(middle);
       return;
     }
     //: A loose camera moves for nothing but a new scene -- not for a step, not
@@ -654,7 +670,7 @@ export function GraphMap({
         return;
       }
     }
-    cam.aimAt(middle);
+    if (middle) cam.aimAt(middle);
     //: Every reason the frame may move by itself: you moved, the scene
     //: changed, the tether was tied back on, or the map has just landed and
     //: there is at last a place to aim at. A push from the server is not one.
@@ -850,7 +866,7 @@ export function GraphMap({
                 season={view.season}
                 weather={weather}
                 weatherDays={weatherDays}
-                clouds={clouds}
+                clouds={shown.clouds}
                 layer={layer}
                 onState={setShading}
               />
@@ -913,7 +929,7 @@ export function GraphMap({
                     radius={radius}
                     within={groundReach(zoomed.unit, radius)}
                     far={zoomed.far}
-                    on={provinces}
+                    on={shown.provinces}
                   />
                   <Lines
                     planet={sphereShown}
@@ -921,9 +937,7 @@ export function GraphMap({
                     radius={radius}
                     within={groundReach(zoomed.unit, radius)}
                     frameM={nearFrameM(zoomed.near)}
-                    //: The relief layer is read by its contours (owner,
-                    //: 2026-09-12): on it they are on whatever the switch says.
-                    show={{ contours: contours || layer === "relief", figures }}
+                    show={{ contours: shown.contours, figures: shown.figures }}
                   />
                 </>
               )}
@@ -933,7 +947,7 @@ export function GraphMap({
                   eye={eye}
                   radius={radius}
                   open={citiesOpen}
-                  filled={cities}
+                  filled={shown.cities}
                 />
               )}
               {!run && (
@@ -1008,10 +1022,17 @@ export function GraphMap({
             onScout={scout.arm}
             joining={scout.onGround && !run ? scout.joining : null}
             onJoin={scout.armJoin}
+            winder={orbiting || sphereShown ? winderOut : null}
+            onWinder={(on) => {
+              //: Put away, the map shows now again.
+              if (!on) (orbiting ? sky : year).wind(0);
+              setWinderOut(on);
+            }}
             layer={layer}
             onLayer={setLayer}
             overlays={overlays}
             onOverlays={setOverlays}
+            onGround={onGround}
           />
           <Zoom
             slider={zoomRef}
@@ -1046,8 +1067,8 @@ export function GraphMap({
           the switcher, along the bottom edge, where a scrubber is looked for.
           In flow it stole a line of the map's height on the one layer whose
           whole subject is where the bodies stand at a given hour. */}
-          {orbiting && <SkyClock sky={sky} />}
-          {!orbiting && sphereShown && <YearClock year={year} />}
+          {winderOut && orbiting && <SkyClock sky={sky} />}
+          {winderOut && !orbiting && sphereShown && <YearClock year={year} />}
         </div>
 
         {menu && (

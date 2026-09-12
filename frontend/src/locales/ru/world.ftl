@@ -108,6 +108,13 @@ ui-map-sky-now = Сейчас
 # Промотка года планеты (D-334): сезон, снег и лёд на год вперёд.
 ui-map-year-wind = Прокрутить год
 ui-map-year-slider = на сколько суток вперёд показана планета
+ui-map-year-pace = скорость прокрутки
+ui-map-year-pace-sixteenth = ×¹⁄₁₆
+ui-map-year-pace-eighth = ×⅛
+ui-map-year-pace-quarter = ×¼
+ui-map-year-pace-one = ×1
+ui-map-year-pace-four = ×4
+ui-map-year-pace-sixteen = ×16
 ui-map-year-rule = Планета наклонена к своей орбите: за год солнце ходит по широте, а с ним приходят и уходят снег и лёд. Прокрутка показывает год вперёд — свет, тени и снег; сама планета от этого не меняется.
 ui-map-sky-rule = Планеты идут вокруг звезды каждая своим сроком, и расстояние между ними меняется само. Глазом этого не видно: за час орбита проходит доли градуса — поэтому ход времени показывает прокрутка, а не ожидание.
 
@@ -123,6 +130,7 @@ ui-map-layers = слои
 ui-map-layers-now = слои: { $layer }
 ui-map-layers-ground = окраска земли
 ui-map-layers-over = поверх
+ui-map-layers-over-terrain = видны на слое «{ ui-map-layer-terrain }»
 ui-map-layer-terrain = местность
 ui-map-layer-relief = рельеф
 ui-map-layer-biomes = биомы
@@ -515,6 +523,7 @@ ui-ship-course-failed = Небо не ответило: { $why }
 
 ui-map-scout = разведка
 ui-map-join = путь
+ui-map-time = время
 ui-map-join-aim = Путь к узлу «{ $node }»: { $metres } м
 ui-map-join-go = Проложить путь
 ui-map-survey-aim = Точка разведки: { $metres } м от вас

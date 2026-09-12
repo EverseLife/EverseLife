@@ -588,6 +588,15 @@ polyline.edge {
   align-items: center;
   gap: var(--s2);
 }
+/* The paces of the year's winder (D-334, owner 2026-09-12): six pressed
+   buttons in a tight row, the chosen one lit as the account's density is. */
+.sky .pace {
+  gap: 2px;
+}
+.sky .pace button {
+  min-width: 2.2rem;
+  padding-inline: 0.3rem;
+}
 .sky input[type="range"] {
   flex: 1 1 8rem;
   min-width: 6rem;

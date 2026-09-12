@@ -73,10 +73,13 @@ export function Switcher({
   onScout,
   joining,
   onJoin,
+  winder,
+  onWinder,
   layer,
   onLayer,
   overlays,
   onOverlays,
+  onGround,
 }: {
   /** Whether there is an inside to open from here -- floors, a hull's rooms
    *  (D-319, wave 4) -- and whether it is open now. Null: nothing inside. */
@@ -94,15 +97,24 @@ export function Switcher({
    *  Null off the ground, as the scout's. */
   joining: boolean | null;
   onJoin: (on: boolean) => void;
+  /** Whether the winder of time -- the sky's or the year's -- is out
+   *  (owner, 2026-09-12: hidden behind a button by the scout's and the
+   *  way's). Null where there is nothing to wind. */
+  winder: boolean | null;
+  onWinder: (on: boolean) => void;
   /** What the ground is coloured by, and which overlays are on (D-331). */
   layer: Layer;
   onLayer: (layer: Layer) => void;
   overlays: Overlays;
   onOverlays: (next: Overlays) => void;
+  /** Whether the overlays are drawn at all: on the terrain they are, on a
+   *  legend layer they are not (D-336), and the menu greys them and says so. */
+  onGround: boolean;
 }) {
   const word = t(tethered ? "ui-map-cam-tied" : "ui-map-cam-free");
   const scout = t("ui-map-scout");
   const join = t("ui-map-join");
+  const time = t("ui-map-time");
   const door = t(inside ? "ui-map-outside" : "ui-map-inside");
   const layers = t("ui-map-layers");
   //: The layers' menu is the system's one popping layer (`menu.css`,
@@ -159,13 +171,20 @@ export function Switcher({
               </button>
             ))}
           </div>
-          <div role="group" aria-labelledby={`${menuId}-over`}>
+          {/* On a legend layer the checks keep their state and still turn --
+              for when the terrain is back -- but are greyed, and the group
+              is described by the line that says why: greyed by a data
+              attribute, not aria-disabled, which would promise a check that
+              does nothing. */}
+          <div role="group" aria-labelledby={`${menuId}-over`} aria-describedby={onGround ? undefined : `${menuId}-over-note`}>
             <p id={`${menuId}-over`} className="menu-ask">{t("ui-map-layers-over")}</p>
+            {!onGround && <p id={`${menuId}-over-note`} className="menu-ask">{t("ui-map-layers-over-terrain")}</p>}
             {OVERLAY_NAMES.map((name) => (
               <button
                 key={name}
                 role="menuitemcheckbox"
                 aria-checked={overlays[name]}
+                data-off={onGround ? undefined : true}
                 onClick={() => onOverlays({ ...overlays, [name]: !overlays[name] })}
               >
                 {wordOf(name)}
@@ -223,6 +242,21 @@ export function Switcher({
         >
           <Glyph name="way" />
           <span className="tab-word">{join}</span>
+        </button>
+      )}
+      {/* The winder of time (D-271, D-334) is a row of its own along the
+          bottom edge; this button brings it out and puts it away, and put
+          away it winds back to now, since a map showing anything but now
+          must say so. */}
+      {winder !== null && (
+        <button
+          className={`time${winder ? "" : " quiet"}`}
+          aria-pressed={winder}
+          aria-label={time}
+          onClick={() => onWinder(!winder)}
+        >
+          <Glyph name="clock" />
+          <span className="tab-word">{time}</span>
         </button>
       )}
     </nav>

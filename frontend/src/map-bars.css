@@ -120,7 +120,8 @@
    where the word is hidden. */
 .tabs button.cam-tie:not(.quiet):not(.link):not(.bare):not(:disabled),
 .tabs button.scout:not(.quiet):not(.link):not(.bare):not(:disabled),
-.tabs button.join:not(.quiet):not(.link):not(.bare):not(:disabled) {
+.tabs button.join:not(.quiet):not(.link):not(.bare):not(:disabled),
+.tabs button.time:not(.quiet):not(.link):not(.bare):not(:disabled) {
   box-shadow: none;
   border-color: var(--act);
 }
