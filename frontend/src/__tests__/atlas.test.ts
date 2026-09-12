@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 
 import type { RasterPassport } from "../api";
 import { FINE_CELLS, retile, wideSide, widen } from "../panels/map/atlas";
-import { ang2pix, atlasIndex, cellCentre } from "../panels/map/healpix";
+import { ang2pix, atlasBetween, atlasIndex, cellCentre, faceUV } from "../panels/map/healpix";
 
 const RAD = Math.PI / 180;
 
@@ -71,10 +71,51 @@ describe("the wide atlas", () => {
       const sourceCell = (sourceFace * n + siy) * n + six;
       expect(angleBetween(cellCentre(n, edgeCell), cellCentre(n, sourceCell))).toBeLessThan(cellAngle * 2);
     }
+    //: Out to the fine ring's edge, every step is a step: the k-th cell
+    //: past the edge is k cell-angles from the edge cell (the review of
+    //: 2026-09-12 measured the first block beyond as a few cells short,
+    //: which is why the ring is as wide as level three's blend).
+    const edgeCell = (4 * n + 50) * n + (n - 1);
+    for (let k = 1; k <= FINE_CELLS; k++) {
+      const source = at(4, n - 1 + k, 50);
+      const row = Math.floor(source / before.cols);
+      const col = source - row * before.cols;
+      const oldSide = n + 2;
+      const sourceCell =
+        ((Math.floor(row / oldSide) * 4 + Math.floor(col / oldSide)) * n + (row % oldSide) - 1) * n + (col % oldSide) - 1;
+      const steps = angleBetween(cellCentre(n, edgeCell), cellCentre(n, sourceCell)) / cellAngle;
+      expect(Math.abs(steps - k)).toBeLessThan(0.35);
+    }
     //: Far out, the sphere's own answer: the texel where a straight line
     //: from the edge leads, which `ang2pix` names the same cell for.
     const far = at(4, 100 + FINE_CELLS + 3, 50);
     expect(far).toBeGreaterThanOrEqual(0);
+  });
+
+  it("reads the same value at the same point as the served atlas, inside a face", () => {
+    //: What the vector layer cuts by and what the picture paints must be
+    //: one surface: a point's blend off the served atlas and off the wide
+    //: one agree wherever the served border is not reached.
+    const n = 100;
+    const before = served(n);
+    const { passport, map } = widen(before);
+    const raster = new Float32Array(before.cols * before.rows);
+    for (let i = 0; i < raster.length; i++) raster[i] = (i * 7919) % 1000;
+    const wide = retile(map as Int32Array, raster);
+    let tried = 0;
+    for (let i = 0; i < 4000; i++) {
+      const lat = -80 + ((i * 37) % 160) + 0.37;
+      const lon = -179 + ((i * 53) % 358) + 0.61;
+      const { u, v } = faceUV(n, lat, lon);
+      if (u < 1.5 || u > n - 1.5 || v < 1.5 || v > n - 1.5) continue;
+      tried++;
+      expect(atlasBetween(passport, wide, lat, lon)).toBeCloseTo(atlasBetween(before, raster, lat, lon), 6);
+    }
+    expect(tried).toBeGreaterThan(1000);
+  });
+
+  it("refuses a face that would leave half a cell of border", () => {
+    expect(() => widen({ ...served(101), border: 1 })).toThrow(/half a cell/);
   });
 
   it("lays a raster out by the map, the same kind of array", () => {

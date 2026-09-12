@@ -75,6 +75,10 @@ export function Legend({ layer, planet }: { layer: Layer; planet: string | null 
       return <Ramp title={title} stops="rain" low={t("ui-map-legend-rain-less")} high={t("ui-map-legend-rain-more")} />;
     case "moisture":
       return <Ramp title={title} stops="moisture" low={t("ui-map-legend-moisture-fast")} high={t("ui-map-legend-moisture-slow")} />;
+    case "weather":
+      //: The hour's rain (D-335), nought to a downpour; the clouds ride on
+      //: the layer as a haze and need no bar.
+      return <Ramp title={title} stops="weather" low={t("ui-map-legend-weather-dry")} high={t("ui-map-legend-weather-heavy")} />;
     case "biomes": {
       const nameOf = (id: string) => biomeWord(id, names, book);
       return (

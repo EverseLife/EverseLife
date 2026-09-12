@@ -127,7 +127,7 @@ export const RELIEF_DEPTH = 0.12;
  *  soil's -- how slowly a bed dries here, by the drying law of D-296, for
  *  the farmer (owner, 2026-09-12: the water layer was to be the soil's
  *  moisture and not the water alone). The order is the shader's `u_layer`. */
-export const LAYERS = ["terrain", "relief", "biomes", "temperature", "rain", "moisture"] as const;
+export const LAYERS = ["terrain", "relief", "biomes", "temperature", "rain", "moisture", "weather"] as const;
 export type Layer = (typeof LAYERS)[number];
 
 /** The legends' light (D-331): a layer that is read keeps this much of the
@@ -170,6 +170,14 @@ export const RAMPS = {
     { at: 0, rgb: [0.84, 0.72, 0.5] },
     { at: 0.5, rgb: [0.5, 0.62, 0.34] },
     { at: 1, rgb: [0.1, 0.36, 0.34] },
+  ],
+  /** The weather (D-335): the grey of a dry sky, the pale blue of a
+   *  drizzle, the deep blue of a downpour -- the rain's own blues, for the
+   *  rain layer is the year's and this is the hour's. */
+  weather: [
+    { at: 0, rgb: [0.78, 0.78, 0.76] },
+    { at: 0.4, rgb: [0.55, 0.7, 0.85] },
+    { at: 1, rgb: [0.1, 0.25, 0.6] },
   ],
   /** The land from the brown of the soil through ochre to the grey of the
    *  stone and the white of the summits -- no green anywhere the ground is
@@ -684,3 +692,34 @@ export function supportsShadedGround(): boolean {
   }
   return shaded;
 }
+
+/** The clouds on the terrain layer (D-335), the picture's: their tone, how
+ *  much of the ground they hide where the cover is whole, how much of the
+ *  light a cloud's shadow takes, how high a cloud stands for its shadow to
+ *  fall away from the sun (kilometres), and the frames they show on --
+ *  none under CLOUD_NEAR_MPX metres a pixel of the frame's scale, whole
+ *  from CLOUD_FAR_MPX: a cloud is a thing of the planet seen from afar,
+ *  and up close it would hide the ground one came to see. Twenty-five
+ *  metres a pixel is the planet across a phone's width (Terra is
+ *  twenty-five kilometres across); the frame's scale, not the pixel's
+ *  ground, so the limb and the middle of the ball agree. */
+export const CLOUD_TONE: readonly [number, number, number] = [0.96, 0.97, 0.99];
+export const CLOUD_OPACITY = 0.85;
+export const CLOUD_SHADE = 0.35;
+export const CLOUD_KM = 1.5;
+export const CLOUD_NEAR_MPX = 8;
+export const CLOUD_FAR_MPX = 25;
+/** The lowest the sun is taken to stand for a cloud's shadow, radians: at
+ *  the horizon a cloud a kilometre up would shade ground a hundred
+ *  kilometres off, which is more planet than there is. */
+export const CLOUD_SUN_MIN = 0.3;
+/** How dark a cloud goes where the ground under it is unlit: this much of
+ *  its tone stays, the rest comes with the ground's light. */
+export const CLOUD_NIGHT = 0.75;
+/** How much of the cloud's tone the weather layer lays over its ramp as
+ *  haze at full cover: a legend, so lighter than the terrain's clouds. */
+export const WX_HAZE = 0.35;
+/** The probe's words (D-335 item 3): rain is named from this much of its
+ *  strength, an overcast sky from this much cover, else the sky is clear. */
+export const WX_RAIN_WORD = 0.02;
+export const WX_CLOUDY_WORD = 0.5;

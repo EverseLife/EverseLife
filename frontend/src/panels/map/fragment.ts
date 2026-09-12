@@ -41,6 +41,15 @@ import {
   RIVER_FULL,
   SHADOW_ALT_MIN_DEG,
   SHADOW_FAR_FROM,
+  CLOUD_TONE,
+  CLOUD_OPACITY,
+  CLOUD_SHADE,
+  CLOUD_KM,
+  CLOUD_NEAR_MPX,
+  CLOUD_FAR_MPX,
+  CLOUD_SUN_MIN,
+  CLOUD_NIGHT,
+  WX_HAZE,
   SHADOW_LEVEL_MAX,
   SHADOW_DEPTH,
   SHADOW_FULL_SIN,
@@ -51,7 +60,14 @@ import {
   glslRamp,
   glslWeight,
 } from "./shade";
+import {
+  SNOW_OVER_GRAIN,
+  SNOW_TONE,
+  ICE_TONE,
+} from "./season";
 import { GRAIN_GLSL } from "./grainGlsl";
+import { LAYERS_GLSL } from "./layersGlsl";
+import { WEATHER_GLSL } from "./weatherGlsl";
 import {
   GRAIN_DEPTH,
   GRAIN_FALL,
@@ -118,8 +134,26 @@ uniform sampler2D u_river;
 //: tallest ground, past which no shadow reaches.
 uniform sampler2D u_top;
 uniform float u_top_m;
+//: The season (D-334): the swing of the mean temperature at the pole as
+//: of now, and the lines of the snow and the ice with the band between.
+uniform float u_season_c;
+uniform vec3 u_snow;
+//: A dry cold keeps only u_snow_dry.y of its snow below u_snow_dry.x of
+//: the rain scale (season.snow_dry_rain, season.snow_dry_share).
+uniform vec2 u_snow_dry;
+//: The weather (D-335): the lattice's scale, the wind's drift so far, the
+//: slice of time, the gates cover -> cloud (xy) and cover -> rain (zw),
+//: how far the ground's own rain pulls the cover, and whether the clouds
+//: are drawn at all (the overlay).
+uniform float u_wx_scale;
+uniform float u_wx_drift;
+uniform float u_wx_slice;
+uniform vec4 u_wx_gates;
+uniform float u_wx_bias;
+uniform float u_wx_gain;
+uniform float u_clouds;
 //: The grain of each biome, by the raster's code: scale, stretch,
-//: contrast, shape (shade.grainTable off the vault's biome.grain).
+//: contrast, shape (grain.grainTable off the vault's biome.grain).
 uniform vec4 u_grains[${PALETTE_SLOTS}];
 uniform uvec4 u_stone_forms;
 uniform uvec2 u_sand_forms;
@@ -159,6 +193,18 @@ const float FAR_WATER_DEEP = ${FAR_WATER_DEEP.toFixed(2)};
 const float LIGHT_ALT_MIN = ${((LIGHT_ALT_MIN_DEG * Math.PI) / 180).toFixed(4)};
 const float TWILIGHT = ${TWILIGHT.toFixed(2)};
 const vec3 NIGHT_TINT = vec3(${NIGHT_TINT.map((v) => v.toFixed(2)).join(", ")});
+const vec3 SNOW_TONE = vec3(${SNOW_TONE.map((v) => v.toFixed(2)).join(", ")});
+const vec3 ICE_TONE = vec3(${ICE_TONE.map((v) => v.toFixed(2)).join(", ")});
+const float SNOW_OVER_GRAIN = ${SNOW_OVER_GRAIN.toFixed(2)};
+const vec3 CLOUD_TONE = vec3(${CLOUD_TONE.map((v) => v.toFixed(2)).join(", ")});
+const float CLOUD_OPACITY = ${CLOUD_OPACITY.toFixed(2)};
+const float CLOUD_SHADE = ${CLOUD_SHADE.toFixed(2)};
+const float CLOUD_KM = ${CLOUD_KM.toFixed(2)};
+const float CLOUD_NEAR_MPX = ${CLOUD_NEAR_MPX.toFixed(1)};
+const float CLOUD_FAR_MPX = ${CLOUD_FAR_MPX.toFixed(1)};
+const float CLOUD_SUN_MIN = ${CLOUD_SUN_MIN.toFixed(2)};
+const float CLOUD_NIGHT = ${CLOUD_NIGHT.toFixed(2)};
+const float WX_HAZE = ${WX_HAZE.toFixed(2)};
 const int SHADOW_STEPS = ${SHADOW_STEPS};
 const float SHADOW_CLIMB_MIN = ${Math.tan((SHADOW_ALT_MIN_DEG * Math.PI) / 180).toFixed(4)};
 const float SHADOW_SOFT = ${SHADOW_SOFT.toFixed(3)};
@@ -348,6 +394,7 @@ float heightCubic(vec2 uv) {
 //: blended smoothly. The lattice is wrapped to GRAIN_WRAP before it is
 //: hashed, and only there -- the cell's own fraction is taken first, so
 //: the wrap costs nothing but the seam nobody reaches.
+${WEATHER_GLSL}
 ${GRAIN_GLSL}
 
 //: The ramps of the climate layers, the soil's and the relief's (D-331):
@@ -357,6 +404,7 @@ ${glslRamp("rampTemp", RAMPS.temperature)}
 ${glslRamp("rampRain", RAMPS.rain)}
 ${glslRamp("rampMoist", RAMPS.moisture)}
 ${glslRamp("rampHeight", RAMPS.height)}
+${glslRamp("rampWeather", RAMPS.weather)}
 
 void main() {
   vec2 px = vec2(gl_FragCoord.x, u_size.y - gl_FragCoord.y);
@@ -405,7 +453,8 @@ void main() {
   //: like every other one (D-328).
   vec3 pe = turn > 1e-6 ? sideways / turn : vec3(1.0, 0.0, 0.0);
   vec3 pn = cross(here, pe);
-  vec2 uv = atlasUV(here);
+  vec3 place = facePlace(here);
+  vec2 uv = atlasAt(place, 0.0);
   //: How much ground one pixel covers, taken from the point on the ball --
   //: which runs smoothly across the screen everywhere, seams included --
   //: and turned into a level of the texture. One cell to the pixel is level
@@ -470,7 +519,7 @@ void main() {
   //: The pixel's own height off the same chain the stretches are read by:
   //: the mean of a far frame's pixel against the top of the texel beside
   //: it shaded every hill of a range at a low sun.
-  float h_top = topOf(here, lod);
+  float h_top = textureLod(u_top, atlasAt(place, marginOf(lod)), lod).r;
   //: How far a shadow can reach at all. The planet is a ball, and a small
   //: one: the ground falls away under the ray as the square of the
   //: distance (along^2 / 2R), so even the shadow of the edge of the day
@@ -479,7 +528,11 @@ void main() {
   //: side and with no clock: the march ends before its first read, and
   //: no branch on the uniform is needed for it.
   float over = max(u_top_m - h_top, 0.0);
-  float longest = metres * (sqrt(climb * climb + 2.0 * over / metres) - climb) * step(0.0, high) * u_sunlit;
+  //: In the drawn space, as the climb is: the heights stand EXAGGERATION
+  //: times taller over the same ball, so the ball falls away under the ray
+  //: by that much less of a drawn height (review, 2026-09-12: without it
+  //: the far shadows of the edge of the day were a third short).
+  float longest = metres * EXAGGERATION * (sqrt(climb * climb + 2.0 * over / (metres * EXAGGERATION)) - climb) * step(0.0, high) * u_sunlit;
   float dark = 0.0;
   float dist = reach;
   vec3 sunward = pe * toward.x + pn * toward.y;
@@ -491,10 +544,10 @@ void main() {
     for (int j = 0; j < taps; j++) {
       float along = dist * (1.0 + (float(j) + 0.5) / float(taps));
       //: Along the great circle, not the tangent: a run of a few
-      //: kilometres on a ball twelve kilometres across stands well off it.
+      //: kilometres on a ball twenty-five kilometres across stands well off it.
       float turn = along / metres;
       vec3 q = here * cos(turn) + sunward * sin(turn);
-      float rise = topOf(q, level) - h_top - climb * along - along * along / (2.0 * metres);
+      float rise = topOf(q, level) - h_top - climb * along - along * along / (2.0 * metres * EXAGGERATION);
       //: The penumbra: the ray is aimed at the sun's centre, so ground
       //: level with it hides half the disc, and a rise of the disc's width
       //: at this distance (SHADOW_SOFT) hides it all. The edge is soft in
@@ -636,14 +689,17 @@ void main() {
   //: And the biome there, for the grain, read at the same wandered point
   //: -- a grain that switched by the raster's own cells under a colour
   //: that wanders would show the diamonds again; the shore's on a sea cell.
-  int gcode = u_shore;
+  //: A passport with no shore biome says so with a code under nought: the
+  //: spare slot, as the colour takes it, not the first biome's grain.
+  int shore_code = u_shore < 0 ? ${PALETTE_SLOTS - 1} : u_shore;
+  int gcode = shore_code;
   {
     uint b0 = textureLod(u_biome, uv, lod).r;
     vec2 wuv = atlasUV(normalize(here + wander));
     uint form_near = textureLod(u_form, wuv, lod).r;
     uint biome_near = textureLod(u_biome, wuv, lod).r;
     f = b0 != ${NO_BIOME}u ? form_near : f;
-    gcode = b0 != ${NO_BIOME}u ? int(biome_near != ${NO_BIOME}u ? biome_near : b0) : u_shore;
+    gcode = b0 != ${NO_BIOME}u ? int(biome_near != ${NO_BIOME}u ? biome_near : b0) : shore_code;
   }
 
   //: One colour for all water at the surface, and the sea darkens only
@@ -654,7 +710,39 @@ void main() {
   //: On the far frames the water on the land takes a share of the deep
   //: tone: a river drawn as a line reads by being darker than the ground,
   //: and the lake's own light tone made every river a bright thread.
+  //: The season's temperature of the cell (D-334): the mean the field
+  //: gives, swung by the sine of the latitude -- the ball's z -- and the
+  //: swing of the pole as of now. Snow lies below the snow line, whole a
+  //: band under it, and a dry cold keeps half; the water is ice below its
+  //: own line, a little colder.
+  float t_c = u_temp_min + textureLod(u_temp, uv, lod).r * 255.0 * u_temp_step;
+  float rain01 = textureLod(u_rain, uv, lod).r;
+  float t_now = t_c + u_season_c * here.z;
+  //: Edges the right way round: a smoothstep with edge0 over edge1 is
+  //: undefined by the spec, so the cold end is one minus the warm ramp.
+  float snow = (1.0 - smoothstep(u_snow.x - u_snow.y, u_snow.x, t_now))
+    * mix(u_snow_dry.y, 1.0, smoothstep(0.0, max(u_snow_dry.x, 1e-3), rain01));
+  float ice = 1.0 - smoothstep(u_snow.z - u_snow.y, u_snow.z, t_now);
+  //: The weather (D-335): the cover of the sky over this point, pulled by
+  //: the ground's own rain share, gated to cloud and to rain -- the law
+  //: of weatherGlsl.ts, the same the engine reads. The clouds show on the
+  //: far frames alone, and only with the overlay on; a cloud's shadow
+  //: falls away from the sun by the cloud's height over the sun's climb,
+  //: so it is the cloud toward the sun by as much that shades this ground.
+  float cover = wxCover(here) + u_wx_bias * (rain01 - 0.5);
+  float cloud = smoothstep(u_wx_gates.x, u_wx_gates.y, cover);
+  float rain_now = smoothstep(u_wx_gates.z, u_wx_gates.w, cover);
+  //: By the frame's own scale (u_units), not the pixel's ground: toward
+  //: the limb of the ball a pixel covers more ground, and gated by that
+  //: the clouds showed at the edges of the globe and hid in its middle
+  //: (owner, 2026-09-12).
+  float far_sky = smoothstep(CLOUD_NEAR_MPX, CLOUD_FAR_MPX, u_units / UNITS_PER_METRE) * u_clouds;
+  float cloud_alt = max(asin(clamp(high, 0.0, 1.0)), CLOUD_SUN_MIN);
+  float cloud_turn = (CLOUD_KM * 1000.0 / tan(cloud_alt)) / metres;
+  vec3 q_cloud = here * cos(cloud_turn) + sunward * sin(cloud_turn);
+  float cloud_over = smoothstep(u_wx_gates.x, u_wx_gates.y, wxCover(q_cloud) + u_wx_bias * (rain01 - 0.5));
   vec3 water_col = mix(u_lake, u_sea_deep, h >= 0.0 ? FAR_WATER_DEEP * s : clamp(-h / u_deep, 0.0, 1.0));
+  water_col = mix(water_col, ICE_TONE, ice);
   water_col *= 0.85 + 0.15 * shade;
   //: And the cast shadow lies on the water as on the land (owner,
   //: 2026-09-12): a lake under a range is in its shadow at dusk, and a
@@ -667,6 +755,7 @@ void main() {
   float share = clamp(h / u_relief, 0.0, 1.0);
   ground = mix(ground, u_high, 0.6 * smoothstep(u_high_from, 1.0, share));
   float tone = (AMBIENT + (1.0 - AMBIENT) * shade) * lit;
+  tone *= 1.0 - CLOUD_SHADE * cloud_over * far_sky * step(0.0, high) * u_sunlit;
   //: The lie of the land at the frame's scale: how far the point stands
   //: over or under the mean of the ground about it, read RELIEF_LEVELS
   //: levels coarser -- the valley and the ridge as wholes. A valley floor
@@ -676,66 +765,23 @@ void main() {
   //: used to be cut darker by its form on top of all this and ticked with
   //: hachures in the vector layer; the owner read the pair as a smear with
   //: black lines on it, and a wall now reads by its own shadow and stone.
-  float around = heightOf(here, lod + RELIEF_LEVELS);
+  float around = heightAt(atlasAt(place, marginOf(lod + RELIEF_LEVELS)), lod + RELIEF_LEVELS);
   float lie = clamp((h - around) / RELIEF_M, -1.0, 1.0);
   tone *= 1.0 + RELIEF_DEPTH * lie;
   //: The grain, on the near frames alone (wave 8): the ground says what
   //: it is made of, while the hillshade goes on saying what shape it is.
   float rock = textureLod(u_rock, uv, lod).r;
-  tone *= 1.0 + GRAIN_DEPTH * u_grain * grainOf(apart, f, gcode, rock);
+  tone *= 1.0 + GRAIN_DEPTH * u_grain * grainOf(apart, f, gcode, rock) * (1.0 - SNOW_OVER_GRAIN * snow);
   ground *= tone;
+  //: The snow, over the ground and lit as the ground is.
+  ground = mix(ground, SNOW_TONE * tone, snow);
   //: The pixel: its ground and its water, by how many of its taps are wet.
   vec3 col = mix(ground, water_col, wet);
+  //: The clouds, lit as the ground under them is lit, before the night
+  //: tints them with everything else.
+  col = mix(col, CLOUD_TONE * (CLOUD_NIGHT + (1.0 - CLOUD_NIGHT) * lit), cloud * far_sky * CLOUD_OPACITY);
   col = mix(col * NIGHT_TINT, col, daylight);
-  //: The layers (D-331), blended by weights off the one uniform rather
-  //: than chosen by a branch on it: every colour is a few multiplies over
-  //: what the fragment already holds, and a branch on a uniform is what
-  //: stalled the frames on 2026-09-11. The relief layer keeps the light
-  //: and the night; the legends -- biomes, the climate's two -- keep half
-  //: the light so the ground still reads as ground, and no night, for a
-  //: legend is read and not looked at; the soil's moisture is a legend too.
-  float w_relief = u_layer == 1 ? 1.0 : 0.0;
-  float w_biome = u_layer == 2 ? 1.0 : 0.0;
-  float w_temp = u_layer == 3 ? 1.0 : 0.0;
-  float w_rain = u_layer == 4 ? 1.0 : 0.0;
-  float w_moist = u_layer == 5 ? 1.0 : 0.0;
-  float w_terrain = 1.0 - w_relief - w_biome - w_temp - w_rain - w_moist;
-  float legend_tone = LEGEND_AMBIENT + (1.0 - LEGEND_AMBIENT) * tone;
-  vec3 relief_col = mix(rampHeight(share) * tone, water_col, wet);
-  relief_col = mix(relief_col * NIGHT_TINT, relief_col, daylight);
-  vec3 biome_col = mix(flat_ground * legend_tone, u_lake, wet);
-  float t_c = u_temp_min + textureLod(u_temp, uv, lod).r * 255.0 * u_temp_step;
-  float warmth = clamp((t_c - u_temp_cold) / max(u_temp_hot - u_temp_cold, 1.0), 0.0, 1.0);
-  vec3 temp_col = rampTemp(warmth) * legend_tone;
-  temp_col = mix(temp_col, temp_col * LEGEND_WET_DIM, wet);
-  float rain01 = textureLod(u_rain, uv, lod).r;
-  vec3 rain_col = rampRain(rain01) * legend_tone;
-  rain_col = mix(rain_col, rain_col * LEGEND_WET_DIM, wet);
-  //: The soil's moisture (owner, 2026-09-12: a layer for the farmer, not
-  //: the water alone): the ground by the drying law of D-296
-  //: (farm.life.dry_rate), read off the rasters the fragment already
-  //: holds and the law's numbers off the book (shade.dryLaw). The pace a
-  //: bed dries at, against the reference: every degree over u_dry.w adds
-  //: u_dry.z of it, the rain closes up to u_dry.x of it, and water within
-  //: reach leaves u_dry.y of it -- "within reach" by the river raster,
-  //: the engine's own metres to the nearest river or lake (terrain.marks_at
-  //: against terrain.river_reach_km), with a cell's soft edge; a byte of
-  //: metres saturates at 255, and past that the ground is far from water
-  //: for any reach the vault has set. One minus the pace, against the
-  //: fastest the planet has -- bare ground at its hottest (u_temp_hot) --
-  //: so the ramp runs over the whole planet and not over its cold half
-  //: alone: the wet end is the bed that keeps what was poured. The water
-  //: itself stays water, in the theme's own tones, as the biome layer
-  //: draws it. shade.moistureOf is this arithmetic in TypeScript, for the
-  //: tests.
-  float heat = max(0.0, 1.0 + u_dry.z * (t_c - u_dry.w));
-  float river_m = textureLod(u_river, uv, lod).r * 255.0;
-  float beside = 1.0 - smoothstep(u_reach_m, u_reach_m + u_step, river_m);
-  float pace = heat * (1.0 - u_dry.x * rain01) * mix(1.0, u_dry.y, beside);
-  float fastest = max(1.0 + u_dry.z * (u_temp_hot - u_dry.w), 0.05);
-  vec3 water_flat = mix(u_lake, u_sea_deep, h >= 0.0 ? 0.0 : clamp(-h / u_deep, 0.0, 1.0));
-  vec3 moist_col = mix(rampMoist(clamp(1.0 - pace / fastest, 0.0, 1.0)) * legend_tone, water_flat, min(1.0, wet * LEGEND_WET_EDGE));
-  col = col * w_terrain + relief_col * w_relief + biome_col * w_biome + temp_col * w_temp + rain_col * w_rain + moist_col * w_moist;
+${LAYERS_GLSL}
   float alpha = 1.0 - smoothstep(1.0 - edge, 1.0 + edge, rho);
   o_color = vec4(col * alpha, alpha);
 }

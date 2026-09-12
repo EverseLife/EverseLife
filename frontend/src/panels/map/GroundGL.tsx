@@ -47,6 +47,7 @@ import type { RasterPassport } from "../../api";
 import { useBook } from "../../actions";
 import { useTerrain } from "./Ground";
 import { retile, widen } from "./atlas";
+import { weatherMoment, type WeatherLaw } from "./weather";
 import { UNITS_PER_METRE, type Eye, type Geo } from "./globe";
 import { rastersOf, type Rasters } from "./rasters";
 import {
@@ -67,6 +68,10 @@ import {
   type Layer,
   type Palette,
 } from "./shade";
+import {
+  type Season,
+  seasonC,
+} from "./season";
 import {
   GRAIN_M,
   grainTable,
@@ -182,27 +187,31 @@ function setUp(canvas: HTMLCanvasElement): Program | null {
   return { gl, program, at, textures: new Map(), synced: null };
 }
 
+/** A planet's textures given back to the context. */
+function drop(gl: WebGL2RenderingContext, t: Textures): void {
+  gl.deleteTexture(t.height);
+  gl.deleteTexture(t.top);
+  gl.deleteTexture(t.biome);
+  gl.deleteTexture(t.form);
+  gl.deleteTexture(t.rock);
+  gl.deleteTexture(t.stream);
+  gl.deleteTexture(t.lake);
+  gl.deleteTexture(t.temperature);
+  gl.deleteTexture(t.rain);
+  gl.deleteTexture(t.river);
+}
+
 /** Give the context back: its textures at once, and the context itself
  *  once the canvas has really left the page -- a browser that counts
  *  contexts must not lose an older one for this. React in development
  *  runs an effect's cleanup and setup again on the same canvas, and a
  *  context lost then would come back lost to the setup: so the context is
  *  let go only when the canvas is no longer in the document. */
+
 function tearDown(program: Program | null, canvas: HTMLCanvasElement): void {
   if (!program) return;
   const { gl } = program;
-  for (const t of program.textures.values()) {
-    gl.deleteTexture(t.height);
-    gl.deleteTexture(t.top);
-    gl.deleteTexture(t.biome);
-    gl.deleteTexture(t.form);
-    gl.deleteTexture(t.rock);
-    gl.deleteTexture(t.stream);
-    gl.deleteTexture(t.lake);
-    gl.deleteTexture(t.temperature);
-    gl.deleteTexture(t.rain);
-    gl.deleteTexture(t.river);
-  }
+  for (const t of program.textures.values()) drop(gl, t);
   program.textures.clear();
   program.synced = null;
   setTimeout(() => {
@@ -227,11 +236,21 @@ function upload(gl: WebGL2RenderingContext, served: RasterPassport, came: Raster
   //: is this one; what the vector layer reads is untouched.
   const wide = widen(served);
   const passport = wide.passport;
-  const rasters: Rasters = wide.map
-    ? (Object.fromEntries(
-        Object.entries(came).map(([name, raster]) => [name, retile(wide.map as Int32Array, raster)]),
-      ) as Rasters)
-    : came;
+  //: The nine that go to the GPU and no others: `water`, `province` and
+  //: `flow` are the vector layer's and are not laid out again.
+  const laid = <T extends Float32Array | Uint8Array>(raster: T): T =>
+    wide.map ? retile(wide.map, raster) : raster;
+  const rasters = {
+    height: laid(came.height),
+    biome: laid(came.biome),
+    form: laid(came.form),
+    rock: laid(came.rock),
+    lake: laid(came.lake),
+    stream: laid(came.stream),
+    temperature: laid(came.temperature),
+    rain: laid(came.rain),
+    river: laid(came.river),
+  };
   const { rows, cols } = passport;
   const height = gl.createTexture();
   if (!height) throw new Error("no texture");
@@ -420,12 +439,24 @@ export const GroundGL = forwardRef<
      *  light and the night; null without a clock, and then the light is
      *  the map's own north-west and there is no night. */
     sun: Geo | null;
+    /** The season as of this render (`Ground.seasonOf`, D-334): the snow
+     *  and the ice the ground wears, and the swing of its temperature. */
+    season: Season;
+    /** The weather's law and the real days since the epoch at the moment
+     *  shown (D-335): the fragment turns the field to it. */
+    weather: WeatherLaw;
+    weatherDays: number;
+    /** Whether the clouds are drawn over the terrain layer (the overlay). */
+    clouds: boolean;
     /** What the ground is coloured by (D-331): the map's layer. */
     layer: Layer;
     /** Told when the ground starts drawing, and when it gives up. */
     onState: (state: GroundGLState) => void;
   }
->(function GroundGL({ planet, eye, radius, svg, sun, layer, onState }, ref) {
+>(function GroundGL(
+  { planet, eye, radius, svg, sun, season, weather, weatherDays, clouds, layer, onState },
+  ref,
+) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const probeRef = useRef<HTMLSpanElement | null>(null);
   const programRef = useRef<Program | null>(null);
@@ -508,6 +539,15 @@ export const GroundGL = forwardRef<
         const now = programRef.current;
         if (!live || !now) return;
         try {
+          //: One planet's textures at a time: the last planet's textures are given
+          //: back before the next is uploaded. Wide as the atlas is now, four
+          //: planets kept would be two hundred megabytes on a phone's GPU.
+          for (const [other, held] of now.textures) {
+            if (other !== planet) {
+              drop(now.gl, held);
+              now.textures.delete(other);
+            }
+          }
           now.textures.set(planet, upload(now.gl, passport, rasters));
           setReady(planet);
           tell.current("ready");
@@ -540,14 +580,14 @@ export const GroundGL = forwardRef<
     () => (book?.constants?.["biome.grain"] as Record<string, unknown> | undefined) ?? null,
     [book],
   );
-  const state = useRef({ eye, radius, palette, planet, highFrom, sun, layer, law, grains });
-  state.current = { eye, radius, palette, planet, highFrom, sun, layer, law, grains };
+  const state = useRef({ eye, radius, palette, planet, highFrom, sun, season, weather, weatherDays, clouds, layer, law, grains });
+  state.current = { eye, radius, palette, planet, highFrom, sun, season, weather, weatherDays, clouds, layer, law, grains };
 
   const draw = useCallback(() => {
     const program = programRef.current;
     const canvas = canvasRef.current;
     const svgEl = svg.current;
-    const { eye, radius, palette, planet, highFrom, sun, layer, law, grains } = state.current;
+    const { eye, radius, palette, planet, highFrom, sun, season, weather, weatherDays, clouds, layer, law, grains } = state.current;
     if (!program || !canvas || !svgEl || !palette) return;
     if (!sync(program, planet, palette, highFrom, law, grains)) return;
     const { gl, at } = program;
@@ -603,6 +643,23 @@ export const GroundGL = forwardRef<
     //: subsolar point as a direction on the ball, and whether there is one.
     gl.uniform3fv(at("u_sun"), sun ? sunVector(sun) : [0, 0, 1]);
     gl.uniform1f(at("u_sunlit"), sun ? 1 : 0);
+    //: The season (D-334): the swing of the mean temperature at the pole as
+    //: of now -- the fragment scales it by the sine of its own latitude --
+    //: and the lines the snow and the ice lie below.
+    gl.uniform1f(at("u_season_c"), seasonC(season, 90));
+    gl.uniform3f(at("u_snow"), season.snowC, season.bandC, season.iceC);
+    gl.uniform2f(at("u_snow_dry"), season.dryRain, season.dryKeep);
+    //: The weather (D-335): the lattice's scale and where the wind has
+    //: carried it, which slice of time the field is in, the gates from
+    //: cover to cloud and to rain, and whether the clouds are shown.
+    const moment = weatherMoment(weather, weatherDays);
+    gl.uniform1f(at("u_wx_scale"), weather.scale);
+    gl.uniform1f(at("u_wx_drift"), moment.drift);
+    gl.uniform1f(at("u_wx_slice"), moment.slice);
+    gl.uniform4f(at("u_wx_gates"), weather.cloudFrom, weather.cloudFull, weather.rainFrom, weather.rainFull);
+    gl.uniform1f(at("u_wx_bias"), weather.bias);
+    gl.uniform1f(at("u_wx_gain"), weather.gain);
+    gl.uniform1f(at("u_clouds"), clouds ? 1 : 0);
     gl.uniform1i(at("u_layer"), Math.max(0, LAYERS.indexOf(layer)));
     //: Both textures of the ground -- its grain and the roughening of the
     //: colour's edge -- are fixed sizes **in metres of the country**, so
@@ -630,9 +687,14 @@ export const GroundGL = forwardRef<
   //: `sunOf` makes the point afresh on every render, quantised to a quarter
   //: of a degree, so a render that moved nothing draws nothing.
   const sunKey = sun ? `${sun.lat},${sun.lon}` : "";
+  const seasonKey = [season.turns, season.swingC, season.snowC, season.bandC, season.iceC, season.dryRain, season.dryKeep].join(",");
+  //: The weather redraws by its own moment, to a hundredth of a slice and
+  //: of a radian of drift: a minute of Terra's day, not every render.
+  const wx = weatherMoment(weather, weatherDays);
+  const weatherKey = [weather.scale, wx.drift.toFixed(2), wx.slice.toFixed(2), weather.bias, weather.gain, clouds].join(",");
   useEffect(() => {
     draw();
-  }, [draw, eye, radius, palette, ready, planet, highFrom, layer, sunKey, law, grains]);
+  }, [draw, eye, radius, palette, ready, planet, highFrom, layer, sunKey, seasonKey, weatherKey, law, grains]);
   //: The box: a resize of the pane is a resize of the canvas. Watched on the
   //: **svg**, because the canvas's own box is written by the draw above --
   //: watching it would be watching one's own hand, and the canvas would keep

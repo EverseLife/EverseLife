@@ -90,7 +90,7 @@ float fractal(vec3 p, vec3 wrap, float metre_px) {
 }
 
 //: The raw noise shaped to what a biome's ground looks like from above
-//: (shade.GRAIN_SHAPE): crowns are plateaus with soft edges, cracks and
+//: (grain.GRAIN_SHAPE): crowns are plateaus with soft edges, cracks and
 //: frost polygons are thin lines about the noise's nought, pools lie in
 //: its low and scrub stands in its high, scree is the noise sharpened.
 float shapeOf(float f, int shape) {

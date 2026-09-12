@@ -33,6 +33,12 @@ import {
 } from "./relief";
 import { reliefOf } from "./rasters";
 import { warmthOf } from "./scout";
+import {
+  SEASON_FALLBACK,
+  type Season,
+  seasonOf as seasonLawOf,
+  subsolarLat,
+} from "./season";
 
 /** The tiles of the local relief held of late, by planet, the `TILE_KEEP`
  *  most recent each -- and the ones on their way, so a tile is asked for
@@ -126,13 +132,38 @@ export function useTerrain(planet: string | null): Terrain | null {
  *  standing planet's with `look`, another planet's day from the book. Null
  *  without a clock. Read at render and never on a timer (D-226): a quarter
  *  of a degree a minute is not a motion the eye sees. */
-export function sunOf(planet: string, clock: Look["clock"], book: RecipeBook | null): Geo | null {
+export function sunOf(
+  planet: string,
+  clock: Look["clock"],
+  book: RecipeBook | null,
+  atMs: number = Date.now(),
+): Geo | null {
   const dayHours =
     clock?.planet === planet ? clock.day_hours : Number(book?.constants?.[`time.day_${planet}`] ?? 0);
-  const sun = subsolar(clock?.epoch ?? null, dayHours, Date.now());
+  const sun = subsolar(clock?.epoch ?? null, dayHours, atMs);
+  if (!sun) return null;
+  //: The season (D-334): the sun stands over the latitude the tilt and the
+  //: orbit's angle give -- the poles have their night and their day.
+  const lat = subsolarLat(seasonOf(planet, clock, book, atMs));
   //: To a quarter of a degree: two renders a moment apart then agree on the
   //: sun, and the ground is not drawn again for a difference no eye sees.
-  return sun && { lat: Math.round(sun.lat * 4) / 4, lon: Math.round(sun.lon * 4) / 4 };
+  return { lat: Math.round(lat * 4) / 4, lon: Math.round(sun.lon * 4) / 4 };
+}
+
+/** The season of a planet as of this render (D-334): the orbit's angle off
+ *  the world's epoch and the book's numbers. Read at render, never on a
+ *  timer (D-226); the picture rounds it so a moment's difference is not a
+ *  redraw. Without a book the picture keeps the fallback: no season. */
+export function seasonOf(
+  planet: string,
+  clock: Look["clock"],
+  book: RecipeBook | null,
+  atMs: number = Date.now(),
+): Season {
+  if (!book?.constants) return SEASON_FALLBACK;
+  const season = seasonLawOf(book.constants, planet, clock?.epoch ?? null, atMs);
+  //: A thousandth of a turn: forty real minutes of Terra's year.
+  return { ...season, turns: Math.round(season.turns * 1000) / 1000 };
 }
 
 export function Ground({
@@ -147,7 +178,11 @@ export function Ground({
   within,
   unit: chosen,
   mode = "svg",
+  at,
 }: {
+  /** The moment shown, when the year is wound ahead (D-334): the night is
+   *  drawn where the sun stands then. Now by default. */
+  at?: number;
   planet: string;
   eye: Eye;
   radius: number;
@@ -187,7 +222,7 @@ export function Ground({
    *  (D-065). Null until the book carries them -- and then no ground is
    *  drawn at all, rather than land of a tone made up here. */
   const bands = useMemo<Warmth | null>(() => warmthOf(book?.constants?.["biome.zonal"]), [book]);
-  const sun = sunOf(planet, clock, book);
+  const sun = sunOf(planet, clock, book, at);
   const unit = chosen ?? (coarse ? COARSE_STRIDE : fine ? FINE_UNIT : 1);
   const tiles = useTiles(planet, terrain, eye, radius, unit, within);
   const drawn = mode !== "under";

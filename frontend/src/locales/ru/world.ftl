@@ -105,6 +105,10 @@ ui-map-sky-slider = на сколько суток вперёд показано
 ui-map-sky-now-note = сейчас
 ui-map-sky-ahead = +{ $days } сут
 ui-map-sky-now = Сейчас
+# Промотка года планеты (D-334): сезон, снег и лёд на год вперёд.
+ui-map-year-wind = Прокрутить год
+ui-map-year-slider = на сколько суток вперёд показана планета
+ui-map-year-rule = Планета наклонена к своей орбите: за год солнце ходит по широте, а с ним приходят и уходят снег и лёд. Прокрутка показывает год вперёд — свет, тени и снег; сама планета от этого не меняется.
 ui-map-sky-rule = Планеты идут вокруг звезды каждая своим сроком, и расстояние между ними меняется само. Глазом этого не видно: за час орбита проходит доли градуса — поэтому ход времени показывает прокрутка, а не ожидание.
 
 ## Полоса над картой: высота взгляда и привязка камеры.
@@ -125,15 +129,19 @@ ui-map-layer-biomes = биомы
 ui-map-layer-temperature = температура
 ui-map-layer-rain = осадки
 ui-map-layer-moisture = влажность почвы
+ui-map-layer-weather = погода
 ui-map-layer-provinces = провинции
 ui-map-layer-city-lands = городские земли
 ui-map-layer-contours = горизонтали
 ui-map-layer-figures = растительность
+ui-map-layer-clouds = облака
 ui-map-degrees = { $c }°
 ui-map-legend-rain-less = меньше дождей
 ui-map-legend-rain-more = больше дождей
 ui-map-legend-moisture-fast = сохнет быстро
 ui-map-legend-moisture-slow = сохнет медленно
+ui-map-legend-weather-dry = сухо
+ui-map-legend-weather-heavy = ливень
 
 ## Само поле карты.
 
@@ -533,3 +541,6 @@ ui-map-peek-percent = { $percent }%
 ui-map-probe-height = { $m } м
 ui-map-probe-rain = осадки { $percent } из 100
 ui-map-probe-moisture = влажность { $percent }%
+ui-map-probe-weather-rain = дождь { $percent }%
+ui-map-probe-weather-cloudy = облачно
+ui-map-probe-weather-clear = ясно

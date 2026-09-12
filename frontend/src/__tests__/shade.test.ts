@@ -10,6 +10,10 @@
 
 import { describe, expect, it } from "vitest";
 
+import { YEAR_FALLBACK_DAYS, yearOf } from "../panels/map/useYear";
+import { WEATHER_FALLBACK, weatherAt, weatherCover, weatherLaw, wxHash } from "../panels/map/weather";
+import { WEATHER_GLSL, WX_DRIFT_2, WX_HASH, WX_MIX, WX_OCTAVE_2, WX_SLICE_2 } from "../panels/map/weatherGlsl";
+
 import {
   EDGE_CELLS,
   EDGE_FULL_PX,
@@ -47,6 +51,13 @@ import {
   SHADOW_FAR_FROM,
   SHADOW_STEPS,
 } from "../panels/map/shade";
+import {
+  orbitTurns,
+  seasonC,
+  seasonOf,
+  subsolarLat,
+  SEASON_FALLBACK,
+} from "../panels/map/season";
 import {
   GRAIN_FULL_PX,
   GRAIN_M,
@@ -224,8 +235,12 @@ describe("the grain of the ground", () => {
       expect(Number.isInteger(kind.scale) && kind.scale >= 1).toBe(true);
       expect(Number.isInteger(kind.stretch * 4) && kind.stretch > 0 && kind.stretch <= 1).toBe(true);
     }
-    //: Sixteen words for sixteen biomes: each its own (owner, 2026-09-12).
-    expect(Object.keys(GRAIN_KINDS)).toHaveLength(16);
+    //: Sixteen words for sixteen biomes: each its own (owner, 2026-09-12),
+    //: and the very words the engine's registry allows (`BIOME_GRAIN`).
+    expect(Object.keys(GRAIN_KINDS).sort()).toEqual([
+      "blades", "canopy", "clinker", "cracks", "dunes", "groves", "jungle", "needles",
+      "patches", "polygons", "pools", "rubble", "sand", "scree", "turf", "tussocks",
+    ]);
     expect(FRAGMENT).toContain("uniform vec4 u_grains[");
     expect(FRAGMENT).toContain("grainOf(apart, f, gcode, rock)");
   });
@@ -325,11 +340,139 @@ describe("the sun in the shader", () => {
   });
 });
 
+describe("the season", () => {
+  it("turns with the sky's own angle, swings the pole and not the equator, and tilts the sun", () => {
+    //: D-334: the orbit's angle off the epoch and the book, as `useSky`
+    //: turns the planets; the season's swing by the sine of the latitude.
+    const book = {
+      "orbit.period_days": { terra: 28 },
+      "orbit.phase": { terra: 0 },
+      "season.tilt_deg": { terra: 23 },
+      "season.swing_c": { terra: 18 },
+      "season.snow_c": 0,
+      "season.snow_band_c": 4,
+      "season.ice_c": -2,
+      "season.snow_dry_rain": 25,
+      "season.snow_dry_share": 50,
+    };
+    const epoch = "2026-01-01T00:00:00Z";
+    const at = (days: number) => new Date(epoch).getTime() + days * 86_400_000;
+    expect(orbitTurns(book, "terra", epoch, at(0))).toBe(0);
+    expect(orbitTurns(book, "terra", epoch, at(7))).toBeCloseTo(0.25, 9);
+    expect(orbitTurns(book, "terra", epoch, at(35))).toBeCloseTo(0.25, 9);
+    //: No epoch, no year: the world at its birth.
+    expect(orbitTurns(book, "terra", null, at(7))).toBe(0);
+    const midsummer = seasonOf(book, "terra", epoch, at(7));
+    expect(seasonC(midsummer, 90)).toBeCloseTo(18, 9);
+    expect(seasonC(midsummer, -90)).toBeCloseTo(-18, 9);
+    expect(seasonC(midsummer, 0)).toBeCloseTo(0, 9);
+    expect(subsolarLat(midsummer)).toBeCloseTo(23, 9);
+    expect(subsolarLat(seasonOf(book, "terra", epoch, at(21)))).toBeCloseTo(-23, 9);
+    expect(midsummer.snowC).toBe(0);
+    expect(midsummer.iceC).toBe(-2);
+    expect(midsummer.dryRain).toBeCloseTo(0.25, 9);
+    expect(midsummer.dryKeep).toBeCloseTo(0.5, 9);
+    //: Born at a phase, the world without an epoch stands there, as the sky does.
+    expect(orbitTurns({ ...book, "orbit.phase": { terra: Math.PI } }, "terra", null, at(7))).toBeCloseTo(0.5, 9);
+    //: A planet the book has no season for, or no book: nothing swings.
+    expect(seasonC(seasonOf(book, "aurora", epoch, at(7)), 90)).toBe(0);
+    expect(seasonOf(null, "terra", epoch, at(7))).toEqual({ ...SEASON_FALLBACK, turns: 0 });
+    //: The fragment: the swing by the ball's own z, the snow and the ice
+    //: below their lines, the water iced before it is lit.
+    expect(FRAGMENT).toContain("uniform float u_season_c;");
+    expect(FRAGMENT).toContain("float t_now = t_c + u_season_c * here.z;");
+    expect(FRAGMENT).toContain("(1.0 - smoothstep(u_snow.x - u_snow.y, u_snow.x, t_now))");
+    expect(FRAGMENT).toContain("float ice = 1.0 - smoothstep(u_snow.z - u_snow.y, u_snow.z, t_now);");
+    expect(FRAGMENT).toContain("uniform vec2 u_snow_dry;");
+    expect(FRAGMENT).toContain("ground = mix(ground, SNOW_TONE * tone, snow);");
+  });
+});
+
+describe("the year's winder", () => {
+  it("winds over the planet's own year, Terra's for a planet the book has none for", () => {
+    expect(yearOf({ "orbit.period_days": { terra: 28, aurora: 130 } }, "aurora")).toBe(130);
+    //: Terra's year off the book, as the sky does; nothing to wind without one.
+    expect(yearOf({ "orbit.period_days": { terra: 28 } }, "nowhere")).toBe(28);
+    expect(yearOf(null, "terra")).toBe(YEAR_FALLBACK_DAYS);
+  });
+});
+
+describe("the weather", () => {
+  const law = weatherLaw(
+    {
+      "weather.cell_km": 3,
+      "weather.wind_deg_per_day": 90,
+      "weather.change_days": 1.5,
+      "weather.wet_bias": 0.4,
+      "weather.cloud_from": 0.45,
+      "weather.cloud_full": 0.65,
+      "weather.rain_from": 0.6,
+      "weather.rain_full": 0.85,
+      "weather.gain": 2.4,
+    },
+    12_000,
+  );
+  const point = (lat: number, lon: number): [number, number, number] => {
+    const r = (lat * Math.PI) / 180;
+    const l = (lon * Math.PI) / 180;
+    return [Math.cos(r) * Math.cos(l), Math.cos(r) * Math.sin(l), Math.sin(r)];
+  };
+
+  it("is the engine's own law to the last bit of the hash (D-335)", () => {
+    //: The numbers the engine prints for the same lattice corners and the
+    //: same points (`climate._wx_hash`, `climate.weather_cover` on a law of
+    //: scale four): the two repositories cannot import each other, and
+    //: they meet here.
+    expect(wxHash(3, -7, 12, 5)).toBeCloseTo(0.4038313031196594, 12);
+    expect(wxHash(0, 0, 0, 0)).toBe(0);
+    expect(law.scale).toBe(4);
+    expect(weatherCover(law, point(32.66, -105.56), 0)).toBeCloseTo(0.7076900709491378, 9);
+    expect(weatherCover(law, point(32.66, -105.56), 0.74)).toBeCloseTo(0.37925598903876334, 9);
+    expect(weatherCover(law, point(-60, 20), 3.3)).toBeCloseTo(0.1565911461648059, 9);
+    expect(weatherCover(law, point(0, 0), 12.25)).toBeCloseTo(0.661749361739475, 9);
+  });
+
+  it("gates the cover to cloud and to rain, pulled by the ground's own rain", () => {
+    const wet = weatherAt(law, 32.66, -105.56, 1, 0);
+    const dry = weatherAt(law, 32.66, -105.56, 0, 0);
+    expect(wet.cloud).toBeGreaterThanOrEqual(dry.cloud);
+    expect(wet.rain).toBeGreaterThanOrEqual(dry.rain);
+    for (const v of [wet.cloud, wet.rain, dry.cloud, dry.rain]) {
+      expect(v).toBeGreaterThanOrEqual(0);
+      expect(v).toBeLessThanOrEqual(1);
+    }
+    //: No book, no weather: nothing is clouded, nothing rains.
+    expect(weatherAt(WEATHER_FALLBACK, 10, 10, 1, 5)).toEqual({ cloud: 0, rain: 0 });
+    expect(weatherLaw(null, 12_000)).toBe(WEATHER_FALLBACK);
+  });
+
+  it("is drawn in the fragment: the field, the clouds on the far frames, their shadow, the hour's rain layer", () => {
+    expect(FRAGMENT).toContain("uniform float u_wx_scale;");
+    expect(FRAGMENT).toContain("float wxHash(ivec3 c, int w)");
+    //: The law's shape is written once and put into the GLSL: the numbers
+    //: the TypeScript law is built of are the ones the shader carries.
+    for (const k of WX_HASH) expect(WEATHER_GLSL).toContain(`${k}u`);
+    expect(WEATHER_GLSL).toContain(`${WX_MIX}u`);
+    expect(WEATHER_GLSL).toContain(`u_wx_drift * ${WX_DRIFT_2.toFixed(1)}`);
+    expect(WEATHER_GLSL).toContain(`wi + ${WX_SLICE_2}`);
+    expect(WEATHER_GLSL).toContain(`${(1 - WX_OCTAVE_2).toFixed(2)} * n1 + ${WX_OCTAVE_2.toFixed(2)} * n2`);
+    expect(WEATHER_GLSL).toContain("* u_wx_gain");
+    expect(FRAGMENT).toContain("float cover = wxCover(here) + u_wx_bias * (rain01 - 0.5);");
+    expect(FRAGMENT).toContain("smoothstep(CLOUD_NEAR_MPX, CLOUD_FAR_MPX, u_units / UNITS_PER_METRE) * u_clouds");
+    expect(FRAGMENT).toContain("tone *= 1.0 - CLOUD_SHADE * cloud_over * far_sky * step(0.0, high) * u_sunlit;");
+    expect(FRAGMENT).toContain("wx_col * w_weather");
+    //: The temperature layer and the soil's moisture read the moment's
+    //: temperature now (D-334), not the year's mean.
+    expect(FRAGMENT).toContain("clamp((t_now - u_temp_cold)");
+    expect(FRAGMENT).toContain("u_dry.z * (t_now - u_dry.w)");
+  });
+});
+
 describe("the layers of the map", () => {
   it("blends the layer's colour by weights off one uniform, never by a branch", () => {
     //: The stalls of 2026-09-11 were branches on uniforms; the layer is a
     //: set of weights, one of them one, and the fragment is a sum.
-    expect(LAYERS).toEqual(["terrain", "relief", "biomes", "temperature", "rain", "moisture"]);
+    expect(LAYERS).toEqual(["terrain", "relief", "biomes", "temperature", "rain", "moisture", "weather"]);
     expect(FRAGMENT).toContain("uniform int u_layer;");
     expect(FRAGMENT).not.toContain("if (u_layer");
     //: The climate's ramp runs between the planet's own ends, from the
@@ -494,7 +637,7 @@ describe("the ramps and the drying law", () => {
   });
 
   it("marches the shadow far enough for the edge of the day, with a penumbra and a depth", () => {
-    //: Nine doubling stretches reach five hundred cells: the shadow of a
+    //: Ten doubling stretches reach a thousand cells: the shadow of a
     //: ridge with the sun four degrees high. Each stretch is read whole
     //: off the top chain at the level whose texel is the stretch, the far
     //: ones in several texels of the deepest level allowed; the edge is
@@ -518,10 +661,10 @@ describe("the ramps and the drying law", () => {
     expect(FRAGMENT).toContain("int taps = int(exp2(float(k) - up) + 0.5);");
     //: Along the great circle, against the top chain's own reading of the
     //: pixel, with the ball falling away under the ray.
-    expect(FRAGMENT).toContain("float h_top = topOf(here, lod);");
+    expect(FRAGMENT).toContain("float h_top = textureLod(u_top, atlasAt(place, marginOf(lod)), lod).r;");
     expect(FRAGMENT).toContain("vec3 q = here * cos(turn) + sunward * sin(turn);");
     expect(FRAGMENT).toContain(
-      "float rise = topOf(q, level) - h_top - climb * along - along * along / (2.0 * metres);",
+      "float rise = topOf(q, level) - h_top - climb * along - along * along / (2.0 * metres * EXAGGERATION);",
     );
     expect(FRAGMENT).toContain("rise / (along * SHADOW_SOFT) + 0.5");
     expect(FRAGMENT).toContain("mix(SHADOW_LOW, 1.0, smoothstep(0.0, SHADOW_FULL_SIN, high))");
@@ -533,11 +676,12 @@ describe("the ramps and the drying law", () => {
     expect(FRAGMENT).toContain("uniform float u_top_m;");
     //: The horizon of the tallest ground, and nothing at night or without a clock.
     expect(FRAGMENT).toContain(
-      "float longest = metres * (sqrt(climb * climb + 2.0 * over / metres) - climb) * step(0.0, high) * u_sunlit;",
+      "float longest = metres * EXAGGERATION * (sqrt(climb * climb + 2.0 * over / (metres * EXAGGERATION)) - climb) * step(0.0, high) * u_sunlit;",
     );
     expect(FRAGMENT).toContain("if (dist > longest || dark >= 1.0) break;");
     //: A coarse read keeps a texel inside its own face: the atlas lays a
-    //: stranger's tile beside it, and the border is one cell.
+    //: stranger's tile beside it, and the served border is one cell (the
+    //: client lays the atlas out with a wide one, `atlas.ts`).
     expect(FRAGMENT).toContain("float marginOf(float level) { return max(0.0, exp2(level) * 0.5 - u_border); }");
     expect(FRAGMENT).toContain("atlasAt(facePlace(normalize(p)), marginOf(lod))");
     //: The grain's GLSL is glued in whole, and its shapes keep to the spec:

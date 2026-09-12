@@ -108,7 +108,7 @@ BIOME_FIGURE = Words(
     allowed=("fir", "broadleaf", "palm", "acacia", "bush", "grass", "reed", "moss", "none"),
 )
 #: The grain the map roughens a biome's ground with on the near frames
-#: (D-331 addendum, 2026-09-12): a word the client knows (`shade.GRAIN_KINDS`),
+#: (D-331 addendum, 2026-09-12): a word the client knows (`grain.GRAIN_KINDS`),
 #: read off `/public/constants` like the figure, declared for the same reason.
 BIOME_GRAIN = Words(
     "biome.grain",
@@ -151,6 +151,37 @@ BIOME_BOUNDS = Table("biome.bounds")
 COMPLEX_CHANCE = Book("complex.chance")
 COMPLEX_SCHEMES = Shape("complex.schemes")
 
+#: The season (D-334): the tilt of a planet's axis to its orbit, degrees --
+#: how far the subsolar point walks in latitude over a year -- and the
+#: seasonal swing of the mean temperature at the pole, both per planet and
+#: for every planet (D-329 item 17: a world without one is refused at the
+#: boot, not read as seasonless). The engine reads the swing into the
+#: temperature of the moment (`climate.temperature_now`); the rest is the
+#: picture's law of snow and ice, declared here so a misspelt number is
+#: refused at the boot: the lines the snow and the ice lie below, the band
+#: between bare and white, and what a dry cold keeps of the snow.
+SEASON_TILT_DEG = Table("season.tilt_deg", keys=PLANETS)
+SEASON_SWING_C = Table("season.swing_c", keys=PLANETS)
+SEASON_SNOW_C = Num("season.snow_c")
+SEASON_SNOW_BAND_C = Num("season.snow_band_c")
+SEASON_ICE_C = Num("season.ice_c")
+SEASON_SNOW_DRY_RAIN = Num("season.snow_dry_rain")
+SEASON_SNOW_DRY_SHARE = Num("season.snow_dry_share")
+#: The weather (D-335): the field of cloud and rain the engine reads and
+#: the map draws by the same law (`climate.weather_at`, `weatherGlsl.ts`).
+#: The cell of the lattice, the wind's drift, how long a system lives, how
+#: far the ground's own rain share pulls the cover, and the gates from
+#: cover to cloud and to rain.
+WEATHER_CELL_KM = Num("weather.cell_km")
+WEATHER_WIND_DEG_PER_DAY = Num("weather.wind_deg_per_day")
+WEATHER_CHANGE_DAYS = Num("weather.change_days")
+WEATHER_WET_BIAS = Num("weather.wet_bias")
+WEATHER_CLOUD_FROM = Num("weather.cloud_from")
+WEATHER_CLOUD_FULL = Num("weather.cloud_full")
+WEATHER_RAIN_FROM = Num("weather.rain_from")
+WEATHER_RAIN_FULL = Num("weather.rain_full")
+WEATHER_GAIN = Num("weather.gain")
+
 __all__ = [
     "TERRAIN_SEED",
     "TERRAIN_SEA_LEVEL",
@@ -190,4 +221,20 @@ __all__ = [
     "BIOME_BOUNDS",
     "COMPLEX_CHANCE",
     "COMPLEX_SCHEMES",
+    "SEASON_TILT_DEG",
+    "SEASON_SWING_C",
+    "SEASON_SNOW_C",
+    "SEASON_SNOW_BAND_C",
+    "SEASON_ICE_C",
+    "SEASON_SNOW_DRY_RAIN",
+    "SEASON_SNOW_DRY_SHARE",
+    "WEATHER_CELL_KM",
+    "WEATHER_WIND_DEG_PER_DAY",
+    "WEATHER_CHANGE_DAYS",
+    "WEATHER_WET_BIAS",
+    "WEATHER_CLOUD_FROM",
+    "WEATHER_CLOUD_FULL",
+    "WEATHER_RAIN_FROM",
+    "WEATHER_RAIN_FULL",
+    "WEATHER_GAIN",
 ]

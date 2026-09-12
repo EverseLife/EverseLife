@@ -41,8 +41,11 @@ const RAD = Math.PI / 180;
 /** Within this many cells of the edge every border texel is carried on
  *  its own; farther out one carry serves a block of this many texels a
  *  side, aligned to the tile so a level up to the block's own reads it
- *  whole. Level three's texel is eight cells, and a level's blend reaches
- *  half a texel past the face: what levels nought to four read is exact. */
+ *  whole. Level three's texel is eight cells and its blend reaches four
+ *  past the face: what levels nought to three read is exact, and the
+ *  first block out -- aligned to the tile, not to the face's edge -- is
+ *  carried from its middle, a few cells short, which a level of sixteen
+ *  cells and more does not tell. */
 export const FINE_CELLS = 8;
 
 export type Widened = {
@@ -88,6 +91,15 @@ export function widen(passport: RasterPassport): Widened {
   const side = wideSide(n);
   const border = (side - n) / 2;
   if (border === passport.border) return { passport, map: null };
+  //: The server keeps the tile a power of two (`terrain.raster_nside`), so
+  //: the room is whole cells; an odd face would put every texel between
+  //: two cells and the map would be nonsense, so it is refused here.
+  if (!Number.isInteger(border)) throw new Error(`atlas: a face of ${n} cells leaves half a cell of border`);
+  //: One map per layout: the three worlds of one nside share it, and it
+  //: took a tenth of a second each on the main thread.
+  const key = `${n}:${passport.border}:${passport.across}`;
+  const known = maps.get(key);
+  if (known) return { passport: { ...passport, border, cols: known.cols, rows: known.rows }, map: known.map };
   const across = passport.across;
   const down = Math.ceil(12 / across);
   const cols = across * side;
@@ -175,8 +187,11 @@ export function widen(passport: RasterPassport): Widened {
       }
     }
   }
+  maps.set(key, { map, cols, rows });
   return { passport: { ...passport, border, cols, rows }, map };
 }
+
+const maps = new Map<string, { map: Int32Array; cols: number; rows: number }>();
 
 /** A raster laid out by the map: the same kind of array, the new size. */
 export function retile<T extends Float32Array | Uint8Array>(map: Int32Array, source: T): T {

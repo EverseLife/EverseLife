@@ -53,7 +53,9 @@ import { useHand } from "./map/hand";
 import { flatten, oneEach, withCityScene } from "./map/geo";
 import { placeAt, projectAll, UNITS_PER_METRE } from "./map/globe";
 import { firstOnGlobe, needsTurn } from "./map/follow";
-import { Ground, sunOf } from "./map/Ground";
+import { Ground } from "./map/Ground";
+import { useClimateView } from "./map/useClimateView";
+import { YearClock } from "./map/Year";
 import { GroundGL, type GroundGLHandle, type GroundGLState } from "./map/GroundGL";
 import { Provinces } from "./map/Provinces";
 import { Legend } from "./map/Legend";
@@ -226,7 +228,7 @@ export function GraphMap({
   //: deliberate "loose" would leave no key and read back as tied.
   const [tethered, tether] = useKept(CAMERA, true, UNFLAG);
   const { layer, setLayer, overlays, setOverlays } = useLayers();
-  const { provinces, cities, contours, figures } = overlays;
+  const { provinces, cities, contours, figures, clouds } = overlays;
   //: Whose surface the planet layer shows. There are four planets in the sky
   //: now, and "everything of layer `planet`" would mix their nodes into one
   //: heap the first time a second planet gets a node of its own.
@@ -449,6 +451,10 @@ export function GraphMap({
     spaceRepr: (key: string) => repr(key, "space"),
     horizon: horizon(map?.routes),
   });
+  //: The year wound ahead, the sun, the season and the weather of the
+  //: shown ball as of the moment shown (D-334, D-335).
+  const view = useClimateView(book, sphereShown, radius, look.clock);
+  const { year, weather, weatherDays } = view;
   const { fit } = sky;
   spheres.current = () =>
     (map?.nodes ?? [])
@@ -840,7 +846,11 @@ export function GraphMap({
                 eye={eye}
                 radius={radius}
                 svg={svgRef}
-                sun={sunOf(sphereShown, look.clock, book)}
+                sun={view.sun}
+                season={view.season}
+                weather={weather}
+                weatherDays={weatherDays}
+                clouds={clouds}
                 layer={layer}
                 onState={setShading}
               />
@@ -879,6 +889,7 @@ export function GraphMap({
                   radius={radius}
                   book={book}
                   clock={look.clock}
+                  at={year.atMs}
                   mode={shaded && shading === "ready" ? "under" : "svg"}
                   detailed={zoomed.ground}
                   coarse={zoomed.descent > 0}
@@ -1019,7 +1030,16 @@ export function GraphMap({
           {/* The reading under the cursor (D-331 addendum): the biome, the
               height, the temperature of the point, by the layer. */}
           {globeScene && !orbiting && sphereShown && eye && radius && (
-            <Probe svg={svgRef} eye={eye} radius={radius} planet={sphereShown} layer={layer} />
+            <Probe
+              svg={svgRef}
+              eye={eye}
+              radius={radius}
+              planet={sphereShown}
+              layer={layer}
+              season={view.season}
+              weather={weather}
+              weatherDays={weatherDays}
+            />
           )}
 
           {/* The winder belongs to the sky it winds, so it floats on it -- opposite
@@ -1027,6 +1047,7 @@ export function GraphMap({
           In flow it stole a line of the map's height on the one layer whose
           whole subject is where the bodies stand at a given hour. */}
           {orbiting && <SkyClock sky={sky} />}
+          {!orbiting && sphereShown && <YearClock year={year} />}
         </div>
 
         {menu && (

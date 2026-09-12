@@ -24,7 +24,18 @@ import { geoUnder, type Eye } from "./globe";
 import { useTerrain } from "./Ground";
 import { readingAt } from "./reading";
 import { useRasters } from "./rasters";
-import { dryLaw, moistureOf, type Layer } from "./shade";
+import {
+  dryLaw,
+  moistureOf,
+  WX_CLOUDY_WORD,
+  WX_RAIN_WORD,
+  type Layer,
+} from "./shade";
+import {
+  seasonC,
+  type Season,
+} from "./season";
+import { weatherAt, type WeatherLaw } from "./weather";
 import { biomeWord } from "./words";
 
 /** How far the slab stands from the pointer, so the pointer does not cover it. */
@@ -36,8 +47,16 @@ export function Probe({
   radius,
   planet,
   layer,
+  season,
+  weather,
+  weatherDays,
 }: {
   svg: RefObject<SVGSVGElement | null>;
+  /** The season and the weather as of the moment shown (D-334, D-335): the
+   *  temperature under the pointer is the moment's, and the rain the hour's. */
+  season: Season;
+  weather: WeatherLaw;
+  weatherDays: number;
   eye: Eye;
   radius: number;
   planet: string;
@@ -50,8 +69,8 @@ export function Probe({
   const [shown, setShown] = useState<{ x: number; y: number; text: string } | null>(null);
   //: What the listener reads at the moment of the move, without being
   //: re-attached on every render: the eye moves with every pan.
-  const live = useRef({ eye, radius, rasters, passport, layer, book, names });
-  live.current = { eye, radius, rasters, passport, layer, book, names };
+  const live = useRef({ eye, radius, rasters, passport, layer, book, names, season, weather, weatherDays });
+  live.current = { eye, radius, rasters, passport, layer, book, names, season, weather, weatherDays };
   //: The element, not the ref: the svg is unmounted and mounted again when
   //: the scene empties and fills, and listeners left on the old one would
   //: hear nothing. Read at render, when the ref is already set.
@@ -63,7 +82,7 @@ export function Probe({
     const read = () => {
       frame = 0;
       const e = last;
-      const { eye, radius, rasters, passport, layer, book, names } = live.current;
+      const { eye, radius, rasters, passport, layer, book, names, season, weather, weatherDays } = live.current;
       if (!e || !rasters || !passport || layer === "terrain") {
         setShown(null);
         return;
@@ -90,7 +109,9 @@ export function Probe({
           text = t("ui-map-probe-height", { m: Math.round(reading.heightM) });
           break;
         case "temperature":
-          text = t("ui-map-degrees", { c: Math.round(reading.temperatureC) });
+          //: The moment's temperature, as the layer is drawn (D-334): the
+          //: year's mean swung by the season of this latitude.
+          text = t("ui-map-degrees", { c: Math.round(reading.temperatureC + seasonC(season, at.lat)) });
           break;
         case "rain":
           text = t("ui-map-probe-rain", { percent: reading.rainPercent });
@@ -101,12 +122,23 @@ export function Probe({
           const beside = reading.riverM <= law.reachM ? 1 : 0;
           const share = moistureOf(
             law,
-            reading.temperatureC,
+            reading.temperatureC + seasonC(season, at.lat),
             reading.rainPercent / 100,
             beside,
             passport.temperature_c.hot,
           );
           text = t("ui-map-probe-moisture", { percent: Math.round(share * 100) });
+          break;
+        }
+        case "weather": {
+          //: The same law the layer is drawn by (`weather.weatherAt`).
+          const now = weatherAt(weather, at.lat, at.lon, reading.rainPercent / 100, weatherDays);
+          text =
+            now.rain > WX_RAIN_WORD
+              ? t("ui-map-probe-weather-rain", { percent: Math.round(now.rain * 100) })
+              : now.cloud > WX_CLOUDY_WORD
+                ? t("ui-map-probe-weather-cloudy")
+                : t("ui-map-probe-weather-clear");
           break;
         }
         default:

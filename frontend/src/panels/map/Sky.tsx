@@ -12,8 +12,8 @@
  */
 
 import type { MapNode, WorldMap } from "../../api";
-import { Hint } from "../../Hint";
 import { t } from "../../locale";
+import { Winder } from "./Winder";
 import type { LayerId, Point } from "./model";
 import { STAR, forecast, term, windowOpen } from "./orbits";
 import type { Sky } from "./useSky";
@@ -27,34 +27,7 @@ import type { Sky } from "./useSky";
  * moment it is showing: a map showing anything but now must say so.
  */
 export function SkyClock({ sky }: { sky: Sky }) {
-  const { ahead, winding, setWinding, wind } = sky;
-  return (
-    <div className="row sky">
-      <button className="quiet" onClick={() => setWinding((on) => !on)}>
-        {t(winding ? "ui-map-sky-stop" : "ui-map-sky-wind")}
-      </button>
-      <input
-        type="range"
-        min={0}
-        max={sky.horizon}
-        step={0.25}
-        value={ahead}
-        aria-label={t("ui-map-sky-slider")}
-        onChange={(e) => wind(Number(e.target.value))}
-      />
-      <span className="note">
-        {ahead < 0.05
-          ? t("ui-map-sky-now-note")
-          : t("ui-map-sky-ahead", { days: ahead.toFixed(1) })}
-      </span>
-      {ahead >= 0.05 && (
-        <button className="quiet" onClick={() => wind(0)}>
-          {t("ui-map-sky-now")}
-        </button>
-      )}
-      <Hint>{t("ui-map-sky-rule")}</Hint>
-    </div>
-  );
+  return <Winder state={sky} wind={t("ui-map-sky-wind")} slider={t("ui-map-sky-slider")} rule={t("ui-map-sky-rule")} />;
 }
 
 /** The star, the orbits, the corridors and the ships in flight. */

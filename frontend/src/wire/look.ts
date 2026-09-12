@@ -192,6 +192,9 @@ export type Look = {
      */
     climate?: {
       temperature: { mean: number; swing: number };
+      /** Where the season is read at (D-334): the node's latitude, degrees,
+       *  nought off the sphere. The window has no map to look it up in. */
+      latitude: number;
       light: { day: number };
       precipitation: number;
     } | null;

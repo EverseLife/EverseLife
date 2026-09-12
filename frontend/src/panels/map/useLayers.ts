@@ -21,7 +21,7 @@ const OVERLAYS = "everselife.map.overlays";
 /** What a fresh map shows: the provinces (the far frames' names, as they
  *  always were) and the growth; the city lands and the contours off (owner,
  *  2026-09-12) -- the relief layer draws its contours whatever this says. */
-const ON_BY_DEFAULT = new Set<string>(["provinces", "figures"]);
+const ON_BY_DEFAULT = new Set<string>(["provinces", "figures", "clouds"]);
 
 export function useLayers(): {
   layer: Layer;
@@ -36,6 +36,7 @@ export function useLayers(): {
     cities: on.has("cities"),
     contours: on.has("contours"),
     figures: on.has("figures"),
+    clouds: on.has("clouds"),
   };
   const setOverlays = (next: Overlays) =>
     setOn(new Set(OVERLAY_NAMES.filter((name) => next[name])));

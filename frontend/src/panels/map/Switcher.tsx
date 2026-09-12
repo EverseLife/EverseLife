@@ -34,8 +34,15 @@ import { usePopover } from "../../popover";
 import { LAYERS, type Layer } from "./shade";
 
 /** The overlays a viewer can switch on the map over any layer (D-331). */
-export type Overlays = { provinces: boolean; cities: boolean; contours: boolean; figures: boolean };
-export const OVERLAY_NAMES = ["provinces", "cities", "contours", "figures"] as const;
+export type Overlays = {
+  provinces: boolean;
+  cities: boolean;
+  contours: boolean;
+  figures: boolean;
+  /** The clouds over the terrain layer on the far frames (D-335). */
+  clouds: boolean;
+};
+export const OVERLAY_NAMES = ["provinces", "cities", "contours", "figures", "clouds"] as const;
 
 /** The word for a layer or an overlay, each key written out so that
  *  `locale.test.ts` ("writes no message nobody asks for") sees every message
@@ -48,10 +55,12 @@ export function wordOf(name: Layer | keyof Overlays): string {
     case "temperature": return t("ui-map-layer-temperature");
     case "rain": return t("ui-map-layer-rain");
     case "moisture": return t("ui-map-layer-moisture");
+    case "weather": return t("ui-map-layer-weather");
     case "provinces": return t("ui-map-layer-provinces");
     case "cities": return t("ui-map-layer-city-lands");
     case "contours": return t("ui-map-layer-contours");
     case "figures": return t("ui-map-layer-figures");
+    case "clouds": return t("ui-map-layer-clouds");
   }
 }
 

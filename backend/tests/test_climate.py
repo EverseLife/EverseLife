@@ -105,3 +105,114 @@ async def test_a_node_without_a_record_has_no_climate(
     assert climate.mean_temperature(bare) is None
     assert climate.temperature_now(constants, bare, datetime.now(UTC), datetime.now(UTC)) is None
     assert climate.precipitation(bare) == 0.0
+
+
+async def test_the_season_swings_with_the_orbit_and_the_latitude(constants: Constants) -> None:
+    """The season (D-334): the pole swings the whole way, the equator not at
+    all, the hemispheres opposite, and the sun stands over the tilt at
+    midsummer -- all by the sky's own angle of the orbit."""
+    import math
+
+    from src.constants import registry as R
+
+    origin = datetime(2026, 1, 1, tzinfo=UTC)
+    period = float(constants[R.ORBIT_PERIOD_DAYS]["terra"])
+    birth = float(constants[R.ORBIT_PHASE]["terra"]) / math.tau
+    swing = float(constants[R.SEASON_SWING_C]["terra"])
+    tilt = float(constants[R.SEASON_TILT_DEG]["terra"])
+    #: A quarter of a turn past the equinox: the north's midsummer.
+    midsummer = origin + timedelta(days=((0.25 - birth) % 1.0) * period)
+    assert climate.orbit_turns(constants, Planet.TERRA, origin, midsummer) == pytest.approx(0.25)
+    assert climate.season_c(constants, Planet.TERRA, 90, origin, midsummer) == pytest.approx(swing)
+    south = climate.season_c(constants, Planet.TERRA, -90, origin, midsummer)
+    assert south == pytest.approx(-swing)
+    assert climate.season_c(constants, Planet.TERRA, 0, origin, midsummer) == pytest.approx(0)
+    assert climate.sun_latitude(constants, Planet.TERRA, origin, midsummer) == pytest.approx(tilt)
+    #: Half a year on, the south's: everything turned about.
+    midwinter = midsummer + timedelta(days=period / 2)
+    assert climate.season_c(constants, Planet.TERRA, 90, origin, midwinter) == pytest.approx(-swing)
+    assert climate.sun_latitude(constants, Planet.TERRA, origin, midwinter) == pytest.approx(-tilt)
+    #: No epoch: the world stands at its birth, which is the phase the sky
+    #: was born at (`useSky` puts the planet there too).
+    assert climate.season_c(constants, Planet.TERRA, 90, None, midsummer) == pytest.approx(
+        swing * math.sin(float(constants[R.ORBIT_PHASE]["terra"]))
+    )
+
+
+async def test_the_place_feels_its_season(session: AsyncSession, constants: Constants) -> None:
+    """The temperature of the moment is the season's mean of the latitude
+    with the day breathing about it (D-334): a place at sixty degrees north
+    is warmer at midsummer's midnight than its year's mean less the swing."""
+    import math
+
+    from src.constants import registry as R
+    from src.engine import places
+
+    north = await _place(
+        session,
+        {"temperature": 20, places.PLACE: {places.PLACE_LAT: 60, places.PLACE_LON: 0}},
+    )
+    origin = await world.epoch(session)
+    assert origin is not None
+    period = float(constants[R.ORBIT_PERIOD_DAYS]["terra"])
+    birth = float(constants[R.ORBIT_PHASE]["terra"]) / math.tau
+    midsummer = origin + timedelta(days=((0.25 - birth) % 1.0) * period)
+    swing = climate.swing_of(constants, Planet.TERRA)
+    season = climate.season_c(constants, Planet.TERRA, 60, origin, midsummer)
+    assert season == pytest.approx(
+        float(constants[R.SEASON_SWING_C]["terra"]) * math.sin(math.radians(60))
+    )
+    assert season > 0
+    #: Midsummer's own midnight: the day's phase is by the longitude, nought here.
+    day = climate.day_hours_of(constants, Planet.TERRA)
+    midnight = midsummer + timedelta(
+        hours=day * (1 - climate.day_phase(constants, Planet.TERRA, origin, midsummer))
+    )
+    assert climate.temperature_now(constants, north, origin, midnight) == pytest.approx(
+        20 + climate.season_c(constants, Planet.TERRA, 60, origin, midnight) - swing
+    )
+    #: Off the sphere -- a room -- there is no latitude and no season.
+    room = await _place(session, {"temperature": 20})
+    assert climate.latitude_of(room) == 0
+    assert climate.season_c(constants, Planet.TERRA, 0, origin, midnight) == 0
+
+
+async def test_the_weather_is_one_law_everywhere(constants: Constants) -> None:
+    """The weather (D-335) is a function of the place and the moment and of
+    nothing else, on an integer hash: what the map draws the engine reads.
+    The numbers here are the ones the client's `shade.test.ts` pins too."""
+    import math
+
+    from src.engine.climate import WeatherLaw, _wx_hash, weather_cover
+
+    assert _wx_hash(3, -7, 12, 5) == pytest.approx(0.4038313031196594, abs=1e-12)
+    assert _wx_hash(0, 0, 0, 0) == 0
+    law = WeatherLaw(
+        scale=4.0,
+        wind_per_day=math.radians(90),
+        change_days=1.5,
+        bias=0.4,
+        cloud_from=0.45,
+        cloud_full=0.65,
+        rain_from=0.6,
+        rain_full=0.85,
+        gain=2.4,
+    )
+
+    def point(lat: float, lon: float) -> tuple[float, float, float]:
+        r, lam = math.radians(lat), math.radians(lon)
+        return (math.cos(r) * math.cos(lam), math.cos(r) * math.sin(lam), math.sin(r))
+
+    assert weather_cover(law, point(32.66, -105.56), 0.0) == pytest.approx(0.7076900709491378)
+    assert weather_cover(law, point(-60.0, 20.0), 3.3) == pytest.approx(0.1565911461648059)
+    #: Deterministic, bounded, and moving: the same place another day is
+    #: another sky.
+    twice = [weather_cover(law, point(10, 10), 2.0) for _ in range(2)]
+    assert twice[0] == twice[1] and 0.0 <= twice[0] <= 1.0
+    assert weather_cover(law, point(10, 10), 2.0) != weather_cover(law, point(10, 10), 5.0)
+    #: On the planet itself, off the book: the capital's sky now.
+    origin = datetime(2026, 1, 1, tzinfo=UTC)
+    cloud, rain = climate.weather_at(constants, Planet.TERRA, 32.66, -105.56, origin, origin)
+    assert 0.0 <= cloud <= 1.0 and 0.0 <= rain <= 1.0
+    #: Rain wants cloud: nothing rains out of a clear sky.
+    assert rain <= cloud or rain == 0.0

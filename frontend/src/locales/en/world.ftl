@@ -105,6 +105,10 @@ ui-map-sky-slider = how many days ahead the sky is shown for
 ui-map-sky-now-note = now
 ui-map-sky-ahead = +{ $days } d
 ui-map-sky-now = Now
+# Winding the planet's year (D-334): the season, the snow and the ice a year ahead.
+ui-map-year-wind = Wind the year
+ui-map-year-slider = how many days ahead the planet is shown for
+ui-map-year-rule = The planet leans to its orbit: over a year the sun walks in latitude, and the snow and the ice come and go with it. Winding shows the year ahead — the light, the shadows and the snow; the planet itself does not change for it.
 ui-map-sky-rule = The planets go round the star each on its own term, and the distance between them changes by itself. The eye does not catch it: an orbit passes fractions of a degree in an hour — so the run of time is shown by winding on, not by waiting.
 
 ## The strip above the map: the height of the view and the camera tie.
@@ -125,15 +129,19 @@ ui-map-layer-biomes = biomes
 ui-map-layer-temperature = temperature
 ui-map-layer-rain = rainfall
 ui-map-layer-moisture = soil moisture
+ui-map-layer-weather = weather
 ui-map-layer-provinces = provinces
 ui-map-layer-city-lands = city lands
 ui-map-layer-contours = contours
+ui-map-layer-clouds = clouds
 ui-map-layer-figures = vegetation
 ui-map-degrees = { $c }°
 ui-map-legend-rain-less = less rain
 ui-map-legend-rain-more = more rain
 ui-map-legend-moisture-fast = dries fast
 ui-map-legend-moisture-slow = dries slowly
+ui-map-legend-weather-dry = dry
+ui-map-legend-weather-heavy = downpour
 
 ## The map field itself.
 
@@ -533,3 +541,6 @@ ui-map-peek-percent = { $percent }%
 ui-map-probe-height = { $m } m
 ui-map-probe-rain = rainfall { $percent } of 100
 ui-map-probe-moisture = moisture { $percent }%
+ui-map-probe-weather-rain = rain { $percent }%
+ui-map-probe-weather-cloudy = overcast
+ui-map-probe-weather-clear = clear

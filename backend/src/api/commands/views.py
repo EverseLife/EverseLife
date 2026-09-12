@@ -218,11 +218,13 @@ async def _climate(db: AsyncSession, constants, node: Node) -> dict[str, Any] | 
     """The place's climate for the land window (D-261).
 
     Only what the client cannot derive (D-225): the node's mean and the
-    planet's swing, the day's light and the rainfall. The current temperature
-    and the night are the client's arithmetic over `look.clock` -- computed
-    there they stay alive between looks, and by construction agree with the
-    drawn hand. Empty where exploration never wrote a temperature: such a
-    place has no climate gate.
+    planet's swing, the latitude the season is read at (D-334; the window
+    has no map to look it up in), the day's light and the rainfall. The
+    current temperature and the night are the client's arithmetic over
+    `look.clock` and the book -- computed there they stay alive between
+    looks, and by construction agree with the drawn hand and the drawn
+    snow. Empty where exploration never wrote a temperature: such a place
+    has no climate gate.
     """
     mean = climate.mean_temperature(node)
     if mean is None:
@@ -232,6 +234,7 @@ async def _climate(db: AsyncSession, constants, node: Node) -> dict[str, Any] | 
             "mean": mean,
             "swing": climate.swing_of(constants, node.planet),
         },
+        "latitude": climate.latitude_of(node),
         "light": {"day": await climate.daylight(db, constants, node)},
         "precipitation": climate.precipitation(node),
     }

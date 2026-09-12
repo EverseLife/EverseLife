@@ -6,7 +6,7 @@
 
 import { useState } from "react";
 import * as api from "../../api";
-import { Refusal, useActions, useSession } from "../../actions";
+import { Refusal, useActions, useBook, useSession } from "../../actions";
 import { Glyph } from "../../Glyph";
 import { dayPhase, isDay } from "../../clock";
 import { t } from "../../locale";
@@ -16,6 +16,10 @@ import { Door } from "./Door";
 import { Foundation } from "./Foundation";
 import { ownOrWild } from "./shared";
 import { NumberField } from "../../NumberField";
+import { seasonOf } from "../map/Ground";
+import {
+  seasonC,
+} from "../map/season";
 
 
 /** The plot: whose it is, what it is called, who gets in -- and how it changes hands.
@@ -46,6 +50,12 @@ function Marking({ look, busy, act }: Props) {
   const session = useSession();
   const [name, setName] = useState("");
   const [metres, setMetres] = useState(100);
+  const book = useBook();
+  //: The season's offset of this place's temperature (D-334), once a render.
+  const season =
+    look.clock && look.node?.climate
+      ? seasonC(seasonOf(look.clock.planet, look.clock, book), look.node.climate.latitude)
+      : 0;
   const marked = look.node?.plots ?? 0;
   //: Nothing grows in the open ground of a climate (D-231): the server refuses,
   //: and the window says so before the refusal rather than after it.
@@ -60,15 +70,18 @@ function Marking({ look, busy, act }: Props) {
       {weather && look.clock && (
         //: The place's climate (D-261): what the sowing gate will judge by.
         //: "Now" is this client's arithmetic over the planetary clock (D-225)
-        //: -- alive between looks and agreeing with the drawn hand.
+        //: -- alive between looks and agreeing with the drawn hand -- and
+        //: over the season (D-334): the year's mean moved by the latitude
+        //: and the orbit's angle, as the engine moves it (`climate.season_c`).
         <p className="note">
           {t(isDay(look.clock) ? "ui-place-climate-day" : "ui-place-climate-night", {
             now: Math.round(
-              weather.temperature.mean -
+              weather.temperature.mean +
+                season -
                 weather.temperature.swing * Math.cos(2 * Math.PI * dayPhase(look.clock)),
             ),
-            low: Math.round(weather.temperature.mean - weather.temperature.swing),
-            high: Math.round(weather.temperature.mean + weather.temperature.swing),
+            low: Math.round(weather.temperature.mean + season - weather.temperature.swing),
+            high: Math.round(weather.temperature.mean + season + weather.temperature.swing),
             light: isDay(look.clock) ? weather.light.day : 0,
             top: weather.light.day,
             rain: Math.round(weather.precipitation),

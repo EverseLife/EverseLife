@@ -27,19 +27,22 @@ so a read stays a read (the quality bar's "look does not write").
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src import globe, sky
 from src.constants import Constants
 from src.constants import registry as R
-from src.engine import estate, places, world
+from src.engine import estate, places, terrain, world
 from src.models.world import Node, Planet
 from src.units import (
     DAY_PHASE_DAWN,
     DAY_PHASE_DUSK,
     FULL_TURN_DEGREES,
     LIGHT_MAX,
+    METRES_PER_KM,
     PERCENT,
     SECONDS_PER_HOUR,
 )
@@ -144,6 +147,12 @@ def longitude_of(node: Node) -> float:
     return 0.0 if point is None else point[1]
 
 
+def latitude_of(node: Node) -> float:
+    """Where the node's season is measured from: its latitude, or the equator off the sphere."""
+    point = places.geo_of(node)
+    return 0.0 if point is None else point[0]
+
+
 def day_index(
     constants: Constants, planet: Planet, origin: datetime | None, moment: datetime
 ) -> int:
@@ -164,13 +173,197 @@ def day_index(
 def temperature_now(
     constants: Constants, node: Node, origin: datetime | None, moment: datetime
 ) -> float | None:
-    """The node's temperature at the moment: mean minus swing at midnight, plus at noon."""
+    """The node's temperature at the moment: the season's mean of its latitude,
+    minus the swing at midnight, plus at noon (D-261, D-334).
+
+    The mean the node carries is the year's; the season moves it by the
+    latitude and the orbit's angle (`season_c`), and the day breathes about
+    **that** -- so a bed at sixty degrees dries at a winter's pace in winter
+    and the window's "now" agrees with the snow the map draws there.
+    """
     mean = mean_temperature(node)
     if mean is None:
         return None
     swing = swing_of(constants, node.planet, node)
     phase = day_phase(constants, node.planet, origin, moment, longitude=longitude_of(node))
-    return mean - swing * math.cos(math.tau * phase)
+    season = season_c(constants, node.planet, latitude_of(node), origin, moment)
+    return mean + season - swing * math.cos(math.tau * phase)
+
+
+def orbit_turns(
+    constants: Constants, planet: Planet, origin: datetime | None, moment: datetime
+) -> float:
+    """Where the planet stands on its orbit, in turns of the circle from the equinox.
+
+    The sky's own count (D-271, `sky.circle_of` -- the year and the phase are
+    read there and nowhere else): the phase the world was born at plus the
+    **real** days gone since, over the planet's year -- the same figures the
+    client turns the planets by (`useSky`), so the season the map draws and
+    the season the engine reads are one. A world with no epoch stands at its
+    birth, which is the phase.
+    """
+    _, period, phase = sky.circle_of(constants, planet.value)
+    days = 0.0 if origin is None else (moment - origin).total_seconds() / (24 * SECONDS_PER_HOUR)
+    return (phase / math.tau + days / period) % 1.0
+
+
+def season_c(
+    constants: Constants,
+    planet: Planet,
+    latitude: float,
+    origin: datetime | None,
+    moment: datetime,
+) -> float:
+    """The season's offset of the mean temperature at a latitude, degrees (D-334).
+
+    `season.swing_c` at the pole, the sine of the latitude of it elsewhere,
+    the sine of the orbit's angle in time: the equator knows no season, the
+    two hemispheres run opposite, and the north's summer is where the sine
+    of the angle is positive. Read into the temperature of the moment
+    (`temperature_now`), which is what the beds and the window feel; the
+    sowing gate and the biome judge by the year's mean still (D-334).
+    """
+    swing = float(constants[R.SEASON_SWING_C].get(planet.value, 0.0))
+    turns = orbit_turns(constants, planet, origin, moment)
+    return swing * math.sin(math.radians(latitude)) * math.sin(math.tau * turns)
+
+
+def sun_latitude(
+    constants: Constants, planet: Planet, origin: datetime | None, moment: datetime
+) -> float:
+    """The latitude the sun stands over at the moment, degrees (D-334): the
+    tilt's sine by the season's, as far north as the tilt at midsummer."""
+    tilt = math.radians(float(constants[R.SEASON_TILT_DEG].get(planet.value, 0.0)))
+    turns = orbit_turns(constants, planet, origin, moment)
+    return math.degrees(math.asin(math.sin(tilt) * math.sin(math.tau * turns)))
+
+
+#: The weather (D-335): cloud and rain as a field over the sphere that is a
+#: function of the place and the moment and of nothing else -- the same
+#: function the map draws by (`weatherGlsl.ts`) and the probe reads
+#: (`weather.ts`), on the same numbers of the book, so what the picture
+#: shows raining is what the engine reads as rain. The lattice is the unit
+#: ball scaled to the vault's cell, turned about the pole by the wind's
+#: drift as the days go; the field is two slices of a value noise on an
+#: **integer hash** blended over `weather.change_days` -- integer, because
+#: float sines differ between a GPU and a CPU and whole numbers do not.
+#: Two octaves, the finer drifting faster, so the systems turn as they go:
+#: the finer at twice the scale and 1.6 of the drift, its slices a thousand
+#: apart from the coarser's, weighted 0.65/0.35 -- the law's shape, one on
+#: every side (D-335 п. 2); the gain that spreads the noise's heap before
+#: the gates is the vault's (`weather.gain`), because it moves the rain as
+#: the gates do.
+_WX_MASK = 0xFFFFFFFF
+
+
+def _wx_hash(x: int, y: int, z: int, w: int) -> float:
+    n = ((x * 1597334677) ^ (y * 3812015801) ^ (z * 2798796415) ^ (w * 3367900313)) & _WX_MASK
+    n = ((n ^ (n >> 16)) * 0x45D9F3B) & _WX_MASK
+    n = ((n ^ (n >> 16)) * 0x45D9F3B) & _WX_MASK
+    n ^= n >> 16
+    return (n & 0xFFFFFF) / 16777216.0
+
+
+def _smooth(f: float) -> float:
+    return f * f * (3.0 - 2.0 * f)
+
+
+def _wx_noise(x: float, y: float, z: float, w: int) -> float:
+    ix, iy, iz = math.floor(x), math.floor(y), math.floor(z)
+    fx, fy, fz = _smooth(x - ix), _smooth(y - iy), _smooth(z - iz)
+
+    def mix(a: float, b: float, t: float) -> float:
+        return a + (b - a) * t
+
+    n00 = mix(_wx_hash(ix, iy, iz, w), _wx_hash(ix + 1, iy, iz, w), fx)
+    n10 = mix(_wx_hash(ix, iy + 1, iz, w), _wx_hash(ix + 1, iy + 1, iz, w), fx)
+    n01 = mix(_wx_hash(ix, iy, iz + 1, w), _wx_hash(ix + 1, iy, iz + 1, w), fx)
+    n11 = mix(_wx_hash(ix, iy + 1, iz + 1, w), _wx_hash(ix + 1, iy + 1, iz + 1, w), fx)
+    return mix(mix(n00, n10, fy), mix(n01, n11, fy), fz)
+
+
+@dataclass(frozen=True)
+class WeatherLaw:
+    """The weather's numbers for one planet, off the book (D-335)."""
+
+    scale: float
+    wind_per_day: float
+    change_days: float
+    bias: float
+    cloud_from: float
+    cloud_full: float
+    rain_from: float
+    rain_full: float
+    gain: float
+
+
+def weather_law(constants: Constants, planet: Planet) -> WeatherLaw:
+    """The law for a planet: its own radius over the vault's cell, the rest as written."""
+    cell_m = float(constants[R.WEATHER_CELL_KM]) * METRES_PER_KM
+    return WeatherLaw(
+        scale=globe.radius_m(constants, planet) / cell_m,
+        wind_per_day=math.radians(float(constants[R.WEATHER_WIND_DEG_PER_DAY])),
+        change_days=max(float(constants[R.WEATHER_CHANGE_DAYS]), 1e-3),
+        bias=float(constants[R.WEATHER_WET_BIAS]),
+        cloud_from=float(constants[R.WEATHER_CLOUD_FROM]),
+        cloud_full=float(constants[R.WEATHER_CLOUD_FULL]),
+        rain_from=float(constants[R.WEATHER_RAIN_FROM]),
+        rain_full=float(constants[R.WEATHER_RAIN_FULL]),
+        gain=float(constants[R.WEATHER_GAIN]),
+    )
+
+
+def weather_cover(law: WeatherLaw, point: tuple[float, float, float], days: float) -> float:
+    """The cover of the sky over a point of the unit ball at so many real days
+    since the epoch, nought to one, before the ground's wetness pulls it."""
+    #: The field goes west to east, as the note says: the sample point is
+    #: turned the other way.
+    drift = -law.wind_per_day * days
+    slice_ = days / law.change_days
+    wi = math.floor(slice_)
+    wf = _smooth(slice_ - wi)
+
+    def turned(angle: float, k: float) -> tuple[float, float, float]:
+        x, y, z = point
+        return (
+            (x * math.cos(angle) - y * math.sin(angle)) * k,
+            (x * math.sin(angle) + y * math.cos(angle)) * k,
+            z * k,
+        )
+
+    p1 = turned(drift, law.scale)
+    p2 = turned(drift * 1.6, law.scale * 2.0)
+    n1 = _wx_noise(*p1, wi) + (_wx_noise(*p1, wi + 1) - _wx_noise(*p1, wi)) * wf
+    n2 = _wx_noise(*p2, wi + 1000) + (_wx_noise(*p2, wi + 1001) - _wx_noise(*p2, wi + 1000)) * wf
+    return min(1.0, max(0.0, 0.5 + (0.65 * n1 + 0.35 * n2 - 0.5) * law.gain))
+
+
+def _smoothstep(lo: float, hi: float, x: float) -> float:
+    t = min(1.0, max(0.0, (x - lo) / max(hi - lo, 1e-9)))
+    return t * t * (3.0 - 2.0 * t)
+
+
+def weather_at(
+    constants: Constants,
+    planet: Planet,
+    lat: float,
+    lon: float,
+    origin: datetime | None,
+    moment: datetime,
+) -> tuple[float, float]:
+    """How clouded the sky is and how hard it rains at a point now, nought to
+    one each (D-335): the cover pulled by the field's own rain share -- a wet
+    country is under cloud more often -- and gated by the vault's numbers."""
+    law = weather_law(constants, planet)
+    days = 0.0 if origin is None else (moment - origin).total_seconds() / (24 * SECONDS_PER_HOUR)
+    rad, lam = math.radians(lat), math.radians(lon)
+    point = (math.cos(rad) * math.cos(lam), math.cos(rad) * math.sin(lam), math.sin(rad))
+    rain01 = float(terrain.field_of(constants, planet).rain_at(lat, lon))
+    cover = weather_cover(law, point, days) + law.bias * (rain01 - 0.5)
+    return (
+        _smoothstep(law.cloud_from, law.cloud_full, cover),
+        _smoothstep(law.rain_from, law.rain_full, cover),
+    )
 
 
 async def daylight(session: AsyncSession, constants: Constants, node: Node) -> int:
