@@ -210,7 +210,7 @@ function MusicQuick() {
         <Glyph name={off ? "music-off" : "music"} />
       </button>
       {open && (
-        <div ref={pop} className="hud-pop" role="dialog" aria-label={t("ui-top-music")}>
+        <div ref={pop} className="hud-pop end" role="dialog" aria-label={t("ui-top-music")}>
           <MusicSlider />
         </div>
       )}

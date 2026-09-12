@@ -59,6 +59,12 @@ button.hud:not(:disabled):hover {
   box-shadow: var(--shadow-pop);
   padding: 0.65rem 0.7rem;
 }
+/* Under the strip's last button (the music): hangs off its right edge,
+   otherwise sixteen rem of it would leave the window. */
+.hud-pop.end {
+  left: auto;
+  right: 0;
+}
 /* Anchored at the bottom of the screen (the chat's circle chip): opens up. */
 .hud-pop.up {
   top: auto;
