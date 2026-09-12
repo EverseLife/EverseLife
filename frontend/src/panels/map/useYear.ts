@@ -10,12 +10,14 @@
  * sun stands over another latitude, the snow line has moved, and the map
  * says which moment it is showing. Nothing of the world changes for it:
  * the engine keeps its own clock, and the winder is a hand on the map's.
- * Not a timer on data (D-226): the wind runs only while the hand holds it.
- * The pace of the wind is the watcher's to pick (owner, 2026-09-12) and is
- * kept in the browser, as the map's layer is.
+ * Not a timer on data (D-226): on the map the wind runs only while the hand
+ * holds it, and the globe before the world winds it by itself as a picture
+ * of time passing (`running` below, D-337) -- nothing is asked of the server
+ * either way. The map's pace is the watcher's to pick (owner, 2026-09-12)
+ * and is kept in the browser, as the map's layer is.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { oneOf, useKept } from "../../kept";
 import type { Winding } from "./Winder";
@@ -67,24 +69,83 @@ export type Year = Winding & {
   atMs: number;
   pace: Pace;
   setPace: (pace: Pace) => void;
+  /** Move a wind nobody holds on by this many milliseconds of the caller's
+   *  frames (`running` below). Nothing for the hand's wind, which keeps
+   *  frames of its own. */
+  tick: (ms: number) => void;
 };
 
-export function useYear(horizon: number): Year {
+/** The longest step one frame may wind, milliseconds: a tab come back from
+ *  the background resumes where it stopped, rather than leaping the days it
+ *  was hidden for at once. */
+export const WIND_STEP_MAX_MS = 200;
+
+/** Days wound a real second at a pace: a year of the planet's in
+ *  `YEAR_WIND_SECONDS` at the plain one, so the pace is a share of the year
+ *  and a planet's day passes as fast as its year divides into days. */
+export function windPerSecond(horizon: number, pace: Pace): number {
+  return (horizon / YEAR_WIND_SECONDS) * PACE_OF[pace];
+}
+
+/** The day ahead after `ms` of winding at `perSecond` days a second. The
+ *  hand's wind comes round to now past the horizon; a wind nobody holds runs
+ *  on (`useYear`). */
+export function advance(
+  ahead: number,
+  ms: number,
+  perSecond: number,
+  horizon: number,
+  loops: boolean,
+): number {
+  const next = ahead + (Math.min(Math.max(ms, 0), WIND_STEP_MAX_MS) / 1000) * perSecond;
+  return loops ? next % horizon : next;
+}
+
+/**
+ * `running`: whose hand is on the wind. Left out, the watcher's -- the map's
+ * winder, started and stopped by the hand at the pace the watcher keeps, on
+ * frames of its own. Given, nobody's: the globe before the world, where time
+ * is shown passing rather than looked up (owner, 2026-09-13, D-337). A pace
+ * winds it at that pace by the caller's frames (`tick`) -- one loop on the
+ * screen, so the globe's turn and the time it shows are one commit and one
+ * draw of the ground, not two -- and `null` holds it at now: the door step,
+ * where the planet is shown as it really is, and a screen with no clock yet.
+ * A pace given after `null` runs from now again.
+ *
+ * A wind nobody holds does not come round to now at the horizon: a year does
+ * not divide into whole days or whole slices of weather, and the wrap jumped
+ * the sun and the clouds once a year of the wind. On the map the wrap stays,
+ * since there the slider shows the day ahead and a year is as far as it
+ * reaches.
+ */
+export function useYear(horizon: number, running?: Pace | null): Year {
   const [ahead, setAhead] = useState(0);
   const aheadRef = useRef(0);
-  const [winding, setWinding] = useState(false);
-  const [pace, setPace] = useKept<Pace>(PACE, "one", oneOf(PACES));
+  const [held, setWinding] = useState(false);
+  const [kept, setPace] = useKept<Pace>(PACE, "one", oneOf(PACES));
+  const pace = running ?? kept;
+  const byHand = running === undefined;
+  const winding = byHand ? held : running !== null;
+
+  //: Told to hold, a wind nobody holds is at now from the very render that
+  //: says so -- not a render later, with a frame of the wound sun drawn in
+  //: between. The ref comes back too, so a pace given again runs from now.
+  const shownAhead = running === null ? 0 : ahead;
+  useEffect(() => {
+    if (running !== null) return;
+    aheadRef.current = 0;
+  }, [running]);
 
   useEffect(() => {
-    if (!winding) return;
+    if (!byHand || !held) return;
     let raf = 0;
     let last = performance.now();
     let shown = last;
     //: A pace picked mid-wind restarts the loop here; the day ahead lives
     //: in the ref and carries over, so the hand does not jump.
-    const perSecond = (horizon / YEAR_WIND_SECONDS) * PACE_OF[pace];
+    const perSecond = windPerSecond(horizon, pace);
     const step = (now: number) => {
-      aheadRef.current = (aheadRef.current + ((now - last) / 1000) * perSecond) % horizon;
+      aheadRef.current = advance(aheadRef.current, now - last, perSecond, horizon, true);
       last = now;
       //: The hand moves every frame, the map YEAR_WIND_HZ times a second.
       if (now - shown >= 1000 / YEAR_WIND_HZ) {
@@ -95,7 +156,16 @@ export function useYear(horizon: number): Year {
     };
     raf = requestAnimationFrame(step);
     return () => cancelAnimationFrame(raf);
-  }, [winding, horizon, pace]);
+  }, [byHand, held, horizon, pace]);
+
+  const tick = useCallback(
+    (ms: number) => {
+      if (typeof running !== "string") return;
+      aheadRef.current = advance(aheadRef.current, ms, windPerSecond(horizon, running), horizon, false);
+      setAhead(aheadRef.current);
+    },
+    [running, horizon],
+  );
 
   const wind = (day: number) => {
     setWinding(false);
@@ -105,13 +175,14 @@ export function useYear(horizon: number): Year {
   };
 
   return {
-    ahead,
+    ahead: shownAhead,
     horizon,
     winding,
     setWinding,
     wind,
-    atMs: Date.now() + ahead * MS_PER_REAL_DAY,
+    atMs: Date.now() + shownAhead * MS_PER_REAL_DAY,
     pace,
     setPace,
+    tick,
   };
 }

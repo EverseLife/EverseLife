@@ -14,7 +14,7 @@ import type { Look, RecipeBook } from "../../api";
 import { UNITS_PER_METRE, type Geo } from "./globe";
 import { seasonOf, sunOf } from "./Ground";
 import type { Season } from "./season";
-import { useYear, yearOf, type Year } from "./useYear";
+import { useYear, yearOf, type Pace, type Year } from "./useYear";
 import { daysSince, weatherLaw, type WeatherLaw } from "./weather";
 
 export type ClimateView = {
@@ -31,8 +31,12 @@ export function useClimateView(
   planet: string | null,
   radius: number | null,
   clock: Look["clock"],
+  /** A year nobody's hand winds (`useYear`): at this pace by itself, or
+   *  held at now by `null` -- the entry screen's. The map's waits for the
+   *  hand. */
+  running?: Pace | null,
 ): ClimateView {
-  const year = useYear(yearOf(book?.constants, planet ?? ""));
+  const year = useYear(yearOf(book?.constants, planet ?? ""), running);
   //: One law per book and radius, so the ground redraws by the moment and
   //: not by the render.
   const weather = useMemo(

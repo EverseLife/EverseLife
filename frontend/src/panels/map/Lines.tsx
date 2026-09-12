@@ -89,7 +89,7 @@ export function Lines({
   const { lat, lon } = quantisedEye(eye, radius, within);
   const frame = useMemo(
     () =>
-      near && rasters && passport
+      near && show.contours && rasters && passport
         ? frameLines(rasters, passport, { lat, lon }, radius, within, undefined, {
             contours: show.contours,
             figures: false,
@@ -112,11 +112,14 @@ export function Lines({
     [near, rasters, passport, figureEye.lat, figureEye.lon, radius, frameM, show.figures, growth],
   );
   const drawn = useMemo(() => {
-    if (!frame) return null;
+    //: The contours are not cut while they are off (the mesh under them is
+    //: the costly part), and the growth draws without them.
+    if (!frame && !grown) return null;
     const drawnOf = (segments: readonly Segment[]) => pathOf(segments, eye, radius);
+    const lines = frame?.contours ?? [];
     return {
-      contours: drawnOf(frame.contours.filter((c) => !c.index).flatMap((c) => c.segments)),
-      index: drawnOf(frame.contours.filter((c) => c.index).flatMap((c) => c.segments)),
+      contours: drawnOf(lines.filter((c) => !c.index).flatMap((c) => c.segments)),
+      index: drawnOf(lines.filter((c) => c.index).flatMap((c) => c.segments)),
       figures: Object.entries(grown ?? {}).map(([name, segments]) => [name, drawnOf(segments ?? [])] as const),
     };
   }, [frame, grown, eye, radius]);

@@ -88,13 +88,21 @@ export function useGlobe({
     setEye(turn(was, radius, dx, dy));
   }, [radius]);
   const rotate = useCallback(
-    (dx: number, dy: number) => {
+    (dx: number, dy: number, now = false) => {
       //: The hand outranks the aimed turn, as it outranks every autopilot.
       if (turning.current) cancelAnimationFrame(turning.current);
       turning.current = 0;
       const held = pending.current;
       held.dx += dx;
       held.dy += dy;
+      //: `now`: the caller is a frame already -- the entry globe's own loop --
+      //: and the turn goes into this frame's commit with whatever else the
+      //: frame moves, rather than into a commit of its own on the next.
+      if (now) {
+        if (held.raf) cancelAnimationFrame(held.raf);
+        flush();
+        return;
+      }
       if (!held.raf) held.raf = requestAnimationFrame(flush);
     },
     [flush],

@@ -372,6 +372,10 @@ export type WorldMap = {
   edges: MapEdge[];
   stubs: MapStub[];
   routes: MapRoute[];
+  /** Where the sky's count starts -- the planets' days, seasons and weather
+   *  run from it. On the anonymous map alone: a body has it in
+   *  `look.clock` (D-225). Null in a world with no node yet. */
+  epoch?: string | null;
 };
 
 /** What of ships is visible from where one stands, and nothing beyond it

@@ -21,6 +21,14 @@ export type Clock = { planet: string; epoch?: string; day_hours: number; longitu
 
 const MS_PER_HOUR = 3_600_000;
 
+/** How long a planet's day is, hours, as the vault's book says (D-029): what
+ *  `look.clock.day_hours` carries for the planet a body stands on. Nought
+ *  where the book has no day for it. */
+export function dayHoursOf(constants: Record<string, unknown> | null | undefined, planet: string): number {
+  const hours = Number(constants?.[`time.day_${planet}`] ?? 0);
+  return Number.isFinite(hours) ? hours : 0;
+}
+
 /** Local time of the planet at this real moment. */
 export function worldTime(clock: Clock, at: Date = new Date()) {
   const epoch = clock.epoch ? new Date(clock.epoch).getTime() : at.getTime();

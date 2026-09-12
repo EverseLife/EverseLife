@@ -167,6 +167,10 @@ async def test_the_anonymous_map_is_the_sky_now_and_the_surface_then(
     city_row = next(row for row in answer["nodes"] if row["key"] == "terra.city")
     assert city_row["parent"] == "terra", "родитель города — его планета, как на личной карте"
     assert answer["edges"] and "routes" in answer
+    #: The origin of the sky's count, which nothing else gives a reader
+    #: without a body: the globe before the world runs its time from it.
+    origin = await world.epoch(session)
+    assert origin is not None and answer["epoch"] == origin.isoformat()
 
 
 async def test_the_personal_map_is_the_askers_sight_and_memory(
@@ -182,6 +186,7 @@ async def test_the_personal_map_is_the_askers_sight_and_memory(
     assert "ship.x.room" not in keys, "борт не публичен (D-201)"
     assert "faded" not in keys["terra.city.plot"], "где стоишь — ярко"
     assert isinstance(body, Body)
+    assert "epoch" not in answer, "у тела начало счёта есть в look.clock (D-225)"
 
 
 async def test_a_ship_at_the_pier_marks_the_port_and_a_parking_marks_nothing(

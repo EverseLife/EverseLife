@@ -11,7 +11,8 @@ import type { CityVote, RecipeBook, Thing } from "../api";
 import { arrange, groupId, groupKey, summarize, weightOf } from "../arrange";
 import { answered, askless, CHEST_ANY, chestOf, chestZone, fits, halved } from "../drag";
 import { goodsGlyph, nodeGlyph } from "../marks";
-import { duration, hands, stamp, when, worldTime } from "../clock";
+import { dayHoursOf, duration, hands, stamp, when, worldTime } from "../clock";
+import { advance, WIND_STEP_MAX_MS, windPerSecond } from "../panels/map/useYear";
 import { groundName } from "../grounds";
 import { forget, learn, Words } from "../locale";
 import { catalogue, coins, exactly } from "../market";
@@ -46,6 +47,34 @@ describe("clock", () => {
 
   it("never goes before the epoch", () => {
     expect(worldTime(clock, new Date("2025-12-31T00:00:00Z")).day).toBe(1);
+  });
+
+  it("reads a planet's day off the book where no body brings a clock", () => {
+    //: The globe before the world has no `look.clock`: the day is the
+    //: book's, and a planet the book has no day for has none -- no sun,
+    //: rather than a day made up here.
+    const constants = { "time.day_terra": 38, "time.day_aurora": "33" };
+    expect(dayHoursOf(constants, "terra")).toBe(38);
+    expect(dayHoursOf(constants, "aurora")).toBe(33);
+    expect(dayHoursOf(constants, "void")).toBe(0);
+    expect(dayHoursOf({ "time.day_terra": "later" }, "terra")).toBe(0);
+    expect(dayHoursOf(undefined, "terra")).toBe(0);
+  });
+
+  it("winds a year round to now by hand, and on and on by itself", () => {
+    //: Terra's year at the plain pace: 28 days in half a minute.
+    const perSecond = windPerSecond(28, "one");
+    expect(perSecond).toBeCloseTo(28 / 30, 9);
+    expect(windPerSecond(28, "sixteenth")).toBeCloseTo(perSecond / 16, 9);
+    //: The map's winder comes round to now past the year; the entry globe's
+    //: does not, or the sun would jump by the part of a day the year leaves.
+    const late = 27.9;
+    expect(advance(late, 200, perSecond, 28, true)).toBeCloseTo((late + 0.2 * perSecond) % 28, 9);
+    expect(advance(late, 200, perSecond, 28, false)).toBeCloseTo(late + 0.2 * perSecond, 9);
+    //: A tab back from the background resumes rather than leaping the hours
+    //: it was hidden for; and a clock that ran backwards winds nothing back.
+    expect(advance(0, 30 * 60_000, perSecond, 28, false)).toBeCloseTo((WIND_STEP_MAX_MS / 1000) * perSecond, 9);
+    expect(advance(5, -1000, perSecond, 28, false)).toBe(5);
   });
 
   it("says a moment relative to now in words", () => {

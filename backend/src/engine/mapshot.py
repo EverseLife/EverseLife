@@ -277,7 +277,14 @@ async def anonymous(
     under_way = await vessels.passages(session)
     old = await served(session, constants, now)
     surface = old.data if old is not None else {"nodes": [], "edges": []}
+    origin = await world.epoch(session)
     return {
+        #: Where the sky's count starts: the orbits' phases stand at it, and
+        #: the planets' days, seasons and weather run from it (D-029, D-334,
+        #: D-335). Nobody's `look` names it to an anonymous reader, and the
+        #: globe before the world lets its time run from the true moment (D-337).
+        #: The personal map leaves it out: `look.clock` has it (D-225).
+        "epoch": None if origin is None else origin.isoformat(),
         "nodes": [
             node_row(
                 node,

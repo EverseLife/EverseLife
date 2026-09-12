@@ -7,14 +7,23 @@
  *
  * The same planet as the map's, drawn by the map's own component
  * (`map/Planet`): the GPU's ground with its relief, its water, its snow and
- * its clouds, and the overlays the player last left on the map -- north up,
- * turning by itself until the hand takes it, zoomed by the wheel. On it,
- * what the public map shows to everybody: the cities and the ways between
- * them, as of the delayed snapshot (D-319 item 7). There is no session yet,
- * so the book and the names are read from the public catalogs, and there is
- * no clock, hence no night. At the last step of registration the doors --
- * the printers a newcomer may be printed at -- appear as marks; a mark
- * chosen names the door whose card the other half shows.
+ * its clouds -- north up, turning by itself until the hand takes it, zoomed
+ * by the wheel. There is no session yet, so the book is read from the public
+ * catalog and the clock from the public map's origin.
+ *
+ * Two states, by the step (owner, 2026-09-13; D-337, and the second named
+ * place of standing motion in 50-interface/09 П3):
+ *
+ * - **before the doors** the planet is a picture of time passing: the year
+ *   is wound slowly from now, as the map's winder winds it -- the sun goes
+ *   round, day and night pass over the ground, the clouds move and the
+ *   seasons turn (D-334, D-335). No marks at all: no provinces, no cities,
+ *   no ways -- the ground and the sky alone;
+ * - **at the doors** -- the last step of registration -- nothing is wound
+ *   and nothing hides the ground: the time is now, the clouds are put away,
+ *   and the printers a newcomer may be printed at stand as marks where they
+ *   really are. A mark chosen names the door whose card the other half
+ *   shows.
  */
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -22,16 +31,17 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import * as api from "../api";
 import type { Door, MapNode, RecipeBook, WorldMap } from "../api";
 import { CatalogProvider } from "../actions";
-import { currentLocale, t } from "../locale";
-import { namesOf, type Names } from "../names";
+import { dayHoursOf, type Clock } from "../clock";
+import { t } from "../locale";
 import { CELL_DEG, FINEST_UNIT, farOf, nearFrameM, nearOf } from "./map/bands";
-import { arc, placeAt, projectAll, type Geo } from "./map/globe";
+import { placeAt, projectAll, type Geo } from "./map/globe";
 import { W } from "./map/model";
 import { markShare, paper, type Box } from "./map/paper";
 import { Planet } from "./map/Planet";
 import { useClimateView } from "./map/useClimateView";
 import { useGlobe } from "./map/useGlobe";
-import { useLayers } from "./map/useLayers";
+import type { Overlays } from "./map/Switcher";
+import { WIND_STEP_MAX_MS, type Pace } from "./map/useYear";
 
 /** How much of the frame the disk takes at the outermost zoom. */
 const FRAME = 1.05;
@@ -42,26 +52,34 @@ const RAD = Math.PI / 180;
 /** How far in the zoom may go, and one notch of it. */
 const ZOOM_MAX = 400;
 const NOTCH = 1.25;
-/** Sizes in shares of the square the planet stands in: a node's dot and a
- *  label. */
-const DOT = 1 / 300;
 /** A door's mark, in **pixels** of the screen -- of a door with nobody behind
  *  it; `markShare` grows it with the citizens. Not a share of the square like
  *  the rest: the mark is a target for a finger before it is a picture, and a
  *  share of the square made it three pixels across on a phone, where the
  *  globe is a third of the size it has on a desktop. */
 const MARK_PX = 10;
-const LABEL = 1 / 36;
 /** Below this many drawn cells across the frame the ground is one flat colour. */
 const CELLS_ACROSS = 1.5;
-/** How often the turning globe is redrawn, a second: at two degrees a
- *  second the ground moves an eighth of a degree between redraws -- under
- *  a cell's width at any zoom -- and a redraw is the whole frame's ground. */
+/** How often the moving globe is redrawn, a second -- its turn and its time
+ *  in one commit: at two degrees a second the ground moves an eighth of a
+ *  degree between redraws -- under a cell's width at any zoom -- and a
+ *  redraw is the whole frame's ground. */
 const SPIN_FPS = 15;
-/** From this zoom on the plain nodes are drawn, and from this one the
- *  cities' names: farther out they are a smudge, not a map. */
-const NODES_ZOOM = 2;
-const LABELS_ZOOM = 4;
+/** How fast time runs on the globe before the doors, as one of the map
+ *  winder's paces (`useYear.PACES`): the slowest, a sixteenth -- a day of
+ *  Terra's in half a minute, so the sun is watched creeping round rather
+ *  than sweeping past, and a year in eight minutes (owner, 2026-09-13: the
+ *  quarter was too quick). */
+const TIME_PACE: Pace = "sixteenth";
+/** What lies over the ground: the clouds and nothing else -- no provinces,
+ *  no city lands, no lines (owner, 2026-09-13: no marks on this globe). */
+const OVERLAYS: Overlays = {
+  provinces: false,
+  cities: false,
+  contours: false,
+  figures: false,
+  clouds: true,
+};
 
 const EQUATOR: Geo = { lat: 0, lon: 0 };
 
@@ -124,8 +142,6 @@ export function EntryGlobe({
   //: The planet's radius and the ground's tones come from the vault, and
   //: the vault's book is public: read it once, before any identification.
   const [book, setBook] = useState<RecipeBook | null>(null);
-  //: The provinces' names, in the language the screen speaks: public too.
-  const [names, setNames] = useState<Names | null>(null);
   const [world, setWorld] = useState<WorldMap | null>(null);
   useEffect(() => {
     let live = true;
@@ -150,11 +166,6 @@ export function EntryGlobe({
       //: A bare half of the screen is what the player sees; the reason goes
       //: to the console.
       (why) => console.warn("constants:", why),
-    );
-    api.renames().then(
-      (got) => live && setNames(namesOf(got, currentLocale())),
-      //: A province then wears its id, as it does on the map without them.
-      (why) => console.warn("renames:", why),
     );
     api.worldMap().then(
       (got) => live && setWorld(got),
@@ -185,14 +196,33 @@ export function EntryGlobe({
   );
   const globe = useGlobe({ book, planet: shown, active: true });
   const { eye, radius, lookAt } = globe;
-  //: The sky over the ground as the map shows it. No clock before a
-  //: session: the season and the weather of the world's first day, and no
-  //: sun -- the ground is lit from the map's own north-west.
-  const view = useClimateView(book, shown, radius, undefined);
-  //: The overlays the player left on the map, as the terrain wears them:
-  //: the planet before the door is the one behind it. Not the layer -- a
-  //: legend layer would colour this planet with no legend beside it.
-  const { overlays } = useLayers();
+  //: The planet's clock with no body on it: the origin the public map
+  //: names, the day the book gives -- what `look.clock` would say.
+  const epoch = world?.epoch ?? null;
+  const clock = useMemo<Clock | undefined>(
+    () =>
+      epoch && shown
+        ? { planet: shown, epoch, day_hours: dayHoursOf(book?.constants, shown) }
+        : undefined,
+    [epoch, shown, book],
+  );
+  //: The door step: the planet as it is, to choose a place on.
+  const choosing = doors !== null;
+  //: Asked for motion to be spared, the globe neither turns nor winds: the
+  //: rule every standing motion of the interface keeps (50-interface/09, П3).
+  //: Read once, as the map's camera reads it: a setting changed mid-visit
+  //: takes the next visit.
+  const still = useMemo(() => window.matchMedia("(prefers-reduced-motion: reduce)").matches, []);
+  const moving = !choosing && !still;
+  //: The sky over the ground as the map shows it, with the year wound by
+  //: itself before the doors and held at now at them: the sun, the season
+  //: and the weather of the moment shown. An animation of the picture, as
+  //: the turn of the globe is, not a timer on data (D-226): nothing is
+  //: asked of the server for it.
+  //: Held at now, too, until there is a clock to wind: without one the sun,
+  //: the season and the weather have no moment, and a wind would redraw
+  //: the same picture for nothing.
+  const view = useClimateView(book, shown, radius, clock, moving && clock ? TIME_PACE : null);
   //: The eye stands over the chosen door, else the first door, else the
   //: first placed node of the planet -- a city, the capital first.
   const chosen = onPlanet.find((door) => door.node === picked) ?? onPlanet[0];
@@ -279,34 +309,41 @@ export function EntryGlobe({
   }, [shown, eye, radius]);
   //: The globe turns by itself on the login screen, slowly, eastwards --
   //: and stops under the hand and on the door step, where a mark must
-  //: stay where it is to be picked. Frames, not renders: the turn goes
-  //: through the eye's own frame-batched `rotate`.
+  //: stay where it is to be picked. Time runs on the same frames (`tick`):
+  //: one loop, so the turn and the moment are one commit and one draw of
+  //: the ground, not two loops beating against each other.
   const rotate = globe.rotate;
-  const spinning = doors === null;
+  const tick = view.year.tick;
+  //: The eye's latitude through a ref: the hand moves it every frame of a
+  //: drag, and a loop that restarted on it began its count again each time
+  //: and never reached a step -- the sky stood still under the hand.
+  const lat = useRef(0);
+  lat.current = eye?.lat ?? 0;
+  const hasEye = eye !== null;
   useEffect(() => {
-    if (!spinning || !rotate || !eye || !radius) return;
+    if (!moving || !rotate || !hasEye || !radius) return;
     let raf = 0;
     let last = performance.now();
     const step = (t: number) => {
       //: Not every frame: the turn is gathered until a redraw is worth it.
       if (t - last >= 1000 / SPIN_FPS) {
-        const dt = Math.min(200, t - last);
+        const dt = Math.min(WIND_STEP_MAX_MS, t - last);
         last = t;
         if (!drag.current) {
           //: `rotate` takes the ground's movement in map units: to turn the
           //: eye east the ground goes west, by the arc of the turn at the
           //: eye's latitude.
-          const stretch = Math.max(Math.cos(eye.lat * RAD), 1e-3);
-          rotate(-SPIN_DEG_PER_S * (dt / 1000) * RAD * radius * stretch, 0);
+          const stretch = Math.max(Math.cos(lat.current * RAD), 1e-3);
+          rotate(-SPIN_DEG_PER_S * (dt / 1000) * RAD * radius * stretch, 0, true);
         }
+        //: Under the hand too: the hand holds the globe, not the sky.
+        tick(dt);
       }
       raf = requestAnimationFrame(step);
     };
     raf = requestAnimationFrame(step);
     return () => cancelAnimationFrame(raf);
-    //: The eye's latitude changes only under the hand; the loop reads it
-    //: afresh each time the hand lets go (a new `eye` remounts it).
-  }, [spinning, rotate, eye?.lat, radius]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [moving, rotate, tick, hasEye, radius]);
   if (!shown || !eye || !radius) {
     //: The square is kept even with nothing to draw: it is what the
     //: measurement watches, and it is the layout's, not the drawing's.
@@ -342,30 +379,25 @@ export function EntryGlobe({
   const unit = Math.max(FINEST_UNIT, Math.min(1, sheet.spread / zoom));
   const cellUnits = radius * CELL_DEG * RAD * unit;
   const detailed = sheet.across > CELLS_ACROSS * cellUnits;
-  //: The map's scale counts a map unit as a pixel of a frame `W` wide
-  //: (`map/model`), whatever the pane; the names of `bands` are sized in
-  //: those pixels. The paper knows the true one, so the provinces' names
-  //: come out at the pixels `bands` means rather than at a pane's guess.
+  //: The frame's facts the planet's layers read (`PlanetFrame`). Nothing
+  //: here draws by them today -- the provinces and the lines are off
+  //: (`OVERLAYS`) -- but they are told truly, so an overlay switched on is
+  //: sized right. The map's scale counts a map unit as a pixel of a frame
+  //: `W` wide (`map/model`); the paper knows the true pixel. The frame's
+  //: width is the seen half's.
   const scale = 1 / sheet.perPixel;
-  //: The frame's width is the seen half's, not an 880-pixel pane's: the
-  //: lines of the relief ask how many metres the frame really holds.
   const frameScale = W / sheet.across;
-  //: The square's side, pixels: what the dots and the names are sized by.
-  const side = span * scale;
-  const placed = projectAll(eye, radius, surface);
   const marks = projectAll(
     eye,
     radius,
     onPlanet.map((door) => ({ key: door.node, place: door.place })),
   );
-  const byKey = new Map(surface.map((node) => [node.key, node]));
-  //: A city is the node others hang under: it wears its name.
-  const cities = new Set(surface.map((node) => node.parent).filter(Boolean));
 
   return (
     <div className="entry-globe">
       <div className="globe-space" ref={space} />
-      <CatalogProvider book={book} names={names}>
+      {/* No names: this globe writes none (`OVERLAYS`). */}
+      <CatalogProvider book={book} names={null}>
         {/* No camera here: the ground redraws by itself as the eye turns
             and as the viewBox moves (`Planet`), so nobody holds its handle. */}
         <Planet
@@ -402,67 +434,26 @@ export function EntryGlobe({
             },
           }}
           ball={{ planet: shown, eye, radius }}
-          clock={undefined}
+          clock={clock}
           view={view}
           layer="terrain"
-          shown={overlays}
+          //: At the doors the clouds are put away: they would hide the
+          //: very ground the newcomer is choosing a place on.
+          shown={choosing ? { ...OVERLAYS, clouds: false } : OVERLAYS}
           frame={{
             detailed,
             unit,
             //: The whole disk while a drawn cell is a whole one: the frame
-            //: holds the planet, and the provinces read the walk made once
-            //: for it rather than cutting their own at every turn of the eye.
+            //: holds the planet, and nothing is cut for a window of it.
             within: unit >= 1 ? undefined : sheet.reach,
             far: farOf(scale),
             frameM: nearFrameM(nearOf(frameScale)),
             approach: false,
           }}
         >
-          <g className="ways">
-            {(world?.edges ?? []).map((edge) => {
-              const a = byKey.get(edge.a)?.place;
-              const b = byKey.get(edge.b)?.place;
-              if (!a || !b || !("lat" in a) || !("lat" in b)) return null;
-              const run = arc(eye, radius, a, b);
-              if (!run) return null;
-              return (
-                <polyline
-                  key={`${edge.a}|${edge.b}`}
-                  className={`way ${edge.surface}`}
-                  points={run.map((p) => `${p.x},${p.y}`).join(" ")}
-                />
-              );
-            })}
-          </g>
-          {/* What stands on the planet is drawn in pixels about its own
-              origin and stood on the sphere by a matrix that scales it
-              (`placeAt`): a centre in map units saturates short of the limb
-              (`diskPath`), and a `font-size` in map units is one the browser
-              draws no glyphs for. */}
-          <g className="places">
-            {surface.map((node) => {
-              const at = placed.get(node.key);
-              const city = cities.has(node.key);
-              //: Far out a city is a dot and a node nothing: a hundred dots
-              //: on a disk the size of a coin is a smudge, and a name on it
-              //: cannot be read at all.
-              if (!at || (!city && zoom < NODES_ZOOM)) return null;
-              return (
-                <g
-                  key={node.key}
-                  className={`place ${city ? "city" : ""}`}
-                  transform={placeAt(at, sheet.perPixel)}
-                >
-                  <circle r={side * DOT * (city ? 2 : 1)} />
-                  {city && zoom >= LABELS_ZOOM && (
-                    <text y={-side * DOT * 4} fontSize={side * LABEL}>
-                      {node.name}
-                    </text>
-                  )}
-                </g>
-              );
-            })}
-          </g>
+          {/* A door's mark is drawn in pixels about its own origin and stood
+              on the sphere by a matrix that scales it (`placeAt`): a centre in
+              map units saturates short of the limb (`diskPath`). */}
           <g className="doors">
             {onPlanet.map((door) => {
               const at = marks.get(door.node);

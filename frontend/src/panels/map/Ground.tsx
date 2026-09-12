@@ -17,6 +17,7 @@ import { useEffect, useId, useMemo, useState } from "react";
 
 import * as api from "../../api";
 import type { Look, RecipeBook, Terrain, Tile } from "../../api";
+import { dayHoursOf } from "../../clock";
 import { diskPath, type Eye, type Geo } from "./globe";
 import { TILE_UNIT } from "./bands";
 import {
@@ -138,8 +139,7 @@ export function sunOf(
   book: RecipeBook | null,
   atMs: number = Date.now(),
 ): Geo | null {
-  const dayHours =
-    clock?.planet === planet ? clock.day_hours : Number(book?.constants?.[`time.day_${planet}`] ?? 0);
+  const dayHours = clock?.planet === planet ? clock.day_hours : dayHoursOf(book?.constants, planet);
   const sun = subsolar(clock?.epoch ?? null, dayHours, atMs);
   if (!sun) return null;
   //: The season (D-334): the sun stands over the latitude the tilt and the

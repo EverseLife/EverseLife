@@ -97,7 +97,7 @@ ui-doors-back = ← back
 
 ## The globe at the entry and at the printer step (D-319, D-013)
 ui-entry-globe-label = globe of the planet
-ui-entry-globe-doors-hint = The large dots are the printers you can be printed at: the larger the dot, the more citizens the city has. Choose one and its city's card opens; drag to turn the globe.
+ui-entry-globe-doors-hint = The dots are the bioprinters you can be printed at: the larger the dot, the more citizens its city has. Choose one to open its card; drag to turn the globe.
 
 ## The state tab: economy and population (D-124, D-140, D-154)
 
