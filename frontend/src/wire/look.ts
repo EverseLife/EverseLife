@@ -344,8 +344,9 @@ export type Look = {
    * a climate: there is nothing to show and nothing to fear on Terra.
    */
   frost?: Frost;
-  /** The air, and only where there is none (D-233, D-234): in flight and on an
-   *  airless world. Absent on Terra and Aurora, for everybody, always. */
+  /** The air, and only where there is none (D-233, D-234): in flight, in any
+   *  orbit (D-245) and on an airless world. Absent on the ground of Terra and
+   *  Aurora, for everybody, always. */
   air?: Air;
   /**
    * Everything the body is at: one body does one thing (D-211), but a frozen
