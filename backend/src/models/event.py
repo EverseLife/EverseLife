@@ -31,6 +31,11 @@ class EventKind(StrEnum):
     WORLD_BOOTSTRAPPED = "world.bootstrapped"
     CONSTANTS_CHANGED = "constants.changed"
     TICK_RAN = "tick.ran"
+    #: A one-off repair of the seed's catch-up ran on this world, or the world
+    #: was laid under the rule it mends and never needed it (`seed_catchup.ONCE`,
+    #: payload `step`). The journal is the only record that it ran: what such a
+    #: step writes cannot be told from a player's choice afterwards (D-007).
+    WORLD_CAUGHT_UP = "world.caught_up"
 
     # identity and body
     IDENTITY_CREATED = "identity.created"

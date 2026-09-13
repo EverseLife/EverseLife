@@ -218,6 +218,10 @@ async def seed(session: AsyncSession) -> Node:
     #: The household meter ticks with the world clock: maintenance runs by
     #: time and without players (D-149).
     await utility.ensure_scheduled(session)
+    #: A world laid today never lived under the rules the catch-up's one-off
+    #: steps mend: born with them done, so its first deploy does not plumb the
+    #: hulls its players will have built by then (D-288 as amended 2026-09-04).
+    await seed_catchup.born_caught_up(session)
     log.info(
         "starting world created: Terra's capital with administration, mine, players Tern and Hyom"
     )
