@@ -65,7 +65,10 @@ ui-place-plot-about-save = Save the description
 ui-place-climate-day = Daytime now, { $now } deg. The day runs { $low }-{ $high } deg, light { $light } of 3, rainfall { $rain } of 100.
 ui-place-climate-night = Night now, { $now } deg. The day runs { $low }-{ $high } deg, daytime light { $top } of 3, rainfall { $rain } of 100.
 ui-place-marking-title = Strips
-ui-place-marking-climate = It is { $climate } here: nothing grows in open ground, and heating the node does not change that. Food comes here by ship.
+ui-place-marking-climate = { $climate ->
+        [heat] The heat here is scorching: nothing grows in open ground, and the node cannot be cooled. Food comes here by ship.
+       *[frost] The ground here is permafrost: nothing grows in open ground, and heating the node does not change that. Food comes here by ship.
+    }
 ui-place-marking-name = strip name
 ui-place-marking-area = area, m²
 ui-place-marking-mark = Mark out
