@@ -455,7 +455,11 @@ async def test_a_rig_is_not_taken_down_out_from_under_the_tick(
     D-314), and the tick holds every rig row of the world in one uncommitted
     transaction. Read without the lock, the door would see the last committed
     nought while a whole pass already stands in the row -- and hand the loaded
-    machine over through the very rule it was asked for."""
+    machine over through the very rule it was asked for.
+
+    And the door takes the rig row before the machine's: the tick writes the
+    machine's wear under the rig row it holds, so a take-down that locked the
+    machine first and then waited on the rig deadlocked with the tick."""
     from src.constants import current_catalog
     from src.engine import rig, station
 
@@ -473,7 +477,22 @@ async def test_a_rig_is_not_taken_down_out_from_under_the_tick(
     #: fills it is the one the taking-down races.
     assert float(installation.hopper) == 0
     await session.commit()
-    _slow(monkeypatch, rig, "advance")
+    #: The door is let in mid-pass: the rig rows are the tick's, the machine is
+    #: judged standing, and neither the hopper nor the machine's wear is written
+    #: yet. A door reading the hopper unlocked sees the committed nought here,
+    #: and one locking the machine first crosses the tick -- every time, not
+    #: only when a pass happens to outrun a sleep. The coal is counted on every
+    #: pass that drills, whatever the vault says it burns.
+    mid_pass = asyncio.Event()
+    count_coal = rig._coal_available
+
+    async def counted_and_held(*args, **kwargs) -> float:
+        result = await count_coal(*args, **kwargs)
+        mid_pass.set()
+        await asyncio.sleep(0.2)
+        return result
+
+    monkeypatch.setattr(rig, "_coal_available", counted_and_held)
 
     moment = installation.counted_at + timedelta(hours=4)
 
@@ -482,9 +501,7 @@ async def test_a_rig_is_not_taken_down_out_from_under_the_tick(
             return await rig.tick_rigs(db, current(), now=moment)
 
     async def take() -> str:
-        #: A shade behind the tick, so the row is already taken and the hopper
-        #: not yet committed -- the window the lock is for.
-        await asyncio.sleep(0.05)
+        await mid_pass.wait()
         async with factory() as db, db.begin():
             own_body = await db.get(Body, body.id)
             own_machine = await db.get(Item, machine.id)

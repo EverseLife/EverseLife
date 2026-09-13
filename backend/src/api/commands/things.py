@@ -23,6 +23,7 @@ from src.engine import (
     liquid,
     station,
     storage,
+    vent,
 )
 from src.models.chat import Utterance
 from src.models.identity import Body, Identity
@@ -213,6 +214,19 @@ async def _liquid_pour(state: dict, db: AsyncSession, message: dict) -> dict:
         None if qty is None else float(qty),
     )
     return {"poured": poured, "goods": goods_}
+
+
+@command("liquid.vent")
+async def _liquid_vent(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Empty a vessel of its vent gas (D-340): out where there is no air
+    outside, into the node's flare stack where there is. `vessel` is in the
+    hands or standing here; anything but a vent gas is poured, not let out."""
+    body = await _alive(state, db)
+    vessel = await db.get(Item, uuid.UUID(str(message.get("vessel") or "")))
+    if vessel is None:
+        raise Refused(key="cmd-no-such-vessel")
+    goods_, amount, way = await vent.empty(db, current_catalog(), body, vessel)
+    return {"vented": amount, "goods": goods_, "way": way}
 
 
 @command("station.place")

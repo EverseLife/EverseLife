@@ -28,66 +28,14 @@ from src.constants import registry as R
 from src.engine import access, craft, energy, estate, ledger, utility, world
 from src.engine import city as town
 from src.models.estate import Deed
+from src.models.event import Event, EventKind
 from src.models.ledger import AccountKind, PostingReason
 from src.models.world import PLOT, Layer
 from src.units import money
+from utility_kit import _city, _pool, _resident, _yesterday
 
-
-async def _city(session: AsyncSession, catalog: Catalog):
-    stamp = uuid.uuid4().hex[:8]
-    planet = await world.create_node(
-        session, f"terra.{stamp}", "Терра", area_m2=1, layer=Layer.SPACE
-    )
-    delegate = await world.create_node(
-        session,
-        f"terra.city.{stamp}",
-        "Столица",
-        area_m2=1,
-        layer=Layer.PLANET,
-        parent=planet,
-    )
-    #: A plot, and marked as one: the door belongs to a plot the authority
-    #: hands out, not to every node a city owns (D-199, D-282).
-    home = await world.create_node(
-        session,
-        f"terra.city.{stamp}.home",
-        "Дом",
-        area_m2=100,
-        parent=delegate,
-        properties={PLOT: True},
-    )
-    city = await town.found(session, catalog, delegate, "Столица")
-    home.owner_city_id = city.id
-    await session.flush()
-    return city, delegate, home
-
-
-async def _pool(session: AsyncSession, constants: Constants, node, qty: float):
-    pool = await energy.pool_of(session, constants, node)
-    assert pool is not None
-    pool.stored = Decimal(str(qty))
-    await session.flush()
-    return pool
-
-
-async def _resident(session: AsyncSession, node, name: str, *, funds: float = 0):
-    identity = await world.create_identity(session, f"{name}-{uuid.uuid4().hex[:6]}")
-    body = await world.print_body(session, identity, node)
-    if funds:
-        account = await ledger.account_for(session, AccountKind.IDENTITY, identity.id)
-        genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
-        await ledger.transfer(
-            session,
-            PostingReason.GENESIS,
-            debit=genesis.id,
-            credit=account.id,
-            amount=money(funds),
-        )
-    return identity, body
-
-
-def _yesterday(constants: Constants) -> datetime:
-    return datetime.now(UTC) - timedelta(hours=constants[R.ENERGY_METER_PERIOD])
+#: What a meter says about a house it bills.
+_METER_EVENTS = (EventKind.UTILITY_METERED, EventKind.UTILITY_CUT_OFF)
 
 
 async def test_ownerless_node_has_no_meter(
@@ -250,6 +198,99 @@ async def test_meter_opens_itself_on_occupied_nodes(
     listed = await utility.run_meters(session, constants)
     assert listed >= 1
     assert await utility.meter_of(session, home, create=False) is not None
+
+
+async def test_a_run_bills_every_house_and_pays_what_the_purse_covers(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """One holder, two houses on one grid, a purse for one bill (D-149).
+
+    The run draws the pool for both, then posts the bills: the first the purse
+    covers is paid, the second is a debt and a cut-off -- never a part of it.
+    """
+    moment = datetime.now(UTC)
+    hours = constants[R.ENERGY_METER_PERIOD]
+    city, delegate, home = await _city(session, catalog)
+    other = await world.create_node(
+        session, f"{home.key}.two", "Дом", area_m2=100, parent=delegate, properties={PLOT: True}
+    )
+    other.owner_city_id = city.id
+    owner, _ = await _resident(session, home, "Хозяин")
+    home.owner_identity_id = other.owner_identity_id = owner.id
+    pool = await _pool(session, constants, home, 100_000)
+    meters = [await utility.meter_of(session, node) for node in (home, other)]
+    for meter in meters:
+        assert meter is not None
+        meter.counted_at = moment - timedelta(hours=hours)
+    drawn = utility.draw_for(constants, home, hours)
+    price = energy.price_at(constants, pool, drawn)
+    assert price > 1
+    account = await ledger.account_for(session, AccountKind.IDENTITY, owner.id)
+    genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
+    await ledger.transfer(
+        session,
+        PostingReason.GENESIS,
+        debit=genesis.id,
+        credit=account.id,
+        amount=price + price // 2,
+    )
+
+    assert await utility.run_meters(session, constants, now=moment) == 2
+
+    assert sorted(meter.debt for meter in meters) == [0, price]
+    assert sorted(meter.cut_off for meter in meters) == [False, True]
+    assert all(meter.counted_at == moment for meter in meters)
+    assert await ledger.balance(session, account.id) == price // 2
+    assert await town.treasury_balance(session, city) == price
+    assert float(pool.stored) == pytest.approx(100_000 - 2 * drawn, abs=0.01)
+    told = (
+        (
+            await session.execute(
+                select(Event.kind).where(
+                    Event.node_id.in_([home.id, other.id]), Event.kind.in_(_METER_EVENTS)
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert sorted(told) == sorted(
+        [EventKind.UTILITY_CUT_OFF, EventKind.UTILITY_METERED, EventKind.UTILITY_METERED]
+    )
+
+
+async def test_a_free_grid_counts_the_hours_and_bills_nothing(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """At a tariff of nought a holder's house draws the pool and owes nothing:
+    the hours are counted, and no bill, no debt and no cut-off are written."""
+    moment = datetime.now(UTC)
+    hours = constants[R.ENERGY_METER_PERIOD]
+    _, _, home = await _city(session, catalog)
+    owner, _ = await _resident(session, home, "Хозяин")
+    home.owner_identity_id = owner.id
+    pool = await _pool(session, constants, home, 100_000)
+    pool.tariff = Decimal(0)
+    meter = await utility.meter_of(session, home)
+    assert meter is not None
+    meter.counted_at = moment - timedelta(hours=hours)
+
+    assert await utility.run_meters(session, constants, now=moment) == 1
+
+    assert meter.counted_at == moment and meter.debt == 0 and not meter.cut_off
+    assert float(pool.stored) == pytest.approx(
+        100_000 - utility.draw_for(constants, home, hours), abs=0.01
+    )
+    told = (
+        (
+            await session.execute(
+                select(Event).where(Event.node_id == home.id, Event.kind.in_(_METER_EVENTS))
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert told == []
 
 
 async def test_holdings_show_own_nodes(

@@ -16,7 +16,10 @@ Checked is what the plumbing rests on:
 * two hands plumbing one port at once do not collide on the unique pair;
 * the hull is one building for its batteries and its generators too: a cell
   in the hold feeds the workshop, a panel off the grid charges it;
-* two liquids are not mixed in one vessel.
+* two liquids are not mixed in one vessel;
+* an installed vessel takes the owner's name, loses it on an empty one, is
+  refused a name too long or off the hull, and two names at once leave one
+  row (D-340).
 """
 
 from __future__ import annotations
@@ -28,73 +31,26 @@ from decimal import Decimal
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from ship_kit import CONSOLE, ENGINE, FUEL, LIFE, TANK, _equip, _laid, _port, _shipwright
+from lines_kit import (
+    AIR,
+    BATTERY,
+    CANISTER,
+    CYLINDER,
+    SOLAR,
+    WATER,
+    _held,
+    _hull,
+    _room,
+    _vessel,
+)
+from ship_kit import ENGINE, FUEL, LIFE, TANK, _equip
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import battery, energy, estate, liquid, oxygen, ship, station, storage, world
 from src.engine.ship import lines
 from src.models.identity import Body
 from src.models.inventory import Item
-from src.models.job import JobState
 from src.models.ship import Ship
-from src.models.world import Node
-from src.units import amount_float
-
-AIR = "oxygen"
-WATER = "water"
-CYLINDER = "oxygen_tank"
-CANISTER = "canister"
-BATTERY = "battery"
-SOLAR = "solar_panel"
-
-
-async def _hull(
-    session: AsyncSession, constants: Constants, *, foundations: int = 1
-) -> tuple[Ship, Body, Node]:
-    """A ship in port, its owner standing at the bridge -- where lines are drawn from."""
-    port = await _port(session)
-    _, body = await _shipwright(session, port, foundations=foundations)
-    vessel = await _laid(session, constants, body, port)
-    connector = await session.get(Node, vessel.connector_node_id)
-    await _equip(session, connector, CONSOLE)
-    body.node_id = connector.id
-    await session.flush()
-    return vessel, body, connector
-
-
-async def _room(session: AsyncSession, constants: Constants, body: Body, vessel: Ship) -> Node:
-    """One more compartment, laid from where the body stands (D-202)."""
-    job = await ship.extend(session, constants, body)
-    await ship.keel_laid(session, job)
-    job.state = JobState.DONE
-    job.finished_at = job.run_at
-    await session.flush()
-    return (await ship.nodes_of(session, vessel))[-1]
-
-
-async def _vessel(
-    session: AsyncSession,
-    node: Node,
-    type_key: str,
-    liquid_name: str,
-    amount: float,
-    *,
-    installed: bool = True,
-) -> Item:
-    """A vessel in the room with a liquid in it. Installed by default: that is
-    what a line stands on."""
-    yard = await world.node_container(session, node)
-    box = await world.grant_item(
-        session, yard, type_key, quality=60, origin="тест", installed=installed
-    )
-    inside = await storage.inside(session, box)
-    await world.grant_item(session, inside, liquid_name, amount=amount, quality=60, origin="тест")
-    return box
-
-
-async def _held(session: AsyncSession, box: Item) -> float:
-    return sum(amount_float(one.amount) for one in await storage.content(session, box))
-
 
 # --- where a port draws from --------------------------------------------------
 
@@ -252,7 +208,9 @@ async def test_the_reading_names_ports_lines_and_rooms(
     assert fuel_port["lines"] == [str(tank.id)]
     assert FUEL in fuel_port["liquids"]
     (air_port,) = machines[str(system.id)]["ports"]
-    assert air_port["port"] == "oxygen" and air_port["lines"] == [], "линии нет — любая"
+    assert air_port["port"] == "oxygen" and air_port["lines"] == [], (
+        "линии нет — порт ничего не берёт"
+    )
     assert machines[str(engine.id)]["node"] == connector.key
 
     vessels = {one["item"]: one for one in seen["vessels"]}
@@ -548,3 +506,60 @@ async def test_a_vessel_is_put_up_like_furniture(
     assert await ship.fuel_aboard(session, constants, catalog, vessel) == pytest.approx(5)
     _, after = await estate.slots(session, constants, connector)
     assert after == before + 1, "установленная тара занимает место"
+
+
+# --- the owner's names ------------------------------------------------------------
+
+
+async def test_an_installed_vessel_takes_a_name_and_the_reading_says_it(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """«Кислород, левый борт» in place of «Бак 2» (D-288): given at the bridge,
+    renamed, taken off with an empty name; refused too long or off the hull."""
+    vessel, body, connector = await _hull(session, constants)
+    tank = await _vessel(session, connector, TANK, AIR, 5)
+    loose = await _vessel(session, connector, CANISTER, AIR, 1, installed=False)
+
+    assert await ship.name_vessel(session, catalog, body, vessel, tank, "  Левый борт ") == (
+        "Левый борт"
+    )
+    await ship.name_vessel(session, catalog, body, vessel, tank, "Кислород, левый борт")
+    seen = await ship.lines_view(session, constants, catalog, body, vessel)
+    names = {one["item"]: one.get("name") for one in seen["vessels"]}
+    assert names[str(tank.id)] == "Кислород, левый борт"
+
+    assert await ship.name_vessel(session, catalog, body, vessel, tank, "") is None
+    seen = await ship.lines_view(session, constants, catalog, body, vessel)
+    assert "name" not in next(one for one in seen["vessels"] if one["item"] == str(tank.id))
+
+    with pytest.raises(ship.BadVesselName):
+        await ship.name_vessel(session, catalog, body, vessel, tank, "Ж" * 41)
+    with pytest.raises(ship.NotOnLine):
+        await ship.name_vessel(session, catalog, body, vessel, loose, "Запас")
+
+
+async def test_two_names_given_at_once_leave_one(
+    factory: async_sessionmaker[AsyncSession], constants: Constants, catalog: Catalog
+) -> None:
+    """The vessel's row serialises two namings: the last to write stands, and
+    nobody is handed a primary-key error for the one row a vessel may have."""
+    async with factory() as session, session.begin():
+        vessel, body, connector = await _hull(session, constants)
+        tank = await _vessel(session, connector, TANK, AIR, 5)
+        ids = (vessel.id, body.id, tank.id)
+
+    ready = asyncio.Barrier(2)
+
+    async def name(title: str) -> str | None:
+        async with factory() as db, db.begin():
+            own = await db.get(Ship, ids[0])
+            me = await db.get(Body, ids[1])
+            thing = await db.get(Item, ids[2])
+            await ready.wait()
+            return await ship.name_vessel(db, catalog, me, own, thing, title)
+
+    given = await asyncio.gather(name("Левый"), name("Правый"))
+    assert set(given) == {"Левый", "Правый"}
+    async with factory() as session:
+        named = await lines.names_of(session, [ids[2]])
+    assert named[ids[2]] in {"Левый", "Правый"}

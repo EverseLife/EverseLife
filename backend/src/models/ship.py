@@ -19,7 +19,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Float, ForeignKey, Index, Integer, Uuid, text
+from sqlalchemy import CheckConstraint, Float, ForeignKey, Index, Integer, Numeric, Uuid, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -32,6 +32,10 @@ class Ship(Base):
         Index("ix_ship_owner", "owner_identity_id"),
         Index("ix_ship_docked", "docked_node_id"),
         Index("ix_ship_held", "held_ship_id"),
+        CheckConstraint(
+            "air_grown >= 0 AND air_grown < 0.001",
+            name="air_grown_under_a_thousandth",
+        ),
         #: Partial: the sweep asks every minute for the few marks there are,
         #: and never for the many nulls (`hold.sweep`).
         Index(
@@ -88,6 +92,14 @@ class Ship(Base):
     #: clock, so a month at a Terran pier is never charged to the tanks the hour
     #: it casts off.
     air_at: Mapped[datetime] = created_column()
+    #: What the hull's hydroponic bays breathed out and a thousandth could not
+    #: yet hold (D-340): a stretch is a minute, and a small bed breathes less
+    #: than a thousandth a minute. Carried to the next stretch rather than
+    #: rounded, which would make every bed breathe a fifth more or less than
+    #: it does. Always `0 <= air_grown < 0.001`, and a check says so.
+    air_grown: Mapped[float] = mapped_column(
+        Numeric(9, 9), nullable=False, default=0, server_default="0"
+    )
 
     #: The hull in the sky (D-289): where it is and how it moves, and the
     #: moment that was true. Map units and units a day, the sky's own clock.

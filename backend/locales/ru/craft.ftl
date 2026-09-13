@@ -158,3 +158,19 @@ gear-overloaded = не унести: в руках { NUMBER($carries, minimumFra
 craft-unpowered-no-grid = станок «{ NAME($goods) }» работает от сети, а сети здесь нет: вне города рядом ставят заряженный аккумулятор
 craft-unpowered-short = станку «{ NAME($goods) }» нужно { NUMBER($need, minimumFractionDigits: 0, maximumFractionDigits: 1) } энергии, а в пуле { NUMBER($have, minimumFractionDigits: 0, maximumFractionDigits: 1) }: город без топлива стоит
 craft-unpowered-cells = станку «{ NAME($goods) }» нужно { NUMBER($need, minimumFractionDigits: 0, maximumFractionDigits: 1) } энергии, а в аккумуляторах рядом { NUMBER($have, minimumFractionDigits: 0, maximumFractionDigits: 1) }
+# Воздух на борту идёт по линиям корабля (D-340): вход берёт из тары на своей
+# линии, выход льёт в тару на своей. Порт называется жидкостью.
+craft-port-no-line = у станка «{ NAME($station) }» не проведена линия порта «{ NAME($goods) }»: на борту { $way ->
+        [in] вход берёт только из тары на своей линии
+        [vent] под небом с воздухом сбросной газ не выпускают, и льётся он только в тару на своей линии
+       *[other] выход льёт только в тару на своей линии
+    }. Линию проводят у консоли корабля
+craft-lines-not-yours = у станка «{ NAME($station) }» линии борта ведут к таре хозяина: работать по ним вправе тот, кто распоряжается отсеком
+craft-outlet-full = на линии «{ NAME($goods) }» станка «{ NAME($station) }» тара вместит ещё { NUMBER($room, minimumFractionDigits: 0, maximumFractionDigits: 1) } ед., а партия даст { NUMBER($units, minimumFractionDigits: 0, maximumFractionDigits: 1) }: освободите тару или поставьте на линию ещё одну
+# Сбросной газ (D-340): в воздух его не выпускают. На земле под небом он сгорает
+# в факельной установке узла, на борту под небом ему место только в таре на линии.
+craft-no-flare = «{ NAME($goods) }» некуда деть: под небом с воздухом сбросной газ не выпускают, { $aboard ->
+        [true] а факельной установки на корабле нет, и этот станок работает не по линиям
+       *[other] а сжигают в факельной установке — поставьте её в этом узле
+    }
+craft-flare-aboard = «{ NAME($goods) }» на борту не ставят: сбросной газ корабля идёт в тару на линии, а в пустоте — за борт

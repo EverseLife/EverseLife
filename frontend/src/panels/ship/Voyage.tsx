@@ -57,6 +57,7 @@ export function Passage({
           ? t("ui-ship-flight-star")
           : t("ui-ship-flight", { back: String(Boolean(v.flight.back)), name: v.flight.name })}
         {v.flight.planet && ` · ${planetName(v.flight.planet)}`}
+        {v.flight.via && ` · ${t("ui-ship-via", { planet: planetName(v.flight.via) })}`}
         {v.course &&
           ` · ${t("ui-ship-course-dv", { need: v.course.left.toFixed(0), have: v.dv.toFixed(0) })}`}
       </span>

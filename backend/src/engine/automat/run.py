@@ -12,6 +12,10 @@ holds every automat of the world in one transaction, so it takes no pool until
 every machine has worked, and then all of them at once in one order (`bill.pay`):
 a pool held while the next machine reached for a stack a crafter held would be
 that crafter's pool the other way round, and the two would wait on each other.
+A machine on a hull's lines (`aboard`, D-340) takes the rows of every vessel on
+its lines first, in id order, then the stacks in them -- the order a hand's pour
+takes -- and promises its energy like the rest: the hull's cells are locked by
+`bill.pay` alone.
 """
 
 from __future__ import annotations
@@ -19,8 +23,10 @@ from __future__ import annotations
 import logging
 import math
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from decimal import Decimal
+from typing import Protocol
 
 from sqlalchemy import select
 from sqlalchemy.exc import DBAPIError
@@ -29,11 +35,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Catalog, Constants, current_catalog
 from src.constants import registry as R
 from src.db.base import forget
-from src.engine import events, fuel_plant, liquid, stock, wear, world
+from src.engine import events, fuel_plant, liquid, stock, vent, wear, world
+from src.engine.automat import aboard
 from src.engine.automat import bill as energy_bill
 from src.engine.automat._base import _EPS, LUBE
 from src.engine.automat.wire import _chain_order
 from src.engine.craft import Procedure, Unmakeable, procedure
+from src.engine.ship import lines
 from src.models.automat import Automat as AutomatRow
 from src.models.automat import AutomatLink
 from src.models.event import EventKind
@@ -65,6 +73,11 @@ async def advance(
     node's vessels, energy in the pool (or the batteries), inputs on the
     yard, and -- for a liquid output -- room in a vessel. None is an error:
     these are the enterprise's obligations, exactly as with the rig.
+
+    And a door before all four (D-340): a recipe that gives off a vent gas
+    works only where the gas has somewhere safe to go -- out where there is
+    no air outside, the node's flare stack where there is. Nowhere, and the
+    machine stands for the whole stretch with the reason kept on its row.
 
     With a `tab` (the tick, which took the row already) the energy is not
     drawn but asked for without a lock and written down as a bill, for the
@@ -131,6 +144,42 @@ async def advance(
         await session.flush()
         return 0.0
 
+    #: Aboard, the air machine works through the hull's lines, not off its
+    #: room (D-288, D-340): the same four limiters, other vessels.
+    plumbed = await lines.plumbing_of(session, constants, book, machine, proc.output)
+    if plumbed is not None:
+        return await aboard.advance_on_lines(
+            session,
+            constants,
+            book,
+            row,
+            machine,
+            node,
+            yard,
+            proc,
+            plumbed,
+            hours=hours,
+            unit_hours=unit_hours,
+            now=moment,
+            tab=tab,
+        )
+    #: The vent gas first (D-340), before a limiter is counted: a machine
+    #: whose hydrogen has nowhere safe to go works nothing -- it is never made
+    #: and then let out into the air. The reason is kept on the row and
+    #: told once; a flare put up, and the next stretch runs and clears it.
+    #: Off the lines means on the ground: aboard every air machine is plumbed
+    #: (`lines.plumbed_for`), and a second vent-gas recipe worked off the
+    #: lines aboard would need words of its own rather than "no flare".
+    gases = vent.gases_of(book, proc.output)
+    if gases and await vent.sink(session, node) is None:
+        await _stand(session, row, machine, next(iter(gases)))
+        row.counted_at = moment
+        await session.flush()
+        return 0.0
+    #: Working: a reason left from before -- a flare since put up, a
+    #: reprogramming -- says nothing true any more.
+    row.stall = None
+
     #: Everything the advance will touch, taken in ONE query and one lock
     #: order (stock.py: "one query and one lock order, never two"): the
     #: lubricant and every input, off the yard and the vessels in it. Split
@@ -167,10 +216,15 @@ async def advance(
     room_units = math.inf
     if is_liquid_out:
         unit_mass = book.recipes.mass_of(proc.output)
-        room = 0.0
-        for vessel in await liquid.vessels_in(session, book, yard):
-            room += await liquid.free_in(session, book, vessel)
-        room_units = (room / unit_mass) if unit_mass > 0 else math.inf
+        #: Only the vessels that take this liquid (D-288): a tank of water in
+        #: the yard is no room for spirit, and counting it poured the next
+        #: stretch's output onto the floor as a spill every tick.
+        vessels = await liquid.vessels_in(session, book, yard)
+        room_units = (
+            await liquid.room_in(session, book, vessels, proc.output, lock=False)
+            if unit_mass > 0
+            else math.inf
+        )
     room_hours = max(0.0, (room_units - backlog) * unit_hours) if is_liquid_out else hours
 
     worked = max(0.0, min(hours, lube_hours, input_hours, room_hours))
@@ -188,6 +242,10 @@ async def advance(
             bill = await energy_bill.promise(
                 session, constants, row, node, worked, energy_rate, now=moment, tab=tab
             )
+            if bill is not None and lube_rate > 0 and amount(lube_rate * bill.hours) <= 0:
+                #: A sliver the lubricant cannot be measured for is no work:
+                #: hours that burn nothing are not hours (D-339 p. 8).
+                bill = None
             worked = 0.0 if bill is None else bill.hours
 
     produced = 0.0
@@ -231,10 +289,47 @@ async def advance(
     return produced
 
 
+class Member(Protocol):
+    """Another member of the automat family (the field automaton, D-339): its
+    machines' demand counted with the automats' before the pass, and its
+    machines worked onto the pass's tab after them, before the one draw. Both
+    are called once a run -- again when the pass runs again."""
+
+    async def ask(
+        self, session: AsyncSession, constants: Constants, tab: energy_bill.Tab, now: datetime
+    ) -> None: ...
+
+    async def work(
+        self, session: AsyncSession, constants: Constants, tab: energy_bill.Tab, now: datetime
+    ) -> None: ...
+
+
+async def _stand(session: AsyncSession, row: AutomatRow, machine: Item, gas: str) -> None:
+    """Keep the reason the machine stands for its vent gas, and tell whoever
+    programmed it when the reason appears -- once, not every tick it lasts."""
+    if row.stall == vent.FLARE:
+        return
+    row.stall = vent.FLARE
+    await events.record(
+        session,
+        EventKind.AUTOMAT_NO_FLARE,
+        actor_identity_id=row.owner_identity_id,
+        node_id=row.node_id,
+        automat=str(row.id),
+        item_id=str(machine.id),
+        machine=machine.type_key,
+        goods=gas,
+    )
+
+
 async def tick_automats(
-    session: AsyncSession, constants: Constants, *, now: datetime | None = None
+    session: AsyncSession,
+    constants: Constants,
+    *,
+    now: datetime | None = None,
+    members: Sequence[Member] = (),
 ) -> float:
-    """Advance all automats of the world.
+    """Advance all automats of the world -- and the family's `members` on the same tab.
 
     The machine does not sleep -- that is its whole strength. Within a node
     the wires set the order (D-253 wave 5): a producer advances before the
@@ -258,6 +353,14 @@ async def tick_automats(
     owner more and the runs end -- while the tariff holds still: one raised
     between a forecast that saw it free and the draw costs one run more, and
     the run after it reads the new tariff at its forecast.
+
+    **One tab for the family.** Two passes of promises over one pool, each
+    blind to the other's, would both promise its last hour, and "a pool drunk
+    after the forecast keeps the hours" would then pay the second pass's work
+    every minute rather than forgive a crafter's rare one (the owner,
+    2026-09-13, `20-systems/12-energy.md`). So the other members promise
+    against this pass's tab and are drawn with it, and a moved purse sends them
+    back with it.
     """
     moment = now or datetime.now(UTC)
     rows = (await session.execute(select(AutomatRow).order_by(AutomatRow.id))).scalars().all()
@@ -268,8 +371,8 @@ async def tick_automats(
     while True:
         try:
             async with session.begin_nested():
-                return await _pass(session, constants, order, barred, now=moment)
-        except _PurseMoved as moved:
+                return await _pass(session, constants, order, barred, now=moment, members=members)
+        except PurseMoved as moved:
             barred |= moved.owners
             _forget_the_run(session)
             log.info(
@@ -278,8 +381,11 @@ async def tick_automats(
             )
 
 
-class _PurseMoved(Exception):
-    """A purse the forecast found full could not pay the draw: the pass goes back."""
+class PurseMoved(Exception):
+    """A purse the forecast found full could not pay the draw: the pass goes back.
+
+    The family's one word for it: the field automaton's command, a pass of one,
+    goes back on it as well (`agro.run.advance`)."""
 
     def __init__(self, owners: set[uuid.UUID]) -> None:
         super().__init__(owners)
@@ -293,6 +399,7 @@ async def _pass(
     barred: set[uuid.UUID],
     *,
     now: datetime,
+    members: Sequence[Member] = (),
 ) -> float:
     """One run over every machine, the energy drawn at its end. Returns the units paid out.
 
@@ -310,6 +417,11 @@ async def _pass(
     """
     #: A purse that already failed a draw this tick pays nothing in the rerun.
     tab = energy_bill.Tab(purses=dict.fromkeys(barred, 0))
+    #: The whole family's demand first, so a supply short of it is shared out
+    #: alike (`bill.promise`) whatever the order the machines work in.
+    await _ask(session, constants, tab, now)
+    for member in members:
+        await member.ask(session, constants, tab, now)
     made = 0.0
     for row_id in order:
         owed = len(tab.bills)
@@ -335,11 +447,59 @@ async def _pass(
             _forget_the_run(session)
             log.exception("automat %s: the advance failed and was passed over", row_id)
             continue
+        finally:
+            #: Its turn is over, whatever it took: what it left goes to the next.
+            energy_bill.settle(tab, row_id)
         made += paid
+    await _members(session, constants, members, tab, now)
     refused = await energy_bill.pay(session, constants, tab.bills, now=now)
     if refused:
-        raise _PurseMoved(refused)
+        raise PurseMoved(refused)
     return made
+
+
+async def _ask(
+    session: AsyncSession, constants: Constants, tab: energy_bill.Tab, now: datetime
+) -> None:
+    """Every programmed automat's hours since its count, at the rate, on its
+    supply's demand -- read, not locked, before any stack is: the promise that
+    follows reads the supply the same way."""
+    rate = constants[R.AUTO_ENERGY_PER_HOUR]
+    rows = (
+        await session.execute(
+            select(AutomatRow.id, Node, AutomatRow.counted_at)
+            .join(Node, Node.id == AutomatRow.node_id)
+            .join(Item, Item.id == AutomatRow.item_id)
+            .where(AutomatRow.recipe_key.is_not(None), Item.installed.is_(True))
+        )
+    ).all()
+    for row_id, node, counted_at in rows:
+        hours = max(0.0, (now - counted_at).total_seconds() / SECONDS_PER_HOUR)
+        await energy_bill.ask(session, tab, row_id, node, rate * hours)
+
+
+async def _members(
+    session: AsyncSession,
+    constants: Constants,
+    members: Sequence[Member],
+    tab: energy_bill.Tab,
+    now: datetime,
+) -> None:
+    """The family's other members on the pass's tab, each in a savepoint of its
+    own: one that fails gives back what it promised and is passed over, and the
+    world's factories and the rest of the family go on -- as one machine that
+    fails does not stop the others."""
+    for member in members:
+        owed = len(tab.bills)
+        try:
+            async with session.begin_nested():
+                await member.work(session, constants, tab, now)
+        except Exception as failure:  # noqa: BLE001 -- one member must not stop the world's factories
+            if isinstance(failure, DBAPIError) and failure.connection_invalidated:
+                raise
+            tab.keep(owed)
+            _forget_the_run(session)
+            log.exception("automats: a member of the family failed and was passed over")
 
 
 def _forget_the_run(session: AsyncSession) -> None:
@@ -411,3 +571,21 @@ async def _pay_out(
             )
     else:
         await world.stack_up(session, fresh)
+    #: The byproduct (D-340). A liquid one is a vent gas, and the advance let
+    #: the stretch run only where it has a way out of the place -- out where
+    #: there is no air, the node's flare where there is -- so it goes there
+    #: and never into the yard's vessels: poured into an empty one it would
+    #: claim it for good, and the next stretch's oxygen would find no room
+    #: (review 2026-09-13). One that is not a liquid lands with the output.
+    for name, per in book.byproduct_of(proc.output).items():
+        if book.is_liquid(name):
+            continue
+        extra = Item(
+            container_id=yard.id,
+            type_key=name,
+            amount=amount(per * paid),
+            quality=Decimal(str(quality)),
+        )
+        session.add(extra)
+        await session.flush()
+        await world.stack_up(session, extra)

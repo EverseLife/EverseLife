@@ -14,8 +14,10 @@ from decimal import Decimal
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src import i18n
 from src.constants import Constants
 from src.engine import energy, frost, world
+from src.engine.errors import Refusal
 from src.models.identity import Body
 from src.models.world import Layer, Node, Planet
 
@@ -83,3 +85,20 @@ async def _charge(session: AsyncSession, constants: Constants, node: Node, store
 
 def _ago(hours: float) -> datetime:
     return datetime.now(UTC) - timedelta(hours=hours)
+
+
+def _speaks_its_climate(refused: Refusal) -> None:
+    """The refusal carries a climate, and the sentence turns on it in every language.
+
+    Checked against the other climate's rendering rather than against words:
+    the wording is the locale's to change (D-251 III), while a branch that
+    fell into the default -- a typo in `[heat]`, a selector nobody passes --
+    renders both climates alike, and that is the defect.
+    """
+    assert refused.key is not None
+    own = refused.params["weather"]
+    other = frost.FROST if own == frost.HEAT else frost.HEAT
+    for locale in i18n.LOCALES:
+        said = i18n.render(refused.key, refused.params, locale=locale)
+        swapped = i18n.render(refused.key, {**refused.params, "weather": other}, locale=locale)
+        assert said != swapped, f"{refused.key}: {locale} says the same on {own} and {other}"
