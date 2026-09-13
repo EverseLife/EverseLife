@@ -4,10 +4,11 @@
 """Two transactions at once over a thing that went, or changed, while a hand reached.
 
 One of the race files (see `test_races.py` for the family's method): here the
-contended thing is a thing lying on the floor of nobody's land (D-198, D-204)
--- a sack, a chest, a canister -- and the question each door asks of it: where
-it lies and what it weighs. Both are asked of the row **after** its lock, and
-the races come in pairs of who goes first:
+contended thing is a thing lying on a floor anybody inside may pick up from
+(D-204) -- a sack, a chest, a canister on nobody's land (D-198), a machine on
+the floor of a house -- and the questions each door asks of it: where it lies,
+whether it stands and what it weighs. They are asked of the row **after** its
+lock, and the races come in pairs of who goes first:
 
 * a fill goes first -- the lift weighs the canister as the fill left it
   (D-230, D-313), or the hands walk off past their limit (D-146);
@@ -16,7 +17,10 @@ the races come in pairs of who goes first:
   hands;
 * a fire goes first (`plates._burn`) -- a pour or an output into a canister
   burnt with its yard must find it gone, not open a new inside for a thing
-  that no longer exists and pour the liquid out of the world unsaid.
+  that no longer exists and pour the liquid out of the world unsaid;
+* a put-up goes first (`station.place`) -- a guest's lift must find the
+  machine standing, not unbolt it into the guest's hands past the one door
+  that asks whose the place is (D-278, D-308).
 
 The handshake is `automat_kit._until_blocked_by`: the side that went first
 keeps its transaction open, holding the contended row, and commits only once
@@ -35,16 +39,19 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from automat_kit import _until_blocked_by
 from gone_kit import _burning, _lifting
 from src.constants import Catalog, Constants
-from src.engine import gear, liquid, storage, world
+from src.engine import gear, liquid, station, storage, world
+from src.models.estate import Building
 from src.models.identity import Body
 from src.models.inventory import Container, Item
-from src.models.world import Node
+from src.models.world import Layer, Node
 from src.units import amount_float
 
 ORE = "iron_ore"
 WATER = "water"
 CANISTER = "canister"
 CHEST = "chest"
+#: A machine a pair of hands can lift, and one put up from the floor (D-278).
+BENCH = "workbench"
 
 #: Kilograms: of water in the canister on the floor, of water the fill brings,
 #: and of room the lifter's hands keep for the canister beyond what it holds
@@ -588,3 +595,71 @@ async def test_a_pour_into_a_canister_burnt_with_the_yard_is_refused(
     assert poured.key == "thing-gone", poured.key
     assert await _water_in(factory, source_id) == pytest.approx(POURED_KG / per_water)
     assert await _insides_of(factory, canister_id) == []
+
+
+async def test_a_machine_put_up_before_the_lift_is_not_picked_off_the_floor(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    constants: Constants,
+    catalog: Catalog,
+) -> None:
+    """What stands is taken down by whoever may dispose of the place, not lifted by a guest.
+
+    The holder puts a workbench up off the floor of the house and keeps the
+    transaction open, holding its row. A guest -- let in, so the floor is
+    theirs to pick from (D-204) -- sees the bench still lying and walks into
+    the row. The put-up commits. Judged by the sight from before the wait, the
+    pick went on, and the move, which unbolts what it moves, carried the
+    standing machine out of the house into the guest's hands: past the taking
+    down (D-278, D-308) that asks whose the place is, and for a rig past the
+    hopper it asks about (D-314). After the lock the bench stands.
+    """
+    stamp = uuid.uuid4().hex[:8]
+    node = await world.create_node(
+        session, f"terra.gone.{stamp}", "House", area_m2=400, layer=Layer.PLANET
+    )
+    holder = await world.create_identity(session, f"Holder-{stamp}")
+    node.owner_identity_id = holder.id
+    session.add(Building(node_id=node.id, area_m2=20, footprint_m2=20, floors=1))
+    await session.flush()
+    owner = await world.print_body(session, holder, node)
+    guest = await world.print_body(
+        session, await world.create_identity(session, f"Guest-{stamp}"), node
+    )
+    bench = await world.grant_item(
+        session, await world.body_container(session, owner), BENCH, quality=60, origin="test"
+    )
+    await storage.drop(session, constants, catalog, owner, bench, indoors=True)
+    floor = (await world.node_container(session, node)).id
+    owner_id, guest_id, bench_id = owner.id, guest.id, bench.id
+    await session.commit()
+
+    held = asyncio.Event()
+
+    async def put_up() -> None:
+        async with factory() as db, db.begin():
+            me = await db.get(Body, owner_id)
+            thing = await db.get(Item, bench_id)
+            assert me is not None and thing is not None
+            await station.place(db, catalog, me, thing)
+            held.set()
+            await _until_blocked_by(factory, db)
+
+    async def reach() -> float:
+        await held.wait()
+        async with factory() as db, db.begin():
+            me = await db.get(Body, guest_id)
+            thing = await db.get(Item, bench_id)
+            assert me is not None and thing is not None
+            return await storage.pick(db, constants, catalog, me, thing)
+
+    placed, reached = await asyncio.gather(put_up(), reach(), return_exceptions=True)
+
+    assert placed is None, placed
+    assert isinstance(reached, storage.StorageError), reached
+    assert reached.key == "storage-standing", reached.key
+    async with factory() as db:
+        thing = await db.get(Item, bench_id)
+        assert thing is not None
+        assert thing.container_id == floor, "the bench stayed in the house"
+        assert thing.installed, "and stands"
