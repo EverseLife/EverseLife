@@ -21,7 +21,6 @@ import {
   WX_LIFE_SLICES,
   WX_MIX,
   WX_OCTAVE_2,
-  WX_SEA_WET,
   WX_SHEAR_DEG,
   WX_SIZE_MAX,
   WX_SIZE_MIN,
@@ -239,14 +238,15 @@ const smoothstep = (lo: number, hi: number, x: number) => {
 };
 
 /** The ground under a sky: its annual rain share (the raster, nought to
- *  one) and whether it is the sea -- whose rain share is a hole in the
- *  raster, not a measure. */
-export type Ground = { rain01: number; sea: boolean };
+ *  one), whether it is the sea -- whose rain share is a hole in the raster,
+ *  not a measure -- and what the sea reads instead: the land's mean share
+ *  (`passport.sea_wet`, the engine's `Field.land_rain`). */
+export type Ground = { rain01: number; sea: boolean; seaWet: number };
 
-/** The rain share the sky is stretched by: the ground's own, or the neutral
- *  half over the sea. */
+/** The rain share the sky is stretched by: the ground's own, or the land's
+ *  mean over the sea -- so no coast is drawn by the clouds. */
 export function skyWetness(ground: Ground): number {
-  return ground.sea ? WX_SEA_WET : ground.rain01;
+  return ground.sea ? ground.seaWet : ground.rain01;
 }
 
 /** The weather at a point: how clouded the sky is and how hard it rains,

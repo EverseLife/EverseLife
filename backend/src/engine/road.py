@@ -449,7 +449,9 @@ async def view(session: AsyncSession, constants: Constants, body: Body) -> list[
                 "to": biome.word_of(constants, other),
                 "surface": edge.surface.value,
                 "condition": float(edge.condition),
-                "seconds": round(travel.edge_seconds(constants, edge)),
+                #: The way as laid (D-338): what a road would cut is the
+                #: surface's, and the season's snow is the walk's.
+                "seconds": round(travel.edge_seconds(constants, edge, snow=0.0)),
                 "next": further,
                 "needs": need_amount,
                 "mend_needs": resurface,

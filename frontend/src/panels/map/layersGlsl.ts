@@ -46,26 +46,29 @@ export const LAYERS_GLSL = `
   //: the water alone): the ground by the drying law of D-296
   //: (farm.life.dry_rate), read off the rasters the fragment already
   //: holds and the law's numbers off the book (shade.dryLaw). The pace a
-  //: bed dries at, against the reference: every degree over u_dry.w adds
-  //: u_dry.z of it, the rain closes up to u_dry.x of it, and water within
-  //: reach leaves u_dry.y of it -- "within reach" by the river raster,
+  //: bed dries at, against the reference: every degree over u_dry.z adds
+  //: u_dry.y of it, and water within reach leaves u_dry.x of it -- "within
+  //: reach" by the river raster,
   //: the engine's own metres to the nearest river or lake (terrain.marks_at
   //: against terrain.river_reach_km), with a cell's soft edge; a byte of
   //: metres saturates at 255, and past that the ground is far from water
   //: for any reach the vault has set. One minus the pace, against the
   //: fastest the planet has -- bare ground at its hottest (u_temp_hot) --
   //: so the ramp runs over the whole planet and not over its cold half
-  //: alone: the wet end is the bed that keeps what was poured. The water
-  //: itself stays water, in the theme's own tones, as the biome layer
-  //: draws it. shade.moistureOf is this arithmetic in TypeScript, for the
-  //: tests.
-  float heat = max(0.0, 1.0 + u_dry.z * (t_now - u_dry.w));
+  //: alone: the wet end is the bed that keeps what was poured. Where it
+  //: rains now the ground reads at least as wet as the rain is strong
+  //: (D-338: the rain waters it; the year's rainfall is no longer in the
+  //: pace). The water itself stays water, in the theme's own tones, as the
+  //: biome layer draws it. shade.moistureOf is this arithmetic in
+  //: TypeScript, for the tests.
+  float heat = max(0.0, 1.0 + u_dry.y * (t_now - u_dry.z));
   float river_m = textureLod(u_river, uv, lod).r * 255.0;
   float beside = 1.0 - smoothstep(u_reach_m, u_reach_m + u_step, river_m);
-  float pace = heat * (1.0 - u_dry.x * rain01) * mix(1.0, u_dry.y, beside);
-  float fastest = max(1.0 + u_dry.z * (u_temp_hot - u_dry.w), 0.05);
+  float pace = heat * mix(1.0, u_dry.x, beside);
+  float fastest = max(1.0 + u_dry.y * (u_temp_hot - u_dry.z), 0.05);
+  float soil = max(clamp(1.0 - pace / fastest, 0.0, 1.0), rain_now);
   vec3 water_flat = mix(u_lake, u_sea_deep, h >= 0.0 ? 0.0 : clamp(-h / u_deep, 0.0, 1.0));
-  vec3 moist_col = mix(rampMoist(clamp(1.0 - pace / fastest, 0.0, 1.0)) * legend_tone, water_flat, min(1.0, wet * LEGEND_WET_EDGE));
+  vec3 moist_col = mix(rampMoist(soil) * legend_tone, water_flat, min(1.0, wet * LEGEND_WET_EDGE));
   //: The weather layer (D-335): the hour's rain on its ramp, the clouds
   //: as a haze over it -- a legend, lit like one.
   vec3 wx_col = mix(rampWeather(rain_now) * legend_tone, CLOUD_TONE * legend_tone, cloud * WX_HAZE);

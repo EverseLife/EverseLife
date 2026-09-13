@@ -31,6 +31,7 @@ craft-not-enough = not enough “{ NAME($goods) }”: { $short } more needed
 craft-item-not-in-hands = the item is not in hand: you repair and dismantle your own, not another's
 
 craft-no-place = not here: { NAME($place) }
+craft-build-on-ice = “{ NAME($goods) }” is never put up on an ice field: the ice creeps and cracks under its footing
 craft-place-not-yours = { NAME($place) } stands on another's land: only the owner may fell it
 
 craft-no-station = the node has no working “{ NAME($station) }” station

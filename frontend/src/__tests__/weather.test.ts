@@ -29,7 +29,6 @@ import {
   WX_LIFE_SLICES,
   WX_MIX,
   WX_OCTAVE_2,
-  WX_SEA_WET,
   WX_SIZE_MAX,
   WX_SIZE_MIN,
   WX_TEX_FLOOR,
@@ -56,7 +55,7 @@ describe("the weather", () => {
 
   it("is the engine's own law to the last bit of the hash (D-335)", () => {
     //: The numbers the engine prints for the same corners and the same
-    //: points (`climate._wx_hash`, `climate.weather_cover` on a law of a
+    //: points (`src/weather.py`: `_wx_hash`, `weather_cover` on a law of a
     //: cell of 3 km on a radius of 12 km): the two repositories cannot
     //: import each other, and they meet here.
     expect(wxHash(3, -7, 12, 5)).toBeCloseTo(0.4038313031196594, 12);
@@ -116,8 +115,8 @@ describe("the weather", () => {
   });
 
   it("gates the cover to cloud and to rain, stretched by the ground's own rain", () => {
-    const wet = weatherAt(law, 32.66, -105.56, { rain01: 1, sea: false }, 0);
-    const dry = weatherAt(law, 32.66, -105.56, { rain01: 0, sea: false }, 0);
+    const wet = weatherAt(law, 32.66, -105.56, { rain01: 1, sea: false, seaWet: 0.36 }, 0);
+    const dry = weatherAt(law, 32.66, -105.56, { rain01: 0, sea: false, seaWet: 0.36 }, 0);
     expect(wet.cloud).toBeGreaterThanOrEqual(dry.cloud);
     expect(wet.rain).toBeGreaterThanOrEqual(dry.rain);
     for (const v of [wet.cloud, wet.rain, dry.cloud, dry.rain]) {
@@ -125,13 +124,17 @@ describe("the weather", () => {
       expect(v).toBeLessThanOrEqual(1);
     }
     //: No book, no weather: nothing is clouded, nothing rains.
-    expect(weatherAt(WEATHER_FALLBACK, 10, 10, { rain01: 1, sea: false }, 5)).toEqual({ cloud: 0, rain: 0 });
+    expect(weatherAt(WEATHER_FALLBACK, 10, 10, { rain01: 1, sea: false, seaWet: 0.36 }, 5)).toEqual({
+      cloud: 0,
+      rain: 0,
+    });
     expect(weatherLaw(null, 12_000)).toBe(WEATHER_FALLBACK);
     //: The sea's rain share is a hole in the raster, not a measure: the sky
-    //: over it reads the neutral half, whatever the raster says.
-    expect(skyWetness({ rain01: 0, sea: true })).toBe(WX_SEA_WET);
-    expect(weatherAt(law, 10, 10, { rain01: 0, sea: true }, 0).cloud).toBeCloseTo(
-      weatherAt(law, 10, 10, { rain01: 0.5, sea: false }, 0).cloud,
+    //: over it reads the land's mean, whatever the raster says -- so a sea
+    //: is as cloudy as the land about it on the whole, and no coast is drawn.
+    expect(skyWetness({ rain01: 0, sea: true, seaWet: 0.36 })).toBe(0.36);
+    expect(weatherAt(law, 10, 10, { rain01: 0, sea: true, seaWet: 0.36 }, 0).cloud).toBeCloseTo(
+      weatherAt(law, 10, 10, { rain01: 0.36, sea: false, seaWet: 0.9 }, 0).cloud,
       12,
     );
   });
@@ -144,14 +147,16 @@ describe("the weather", () => {
     //: the TypeScript law is built of are the ones the shader carries.
     for (const k of WX_HASH) expect(WEATHER_GLSL).toContain(`${k}u`);
     expect(WEATHER_GLSL).toContain(`${WX_MIX}u`);
-    expect(WEATHER_GLSL).toContain(`const float WX_SEA_WET = ${WX_SEA_WET.toFixed(2)};`);
     expect(WEATHER_GLSL).toContain(`${(1 - WX_OCTAVE_2).toFixed(2)} * wxNoise2(u, sid, 21)`);
     expect(WEATHER_GLSL).toContain(`${WX_SIZE_MIN.toFixed(2)} + ${(WX_SIZE_MAX - WX_SIZE_MIN).toFixed(2)} * wxHash`);
     expect(WEATHER_GLSL).toContain("void wxSky(vec3 p, out float cover, out float grain)");
     expect(WEATHER_GLSL).toContain("float wxShear(float lat)");
     expect(WEATHER_GLSL).toContain("* u_wx_gain");
     expect(FRAGMENT).toContain("float cover = clamp(wxCover(here) * (1.0 + u_wx_bias * (2.0 * wet_here - 1.0)), 0.0, 1.0);");
-    expect(FRAGMENT).toContain("float wet_sky = h_sky < 0.0 ? WX_SEA_WET : textureLod(u_rain, uv_sky, lod_sky).r;");
+    expect(FRAGMENT).toContain("float wet_sky = h_sky < 0.0 ? u_wx_sea_wet : textureLod(u_rain, uv_sky, lod_sky).r;");
+    expect(FRAGMENT).toContain("float wet_here = h < 0.0 ? u_wx_sea_wet : rain01;");
+    expect(FRAGMENT).toContain("uniform float u_wx_sea_wet;");
+    expect(FRAGMENT).not.toContain("WX_SEA_WET");
     expect(FRAGMENT).toContain("wxSky(sky, raw_sky, fine);");
     expect(FRAGMENT).toContain("smoothstep(CLOUD_NEAR_MPX, CLOUD_FAR_MPX, u_units / UNITS_PER_METRE) * u_clouds");
     expect(FRAGMENT).toContain("tone *= 1.0 - CLOUD_SHADE * cloud_over * far_sky * smoothstep(0.0, TWILIGHT, high) * u_sunlit;");
@@ -166,7 +171,7 @@ describe("the weather", () => {
     //: The temperature layer and the soil's moisture read the moment's
     //: temperature now (D-334), not the year's mean.
     expect(FRAGMENT).toContain("clamp((t_now - u_temp_cold)");
-    expect(FRAGMENT).toContain("u_dry.z * (t_now - u_dry.w)");
+    expect(FRAGMENT).toContain("u_dry.y * (t_now - u_dry.z)");
   });
 });
 

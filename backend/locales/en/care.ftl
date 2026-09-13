@@ -3,7 +3,7 @@
 #
 # The words of care (D-296): agronomy is a text assembled from the crop's
 # data. Read in the Library, remembered into the "knowledge" tab, retold.
-# The numbers come from the vault -- the moisture band, the feeding table,
+# The numbers come from the vault -- the moisture and warmth bands, the feeding table,
 # the hardiness -- so the text cannot lie after a retune.
 #
 # The crop's and the fertilizer's names stand in the nominative (D-258): the
@@ -23,6 +23,7 @@ care-feeding-row = “{ NAME($goods) }” { $stage ->
        *[fill] at filling
     }
 care-feeding-none = It takes no feeding: any fertilizer burns it.
+care-warmth = Warmth: { $min }…{ $max }°. Colder, it stops growing and the cold harms it; hotter, it keeps growing but the heat harms it.
 care-hardiness = Hardiness: { $hardiness } of 5.
 care-crowd = Fear of crowding: { $risk } of 5. Thinning lifts the crowding but takes its own share of the harvest — and only { $until ->
         [sprout] at sprouting

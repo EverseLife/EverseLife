@@ -316,14 +316,14 @@ async def test_climate_gates_the_sowing(
     plot = await farm.mark(session, constants, cold, name="мерзлота", area=10)
     plot.state = PlotState.PLOWED
     node = await session.get(Node, plot.node_id)
-    node.properties = {**node.properties, "temperature": plant.requires.temp["min"] - 1}
+    node.properties = {**node.properties, "temperature": plant.requires.temp.min - 1}
     await session.flush()
     seeds = await _grain(session, cold, catalog, SPELT)
     with pytest.raises(farm.WrongClimate):
         await farm.sow(session, constants, catalog, cold, plot, seeds)
 
     #: The same mean would pass a gate on the mean alone: the band does not fit.
-    node.properties = {**node.properties, "temperature": plant.requires.temp["max"] - swing + 1}
+    node.properties = {**node.properties, "temperature": plant.requires.temp.max - swing + 1}
     await session.flush()
     with pytest.raises(farm.WrongClimate):
         await farm.sow(session, constants, catalog, cold, plot, seeds)

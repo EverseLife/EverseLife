@@ -417,9 +417,12 @@ function sync(
   gl.uniform1f(at("u_temp_step"), passport.temperature_c.step);
   gl.uniform1f(at("u_temp_cold"), passport.temperature_c.cold);
   gl.uniform1f(at("u_temp_hot"), passport.temperature_c.hot);
+  //: What the sky over the sea is stretched by: the land's mean rain share,
+  //: the engine's own number (owner, 2026-09-13).
+  gl.uniform1f(at("u_wx_sea_wet"), passport.sea_wet);
   //: The drying law for the moisture layer (D-331 addendum): off the book,
   //: with the reach in metres, read against the river raster.
-  gl.uniform4f(at("u_dry"), law.offset, law.share, law.perDegree, law.ref);
+  gl.uniform3f(at("u_dry"), law.share, law.perDegree, law.ref);
   gl.uniform1f(at("u_reach_m"), law.reachM);
   program.synced = { planet, palette, highFrom, law, grains };
   return true;

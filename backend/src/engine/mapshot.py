@@ -205,7 +205,9 @@ def edge_row(constants: Constants, edge: Edge, by_key: dict[uuid.UUID, str]) -> 
         "a": by_key[edge.node_a_id],
         "b": by_key[edge.node_b_id],
         "surface": edge.surface.value,
-        "seconds": round(travel.edge_seconds(constants, edge)),
+        #: The edge's own time, without the season's snow (D-338): the map
+        #: shows the way as laid, and the snow is the walk's to say (exits).
+        "seconds": round(travel.edge_seconds(constants, edge, snow=0.0)),
     }
 
 

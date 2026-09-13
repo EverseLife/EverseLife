@@ -80,15 +80,16 @@ function Told({
     .filter((word): word is string => Boolean(word))
     .join(" · ");
   //: The soil's moisture by the same law the map's layer is drawn by
-  //: (`shade.moistureOf`, D-296): the rain and the water are the peek's,
-  //: the planet's hot end the passport's.
+  //: (`shade.moistureOf`, D-296): the water is the peek's, the planet's
+  //: hot end the passport's. No rain: the survey tells a place, not a
+  //: moment, and the rain that waters it comes and goes (D-338).
   const law = dryLaw(book?.constants);
   const moisture = moistureOf(
     law,
     peek.temperature_c,
-    peek.rain / 100,
     peek.water === "none" ? 0 : 1,
     passport?.temperature_c.hot ?? peek.temperature_c,
+    0,
   );
   //: One message a mark -- the word and its chance are the language's to
   //: order -- and the list joined by the dot, D-258's third lawful place.

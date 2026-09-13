@@ -288,6 +288,7 @@
   --biome-foothills: light-dark(#aea77c, #7d7858);
   --biome-alpine: light-dark(#b8b8b2, #8c8c88);
   --biome-ice: light-dark(#eef2f6, #d6dde6);
+  --biome-snow: light-dark(#e2e6ea, #c3c9d0);
   --biome-cinder: light-dark(#6a6360, #3d3937);
 }
 

@@ -177,7 +177,7 @@ export function nodeGlyph({ emblem, features, settlement, port, moored }: NodeFa
   if (signs.has("woods")) return "forest";
   if (signs.has("marsh")) return "reed";
   if (signs.has("desert")) return "dune";
-  if (signs.has("ice") || signs.has("tundra")) return "snow";
+  if (signs.has("ice") || signs.has("snow") || signs.has("tundra")) return "snow";
   if (signs.has("cinder")) return "warmth";
   if (signs.has("taiga")) return "forest";
   if (signs.has("meadow") || BARE_BIOMES.some((name) => signs.has(name))) return "glade";

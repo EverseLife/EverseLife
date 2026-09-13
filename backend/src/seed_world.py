@@ -188,8 +188,8 @@ def _city_name(node: dict) -> str | None:
         #: (`test_no_decision_codes`), and the decision belongs in the
         #: docstring above, where it already is.
         raise RuntimeError(
-            f"узел «{node.get('key')}»: в `city` не имя города, а {title!r} — "
-            "городом помечает имя, а не галочка"
+            f"node {node.get('key')!r}: `city` holds {title!r} rather than a city's "
+            "name -- a node is marked a city by its name, not by a flag"
         )
     return title
 

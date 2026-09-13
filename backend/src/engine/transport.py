@@ -143,13 +143,19 @@ def heavy(constants: Constants, type_key: str) -> bool:
     return capacity(constants, type_key) >= constants[R.TRANSPORT_HEAVY_FROM]
 
 
+#: The off-road: the wild and the trail. No vehicle passes it (D-107), and
+#: the season's snow lengthens it (D-338, `travel.snow_multiplier`) -- a road
+#: is a road because it is laid and kept clear.
+OFF_ROAD = frozenset({Surface.WILD, Surface.TRAIL})
+
+
 def passable(constants: Constants, surface: Surface, type_key: str) -> bool:
     """Whether such a vehicle passes over such a surface (D-107).
 
     Neither the wild nor a trail: a trail is feet's work (D-319), and a road
     as work would mean nothing if a cart could follow the feet.
     """
-    if surface in (Surface.WILD, Surface.TRAIL):
+    if surface in OFF_ROAD:
         return False
     if surface is Surface.PAVED:
         return True
