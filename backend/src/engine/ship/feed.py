@@ -264,6 +264,10 @@ async def view(
 
     return {
         "ship": str(ship.id),
+        #: Whether the reader may redraw what they read: the scheme window
+        #: reads nothing else, and a crew member is shown the plumbing without
+        #: the handles the engine would refuse them (`_commanded_by`).
+        "yours": ship.owner_identity_id == body.identity_id,
         #: The compartments in laying order (`nodes_of` is that order): the
         #: lanes of the scheme. Only key and name -- the rest is the plan's.
         "rooms": [{"node": node.key, "node_name": node.name} for node in nodes],

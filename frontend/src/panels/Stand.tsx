@@ -64,6 +64,7 @@ import { Storey } from "./place/Storey";
 import { Plant } from "./Plant";
 import { Rig } from "./Rig";
 import { Ship } from "./Ship";
+import { Scheme } from "./ship/Scheme";
 import { Workshop } from "./Workshop";
 import type { PowSettings } from "../pow";
 import { TERMINAL, anyOfClass, classOf, firstOfClass } from "../classes";
@@ -426,6 +427,20 @@ function assemble(
       aboard ? 0 : 2,
       aboard ? undefined : t("ui-stand-console-aground"),
       t("ui-stand-console-about"),
+    );
+  }
+  //: The ship's scheme (D-288, D-340): the lines drawn as a picture, and the
+  //: place they are edited -- beside the bridge's own window, aboard only,
+  //: because the scheme is about the hull underfoot.
+  if (bridge !== undefined && aboard) {
+    single(
+      "scheme",
+      t("ui-ship-scheme"),
+      "full",
+      () => <Scheme look={look} />,
+      1,
+      undefined,
+      t("ui-stand-scheme-about"),
     );
   }
   //: The ground console (D-242): every hull of one's own, and the same orders
