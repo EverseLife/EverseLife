@@ -157,9 +157,14 @@ python tools/spdx.py --apply
 Правила, которые нельзя нарушать молча:
 
 - **Файл длиннее 800 строк** — перед правкой сказать об этом и предложить
-  разрез. Добавлять в такой файл без упоминания нельзя. Список на 2026-09-01
-  **пуст**: последние шесть (`bank`, `travel`, `vote`, `oxygen`, `net`,
-  `frost`) разрезаны в пакеты той же датой.
+  разрез. Добавлять в такой файл без упоминания нельзя. Список на 2026-09-13
+  (пересчёт `wc -l` по `git ls-files`, код и тесты обеих половин) **не пуст**,
+  хотя 2026-09-01 был: за две недели к планке подросли
+  `tests/test_explore.py` (1325), `panels/GraphMap.tsx` (1068),
+  `tests/test_races.py` (866), `__tests__/bands.test.ts` (849),
+  `engine/bank/loan.py` (848), `panels/Sidebar.tsx` (820),
+  `tests/test_oxygen.py` (814), `__tests__/map.test.ts` (809),
+  `__tests__/pure.test.ts` (802).
   Исключение — `migrations/versions/`: тело миграции пишет alembic, и режется
   оно ревизиями, а не строками (базовая — около 1400). Те же исключения уже
   стоят у ruff (`backend/pyproject.toml`) и у `tools/spdx.py`.
@@ -192,7 +197,14 @@ python tools/spdx.py --apply
   `finish`, `copy`); `engine/automat.py` (733) → `_base`, `wire`, `run`,
   `board`; `engine/ship/view.py` (721) → вложенный пакет `view/`
   (`sight`, `sky`, `card`); `engine/works_city.py` (716) → `_base`,
-  `order`, `pay`, `credit`;
+  `order`, `pay`, `credit`; 2026-09-13 `engine/gear.py` (865) → `_base`
+  (отказы, масса вещи), `worn` (правило надетого, D-305), `load` (ноша и
+  предел), `slot` (надеть, снять и всё, что роняет предел). Урок разреза:
+  `_slow(monkeypatch, gear, "x")` после него замедляет только вызовы через
+  дверь, а вызовы изнутри пакета идут мимо — гонка молча перестаёт быть
+  гонкой. Замедлять надо каждое имя функции, через которое идёт путь теста:
+  дверь, комнату, где она определена (`gear.load`), и соседнюю комнату,
+  взявшую её через `from … import` (`load_of` живёт ещё и в `gear.slot`);
   `tests/test_races.py` (1585) → `test_races.py` (деньги, заказы, резервы) +
   `test_races_ground.py` (земля) + `test_races_mining.py` (выработки) +
   `test_reads.py` («чтение не пишет»), общий `_slow` — в `conftest.py`.
