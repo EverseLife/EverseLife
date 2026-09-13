@@ -80,6 +80,7 @@ from src.engine.world.things import (  # noqa: F401
     grant_item,
     has_station,
     is_library,
+    lock_thing,
     move_stack,
     node_container,
     node_things,

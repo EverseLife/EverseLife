@@ -41,7 +41,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import ConstantError, current_catalog
 from src.constants.catalog import ItemKind
-from src.db.base import remember
+from src.db.base import forget, remember
 from src.engine import events, goods
 from src.engine.errors import Refusal
 from src.models.craft import BatchState, CraftBatch
@@ -264,6 +264,42 @@ async def is_library(session: AsyncSession, node: Node) -> bool:
     return await has_station(session, node, LIBRARY)
 
 
+async def lock_thing(session: AsyncSession, thing: Item, *, gone: type[Refusal]) -> None:
+    """Take the thing's row for the transaction and reread it, or refuse: it is gone.
+
+    Every question a door asks of a thing -- where it lies, what is inside it,
+    who pulls it -- is asked after this, of the row as it stands, and not of
+    the object the command was handed. Whoever held the row meanwhile may have
+    moved it, and locking without rereading would be no better than not
+    locking: the second in the queue would wait its turn and then act on what
+    it read before waiting. What the command remembered from before the wait
+    goes too (`db.base.forget`), for the same reason -- a lock is a read that
+    blocks.
+
+    A door whose id comes from the client asks the cheap question of the
+    object it was handed first and refuses a thing plainly not within its
+    reach without taking the row; the answer after this is the one that
+    counts.
+
+    One thing, and its absence is a refusal. For many stacks at once, where a
+    stack gone meanwhile is simply left out, `stock.lock_items`.
+
+    Burnt, fallen with the house, carried off between the look and the click:
+    the world's ordinary answer, said in words (D-011) -- `thing-gone`, raised
+    as `gone`, the refusal class of the door that asks, so its callers catch
+    what they always caught. The name is read first: a failed refresh leaves
+    the instance with no usable state, and touching a column on it then goes
+    looking for the row that is not there -- a second, stranger error instead
+    of the plain one this is here to give.
+    """
+    named = thing.type_key
+    try:
+        await session.refresh(thing, with_for_update=True)
+    except InvalidRequestError as vanished:
+        raise gone(key="thing-gone", goods=named) from vanished
+    forget(session)
+
+
 async def move_stack(
     session: AsyncSession,
     item: Item,
@@ -306,15 +342,7 @@ async def move_stack(
     #: "the server failed" where the truth is that the sack is gone. A thing
     #: that vanished under a hand is an ordinary answer of the world, so it
     #: is said in words like any other (D-011).
-    #: Read before the refresh, because a failed refresh leaves the instance
-    #: with no usable state: touching a column on it then goes looking for the
-    #: row that is not there, and the answer would be a second, stranger error
-    #: instead of the plain one this is here to give.
-    named = item.type_key
-    try:
-        await session.refresh(item, with_for_update=True)
-    except InvalidRequestError as gone:
-        raise ItemGone(key="thing-gone", goods=named) from gone
+    await lock_thing(session, item, gone=ItemGone)
     #: A worn thing does not move (D-305): it comes off first, and the player
     #: is told so. Every move in the world comes through here, so the rule is
     #: said once instead of on each of the doors -- the floor, a chest, a hold,

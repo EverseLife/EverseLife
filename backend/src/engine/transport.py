@@ -54,13 +54,11 @@ from __future__ import annotations
 import uuid
 
 from sqlalchemy import select
-from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.constants.catalog import current_catalog
-from src.db.base import forget
 from src.engine import events, gear, travel, wear, world
 from src.engine.errors import Refusal
 from src.models.event import EventKind
@@ -212,22 +210,17 @@ async def harness(
     #: harness landed on a barrow already in somebody's hands, for the
     #: carter's first leg to pull out of them (`follow`), and a second carter
     #: at the same cart died on `uq_harness_item` instead of being told the
-    #: cart was taken. The memory goes too (`forget`), for the same reason.
-    #: The cheap question above stays: the id is the client's, and a vehicle
-    #: plainly not here is refused without taking its row.
+    #: cart was taken. The cheap question above stays: the id is the
+    #: client's, and a vehicle plainly not here is refused without taking its
+    #: row.
     #:
     #: The body's side -- one harness per body, not on the road, not dead --
     #: is held by the caller's lock on the body row (`_alive`), taken before
     #: this one. A caller from a job must take the body first too.
-    named = item.type_key
-    try:
-        await session.refresh(item, with_for_update=True)
-    except InvalidRequestError as gone:
-        #: Broke on its last leg, burnt with the yard: the world's ordinary
-        #: answer, said in words (D-011). The name is read first -- a failed
-        #: refresh leaves none.
-        raise NotHere(key="thing-gone", goods=named) from gone
-    forget(session)
+    #:
+    #: Broke on its last leg, burnt with the yard: the world's ordinary
+    #: answer, said in words (D-011) and refused as `NotHere`.
+    await world.lock_thing(session, item, gone=NotHere)
     if item.container_id != yard.id:
         raise NotHere(key="transport-not-here")
 
