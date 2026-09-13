@@ -258,11 +258,15 @@ async def test_burning_coal_and_carrying_it_away_at_once_keep_the_count(
     read the stack, both write it -- without the lock one write is lost and
     coal is either doubled or vanishes (wave 2, item 4a)."""
     from src.engine import rig
+    from src.units import amount as to_units
 
     stamp = uuid.uuid4().hex[:6]
     node = await world.create_node(session, f"terra.yard.{stamp}", "Двор", area_m2=100)
     yard = await world.node_container(session, node)
     coal = await world.grant_item(session, yard, "coal", amount=10, origin="тест")
+    machine = await world.grant_item(
+        session, yard, "drilling_rig", quality=70, origin="тест", installed=True
+    )
     identity = await world.create_identity(session, f"Носильщик-{stamp}")
     body = await world.print_body(session, identity, node)
     pocket = await world.body_container(session, body)
@@ -273,11 +277,13 @@ async def test_burning_coal_and_carrying_it_away_at_once_keep_the_count(
 
     async def burn() -> None:
         async with factory() as db, db.begin():
-            #: As the tick does: count the coal first, then burn it. The count
-            #: loads the stack into the session before the lock; the lock must
-            #: reread it, or the burn writes from the value before the carry.
+            #: As the tick does: count the coal first, then take the machine and
+            #: the coal and burn it. The count loads the stack into the session
+            #: before the lock; the lock must reread it, or the burn writes from
+            #: the value before the carry.
             assert await rig._coal_available(db, yard.id) >= 4
-            await rig._burn(db, yard.id, 4)
+            _, stacks = await rig._held(db, machine.id, yard.id)
+            await stock.consume(db, stacks, to_units(4))
 
     async def carry() -> None:
         async with factory() as db, db.begin():
@@ -289,8 +295,6 @@ async def test_burning_coal_and_carrying_it_away_at_once_keep_the_count(
     rows = (
         await session.execute(select(Item.container_id, Item.amount).where(Item.type_key == "coal"))
     ).all()
-    from src.units import amount as to_units
-
     assert sum(a for _, a in rows) == to_units(10 - 4), "сгорело четыре, унесено три, всего шесть"
     assert dict(rows)[pocket.id] == to_units(3)
 

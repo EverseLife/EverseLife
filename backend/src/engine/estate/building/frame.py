@@ -487,11 +487,19 @@ async def hold_ground(session: AsyncSession, node: Node) -> None:
     throws them away (`db.base`), and a wait is not a write -- so a footprint
     counted before the lock would be handed back after it, from before the very
     change we waited out.
+
+    `FOR NO KEY UPDATE`, not `FOR UPDATE`: the lock is held against the other
+    spenders of the plot, and none of them changes the node's key. A plain
+    `FOR UPDATE` also refuses the `FOR KEY SHARE` the database takes on the
+    node for any row that points at it -- an insert, or the second write of a
+    row in one transaction (the rig tick writes its row twice, and the machine
+    in between) -- so a collapse holding the plot and burying the machine
+    deadlocked against the tick holding the machine and re-checking the plot.
     """
     await session.execute(
         select(Node)
         .where(Node.id == node.id)
-        .with_for_update()
+        .with_for_update(key_share=True)
         .execution_options(populate_existing=True)
     )
     forget(session)

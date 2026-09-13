@@ -420,7 +420,9 @@ async def collapse(session: AsyncSession, node: Node, house: Building) -> None:
     #: The plot's row first, and for the same reason building takes it
     #: (`estate.hold_ground`, D-246): what the floors are is read off what
     #: stands here, and a build finishing in another session in this same second
-    #: would leave a four-storey house with no stair to any of its floors.
+    #: would leave a four-storey house with no stair to any of its floors. And
+    #: before any of the things it buries: the doors that stand and take down
+    #: machines take the node before the thing too (`station`).
     await hold_ground(session, node)
 
     await session.delete(house)
