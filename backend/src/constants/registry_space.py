@@ -89,6 +89,13 @@ ORBIT_BURN_SHARE = Num("orbit.burn_share")
 ORBIT_CORONA_RADIUS = Num("orbit.corona_radius")
 #: The slow end of the slider: no arc longer than this, however cheap.
 ORBIT_LONGEST_DAYS = Num("orbit.longest_days")
+#: No pass is laid or flown under this many radii of the world it goes round
+#: (D-341).
+ORBIT_FLYBY_FLOOR_RADII = Num("orbit.flyby_floor_radii")
+#: What one hull's slider offers (D-341): its choices part wherever the next
+#: is more than this many times longer than the one before, and the largest
+#: group is offered.
+ORBIT_ROUTE_GAP = Num("orbit.route_gap")
 #: How many map units a Terra radius is (D-320): the scale that turns the
 #: share in `PLANET_RADIUS` into the ground a hull can strike. The bodies are
 #: drawn far larger than life on purpose -- the tick steps a minute at a time,

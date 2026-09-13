@@ -192,7 +192,11 @@ occupation-busy = the body is busy: { $what }{ $term ->
     }
 
 # The arc between worlds (D-271).
-ship-hours-out-of-range = { NUMBER($hours) } h is off the slider: an arc flies from an hour to { NUMBER($limit) } h
-ship-no-arc = the sky offers no arc for { NUMBER($hours) } h: every one cuts through the star's corona. Pick another time on the slider
+ship-hours-out-of-range = the slider offers this ship no passage of { NUMBER($hours) } h. Pick a point on the slider again
+ship-hours-are-a-flyby = the slider offers this ship no direct arc of { NUMBER($hours) } h, only a flyby: { PLANET($planet) }. Pick that flyby on the slider or another point
+ship-no-arc = the sky offers no arc for { NUMBER($hours) } h: every one cuts through the star's corona. Pick another point on the slider
+ship-no-arc-fits = the engines cannot fly any arc: the cheapest, of { NUMBER($hours) } h, needs { NUMBER($need) } units of speed and they deliver { NUMBER($have) }. Shed mass or add engines
+ship-no-flyby = flyby: { PLANET($planet) } — the slider offers this ship no such flyby of { NUMBER($hours) } h. Pick a point on the slider again
+ship-no-flyby-to-ship = there is no flyby to a hull: a flyby is laid only to a planet
 ship-too-fast-for-thrust = in { NUMBER($hours) } h the engines deliver { NUMBER($have) } units of speed and the arc needs { NUMBER($need) }: move the slider towards the cheap end, shed mass or add engines
 ship-hours-is-a-number = the flight time is a number of hours

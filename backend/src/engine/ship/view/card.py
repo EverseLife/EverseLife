@@ -16,7 +16,7 @@ from src import sky
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import estate, world
-from src.engine.ship import course, sighting, sim
+from src.engine.ship import course, sighting, sim, slider
 from src.engine.ship._base import (
     ADRIFT,
     AT_PORT,
@@ -240,17 +240,19 @@ async def profile(
             #: on, or the point inertia has carried it to. The whole slider is
             #: `forecast`, read when the planet is chosen -- forty samples per
             #: world in every summary would be the redundancy D-225 names.
-            samples = await sim.offers(
-                session,
-                constants,
-                catalog,
-                ship,
-                bodies.body(target.value),
-                now=moment,
-                thrust_ratio=thrust_ratio,
+            #: The direct arcs alone, cut as the slider cuts (D-341): the
+            #: flybys are laid for one planet at a time, when it is chosen, and
+            #: seconds a planet are no summary's to spend.
+            arcs = await slider.arcs(
+                session, constants, ship, bodies.body(target.value), now=moment
             )
-            if not samples:
+            if not arcs:
                 continue
+            samples = sky.choices(
+                arcs,
+                reach=course.reach(constants, thrust_ratio),
+                gap=float(constants[R.ORBIT_ROUTE_GAP]),
+            )
             kept = (
                 fuel_for(
                     constants, weight, fall_hours(constants, target, thrust_ratio), klass=have_class
@@ -258,16 +260,9 @@ async def profile(
                 if thrust_ratio > 0 and have_class is not None
                 else 0.0
             )
-            cheap = min(samples, key=lambda one: one.dv)
-            fast = next(
-                (
-                    one
-                    for one in samples
-                    if thrust_ratio > 0
-                    and one.dv <= course.deliverable(constants, thrust_ratio, one.hours)
-                ),
-                None,
-            )
+            #: Fastest first and ever cheaper: the two ends of the slider.
+            fast = samples[0] if samples else None
+            cheap = samples[-1] if samples else None
             routes.append(
                 {
                     "node": orbit.key,
@@ -478,16 +473,17 @@ async def forecast(
     *,
     now: datetime | None = None,
 ) -> dict[str, object]:
-    """The slider (D-271, D-289): every arc to `target` the sky offers from
-    where the hull is right now, priced for this hull.
+    """The slider (D-271, D-289, D-341): every passage to `target` the sky
+    offers this hull from where it is right now, priced for it.
 
     Samples from the hull's own state -- the parking circle or the point
-    inertia has carried it to -- with what each burns by its class and mass,
-    whether the engines can give that delta-v in that time (`ok`), and the
-    two-body arc to draw while the slider moves. The client draws the range
-    between the fastest `ok` sample and the cheapest one and sends back the
-    hours it picked; the casting off flies that one under the whole sky.
-    Empty for a hull not in the sky: from a pad one only climbs.
+    inertia has carried it to -- cut to its choices (`slider.offers`), each with
+    what it burns by the hull's class and mass and the line to draw while the
+    slider moves. The client draws every sample from the first, the fast
+    end, to the last, the cheap end, and sends back the hours it picked and
+    the world a flyby bends round; the casting off flies that point. Empty
+    for a hull not in the sky -- from a pad one only climbs -- and for one
+    whose engines deliver nothing the sky has.
     """
     moment = now or datetime.now(UTC)
     weight = await mass(session, constants, catalog, ship)
@@ -509,13 +505,16 @@ async def forecast(
             return _nothing(target, NoArc(key="ship-target-unknown"))
     else:
         goal = bodies.body(target.value)
-    offered = await sim.offers(
+    #: The slider as offered (D-341): one point a flight time, fastest first,
+    #: each cheaper than the one before -- nothing the engines cannot deliver
+    #: and nothing that is no choice, so the client draws all of it.
+    offered = await slider.offers(
         session, constants, catalog, ship, goal, now=moment, thrust_ratio=thrust_ratio
     )
     t0 = await sky_days(session, moment)
     if isinstance(goal, sky.Drifter) and any(sim.gone_by(goal, t0, one.hours) for one in offered):
         #: The hull's line ends before the profile gets there: nothing is
-        #: offered, as nothing would be flown (`sim.depart` refuses it).
+        #: offered, as nothing would be flown (`slider.point` refuses it).
         assert isinstance(target, Ship)
         return _nothing(target, NoArc(key="ship-target-gone-by-then", other=target.name))
     share = 1.0 if have_class is None else efficiency(constants, have_class)
@@ -539,14 +538,14 @@ async def forecast(
                 "wait": round(sample.wait, ROUND_HOURS),
                 "dv": round(sample.dv, ROUND_DV),
                 "fuel": round(burn, ROUND_MASS),
-                #: An arc is the engines' to deliver or not; the approach
-                #: profile to a hull is laid within the thrust by construction.
-                "ok": not isinstance(target, Planet)
-                or sample.dv <= course.deliverable(constants, thrust_ratio, sample.hours),
                 #: The arc the chart draws for this point while the slider is
                 #: held on it: the planner's two-body line, not the flown one
                 #: (D-289) -- the flown line is settled at the order.
                 "trace": [[round(x, ROUND_TRACE), round(y, ROUND_TRACE)] for x, y in sample.trace],
+                #: The world the passage bends round (D-341), and no key at all
+                #: for a direct arc: the console names it beside the price, and
+                #: the order sends it back so the pass that was quoted is flown.
+                **({} if sample.via is None else {"via": sample.via.via}),
             }
         )
     #: The descent kept back at the far end, once: every sample needs its own

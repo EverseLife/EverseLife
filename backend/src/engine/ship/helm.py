@@ -13,6 +13,7 @@ counted. Who came into sight while a hull moved is told here too.
 
 from __future__ import annotations
 
+import asyncio
 import math
 import uuid
 from collections.abc import Sequence
@@ -26,7 +27,7 @@ from src import sky
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import events, stock
-from src.engine.ship import fate, hold
+from src.engine.ship import fate, flyby, hold
 from src.engine.ship._base import orbit_node_of
 from src.engine.ship.physics import (
     engine_class,
@@ -206,6 +207,9 @@ async def _fly(
         target = sky.STAR
     else:
         target = world.body(str(order["planet"]))
+    #: A flyby (D-341): the order carries the pass, and the helm's place in it.
+    route = await _route_of(session, constants, world, order, target, arrive)
+    leg = flyby.leg_of(order.get("leg"))
 
     weight = await mass(session, constants, catalog, ship)
     klass = await engine_class(session, constants, ship)
@@ -252,7 +256,19 @@ async def _fly(
     outcome = "flying"
     while t < t1 - sky.TIME_EPS:
         dt = min(step, t1 - t)
-        helm = sky.steer(world, target, t, r, v, arrive=arrive, a_max=a_max, dt=dt)
+        if route is None:
+            helm = sky.steer(world, target, t, r, v, arrive=arrive, a_max=a_max, dt=dt)
+        else:
+            assert isinstance(target, sky.Body)
+            helm, leg, want = sky.steer_pass(world, target, route, leg, t, r, v, a_max=a_max, dt=dt)
+            if want is not None:
+                #: A correction: a shooting through the whole sky, seconds at
+                #: worst -- off the loop, so the tick does not stall the
+                #: worker's other jobs behind one hull's pass.
+                leg = await asyncio.to_thread(sky.correct, world, target, route, leg, want, t, r, v)
+                helm, leg, _ = sky.steer_pass(
+                    world, target, route, leg, t, r, v, a_max=a_max, dt=dt
+                )
         if helm.captured:
             outcome = "moored"
             break
@@ -360,6 +376,8 @@ async def _fly(
         return outcome, burnt
     order["phase"] = phase
     order["spent"] = round(float(order.get("spent", 0.0)) + spent, ROUND_DV)
+    if route is not None:
+        order["leg"] = flyby.leg_row(leg)
     ship.course = order
     #: "If the engines fell silent now": the coast ahead of a hull under an
     #: order, refreshed at the coaster's cadence rather than every minute --
@@ -369,6 +387,31 @@ async def _fly(
         _keep_forecast(ship, await fate.fate_of(session, constants, world, t1, r, v), now=now, t=t1)
     await session.flush()
     return outcome, burnt
+
+
+async def _route_of(
+    session: AsyncSession,
+    constants: Constants,
+    world: sky.System,
+    order: dict,
+    target: sky.Target,
+    arrive: float,
+) -> sky.Route | None:
+    """The flyby an order carries, in sky days (D-341), or nothing for a
+    crossing that goes straight."""
+    if not order.get("via") or not isinstance(target, sky.Body):
+        return None
+    via = world.body(str(order["via"]))
+    return sky.Route(
+        via=via,
+        home=world.body(str(order["from"])) if order.get("from") else None,
+        at=await sky_days(session, datetime.fromisoformat(str(order["pass_at"]))),
+        rp=float(order["rp"]),
+        aim=(float(order["aim"][0]), float(order["aim"][1])),
+        burn=float(order["burn"]),
+        arrive=arrive,
+        floor=float(constants[R.ORBIT_FLYBY_FLOOR_RADII]) * via.radius,
+    )
 
 
 def target_planet(body: sky.Body) -> Planet:
