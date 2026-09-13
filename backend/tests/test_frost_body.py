@@ -19,7 +19,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from frost_kit import HEATER, _ago, _charge, _dweller, _place, _town
+from frost_kit import HEATER, _ago, _charge, _dweller, _place, _speaks_its_climate, _town
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import frost, gear, travel, world
@@ -373,17 +373,41 @@ async def test_a_warmer_that_would_give_nothing_is_refused(
     pocket = await world.body_container(session, body)
     warmer = await world.grant_item(session, pocket, WARMER, quality=60, origin="тест")
 
-    with pytest.raises(frost.FrostError):
+    with pytest.raises(frost.FrostError) as full:
         await frost.use_warmer(session, constants, catalog, body, warmer)
     assert len(await world.contents(session, pocket)) == 1
+    assert (full.value.key, full.value.params["weather"]) == ("frost-reserve-full", frost.FROST)
 
     _, terra = await _town(session, planet=Planet.TERRA, climate=None)
     other = await _dweller(session, terra)
     theirs = await world.body_container(session, other)
     spare = await world.grant_item(session, theirs, WARMER, quality=60, origin="тест")
-    with pytest.raises(frost.FrostError):
+    with pytest.raises(frost.FrostError) as idle:
         await frost.use_warmer(session, constants, catalog, other, spare)
     assert len(await world.contents(session, theirs)) == 1
+    assert idle.value.key == "frost-no-cold-here"
+
+
+async def test_a_full_reserve_is_told_in_the_climate_s_words(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """On Pyroxis the same reserve is a reserve of coolness (D-231, D-338), and
+    a refusal that called it warmth would name a reserve the planet lacks."""
+    moment = datetime.now(UTC)
+    for planet, weather in ((Planet.AURORA, frost.FROST), (Planet.PYROXIS, frost.HEAT)):
+        _, yard = await _town(session, planet=planet, climate=weather)
+        body = await _dweller(session, yard)
+        ceiling = await frost.limit_of(session, constants, catalog, body, weather)
+        body.warmth = Decimal(str(ceiling))
+        body.warmth_at = moment
+        await session.flush()
+        pocket = await world.body_container(session, body)
+        warmer = await world.grant_item(session, pocket, WARMER, quality=60, origin="тест")
+
+        with pytest.raises(frost.FrostError) as full:
+            await frost.use_warmer(session, constants, catalog, body, warmer, now=moment)
+        assert (full.value.key, full.value.params["weather"]) == ("frost-reserve-full", weather)
+        _speaks_its_climate(full.value)
 
 
 async def test_the_look_carries_the_hand_and_not_the_hour(

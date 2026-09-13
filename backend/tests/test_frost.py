@@ -18,7 +18,16 @@ from decimal import Decimal
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from frost_kit import HEATER, _ago, _charge, _dweller, _place, _sphere, _town
+from frost_kit import (
+    HEATER,
+    _ago,
+    _charge,
+    _dweller,
+    _place,
+    _speaks_its_climate,
+    _sphere,
+    _town,
+)
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.db.base import forget
@@ -333,18 +342,51 @@ async def test_a_frozen_node_silences_the_terminal_and_the_office(
     yard.owner_city_id = settlement.id
     await session.flush()
 
-    with pytest.raises(frost.Frozen):
+    with pytest.raises(frost.Frozen) as stopped:
         await market.terminal(session, yard)
     #: By the key, not by the sentence: the wording is the locale's (D-251 III).
     with pytest.raises(office.NotAllowed) as shut:
         await hall.require_at_hall(session, body, settlement)
     assert shut.value.key == "city-hall-frozen"
+    #: Both carry the climate, and the sentence is chosen by it.
+    for refused in (stopped.value, shut.value):
+        assert refused.params["weather"] == frost.FROST
+        _speaks_its_climate(refused)
 
     #: Heat it, and both open. Nothing else about the node changed.
     await _place(session, yard, HEATER)
     await _charge(session, constants, yard, constants[R.FROST_HEATER_DRAW])
     assert await market.terminal(session, yard) is not None
     await hall.require_at_hall(session, body, settlement)
+
+
+async def test_the_scorching_planet_refuses_in_its_own_words(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Pyroxis stops the bench and shuts the office by the permafrost's rule,
+    but its node is scorching, not frozen, and no stove would help (D-231,
+    D-233). The refusal carries the climate, and the sentence is chosen by it:
+    a player on Pyroxis told to bring a heater would be told a lie."""
+    from src.engine.city import founding, hall, office
+
+    #: The city is a stand for the office's refusal, not a claim that Pyroxis
+    #: has cities: nothing is built there (D-230), and a gate on founding would
+    #: be right to break this setup rather than the rule it pins.
+    delegate, yard = await _town(session, planet=Planet.PYROXIS, climate=frost.HEAT)
+    settlement = await founding.found(session, catalog, delegate, f"Жар-{uuid.uuid4().hex[:4]}")
+    await _place(session, yard, HALL)
+    body = await _dweller(session, yard)
+    yard.owner_city_id = settlement.id
+    await session.flush()
+
+    with pytest.raises(frost.Frozen) as stopped:
+        await frost.require_working(session, constants, yard, BENCH)
+    with pytest.raises(office.NotAllowed) as shut:
+        await hall.require_at_hall(session, body, settlement)
+    assert shut.value.key == "city-hall-frozen"
+    for refused in (stopped.value, shut.value):
+        assert refused.params["weather"] == frost.HEAT
+        _speaks_its_climate(refused)
 
 
 async def test_nothing_is_sown_in_the_open_ground_of_a_climate(
