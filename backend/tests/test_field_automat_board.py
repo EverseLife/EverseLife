@@ -307,3 +307,50 @@ async def test_a_small_bed_is_watered_when_a_big_one_cannot_be(
     assert float(small.moisture) == pytest.approx(target)
     assert float(big.moisture) < target
     assert row.trouble == "no_water"
+
+
+async def test_a_machine_taken_down_with_a_word_does_not_tell_it_every_day(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A machine standing without power is told once, then taken down: its
+    window keeps the word, and the journal is not told it again day after day
+    -- the machine stands because it is taken down (D-339 p. 11)."""
+    place = await field(session, constants, stored_energy=0)
+    await liquid_in(session, place.yard, LUBRICANT, 100)
+    plot = await plot_of(session, constants, place.body)
+    moment = second_now()
+    row = await programmed(session, constants, catalog, place, [{"do": "plow"}], [plot], moment)
+    await agro.tick_machines(session, constants, now=moment + timedelta(minutes=1))
+    await session.refresh(row)
+    assert row.trouble == "no_power"
+    assert await events_of(session, EventKind.AGRO_STALLED) == 1
+    place.machine.installed = False
+    await session.flush()
+    for day in (1, 2, 3):
+        row.counted_at = moment + timedelta(days=day)
+        await session.flush()
+        later = moment + timedelta(days=day, minutes=1)
+        await agro.tick_machines(session, constants, now=later)
+    assert await events_of(session, EventKind.AGRO_STALLED) == 1
+
+
+async def test_the_land_gone_from_under_the_machine_is_told_once(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Whoever the land went from has nothing to answer `not_entitled` with:
+    the journal tells it once, not every day."""
+    place = await field(session, constants)
+    await liquid_in(session, place.yard, LUBRICANT, 100)
+    plot = await plot_of(session, constants, place.body)
+    moment = second_now()
+    row = await programmed(session, constants, catalog, place, [{"do": "plow"}], [plot], moment)
+    buyer = await world.create_identity(session, "Покупатель")
+    place.node.owner_identity_id = buyer.id
+    await session.flush()
+    for day in (0, 1, 2, 3):
+        row.counted_at = moment + timedelta(days=day)
+        await session.flush()
+        await agro.tick_machines(session, constants, now=moment + timedelta(days=day, minutes=1))
+    await session.refresh(row)
+    assert row.trouble == "not_entitled"
+    assert await events_of(session, EventKind.AGRO_STALLED) == 1

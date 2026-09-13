@@ -159,14 +159,18 @@ async def _advance(
         return 0
     yard = None if node is None else await world.node_container(session, node)
     if node is None or yard is None or machine.container_id != yard.id or not machine.installed:
-        #: Taken down or carried off: a machine works only where it stands.
-        return await _idle(session, constants, row, row.trouble, moment)
+        #: Taken down or carried off: a machine works only where it stands. The
+        #: word it had stays for its window, but it does not stand for that
+        #: word now, and the journal is not told it again.
+        return await _idle(session, constants, row, row.trouble, moment, stood=False)
     #: The owner's right to the node, asked every time: land sold from under
     #: the machine stops it -- the seller neither pays for it nor takes from
     #: chests that are the buyer's now, and the buyer may set it anew.
     owner = row.owner_identity_id
     if owner is None or not await station.may_build_as(session, owner, node):
-        return await _idle(session, constants, row, NOT_ENTITLED, moment)
+        #: Told once, not every day: whoever the land went from has nothing to
+        #: answer it with, and the machine's new holder sets it anew.
+        return await _idle(session, constants, row, NOT_ENTITLED, moment, again=False)
 
     beds = await beds_of(session, constants, book, row, moment)
     if not beds:
@@ -301,10 +305,13 @@ async def _idle(
     row: FieldAutomat,
     trouble: str | None,
     now: datetime,
+    *,
+    stood: bool = True,
+    again: bool = True,
 ) -> int:
     """The machine stands through these hours: nothing worked, nothing drawn."""
     _stretch(row, (now - row.counted_at).total_seconds() / SECONDS_PER_HOUR)
-    await _stand(session, constants, row, trouble, now)
+    await _stand(session, constants, row, trouble, now, stood=stood, again=again)
     row.counted_at = now
     await session.flush()
     return 0
@@ -350,6 +357,7 @@ async def _stand(
     now: datetime,
     *,
     stood: bool = True,
+    again: bool = True,
 ) -> None:
     """Write the word the machine stands with; tell the owner when it matters.
 
@@ -359,7 +367,8 @@ async def _stand(
     (`stood`: not a machine merely slowed by a short supply), and each word not
     again within a Terran day of telling it -- a supply that comes and goes
     around the demand, or two words taking turns, would otherwise tell the
-    owner every other tick; a stall that lasts is told again the next day.
+    owner every other tick; a stall that lasts is told again the next day --
+    unless `again` is off: a word nobody can answer is told once.
     """
     changed = trouble != row.trouble
     if changed:
@@ -371,7 +380,7 @@ async def _stand(
             event="agro.trouble",
             machine=str(row.item_id),
         )
-    if trouble is None or not stood:
+    if trouble is None or not stood or (not changed and not again):
         return
     day = timedelta(hours=farm.day_hours(constants))
     told = dict(row.told or {})
@@ -524,7 +533,12 @@ async def _work_fields(
     runs up a debt of wear and lubricant to be paid at once when mended. A
     machine its owner holds right now is skipped rather than waited for.
     """
-    await _sweep_stopped(session)
+    try:
+        async with session.begin_nested():
+            await _sweep_stopped(session)
+    except Exception:  # noqa: BLE001 -- the sweep must not keep the world's fields from working
+        log.exception("field automats: sweeping the stopped rows failed")
+        forget(session)
     ids = (
         (
             await session.execute(
