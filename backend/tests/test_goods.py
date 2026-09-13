@@ -70,6 +70,15 @@ def test_rounding_goes_both_ways(catalog: Catalog) -> None:
     assert goods.whole("Доски", 2.9999999, up=True, catalog=catalog) == 3
 
 
+def test_rest_is_the_part_of_a_piece_the_floor_shaves_off(catalog: Catalog) -> None:
+    assert goods.rest(INGOT, 1.5, catalog=catalog) == pytest.approx(0.5)
+    assert goods.rest(INGOT, 0.3, catalog=catalog) == pytest.approx(0.3)
+    #: Float dust on either side of a piece is no part of one.
+    assert goods.rest(INGOT, 10 * 0.3, catalog=catalog) == 0
+    assert goods.rest(INGOT, 2.9999999, catalog=catalog) == 0
+    assert goods.rest(ORE, 1.5, catalog=catalog) == 0, "у весового дробь честная, срезать нечего"
+
+
 # --- moving ------------------------------------------------------------------
 
 
