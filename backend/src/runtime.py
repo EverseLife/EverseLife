@@ -25,10 +25,6 @@ JOB_RETRY_GROWTH = 2
 #: How many characters of the error text we keep in the job journal.
 JOB_ERROR_LIMIT = 2000
 
-#: The processes the sliders with their flyby refinements run in (D-341): one
-#: per hull's slider asked about at once, and no more -- each is a whole core
-#: while it works, and a third reader waits for one of them.
-SKY_WORKERS = 2
 
 #: Worker pause when the queue is empty, seconds.
 WORKER_IDLE_SLEEP = 1.0

@@ -29,6 +29,12 @@ FROM python:3.12-slim-bookworm AS runtime
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PATH="/app/.venv/bin:$PATH" \
+    # Linear algebra in one thread per process: the sky's arrays are small, and
+    # a server process, its flyby pool and the worker each spreading numpy over
+    # every core would fight the event loops and the database for them (D-341).
+    OPENBLAS_NUM_THREADS=1 \
+    OMP_NUM_THREADS=1 \
+    MKL_NUM_THREADS=1 \
     # The vault build directory. The engine never reads the vault's Markdown.
     EVERSELIFE_VAULT_BUILD=/vault
 

@@ -34,7 +34,7 @@ from src import sky
 from src.constants import Constants
 from src.constants import registry as R
 from src.engine.ship import course
-from src.runtime import SKY_WORKERS
+from src.settings import settings
 from src.units import (
     HOURS_PER_DAY,
     ROUND_DV,
@@ -118,7 +118,7 @@ def _pool() -> ProcessPoolExecutor:
     """The refinements' processes, started on the first miss."""
     global _EXECUTOR
     if _EXECUTOR is None:
-        _EXECUTOR = ProcessPoolExecutor(max_workers=SKY_WORKERS)
+        _EXECUTOR = ProcessPoolExecutor(max_workers=settings().sky_workers)
     return _EXECUTOR
 
 
