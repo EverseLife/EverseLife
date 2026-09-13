@@ -417,6 +417,7 @@ async def empty_hopper(
 
     #: Emptying is a write and races the world tick for the same row.
     await session.refresh(rig, with_for_update=True)
+    into = await _hold_vessels(session, body, rig)
     await advance(session, constants, rig, now=moment)
     #: The row says which node it belongs to, and the machine may have left it
     #: without the row hearing: a counter takes an unsold machine off the yard
@@ -491,9 +492,7 @@ async def empty_hopper(
         #: waits. Nothing poured at all is a refusal, so the trip is not
         #: silently for nothing.
         await session.flush()
-        node = await session.get(Node, rig.node_id)
-        yard = await world.node_container(session, node)
-        taken = await liquid.fill(session, catalog, emptied, (pocket, yard))
+        taken = await liquid.fill_vessels(session, catalog, emptied, into)
         if taken <= 0:
             raise NoRoom(key="rig-liquid-no-room", goods=resource)
         left = 0.0
@@ -524,6 +523,32 @@ async def empty_hopper(
         quality=quality,
     )
     return taken
+
+
+async def _hold_vessels(session: AsyncSession, body: Body, rig: RigRow) -> list[Item]:
+    """Lock the vessels a liquid hopper pours into, before the advance burns
+    coal, and return those the wait left in place, in the pouring order: the
+    hands first, then the node (D-252). Nothing for a hopper of anything else.
+
+    A vessel before any stack, the order the automats' tick takes a yard in
+    (`automat.run`): emptying burned the rig's coal and reached for a canister
+    only to pour, while the tick held that canister and waited for the same
+    coal -- a furnace automat on the floor burns it too -- and one of the two
+    was killed as a deadlock. All of them at once, in id order, and the pour
+    goes into these and no other: listing the node again at the pour would
+    lock a canister put down since after the coal, and pour into one carried
+    off meanwhile.
+    """
+    vein = await session.get(Vein, rig.vein_id)
+    catalog = current_catalog()
+    if vein is None or not liquid.is_liquid(catalog, vein.resource):
+        return []
+    pocket = await world.body_container(session, body)
+    yard = await world.node_container(session, await session.get(Node, rig.node_id))
+    vessels = await liquid.vessels_in(session, catalog, pocket)
+    vessels += await liquid.vessels_in(session, catalog, yard)
+    held = await liquid.lock_vessels(session, vessels)
+    return [held[one.id].vessel for one in vessels if one.id in held and not held[one.id].moved]
 
 
 async def hopper_left(session: AsyncSession, item: Item) -> float:

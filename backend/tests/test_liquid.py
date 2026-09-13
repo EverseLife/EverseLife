@@ -11,20 +11,23 @@ Checked is what the rule exists for:
   knowing, and its liquid output is **poured** into a vessel -- or spilled;
 * pouring is the one way a liquid moves, and the target is locked: two hoses
   into one tank do not overfill it;
-* a full canister weighs its fill.
+* a full canister weighs its fill;
+* an automat's liquid output waits for a vessel that takes it.
 """
 
 from __future__ import annotations
 
 import asyncio
 import uuid
+from datetime import timedelta
 
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from automat_kit import _factory_floor, _learn, _lube_in
 from src.constants import Catalog, Constants
-from src.engine import craft, gear, jobs, liquid, storage, world
+from src.engine import automat, craft, gear, jobs, liquid, storage, world
 from src.models.estate import Building
 from src.models.event import Event, EventKind
 from src.models.identity import Body
@@ -385,3 +388,82 @@ async def test_loose_matter_still_arrives_as_one_heap(
     )
     assert len(heaps) == 1
     assert amount_float(heaps[0].amount) == 40
+
+
+async def test_an_automat_does_not_count_a_vessel_of_another_liquid_as_room(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A reactor whose only vessels hold its water and its lubricant stands.
+
+    Both canisters have room, but not for spirit: one liquid to a vessel
+    (D-288). The forecast used to add their room up all the same, so the
+    machine burned lubricant and inputs for spirit that had nowhere to go and
+    spilled it. A machine's liquid output waits for a vessel that takes it
+    (D-288); only a batch by hand spills (D-230).
+    """
+    _, yard, identity, body, reactor = await _factory_floor(
+        session, constants, machine_kind="auto_reactor"
+    )
+    await world.grant_item(session, yard, SUGAR, amount=4, quality=60, origin="test")
+    water = await world.grant_item(session, yard, CANISTER, quality=60, origin="test")
+    await _filled(session, water, WATER, 50)
+    lube = await _lube_in(session, yard, 10)
+    await _learn(session, identity, SPIRIT)
+    row = await automat.program(session, constants, catalog, body, reactor, SPIRIT)
+
+    made = await automat.advance(
+        session, constants, row, catalog=catalog, now=row.counted_at + timedelta(hours=10)
+    )
+
+    assert made == 0
+    assert amount_float(lube.amount) == 10, "no lubricant burned for spirit with nowhere to go"
+    spilled = await session.execute(select(Event.id).where(Event.kind == EventKind.STORAGE_SPILLED))
+    assert spilled.first() is None
+
+
+async def test_a_vessel_named_twice_is_filled_once(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """`fill_vessels` takes any list, and a canister in it twice is still one canister.
+
+    Its room is read once, off what its lock reread; a second visit measured
+    it off that same reading, from before the first pour, and poured it over
+    the brim.
+    """
+    node, _, _ = await _home(session)
+    yard = await world.node_container(session, node)
+    canister = await world.grant_item(session, yard, CANISTER, quality=55, origin="test")
+    limit = storage.capacity(catalog, CANISTER)
+    assert limit is not None
+    fits = limit / catalog.recipes.mass_of(WATER)
+    stack = await world.grant_item(session, yard, WATER, amount=2 * fits, quality=55, origin="test")
+
+    poured = await liquid.fill_vessels(session, catalog, stack, [canister, canister])
+
+    assert poured == pytest.approx(fits, abs=1e-3)
+    assert await storage.stored_mass(session, catalog, canister) <= limit + 1e-6
+
+
+async def test_an_overfilled_vessel_takes_nothing_off_the_room_beside_it(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A vessel holding more than it takes has no room, and not less than none.
+
+    Nothing pours past a brim today, but a vault that shrinks a canister leaves
+    the canisters of the world holding what they held. Summed as a negative,
+    the old canister's excess ate the room of the empty one standing beside it,
+    and the output that room was for waited or spilled.
+    """
+    node, _, _ = await _home(session)
+    yard = await world.node_container(session, node)
+    limit = storage.capacity(catalog, CANISTER)
+    assert limit is not None
+    fits = limit / catalog.recipes.mass_of(WATER)
+    brimful, empty = [
+        await world.grant_item(session, yard, CANISTER, quality=55, origin="test") for _ in range(2)
+    ]
+    await _filled(session, brimful, WATER, 2 * fits)
+
+    assert await liquid.room_for(session, catalog, yard, WATER) == pytest.approx(fits, abs=1e-3)
+    held = await liquid.lock_vessels(session, [brimful, empty])
+    assert held[brimful.id].room(catalog) == 0

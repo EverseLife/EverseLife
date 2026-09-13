@@ -33,12 +33,14 @@ A vessel admits liquids and nothing else; a chest admits everything but.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Iterable, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
+from dataclasses import dataclass
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
+from src.db.base import forget
 from src.engine import events, gear, station, stock, storage, travel, world
 from src.engine.errors import Refusal
 from src.engine.storage import LIQUID, admits, is_vessel  # noqa: F401 -- the vessel questions
@@ -69,30 +71,137 @@ def is_liquid(catalog: Catalog, type_key: str) -> bool:
     return catalog.recipes.is_liquid(type_key)
 
 
-async def _lock(session: AsyncSession, *vessels: Item) -> None:
-    """Lock the vessel rows, in id order, before their free space is read.
+@dataclass(frozen=True)
+class Held:
+    """A vessel under its lock, and what lay inside it once the lock was had.
+
+    `inside` is None for a vessel nothing has been poured into yet: the first
+    pour makes one (`storage.inside`), a lock does not. `moved` says the wait
+    carried it off: it no longer lies where it lay before the lock.
+    """
+
+    vessel: Item
+    inside: Container | None
+    things: tuple[Item, ...]
+    moved: bool
+
+    def takes(self, type_key: str) -> bool:
+        """Whether the vessel may take this liquid: it is empty, or holds the same.
+
+        One liquid per vessel (D-288): a tank of fuel with water in it is
+        nonsense, not a reserve. The rule is one for every way a liquid gets
+        into a vessel -- a hand pouring, a batch finishing, a rig's hopper, a
+        machine's outlet -- so it is asked here and nowhere is it re-decided.
+        """
+        return all(one.type_key == type_key for one in self.things)
+
+    def room(self, catalog: Catalog) -> float:
+        """Kilograms it still takes -- none, never less, for one somebody
+        overfilled. A vessel admits liquids alone, so what lies in it is the
+        whole of its load: no storage inside to weigh as well."""
+        limit = storage.capacity(catalog, self.vessel.type_key) or 0.0
+        load = sum(
+            gear.mass_of(catalog, one.type_key, amount_float(one.amount)) for one in self.things
+        )
+        return max(0.0, limit - load)
+
+
+async def lock_vessels(session: AsyncSession, vessels: Sequence[Item]) -> dict[uuid.UUID, Held]:
+    """Lock the vessel rows, in id order, and read what lies in them after the lock.
 
     The free space is read, checked and filled; two hoses into one tank --
     or the worker pouring a batch while the owner pours a canister -- would
     both see it half empty. One order everywhere, ascending id, so two pours
-    into each other's vessels never wait on each other (review 2026-08-23).
+    into each other's vessels queue rather than deadlock (review 2026-08-23).
+    Every door that **adds** to a vessel comes through here, the market's
+    included (`market.counter`), and that is what the room rests on: a draw
+    takes out of a vessel under the lock on its stacks alone
+    (`locked_stacks`), so the contents may still shrink after this lock --
+    which only makes the room read smaller -- but they never grow.
+
+    **Every vessel a transaction will use, in one call.** The order a liquid
+    is poured in -- the hands before the yard (`fill`) -- is not an order to
+    lock in, and neither is taking them one at a time as the pour reaches
+    them: a batch held the canister in the hands and reached for the yard's
+    while a pour between the two held the yard's, the lower id. And **the
+    vessels before any stack**, whoever takes both: a pour locks its vessels
+    and then the stacks in its source, and the automats' tick, which draws
+    out of the yard's vessels and off the yard itself, locks the vessels
+    first (`automat.run.advance`) -- so a door that burns a yard's coal and
+    pours afterwards locks them before the coal too (`rig.empty_hopper`), and
+    a work that spends a vessel as an input locks it before its other inputs
+    (`craft._internal._stock`). Three doors still lock their vessels in more
+    than one call: a batch's end pours its yield and then its gas down a
+    hull's lines (`craft.batch.finish`), the hull's gardens breathe bay by bay
+    (`oxygen.garden`), and a batch on the lines locks the vessels on them
+    before the pots and canisters its other inputs come from.
+
+    The free space is measured off what lies **inside**, and the lock is on
+    the vessel, so the contents are reread after it and the command's memory
+    goes with them (`db.base.forget`), as `estate.hold_ground` does for its
+    plot. Whoever held the vessel meanwhile may have poured a canister into
+    it: the arriving stack survives the fold and swallows the one inside
+    (D-214). A transaction that read that canister before the wait keeps the
+    stack with the canister's amount for as long as anything in it still
+    refers to the row, and a remembered answer keeps the swallowed one --
+    measured off either, the pour after the wait overfills the vessel
+    (D-230). The answer carries the reread contents, so the room is measured
+    off them without a query per vessel: a yard stands dozens of tanks, and
+    the tick pays out into it for every machine.
+
+    Returns what came back, by id. **The wait may have moved a vessel**: one
+    absent from the answer is gone -- burnt, spent -- and one `moved` was
+    carried off. The place is the one the caller's rows held before the lock,
+    so a list read before the wait is judged against the wait. Pouring into
+    either by that list lands the liquid in somebody's hands past the carry
+    limit, or in an inside made anew for a thing that no longer exists.
     """
     ids = sorted({vessel.id for vessel in vessels})
-    await session.execute(
-        select(Item)
-        .where(Item.id.in_(ids))
-        .order_by(Item.id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
+    if not ids:
+        return {}
+    #: Read before the lock: it rereads these very rows in place.
+    lay = {vessel.id: vessel.container_id for vessel in vessels}
+    rows = (
+        (
+            await session.execute(
+                select(Item)
+                .where(Item.id.in_(ids))
+                .order_by(Item.id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        )
+        .scalars()
+        .all()
     )
-
-
-async def lock_vessels(session: AsyncSession, vessels: Sequence[Item]) -> None:
-    """Lock these vessel rows in id order, before any stack inside them is
-    read -- the order a hand's `pour` takes them in, so a machine working on
-    its lines and a hand pouring into the same tank queue rather than deadlock."""
-    if vessels:
-        await _lock(session, *vessels)
+    insides: dict[uuid.UUID, Container] = {}
+    inner: dict[uuid.UUID, list[Item]] = {}
+    if rows:
+        found = await session.execute(
+            select(Container, Item)
+            .outerjoin(Item, Item.container_id == Container.id)
+            .where(
+                Container.kind == ContainerKind.STORAGE,
+                Container.owner_id.in_([row.id for row in rows]),
+            )
+            .order_by(Item.id)
+            .execution_options(populate_existing=True)
+        )
+        for hold, thing in found.tuples():
+            insides[hold.owner_id] = hold
+            lying = inner.setdefault(hold.owner_id, [])
+            if thing is not None:
+                lying.append(thing)
+    forget(session)
+    return {
+        row.id: Held(
+            vessel=row,
+            inside=insides.get(row.id),
+            things=tuple(inner.get(row.id, ())),
+            moved=row.container_id != lay[row.id],
+        )
+        for row in rows
+    }
 
 
 async def vessels_in(session: AsyncSession, catalog: Catalog, container: Container) -> list[Item]:
@@ -126,6 +235,71 @@ async def reach(session: AsyncSession, catalog: Catalog, container: Container) -
     return ids
 
 
+def reach_held(container: Container, held: Iterable[Held]) -> list[uuid.UUID]:
+    """`reach` for vessels under their lock: the container itself and the
+    insides of those vessels the wait left where they were. One put down since
+    the lock is not among them, and one carried off or gone is not reached
+    into: its inside did not go with it, and what lies there now lies in
+    somebody's hands."""
+    insides = (one.inside for one in held if not one.moved)
+    return [container.id, *sorted(inside.id for inside in insides if inside is not None)]
+
+
+def standing(held: Mapping[uuid.UUID, Held]) -> tuple[set[uuid.UUID], set[uuid.UUID]]:
+    """The vessels of a lock's answer the wait left where they were, and the
+    storages inside them -- what a reading taken before the lock keeps to
+    (`ship.lines.Plumbing.keeping`)."""
+    kept = [one for one in held.values() if not one.moved]
+    return {one.vessel.id for one in kept}, {one.inside.id for one in kept if one.inside}
+
+
+async def lock_gathered(
+    session: AsyncSession, catalog: Catalog, rows: Sequence[Item]
+) -> list[Item]:
+    """Lock what a work gathered within its reach -- the vessels first, then
+    the rest -- and hand back what the wait left of it to take, in id order.
+
+    `rows` were read without a lock, off containers and out of the vessels in
+    them. The vessels among them (a clay pot is spent whole) and the vessels
+    the rest lie in are taken in one `lock_vessels` before any stack: the order
+    a pour and the automats' tick take them in, whoever holds the other half.
+    Then the stacks (`stock.lock_items`). Every row comes back reread, so a
+    thing the wait carried off says where it went, and the caller's reach
+    judges it as ever (`craft._internal._stock`); one gone is absent. What
+    cannot say so is a stack in a vessel the wait carried off or took away: an
+    inside does not move with its canister, and the water read in it before the
+    wait is, after it, water in somebody else's hands. Those are left out here.
+    A chest carried off with its goods is the same hole one door over, older
+    than this and not closed by it: its row is not locked here.
+    """
+    if not rows:
+        return []
+    boxes = {row.container_id for row in rows}
+    owners = await session.execute(
+        select(Container.id, Item)
+        .join(Item, Item.id == Container.owner_id)
+        .where(Container.kind == ContainerKind.STORAGE, Container.id.in_(boxes))
+    )
+    whole = {row.id for row in rows if is_vessel(catalog, row.type_key)}
+    vessels = [row for row in rows if row.id in whole]
+    inside_of: dict[uuid.UUID, uuid.UUID] = {}
+    for box, owner in owners.tuples():
+        if is_vessel(catalog, owner.type_key):
+            inside_of[owner.id] = box
+            vessels.append(owner)
+    held = await lock_vessels(session, vessels)
+    kept = {one.vessel.id for one in held.values() if not one.moved}
+    lost = {box for owner, box in inside_of.items() if owner not in kept}
+    stacks = await stock.lock_items(session, [row for row in rows if row.id not in whole])
+    return sorted(
+        [
+            *(one.vessel for one in held.values() if one.vessel.id in whole),
+            *(stack for stack in stacks if stack.container_id not in lost),
+        ],
+        key=lambda thing: thing.id,
+    )
+
+
 async def locked_stacks(
     session: AsyncSession,
     catalog: Catalog,
@@ -134,16 +308,30 @@ async def locked_stacks(
     *,
     worst_first: bool = False,
     barred: Iterable[str] = (),
+    held: Mapping[uuid.UUID, Held] | None = None,
 ) -> list[Item]:
     """`stock.locked_stacks` over the container and the vessels in it.
 
     `barred` names what is taken only out of the vessels, never off the
     container itself (`stock.locked_stacks`).
+
+    Without `held` the vessels themselves are not locked, and a canister
+    carried off while the draw waited for its stacks is drawn from all the
+    same: that is for the hands' own pocket alone (`farm._consume`), whose
+    canisters nobody else can carry off. Everyone else locks the vessels first
+    (`lock_vessels`) and passes the answer as `held`: the stacks are then drawn
+    out of the vessels it holds and no other -- one put down since is not
+    reached into unlocked, one carried off not reached into at all -- and the
+    container is not walked a second time.
     """
     names = tuple(barred)
+    if held is None:
+        within = await reach(session, catalog, container)
+    else:
+        within = reach_held(container, held.values())
     return await stock.locked_stacks(
         session,
-        await reach(session, catalog, container),
+        within,
         type_keys,
         worst_first=worst_first,
         barred=(container.id, names) if names else None,
@@ -154,17 +342,6 @@ async def free_in(session: AsyncSession, catalog: Catalog, vessel: Item) -> floa
     """Kilograms the vessel still takes."""
     limit = storage.capacity(catalog, vessel.type_key) or 0.0
     return limit - await storage.stored_mass(session, catalog, vessel)
-
-
-async def takes(session: AsyncSession, vessel: Item, type_key: str) -> bool:
-    """Whether the vessel may take this liquid: it is empty, or holds the same.
-
-    One liquid per vessel (D-288): a tank of fuel with water in it is
-    nonsense, not a reserve. The rule is one for every way a liquid gets into
-    a vessel -- a hand pouring, a batch finishing, a rig's hopper, a
-    machine's outlet -- so it is asked here and nowhere is it re-decided.
-    """
-    return all(one.type_key == type_key for one in await storage.content(session, vessel))
 
 
 async def room_for(
@@ -180,14 +357,8 @@ async def room_for(
     """
     if not is_liquid(catalog, type_key):
         return 0.0
-    unit = catalog.recipes.mass_of(type_key)
-    free = 0.0
-    for vessel in await vessels_in(session, catalog, container):
-        await _lock(session, vessel)
-        if not await takes(session, vessel, type_key):
-            continue
-        free += await free_in(session, catalog, vessel)
-    return free if unit <= 0 else free / unit
+    held = await lock_vessels(session, await vessels_in(session, catalog, container))
+    return room_of(catalog, held.values(), type_key)
 
 
 async def fill(
@@ -212,19 +383,29 @@ async def fill(
     vessels: list[Item] = []
     for container in containers:
         vessels.extend(await vessels_in(session, catalog, container))
-    return await fill_vessels(session, catalog, item, vessels)
+    within = {container.id for container in containers}
+    return await fill_vessels(session, catalog, item, vessels, within=within)
 
 
 async def fill_vessels(
-    session: AsyncSession, catalog: Catalog, item: Item, vessels: Sequence[Item]
+    session: AsyncSession,
+    catalog: Catalog,
+    item: Item,
+    vessels: Sequence[Item],
+    *,
+    within: Collection[uuid.UUID] | None = None,
 ) -> float:
     """Pour as much of a liquid stack as fits into these vessels, in this order.
 
     The one pouring loop: `fill` gives it the vessels within reach, a machine's
-    outlet the vessels on its line (D-288). Each vessel is locked before its
-    free space is read, and one holding another liquid is passed over (D-288:
-    one liquid per vessel). The remainder stays in the stack, for the caller
-    to dispose of. Returns what was poured.
+    outlet the vessels on its line (D-288). The vessels are locked all at
+    once, in id order, whatever order they are filled in (`lock_vessels`); one
+    the wait took away is passed over, and so is one holding another liquid
+    (D-288: one liquid per vessel). `within` names the containers the reach is
+    made of, when there is one: a vessel is then judged by where it lies after
+    the wait rather than by whether it moved -- a canister lifted off the yard
+    into the same hands is still within it. The remainder stays in the stack,
+    for the caller to dispose of. Returns what was poured.
     """
     if not is_liquid(catalog, item.type_key):
         return 0.0
@@ -236,19 +417,22 @@ async def fill_vessels(
     #: names its vessels in the owner's order, and two machines filling the
     #: same two tanks through lines drawn the other way round would each hold
     #: one and wait on the other (review 2026-09-13).
-    if vessels:
-        await _lock(session, *vessels)
-    for vessel in vessels:
-        if item.amount <= 0:
-            break
-        if not await takes(session, vessel, item.type_key):
+    held = await lock_vessels(session, vessels)
+    #: Each vessel once: a second visit would measure its room off the
+    #: contents read before the first pour into it.
+    for vessel in {vessel.id: vessel for vessel in vessels}.values():
+        one = held.get(vessel.id)
+        #: Gone during the wait, or carried off: no longer a vessel within
+        #: this reach, whatever the list read before the lock said.
+        if one is None or not one.takes(item.type_key):
             continue
-        room = await free_in(session, catalog, vessel)
+        if one.moved if within is None else one.vessel.container_id not in within:
+            continue
         have = amount_float(item.amount)
-        fits = have if unit <= 0 else min(have, room / unit)
+        fits = have if unit <= 0 else min(have, one.room(catalog) / unit)
         if fits * AMOUNT_SCALE < 1:
             continue
-        inside = await storage.inside(session, vessel)
+        inside = one.inside or await storage.inside(session, vessel)
         #: `move_stack` copies the stack's whole identity into the vessel
         #: and folds it with a twin already there (D-214). The whole stack
         #: gone over -- nothing left behind.
@@ -269,15 +453,16 @@ async def room_in(
     """How many units of this liquid these vessels still take, together.
 
     Locked by default, like `room_for`, so that an answer may be acted on in
-    the same transaction; a forecast passes `lock=False` and reads. A vessel
-    holding another liquid takes none of it (D-288). Counted by `room_seen`
-    either way: one arithmetic for the door that refuses and the window and
-    "as much as fits" that show it.
+    the same transaction -- and then only the vessels the wait left where they
+    were count (`lock_vessels`); a forecast passes `lock=False` and reads. A
+    vessel holding another liquid takes none of it (D-288). Counted by
+    `room_of` either way: one arithmetic for the door that refuses and the
+    window and "as much as fits" that show it.
     """
     if not is_liquid(catalog, type_key) or not vessels:
         return 0.0
     if lock:
-        await _lock(session, *vessels)
+        return room_of(catalog, (await lock_vessels(session, vessels)).values(), type_key)
     return await room_seen(session, catalog, vessels, type_key)
 
 
@@ -287,19 +472,24 @@ async def room_seen(
     """`room_in` for a reading: how many units of this liquid these vessels
     take together, their contents read in two queries for all of them and
     nothing locked -- what a window shows and a forecast caps by, asked while
-    the player is still choosing. A vessel admits liquids alone, so what lies
-    in one is the whole of its load: no nested storage to walk into."""
+    the player is still choosing."""
     if not is_liquid(catalog, type_key) or not vessels:
         return 0.0
-    held = await storage.contents_of(session, vessels)
+    lying = await storage.contents_of(session, vessels)
+    seen = (
+        Held(vessel=vessel, inside=None, things=tuple(lying.get(vessel.id, ())), moved=False)
+        for vessel in vessels
+    )
+    return room_of(catalog, seen, type_key)
+
+
+def room_of(catalog: Catalog, held: Iterable[Held], type_key: str) -> float:
+    """How many units of this liquid these vessels take together: those still
+    where they were found, and holding nothing else (D-288). A vessel admits
+    liquids alone, so what lies in one is the whole of its load: no nested
+    storage to walk into."""
     unit = catalog.recipes.mass_of(type_key)
-    free = 0.0
-    for vessel in vessels:
-        inside = held.get(vessel.id, [])
-        if any(one.type_key != type_key for one in inside):
-            continue
-        load = sum(gear.mass_of(catalog, one.type_key, amount_float(one.amount)) for one in inside)
-        free += max(0.0, (storage.capacity(catalog, vessel.type_key) or 0.0) - load)
+    free = sum(one.room(catalog) for one in held if not one.moved and one.takes(type_key))
     return free if unit <= 0 else free / unit
 
 
@@ -390,11 +580,23 @@ async def pour(
     #: the space is what the pour is sized by, a second hose must see this
     #: one's result, and two pours into each other's vessels must queue
     #: rather than deadlock.
-    await _lock(session, source, target)
-    room = await free_in(session, catalog, target)
+    held = await lock_vessels(session, (source, target))
+    #: And the reach asked again if the wait moved them. It was asked before
+    #: the lock -- a refusal holds nobody's vessel -- and the floor is open to
+    #: a guest (D-204): one picking the canister up meanwhile would have the
+    #: pour drawing out of their hands, or filling them past a carry limit
+    #: nobody weighed.
+    for vessel in (source, target):
+        if vessel.id not in held:
+            raise LiquidError(key="thing-gone", goods=vessel.type_key)
+    if held[source.id].moved or held[target.id].moved:
+        await within_reach(session, catalog, body, node, pocket, source)
+        await within_reach(session, catalog, body, node, pocket, target)
+    into = held[target.id]
+    room = into.room(catalog)
 
     names = (type_key,) if type_key else tuple(catalog.recipes.liquid)
-    inside = await storage.inside(session, source, create=False)
+    inside = held[source.id].inside
     if inside is None:
         raise LiquidError(key="liquid-source-empty", vessel=source.type_key, named="false")
     stacks = await stock.locked_stacks(session, inside.id, names)
@@ -418,13 +620,10 @@ async def pour(
     if target.container_id == pocket.id:
         await gear.check_carry(session, constants, catalog, body, liquid_name, fits)
 
-    hold = await storage.inside(session, target)
+    hold = into.inside or await storage.inside(session, target)
     #: One liquid per vessel (D-288), and by hand the refusal is worded: a
     #: machine skips the vessel, a person is told what is in it.
-    other = next(
-        (one for one in await storage.content(session, target) if one.type_key != liquid_name),
-        None,
-    )
+    other = next((one for one in into.things if one.type_key != liquid_name), None)
     if other is not None:
         raise LiquidError(key="liquid-mixed", vessel=target.type_key, have=other.type_key)
     left = fits

@@ -43,6 +43,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
 from src.constants import registry as R
+from src.db.base import forget
 from src.engine import access, estate, events, fuel_plant, gear, station, travel, world
 from src.engine.errors import Refusal
 from src.models.event import EventKind
@@ -184,6 +185,37 @@ async def is_empty(session: AsyncSession, chest: Item) -> bool:
     return found is None
 
 
+async def _held(session: AsyncSession, thing: Item) -> None:
+    """Take the thing's row for the transaction and reread it, or say it is gone.
+
+    Every question a door asks of a thing -- where it lies, what is inside it
+    -- is asked after this, of the row as it stands, and not of the object the
+    command was handed. Whoever held the row meanwhile may have moved it: two
+    hands reaching for one sack on the floor both saw it there, and the second,
+    judging by that sight after the wait, took it **out of the first one's
+    hands** -- `world.move_stack` rereads the row but moves it from wherever
+    it now is. Locking without rereading would be no better: the second in
+    the queue would wait its turn and then act on what it read before waiting
+    -- and what the command remembered from before goes too (`forget`), for
+    the same reason.
+
+    The lock is taken on an id the client sent, so a door asks the cheap
+    question of the object it was handed first and refuses a thing plainly
+    not within its reach without taking the row; the answer after this is the
+    one that counts.
+
+    Burnt, fallen with the house, carried off between the look and the
+    click: the world's ordinary answer, said in words. The name is
+    read first -- a failed refresh leaves none.
+    """
+    named = thing.type_key
+    try:
+        await session.refresh(thing, with_for_update=True)
+    except InvalidRequestError as gone:
+        raise StorageError(key="thing-gone", goods=named) from gone
+    forget(session)
+
+
 async def put(
     session: AsyncSession,
     constants: Constants,
@@ -251,6 +283,12 @@ async def take(
     await _allowed(session, catalog, body, chest)
 
     contents = await inside(session, chest)
+    if item.container_id != contents.id:
+        raise StorageError(key="storage-not-in-storage")
+    #: And again after the thing's lock (`_held`): the chest's row first, then
+    #: the thing's -- the order `_allowed` and the carry limit have always
+    #: taken them in.
+    await _held(session, item)
     if item.container_id != contents.id:
         raise StorageError(key="storage-not-in-storage")
 
@@ -462,8 +500,12 @@ async def pick(
     yard = await world.node_container(session, node)
     if item.container_id != yard.id:
         raise StorageError(key="storage-not-on-ground")
-
     await _require_inside(session, node, body)
+    #: And again after the thing's lock (`_held`): what the hand saw lying may
+    #: be in another pair of hands by the time the wait is over.
+    await _held(session, item)
+    if item.container_id != yard.id:
+        raise StorageError(key="storage-not-on-ground")
 
     #: A relic of the Forerunners is not picked up, ever (D-232): it was found
     #: here, and the world holds no second copy of it. The refusal is here
@@ -612,27 +654,22 @@ async def _allowed(session: AsyncSession, catalog: Catalog, body: Body, chest: I
     node = await session.get(Node, body.node_id)
     if node is None:  # pragma: no cover -- a body without a node is a bug
         raise StorageError(key="storage-body-off-node")
+    yard = await world.node_container(session, node)
+    if chest.container_id != yard.id:
+        raise StorageError(key="storage-storage-not-here")
 
-    #: The chest's row is taken for the transaction before a word is read off
-    #: it, and refreshed with the lock rather than merely locked: a chest
-    #: weighs its contents now (D-313), so both doors read them -- one for the
-    #: room left, the other for the weight of carrying the box away -- and a
-    #: fill that slips in between a reading and a move is how the carry limit
-    #: gets walked round (D-146). `gear.check_carry_thing` takes the same row
+    #: The chest's row is taken for the transaction before a word that counts
+    #: is read off it (`_held`), and refreshed with the lock rather than merely
+    #: locked: a chest weighs its contents now (D-313), so both doors read them
+    #: -- one for the room left, the other for the weight of carrying the box
+    #: away -- and a fill that slips in between a reading and a move is how the
+    #: carry limit gets walked round (D-146). `gear.check_carry_thing` takes the same row
     #: at the lifting door, so filling and lifting queue on it. Locking
     #: without refreshing would be worse than not locking: the second in the
     #: queue would wait its turn and then decide on the state it read before
     #: waiting -- and pour a quarter of a ton into a chest already walking
     #: away in somebody's hands.
-    named = chest.type_key
-    try:
-        await session.refresh(chest, with_for_update=True)
-    except InvalidRequestError as gone:
-        #: Burnt, fallen with the house, carried off between the look and the
-        #: click: the world's ordinary answer, said in words (D-011).
-        raise StorageError(key="thing-gone", goods=named) from gone
-
-    yard = await world.node_container(session, node)
+    await _held(session, chest)
     if chest.container_id != yard.id:
         raise StorageError(key="storage-storage-not-here")
     if not await station.may_build(session, body, node):

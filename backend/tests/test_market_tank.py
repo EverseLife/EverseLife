@@ -169,3 +169,60 @@ async def test_a_buyer_without_a_vessel_waits(
     assert fill.traded == pytest.approx(30)
     with pytest.raises(market.NoRoom):
         await market.take(session, constants, buyer, LUBRICANT, 30)
+
+
+async def test_a_canister_of_water_takes_no_lubricant_off_the_counter(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The purchase goes only into a vessel that takes it: one liquid to a vessel (D-288).
+
+    The buyer carries a canister of water and an empty one. The counter
+    measured both by their room and poured into the first in id order, the
+    water's -- a canister of lubricant and water nobody can pour out as either.
+    """
+    from src.engine import storage
+
+    bought, water_units = 5.0, 10.0
+    node = await _city(session)
+    seller_id, seller, _ = await _with_canister(session, node, "Seller", fill=50)
+    await market.load(session, constants, seller, LUBRICANT, bought)
+    tier = market.tier_of(constants, 55)
+    await market.sell(
+        session,
+        constants,
+        catalog,
+        seller_id,
+        node,
+        type_key=LUBRICANT,
+        tier=tier,
+        price=money(2),
+        quantity=bought,
+    )
+    _, buyer = await _trader(session, node, "Buyer", funds=1000)
+    pocket = await world.body_container(session, buyer)
+    cans = [
+        await world.grant_item(session, pocket, "canister", quality=60, origin="test")
+        for _ in range(2)
+    ]
+    water, empty = sorted(cans, key=lambda can: can.id)
+    inside = await storage.inside(session, water)
+    await world.grant_item(session, inside, "water", amount=water_units, quality=60, origin="test")
+    await market.buy(
+        session,
+        constants,
+        catalog,
+        buyer,
+        type_key=LUBRICANT,
+        tier=tier,
+        price=money(2),
+        quantity=bought,
+    )
+
+    assert await market.take(session, constants, buyer, LUBRICANT, bought) == pytest.approx(bought)
+
+    in_water = await storage.content(session, water)
+    assert [(one.type_key, amount_float(one.amount)) for one in in_water] == [
+        ("water", water_units)
+    ]
+    in_empty = await storage.content(session, empty)
+    assert [(one.type_key, amount_float(one.amount)) for one in in_empty] == [(LUBRICANT, bought)]

@@ -25,12 +25,17 @@ flat. Working again clears it without a word.
 **Locks in the hand's order.** The vessel rows first, in id order, then the
 stacks inside them in one query: a hand pouring into the same tank takes the
 vessels first as well (`liquid.pour`), and two orders over the same rows would
-be a deadlock waiting for its minute.
+be a deadlock waiting for its minute. The stretch then draws, measures, pours
+and names what stopped it by that lock's answer alone
+(`lines.Plumbing.keeping`): a vessel the wait took away is off its line, as
+it is at the next reading.
 """
 
 from __future__ import annotations
 
 import math
+import uuid
+from collections.abc import Mapping
 from datetime import datetime
 from decimal import Decimal
 
@@ -69,6 +74,7 @@ async def advance_on_lines(
     yard: Container,
     proc: Procedure,
     plumbed: lines.Plumbing,
+    held: Mapping[uuid.UUID, liquid.Held],
     *,
     hours: float,
     unit_hours: float,
@@ -77,17 +83,23 @@ async def advance_on_lines(
 ) -> float:
     """Advance a plumbed automat by `hours`. Returns the units paid out.
 
-    The caller holds the row, has charged the wear and knows the programme;
-    this is the stretch itself, as `run.advance` does it on the ground -- the
-    energy too: drawn here for a command, promised on the tick's `tab` and
-    drawn by the tick once every machine has worked (`bill.pay`).
+    The caller holds the row, has locked the vessels on the lines and in the
+    machine's room (`held`, before the wear it charged) and knows the
+    programme; this is the stretch itself, as `run.advance` does it on the
+    ground -- the energy too: drawn here for a command, promised on the tick's
+    `tab` and drawn by the tick once every machine has worked (`bill.pay`).
     """
     book = catalog.recipes
     ports = {
         port.name: port
         for port in lines.plumbed_for(constants, catalog, machine.type_key, proc.output)
     }
-    await liquid.lock_vessels(session, plumbed.vessels)
+    lube_names = tuple(sorted(world.station_names(LUBE)))
+    loose = [name for name in proc.per_unit if name not in plumbed.inlets]
+    #: From here on only the vessels the lock left in place: a canister
+    #: carried off took its inside with it into somebody's hands, and one
+    #: burnt meanwhile has no inside to pour into.
+    plumbed = plumbed.keeping(*liquid.standing(held))
 
     #: Every stack the stretch touches in ONE query and one lock order: the
     #: plumbed liquids off their lines, anything else off the yard (the air
@@ -95,9 +107,13 @@ async def advance_on_lines(
     #: pile is kept out here (D-342, `run.advance`): water and lubricant come
     #: off the lines, and a second recipe on lines that burns a fuel off the
     #: yard must bar the pile the way the ground does.
-    lube_names = tuple(sorted(world.station_names(LUBE)))
-    loose = [name for name in proc.per_unit if name not in plumbed.inlets]
-    yard_reach = await liquid.reach(session, catalog, yard) if loose else []
+    yard_reach = (
+        liquid.reach_held(
+            yard, (one for one in held.values() if one.vessel.container_id == yard.id)
+        )
+        if loose
+        else []
+    )
     within: dict[str, tuple] = {
         name: plumbed.inlets.get(name, ()) for name in (*proc.per_unit, *lube_names)
     }
@@ -129,9 +145,10 @@ async def advance_on_lines(
             units_by_inputs, short_of = have, name
     input_hours = max(0.0, (units_by_inputs - backlog) * unit_hours)
 
+    #: The room off what the lock reread, in the vessels it kept.
     outlet = plumbed.outlets.get(proc.output, [])
     room_units = (
-        await liquid.room_in(session, catalog, outlet, proc.output, lock=False)
+        liquid.room_of(catalog, (held[vessel.id] for vessel in outlet), proc.output)
         if book.is_liquid(proc.output)
         else math.inf
     )
@@ -146,10 +163,8 @@ async def advance_on_lines(
     vent_units: dict[str, float] = {}
     if not let_out:
         for name, per in vent.gases_of(catalog, proc.output).items():
-            room = await liquid.room_in(
-                session, catalog, plumbed.vents.get(name, []), name, lock=False
-            )
-            vent_units[name] = room / per
+            gassed = (held[vessel.id] for vessel in plumbed.vents.get(name, []))
+            vent_units[name] = liquid.room_of(catalog, gassed, name) / per
 
     #: Which limiter binds, by the name the crew is told: the lubricant's
     #: port, the input that runs out first, the outlet, the vent.
