@@ -230,11 +230,48 @@ def eject_waits(
 ) -> np.ndarray:
     """`eject_wait` for many departures from one place and moment at once,
     days -- a remembered slider's waits counted anew for the hull reading it
-    (D-316, D-341). The same arithmetic as `_wait_days`, over rows."""
+    (D-316, D-341)."""
     wanted = np.asarray(wanted, dtype=float).reshape(-1, 2)
-    waits = np.zeros(len(wanted))
     leaving = _holding(system, target, t, r)
-    if leaving is None or not len(wanted):
+    if leaving is None:
+        return np.zeros(len(wanted))
+    return _waits(system, leaving, t, r, v, wanted)
+
+
+def _wait_days(
+    system: System,
+    leaving: Body,
+    t: float,
+    r: tuple[float, float],
+    v: tuple[float, float],
+    wanted: tuple[float, float],
+) -> float:
+    """How long the circle still has to turn before the hull faces the way it
+    means to leave, days; nought if the window is already open (D-316). One
+    departure of `_waits`: the helm's wait and the promised one are one
+    arithmetic."""
+    return float(_waits(system, leaving, t, r, v, np.asarray([wanted], dtype=float))[0])
+
+
+def _waits(
+    system: System,
+    leaving: Body,
+    t: float,
+    r: tuple[float, float],
+    v: tuple[float, float],
+    wanted: Rows,
+) -> np.ndarray:
+    """The wait for the window of every departure in `wanted`, days.
+
+    With an excess ten times the planet's escape speed the departure hyperbola
+    is all but straight, so the way out is the way the hull is already going
+    round the planet -- and the window is simply the side of the circle that
+    faces the arc. Waiting for it is free: the circle is a coast. Burning off
+    the wrong side is not, and it cost thirty units of the fifty a departure
+    took.
+    """
+    waits = np.zeros(len(wanted))
+    if not len(wanted):
         return waits
     p, vp = place_any(leaving, t)
     v_rel = np.array(v) - vp[0]
@@ -247,6 +284,8 @@ def eject_waits(
     unit = excess / np.maximum(out, STILL)[:, None]
     turn = np.arctan2(v_rel[0] * unit[:, 1] - v_rel[1] * unit[:, 0], unit @ v_rel)
     rel = np.array(r) - p[0]
+    #: Which way round the planet the hull goes decides which way the heading
+    #: turns, and therefore how much of the circle is still to come.
     onward = float(rel[0] * v_rel[1] - rel[1] * v_rel[0]) >= 0.0
     ahead = turn if onward else -turn
     ahead = np.where(ahead < 0.0, ahead + 2.0 * math.pi, ahead)
@@ -254,49 +293,6 @@ def eject_waits(
     if rate <= 0.0:
         return waits
     return np.where((out < STILL) | (np.abs(turn) <= system.eject_window), 0.0, ahead / rate)
-
-
-def _wait_days(
-    system: System,
-    leaving: Body,
-    t: float,
-    r: tuple[float, float],
-    v: tuple[float, float],
-    wanted: tuple[float, float],
-) -> float:
-    """How long the circle still has to turn before the hull faces the way it
-    means to leave, days; nought if the window is already open (D-316).
-
-    With an excess ten times the planet's escape speed the departure hyperbola
-    is all but straight, so the way out is the way the hull is already going
-    round the planet -- and the window is simply the side of the circle that
-    faces the arc. Waiting for it is free: the circle is a coast. Burning off
-    the wrong side is not, and it cost thirty units of the fifty a departure
-    took.
-    """
-    p, vp = place_any(leaving, t)
-    v_rel = np.array(v) - vp[0]
-    excess = np.array(wanted) - vp[0]
-    going = float(np.hypot(*v_rel))
-    out = float(np.hypot(*excess))
-    if going < STILL or out < STILL:
-        return 0.0
-    v_rel = v_rel / going
-    excess = excess / out
-    turn = math.atan2(
-        float(v_rel[0] * excess[1] - v_rel[1] * excess[0]), float(np.dot(v_rel, excess))
-    )
-    if abs(turn) <= system.eject_window:
-        return 0.0
-    rel = np.array(r) - p[0]
-    #: Which way round the planet the hull goes decides which way the heading
-    #: turns, and therefore how much of the circle is still to come.
-    onward = float(rel[0] * v_rel[1] - rel[1] * v_rel[0]) >= 0.0
-    ahead = turn if onward else -turn
-    if ahead < 0.0:
-        ahead += 2.0 * math.pi
-    rate = abs(circle_rate(leaving, park_of(system, leaving)))
-    return ahead / rate if rate > 0.0 else 0.0
 
 
 def holding(

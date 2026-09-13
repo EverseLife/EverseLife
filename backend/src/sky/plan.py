@@ -69,10 +69,11 @@ _SEARCH_YEARS = 2.0
 #: refinements from 96 departures measured 2026-09-13 the sky's price was the
 #: conic's own in the median, under 0.9 of it in one in twenty, and 0.68 of it
 #: at the least. A candidate is refined while its conic price times this still
-#: beats what a choice must beat. Tried at 0.75 against refining by the bare
-#: conic price, it found better passages on four sliders of twenty-four --
-#: a flyby cheaper than the direct arc of its hour, a chain a window longer --
-#: for a fifth more time.
+#: beats what a choice must beat. Against refining by the bare conic price it
+#: changed 20 sliders of 144 in the re-measure of D-341 -- 9 cheap ends came
+#: out cheaper, 9 reached further. The ratio follows the vault's worlds
+#: (`planet.mass`, `orbit.planet_mu`, `orbit.flyby_floor_radii`): a pass the
+#: sky confirms further under its conic than this is logged.
 _CONIC_SPREAD = 0.68
 
 _LOG = logging.getLogger(__name__)
@@ -406,6 +407,15 @@ def _refine_all(
             return [shots[hour] for hour in sorted(shots)]
         found = refine(system, r0, v0, t0, target, batch, leaving=leaving, floor_radii=floor_radii)
         for one, shot in zip(batch, found, strict=True):
+            if shot is not None and shot.dv < one.dv * _CONIC_SPREAD:
+                #: The sky came out further under the conic than the spread
+                #: allows for: passes pruned by it may have been choices.
+                _LOG.warning(
+                    "flyby refined under the conic spread: %.1f against %.1f through %s",
+                    shot.dv,
+                    one.dv,
+                    one.via,
+                )
             if shot is not None and shot.dv < bar(one.hours):
                 shots[one.hours] = shot
                 known.append(_priced(one.hours, shot.dv))

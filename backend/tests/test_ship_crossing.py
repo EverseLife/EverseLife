@@ -300,7 +300,7 @@ async def test_engines_that_deliver_nothing_the_sky_has_are_refused_by_thrust(
     monkeypatch.setattr(slider, "offers", nothing)
     with pytest.raises(ship.NotEnoughThrust) as refused:
         await ship.fly(session, constants, catalog, owner, vessel, far)
-    assert refused.value.key == "ship-too-fast-for-thrust"
+    assert refused.value.key == "ship-no-arc-fits"
     assert refused.value.params["hours"] > 0 and refused.value.params["need"] > 0
     assert vessel.course is None and vessel.docked_node_id is not None
 
@@ -311,9 +311,10 @@ async def test_a_hull_changed_before_the_lock_is_laid_again(
     catalog: Catalog,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The slider is laid before the hull's row is locked (D-341), and a hull
-    another session moves in between is laid again under the lock -- the order
-    never flies a slider laid from where the hull no longer is."""
+    """The slider is laid before the hull's row is locked (D-341), and asked
+    for again under the lock: a hull another session moves in between is laid
+    anew there -- the order never flies a slider laid from where the hull no
+    longer is."""
     async with factory() as session, session.begin():
         here = await _port(session)
         await _port(session, name="Порт Авроры", planet=Planet.AURORA)
@@ -350,10 +351,12 @@ async def test_a_hull_changed_before_the_lock_is_laid_again(
         owner = await session.get(Body, owner_id)
         far = await session.get(Node, far_id)
         await ship.fly(session, constants, catalog, owner, vessel, far)
-        assert len(froms) == 2, "под блокировкой ползунок разложен заново"
-        assert math.dist(*froms) > 0.1, "второй — от нового места корпуса"
+        assert len(froms) == 2, "под блокировкой ползунок спрошен снова"
+        assert math.dist(*froms) > 0.3, "второй — от нового места корпуса"
         assert vessel.course is not None
-        assert tuple(vessel.course["trace"][0]) == pytest.approx(froms[1], abs=0.1)
+        start = tuple(vessel.course["trace"][0])
+        assert start == pytest.approx(froms[1], abs=0.1), "курс проложен от нового места"
+        assert math.dist(start, froms[0]) > 0.2, "а не от прежнего"
 
 
 async def _under_way(

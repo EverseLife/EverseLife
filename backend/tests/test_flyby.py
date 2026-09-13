@@ -432,6 +432,24 @@ def test_the_waits_of_a_remembered_slider_are_the_hulls_own() -> None:
             one = sky.eject_wait(world, target, t0, r0, v0, (float(row[0]), float(row[1])))
             assert wait == pytest.approx(one, abs=1e-12)
         assert np.any(waits > 0.0) and waits[-1] == 0.0
+        #: Going the other way round the circle, the hull faces a departure
+        #: from the opposite side: the two turns still to come make half a
+        #: circle, or one and a half.
+        back = 2.0 * vp[0] - np.asarray(v0)
+        across = sky.eject_waits(
+            world, target, t0, r0, (float(back[0]), float(back[1])), wanted[:-1]
+        )
+        home = world.body(origin)
+        half = math.pi / sky.circle_rate(home, sky.park_of(world, home))
+        for there, other in zip(waits[:-1], across, strict=True):
+            if there > 0.0 and other > 0.0:
+                assert min(abs(there + other - half), abs(there + other - 3 * half)) < 1e-9
+    #: No wait with nothing to leave by, and none out of every world's hold.
+    r0, v0 = _moored(world, origin, t0, PHASE)
+    _, vp = sky.place(world.body(origin), t0)
+    assert sky.eject_waits(world, target, t0, r0, v0, vp)[0] == 0.0
+    deep = (500.0, 0.0)
+    assert not sky.eject_waits(world, target, t0, deep, (10.0, 0.0), wanted).any()
 
 
 def test_each_hull_lays_its_own_plan() -> None:

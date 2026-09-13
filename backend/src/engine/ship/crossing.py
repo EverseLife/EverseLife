@@ -104,12 +104,28 @@ async def fly(
     #: in the sky's pool the slider takes seconds -- a dozen for a pair with
     #: Aurora on a bad day -- and a hull row held for update that long would
     #: stall the tick and every other order to the hull. Under the lock the
-    #: checks run again on the hull as it then is, and the slider is laid again
-    #: only if what it was laid from has changed.
-    _, _, thrust_ratio = await _ready(session, constants, catalog, ship, target, moment)
-    early = await _laid(session, constants, catalog, ship, target, moment, thrust_ratio)
+    #: hull is checked again as it then is and the slider asked for again: the
+    #: sky's memory hands the same one back to a hull that has not changed --
+    #: its circle or its state, its thrust (`slider._basis`) -- and lays a new
+    #: one for a hull that has.
+    _, _, thrust_ratio = await _hull_ready(session, constants, catalog, ship, target)
+    await _world_ready(session, constants, ship, target, moment)
+    if not isinstance(target, Ship):
+        world = await sim.system(session, constants)
+        await slider.offers(
+            session,
+            constants,
+            catalog,
+            ship,
+            world.body(target.planet.value),
+            now=moment,
+            thrust_ratio=thrust_ratio,
+        )
     await session.refresh(ship, with_for_update=True)
-    here, connector, thrust_ratio = await _ready(session, constants, catalog, ship, target, moment)
+    if ship.held_ship_id is not None:
+        #: On a hold the hull's place is the other hull's: read afresh too.
+        await session.get(Ship, ship.held_ship_id, populate_existing=True)
+    here, connector, thrust_ratio = await _hull_ready(session, constants, catalog, ship, target)
 
     world = await sim.system(session, constants)
     goal: sky.Target | None
@@ -125,14 +141,9 @@ async def fly(
         goal = world.body(target.planet.value)
     #: The slider as the sky offers this hull now (D-341): the order flies a
     #: point of it and nothing else, named or not.
-    if early is not None and early[1] == await _inputs(
-        session, constants, ship, moment, thrust_ratio
-    ):
-        offered = early[0]
-    else:
-        offered = await slider.offers(
-            session, constants, catalog, ship, goal, now=moment, thrust_ratio=thrust_ratio
-        )
+    offered = await slider.offers(
+        session, constants, catalog, ship, goal, now=moment, thrust_ratio=thrust_ratio
+    )
     if not offered:
         if isinstance(target, Ship):
             raise TooFar(key="ship-no-route-to-ship", other=target.name)
@@ -144,7 +155,7 @@ async def fly(
             cheapest = min(arcs, key=lambda one: one.dv)
             can = course.deliverable(constants, thrust_ratio, cheapest.hours)
             raise NotEnoughThrust(
-                key="ship-too-fast-for-thrust",
+                key="ship-no-arc-fits",
                 hours=round(cheapest.hours, ROUND_HOURS),
                 need=round(cheapest.dv, ROUND_DV),
                 have=round(can, ROUND_DV),
@@ -224,20 +235,18 @@ async def fly(
     return arrives
 
 
-async def _ready(
+async def _hull_ready(
     session: AsyncSession,
     constants: Constants,
     catalog: Catalog,
     ship: Ship,
     target: Node | Ship,
-    moment: datetime,
 ) -> tuple[Node | None, Node | None, float]:
-    """Every refusal an order meets before its slider is laid, and what the
-    rest of it needs: the node moored at and the connector, or nothing for a
-    hull adrift, and the thrust-to-mass. Only reads -- `fly` asks it before
-    the hull's row is locked, so a refused order lays no slider, and again
-    under the lock, so what is written is decided on the hull as it is.
-    """
+    """Every refusal the hull itself gives an order, and what the rest of the
+    order needs: the node moored at and the connector, or nothing for a hull
+    adrift, and the thrust-to-mass. Only reads -- `fly` asks it before the
+    hull's row is locked, so a refused order lays no slider, and again under
+    the lock, so what is written is decided on the hull as it is."""
     meeting = isinstance(target, Ship)
     if not meeting and not is_orbit(target):
         raise NoPort(key="ship-cross-to-orbit", node=target.name)
@@ -259,6 +268,19 @@ async def _ready(
             raise Docked(key="ship-cross-from-orbit", ship=ship.name)
         if not meeting and target.planet is here.planet:
             raise TooFar(key="ship-already-over-planet", ship=ship.name)
+    return here, connector, thrust_ratio
+
+
+async def _world_ready(
+    session: AsyncSession,
+    constants: Constants,
+    ship: Ship,
+    target: Node | Ship,
+    moment: datetime,
+) -> None:
+    """Every refusal the far end gives an order -- a hull out of sight, a
+    planet that will not take the hull or has no lit beacon. Asked once,
+    before the slider: the hull's row locks none of it."""
     if isinstance(target, Ship):
         #: A hull as the target: in sight, coasting, on nobody's hold, and
         #: with a forecast to be met on (wave 3).
@@ -271,49 +293,6 @@ async def _ready(
         await _will_take(session, constants, ship, target, why="dock")
         if not await _landable(session, constants, target.planet):
             raise NoPort(key="ship-nowhere-to-land", node=target.name)
-    return here, connector, thrust_ratio
-
-
-async def _laid(
-    session: AsyncSession,
-    constants: Constants,
-    catalog: Catalog,
-    ship: Ship,
-    target: Node | Ship,
-    moment: datetime,
-    thrust_ratio: float,
-) -> tuple[list[sky.Sample], tuple] | None:
-    """The slider to a planet from the hull as it stands before its row is
-    locked, and the inputs it was laid from (`_inputs`) -- or nothing to a
-    hull, whose one quote is cheap enough to lay under the lock."""
-    if isinstance(target, Ship):
-        return None
-    world = await sim.system(session, constants)
-    offered = await slider.offers(
-        session,
-        constants,
-        catalog,
-        ship,
-        world.body(target.planet.value),
-        now=moment,
-        thrust_ratio=thrust_ratio,
-    )
-    return offered, await _inputs(session, constants, ship, moment, thrust_ratio)
-
-
-async def _inputs(
-    session: AsyncSession, constants: Constants, ship: Ship, moment: datetime, thrust_ratio: float
-) -> tuple:
-    """What a slider is laid from, as `slider.offers` reads it: where the hull
-    is at the order's moment and how it moves -- on its circle, adrift, or on
-    another's hold -- the world it leaves, and its thrust."""
-    world = await sim.system(session, constants)
-    leaving = await sim.leaving_of(session, world, ship)
-    return (
-        await sim.state_at(session, constants, ship, now=moment),
-        None if leaving is None else leaving.key,
-        thrust_ratio,
-    )
 
 
 async def cancel(

@@ -236,6 +236,8 @@ async def test_an_hour_of_the_direct_grid_with_no_arc_is_said_so(
     #: Every arc of the hour cutting the corona, put in by hand.
     monkeypatch.setattr(slider, "arcs", no_arcs)
     first = course.grid(constants)[0]
+    forecast = await ship.forecast(session, constants, catalog, vessel, Planet.AURORA, now=moment)
+    assert all(one["hours"] != first for one in forecast["samples"]), "час не на ползунке"
     body = await _body_of(session, vessel)
     with pytest.raises(ship.NoArc) as refused:
         await ship.fly(session, constants, catalog, body, vessel, far, hours=first, now=moment)
