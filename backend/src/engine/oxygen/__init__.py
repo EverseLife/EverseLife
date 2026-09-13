@@ -6,11 +6,13 @@
 Warmth (`engine.frost`) is the first scale and this is the second, deliberately
 built to the same shape so that two scales do not become two mechanics: a
 property of the **planet** decides whether the question arises at all, and on
-Terra and Aurora it never does. There is air there, the reading is empty, and
-nothing in this module is ever asked.
+the ground of Terra and Aurora it never does. There is air there, the reading
+is empty, and nothing in this module is ever asked. Their orbits are another
+matter: an orbital node carries the planet it circles (D-245) and none of its
+air.
 
-Where there is none -- in flight and on Pyroxis -- two things breathe, and they
-breathe from different places:
+Where there is none -- in flight, in orbit and on Pyroxis -- two things
+breathe, and they breathe from different places:
 
 * **a hull** breathes off the life support's line (D-288). Oxygen is a liquid
   (D-230) and exists only inside a vessel, so the ship's reserve is what lies
@@ -66,6 +68,7 @@ from src.engine.oxygen._base import (  # noqa: F401
     airless_planets,
     free_air,
     sealed,
+    without_air,
 )
 from src.engine.oxygen.breath import (  # noqa: F401
     require_air,

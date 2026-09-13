@@ -294,6 +294,7 @@ TOLD = frozenset(
         EventKind.PLOT_DIED.value,
         EventKind.PLOT_RIPENED.value,
         EventKind.PLOT_STRUCK.value,
+        EventKind.AGRO_STALLED.value,
         EventKind.BODY_DIED.value,
         EventKind.BODY_PRINTED.value,
         EventKind.MINING_COLLAPSED.value,

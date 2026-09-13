@@ -34,6 +34,8 @@ had let a body pocket a machine it could never have lifted.
 
 from __future__ import annotations
 
+import uuid
+
 from sqlalchemy import select
 from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -125,9 +127,15 @@ async def may_build(session: AsyncSession, body: Body, node: Node) -> bool:
     work on it is open to everyone: whoever comes may put up a machine. What is
     placed belongs to whoever placed it -- the ground under it, to nobody.
     """
+    return await may_build_as(session, body.identity_id, node)
 
+
+async def may_build_as(session: AsyncSession, identity_id: uuid.UUID, node: Node) -> bool:
+    """`may_build` asked of an identity with no body at hand: a machine that
+    works while its owner is away still works only by its owner's right to the
+    node (D-339) -- land sold from under it stops it."""
     if node.owner_identity_id is not None:
-        return node.owner_identity_id == body.identity_id
+        return node.owner_identity_id == identity_id
     #: A storey with no holder of its own is disposed of by the plot under it
     #: (D-247). Read as land, a floor of a **civic** house was nobody's -- no
     #: holder on the row and no city either -- and any passer-by could carry a
@@ -135,11 +143,11 @@ async def may_build(session: AsyncSession, body: Body, node: Node) -> bool:
     if node.owner_city_id is None and storey_of(node) is not None and node.parent_id is not None:
         place = await session.get(Node, node.parent_id)
         if place is not None:
-            return await may_build(session, body, place)
+            return await may_build_as(session, identity_id, place)
     if node.owner_city_id is None:
         return True
     city = await town.by_id(session, node.owner_city_id)
-    return city is not None and await town.may(session, body.identity_id, city, Power.LAWS)
+    return city is not None and await town.may(session, identity_id, city, Power.LAWS)
 
 
 async def require_printer_room(

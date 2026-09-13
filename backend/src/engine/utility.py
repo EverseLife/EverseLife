@@ -29,11 +29,44 @@ court decision, not arithmetic.
 
 Outside a city there is no meter at all: there is no grid, and one works from
 a battery.
+
+**Lock order.** The meters in id order, then the pools city by city in grid
+node order, each after the fuel its plants burn (`energy.produce`) -- the
+order `energy.tick_pools` takes them in -- then the holders' accounts in id
+order, the order `ledger.post` locks debited accounts in. That is the
+automats' tick (`automat/bill.py`) with the meters in front. A bench takes its
+pool and then its master's account (`energy.draw_for_work`); paying off a debt
+takes the meter and then the account (`pay`); the city taking a node back
+takes the meter and then the node (`city/land.py`), every meter it needs before
+the first node when it takes back several (`reclaim_all`). A run that took an
+account between two pools, or before a meter, would hold one of those the
+other way round. A meter's debt is read and written only under the meter's
+lock.
+
+The run takes no lock on a household's node, and that rests on one rule:
+**a meter's row is updated once a transaction.** Postgres re-checks a foreign
+key when a row is updated again by the transaction that last wrote it, so a
+second update would take the node `FOR KEY SHARE`, and the run would stand in
+the way of whoever holds that node `FOR UPDATE` -- a plot changing hands --
+and they in its. Two nodes the rule cannot keep out. A meter the run opens
+itself (`ensure_meters`) is inserted, and the insert takes its node the same
+way. And the city's own node: a pool brought up to now and then drawn is
+updated twice, and takes it -- which is why a hand-over waits for the meter
+before it holds any node.
+
+Two known holes are shared with every draw from a pool and every bill. A
+credit posting takes its treasury's account `FOR KEY SHARE` through the
+entry's foreign key, which conflicts with a treasury paying out for as long as
+`ledger.post` takes debited accounts `FOR UPDATE`: a treasury paying one of the
+run's holders while the run posts into it can deadlock, in whatever order the
+bills are posted. And the hole the automats' tick leaves open (OQ-174,
+`automat/bill.py`) reaches the meter too: it draws a city's pool.
 """
 
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
@@ -46,10 +79,11 @@ from src.engine import energy, events, ledger
 from src.engine.errors import Refusal
 from src.engine.jobs import enqueue, handler
 from src.models.city import UtilityMeter
+from src.models.energy import EnergyPool
 from src.models.event import EventKind
 from src.models.identity import Identity
 from src.models.job import Job, JobKind
-from src.models.ledger import AccountKind, PostingReason
+from src.models.ledger import AccountKind, LedgerAccount, PostingReason
 from src.models.world import Layer, Node, storey_of
 from src.units import ENERGY_PER_TARIFF_UNIT, SECONDS_PER_HOUR, money, money_str
 
@@ -66,10 +100,8 @@ class NotEnoughMoney(UtilityError):
     """The account has less than the debt. Partial payment is payment too, but there is no zero."""
 
 
-async def meter_of(
-    session: AsyncSession, node: Node, *, create: bool = True
-) -> UtilityMeter | None:
-    """The node's meter. Created only where there is somebody to pay and something to pay from.
+async def _grid_of(session: AsyncSession, node: Node) -> Node | None:
+    """The grid node a meter on this node bills from. `None` -- no meter belongs here.
 
     Two conditions, both necessary: the node has an owner (identity or city)
     and the node is in the city grid. An unowned node produces no bill, and
@@ -77,12 +109,25 @@ async def meter_of(
     """
     if node.owner_identity_id is None and node.owner_city_id is None:
         return None
-    if await energy.grid_node(session, node) is None:
+    return await energy.grid_node(session, node)
+
+
+async def meter_of(
+    session: AsyncSession, node: Node, *, create: bool = True, lock: bool = False
+) -> UtilityMeter | None:
+    """The node's meter. Created only where there is somebody to pay and
+    something to pay from (`_grid_of`).
+
+    `lock` takes the row for the transaction, read afresh: the debt on it is
+    money, and whoever writes it reads it under the lock (CLAUDE.md).
+    """
+    if await _grid_of(session, node) is None:
         return None
 
-    found = (
-        await session.execute(select(UtilityMeter).where(UtilityMeter.node_id == node.id))
-    ).scalar_one_or_none()
+    stmt = select(UtilityMeter).where(UtilityMeter.node_id == node.id)
+    if lock:
+        stmt = stmt.with_for_update().execution_options(populate_existing=True)
+    found = (await session.execute(stmt)).scalar_one_or_none()
     if found is not None or not create:
         return found
 
@@ -156,75 +201,143 @@ async def bill(
 ) -> int:
     """Issue the bill for the elapsed time. Returns the accrued money.
 
-    Energy really leaves the pool: the meter does not invent the spend, it
-    writes it off. The pool is empty -- what was in it is written off: a city
-    without fuel cannot release what it does not have.
+    One meter's run (`run_meters`), taken in the same order.
     """
     moment = now or datetime.now(UTC)
-    meter = await meter_of(session, node)
+    meter = await meter_of(session, node, lock=True)
     if meter is None:
         return 0
+    accrued = await _settle(session, constants, [(meter, node)], now=moment)
+    return accrued.get(meter.id, 0)
 
-    hours = (moment - meter.counted_at).total_seconds() / SECONDS_PER_HOUR
-    if hours <= 0:
-        return 0
 
-    pool = await energy.pool_of(session, constants, node)
-    if pool is None:  # pragma: no cover -- the grid is checked in meter_of
-        return 0
-    await energy.produce(session, constants, pool, now=moment)
+@dataclass(slots=True)
+class _Reading:
+    """One meter's household energy taken off its pool; its money and its row wait.
 
-    need = draw_for(constants, node, hours)
-    released = min(need, float(pool.stored))
-    energy.take_from_pool(pool, released)
-    meter.counted_at = moment
-    meter.last_energy = Decimal(str(released))
+    What the holder's purse paid and what went onto the meter as debt are
+    filled in by the money round, and the meter's row is written last
+    (`_settle`).
+    """
 
-    price = money(released / ENERGY_PER_TARIFF_UNIT * float(pool.tariff))
+    meter: UtilityMeter
+    node: Node
+    #: The treasury the money goes to is the grid node's.
+    grid_id: uuid.UUID
+    released: float
+    hours: float
+    price: int
+    paid: int = 0
+    owed: int = 0
+
+
+async def _settle(
+    session: AsyncSession,
+    constants: Constants,
+    meters: list[tuple[UtilityMeter, Node]],
+    *,
+    now: datetime,
+) -> dict[uuid.UUID, int]:
+    """Bill locked meters for the time since each was counted. Returns the money
+    accrued per meter, paid or owed.
+
+    In three rounds (the module's lock order): the pools -- the energy written
+    off, the money reckoned -- then the money posted, account by account, then
+    each meter's row written once. Energy really leaves the pool: the meter
+    does not invent the spend, it writes it off. The pool is empty -- what was
+    in it is written off: a city without fuel cannot release what it does not
+    have.
+    """
+    due: list[tuple[uuid.UUID, UtilityMeter, Node, float]] = []
+    for meter, node in meters:
+        hours = (now - meter.counted_at).total_seconds() / SECONDS_PER_HOUR
+        if hours <= 0:
+            continue
+        grid = await _grid_of(session, node)
+        if grid is None:
+            continue
+        due.append((grid.id, meter, node, hours))
+    due.sort(key=lambda one: (one[0], one[1].id))
+
+    readings: list[_Reading] = []
+    held: dict[uuid.UUID, EnergyPool] = {}
+    for grid_id, meter, node, hours in due:
+        pool = held.get(grid_id)
+        if pool is None:
+            pool = await energy.pool_of(session, constants, node)
+            if pool is None:  # pragma: no cover -- the grid was found a moment ago
+                continue
+            #: The city's fuel, then its pool's row: `produce` takes both.
+            await energy.produce(session, constants, pool, now=now)
+            held[grid_id] = pool
+        released = min(draw_for(constants, node, hours), float(pool.stored))
+        energy.take_from_pool(pool, released)
+        price = energy.price_at(constants, pool, released)
+        readings.append(_Reading(meter, node, grid_id, released, hours, price))
     await session.flush()
 
     #: A city node is maintained by the treasury: it does not pay itself in
     #: money, but pays with energy it could have sold (D-149).
-    if node.owner_identity_id is None:
-        await events.record(
-            session,
-            EventKind.UTILITY_METERED,
-            node_id=node.id,
-            energy=released,
-            hours=hours,
-            at_city_expense=True,
-            worth=price,
-        )
-        return 0
+    billed = [
+        (one.node.owner_identity_id, one)
+        for one in readings
+        if one.node.owner_identity_id is not None and one.price > 0
+    ]
+    accounts: dict[uuid.UUID, LedgerAccount] = {}
+    treasuries: dict[uuid.UUID, LedgerAccount] = {}
+    for owner, one in billed:
+        if owner not in accounts:
+            accounts[owner] = await ledger.account_for(session, AccountKind.IDENTITY, owner)
+        if one.grid_id not in treasuries:
+            treasuries[one.grid_id] = await ledger.account_for(
+                session, AccountKind.CITY_TREASURY, one.grid_id
+            )
+    billed.sort(
+        key=lambda bill: (accounts[bill[0]].id, treasuries[bill[1].grid_id].id, bill[1].meter.id)
+    )
+    for owner, one in billed:
+        try:
+            await ledger.transfer(
+                session,
+                PostingReason.ENERGY_BILL,
+                debit=accounts[owner].id,
+                credit=treasuries[one.grid_id].id,
+                amount=one.price,
+                memo={"счётчик": one.node.key, "энергии": one.released},
+            )
+            one.paid = one.price
+        except ledger.InsufficientFunds:
+            #: Nothing to pay with -- the debt lands on the node, and the node is
+            #: disconnected. Writing off "what there is" is not allowed: a half
+            #: measure would leave the node working for free. Refused before a
+            #: posting is written, and decided under the account's lock.
+            one.owed = one.price
 
-    if price <= 0:
-        await session.flush()
-        return 0
-
-    account = await ledger.account_for(session, AccountKind.IDENTITY, node.owner_identity_id)
-    treasury = await ledger.account_for(session, AccountKind.CITY_TREASURY, pool.node_id)
-    remainder = await ledger.balance(session, account.id)
-
-    if remainder >= price:
-        await ledger.transfer(
-            session,
-            PostingReason.ENERGY_BILL,
-            debit=account.id,
-            credit=treasury.id,
-            amount=price,
-            memo={"счётчик": node.key, "энергии": released},
-        )
-        paid_for = price
-        accrued = 0
-    else:
-        #: Nothing to pay with -- the debt lands on the node, and the node is
-        #: disconnected. Writing off "what there is" is not allowed: a half
-        #: measure would leave the node working for free.
-        paid_for = 0
-        accrued = price
-        meter.debt += price
-        if not meter.cut_off:
+    accrued: dict[uuid.UUID, int] = {}
+    for one in readings:
+        meter, node = one.meter, one.node
+        #: Every column of the row set before anything flushes it, and nothing
+        #: after: the row is written once (the module's lock order).
+        meter.counted_at = now
+        meter.last_energy = Decimal(str(one.released))
+        if node.owner_identity_id is None:
+            await events.record(
+                session,
+                EventKind.UTILITY_METERED,
+                node_id=node.id,
+                energy=one.released,
+                hours=one.hours,
+                at_city_expense=True,
+                worth=one.price,
+            )
+            continue
+        if one.price <= 0:
+            continue
+        cut = one.owed > 0 and not meter.cut_off
+        if one.owed > 0:
+            meter.debt += one.owed
             meter.cut_off = True
+        if cut:
             await events.record(
                 session,
                 EventKind.UTILITY_CUT_OFF,
@@ -232,19 +345,19 @@ async def bill(
                 node_id=node.id,
                 debt=meter.debt,
             )
+        await events.record(
+            session,
+            EventKind.UTILITY_METERED,
+            actor_identity_id=node.owner_identity_id,
+            node_id=node.id,
+            energy=one.released,
+            hours=one.hours,
+            paid=one.paid,
+            debt=one.owed,
+        )
+        accrued[meter.id] = one.price
     await session.flush()
-
-    await events.record(
-        session,
-        EventKind.UTILITY_METERED,
-        actor_identity_id=node.owner_identity_id,
-        node_id=node.id,
-        energy=released,
-        hours=hours,
-        paid=paid_for,
-        debt=accrued,
-    )
-    return price
+    return accrued
 
 
 async def pay(
@@ -256,10 +369,13 @@ async def pay(
     """Pay off the node's debt and reconnect it. Remote: this is a payment.
 
     The owner may pay: other people's bills are paid by contract, not by the engine.
+    The meter is taken before the account (the module's lock order), and its
+    debt is read under that lock: a meter run adding to it meanwhile is
+    waited for, not overwritten.
     """
     if node.owner_identity_id != identity.id:
         raise UtilityError(key="utility-node-not-yours")
-    meter = await meter_of(session, node, create=False)
+    meter = await meter_of(session, node, create=False, lock=True)
     if meter is None or meter.debt <= 0:
         raise NothingDue(key="utility-nothing-due")
 
@@ -388,23 +504,54 @@ async def ensure_meters(session: AsyncSession, constants: Constants) -> int:
 async def run_meters(
     session: AsyncSession, constants: Constants, *, now: datetime | None = None
 ) -> int:
-    """Walk all meters of the world. Returns the number of bills issued.
+    """Walk all meters of the world. Returns the number of meters walked.
 
     First the missing ones are opened: a node may have been taken between
     passes. Then exactly the meters are walked, not the nodes -- there are as
     many of them as places in the world where there is somebody to pay.
+
+    Every meter is taken first, in id order (the module's lock order): the run
+    adds its bill to the debt it reads, and a payment landing between the read
+    and the write would come back as debt. Then all of them are billed at once
+    (`_settle`), every pool before any account.
     """
     moment = now or datetime.now(UTC)
     await ensure_meters(session, constants)
-    meters = (await session.execute(select(UtilityMeter))).scalars().all()
-    listed = 0
+    meters = (
+        (
+            await session.execute(
+                select(UtilityMeter)
+                .order_by(UtilityMeter.id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    #: The nodes afresh, after the meters and in a statement of their own:
+    #: whoever hands a node back to the city takes its meter as well, so a
+    #: holder read now is the one this bill belongs to. The rows `ensure_meters`
+    #: loaded may be older, and a join under the meters' lock would read them
+    #: from before the wait.
+    nodes = {
+        node.id: node
+        for node in (
+            await session.execute(
+                select(Node)
+                .join(UtilityMeter, UtilityMeter.node_id == Node.id)
+                .execution_options(populate_existing=True)
+            )
+        ).scalars()
+    }
+    walked: list[tuple[UtilityMeter, Node]] = []
     for meter in meters:
-        node = await session.get(Node, meter.node_id)
+        node = nodes.get(meter.node_id)
         if node is None:  # pragma: no cover -- a meter without a node is a bug
             continue
-        await bill(session, constants, node, now=moment)
-        listed += 1
-    return listed
+        walked.append((meter, node))
+    await _settle(session, constants, walked, now=moment)
+    return len(walked)
 
 
 def _period() -> timedelta:

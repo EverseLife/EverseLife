@@ -10,18 +10,20 @@ care between them lives in `care.py`, the clock that moves the bed in
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
 from src.constants import registry as R
+from src.constants.catalog import Plant
 from src.engine import biome, breed, climate, events, food, world
 from src.engine.farm import life
 from src.engine.farm._base import (
-    FarmError,
     NoSeeds,
     WrongClimate,
     WrongState,
@@ -47,6 +49,78 @@ from src.units import (
     amount_float,
     on_grid,
 )
+
+
+async def climate_gate(
+    session: AsyncSession,
+    constants: Constants,
+    node: Node | None,
+    plant: Plant,
+    moment: datetime,
+) -> None:
+    """Refuse a culture the place cannot carry now (D-261, D-338).
+
+    Nothing is sown on ice: a strip marked before the rule, or on ground the
+    field has since frozen, is refused here as at the marking. The crop lives
+    through every hour of its cycle, so the node's whole daily band must fit
+    the culture's range, and the day must carry enough light. The band is the
+    season's (D-338): the year's mean moved by the latitude's season now
+    (D-334), swinging by the node's own day (D-321) -- the same band the bed
+    then lives in, so a strip the map draws white is not sown in winter. A
+    node without a temperature record -- old ones, a ship's hydroponics bay --
+    carries no gate: absence of a record is not a climate. The hand hears the
+    refusal; a field automaton stands with it (D-339).
+    """
+    if node is None:
+        return
+    if biome.on_ice(constants, node):
+        raise WrongClimate(key="farm-on-ice")
+    band = climate.day_band(constants, node, await world.epoch(session), moment)
+    if band is None:
+        return
+    night, noon = band
+    wants = plant.requires.temp
+    if night < wants.min:
+        raise WrongClimate(key="farm-too-cold", culture=plant.name, night=round(night))
+    if noon > wants.max:
+        raise WrongClimate(key="farm-too-hot", culture=plant.name, noon=round(noon))
+    shine = await climate.daylight(session, constants, node)
+    if shine < plant.requires.light:
+        raise WrongClimate(
+            key="farm-too-dark",
+            culture=plant.name,
+            light=shine,
+            need=int(plant.requires.light),
+        )
+
+
+def seed_bed(
+    constants: Constants,
+    plot: Plot,
+    plant: Plant,
+    variety: Variety,
+    strength: float,
+    moment: datetime,
+) -> None:
+    """Start the bed's life (D-296): the cultivar and its strength move to the
+    plot, the ground is half wet (`farm.sown_moisture`), health is full and
+    nothing has grown. The hand and the machine sow into one state (D-339)."""
+    plot.state = PlotState.SOWN
+    plot.culture_id = plant.id
+    plot.variety_id = variety.id
+    plot.seed_vigor = Decimal(str(strength))
+    plot.sown_at = moment
+    plot.moisture = on_grid(constants[R.FARM_SOWN_MOISTURE], ROUND_QUALITY)
+    plot.health = Decimal(str(SCALE_MAX))
+    plot.growth = Decimal(0)
+    plot.growth_boost = Decimal(0)
+    plot.boost_stage = None
+    plot.fed = {}
+    plot.overfed = 0
+    plot.weeds = Decimal(0)
+    plot.thinned = False
+    plot.weeded_at = None
+    plot.settled_at = moment
 
 
 async def sow(
@@ -82,38 +156,7 @@ async def sow(
         raise NoSeeds(key="farm-seeds-not-in-hands")
 
     node = await session.get(Node, plot.node_id)
-    #: Nothing is sown on ice (D-338): a strip marked before the rule, or on
-    #: ground the field has since frozen, is refused here as at the marking.
-    if node is not None and biome.on_ice(constants, node):
-        raise FarmError(key="farm-on-ice")
-    #: The climate gate (D-261): the crop lives through every hour of its
-    #: cycle, so the node's whole daily band must fit the culture's range,
-    #: and the day must carry enough light. The band is the season's (D-338):
-    #: the year's mean moved by the latitude's season now (D-334), swinging
-    #: by the node's own day (D-321) -- the same band the bed then lives in,
-    #: so a strip the map draws white is not sown in winter. A node without
-    #: a temperature record -- old ones, a ship's hydroponics bay -- carries
-    #: no gate: absence of a record is not a climate.
-    band = (
-        None
-        if node is None
-        else climate.day_band(constants, node, await world.epoch(session), moment)
-    )
-    if node is not None and band is not None:
-        night, noon = band
-        wants = plant.requires.temp
-        if night < wants.min:
-            raise WrongClimate(key="farm-too-cold", culture=plant.name, night=round(night))
-        if noon > wants.max:
-            raise WrongClimate(key="farm-too-hot", culture=plant.name, noon=round(noon))
-        shine = await climate.daylight(session, constants, node)
-        if shine < plant.requires.light:
-            raise WrongClimate(
-                key="farm-too-dark",
-                culture=plant.name,
-                light=shine,
-                need=int(plant.requires.light),
-            )
+    await climate_gate(session, constants, node, plant, moment)
 
     need = amount(constants[R.FARM_SEED_RATE] * float(plot.area_m2))
     if seeds.amount < need:
@@ -128,21 +171,7 @@ async def sow(
     if seeds.amount <= 0:
         await session.delete(seeds)
 
-    plot.state = PlotState.SOWN
-    plot.culture_id = plant.id
-    plot.variety_id = variety.id
-    plot.seed_vigor = Decimal(str(strength))
-    plot.sown_at = moment
-    plot.moisture = on_grid(constants[R.FARM_SOWN_MOISTURE], ROUND_QUALITY)
-    plot.health = Decimal(str(SCALE_MAX))
-    plot.growth = Decimal(0)
-    plot.growth_boost = Decimal(0)
-    plot.boost_stage = None
-    plot.fed = {}
-    plot.overfed = 0
-    plot.weeds = Decimal(0)
-    plot.thinned = False
-    plot.settled_at = moment
+    seed_bed(constants, plot, plant, variety, strength, moment)
     await session.flush()
 
     await events.record(
@@ -157,6 +186,134 @@ async def sow(
         seeds=amount_float(need),
     )
     return plot
+
+
+@dataclass(frozen=True)
+class Crop:
+    """What a ripe bed gives, before anyone carries it: goods, own seed, quality."""
+
+    goods: float
+    seeds: float
+    quality: float
+
+    def scaled(self, share: float, quality_cap: float) -> Crop:
+        """The machine's harvest (D-120, D-339): a share of the goods and the
+        seed, and never above the machine's quality ceiling."""
+        return Crop(
+            goods=self.goods * share,
+            seeds=self.seeds * share,
+            quality=min(self.quality, quality_cap),
+        )
+
+
+def crop_of(
+    constants: Constants, plot: Plot, plant: Plant, signs: dict[str, Any], state: life.Life
+) -> Crop:
+    """The harvest of a ripe bed, computed and not written.
+
+    Proportional to area, fertility, the crop's health **and cultivar
+    strength** (D-296). Feedings repeated in a stage ran the crop to leaf and
+    take their share off (`farm.overfeed_yield_penalty`); an unthinned stand
+    pays its culture's crowd penalty, a thinned one the thinning's own cost
+    (D-297); what a pest took is gone with it, by the share of the bed it
+    struck (D-299). Seeds come back as a multiple of what was sown
+    (`farm.seed_return`, D-257), scaled by the same shares.
+    """
+    strength = float(plot.seed_vigor) if plot.seed_vigor is not None else SCALE_MAX
+    area = float(plot.area_m2)
+    fertility = float(plot.fertility)
+    health_share = state.health / SCALE_MAX
+    leaf_share = max(0.0, 1 - constants[R.FARM_OVERFEED_YIELD_PENALTY] / PERCENT * plot.overfed)
+    #: The stand (D-297): thinned, it paid its cost; crowded, it pays the
+    #: culture's -- `density_risk` on the five-point scale of the traits.
+    if plot.thinned:
+        stand_share = 1 - constants[R.FARM_THIN_LOSS] / PERCENT
+    else:
+        risk = float(signs.get("density_risk", plant.traits.density_risk))
+        stand_share = 1 - risk / HARDINESS_SCALE * constants[R.FARM_CROWD_PENALTY] / PERCENT
+    stand_share = max(0.0, stand_share)
+    #: What the trouble took gave nothing (D-299): the same share off the
+    #: goods and off the fund, and a treatment never put any of it back.
+    sound_share = max(0.0, 1 - state.illness / SCALE_MAX)
+    #: Capped above: rich land is an edge, not a multiplier (D-256).
+    soil_share = min(
+        fertility / float(signs.get("fertility", plant.requires.fertility)),
+        constants[R.FARM_SOIL_SHARE_CAP] / PERCENT,
+    )
+    shares = soil_share * health_share * leaf_share * stand_share * sound_share
+    goods = (
+        area * float(signs.get("yield_per_m2", plant.yield_per_m2)) * shares * (strength / PERCENT)
+    )
+    #: Own seed: a multiple of the sowing norm, not a share of the goods (D-257).
+    seeds = (
+        constants[R.FARM_SEED_RATE]
+        * area
+        * constants[R.FARM_SEED_RETURN]
+        * shares
+        * (strength / PERCENT)
+    )
+    quality = max(SCALE_MIN, min(SCALE_MAX, fertility * health_share))
+    return Crop(goods=goods, seeds=seeds, quality=quality)
+
+
+async def reap(
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    plot: Plot,
+    plant: Plant,
+    variety: Variety,
+    crop: Crop,
+    container_id: uuid.UUID,
+    *,
+    select_seed: bool,
+    moment: datetime,
+) -> None:
+    """Land the crop in a container and close the cycle on the land.
+
+    The goods spoil at the cultivar's speed; the seed keeps its strength only
+    under **selection** -- in-person work where mastery shows -- and degrades
+    otherwise, a hybrid segregating besides (D-057, D-067). Every harvest takes
+    from the land, and a repeat of the same crop takes extra (D-256). The hand
+    reaps into its pocket, the field automaton into its harvest store (D-339).
+    """
+    signs = _signs(plant, variety)
+    strength = float(plot.seed_vigor) if plot.seed_vigor is not None else SCALE_MAX
+    if crop.goods > 0:
+        reaped = Item(
+            container_id=container_id,
+            type_key=plant.gives,
+            amount=amount(crop.goods),
+            quality=Decimal(str(crop.quality)),
+            #: The harvest spoils at the cultivar's speed: turnip faster than flax.
+            spoils_at=food.harvest_spoils_at(
+                constants,
+                float(signs.get("spoilage_k", plant.traits.spoilage_k)),
+                now=moment,
+            ),
+        )
+        session.add(reaped)
+        #: Plots reaped in one round give one heap, if the harvest came out the
+        #: same to the last number -- shelf life included (D-214).
+        await world.stack_up(session, reaped)
+    if crop.seeds > 0:
+        seed_strength = breed.next_vigor(constants, variety, strength, selected=select_seed)
+        if select_seed:
+            await breed.select_generation(session, constants, variety)
+        await breed.seed_lot(
+            session, catalog, container_id, variety, crop.seeds, seed_strength, now=moment
+        )
+
+    fertility = float(plot.fertility)
+    depletion = constants[R.FARM_SOIL_DEPLETION] + (
+        constants[R.FARM_MONOCULTURE_PENALTY] if plot.last_culture == plant.id else 0.0
+    )
+    settled = max(SCALE_MIN, min(SCALE_MAX, fertility - depletion + plant.restores_fertility))
+    plot.fertility = on_grid(settled, ROUND_QUALITY)
+    plot.same_culture_cycles = plot.same_culture_cycles + 1 if plot.last_culture == plant.id else 1
+    plot.last_culture = plant.id
+    _clear(plot, moment)
+    await session.flush()
 
 
 async def harvest(
@@ -207,96 +364,26 @@ async def harvest(
     plant, found = await _sown(session, catalog, plot)
     #: The cultivar decides the numbers. Old plots without a cultivar count as base.
     variety = found or await breed.landrace(session, catalog, plant.id)
-    signs = _signs(plant, variety)
-    strength = float(plot.seed_vigor) if plot.seed_vigor is not None else SCALE_MAX
-
-    area = float(plot.area_m2)
-    fertility = float(plot.fertility)
-    health_share = state.health / SCALE_MAX
-    leaf_share = max(0.0, 1 - constants[R.FARM_OVERFEED_YIELD_PENALTY] / PERCENT * plot.overfed)
-    #: The stand (D-297): thinned, it paid its cost; crowded, it pays the
-    #: culture's -- `density_risk` on the five-point scale of the traits.
-    if plot.thinned:
-        stand_share = 1 - constants[R.FARM_THIN_LOSS] / PERCENT
-    else:
-        risk = float(signs.get("density_risk", plant.traits.density_risk))
-        stand_share = 1 - risk / HARDINESS_SCALE * constants[R.FARM_CROWD_PENALTY] / PERCENT
-    stand_share = max(0.0, stand_share)
-    #: What the trouble took gave nothing (D-299): the same share off the
-    #: goods and off the fund, and a treatment never put any of it back.
-    sound_share = max(0.0, 1 - state.illness / SCALE_MAX)
-    #: Capped above: rich land is an edge, not a multiplier (D-256).
-    soil_share = min(
-        fertility / float(signs.get("fertility", plant.requires.fertility)),
-        constants[R.FARM_SOIL_SHARE_CAP] / PERCENT,
-    )
-
-    got = (
-        area
-        * float(signs.get("yield_per_m2", plant.yield_per_m2))
-        * soil_share
-        * health_share
-        * leaf_share
-        * stand_share
-        * sound_share
-        * (strength / PERCENT)
-    )
-    quality = max(SCALE_MIN, min(SCALE_MAX, fertility * health_share))
-
-    pocket = await world.body_container(session, body)
-    if got > 0:
-        reaped = Item(
-            container_id=pocket.id,
-            type_key=plant.gives,
-            amount=amount(got),
-            quality=Decimal(str(quality)),
-            #: The harvest spoils at the cultivar's speed: turnip faster than flax.
-            spoils_at=food.harvest_spoils_at(
-                constants,
-                float(signs.get("spoilage_k", plant.traits.spoilage_k)),
-                now=moment,
-            ),
-        )
-        session.add(reaped)
-        #: Plots reaped in one round give one heap, if the harvest came out the
-        #: same to the last number -- shelf life included (D-214).
-        await world.stack_up(session, reaped)
-
-    #: Own seed: a multiple of the sowing norm, not a share of the goods (D-257).
-    seed_amount = (
-        constants[R.FARM_SEED_RATE]
-        * area
-        * constants[R.FARM_SEED_RETURN]
-        * soil_share
-        * health_share
-        * leaf_share
-        * stand_share
-        * sound_share
-        * (strength / PERCENT)
-    )
-    if seed_amount > 0:
-        seed_strength = breed.next_vigor(constants, variety, strength, selected=select_seed)
-        if select_seed:
-            await breed.select_generation(session, constants, variety)
-        await breed.seed_lot(
-            session, catalog, pocket.id, variety, seed_amount, seed_strength, now=moment
-        )
-
-    #: Every harvest takes from the land; the land remembers what grew on it,
-    #: and a repeat of the same crop takes extra (D-256).
-    depletion = constants[R.FARM_SOIL_DEPLETION] + (
-        constants[R.FARM_MONOCULTURE_PENALTY] if plot.last_culture == plant.id else 0.0
-    )
-    restored = plant.restores_fertility
-    settled = max(SCALE_MIN, min(SCALE_MAX, fertility - depletion + restored))
-    plot.fertility = on_grid(settled, ROUND_QUALITY)
-    plot.same_culture_cycles = plot.same_culture_cycles + 1 if plot.last_culture == plant.id else 1
-    plot.last_culture = plant.id
+    crop = crop_of(constants, plot, plant, _signs(plant, variety), state)
     overfed = plot.overfed
     thinned = plot.thinned
     struck = float(plot.illness)
-    _clear(plot, moment)
-    await session.flush()
+    pocket = await world.body_container(session, body)
+    await reap(
+        session,
+        constants,
+        catalog,
+        plot,
+        plant,
+        variety,
+        crop,
+        pocket.id,
+        select_seed=select_seed,
+        moment=moment,
+    )
+    got = crop.goods
+    seed_amount = crop.seeds
+    quality = crop.quality
 
     await events.record(
         session,

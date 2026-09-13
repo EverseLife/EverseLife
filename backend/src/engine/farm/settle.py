@@ -162,6 +162,7 @@ def _clear(plot: Plot, moment: datetime) -> None:
     plot.overfed = 0
     plot.weeds = Decimal(0)
     plot.thinned = False
+    plot.weeded_at = None
     plot.pest = {}
     plot.illness = Decimal(0)
     plot.illness_kind = None
@@ -176,6 +177,12 @@ async def _sown(
     plant = catalog.plants.by_id(plot.culture_id)
     variety = await session.get(Variety, plot.variety_id) if plot.variety_id is not None else None
     return plant, variety
+
+
+#: The public names of the two readings above: a field automaton reads a
+#: bed the way the actions do (D-339), and a door is not a private name.
+sown_of = _sown
+signs_of = _signs
 
 
 async def _die(
@@ -325,3 +332,7 @@ async def tick_plots(
             if state.ripe and not before:
                 ripened += 1
     return {"plots_died": died, "plots_ripened": ripened, "plots_struck": stricken}
+
+
+#: The death of a bed, for whoever burns one to nought outside `care.py` (D-339).
+die = _die

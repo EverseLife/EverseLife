@@ -237,7 +237,7 @@ async def energize(
     if amount <= 0:
         raise AlphaError(key="alpha-amount-not-positive")
     node = await session.get(Node, body.node_id)
-    pool = None if node is None else await energy.pool_of(session, constants, node, lock=True)
+    pool = None if node is None else await energy.pool_of(session, constants, node)
     if pool is None:
         raise AlphaError(key="alpha-no-grid")
     await energy.produce(session, constants, pool, now=now)

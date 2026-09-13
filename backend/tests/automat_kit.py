@@ -4,9 +4,11 @@
 """What the automat tests build a factory floor out of.
 
 The floor -- a city yard with a machine, a pool and a funded owner -- and the
-lubricant canister are shared by `test_automat.py` and
-`test_races_automat.py`, which is why they are here and not beside one of
-them (the family's own pattern, see `mining_kit.py`).
+lubricant canister are shared by `test_automat.py`, `test_fuel_plant.py` and
+the two race files, `test_races_automat.py` and `test_races_energy.py`; so are
+the races' handshake and their reading of a pool, which the meter's races
+(`test_races_meter.py`) take as well. That is why they are here and not beside
+one of them (the family's own pattern, see `mining_kit.py`).
 
 Pytest does not collect this file: it holds no tests and no fixtures -- a
 real `@pytest.fixture` must not live here, because the import that puts its
@@ -15,17 +17,19 @@ name in a signature reads as unused to ruff and pytest never finds it.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from decimal import Decimal
 
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.constants import Constants
 from src.engine import energy, ledger, storage, world
 from src.models.identity import Identity
 from src.models.inventory import Item
 from src.models.ledger import AccountKind, PostingReason
-from src.models.world import Layer
+from src.models.world import Layer, Node
 from src.units import money
 
 NAILS = "nails"
@@ -90,3 +94,47 @@ async def _lube_in(session: AsyncSession, yard, units: float) -> Item:
 async def _learn(session: AsyncSession, identity, key: str) -> None:
     row = await session.get(Identity, identity.id)
     await world.learn(session, row, key)
+
+
+_BLOCKED = text("SELECT count(*) FROM pg_stat_activity WHERE :holder = ANY(pg_blocking_pids(pid))")
+
+
+async def _until_blocked_by(
+    factory: async_sessionmaker[AsyncSession],
+    holder: AsyncSession,
+    *,
+    unless: asyncio.Future | None = None,
+) -> bool:
+    """Return once another transaction waits on a lock `holder` holds: `True`.
+
+    A fixed pause would let a busy run release the held rows before the other
+    side reached them, and the race would pass on the very code it exists to
+    catch. Asked by the holder's own backend, so no unrelated wait in the
+    database counts; the activity view is a snapshot per transaction, so each
+    look is a transaction of its own.
+
+    `unless` is the other side's task, for a race about whether that side
+    waits at all: on the code it catches, the other side walks straight
+    through and finishes -- `False` then, and the test fails on what it did
+    rather than on a handshake that never came.
+    """
+    pid = (await holder.execute(text("SELECT pg_backend_pid()"))).scalar_one()
+    async with factory() as probe:
+        for _ in range(500):
+            blocked = (await probe.execute(_BLOCKED, {"holder": pid})).scalar_one()
+            await probe.rollback()
+            if blocked:
+                return True
+            if unless is not None and unless.done():
+                return False
+            await asyncio.sleep(0.01)
+    raise AssertionError("nobody came to wait on the held rows")
+
+
+async def _pool_left(factory: async_sessionmaker[AsyncSession], constants, node_id) -> float:
+    async with factory() as db:
+        node = await db.get(Node, node_id)
+        assert node is not None
+        pool = await energy.pool_of(db, constants, node, create=False)
+        assert pool is not None
+        return float(pool.stored)

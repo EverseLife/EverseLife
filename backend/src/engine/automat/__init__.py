@@ -39,9 +39,11 @@ the node (D-230: a liquid lives in a vessel; hauling lubricant is the coal
 run of factories) and `auto.energy_per_hour` from the city pool, billed to
 the owner at the tariff (D-135: whoever burns pays) -- or drawn from the
 node's own batteries where no grid reaches (D-071). Inputs come off the
-node's yard and the vessels in it; outputs land there too, a liquid poured
-into vessels and **waiting in the backlog** while no vessel has room -- the
-well does not spill for a forgotten canister, and neither does the reactor.
+node's yard and the vessels in it -- all but the fuel lying where a fuel
+plant stands, which is the plant's tank (D-189, D-342). Outputs land there
+too, a liquid poured into vessels and **waiting in the backlog** while no
+vessel has room -- the well does not spill for a forgotten canister, and
+neither does the reactor.
 
 The backlog is time, not matter: inputs are consumed at payout, so work
 never strands materials inside the machine. Wear runs by the clock whether
@@ -66,6 +68,7 @@ from src.engine.automat.board import (  # noqa: F401
     view,
 )
 from src.engine.automat.run import (  # noqa: F401
+    PurseMoved,
     advance,
     tick_automats,
 )

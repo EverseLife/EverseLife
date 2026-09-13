@@ -114,6 +114,10 @@ class Plot(Base):
     thinned: Mapped[bool] = mapped_column(
         nullable=False, default=False, server_default=text("false")
     )
+    #: When this sowing was last weeded, by a hand or by a machine: a field
+    #: automaton's "weed every N days" counts from here, and a weeding done by
+    #: hand is a weeding done (D-339).
+    weeded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     #: The four pressures of D-299, pest id -> 0-100 as of `settled_at`:
     #: each builds from its own mistake of care and discharges into the
     #: trouble it feeds. Which trouble came and how much of the bed it has

@@ -58,9 +58,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
-from src.constants import registry as R
 from src.db.base import remember
-from src.engine import energy, liquid, station, storage, transport, world
+from src.engine import fuel_plant, liquid, station, storage, transport, world
 from src.models.identity import Body
 from src.models.inventory import Container, ContainerKind, Item
 from src.models.world import Node
@@ -141,8 +140,7 @@ async def _walk(session: AsyncSession, constants: Constants, catalog: Catalog, b
             here.extend(await liquid.reach(session, catalog, yard))
             here.extend(await _in_chests(session, catalog, yard))
         #: Fuel lying where a fuel plant stands is loaded, not stored (D-189).
-        if await energy.plant_view(session, constants, node) is not None:
-            barred = frozenset(constants[R.ENERGY_FUEL_ENERGY])
+        barred = await fuel_plant.off_the_pile(session, constants, node)
 
     held = dict.fromkeys(carried)
     return Reach(
