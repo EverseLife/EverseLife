@@ -37,6 +37,7 @@ import { Rule } from "../../Rule";
 import { STALL_POWER, suits, type Feed, type FeedPort, type FeedVessel } from "../../wire/lines";
 import { curve } from "../curve";
 import { layout, moved, portKey, toneOfVessel, withVessel, without } from "./lanes";
+import { spelt } from "./model";
 
 /** How far a press may wander before it is a drag rather than a press, px. */
 const PRESS_SLOP = 4;
@@ -298,7 +299,7 @@ export function Scheme({ look }: { look: Look }) {
                   {vessel.holds.length === 0
                     ? t("ui-ship-feed-empty")
                     : vessel.holds
-                        .map((held) => `${goodsName(names, held.goods)} ${held.amount.toFixed(1)}`)
+                        .map((held) => `${goodsName(names, held.goods)} ${spelt(held.amount)}`)
                         .join(", ")}
                 </span>
               </button>

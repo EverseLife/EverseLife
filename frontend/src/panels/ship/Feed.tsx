@@ -26,7 +26,7 @@ import { useEdition, useNames, useSession } from "../../actions";
 import { t } from "../../locale";
 import { goodsName } from "../../names";
 import { suits, type Feed as Plumbing, type FeedMachine, type FeedPort, type FeedVessel } from "../../wire/lines";
-import type { Vessel } from "./model";
+import { spelt, type Vessel } from "./model";
 
 export function Feed({
   vessel,
@@ -59,7 +59,7 @@ export function Feed({
     <div className="feed">
       <h3>{t("ui-ship-feed")}</h3>
       {feed.machines.length === 0 ? (
-        <p className="note">{t("ui-ship-feed-none")}</p>
+        <p className="note">{t("ui-ship-scheme-none")}</p>
       ) : (
         <>
           <p className="note">{t("ui-ship-feed-hint")}</p>
@@ -156,7 +156,7 @@ function Port({
                     {one.holds.length === 0
                       ? t("ui-ship-feed-empty")
                       : one.holds
-                          .map((held) => `${goodsName(names, held.goods)} ${held.amount.toFixed(0)}`)
+                          .map((held) => `${goodsName(names, held.goods)} ${spelt(held.amount)}`)
                           .join(", ")}
                   </span>
                 </label>

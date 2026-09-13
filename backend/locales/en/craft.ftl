@@ -158,8 +158,8 @@ craft-unpowered-short = the “{ NAME($goods) }” needs { NUMBER($need, minimum
 craft-unpowered-cells = the “{ NAME($goods) }” needs { NUMBER($need, minimumFractionDigits: 0, maximumFractionDigits: 1) } energy, and the batteries beside it hold { NUMBER($have, minimumFractionDigits: 0, maximumFractionDigits: 1) }
 # The air aboard runs through the ship's lines (D-340): an inlet draws from the
 # vessels on its line, an outlet pours into the vessels on its own. A port is named by its liquid.
-craft-port-no-line = the “{ NAME($station) }” has no line drawn on its “{ NAME($goods) }” port: aboard { $way ->
+craft-port-no-line = the “{ NAME($station) }” has no line drawn on its “{ NAME($goods) }” port: aboard, { $way ->
         [in] an inlet draws only from the vessels on its line
        *[other] an outlet pours only into the vessels on its line
-    }. Draw it in the ship's scheme
-craft-outlet-full = the vessels on the “{ NAME($goods) }” line of the “{ NAME($station) }” have room for { NUMBER($room, minimumFractionDigits: 0, maximumFractionDigits: 1) } u., and the batch will give { NUMBER($units, minimumFractionDigits: 0, maximumFractionDigits: 1) }: empty a vessel or put another one on the line
+    }. Lines are drawn at the ship's console
+craft-outlet-full = the vessels on the “{ NAME($goods) }” line of the “{ NAME($station) }” will take { NUMBER($room, minimumFractionDigits: 0, maximumFractionDigits: 1) } u. more, and the batch will give { NUMBER($units, minimumFractionDigits: 0, maximumFractionDigits: 1) }: empty a vessel or put another one on the line

@@ -159,8 +159,8 @@ craft-unpowered-short = станку «{ NAME($goods) }» нужно { NUMBER($n
 craft-unpowered-cells = станку «{ NAME($goods) }» нужно { NUMBER($need, minimumFractionDigits: 0, maximumFractionDigits: 1) } энергии, а в аккумуляторах рядом { NUMBER($have, minimumFractionDigits: 0, maximumFractionDigits: 1) }
 # Воздух на борту идёт по линиям корабля (D-340): вход берёт из тары на своей
 # линии, выход льёт в тару на своей. Порт называется жидкостью.
-craft-port-no-line = у «{ NAME($station) }» не проведена линия порта «{ NAME($goods) }»: на борту { $way ->
+craft-port-no-line = у станка «{ NAME($station) }» не проведена линия порта «{ NAME($goods) }»: на борту { $way ->
         [in] вход берёт только из тары на своей линии
        *[other] выход льёт только в тару на своей линии
-    }. Проведите её в схеме корабля
-craft-outlet-full = в таре на линии «{ NAME($goods) }» у «{ NAME($station) }» место на { NUMBER($room, minimumFractionDigits: 0, maximumFractionDigits: 1) } ед., а партия даст { NUMBER($units, minimumFractionDigits: 0, maximumFractionDigits: 1) }: освободите тару или поставьте на линию ещё одну
+    }. Линию проводят у консоли корабля
+craft-outlet-full = на линии «{ NAME($goods) }» станка «{ NAME($station) }» тара вместит ещё { NUMBER($room, minimumFractionDigits: 0, maximumFractionDigits: 1) } ед., а партия даст { NUMBER($units, minimumFractionDigits: 0, maximumFractionDigits: 1) }: освободите тару или поставьте на линию ещё одну
