@@ -67,7 +67,7 @@ log = logging.getLogger(__name__)
 
 #: Below a thousandth an excess is the arithmetic's dust, not a piece owed.
 #: Public because whoever lowers a limit compares the excess before and after
-#: against it (`gear._settle`), and two thresholds for one question would drift.
+#: against it (`gear.slot._settle`), and two thresholds for one question would drift.
 DUST = 1 / AMOUNT_SCALE
 
 
@@ -244,7 +244,7 @@ async def _fall(
     limit = await gear.capacity(session, constants, catalog, body, worn)
     #: Matter, not the felt excess: things fall by what they weigh on the
     #: ground, and under a pack the two are different kilograms. `floor` is
-    #: measured the same way (`gear._over`), so the two subtract honestly.
+    #: measured the same way (`gear.slot._over`), so the two subtract honestly.
     excess = gear.matter_over(constants, catalog, worn, load, limit) - floor
     if excess <= DUST:
         return 0.0

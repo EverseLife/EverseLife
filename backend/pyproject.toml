@@ -123,6 +123,43 @@ type = "forbidden"
 allow_indirect_imports = true
 source_modules = ["src.engine.ship.sim"]
 forbidden_modules = [
+    "src.engine.ship.slider",
+    "src.engine.ship.helm",
+    "src.engine.ship.hold",
+    "src.engine.ship.fate",
+    "src.engine.ship.meet",
+    "src.engine.ship.sighting",
+    "src.engine.ship.crossing",
+]
+
+# The slider one hull is offered (D-341) stands on `sim` and the flyby's rows,
+# and names neither the tick, the meeting, the order nor the console that
+# read it.
+[[tool.importlinter.contracts]]
+name = "The slider stands on the ship's sky and names none of its readers"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = ["src.engine.ship.slider"]
+forbidden_modules = [
+    "src.engine.ship.helm",
+    "src.engine.ship.hold",
+    "src.engine.ship.fate",
+    "src.engine.ship.meet",
+    "src.engine.ship.sighting",
+    "src.engine.ship.crossing",
+    "src.engine.ship.view",
+]
+
+# The flyby's rows (D-341) sit beside `sim`, under it: the slider and the
+# order ask them, the tick reads the leg back, and they name none of those.
+[[tool.importlinter.contracts]]
+name = "The flyby's rows sit under the ship's sky"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = ["src.engine.ship.flyby"]
+forbidden_modules = [
+    "src.engine.ship.slider",
+    "src.engine.ship.sim",
     "src.engine.ship.helm",
     "src.engine.ship.hold",
     "src.engine.ship.fate",
@@ -707,4 +744,32 @@ name = "The settlement posts nothing and borrows nothing"
 type = "forbidden"
 source_modules = ["src.engine.works_city.pay"]
 forbidden_modules = ["src.engine.works_city.order", "src.engine.works_city.credit"]
+allow_indirect_imports = "true"
+
+# The carry limit, cut on 2026-09-13 out of an 865-line `gear.py` that held the
+# refusals, the worn rule, the load and the dressing at once. Same `forbidden`
+# shape as the cuts above and for the same reason: gear sits inside engine
+# cycles it did not create -- `world` asks it back lazily, `rig` borrows it
+# lazily, and its own settle reaches `overload` lazily -- so a layers contract
+# would fail on chains that have nothing to do with this cut. The stack it pins
+# directly: slot -> load -> worn -> _base.
+[[tool.importlinter.contracts]]
+name = "The carry limit's floor asks nobody"
+type = "forbidden"
+source_modules = ["src.engine.gear._base"]
+forbidden_modules = ["src.engine.gear.worn", "src.engine.gear.load", "src.engine.gear.slot"]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "The worn rule weighs nothing and dresses nobody"
+type = "forbidden"
+source_modules = ["src.engine.gear.worn"]
+forbidden_modules = ["src.engine.gear.load", "src.engine.gear.slot"]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "The load weighs what is carried and never settles what falls"
+type = "forbidden"
+source_modules = ["src.engine.gear.load"]
+forbidden_modules = ["src.engine.gear.slot"]
 allow_indirect_imports = "true"

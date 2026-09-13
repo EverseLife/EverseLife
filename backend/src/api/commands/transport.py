@@ -297,7 +297,9 @@ async def _ship_fly(state: dict, db: AsyncSession, message: dict) -> dict:
     """Cross to another planet's orbit. Fuel now, arrival by a journal job.
 
     `hours` is the flight time off the console's slider (D-271); without it
-    the cheapest arc flies. `via` names the planet the arc bends round.
+    the cheapest passage flies. `via` names the planet a flyby bends round
+    (D-341): the order flies the point the console quoted, and a flyby the
+    sky no longer has at those hours is refused, not swapped for an arc.
     """
     body = await _alive(state, db)
     vessel = await _ship_of(db, body, message.get("ship"))
@@ -319,11 +321,23 @@ async def _ship_fly(state: dict, db: AsyncSession, message: dict) -> dict:
         vessel,
         goal,
         hours=hours,
+        via=_via(message),
     )
     #: A confirmation, not the state (the quality bar): the order lives on the
     #: hull's row and comes back with `ship.view`; the hour is what the
     #: player asked for and what the helm aims at.
     return {"ship": str(vessel.id), "arrives_at": arrives.isoformat()}
+
+
+def _via(message: dict) -> str | None:
+    """The planet a flyby bends round, by key; nothing for a direct arc."""
+    via = message.get("via")
+    if via is None:
+        return None
+    try:
+        return Planet(str(via)).value
+    except ValueError as exc:
+        raise Refused(key="cmd-no-such-planet", planet=str(via)) from exc
 
 
 @command("ship.course", readonly=True)

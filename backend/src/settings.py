@@ -35,6 +35,15 @@ class Settings(BaseSettings):
     db_pool_size: int = 5
     db_max_overflow: int = 10
 
+    #: The processes a server process runs the ship console's sliders with
+    #: their flyby refinements in (D-341), started on the first slider asked
+    #: for. Each is a whole core and a few hundred megabytes while it works,
+    #: and every `uvicorn --workers` process keeps a pool of its own: servers x
+    #: this is how many sliders are counted at once across the machine, and a
+    #: reader past that waits. One by default, so four server processes on a
+    #: six-core box leave cores to the worker and the database.
+    sky_workers: int = 1
+
     #: How many journal jobs the worker takes per pass.
     job_batch: int = 64
     #: Jobs a worker process runs at once. `FOR UPDATE SKIP LOCKED` keeps the
