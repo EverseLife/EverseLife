@@ -187,13 +187,39 @@ ui-ship-air-outside = there is air outside, the system sleeps
 ## The feed (D-288): lines from a machine to a vessel.
 
 ui-ship-feed = Feed lines
-ui-ship-feed-hint = A port with nothing ticked draws from nothing. Tick the vessels the port draws from; the order of ticking is the order of use.
-ui-ship-feed-none = No machine with lines aboard: the engine and the life support system appear here once they stand in a compartment.
-ui-ship-feed-nothing = no line, and the port draws nothing
+ui-ship-feed-hint = A port with nothing ticked draws from no vessel and fills none. Tick the vessels; the order of ticking is the order the port draws from them or fills them.
 ui-ship-feed-reset = clear the line
 ui-ship-feed-no-vessels = No suitable installed vessel aboard: put up a fuel tank, a canister or an oxygen tank in a compartment.
 ui-ship-feed-empty = empty
 ui-ship-feed-up = up
+# The ship's scheme (D-288, D-340): where the lines are edited, from the bridge.
+ui-ship-scheme = Ship schematic
+ui-ship-scheme-rule = lines from machines to vessels
+ui-ship-scheme-hint = Lanes are the compartments in the order they were laid: machines on the left, vessels on the right. A line runs from a port's dot to a vessel — drag it, or press the port and then the vessel. Pressing a line opens its port; pressing a vessel with no port chosen opens its name for editing.
+ui-ship-scheme-read-only = The ship's owner draws the lines and names the vessels at a console; the crew sees the scheme as it stands.
+ui-ship-scheme-none = No machine with ports aboard — none that draws or gives a liquid by lines: they appear here once they stand in a compartment.
+ui-ship-scheme-way-in = inlet
+ui-ship-scheme-way-out = outlet
+ui-ship-scheme-way-vent = vent
+ui-ship-scheme-way-in-note = Draws from the vessels in line order: when the first runs dry it draws from the next.
+ui-ship-scheme-way-out-note = Pours into the vessels in line order; when all of them are full the machine stops.
+ui-ship-scheme-way-vent-note = Pours into the vessels in line order. What does not fit: the hydroponics' oxygen stays in the compartment's air, vent gas goes overboard where there is no air outside; under a sky with air vent gas has no place but the vessels, and without them the machine stops.
+ui-ship-scheme-no-line = { $way ->
+        [in] no line: the port draws nothing
+        [vent] no line: oxygen stays in the compartment's air, vent gas goes overboard in the void, and under a sky with air the machine stops
+       *[other] no line: the machine has nowhere to pour, and it stops
+    }
+ui-ship-scheme-port = the “{ $goods }” port: drag it to a vessel
+ui-ship-scheme-line-pick = open this line's port
+ui-ship-scheme-down = down
+ui-ship-scheme-unline = remove
+ui-ship-scheme-done = done
+ui-ship-scheme-name-label = Vessel name
+ui-ship-scheme-name-clear = remove the name
+ui-ship-scheme-stall-power = stopped: the hull's batteries are flat
+ui-ship-scheme-stall-dry = stopped: the “{ $goods }” line is dry
+ui-ship-scheme-stall-full = stopped: the vessels on the “{ $goods }” line are full
+ui-ship-scheme-stall-unlined = stopped: no “{ $goods }” line
 
 ## A line about the hull, one for each: where it is and what it breathes.
 
@@ -479,6 +505,56 @@ ui-factory-frozen = { $heat ->
         [true] The node is scorching: the machines do not run here and never will — the node cannot be cooled.
        *[false] The node is frozen through: the machines do not run until the node is heated; they will not make up the hours lost. Warmth comes from “{ NAME("heat_plant") }”, “{ NAME("heater") }” or “{ NAME("brazier") }” with fuel.
     }
+ui-factory-stall-flare = stopped: no flare stack in the node for its vent gas
+ui-factory-stall-lines = stopped: the reason is on the ship's schematic
+
+## The field automaton (D-339): a programme of commands, plots and storages.
+
+ui-agro-title = Field automaton
+ui-agro-rule = programme, plots and storages
+ui-agro-idle = no programme -- the automaton stands idle
+ui-agro-standing = on line { $line }: { $command }
+ui-agro-program = Programme
+ui-agro-add = + line
+ui-agro-up = move the line up
+ui-agro-down = move the line down
+ui-agro-remove = remove the line
+ui-agro-target = moisture setpoint
+ui-agro-every = every
+ui-agro-days = days
+ui-agro-do-plow = Plough
+ui-agro-do-sow = Sow
+ui-agro-do-moisture = Hold moisture
+ui-agro-do-feed = Feed
+ui-agro-do-weed = Weed
+ui-agro-do-thin = Thin
+ui-agro-do-harvest = Harvest
+ui-agro-do-fallow = Fallow
+ui-agro-plots = Plots
+ui-agro-no-plots = You have no plots here: they are marked out in the “Land” window.
+ui-agro-plot-small = under { $min } m²: the machine does not take it
+ui-agro-stores = Storages
+ui-agro-store-seeds = Seeds from
+ui-agro-store-fertilizer = Fertilizer from
+ui-agro-store-harvest = Harvest into
+ui-agro-store-none = -- none --
+ui-agro-store = { $goods } · { $mass } of { $capacity } kg
+ui-agro-bunker = own bunker · { $mass } of { $capacity } kg
+ui-agro-save = Set the programme
+ui-agro-stop = Clear the programme
+ui-agro-trouble-no-plots = No plots are given to the machine.
+ui-agro-trouble-no-power = Stopped: no energy -- neither in the pool nor in batteries, or the owner cannot pay.
+ui-agro-trouble-no-lube = Stopped: no lubricant in the yard's vessels.
+ui-agro-trouble-no-water = Not watering: no water in the yard's vessels.
+ui-agro-trouble-no-seeds = Not sowing: the seed storage holds no lot of this culture big enough for a plot.
+ui-agro-trouble-no-fertilizer = Not feeding: the fertilizer storage is short of a dose.
+ui-agro-trouble-store-full = Not harvesting: the harvest storage is full, and the ripe plot waits.
+ui-agro-trouble-no-store = The storage for this action is not chosen or not in the yard.
+ui-agro-trouble-not-plowed = Not sowing: the plot is not ploughed -- “Sow” needs a “Plough” line before it.
+ui-agro-trouble-unfit = Not sowing: the place refuses the culture -- too cold, too hot, too dark or ice.
+ui-agro-trouble-not-entitled = Stopped: the owner no longer holds the right to this node -- whoever holds it may set the programme.
+ui-agro-trouble-fault = Stopped: the programme no longer runs -- check its lines and set it again.
+ui-agro-trouble-other = Stopped.
 
 ## The course slider: from the fastest arc to the cheapest (D-271).
 
@@ -488,6 +564,7 @@ ui-ship-slider = flight time
 ui-ship-end-fast = fast: { $term }
 ui-ship-end-cheap = cheap: { $term }
 ui-ship-arc-cost = { $term } · { $fuel } fuel · Δv { $dv }
+ui-ship-via = flyby: { $planet }
 ui-ship-chart-cheap = cheap { $term } · { $fuel }
 ui-ship-chart-fast = fast { $term } · { $fuel }
 # The bridge display's own words (D-240): the scale in the corner and the names

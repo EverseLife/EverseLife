@@ -58,11 +58,13 @@ from src.engine.world.land import (  # noqa: F401
 )
 from src.engine.world.people import (  # noqa: F401
     BIOPRINTER,
+    FLARE_STACK,
     create_identity,
     door,
     doors,
     is_door,
     learn,
+    lock_bodies,
     population,
     print_body,
     printer_nodes,

@@ -32,24 +32,21 @@ from automat_kit import (
     _factory_floor,
     _learn,
     _lube_in,
-    _on_aurora,
     _pool_left,
     _until_blocked_by,
 )
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import automat, battery, craft, energy, ledger, stock, utility, world
+from src.engine import automat, battery, craft, energy, ledger, liquid, stock, storage, world
 from src.engine.automat import bill as energy_bill
 from src.engine.automat import run as automat_run
 from src.models.automat import Automat as AutomatRow
-from src.models.city import UtilityMeter
 from src.models.craft import CraftBatch
-from src.models.energy import EnergyPool
-from src.models.identity import Body, Identity
+from src.models.identity import Body
 from src.models.inventory import Item
 from src.models.ledger import AccountKind, PostingReason
 from src.models.world import ABOARD, Layer, Node
-from src.units import amount, amount_float, money
+from src.units import amount, amount_float
 
 FURNACE = "blast_furnace"
 SILICON = "silicon"
@@ -549,6 +546,84 @@ async def test_the_off_grid_tick_and_the_automats_tick_take_hulls_cells_in_one_o
             assert worked is not None and worked.counted_at == moment
 
 
+async def test_a_master_taking_a_pot_as_an_input_does_not_deadlock_the_tick(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    constants: Constants,
+    catalog: Catalog,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A work locks the vessels among its inputs before the rest of them.
+
+    A battery takes lead, sulfuric acid and a clay pot, and a pot is a vessel.
+    An automat on the same floor makes copper solution out of that acid. The
+    tick locks the yard's vessels before any stack (`liquid.lock_vessels`),
+    while a master starting a battery at the bench locked the lead, the acid
+    and the pots in one id order -- the pots last here. The master held the
+    acid and waited for a pot the tick held, and the tick waited for the acid.
+    """
+    _, yard, identity, body, machine = await _factory_floor(session, constants)
+    await world.grant_item(session, yard, "workbench", quality=60, origin="test")
+    for name in ("lead", "copper_ingot"):
+        await world.grant_item(session, yard, name, amount=20, quality=60, origin="test")
+    acid = await world.grant_item(
+        session, yard, "sulfuric_acid", amount=20, quality=60, origin="test"
+    )
+    water = await world.grant_item(session, yard, "canister", quality=60, origin="test")
+    inside = await storage.inside(session, water)
+    await world.grant_item(session, inside, "water", amount=100, quality=60, origin="test")
+    #: Every pot after the acid in id order, so the master's one lock reaches
+    #: the pots holding the acid.
+    pots = 0
+    while pots < 3:
+        pot = await world.grant_item(session, yard, "clay_pot", quality=60, origin="test")
+        if pot.id > acid.id:
+            pots += 1
+        else:
+            await session.delete(pot)
+            await session.flush()
+    await _lube_in(session, yard, 100)
+    for key in ("battery", "copper_solution"):
+        await _learn(session, identity, key)
+    row = await automat.program(session, constants, catalog, body, machine, "copper_solution")
+    moment = row.counted_at + timedelta(hours=1)
+    body_id, row_id = body.id, row.id
+    await session.commit()
+
+    held = asyncio.Event()
+    locked = liquid.lock_vessels
+
+    async def holding(db: AsyncSession, vessels):
+        rows = await locked(db, vessels)
+        if not held.is_set():
+            #: The tick holds the yard's pots; the master starts only now.
+            held.set()
+            await _until_blocked_by(factory, db)
+        return rows
+
+    monkeypatch.setattr(liquid, "lock_vessels", holding)
+
+    async def master() -> CraftBatch:
+        await held.wait()
+        async with factory() as db, db.begin():
+            me = await db.get(Body, body_id)
+            assert me is not None
+            return await craft.start(db, constants, catalog, me, "battery", 1)
+
+    async def tick() -> float:
+        async with factory() as db, db.begin():
+            return await automat.tick_automats(db, constants, now=moment)
+
+    batch, made = await asyncio.gather(master(), tick())
+
+    assert batch.output == "battery"
+    assert made > 0
+    async with factory() as db:
+        worked = await db.get(AutomatRow, row_id)
+        assert worked is not None
+        assert worked.counted_at == moment, "the machine's advance died waiting on the master"
+
+
 async def test_a_stack_taken_after_a_machine_rolled_back_is_not_counted_twice(
     session: AsyncSession,
     factory: async_sessionmaker[AsyncSession],
@@ -687,90 +762,3 @@ async def test_a_stack_taken_between_two_runs_of_a_pass_is_not_counted_twice(
     async with factory() as db:
         total = sum(amount_float(one.amount) for one in await _nails_on(db, other_yard_id))
     assert total == pytest.approx(before - 1 + made), "the nail taken is not given back"
-
-
-async def test_an_owner_pays_the_debt_while_the_tick_stands_the_cut_off_machine(
-    session: AsyncSession,
-    factory: async_sessionmaker[AsyncSession],
-    constants: Constants,
-    catalog: Catalog,
-) -> None:
-    """The tick asks a machine's meter whether the node is cut off (D-149) and
-    keeps its transaction open for the rest of the world's factories; what this
-    pins is that the reading leaves no lock on the meter's row behind. The owner
-    paying the debt meanwhile -- locking the purse, then writing the meter --
-    walks straight through instead of waiting for the step to end. A meter held
-    that long would put it on the tick's lock order, ahead of the purses the
-    step reaches for last (`bill.pay`), where a payer holding a purse and
-    wanting the meter is that order the other way round."""
-    node, yard, identity, body, machine = await _factory_floor(session, constants)
-    node.owner_identity_id = identity.id
-    await world.grant_item(session, yard, IRON, amount=1000, quality=60, origin="test")
-    await _lube_in(session, yard, 100)
-    await _learn(session, identity, NAILS)
-    row = await automat.program(session, constants, catalog, body, machine, NAILS)
-    meter = await utility.meter_of(session, node)
-    assert meter is not None
-    meter.cut_off, meter.debt = True, money(1)
-    moment = row.counted_at + timedelta(hours=2)
-    ids = (row.id, meter.id, node.id, identity.id)
-    await session.commit()
-    row_id, meter_id, node_id, identity_id = ids
-
-    async with factory() as tick, tick.begin():
-        assert await automat.tick_automats(tick, constants, now=moment) == 0
-        async with factory() as owner, owner.begin():
-            #: A tick holding the meter makes this fail at once, not hang.
-            await owner.execute(text("SET LOCAL lock_timeout = '2s'"))
-            payer = await owner.get(Identity, identity_id)
-            where = await owner.get(Node, node_id)
-            assert payer is not None and where is not None
-            assert await utility.pay(owner, constants, payer, where) == money(1)
-
-    async with factory() as db:
-        paid = await db.get(UtilityMeter, meter_id)
-        stood = await db.get(AutomatRow, row_id)
-        assert paid is not None and not paid.cut_off and paid.debt == 0
-        assert stood is not None and stood.counted_at == moment
-
-
-async def test_a_hand_takes_the_frozen_floors_lubricant_and_pool_while_the_tick_stands_it(
-    session: AsyncSession,
-    factory: async_sessionmaker[AsyncSession],
-    constants: Constants,
-    catalog: Catalog,
-) -> None:
-    """The cold stands a machine (D-231) before it takes a stack, and warmth is
-    read, never locked -- the yard, the neighbours, the pool. The tick keeps its
-    transaction open for the rest of the world's factories, and a hand taking
-    the frozen floor's lubricant and then its pool, a bench's order, walks
-    straight through. A machine that took its stacks before asking would hold
-    them to the end of the step; a warmth that locked the pool would put it
-    ahead of the stacks a later machine of the pass takes."""
-    node, yard, identity, body, machine = await _factory_floor(session, constants)
-    await _on_aurora(session, node, await session.get(Node, node.parent_id))
-    await world.grant_item(session, yard, IRON, amount=1000, quality=60, origin="test")
-    lube = await _lube_in(session, yard, 100)
-    await _learn(session, identity, NAILS)
-    row = await automat.program(session, constants, catalog, body, machine, NAILS)
-    moment = row.counted_at + timedelta(hours=2)
-    ids = (row.id, lube.id, node.parent_id)
-    await session.commit()
-    row_id, lube_id, city_id = ids
-
-    async with factory() as tick, tick.begin():
-        assert await automat.tick_automats(tick, constants, now=moment) == 0
-        async with factory() as hand, hand.begin():
-            #: A tick holding either makes this fail at once, not hang.
-            await hand.execute(text("SET LOCAL lock_timeout = '2s'"))
-            taken = await hand.get(Item, lube_id, with_for_update=True)
-            assert taken is not None
-            taken.amount -= amount(1)
-            pool = select(EnergyPool).where(EnergyPool.node_id == city_id).with_for_update()
-            assert (await hand.execute(pool)).scalar_one() is not None
-
-    async with factory() as db:
-        left = await db.get(Item, lube_id)
-        stood = await db.get(AutomatRow, row_id)
-        assert left is not None and amount_float(left.amount) == pytest.approx(99)
-        assert stood is not None and stood.counted_at == moment

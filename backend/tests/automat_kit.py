@@ -5,10 +5,14 @@
 
 The floor -- a city yard with a machine, a pool and a funded owner -- and the
 lubricant canister are shared by `test_automat.py`, `test_automat_tick.py`,
-`test_fuel_plant.py` and the two race files, `test_races_automat.py` and
-`test_races_energy.py`; so are the races' handshake, their reading of a pool,
-and the permafrost a floor is carried onto (D-231). That is why they are here
-and not beside one of them (the family's own pattern, see `mining_kit.py`).
+`test_fuel_plant.py` and the race files, `test_races_automat.py`,
+`test_races_automat_stops.py`, `test_races_energy.py` and
+`test_races_liquid.py`; so are the races' handshake and their reading of a pool,
+which the meter's races (`test_races_meter.py`) take as well -- and the
+handshake alone, the races over a thing gone from under a reaching hand
+(`test_races_gone.py`) -- and the permafrost a floor is carried onto (D-231).
+That is why they are here and not beside one of them (the family's own pattern,
+see `mining_kit.py`).
 
 Pytest does not collect this file: it holds no tests and no fixtures -- a
 real `@pytest.fixture` must not live here, because the import that puts its
@@ -125,15 +129,23 @@ _BLOCKED = text("SELECT count(*) FROM pg_stat_activity WHERE :holder = ANY(pg_bl
 
 
 async def _until_blocked_by(
-    factory: async_sessionmaker[AsyncSession], holder: AsyncSession
-) -> None:
-    """Return once another transaction waits on a lock `holder` holds.
+    factory: async_sessionmaker[AsyncSession],
+    holder: AsyncSession,
+    *,
+    unless: asyncio.Future | None = None,
+) -> bool:
+    """Return once another transaction waits on a lock `holder` holds: `True`.
 
     A fixed pause would let a busy run release the held rows before the other
     side reached them, and the race would pass on the very code it exists to
     catch. Asked by the holder's own backend, so no unrelated wait in the
     database counts; the activity view is a snapshot per transaction, so each
     look is a transaction of its own.
+
+    `unless` is the other side's task, for a race about whether that side
+    waits at all: on the code it catches, the other side walks straight
+    through and finishes -- `False` then, and the test fails on what it did
+    rather than on a handshake that never came.
     """
     pid = (await holder.execute(text("SELECT pg_backend_pid()"))).scalar_one()
     async with factory() as probe:
@@ -141,7 +153,9 @@ async def _until_blocked_by(
             blocked = (await probe.execute(_BLOCKED, {"holder": pid})).scalar_one()
             await probe.rollback()
             if blocked:
-                return
+                return True
+            if unless is not None and unless.done():
+                return False
             await asyncio.sleep(0.01)
     raise AssertionError("nobody came to wait on the held rows")
 

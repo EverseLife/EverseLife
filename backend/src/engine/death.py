@@ -138,6 +138,15 @@ async def die(
     place: nothing is scattered, nothing burns, and the kit lies on the floor of
     the node, whole, for whoever comes to the face next. The share below is the
     one difference; everything else about dying is the same death.
+
+    **The body's row is the caller's to take first** -- and, killing several,
+    the rows of them all at once in id order (`world.lock_bodies`). This takes
+    the pocket and writes the body last, so a caller without the row held the
+    stack in the hands while it waited for the body, against the body's own
+    act holding the row and reaching into those hands. The sweeps and the face
+    hold it already (`frost._burn`, `oxygen.settle`, `mining.swing`); a crew
+    is taken by `ship.lock_crew`, the walkers of a breaking way by
+    `plates._kill_on`.
     """
     moment = now or datetime.now(UTC)
     if body.state is not BodyState.ALIVE:

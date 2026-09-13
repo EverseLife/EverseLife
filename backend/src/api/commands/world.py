@@ -294,6 +294,7 @@ TOLD = frozenset(
         EventKind.PLOT_DIED.value,
         EventKind.PLOT_RIPENED.value,
         EventKind.PLOT_STRUCK.value,
+        EventKind.AGRO_STALLED.value,
         EventKind.BODY_DIED.value,
         EventKind.BODY_PRINTED.value,
         EventKind.MINING_COLLAPSED.value,
@@ -322,5 +323,13 @@ TOLD = frozenset(
         EventKind.SHIP_DOCK_ASKED.value,
         EventKind.SHIP_DOCKED_SHIP.value,
         EventKind.SHIP_UNDOCKED_SHIP.value,
+        #: The air aboard (D-288, D-340): the warnings the crew is owed.
+        EventKind.SHIP_AIRLESS.value,
+        EventKind.SHIP_MACHINE_DRY.value,
+        EventKind.SHIP_MACHINE_FULL.value,
+        EventKind.SHIP_MACHINE_UNPOWERED.value,
+        EventKind.SHIP_MACHINE_UNLINED.value,
+        #: An automat on the ground standing for want of a flare (D-340).
+        EventKind.AUTOMAT_NO_FLARE.value,
     }
 )

@@ -51,8 +51,9 @@ export type ArcPrice = {
 };
 
 /** A destination the console offers: a planet's orbit, and the two ends of
- *  the slider to it -- the fastest arc the engines deliver and the cheapest
- *  the horizon offers. The whole slider is read on demand (`ship.course`). */
+ *  the direct arcs to it as the slider's rule cuts them (D-341) -- the first
+ *  choice and the cheapest of the group offered. The whole slider, flybys
+ *  and all, is read on demand (`ship.course`). */
 export type Route = {
   node: string;
   name: string;
@@ -164,6 +165,9 @@ export type Flight = {
   /** Bound for the circle round the star (D-289, 2026-09-04): no node, no
    *  planet and no hull name it, so the flight says so itself. */
   star?: boolean;
+  /** The planet a flyby bends round (D-341); absent for a direct arc. The arc
+   *  shows the kink, and only this says whose pull made it. */
+  via?: string | null;
 };
 
 export type Vessel = {
@@ -268,18 +272,23 @@ export function autonomy(air: Air): number | null {
   return air.units / -air.per_hour;
 }
 
-/** One point of the slider, priced for this hull. */
+/** One point of the slider, priced for this hull. The server sends only what
+ *  the hull is offered (D-341): what its engines deliver, each point slower
+ *  and cheaper than the one before -- so the whole list is the slider, the
+ *  first sample its fast end and the last its cheap end. */
 export type Sample = {
   hours: number;
   /** The wait for the ejection window before the arc starts, hours (D-316). */
   wait: number;
   dv: number;
   fuel: number;
-  /** Whether the engines can give that delta-v in that time. */
-  ok: boolean;
   /** The arc the chart draws while the slider stands on this point (D-289):
    *  the planner's line, map units at equal time steps. */
   trace?: [number, number][];
+  /** The planet the passage bends round when this point is a flyby (D-341),
+   *  or nothing for a direct arc. Sent back with the order, so the pass that
+   *  was quoted is the one flown. */
+  via?: string | null;
 };
 
 /** What `ship.course` answers: the samples, and the reserve once beside them.
@@ -337,16 +346,18 @@ export function whole(one: { hours: number; wait: number }): number {
 }
 
 /**
- * The slider's range: from the first arc the engines deliver to the cheapest
- * one. Everything faster is refused by thrust, everything slower costs more
- * for nothing -- neither is a choice worth offering.
+ * A count as this window writes one: whole units once there are many of them,
+ * a tenth of one while there are few.
+ *
+ * Shared by the hull's card, the plumbing list and the scheme: one vessel
+ * must not read «0» in one window and «0.4» in the next.
+ *
+ * The server rounds a reserve to the tenth it keeps it in, and a bare
+ * `toFixed(0)` turned four tenths of a bottle into «0» -- under a sentence
+ * that had just said there was some, and told the reader to draw a line to
+ * it. The figure and the sentence must agree about whether anything is there.
  */
-export function range(samples: Sample[]): [number, number] | null {
-  const first = samples.findIndex((s) => s.ok);
-  if (first < 0) return null;
-  let cheapest = first;
-  for (let i = first; i < samples.length; i++) {
-    if (samples[i].dv < samples[cheapest].dv) cheapest = i;
-  }
-  return [first, cheapest];
+const SPELT_TENTHS_TO = 10;
+export function spelt(amount: number): string {
+  return amount < SPELT_TENTHS_TO ? amount.toFixed(1) : amount.toFixed(0);
 }

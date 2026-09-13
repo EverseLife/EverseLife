@@ -2,7 +2,8 @@
 // Copyright (C) 2026 Nurlan Urazkulov
 
 /**
- * The course: the slider between the fastest arc and the cheapest (D-271).
+ * The course: the slider between the fastest passage and the cheapest (D-271,
+ * D-341).
  *
  * One planet is one course, because a crossing goes orbit to orbit (D-245):
  * which pad the hull ends on is chosen over the planet, once it is there. What
@@ -13,12 +14,12 @@
  * helm flies that point under the whole sky from there.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useEdition, useSession } from "../../actions";
 import { refusalText, t } from "../../locale";
 import { planetName } from "../../planets";
 import { term } from "../map/orbits";
-import { range, whole, type CourseAnswer, type Sample, type Target, type Vessel } from "./model";
+import { whole, type CourseAnswer, type Sample, type Target, type Vessel } from "./model";
 
 export function Course({
   vessel,
@@ -31,7 +32,9 @@ export function Course({
   /** A planet's orbit, or a hull in sight (D-289, wave 3). */
   target: Target | null;
   busy: boolean;
-  fly: (to: Target, hours: number) => void;
+  /** The order: the target, the hours, and the planet a flyby bends round.
+   *  Settles once the order has been answered, taken or refused. */
+  fly: (to: Target, hours: number, via: string | null) => Promise<void>;
   /** The arc of the point the slider stands on, for the chart to draw. */
   onPlan: (trace: [number, number][] | null) => void;
 }) {
@@ -42,6 +45,12 @@ export function Course({
   const [trouble, setTrouble] = useState<string | null>(null);
   const [why, setWhy] = useState<CourseAnswer["why"]>(null);
   const [pick, setPick] = useState<number | null>(null);
+  //: Reread after this window's own order is answered (D-341): a flyby gone
+  //: by the order's moment is refused, and the slider must show the sky that
+  //: refused it rather than offer the same pass again. Counted on the answer,
+  //: not on a clock (D-226); a taken order closes the window anyway.
+  const [settled, setSettled] = useState(0);
+  const held = useRef<number | null>(null);
 
   const planet = target !== null && "planet" in target ? target.planet : null;
   const other = target !== null && "ship" in target ? target.ship : null;
@@ -65,9 +74,11 @@ export function Course({
         setSamples(got);
         setReserve(answer.reserve ?? 0);
         setWhy(answer.why ?? null);
-        //: Start at the cheap end: the default the engine flies unnamed.
-        const span = range(got);
-        setPick(span ? span[1] : null);
+        //: Start at the cheap end, the last point: the default the engine
+        //: flies unnamed -- or, rereading after a refusal, at the hours that
+        //: were chosen, if the sky still offers them.
+        const again = got.findIndex((one) => one.hours === held.current);
+        setPick(again >= 0 ? again : got.length > 0 ? got.length - 1 : null);
       })
       .catch((error: unknown) => {
         //: The refusal in the engine's own words, not a guess about engines:
@@ -77,13 +88,14 @@ export function Course({
     return () => {
       live = false;
     };
-  }, [session, vessel.ship, planet, other, edition]);
+  }, [session, vessel.ship, planet, other, edition, settled]);
 
   //: The chart follows the thumb (D-289): the arc of the point under it, and
   //: nothing once the target is dropped.
   useEffect(() => {
-    const held = target !== null && samples !== null && pick !== null ? samples[pick] : null;
-    onPlan(held?.trace ?? null);
+    const standing = target !== null && samples !== null && pick !== null ? samples[pick] : null;
+    if (standing) held.current = standing.hours;
+    onPlan(standing?.trace ?? null);
     //: And nothing once the slider is gone: a line left behind after the
     //: order would lie on top of the order's own.
     return () => onPlan(null);
@@ -109,14 +121,15 @@ export function Course({
   if (samples === null) {
     return <p className="note">{t("ui-ship-course-loading")}</p>;
   }
-  const span = range(samples);
-  if (!span || pick === null) {
+  if (samples.length === 0 || pick === null) {
     //: Nothing to a hull comes with the engine's reason (D-289, wave 3): a
     //: hull that will be gone by the hour is not the engines' fault.
     const said = why ? refusalText("", why.code, why.args) : "";
     return <p className={said ? "reason" : "note"}>{said || t("ui-ship-no-arc-fits")}</p>;
   }
-  const [fast, cheap] = span;
+  //: The slider is every sample the server sent (D-341): fastest first, and
+  //: each one cheaper than the one before.
+  const cheap = samples.length - 1;
   const chosen = samples[pick];
   const needs = chosen.fuel + reserve;
   //: Warnings, not locks (D-289): the engine refuses only the departure
@@ -147,10 +160,10 @@ export function Course({
           and no slider between two ends that do not exist. */}
       {samples.length > 1 && (
       <p className="row">
-        <span className="note">{t("ui-ship-end-fast", { term: term(whole(samples[fast])) })}</span>
+        <span className="note">{t("ui-ship-end-fast", { term: term(whole(samples[0])) })}</span>
         <input
           type="range"
-          min={fast}
+          min={0}
           max={cheap}
           step={1}
           value={pick}
@@ -166,10 +179,17 @@ export function Course({
           fuel: chosen.fuel.toFixed(0),
           dv: chosen.dv.toFixed(0),
         })}
+        {/* A flyby (D-341): the price is the pass's, and the chart's line
+            bends at it -- the reader is told whose pull it borrows. */}
+        {chosen.via && ` · ${t("ui-ship-via", { planet: planetName(chosen.via) })}`}
         {" · "}
         {t("ui-ship-dv-line", { have: vessel.dv.toFixed(0) })}{" "}
         <button
-          onClick={() => fly(target, chosen.hours)}
+          onClick={() =>
+            void fly(target, chosen.hours, chosen.via ?? null).then(() =>
+              setSettled((count) => count + 1),
+            )
+          }
           disabled={busy || !reachable}
           title={t(reachable ? "ui-ship-fly-hint" : "ui-ship-thrust-short")}
         >

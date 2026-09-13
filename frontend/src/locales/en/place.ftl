@@ -65,7 +65,10 @@ ui-place-plot-about-save = Save the description
 ui-place-climate-day = Daytime now, { $now } deg. The day runs { $low }-{ $high } deg, light { $light } of 3, rainfall { $rain } of 100.
 ui-place-climate-night = Night now, { $now } deg. The day runs { $low }-{ $high } deg, daytime light { $top } of 3, rainfall { $rain } of 100.
 ui-place-marking-title = Strips
-ui-place-marking-climate = It is { $climate } here: nothing grows in open ground, and heating the node does not change that. Food comes here by ship.
+ui-place-marking-climate = { $climate ->
+        [heat] The heat here is scorching: nothing grows in open ground, and the node cannot be cooled. Food comes here by ship.
+       *[frost] The ground here is permafrost: nothing grows in open ground, and heating the node does not change that. Food comes here by ship.
+    }
 ui-place-marking-name = strip name
 ui-place-marking-area = area, m²
 ui-place-marking-mark = Mark out
@@ -276,12 +279,14 @@ ui-stand-trade-factory = { " " }Machines work by themselves here.
 ui-stand-trade-nursery = { " " }Animals are bred here.
 ui-stand-trade-fuel-plant = { " " }Ship fuel is distilled here.
 ui-stand-trade-mint = { " " }The city's coin is minted here.
+ui-stand-trade-field-automat = { " " }An automaton works the plots to a programme here.
 ui-stand-gather-about = Gathering by the land sign: work by hand right on the spot.
 ui-stand-rig = Rig
 ui-stand-rig-in-hands = in hand: set it on a vein
 ui-stand-rig-about = The rig window: set it on a vein and drill deep.
 ui-stand-console-about = The bridge window: this ship's flight map, lift to orbit, course and landing.
 ui-stand-console-aground = works only aboard a ship
+ui-stand-scheme-about = The ship scheme window: which vessels the machines draw from and pour into — the lines are drawn and the vessels named here.
 ui-stand-ground-console-about = The ground console window: your ships wherever they are — flight map, lift, course, landing and turnaround.
 ui-stand-ship = Ship
 ui-stand-ship-about = The ship window: thrust against mass, oxygen, name and blueprint — the berth layout.

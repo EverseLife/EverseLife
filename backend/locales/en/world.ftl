@@ -145,12 +145,20 @@ liquid-no-room = “{ NAME($vessel) }” has { NUMBER($free, minimumFractionDigi
 liquid-vessel-not-here = “{ NAME($vessel) }” is neither in hand nor here
 liquid-vessel-not-yours = “{ NAME($vessel) }” is not yours: vessels in a node are the owner's to dispose of
 liquid-mixed = “{ NAME($vessel) }” already holds “{ NAME($have) }”: two liquids are not mixed in one vessel
+# Vent gas (D-340): a vessel of it is emptied outside, where there is no air, or
+# into the node's flare stack. No other liquid leaves a vessel this way.
+liquid-not-vent = “{ NAME($vessel) }” holds “{ NAME($have) }”: only vent gas is let out or burned, other liquids are poured into another vessel
+liquid-vent-nowhere = nowhere to put the “{ NAME($goods) }” from the “{ NAME($vessel) }”: under a sky with air, vent gas is { $aboard ->
+        [true] not let out of a ship, and a ship has no flare stack
+       *[other] not released but burned in a flare stack, and there is none in this node
+    }
 
 # --- the hull's lines (engine/ship/lines.py, D-288) ---------------------------
 
 line-no-such-port = “{ NAME($goods) }” has no such port
 line-machine-not-aboard = “{ NAME($goods) }” is not installed on this ship: a line runs from an installed machine
 line-vessel-not-aboard = “{ NAME($goods) }” is not installed on this ship: only an installed vessel stands on a line
+line-name-too-long = a vessel's name is longer than { $limit } characters: that will not fit on the plate
 
 # --- air (engine/oxygen.py) --------------------------------------------------
 
@@ -158,15 +166,25 @@ oxygen-no-suit = nothing to breathe in “{ $node }”: without a “{ NAME($sui
 oxygen-tanks-empty = nothing to breathe in “{ $node }”: the tanks are empty, refill aboard
 oxygen-not-enough = the way to “{ $node }” needs { NUMBER($need, minimumFractionDigits: 1, maximumFractionDigits: 1) } oxygen, and the tanks hold { NUMBER($have, minimumFractionDigits: 1, maximumFractionDigits: 1) }: the crossing would end in suffocation
 
-# --- cold (engine/frost.py) --------------------------------------------------
+# --- cold and heat (engine/frost/) -------------------------------------------
 
-frost-node-frozen = “{ $node }” is frozen through: “{ NAME($station) }” does not work here. Warmth comes from “{ NAME($plant) }”, “{ NAME($heater) }” or “{ NAME($brazier) }” with fuel
+# $weather is the planet's climate, a key: frost (permafrost, Aurora) or heat
+# (scorching heat, Pyroxis). One mechanic with the sign reversed: a frozen node
+# is heated, while nothing cools a node in the heat — it is cool only aboard
+# (D-230, D-231, D-233).
+frost-node-frozen = { $weather ->
+        [heat] the node “{ $node }” is scorching: “{ NAME($station) }” does not work here — the node cannot be cooled
+       *[frost] the node “{ $node }” is frozen through: “{ NAME($station) }” does not work here. Warmth comes from “{ NAME($plant) }”, “{ NAME($heater) }” or “{ NAME($brazier) }” with fuel
+    }
 frost-dead-warms = a dead body does not warm itself
 frost-asleep = the body is asleep: wake up first
 frost-not-a-warmer = “{ NAME($goods) }” gives no warmth: “{ NAME($warmer) }” is what does
 frost-warmer-from-hands = a warmer is taken out of the hand
 frost-no-cold-here = nobody freezes here: no reason to warm up, and a warmer is single-use
-frost-reserve-full = the heat reserve is full as it is ({ NUMBER($have, minimumFractionDigits: 1, maximumFractionDigits: 1) } h out of { NUMBER($ceiling, minimumFractionDigits: 1, maximumFractionDigits: 1) }): a warmer is saved for the cold
+frost-reserve-full = { $weather ->
+        [heat] the coolness reserve is full as it is ({ NUMBER($have, minimumFractionDigits: 1, maximumFractionDigits: 1) } h out of { NUMBER($ceiling, minimumFractionDigits: 1, maximumFractionDigits: 1) }): nothing is stored above the ceiling
+       *[frost] the warmth reserve is full as it is ({ NUMBER($have, minimumFractionDigits: 1, maximumFractionDigits: 1) } h out of { NUMBER($ceiling, minimumFractionDigits: 1, maximumFractionDigits: 1) }): a warmer is saved for the cold
+    }
 
 # --- energy (engine/energy.py) -----------------------------------------------
 
@@ -255,6 +273,43 @@ auto-barred-input = “{ NAME($goods) }” cannot be programmed: the pyroxite ti
 auto-no-station-builds = “{ NAME($goods) }” is a build: stations are put together by hand, no machine builds them
 auto-body-off-node = the body is off any node
 auto-link-self = “{ NAME($goods) }” does not feed itself: a wire needs two ends
+
+# --- field automaton (engine/agro, D-339) ------------------------------------
+
+agro-dead-works = a dead body does not work
+agro-not-a-field-automat = “{ NAME($goods) }” is not a field automaton
+agro-not-installed = “{ NAME($goods) }” lies rather than stands: a field automaton works put up
+agro-not-here = the field automaton is not here: a programme is set on the spot
+agro-not-entitled = a field automaton is programmed on one's own ground
+agro-body-off-node = the body is off any node
+agro-machine-gone = “{ NAME($goods) }” is worn out and fell apart: there is nothing to load a programme into
+agro-program-empty = the programme has no lines
+agro-program-long = the programme is longer than { $steps ->
+        [one] { $steps } line
+       *[other] { $steps } lines
+    }: the machine holds no more
+agro-bad-command = line { $line }: the machine has no such command
+# The parameter is a code word: its caption is translated here, not in the engine.
+agro-bad-parameter = line { $line }: { $parameter ->
+        [culture] no culture given, or no such culture
+        [target] the moisture setpoint is a number above nought and up to a hundred
+        [goods] feeding takes a fertilizer
+        [stage] the feeding stage is sprout, leaf, bloom or fill
+        [days] days are a number above nought
+       *[other] the line does not read
+    }
+agro-bad-days = line { $line }: days are a number above nought and at most { $most }
+agro-program-idle = the programme holds only setpoints: without “Plough”, “Sow”, “Harvest” or “Fallow” the machine has nothing to do
+agro-bad-plots = the list of plots does not read
+agro-too-many-plots = one machine serves at most { $most ->
+        [one] { $most } plot
+       *[other] { $most } plots
+    }
+agro-plot-not-yours = a machine takes only one's own plots in the node it stands in
+agro-plot-small = plot “{ $plot }” is under { $min } m²: the machine does not take it
+agro-plot-taken = plot “{ $plot }” is already on another machine
+agro-store-not-here = the storage does not stand in this yard
+agro-not-a-store = “{ NAME($goods) }” is not a storage for seeds, fertilizer and harvest
 
 # --- Precursor ruins (engine/ruins.py) ---------------------------------------
 

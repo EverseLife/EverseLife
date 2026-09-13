@@ -68,6 +68,7 @@ from src.engine.automat.board import (  # noqa: F401
     view,
 )
 from src.engine.automat.run import (  # noqa: F401
+    PurseMoved,
     advance,
     tick_automats,
 )

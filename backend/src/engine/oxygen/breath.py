@@ -19,6 +19,7 @@ from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import events, stock
 from src.engine import ship as vessels
+from src.engine.oxygen import garden
 from src.engine.oxygen._base import (
     _EPS,
     ASPHYXIA,
@@ -28,6 +29,7 @@ from src.engine.oxygen._base import (
     airless_planets,
     free_air,
     sealed,
+    without_air,
 )
 from src.engine.oxygen.supply import (
     breathable_stacks,
@@ -204,11 +206,11 @@ async def tick_bodies(
 
     Returns how many died. Bodies aboard are not here: their air is the hull's,
     and `tick_ships` settles them by the hull.
+
+    A world where every planet has air is swept all the same: an orbit is the
+    void over any of them (D-245), and a body can stand in one.
     """
     moment = now or datetime.now(UTC)
-    airless = await airless_planets(session)
-    if not airless:
-        return 0
     bodies = (
         (
             await session.execute(
@@ -216,7 +218,7 @@ async def tick_bodies(
                 .join(Node, Node.id == Body.node_id)
                 .where(
                     Body.state == BodyState.ALIVE,
-                    Node.planet.in_([planet.value for planet in airless]),
+                    without_air(await airless_planets(session)),
                 )
                 #: In id order: this sweep locks a body row per body
                 #: (`_lock`), and it runs beside every other sweep that does
@@ -350,16 +352,28 @@ async def _breathe(
     locked.air_at = now
 
     crew = await vessels.crew_of(session, locked)
+    #: The hold, once, where something will read it: which systems and bays
+    #: stand there and which vessels their lines reach. An empty hull with no
+    #: beds is most of a fleet under way and costs one small query, not the
+    #: whole hold. It is a **reading**; the write-off below relocks its stacks
+    #: by id under `FOR UPDATE`, and a pour locks the vessels it fills, so
+    #: nothing is decided from it.
+    hold = (
+        await lines.hold_of(session, locked)
+        if crew or await garden.has_bays(session, locked)
+        else []
+    )
+
+    #: The beds breathe first (D-340): what they gave this stretch is air the
+    #: crew may breathe in it. They breathe with nobody aboard as well -- a
+    #: culture grows whoever watches it.
+    await garden.breathe_out(session, constants, catalog, locked, hold, hours)
+
     if not crew:
         #: Nobody aboard breathes nothing, and the life support has no reason
         #: to run: an empty hull in flight arrives with its tanks as it left.
         await session.flush()
         return 0.0, 0
-
-    #: The hold, once: which systems stand there and which vessels their
-    #: lines reach. It is a **reading**; the write-off below relocks its
-    #: stacks by id under `FOR UPDATE`, so nothing is decided from it.
-    hold = await lines.hold_of(session, locked)
 
     need = hull_draw(constants, len(crew)) * hours
     drawn = 0.0
@@ -385,6 +399,17 @@ async def _breathe(
     #: The hull ran dry. One settling of grace, exactly as outside: a stretch
     #: only half covered kills nobody, and the next one begun on empty tanks
     #: does. The whole crew shares one hull, so it shares one countdown.
+    #:
+    #: Every member's row is written below -- the countdown or the death --
+    #: so it is taken before the first of them, in id order, and the death
+    #: then reaches into hands it already holds (`vessels.lock_crew`). Only
+    #: here: a stretch the tanks covered writes a crew row only to give the
+    #: grace back, and has no business queueing the whole crew's acts.
+    crew = await vessels.lock_crew(session, locked)
+    if not crew:
+        #: All of them stepped off while the rows were waited for: nobody is
+        #: left to choke, and nobody to tell.
+        return drawn, 0
     dead = 0
     for member in crew:
         if member.choking_since is None:

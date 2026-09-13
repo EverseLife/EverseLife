@@ -25,6 +25,7 @@ JOB_RETRY_GROWTH = 2
 #: How many characters of the error text we keep in the job journal.
 JOB_ERROR_LIMIT = 2000
 
+
 #: Worker pause when the queue is empty, seconds.
 WORKER_IDLE_SLEEP = 1.0
 #: The longest one statement of a job may run before the database cuts it.

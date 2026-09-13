@@ -555,6 +555,9 @@ async def test_a_frame_ending_and_a_hand_over_one_heap_lose_nothing(
     takes -- the body's row, then the stacks it moves -- so neither side moves
     what the other has taken, and neither waits on the other for ever.
     """
+    #: Both paths of the reading are held: the door's, which `overload._fall`
+    #: calls, and the room's, which `gear.losing_worn` reaches through
+    #: `load_of` while it holds the body -- `_slow` on a package takes both.
     _slow(monkeypatch, gear, "carried_mass")
     node, _, body = await _ground(session)
     frame = await _hold(session, body, EXO, 1)

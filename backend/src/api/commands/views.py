@@ -39,8 +39,9 @@ from src.engine import (
     world,
 )
 from src.engine import city as town
-from src.models.craft import BatchState, CraftBatch
+from src.models.craft import BatchKind, BatchState, CraftBatch
 from src.models.identity import Body, Identity, Knowledge, KnowledgeKind
+from src.models.inventory import Item
 from src.models.ledger import AccountKind
 from src.models.market import (
     Order,
@@ -639,7 +640,6 @@ async def _batches(db: AsyncSession, identity_id: uuid.UUID) -> list[dict[str, A
             places[node.id] = node.name
 
     body = await _body(db, identity_id)
-
     out: list[dict[str, Any]] = []
     for batch in rows:
         running = batch.state is BatchState.RUNNING
@@ -678,9 +678,31 @@ async def _batches(db: AsyncSession, identity_id: uuid.UUID) -> list[dict[str, A
                     None if batch.remaining_seconds is None else float(batch.remaining_seconds)
                 ),
                 "recipe": batch.recipe_key,
+                #: Where the liquids of a running make go and the room they find
+                #: now (D-340): not reserved, so shown. Absent for a batch that
+                #: gives no liquid and for one not under way (D-225).
+                **(await _outlets(db, batch, body) if running else {}),
             }
         )
     return out
+
+
+async def _outlets(db: AsyncSession, batch: CraftBatch, body: Body | None) -> dict[str, Any]:
+    """`outlets` of a running make, or nothing: where its liquids go and the
+    room they find there now (`craft.outlet`)."""
+    if batch.kind is not BatchKind.MAKE:
+        return {}
+    machine = None if batch.station_item_id is None else await db.get(Item, batch.station_item_id)
+    shown = await craft.outlets(
+        db,
+        current(),
+        current_catalog(),
+        node=await db.get(Node, batch.node_id),
+        machine=machine,
+        output=batch.output,
+        body=body,
+    )
+    return {"outlets": shown} if shown else {}
 
 
 async def _shelf(db: AsyncSession, node: Node) -> list[dict[str, Any]]:

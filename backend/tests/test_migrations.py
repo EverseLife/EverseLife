@@ -510,6 +510,62 @@ async def test_an_emptied_journal_counts_from_one(session: AsyncSession) -> None
     assert again == 1, again
 
 
+#: What autogeneration does not compare, read back from the server: the
+#: condition of every partial index and the expression of every generated
+#: column. Alembic's Postgres comparison looks at an index's columns and
+#: nothing of its `WHERE`, and at a computed column only to warn that it cannot
+#: be changed -- so a migration writing a partial index's condition otherwise
+#: than its model does passes `test_schema_from_migrations_matches_models`, and
+#: the planner quietly stops choosing the index for the query the model was
+#: written for (`field_automat.programmed`). Deparsed by Postgres, so spelling
+#: does not count; the journal's months are the migrated schema's alone.
+PARTIAL_INDEXES = text(
+    """
+    SELECT t.relname, c.relname, pg_get_expr(i.indpred, i.indrelid)
+    FROM pg_index i
+    JOIN pg_class c ON c.oid = i.indexrelid
+    JOIN pg_class t ON t.oid = i.indrelid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = current_schema() AND i.indpred IS NOT NULL
+    """
+)
+GENERATED_COLUMNS = text(
+    """
+    SELECT table_name, column_name, generation_expression
+    FROM information_schema.columns
+    WHERE table_schema = current_schema() AND is_generated = 'ALWAYS'
+    """
+)
+
+
+async def _unmodelled(connection: AsyncConnection | AsyncSession) -> dict[str, dict[str, str]]:
+    found: dict[str, dict[str, str]] = {}
+    for kind, query in (("index", PARTIAL_INDEXES), ("generated", GENERATED_COLUMNS)):
+        found[kind] = {
+            f"{table}.{name}": expression
+            for table, name, expression in (await connection.execute(query)).all()
+            if not ddl.PARTITION.match(table)
+        }
+    return found
+
+
+async def test_partial_indexes_and_generated_columns_are_one_in_both_schemas(
+    migrated_at_head: AsyncConnection, session: AsyncSession
+) -> None:
+    migrated = await _unmodelled(migrated_at_head)
+    built = await _unmodelled(session)
+    #: Not vacuous: an empty reading on both sides would agree about nothing.
+    assert "field_automat.ix_field_automat_stopped" in built["index"], built
+    assert "field_automat.programmed" in built["generated"], built
+    apart = {
+        f"{kind} {name}": {"migrated": migrated[kind].get(name), "models": built[kind].get(name)}
+        for kind in built
+        for name in sorted(migrated[kind].keys() | built[kind].keys())
+        if migrated[kind].get(name) != built[kind].get(name)
+    }
+    assert not apart, apart
+
+
 def test_a_database_is_told_what_is_wrong_with_it_and_not_something_else() -> None:
     """Each state of `alembic_version` gets the sentence that is true of it.
 

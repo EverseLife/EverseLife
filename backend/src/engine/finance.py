@@ -23,12 +23,12 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.engine import city as town
 from src.engine import events, ledger
 from src.engine.errors import Refusal
+from src.models.city import City
 from src.models.event import Event, EventKind
 from src.models.identity import Identity
 from src.models.ledger import (
@@ -39,9 +39,23 @@ from src.models.ledger import (
     PostingReason,
 )
 from src.models.market import Order, Trade
+from src.models.works import WorkOrder
 from src.models.world import Node
 from src.runtime import STATEMENT_PAGE, TRANSFER_MEMO_LIMIT
 from src.units import amount_float, money_str
+
+#: The side a work order's escrow is shown as (D-248). One account kind holds
+#: two kinds of frozen money: a buyer's, under an order or a reservation and
+#: owned by the buyer, and the pay of a work order, owned by the order. The
+#: kind alone read "trade escrow" under every road and city payout, where no
+#: deal ever happened -- so the owner tells them apart, and the side names
+#: the order.
+WORK_ORDER = "work_order"
+
+#: Every side a statement row can face, as the wire spells it: each account
+#: kind, and the one the owner splits out of `escrow`. A word for each is owed
+#: in every language, and `test_i18n` reads this tuple rather than a copy.
+SIDES = (*(kind.value for kind in AccountKind), WORK_ORDER)
 
 
 class FinanceError(Refusal):
@@ -143,9 +157,13 @@ async def statement(
     #: rather than a count of the whole journal, which only grows.
     rows = (await session.execute(query.order_by(LedgerEntry.id.desc()).limit(limit + 1))).all()
 
+    page = rows[:limit]
+    sides = await _sides(
+        session, {leg.account_id for _, operation in page for leg in operation.entries}
+    )
     out: list[dict] = []
-    for entry, operation in rows[:limit]:
-        name, side = await _counterparty(session, operation, entry.account_id)
+    for entry, operation in page:
+        name, side = _counterparty(operation, entry.account_id, sides)
         out.append(
             {
                 #: The row's own number: the page is turned by it and the row
@@ -195,9 +213,11 @@ async def posting(session: AsyncSession, identity_id: uuid.UUID, entry_id: int) 
     if operation is None:  # pragma: no cover -- an entry without its operation is a bug
         raise NoSuchPosting(key="finance-no-such-posting")
 
+    legs = sorted(operation.entries, key=lambda leg: leg.id)
+    known = await _sides(session, {leg.account_id for leg in legs})
     sides = []
-    for leg in sorted(operation.entries, key=lambda leg: leg.id):
-        name, side = await _who(session, leg.account_id)
+    for leg in legs:
+        name, side = known.get(leg.account_id, NOBODY)
         #: The reader's own leg comes with the reader's name like any other,
         #: and the client knows that name from the session (D-225).
         sides.append(
@@ -339,33 +359,80 @@ def _memo(memo: dict | None) -> dict:
     return said
 
 
-async def _counterparty(
-    session: AsyncSession, operation: LedgerTransaction, mine: uuid.UUID
+#: What a side is shown as when its account cannot be found: an entry into
+#: nowhere is a bug, and the row says nothing rather than failing the page.
+NOBODY: tuple[str | None, str | None] = (None, None)
+
+
+def _counterparty(
+    operation: LedgerTransaction,
+    mine: uuid.UUID,
+    sides: dict[uuid.UUID, tuple[str | None, str | None]],
 ) -> tuple[str | None, str | None]:
     """Who is on the other side: their name, and what kind of side they are.
 
     Two values rather than one sentence. A person is named and that is all
     there is to say; everything else is an institution, and the reserve is a
     word of a language rather than a fact of the ledger -- so the kind
-    travels as the enum it is and `ledger-side-<kind>` says it at the edge.
+    travels as a code from `SIDES` and `ledger-side-<kind>` says it at the
+    edge.
     """
     for entry in operation.entries:
         if entry.account_id == mine:
             continue
-        return await _who(session, entry.account_id)
-    return None, None
+        return sides.get(entry.account_id, NOBODY)
+    return NOBODY
 
 
-async def _who(session: AsyncSession, account_id: uuid.UUID) -> tuple[str | None, str | None]:
-    """An account as a side of a posting: a name, or a kind with a name in it."""
-    account = await session.get(LedgerAccount, account_id)
-    if account is None:  # pragma: no cover -- an entry into nowhere is a bug
-        return None, None
-    if account.kind is AccountKind.IDENTITY and account.owner_id is not None:
-        who = await session.get(Identity, account.owner_id)
-        if who is not None:
-            return who.name, None
-    if account.kind is AccountKind.CITY_TREASURY:
-        city = await town.by_node(session, account.owner_id)
-        return (city.name if city else None), account.kind.value
-    return None, account.kind.value
+async def _sides(
+    session: AsyncSession, accounts: set[uuid.UUID]
+) -> dict[uuid.UUID, tuple[str | None, str | None]]:
+    """Each of these accounts as a side of a posting: a name, or a kind with a
+    name in it. One query for the whole page.
+
+    Not a lookup per row: the session's identity map holds its rows weakly,
+    so an account read for one row is gone by the next and every row asked
+    for it again -- and looking a buyer's escrow up among work orders misses,
+    which nothing remembers at all. The owner of each kind is joined on the
+    kind, so a person, a city and a work order are found in the same pass.
+    """
+    if not accounts:
+        return {}
+    rows = (
+        await session.execute(
+            select(LedgerAccount.id, LedgerAccount.kind, Identity.name, City.name, WorkOrder.id)
+            .outerjoin(
+                Identity,
+                and_(
+                    LedgerAccount.kind == AccountKind.IDENTITY,
+                    Identity.id == LedgerAccount.owner_id,
+                ),
+            )
+            .outerjoin(
+                City,
+                and_(
+                    LedgerAccount.kind == AccountKind.CITY_TREASURY,
+                    City.node_id == LedgerAccount.owner_id,
+                ),
+            )
+            .outerjoin(
+                WorkOrder,
+                and_(
+                    LedgerAccount.kind == AccountKind.ESCROW,
+                    WorkOrder.id == LedgerAccount.owner_id,
+                ),
+            )
+            .where(LedgerAccount.id.in_(accounts))
+        )
+    ).all()
+    out: dict[uuid.UUID, tuple[str | None, str | None]] = {}
+    for account_id, kind, person, city, order in rows:
+        if person is not None:
+            out[account_id] = (person, None)
+        elif kind is AccountKind.CITY_TREASURY:
+            out[account_id] = (city, kind.value)
+        elif order is not None:
+            out[account_id] = (None, WORK_ORDER)
+        else:
+            out[account_id] = (None, kind.value)
+    return out

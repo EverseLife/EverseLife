@@ -615,3 +615,171 @@
   stroke: var(--act);
   stroke-width: 5;
 }
+
+/* The ship's scheme (D-288, D-340): lanes are compartments in laying order,
+   machines left and vessels right, lines as hairline curves in the tone of
+   the port's liquid. The factory floor's language (D-253) -- stroke, no
+   glow -- and no colour of its own: the tones are the theme's tokens, so
+   every theme draws its own water and its own fuel. */
+.scheme {
+  margin-top: var(--s3);
+  max-width: 100%;
+  overflow-x: auto;
+  /* The port dots sit 5px proud of the machine cards. */
+  padding: 0 6px;
+}
+.scheme-field {
+  position: relative;
+}
+.scheme-lane {
+  position: absolute;
+  left: 0;
+  box-sizing: border-box;
+  border-top: 1px dashed var(--base-700);
+  padding-top: 2px;
+}
+.scheme-lines {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: visible;
+}
+.scheme-line {
+  fill: none;
+  stroke: var(--line-tone, var(--base-400));
+  stroke-width: 1;
+}
+.scheme-line.drawing {
+  stroke-dasharray: 4 3;
+}
+.scheme-line-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 12;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+.scheme-line-pair.lit .scheme-line,
+.scheme-line-pair:hover .scheme-line {
+  stroke-width: 2;
+}
+.scheme-rank {
+  font: 10px var(--font-num);
+  fill: var(--base-400);
+  text-anchor: end;
+}
+.scheme-card {
+  position: absolute;
+  box-sizing: border-box;
+  padding: var(--s1) var(--s2);
+  border: 1px solid var(--base-600);
+  border-radius: var(--r-control);
+  background: var(--base-900);
+  text-align: left;
+}
+.scheme-card .sign {
+  display: block;
+  /* A card names a thing, it is not a sign over a door: the body's size, so
+     «Автоматический реактор» fits the card it names. */
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0 0 var(--s1);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* A machine card's rows are the layout's own measures (`ship/lanes.MEASURE`):
+   the curves leave from where the arithmetic says the dots are, so the head
+   and the rows are pinned rather than left to the font. */
+.scheme-card.machine {
+  padding: 0 var(--s2);
+}
+.scheme-card.machine .sign {
+  height: 26px;
+  line-height: 26px;
+  margin: 0;
+}
+.scheme-port-row span,
+.scheme-stall {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.scheme-card .note {
+  display: block;
+}
+.scheme-card.vessel {
+  display: block;
+  font: inherit;
+  color: inherit;
+  border-left: 3px solid var(--line-tone, var(--base-600));
+  cursor: pointer;
+}
+.scheme-card.vessel.can-take {
+  border-color: var(--accent);
+}
+.scheme-card.vessel.cannot {
+  opacity: 0.5;
+}
+.scheme-port-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 22px;
+  padding-right: var(--s2);
+}
+.scheme-port-row.on span {
+  color: var(--accent);
+}
+/* The port: a dot on the card's right edge, a button underneath, because a
+   picture one cannot press is a lie. */
+.scheme-port {
+  position: absolute;
+  right: calc(-1 * var(--s2) - 5px);
+  width: 10px;
+  height: 10px;
+  padding: 0;
+  border: 1px solid var(--line-tone, var(--base-400));
+  border-radius: 50%;
+  background: var(--base-900);
+  cursor: crosshair;
+  touch-action: none;
+}
+.scheme-port:disabled {
+  cursor: default;
+}
+.scheme-port-row.on .scheme-port {
+  background: var(--line-tone, var(--accent));
+}
+.scheme-stall {
+  height: 20px;
+  line-height: 20px;
+  margin: 0;
+  color: var(--warning);
+}
+.scheme-panel {
+  margin-top: var(--s3);
+}
+.scheme-order {
+  margin: var(--s1) 0;
+  padding-left: var(--s5);
+}
+/* The tones, by the port's name. `fuel` and `lube` are class-bound port
+   names; a recipe's port is named by its liquid, so `water`, `oxygen` and
+   `hydrogen` are goods keys too -- a new liquid on the lines comes without a
+   tone until one is added here (D-340, OQ-171). */
+.tone-fuel {
+  --line-tone: var(--danger);
+}
+.tone-oxygen {
+  --line-tone: var(--success);
+}
+.tone-water {
+  --line-tone: var(--act);
+}
+.tone-hydrogen {
+  --line-tone: var(--warning);
+}
+.tone-lube {
+  --line-tone: var(--accent);
+}

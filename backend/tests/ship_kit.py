@@ -17,7 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src import sky
-from src.constants import Catalog, Constants, current
+from src.constants import Catalog, Constants, current, current_catalog
 from src.engine import ship, storage, travel, world
 from src.engine.ship import fate, hold, lines, sim
 from src.models.estate import Building
@@ -249,7 +249,7 @@ async def _fuel(session: AsyncSession, node: Node, amount: float):
     ).scalar_one_or_none()
     if hull is not None:
         for machine in await lines.hold_of(session, hull):
-            if lines.port_of(current(), machine.type_key, "fuel") is not None:
+            if lines.port_of(current(), current_catalog(), machine.type_key, "fuel") is not None:
                 rows = await lines.lines_of(session, machine.id, "fuel")
                 await lines.replace(
                     session, machine, "fuel", [*(row.vessel_item_id for row in rows), tank.id]
@@ -292,19 +292,21 @@ async def _fast_sample(
     *,
     now: datetime | None = None,
 ) -> dict:
-    """The fastest arc the engines deliver to `planet`, off the slider.
+    """The fastest direct arc the slider offers to `planet` (D-341).
 
     The one a test flies: the tick steps the sky a minute at a time (D-289),
     and the horizon's twelve days of the cheapest arc is not a test
     (`orbit.longest_days`, D-271 as reset by D-317). It is also the arc with
-    the least room in it -- the first `ok` point of the slider is the one the
-    thrust barely covers -- so a test that flies it and waits for the mooring
+    the least room in it -- near the slider's fast end the thrust barely
+    covers the arc -- so a test that flies it and waits for the mooring
     reads the sky at the hour it casts off from (`now`) and departs from a
     pinned place on the circle (`PARK_HEADING`), or it is a different passage
     every run.
     """
     forecast = await ship.forecast(session, constants, catalog, vessel, planet, now=now)
-    return next(one for one in forecast["samples"] if one["ok"])
+    #: A direct arc, the fastest the slider offers: a flyby there would be
+    #: another helm's test (`test_ship_flyby`).
+    return next(one for one in forecast["samples"] if "via" not in one)
 
 
 async def _flown(
@@ -429,7 +431,7 @@ async def _drifting(
     aurora = await _orbit(session, Planet.AURORA)
     moment = datetime.now(UTC)
     forecast = await ship.forecast(session, constants, catalog, vessel, Planet.AURORA, now=moment)
-    fast = next(one for one in forecast["samples"] if one["ok"])
+    fast = next(one for one in forecast["samples"] if "via" not in one)
     await ship.fly(
         session, constants, catalog, owner, vessel, aurora, hours=fast["hours"], now=moment
     )
@@ -464,7 +466,7 @@ async def _met(
     since = last + timedelta(minutes=1)
     forecast = await ship.forecast(session, constants, catalog, rescuer, drifter, now=since)
     (quote,) = forecast["samples"]
-    assert quote["ok"] and quote["hours"] > 0 and quote["dv"] > 0
+    assert quote["hours"] > 0 and quote["dv"] > 0
     #: Read at one moment and ordered five minutes later: the quote moves
     #: with the geometry, and the order takes the one of its own moment
     #: rather than looking the console's up and missing it.

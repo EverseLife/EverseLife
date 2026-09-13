@@ -33,6 +33,10 @@ x-server: &server
     #: `statement_cache_size=0` on asyncpg.
     EVERSELIFE_DB_POOL_SIZE: ${EVERSELIFE_DB_POOL_SIZE:-10}
     EVERSELIFE_DB_MAX_OVERFLOW: ${EVERSELIFE_DB_MAX_OVERFLOW:-5}
+    #: Processes **one server process** counts ship-console sliders with flybys
+    #: in (D-341): a whole core and a few hundred megabytes each while it works.
+    #: Servers x this is the machine-wide ceiling; past it a console waits.
+    EVERSELIFE_SKY_WORKERS: ${EVERSELIFE_SKY_WORKERS:-1}
     #: The world chronicle to Discord (`src/herald/`). Empty -- the herald is
     #: silent; the feed goes out, nothing comes in from Discord.
     EVERSELIFE_DISCORD_WEBHOOK: ${EVERSELIFE_DISCORD_WEBHOOK:-}

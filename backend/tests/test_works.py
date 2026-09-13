@@ -12,6 +12,8 @@ Checked is what the fund exists for:
 * a road order is posted with its payout escrowed -- an empty fund posts
   nothing -- and a verified mend collects it exactly once, cap and cooldown
   holding whichever way the race goes;
+* the daily cap counts the fund's money alone: a city order's own part,
+  however large, leaves the fund's share of the next order its allowance;
 * the supply invariant "total = accounts + reserve + fund" survives every
   move.
 """
@@ -28,14 +30,17 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from bank_kit import _enrol
-from src.constants import Constants
+from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import bank, ledger, road, travel, works, world
+from src.engine import bank, finance, ledger, road, travel, works, works_city, world
+from src.engine.estate.building import buildings_of
+from src.engine.estate.upkeep import repair_minutes
 from src.models.ledger import AccountKind, PostingReason
 from src.models.metrics import DailyMetric
 from src.models.works import WorkOrder, WorkOrderState
 from src.models.world import Edge, Surface
-from src.units import PERCENT, money
+from src.units import MONEY_SCALE, PERCENT, SCALE_MAX, money
+from works_kit import _city_with_ruler, _civic_plot, _feed_fund, _worker_at
 
 
 async def _inflation_rows(session: AsyncSession, *, old: float, new: float) -> None:
@@ -116,18 +121,6 @@ async def _edge_with_worker(session: AsyncSession, *, condition: float, surface_
             origin="сценарий теста",
         )
     return identity, body, edge
-
-
-async def _feed_fund(session: AsyncSession, amount: int) -> None:
-    """Top the fund up directly: the recycling path has tests of its own."""
-    genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
-    await ledger.transfer(
-        session,
-        PostingReason.WORKS_PRINT,
-        debit=genesis.id,
-        credit=(await works.fund_account(session)).id,
-        amount=amount,
-    )
 
 
 # --- the recycle split (D-248 over D-169) -------------------------------------
@@ -325,6 +318,62 @@ async def test_payout_clipped_by_daily_cap(
     assert paid == money(0.05)
     assert await works.fund_balance(session) == tariff - paid, "остаток вернулся в фонд"
     assert order is not None and order.state is WorkOrderState.DONE
+
+
+async def test_city_part_does_not_eat_the_fund_cap(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The cap is on the fund's payouts to a player (`works.player_daily_cap`).
+
+    A city order pays the worker the city's offer and labour share in full and
+    the fund's share under the cap. When both rode one posting, the counter saw
+    the city's money as the fund's, and a large offer left the road order the
+    same day nothing. The cap here admits the city order's fund share and half
+    a road tariff: the road pays exactly that half -- zero would mean the city's
+    part was counted, the whole tariff that the fund's share was not.
+    """
+    moment = datetime.now(UTC)
+    city, core, ruler, ruler_body = await _city_with_ruler(session, catalog, funds=10_000)
+    plot = await _civic_plot(session, constants, city, core, condition=50)
+    houses = await buildings_of(session, plot)
+    labor = works_city.labor_tariff(constants, repair_minutes(constants, houses))
+    city_labor, fund_labor = works_city.split_labor(constants, labor)
+    road_share = works.road_tariff(constants)
+    assert fund_labor > 0, "без доли фонда городской заказ потолку ничего не пишет"
+    cap = fund_labor + road_share // 2
+    capped = constants.with_overrides({"works.player_daily_cap": cap / MONEY_SCALE})
+    #: The offer alone is many caps: under the old counter it spent the day.
+    offer = round(10 * cap / MONEY_SCALE)
+
+    await _feed_fund(session, fund_labor + road_share)
+    await works_city.post_repair_order(session, capped, city, ruler, ruler_body, plot, offer=offer)
+    _, _, edge = await _edge_with_worker(session, condition=50)
+    assert await works.post_road_orders(session, capped, now=moment) == 1
+    worker, _ = await _worker_at(session, plot)
+
+    for house in houses:
+        house.condition = SCALE_MAX
+    await session.flush()
+    city_share = money(offer) + city_labor
+    paid_city = await works_city.pay_repair_order(session, capped, plot, worker.id, now=moment)
+    assert paid_city == city_share + fund_labor, "доля города целиком, доля фонда под потолком"
+    assert await works.paid_today(session, worker.id, now=moment) == fund_labor
+
+    edge.condition = Decimal("100")
+    await session.flush()
+    paid_road = await works.pay_road_order(session, capped, edge, worker.id, now=moment)
+    assert paid_road == cap - fund_labor, "потолок считает деньги фонда, а не города"
+    assert await works.paid_today(session, worker.id, now=moment) == cap
+    assert await works.fund_balance(session) == road_share - paid_road, "срезанное — в фонд"
+
+    #: The statement (D-292) shows the city's money under its own ground,
+    #: apart from the fund's two shares. Newest first.
+    rows, _ = await finance.statement(session, worker.id)
+    assert [(row["reason"], row["amount"]) for row in rows] == [
+        (PostingReason.WORKS_PAYOUT.value, paid_road),
+        (PostingReason.WORKS_PAYOUT.value, fund_labor),
+        (PostingReason.WORKS_CITY_PAYOUT.value, city_share),
+    ]
 
 
 async def test_cooldown_blocks_a_repeat_order(

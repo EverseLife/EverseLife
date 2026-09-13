@@ -168,6 +168,7 @@ from src.engine.ship.belonging import (  # noqa: F401
     aboard_of,
     crew_of,
     is_aboard,
+    lock_crew,
     nodes_of,
     of_node,
     ships_of,
@@ -193,8 +194,10 @@ from src.engine.ship.command import (  # noqa: F401
 )
 from src.engine.ship.crossing import cancel, circle_star, fly  # noqa: F401
 from src.engine.ship.feed import (  # noqa: F401
+    BadVesselName,
     NoSuchPort,
     NotOnLine,
+    name_vessel,
     set_lines,
 )
 from src.engine.ship.feed import view as lines_view  # noqa: F401

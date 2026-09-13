@@ -55,12 +55,15 @@ def created_column() -> Mapped[datetime]:
 
 
 def enum_column(enum_type: type, name: str, **kw: Any) -> Any:
-    """VARCHAR + CHECK instead of the native Postgres type.
+    """VARCHAR instead of the native Postgres type, and no CHECK either.
 
     A native enum is extended by a migration and locks the table; the list of
-    states in the game changes more often than one would like. The database
-    holds the member's **value**, not its name: `pending`, not `PENDING` -- so
-    that a hand-written query reads the same as code.
+    states in the game changes more often than one would like. SQLAlchemy 2
+    writes no CHECK for a non-native enum unless asked (`create_constraint`),
+    and it is not asked: a member added to the enum needs no migration, and the
+    column's only guard is the code that writes it. The database holds the
+    member's **value**, not its name: `pending`, not `PENDING` -- so that a
+    hand-written query reads the same as code.
     """
 
     return mapped_column(
