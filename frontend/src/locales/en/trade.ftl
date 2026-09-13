@@ -103,6 +103,21 @@ ui-workshop-forecast = The forecast counts itself while you choose.
 ui-workshop-queue = Queue
 ui-workshop-start = Start the batch
 ui-workshop-running = “{ $goods }” is running now: a new batch queues behind it
+ui-workshop-outlet = { $goods }: { $where ->
+        [line] into the vessels on its line
+        [reach] into the vessels in hand and at the machine
+       *[place] into the vessels at the machine
+    } — { $room } free, the batch gives { $need }; the room is not reserved
+ui-workshop-outlet-short = { $goods }: { $where ->
+        [line] into the vessels on its line
+        [reach] into the vessels in hand and at the machine
+       *[place] into the vessels at the machine
+    } — { $room } free, the batch gives { $need }: the surplus will spill
+ui-workshop-outlet-gone = { $goods }: { $where ->
+        [flare] burns in the node's flare stack
+        [overboard] into the vessels on its line, the rest overboard: there is no air outside
+       *[void] goes outside, where there is no air
+    }
 ui-workshop-repair-title = Repair or take apart
 ui-workshop-thing-condition = { $goods } · condition { $condition }
 ui-workshop-repair = Repair

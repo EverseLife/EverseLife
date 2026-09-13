@@ -10,7 +10,6 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants
@@ -19,7 +18,7 @@ from src.engine import events, ledger, works
 from src.engine.estate.building import buildings_of
 from src.engine.works_city._base import _EPS, open_city_order
 from src.models.event import EventKind
-from src.models.ledger import AccountKind, LedgerAccount
+from src.models.ledger import AccountKind
 from src.models.ledger import PostingReason as Reason
 from src.models.works import WorkOrder, WorkOrderKind, WorkOrderState
 from src.models.world import Node
@@ -64,9 +63,7 @@ async def _pay_share(
     #: The recipient's row serialises the cap read across the worker's orders
     #: -- the same lock, in the same place, as the road payout takes.
     recipient = await ledger.account_for(session, AccountKind.IDENTITY, identity_id)
-    await session.execute(
-        select(LedgerAccount.id).where(LedgerAccount.id == recipient.id).with_for_update()
-    )
+    await ledger.lock_accounts(session, [recipient.id])
     cap = money(constants[R.WORKS_PLAYER_DAILY_CAP])
     allowance = max(0, cap - await works.paid_today(session, identity_id, now=now))
     fund_pay = max(0, min(fund_due, allowance))

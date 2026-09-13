@@ -18,6 +18,12 @@ export type FloorRow = {
   backlog: number;
   /** Up to what moment work is computed, ISO. The tick moves it, never the client. */
   counted_at: string;
+  /**
+   * Why the machine stands, as of the last tick (D-340): `flare` -- its vent
+   * gas has nowhere safe to go on the ground; aboard, the name of the port
+   * that stopped it or `power`. Absent while it works.
+   */
+  stall?: string;
 };
 
 export type Wire = {

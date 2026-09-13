@@ -45,7 +45,7 @@ import { Drift, Passage } from "./ship/Voyage";
 import { Landing } from "./ship/Landing";
 import { Feed } from "./ship/Feed";
 import { Plan } from "./ship/Plan";
-import { autonomy, wanted, type Target, type Vessel } from "./ship/model";
+import { autonomy, spelt, wanted, type Target, type Vessel } from "./ship/model";
 import { term } from "./map/orbits";
 
 /**
@@ -274,19 +274,6 @@ function Ascent({
   );
 }
 
-/**
- * A count as this window writes one: whole units once there are many of them,
- * a tenth of one while there are few.
- *
- * The server rounds a reserve to the tenth it keeps it in, and a bare
- * `toFixed(0)` turned four tenths of a bottle into «0» -- under a sentence
- * that had just said there was some, and told the reader to draw a line to
- * it. The figure and the sentence must agree about whether anything is there.
- */
-const SPELT_TENTHS_TO = 10;
-function spelt(amount: number): string {
-  return amount < SPELT_TENTHS_TO ? amount.toFixed(1) : amount.toFixed(0);
-}
 
 /** The nameplate: the owner's word, and the engine makes nothing of it (D-240). */
 function Nameplate({
@@ -621,7 +608,7 @@ export function Ship({
                     vessel={v}
                     target={course}
                     busy={busy || mute}
-                    fly={(to, hours) =>
+                    fly={(to, hours, via) =>
                       go(() =>
                         session.send(
                           "ship.fly",
@@ -630,6 +617,7 @@ export function Ship({
                                 ship: v.ship,
                                 port: v.routes.find((one) => one.planet === to.planet)?.node,
                                 hours,
+                                ...(via ? { via } : {}),
                               }
                             : { ship: v.ship, ship_target: to.ship, hours },
                         ),

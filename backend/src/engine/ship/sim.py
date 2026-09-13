@@ -18,14 +18,14 @@ end is a job in the journal.
 
 **What a tick costs.** Only hulls under an order are stepped every minute;
 a coasting hull costs a step every few hours, a moored one nothing. The
-helm asks the sky one Lambert solution a step.
+helm asks the sky one Lambert solution a step -- under a flyby (D-341) only
+while it leaves and arrives: between, it coasts and asks for a correction
+whenever the time left has halved.
 """
 
 from __future__ import annotations
 
-import asyncio
 import uuid
-from collections import OrderedDict
 from collections.abc import Sequence
 from datetime import datetime, timedelta
 from typing import Any
@@ -40,12 +40,11 @@ from src.constants import Catalog, Constants, current
 from src.constants import registry as R
 from src.db.base import remember
 from src.engine import stock, travel
-from src.engine.ship import course
+from src.engine.ship import course, flyby
 from src.engine.ship._base import (
     InFlight,
     NoArc,
     NoFuel,
-    NotEnoughThrust,
     _gangway_seconds,
     is_orbit,
 )
@@ -68,8 +67,6 @@ from src.units import (
     ROUND_DV,
     ROUND_HOURS,
     ROUND_TRACE,
-    SKY_CURVE_MEMO,
-    SKY_MEMO_PER_DAY,
     amount_float,
 )
 
@@ -291,63 +288,12 @@ def fuel_for_dv(constants: Constants, weight: float, dv: float, klass: int | Non
     return course.fuel_for_speed(constants, weight, dv, efficiency=efficiency(constants, klass))
 
 
-async def offers(
-    session: AsyncSession,
-    constants: Constants,
-    catalog: Catalog,
-    ship: Ship,
-    target: sky.Target,
-    *,
-    now: datetime,
-    thrust_ratio: float,
-) -> list[sky.Sample]:
-    """The slider from where the hull is: the preview for every point of the
-    grid (D-271, D-289) -- to a planet's circle, or to a drifter on its
-    forecast (wave 3). Empty for a hull not in the sky."""
-    found = await state_at(session, constants, ship, now=now)
-    if found is None:
-        return []
-    r, v, t = found
-    world = await system(session, constants)
-    if isinstance(target, sky.Drifter):
-        #: A hull as the target (wave 3): one price, the approach profile's
-        #: own -- the helm flies that profile and no arc, so a slider of
-        #: arcs would quote hours and delta-v nobody flies.
-        a_max = thrust_ratio * float(constants[R.ORBIT_THRUST_SCALE])
-        return [sky.approach_quote(r, v, t, target, a_max)]
-    leaving = None
-    if ship.docked_node_id is not None:
-        moored = await session.get(Node, ship.docked_node_id)
-        if moored is not None and is_orbit(moored):
-            leaving = world.body(moored.planet.value)
-    #: Memoised on the state, rounded as the wire rounds it, and on the
-    #: sky's own minute: every console over a planet asks the same question
-    #: of the same sky, and forty Lambert solutions a planet on every reread
-    #: of `ship.view` were a tenth of a second each in the event loop. What
-    #: is not remembered is solved off the loop.
-    key = (
-        constants.digest,
-        target.key,
-        None if leaving is None else leaving.key,
-        round(t * SKY_MEMO_PER_DAY),
-        round(r[0], ROUND_TRACE),
-        round(r[1], ROUND_TRACE),
-        round(v[0], ROUND_DV),
-        round(v[1], ROUND_DV),
-    )
-    hit = _PREVIEWS.get(key)
-    if hit is None:
-        hit = await asyncio.to_thread(
-            sky.preview, world, constants, r, v, t, target, course.grid(constants), leaving=leaving
-        )
-        _PREVIEWS[key] = hit
-        while len(_PREVIEWS) > SKY_CURVE_MEMO:
-            _PREVIEWS.popitem(last=False)
-    return list(hit)
-
-
-#: The slider previews remembered across commands (see `offers`).
-_PREVIEWS: OrderedDict[tuple, list[sky.Sample]] = OrderedDict()
+async def leaving_of(session: AsyncSession, world: sky.System, ship: Ship) -> sky.Body | None:
+    """The world whose parking circle the hull is moored on, or nothing."""
+    if ship.docked_node_id is None:
+        return None
+    moored = await session.get(Node, ship.docked_node_id)
+    return world.body(moored.planet.value) if moored is not None and is_orbit(moored) else None
 
 
 async def _afford(
@@ -431,72 +377,46 @@ async def depart(
     ship: Ship,
     target: Node | Ship,
     *,
-    hours: float,
+    plan: sky.Sample,
     thrust_ratio: float,
     now: datetime,
-    offered: Sequence[sky.Sample] | None = None,
 ) -> tuple[sky.Sample, float]:
     """Set the order: the chosen point of the slider, written onto the row.
-    Returns the plan -- the slider's own sample -- and the fuel it will cost
-    by the plan's delta-v.
+    Returns the plan and the fuel it will cost by its delta-v.
 
-    The plan is the two-body arc the slider showed, no more: a shooting
-    refinement under five bodies was tried and dropped (D-289, wave 2) --
-    it diverged on the cheap end of the slider and bought only a picture,
-    because the helm re-solves the passage from where the hull actually is
-    every tick (`_fly`) whatever line was drawn at the order.
+    `plan` is a point of the slider as the sky offers this hull at the order's
+    moment (`slider.point`, D-341). A direct arc's plan is the two-body arc
+    the slider showed, no more: a shooting refinement under five bodies was
+    tried and dropped for it (D-289, wave 2), because the helm re-solves the
+    passage from where the hull actually is every tick (`_fly`) whatever line
+    was drawn at the order. A flyby's plan is the refined pass (D-341): the
+    order carries the periapsis the helm corrects toward.
 
-    Refused for what is impossible **now** and for nothing else (D-289):
-    an arc the sky does not offer, one the engines cannot deliver, or
+    Refused here for what is impossible **now** and for nothing else (D-289):
     tanks that do not hold the departure burn. The arrival burn is the
     console's warning, not the engine's refusal -- fuel may be made on the
     way, and a hull short of it drifts rather than being kept at the pier.
     """
     world = await system(session, constants)
-    goal: sky.Target
-    if isinstance(target, Ship):
-        #: A hull as the target (wave 3): met on its forecast, the line the
-        #: tick wrote on its row. Without one there is nothing to aim at yet.
-        found_goal = await drifter_of(session, constants, target)
-        if found_goal is None:
-            raise NoArc(key="ship-target-unknown")
-        goal = found_goal
-    else:
-        goal = world.body(target.planet.value)
-    if offered is None:
-        offered = await offers(
-            session, constants, catalog, ship, goal, now=now, thrust_ratio=thrust_ratio
-        )
-    if isinstance(goal, sky.Drifter):
-        #: One price to a hull and no choice among prices: the quote of the
-        #: order's own moment, whatever hours the console read minutes ago
-        #: -- the profile's hours move with the geometry, and the profile
-        #: is laid within the thrust by construction.
-        (sample,) = offered
-        hours = sample.hours
-        if gone_by(goal, await sky_days(session, now), hours):
-            raise NoArc(key="ship-target-gone-by-then", other=target.name)
-    else:
-        samples = {one.hours: one for one in offered}
-        found_sample = samples.get(round(hours, ROUND_HOURS)) or samples.get(hours)
-        if found_sample is None:
-            raise NoArc(key="ship-no-arc", hours=round(hours, ROUND_HOURS))
-        sample = found_sample
-        can = course.deliverable(constants, thrust_ratio, hours)
-        if sample.dv > can:
-            raise NotEnoughThrust(
-                key="ship-too-fast-for-thrust",
-                hours=round(hours, ROUND_HOURS),
-                need=round(sample.dv, ROUND_DV),
-                have=round(can, ROUND_DV),
-            )
+    #: The world arrived at, for the circle a hull falls to; a hull met in
+    #: the deep has none.
+    goal = None if isinstance(target, Ship) else world.body(target.planet.value)
+    hours = plan.hours
     found = await state_at(session, constants, ship, now=now)
-    if found is None:  # pragma: no cover -- `offers` answered, so the hull is in the sky
+    if found is None:  # pragma: no cover -- the slider answered, so the hull is in the sky
         raise NoArc(key="ship-no-arc", hours=round(hours, ROUND_HOURS))
     r, v, t = found
-    plan = sample
 
     weight, klass = await _afford(session, constants, catalog, ship, plan.dv_out, why="cross")
+    #: The world a flyby's departure leaves (D-341): the one moored at, or the
+    #: one whose hold a drifting hull is in -- the helm's departure lasts while
+    #: the hull is still in its grip (`sky.steer_pass`).
+    home: str | None = None
+    if plan.via is not None:
+        assert goal is not None
+        left = await leaving_of(session, world, ship)
+        held = left or sky.holding(world, goal, t, r, spare=plan.via.via)
+        home = None if held is None else held.key
 
     #: Whoever was holding on to this hull was let go of by the caller
     #: (`hold.release_holders`), from the state they shared; the hull's own
@@ -532,9 +452,8 @@ async def depart(
                     world,
                     plan.dv_in,
                     thrust_ratio * float(constants[R.ORBIT_THRUST_SCALE]),
-                    #: The circle fallen to is the target world's own (D-324);
-                    #: a hull met in the deep has none to fall to.
-                    goal if isinstance(goal, sky.Body) else None,
+                    #: The circle fallen to is the target world's own (D-324).
+                    goal,
                 )
             )
         ),
@@ -548,6 +467,8 @@ async def depart(
         #: reads what is left against the tanks (`card.profile`).
         "spent": 0.0,
     }
+    if plan.via is not None:
+        ship.course.update(flyby.order_of(plan.via, home=home, now=now, wait=wait))
     #: A fresh order has no forecast yet: the tick writes one within the
     #: minute, and the console draws nothing rather than yesterday's coast.
     ship.forecast = None

@@ -157,3 +157,19 @@ gear-overloaded = too much to carry: { NUMBER($carries, minimumFractionDigits: 1
 craft-unpowered-no-grid = the “{ NAME($goods) }” runs on the grid, and there is no grid here: outside a city a charged battery is stood beside it
 craft-unpowered-short = the “{ NAME($goods) }” needs { NUMBER($need, minimumFractionDigits: 0, maximumFractionDigits: 1) } energy, and the pool holds { NUMBER($have, minimumFractionDigits: 0, maximumFractionDigits: 1) }: a city without fuel stands still
 craft-unpowered-cells = the “{ NAME($goods) }” needs { NUMBER($need, minimumFractionDigits: 0, maximumFractionDigits: 1) } energy, and the batteries beside it hold { NUMBER($have, minimumFractionDigits: 0, maximumFractionDigits: 1) }
+# The air aboard runs through the ship's lines (D-340): an inlet draws from the
+# vessels on its line, an outlet pours into the vessels on its own. A port is named by its liquid.
+craft-port-no-line = the “{ NAME($station) }” has no line drawn on its “{ NAME($goods) }” port: aboard, { $way ->
+        [in] an inlet draws only from the vessels on its line
+        [vent] under a sky with air, vent gas is not released: it goes only into the vessels on its line
+       *[other] an outlet pours only into the vessels on its line
+    }. Lines are drawn at the ship's console
+craft-lines-not-yours = the lines of the “{ NAME($station) }” run to the owner's vessels: only whoever may dispose of the compartment works through them
+craft-outlet-full = the vessels on the “{ NAME($goods) }” line of the “{ NAME($station) }” will take { NUMBER($room, minimumFractionDigits: 0, maximumFractionDigits: 1) } u. more, and the batch will give { NUMBER($units, minimumFractionDigits: 0, maximumFractionDigits: 1) }: empty a vessel or put another one on the line
+# Vent gas (D-340) is never released into the air. On the ground under a sky it
+# burns in the node's flare stack; aboard under a sky it goes only into the vessels on its line.
+craft-no-flare = nowhere to put the “{ NAME($goods) }”: under a sky with air, vent gas is { $aboard ->
+        [true] not released, a ship has no flare stack, and this machine does not work through the lines
+       *[other] not released but burned in a flare stack — put one up in this node
+    }
+craft-flare-aboard = “{ NAME($goods) }” is not put up aboard: a ship's vent gas goes into the vessels on its line, and in the void, overboard

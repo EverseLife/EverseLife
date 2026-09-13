@@ -640,6 +640,7 @@ async def test_forecast_does_not_wait_for_the_body_lock(
 #: answer as a class, and a class stays closed only if a new member of it
 #: cannot join quietly.
 READS: dict[str, dict[str, object]] = {
+    "agro.view": {},
     "auto.view": {},
     "build.demolish_estimate": {},
     "build.estimate": {"area": 20, "floors": 1},
