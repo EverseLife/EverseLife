@@ -248,7 +248,12 @@ python tools/spdx.py --apply
   `test_waking.py`, `test_observe.py`, `test_commands.py`,
   `test_advice.py`, `test_names.py` и `test_secrets.py` — по модулю, за
   который каждый отвечает; фикстуры — в `tests/conftest.py`, хелперы
-  (`FakeGame`, `SESSION_SOURCE`) — в `tests/brain_kit.py`.
+  (`FakeGame`, `SESSION_SOURCE`) — в `tests/brain_kit.py`. 2026-09-13
+  подросшее к планке: `tests/test_races_field_energy.py` (732) оставил
+  себе гонки на второй сессии, а доли семейства, слова журнала и
+  остановленные машины уехали в `test_field_automat_share.py`,
+  `test_field_automat_journal.py` и `test_field_automat_stop.py`; общее
+  семьи — в прежнем `agro_kit.py`.
   2026-09-13 `constants/registry.py` (802) → разделы по этапам дорожной
   карты рядом, звёздным импортом в дверь: `registry_map` (мир: сутки,
   сфера, грунт и веса жил, свойства места, рельеф, биомы, сезон, погода),

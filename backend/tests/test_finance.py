@@ -13,15 +13,19 @@ the order the money was frozen under.
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
+from decimal import Decimal
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from city_kit import _capital
 from market_kit import ORE, _city, _trader, _with_goods
 from src.constants import Catalog, Constants
-from src.engine import finance, ledger, market, world
+from src.engine import finance, ledger, market, travel, works, world
 from src.models.ledger import AccountKind, PostingReason
 from src.models.market import Order
+from src.models.world import Surface
 from src.runtime import STATEMENT_PAGE
 from src.units import money, money_str
 
@@ -214,3 +218,118 @@ async def test_a_released_deposit_opens_into_the_same_order(
     assert held is not None
     assert held["amount"] == pytest.approx(6) and held["price"] == "5"
     assert [(one["with"], one["amount"]) for one in held["fills"]] == [(seller.name, 4)]
+
+
+async def test_a_work_order_payout_faces_the_order_rather_than_a_deal(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """A work order's pay waits in an escrow, as a buyer's deposit does, and
+    one account kind holds both (D-248). The worker's row used to read
+    "trade escrow" where no deal ever happened.
+
+    The escrow an order owns is sent as a side of its own; a buyer's deposit
+    stays `escrow` -- the sale above pins that half. A road order stands in
+    for every kind: the side is told by the owner, not by what the order is.
+    """
+    stamp = uuid.uuid4().hex[:8]
+    here = await world.create_node(session, f"terra.fin.{stamp}", "Здесь", area_m2=100)
+    there = await world.create_node(session, f"terra.fio.{stamp}", "Там", area_m2=100)
+    edge = await travel.connect(session, here, there, base_seconds=600, surface=Surface.ROAD)
+    edge.condition = Decimal("50")
+    await session.flush()
+    worker = await _person(session, "Дорожник")
+    tariff = works.road_tariff(constants)
+    genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
+    await ledger.transfer(
+        session,
+        PostingReason.WORKS_PRINT,
+        debit=genesis.id,
+        credit=(await works.fund_account(session)).id,
+        amount=tariff,
+    )
+    assert await works.post_road_orders(session, constants, now=datetime.now(UTC)) == 1
+    edge.condition = Decimal("100")
+    await session.flush()
+    paid = await works.pay_road_order(session, constants, edge, worker.id)
+    assert paid > 0
+
+    rows, _ = await finance.statement(session, worker.id)
+    payout = next(row for row in rows if row["reason"] == "works_payout")
+    assert payout["incoming"] and payout["money"] == money_str(paid)
+    assert (payout["with"], payout["side"]) == (None, finance.WORK_ORDER), "платит госзаказ"
+
+    opened = await finance.posting(session, worker.id, payout["id"])
+    assert [(side["with"], side["side"], side["incoming"]) for side in opened["sides"]] == [
+        (None, finance.WORK_ORDER, False),
+        (worker.name, None, True),
+    ]
+    assert opened["deal"] is None and opened["order"] is None
+
+
+async def test_each_kind_of_side_is_named_on_one_page(
+    session: AsyncSession, catalog: Catalog
+) -> None:
+    """A person by name, a treasury by its city, the issue by its kind -- all
+    resolved for the page at once, and the row opens into the same words."""
+    city, _ = await _capital(session, catalog, funds=100)
+    clerk = await _person(session, "Писарь", funds=5)
+    treasury = await ledger.account_for(session, AccountKind.CITY_TREASURY, city.node_id)
+    wallet = await ledger.account_for(session, AccountKind.IDENTITY, clerk.id)
+    await ledger.transfer(
+        session, PostingReason.SALARY, debit=treasury.id, credit=wallet.id, amount=money(7)
+    )
+    payee = await _person(session, "Счетовод")
+    await finance.transfer(session, clerk, payee.name, money(2))
+
+    rows, _ = await finance.statement(session, clerk.id)
+    assert [(row["reason"], row["with"], row["side"]) for row in rows] == [
+        ("transfer", payee.name, None),
+        ("salary", city.name, "city_treasury"),
+        ("genesis", None, "genesis"),
+    ]
+    opened = await finance.posting(session, clerk.id, rows[1]["id"])
+    assert [(side["with"], side["side"]) for side in opened["sides"]] == [
+        (city.name, "city_treasury"),
+        (clerk.name, None),
+    ]
+
+
+async def test_a_page_of_deposits_costs_the_same_whatever_its_length(
+    session: AsyncSession, constants: Constants, catalog: Catalog, counted
+) -> None:
+    """Which escrows belong to a work order is asked once for the page.
+
+    A buyer's escrow is owned by the buyer, so looking its owner up among
+    work orders row by row misses on every deposit -- and the session keeps
+    no memory of a miss, so each row of the page would cost one more query.
+    """
+    node = await _city(session)
+    buyer, body = await _trader(session, node, "Скупщик", funds=100)
+    tier = market.tier_of(constants, 65)
+
+    async def bid(times: int) -> None:
+        for _ in range(times):
+            await market.buy(
+                session,
+                constants,
+                catalog,
+                body,
+                type_key=ORE,
+                tier=tier,
+                price=money(1),
+                quantity=1,
+            )
+
+    async def read() -> tuple[int, list[str | None]]:
+        before = counted.count
+        rows, _ = await finance.statement(session, buyer.id)
+        held = [row["side"] for row in rows if row["reason"] == "escrow_hold"]
+        return counted.count - before, held
+
+    await bid(2)
+    few, held = await read()
+    assert held == ["escrow"] * 2, "задаток покупателя остаётся залогом сделки"
+    await bid(4)
+    many, held = await read()
+    assert held == ["escrow"] * 6
+    assert many == few, "страница задатков не дороже от длины"

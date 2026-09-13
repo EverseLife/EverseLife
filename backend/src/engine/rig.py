@@ -561,8 +561,9 @@ async def hopper_left(session: AsyncSession, item: Item) -> float:
     the last committed hopper -- a nought where a whole pass already stands --
     and wave the loaded machine out through the very rule this asks for. The
     order is the tick's own (the rig row, then the machine's through
-    `wear.spend`), and the taking-down door locks nothing before this, so there
-    is no way round for the two to meet.
+    `wear.spend`), so whoever asks must ask **before** locking the machine's
+    row: the taking-down door once locked the machine first, and a take-down
+    arriving mid-pass waited here while the tick waited on the machine.
     """
     if item.type_key not in world.station_names(RIG):
         return 0.0

@@ -63,7 +63,11 @@ city-hall-dead = a city is governed by a living body only
 city-hall-not-territory = this is not the territory of “{ $city }”: power is exercised at home
 city-hall-absent = there is no administration here: the city takes its decisions in it
 city-hall-cut-off = the administration is cut off for non-payment: without it the city is blind and mute
-city-hall-frozen = “{ $node }” has frozen through: the administration is shut until the node is warmed
+# $weather is the planet's climate: frost (permafrost) or heat (the node cannot be cooled).
+city-hall-frozen = { $weather ->
+        [heat] the node “{ $node }” is scorching: the administration is shut — the node cannot be cooled
+       *[frost] the node “{ $node }” is frozen through: the administration is shut until the node is heated
+    }
 city-powers-not-own = you cannot hand over what you do not hold yourself: { $extra }
 city-office-no-powers = an office without powers is not an office
 city-office-other-city = the office is not of this city

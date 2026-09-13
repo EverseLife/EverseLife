@@ -29,6 +29,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import ROUND_UP, Decimal
 
 from sqlalchemy import select
+from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants
@@ -204,6 +205,8 @@ async def charge_battery(
         raise BatteryError(key="battery-body-off-node")
     pocket = await world.body_container(session, body)
     yard = await world.node_container(session, node)
+    #: Asked first of the object the command was handed, so that a click on a
+    #: cell out of reach is refused without taking its row or the pool's...
     if item.container_id not in (pocket.id, yard.id):
         raise BatteryError(key="battery-not-here")
     pool = await _grid().pool_of(session, constants, node)
@@ -214,7 +217,20 @@ async def charge_battery(
     #: The cell's row before its charge is read and rewritten: a worn
     #: exoskeleton drinks from this very cell every tick (D-268), and a charge
     #: written over a drain the tick just committed would undo the drain.
-    await session.refresh(item, with_for_update=True)
+    #: It may be gone by then -- burnt with its yard, fallen with the house:
+    #: the world's ordinary answer, said in words (D-011). The name is read
+    #: first: a failed refresh leaves none.
+    named = item.type_key
+    try:
+        await session.refresh(item, with_for_update=True)
+    except InvalidRequestError as gone:
+        raise BatteryError(key="thing-gone", goods=named) from gone
+    #: ...and again of the row the lock reread, which is the answer that
+    #: counts: a cell lifted off the floor while this waited on it is in the
+    #: lifter's hands now, and charged there it poured the city's energy into
+    #: another body's pocket and billed this one for it.
+    if item.container_id not in (pocket.id, yard.id):
+        raise BatteryError(key="battery-not-here")
     have = await settle_charge(session, constants, item, now=moment)
     place = max(0.0, capacity(constants) - have)
     wants = place if amount_wanted is None else min(float(amount_wanted), place)

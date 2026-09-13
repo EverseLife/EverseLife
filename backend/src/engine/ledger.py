@@ -15,7 +15,7 @@ journal, the invariant check flags it, and a human must explain it.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 
 from sqlalchemy import func, select
@@ -97,6 +97,37 @@ async def balance(session: AsyncSession, account_id: uuid.UUID) -> int:
     return int((await session.execute(stmt)).scalar_one())
 
 
+async def lock_accounts(session: AsyncSession, account_ids: Iterable[uuid.UUID]) -> None:
+    """Queue behind every other debit of these accounts, taken in id order so
+    two operations touching the same pair never deadlock.
+
+    `FOR NO KEY UPDATE`, not `FOR UPDATE`. Nothing ever updates an account's
+    row -- the balance is the sum of its entries -- so the lock is only a
+    queue. But every credit posting takes the credited account `FOR KEY SHARE`
+    through `ledger_entry.account_id`'s foreign key, and `FOR UPDATE` conflicts
+    with that: a purse paying a treasury while the treasury paid the purse held
+    one row each and waited on the other's credit, and Postgres killed one of
+    the two. `FOR NO KEY UPDATE` conflicts with itself and not with a key
+    share: debits still queue, credits walk past. A lock that only serialises
+    a read of the account (a payout's daily cap, a reservation) takes the same
+    one, for the same reason.
+
+    So an account is no mutex between a posting into it and a posting out of
+    it: two transactions that credit and debit one account and then lock other
+    rows no longer queue on that account, and the rows they take next must
+    follow the common lock order on their own.
+    """
+    ids = sorted(set(account_ids))
+    if not ids:
+        return
+    await session.execute(
+        select(LedgerAccount.id)
+        .where(LedgerAccount.id.in_(ids))
+        .order_by(LedgerAccount.id)
+        .with_for_update(key_share=True)
+    )
+
+
 async def post(
     session: AsyncSession,
     reason: PostingReason,
@@ -119,19 +150,11 @@ async def post(
     if total != 0:
         raise Unbalanced(key="ledger-unbalanced", total=total, reason=reason)
 
-    #: Every debited account is locked before its balance is read, in id
-    #: order so two operations touching the same pair never deadlock. Without
+    #: Every debited account is locked before its balance is read. Without
     #: the lock two sockets of one identity -- or the API and the worker --
     #: both see 100, both spend 100, and the balance is -100 with every
     #: transaction perfectly balanced (review 2026-08-23).
-    debited = sorted({p.account_id for p in postings if p.amount < 0})
-    if debited:
-        await session.execute(
-            select(LedgerAccount.id)
-            .where(LedgerAccount.id.in_(debited))
-            .order_by(LedgerAccount.id)
-            .with_for_update()
-        )
+    await lock_accounts(session, [p.account_id for p in postings if p.amount < 0])
     if not allow_overdraft:
         await _check_funds(session, postings)
 
