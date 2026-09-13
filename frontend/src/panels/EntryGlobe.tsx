@@ -232,8 +232,17 @@ export function EntryGlobe({
     //: A planet the public map shows nothing on yet -- a world younger than
     //: its first snapshot -- is looked at from over its equator and meridian.
     EQUATOR;
-  //: Whether the eye has ever been put somewhere on purpose.
+  //: Whether the eye has been put somewhere on purpose since the doors came.
   const aimed = useRef(false);
+  //: The door step opening is a reason to aim again. The globe is the same
+  //: one the login screen mounted, and it has turned by itself -- and under
+  //: the hand -- through every step before: the first aim was spent on the
+  //: login screen, and the doors opened on whatever side the turn had left,
+  //: a still planet with no dot on it under a hint to choose one. Declared
+  //: before the aim, so both run on the render the doors arrive in.
+  useEffect(() => {
+    if (choosing) aimed.current = false;
+  }, [choosing]);
   useEffect(() => {
     //: Unchoosing a door must not move the sky: on a phone the way back from
     //: the card is the way to the globe, and a player who turned the planet
