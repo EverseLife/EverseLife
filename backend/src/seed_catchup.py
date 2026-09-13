@@ -402,13 +402,9 @@ async def _return_city_locations(session: AsyncSession) -> None:
     market, the administration -- the places a city works from, which were
     never anybody's to hold.
     """
-    taken = 0
-    cities = (await session.execute(select(City))).scalars().all()
-    for city in cities:
-        for node in await town.territory(session, city):
-            if await town.reclaim(session, node, city):
-                taken += 1
-                log.info("city location returned to %s: %s", city.name, node.key)
+    taken = await town.reclaim_all(session)
+    for city, node in taken:
+        log.info("city location returned to %s: %s", city.name, node.key)
     if taken:
         await session.flush()
 
