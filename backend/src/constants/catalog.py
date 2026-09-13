@@ -107,6 +107,10 @@ class Recipe(Strict):
     inputs: tuple[str, ...] = ()
     amounts: dict[str, float] = Field(default_factory=dict)
     manual_amounts: bool = False
+    #: What else a batch gives, per unit of the main output (D-340): the
+    #: hydrogen of electrolysis. Goes where the main output goes, and what
+    #: finds no room is let out rather than holding the machine.
+    byproduct: dict[str, float] = Field(default_factory=dict)
     #: Labour is not repeated here: `RecipeBook.labor_hours` holds it for every
     #: name at once -- raw material and operation products included -- and
     #: `labor_of()` is the one way to ask. A copy on the recipe was read by nobody.
@@ -295,6 +299,12 @@ class RecipeBook(Strict):
         """Which slot the thing is worn in. Empty -- not gear."""
         found = self._by_name.get(self.resolve(name))
         return found.slot if found is not None else None
+
+    def byproduct_of(self, name: str) -> dict[str, float]:
+        """What else a batch of this thing gives per unit (D-340). Empty for a
+        thing with one output, and for one no recipe makes (an ingot)."""
+        found = self._by_name.get(self.resolve(name))
+        return dict(found.byproduct) if found is not None else {}
 
     def built(self, name: str) -> bool:
         """Whether the station is built in place and never carried (D-268)."""
@@ -701,6 +711,7 @@ def _renamed_recipes(payload: dict, renames: RenameTable) -> dict:
             "holds": prop(r.get("holds")),
             "inputs": [goods(i) for i in r.get("inputs", [])],
             "amounts": keyed(r.get("amounts")),
+            "byproduct": keyed(r.get("byproduct")),
             "station": goods(r.get("station")) if r.get("station") else None,
         }
         for r in payload.get("recipes", [])

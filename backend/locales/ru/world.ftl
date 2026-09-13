@@ -147,6 +147,7 @@ liquid-mixed = в «{ NAME($vessel) }» уже налито «{ NAME($have) }»:
 line-no-such-port = у «{ NAME($goods) }» такого порта нет
 line-machine-not-aboard = «{ NAME($goods) }» на этом корабле не стоит: линию тянут от установленной машины
 line-vessel-not-aboard = «{ NAME($goods) }» на этом корабле не стоит: на линии стоит только установленная тара
+line-name-too-long = имя тары длиннее { $limit } знаков: столько на табличке не уместится
 
 # --- воздух (engine/oxygen.py) -----------------------------------------------
 

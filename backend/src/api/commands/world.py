@@ -322,5 +322,10 @@ TOLD = frozenset(
         EventKind.SHIP_DOCK_ASKED.value,
         EventKind.SHIP_DOCKED_SHIP.value,
         EventKind.SHIP_UNDOCKED_SHIP.value,
+        #: The air aboard (D-288, D-340): the warnings the crew is owed.
+        EventKind.SHIP_AIRLESS.value,
+        EventKind.SHIP_MACHINE_DRY.value,
+        EventKind.SHIP_MACHINE_FULL.value,
+        EventKind.SHIP_MACHINE_UNPOWERED.value,
     }
 )

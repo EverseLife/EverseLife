@@ -115,7 +115,6 @@ from src.engine.craft._internal import (  # noqa: F401
     _stock,
     _tiers_by,
     _tool_items,
-    _wear_station,
     write_seconds,
 )
 from src.engine.craft.batch import (  # noqa: F401
@@ -169,3 +168,4 @@ from src.engine.craft.queue import (  # noqa: F401
     wake,
     wake_node,
 )
+from src.engine.craft.wearing import _wear_station  # noqa: F401

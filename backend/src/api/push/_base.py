@@ -138,6 +138,13 @@ TOUCHES_BY_KIND: dict[str, tuple[str, ...]] = {
     #: A line drawn changes what the engines and the life support reach
     #: (D-288): the hull's fuel and air on the console are read afresh.
     "line.set": ("ships",),
+    #: A vessel named (D-340): the console's list and the scheme say the name.
+    "line.named": ("ships",),
+    #: The air machine stopped on its lines, or its reason changed (D-340):
+    #: the scheme shows why for as long as it lasts.
+    "ship.machine_dry": ("ships",),
+    "ship.machine_full": ("ships",),
+    "ship.machine_unpowered": ("ships",),
     #: Two hulls meeting (D-289, wave 3): every one of these changes what the
     #: console of either hull shows.
     "ship.sighted": ("ships",),

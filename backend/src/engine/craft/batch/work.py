@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import gear, occupation, travel, wear
+from src.engine import gear, liquid, occupation, travel, wear
 from src.engine.craft import power
 from src.engine.craft._base import (
     BENCHLESS,
@@ -42,6 +42,7 @@ from src.engine.craft._internal import (
 )
 from src.engine.craft.method_of_making import batch_minutes, procedure, step_hours
 from src.engine.craft.queue import _launch
+from src.engine.ship import lines
 from src.engine.world import body_container
 from src.models.craft import BatchKind, CraftBatch
 from src.models.identity import Body, BodyState
@@ -163,9 +164,23 @@ async def most(
         minutes = batch_minutes(constants, ready.proc, units, grind)
         return power.need_of(constants, catalog, machine, minutes / MINUTES_PER_HOUR)
 
+    #: Aboard the air pours into its outlet line (D-340), and the start
+    #: refuses a batch the line cannot take: the most is capped by that room
+    #: too, read and not locked, like everything else here.
+    plumbed = await lines.plumbing_of(session, constants, catalog, ready.station, ready.proc.output)
+    room = (
+        None
+        if plumbed is None or ready.proc.output not in plumbed.outlets
+        else await liquid.room_in(
+            session, catalog, plumbed.outlets[ready.proc.output], ready.proc.output, lock=False
+        )
+    )
+
     def fits(units: float) -> bool:
         wanted = demand(constants, catalog, ready.proc, units, ready.stock, proportions=proportions)
         if any(amount(value) > have.get(name, 0) for name, value in wanted.items()):
+            return False
+        if room is not None and amount(units) > amount(room):
             return False
         return supply is None or juice(units) <= supply.have
 

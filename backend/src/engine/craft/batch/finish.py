@@ -21,17 +21,16 @@ from src.engine.craft._base import (
     CraftError,
 )
 from src.engine.craft._internal import (
-    _hours_run,
     _num,
     _pieces,
     _release,
-    _wear_station,
-    _wear_tools,
 )
 from src.engine.craft.batch.work import _target
 from src.engine.craft.method_of_making import procedure
 from src.engine.craft.queue import wake, wake_node
+from src.engine.craft.wearing import _hours_run, _wear_station, _wear_tools
 from src.engine.jobs import handler
+from src.engine.ship import lines
 from src.engine.world import BIOPRINTER, body_container, node_container, station_names
 from src.models.craft import BatchKind, BatchState, CraftBatch
 from src.models.event import EventKind
@@ -183,6 +182,14 @@ async def _finish_make(
             else moment + timedelta(hours=food.shelf_hours(constants, rate=1))
         )
 
+    #: The air aboard pours through the hull's lines (D-340): the machine the
+    #: batch ran at, read again now -- it may have been taken down meanwhile,
+    #: and then the yield lands at the bench like any other.
+    station_item = (
+        None if batch.station_item_id is None else await session.get(Item, batch.station_item_id)
+    )
+    plumbed = await lines.plumbing_of(session, constants, catalog, station_item, batch.output)
+
     made: list[float] = []
     #: What arrived in the hands, for the carry rule below (D-265): judged
     #: once for the whole yield, not piece by piece.
@@ -225,7 +232,15 @@ async def _finish_make(
         #: nowhere is spilled -- and said so, because matter that vanished in
         #: silence is a bug report waiting to happen.
         within = await _vessels_reach(session, batch, where)
-        spilled = await liquid.settle(session, catalog, fresh, within)
+        if plumbed is not None and liquid.is_liquid(catalog, batch.output):
+            #: Into the vessels on the outlet, in line order. The start made
+            #: sure they could take it all; what somebody filled them with
+            #: during the hours is a spill, said as one.
+            spilled = await liquid.fill_or_drop(
+                session, catalog, fresh, plumbed.outlets.get(batch.output, [])
+            )
+        else:
+            spilled = await liquid.settle(session, catalog, fresh, within)
         if spilled > 0:
             await events.record(
                 session,
@@ -237,6 +252,9 @@ async def _finish_make(
             )
         elif len(within) > 1 and not liquid.is_liquid(catalog, batch.output):
             arrived.append(fresh)
+    shed = catalog.recipes.byproduct_of(batch.output)
+    if shed:
+        await _shed(session, catalog, batch, body, where, plumbed, shed, moment)
     if arrived:
         #: Paid into the master's hands past the carry limit, the yield falls
         #: underfoot (D-265): a station is not carried off because it was
@@ -245,6 +263,52 @@ async def _finish_make(
 
         await overload.settle_load(session, constants, catalog, body, arrived)
     return made
+
+
+async def _shed(
+    session: AsyncSession,
+    catalog: Catalog,
+    batch: CraftBatch,
+    body: Body,
+    where: Container,
+    plumbed: lines.Plumbing | None,
+    byproduct: dict[str, float],
+    moment: datetime,
+) -> None:
+    """The batch's byproduct (D-340): the hydrogen of electrolysis.
+
+    It goes where the main output goes -- aboard into the vessels on its vent
+    line, on the ground into the vessels in the hands and at the machine --
+    and what finds no room is let out without a word: it never held the
+    machine, and nobody kept it. A byproduct that is not a liquid lands with
+    the yield.
+    """
+    units = amount_float(batch.units)
+    within = await _vessels_reach(session, batch, where)
+    for name, per in byproduct.items():
+        extra = Item(
+            container_id=where.id,
+            type_key=name,
+            amount=amount(per * units),
+            quality=batch.quality,
+            maker_identity_id=body.identity_id,
+            made_at=moment,
+            made_node_id=batch.node_id,
+        )
+        session.add(extra)
+        await session.flush()
+        if not liquid.is_liquid(catalog, name):
+            await world_engine.stack_up(session, extra)
+            continue
+        if plumbed is not None:
+            vessels = plumbed.vents.get(name, [])
+        else:
+            vessels = [
+                vessel
+                for container in within
+                for vessel in await liquid.vessels_in(session, catalog, container)
+            ]
+        await liquid.fill_or_drop(session, catalog, extra, vessels)
 
 
 async def _vessels_reach(

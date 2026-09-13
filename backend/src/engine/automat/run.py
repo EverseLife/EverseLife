@@ -17,24 +17,24 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants, current_catalog
 from src.constants import registry as R
-from src.engine import battery, energy, events, ledger, liquid, stock, wear, world
+from src.engine import events, liquid, stock, wear, world
+from src.engine.automat import aboard
 from src.engine.automat._base import _EPS, LUBE
+from src.engine.automat.bill import draw_energy
 from src.engine.automat.wire import _chain_order
 from src.engine.craft import Procedure, Unmakeable, procedure
+from src.engine.ship import lines
 from src.models.automat import Automat as AutomatRow
 from src.models.automat import AutomatLink
 from src.models.event import EventKind
 from src.models.inventory import Container, Item
-from src.models.ledger import AccountKind, PostingReason
 from src.models.world import Node
 from src.units import (
-    ENERGY_PER_TARIFF_UNIT,
     HOURS_PER_DAY,
     PERCENT,
     SECONDS_PER_HOUR,
     amount,
     amount_float,
-    money,
 )
 
 
@@ -111,6 +111,28 @@ async def advance(
         await session.flush()
         return 0.0
 
+    #: Aboard, the air machine works through the hull's lines, not off its
+    #: room (D-288, D-340): the same four limiters, other vessels.
+    plumbed = await lines.plumbing_of(session, constants, book, machine, proc.output)
+    if plumbed is not None:
+        return await aboard.advance_on_lines(
+            session,
+            constants,
+            book,
+            row,
+            machine,
+            node,
+            yard,
+            proc,
+            plumbed,
+            hours=hours,
+            unit_hours=unit_hours,
+            now=moment,
+        )
+    #: Off the lines the machine has no crew to tell; a reason left from
+    #: before a reprogramming says nothing true any more.
+    row.stall = None
+
     #: Everything the advance will touch, taken in ONE query and one lock
     #: order (stock.py: "one query and one lock order, never two"): the
     #: lubricant and every input, off the yard and the vessels in it. Split
@@ -154,7 +176,7 @@ async def advance(
     #: the owner -- or from the node's own batteries where no grid reaches.
     energy_rate = constants[R.AUTO_ENERGY_PER_HOUR]
     if worked > 0 and energy_rate > 0:
-        worked = await _draw_energy(session, constants, row, node, worked, energy_rate, now=moment)
+        worked = await draw_energy(session, constants, row, node, worked, energy_rate, now=moment)
 
     produced = 0.0
     if worked > 0:
@@ -213,57 +235,6 @@ async def tick_automats(
     return made
 
 
-async def _draw_energy(
-    session: AsyncSession,
-    constants: Constants,
-    row: AutomatRow,
-    node: Node,
-    worked: float,
-    rate: float,
-    *,
-    now: datetime,
-) -> float:
-    """Cap the worked hours by energy and pay for them. Returns the hours.
-
-    From the city pool at the tariff, billed to the owner (D-135: whoever
-    burns pays, presence or not) -- or from the node's own batteries where no
-    grid reaches (D-071): no pool, no tariff, the energy was bought when the
-    battery was charged.
-    """
-    pool = await energy.pool_of(session, constants, node, lock=True)
-    if pool is None:
-        taken = await battery.drain_batteries(session, constants, node, worked * rate, now=now)
-        return taken / rate
-    await energy.produce(session, constants, pool, now=now)
-    can_hours = float(pool.stored) / rate
-    worked = min(worked, can_hours)
-    if worked <= 0:
-        return 0.0
-    drawn = worked * rate
-    price = money(drawn / ENERGY_PER_TARIFF_UNIT * float(pool.tariff))
-    if price > 0 and row.owner_identity_id is not None:
-        account = await ledger.account_for(session, AccountKind.IDENTITY, row.owner_identity_id)
-        treasury = await ledger.account_for(session, AccountKind.CITY_TREASURY, pool.node_id)
-        try:
-            await ledger.transfer(
-                session,
-                PostingReason.ENERGY_BILL,
-                debit=account.id,
-                credit=treasury.id,
-                amount=price,
-                memo={"energy": drawn, "for": "automat", "tariff": float(pool.tariff)},
-            )
-        except ledger.InsufficientFunds:
-            #: Whoever burns pays (D-135), and whoever cannot pay does not
-            #: burn: the machine stands, the pool keeps its energy, and the
-            #: tick survives -- an unpaid factory is an obligation broken,
-            #: not a worker crash.
-            return 0.0
-    energy.take_from_pool(pool, drawn)
-    await session.flush()
-    return worked
-
-
 async def _pay_out(
     session: AsyncSession,
     constants: Constants,
@@ -314,3 +285,22 @@ async def _pay_out(
             )
     else:
         await world.stack_up(session, fresh)
+    #: The byproduct (D-340): the hydrogen of electrolysis on the ground goes
+    #: into the vessels standing here and into the air past them. It never
+    #: holds the machine: the room above was counted for the output alone, and
+    #: the output has poured before it.
+    for name, per in book.byproduct_of(proc.output).items():
+        extra = Item(
+            container_id=yard.id,
+            type_key=name,
+            amount=amount(per * paid),
+            quality=Decimal(str(quality)),
+        )
+        session.add(extra)
+        await session.flush()
+        if book.is_liquid(name):
+            await liquid.fill_or_drop(
+                session, catalog, extra, await liquid.vessels_in(session, catalog, yard)
+            )
+        else:
+            await world.stack_up(session, extra)

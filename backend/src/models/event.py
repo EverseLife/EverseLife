@@ -128,8 +128,18 @@ class EventKind(StrEnum):
     #: back to the pier it left, for as long as it has already flown.
     SHIP_RECALLED = "ship.recalled"
     #: The owner plumbed a port (D-288): which vessels a machine drinks from
-    #: and in what order. An empty list is the port going back to "any".
+    #: or pours into, and in what order. An empty list is the port reaching
+    #: nothing (as amended 2026-09-04).
     LINE_SET = "line.set"
+    #: The owner gave a vessel on the lines a name, or took it off (D-340).
+    LINE_NAMED = "line.named"
+    #: The air machine aboard stopped on its lines (D-288, D-340), in three
+    #: words: the line of a port ran dry (water, lubricant), every vessel on
+    #: its outlet is full, the hull's cells are flat. Said to everybody aboard
+    #: once, when the reason appears or changes, like the air running out.
+    SHIP_MACHINE_DRY = "ship.machine_dry"
+    SHIP_MACHINE_FULL = "ship.machine_full"
+    SHIP_MACHINE_UNPOWERED = "ship.machine_unpowered"
     #: The engines ran dry under way (D-289): the hull coasts from here, and
     #: the order is gone. Said to everybody aboard, like the air running out.
     SHIP_ADRIFT = "ship.adrift"

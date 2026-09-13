@@ -150,6 +150,7 @@ liquid-mixed = “{ NAME($vessel) }” already holds “{ NAME($have) }”: two 
 line-no-such-port = “{ NAME($goods) }” has no such port
 line-machine-not-aboard = “{ NAME($goods) }” is not installed on this ship: a line runs from an installed machine
 line-vessel-not-aboard = “{ NAME($goods) }” is not installed on this ship: only an installed vessel stands on a line
+line-name-too-long = a vessel's name is longer than { $limit } characters: that will not fit on the plate
 
 # --- air (engine/oxygen.py) --------------------------------------------------
 

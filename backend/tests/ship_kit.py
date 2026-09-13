@@ -17,7 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src import sky
-from src.constants import Catalog, Constants, current
+from src.constants import Catalog, Constants, current, current_catalog
 from src.engine import ship, storage, travel, world
 from src.engine.ship import fate, hold, lines, sim
 from src.models.estate import Building
@@ -249,7 +249,7 @@ async def _fuel(session: AsyncSession, node: Node, amount: float):
     ).scalar_one_or_none()
     if hull is not None:
         for machine in await lines.hold_of(session, hull):
-            if lines.port_of(current(), machine.type_key, "fuel") is not None:
+            if lines.port_of(current(), current_catalog(), machine.type_key, "fuel") is not None:
                 rows = await lines.lines_of(session, machine.id, "fuel")
                 await lines.replace(
                     session, machine, "fuel", [*(row.vessel_item_id for row in rows), tank.id]

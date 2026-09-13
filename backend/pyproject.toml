@@ -397,6 +397,7 @@ type = "forbidden"
 source_modules = ["src.engine.oxygen._base"]
 forbidden_modules = [
     "src.engine.oxygen.supply",
+    "src.engine.oxygen.garden",
     "src.engine.oxygen.breath",
     "src.engine.oxygen.gauge",
 ]
@@ -407,6 +408,13 @@ name = "The stores know nothing of breathing or the gauge"
 type = "forbidden"
 source_modules = ["src.engine.oxygen.supply"]
 forbidden_modules = ["src.engine.oxygen.breath", "src.engine.oxygen.gauge"]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "The beds breathe out and know nothing of the crew's breath or the gauge"
+type = "forbidden"
+source_modules = ["src.engine.oxygen.garden"]
+forbidden_modules = ["src.engine.oxygen.breath", "src.engine.oxygen.gauge", "src.engine.oxygen.supply"]
 allow_indirect_imports = "true"
 
 [[tool.importlinter.contracts]]
@@ -573,9 +581,18 @@ type = "forbidden"
 source_modules = ["src.engine.automat._base"]
 forbidden_modules = [
     "src.engine.automat.wire",
+    "src.engine.automat.bill",
+    "src.engine.automat.aboard",
     "src.engine.automat.run",
     "src.engine.automat.board",
 ]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "The bill and the lines aboard sit under the run and know nothing of the board"
+type = "forbidden"
+source_modules = ["src.engine.automat.bill", "src.engine.automat.aboard"]
+forbidden_modules = ["src.engine.automat.run", "src.engine.automat.board", "src.engine.automat.wire"]
 allow_indirect_imports = "true"
 
 [[tool.importlinter.contracts]]
