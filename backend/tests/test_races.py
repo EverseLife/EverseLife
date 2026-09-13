@@ -17,11 +17,7 @@ the loan, the limit and the city's line; `_city`, `_citizenship` and
 `_treasury` race what a city decides, who belongs to it and what it owes;
 `_ground` races the ground itself; `_mining` races what the ground gives up;
 `_face` races a working against what closes it from outside; `_roof` races the
-stability of that working; `_rig` races the drilling rig's tick against the
-hands on its coal, its hopper and the machine, and `_rig_order` against what
-takes the same rows in another order -- a falling house, the fire, the station
-doors; `_port` races a pad's ground against a landing. What is not a race but
-shares the origin --
+stability of that working. What is not a race but shares the origin --
 "чтение не пишет" -- lives in `test_reads.py`.
 """
 
