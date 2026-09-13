@@ -242,9 +242,13 @@ async def tick_automats(
     the step runs. Whoever cannot pay does not burn (D-135), and a machine that
     has already worked cannot be taken back alone: its goods may already feed
     the next machine of the chain. So the whole pass goes back and runs again
-    without that owner's machines. They sit this tick out and lose nothing --
-    the next tick works their hours by the clock, against the purse as it is
-    then. Each run bars at least one owner more, so the runs end.
+    with that owner's purse taken as empty: their machines on the tariff stand
+    and their hours are gone, exactly as when the forecast itself finds the
+    purse short -- one outcome for "did not pay", whichever second the money
+    left in. Hours kept for later would be a bank an owner fills by moving the
+    money away before every draw. Their machines on cells or at a free tariff
+    ask no purse and work on. A barred owner is never billed money again, so
+    each run bars at least one owner more, and the runs end.
     """
     moment = now or datetime.now(UTC)
     rows = (await session.execute(select(AutomatRow).order_by(AutomatRow.id))).scalars().all()
@@ -260,7 +264,7 @@ async def tick_automats(
             barred |= moved.owners
             _forget_the_run(session)
             log.info(
-                "automats: %d purse(s) emptied under the step, the pass runs again without them",
+                "automats: %d purse(s) emptied under the step, the pass runs again with them empty",
                 len(moved.owners),
             )
 
@@ -295,7 +299,8 @@ async def _pass(
     order (`bill.pay`). Any other failure there rolls the whole step back,
     which loses nothing either: the stamps roll back with it.
     """
-    tab = energy_bill.Tab()
+    #: A purse that already failed a draw this tick pays nothing in the rerun.
+    tab = energy_bill.Tab(purses=dict.fromkeys(barred, 0))
     made = 0.0
     for row_id in order:
         owed = len(tab.bills)
@@ -309,7 +314,7 @@ async def _pass(
                         .execution_options(populate_existing=True)
                     )
                 ).scalar_one_or_none()
-                if row is None or row.owner_identity_id in barred:
+                if row is None:
                     continue
                 paid = await advance(session, constants, row, now=now, tab=tab)
         except Exception as failure:  # noqa: BLE001 -- one machine must not stop the world's factories

@@ -338,10 +338,12 @@ async def test_a_purse_emptied_under_the_tick_buys_no_free_hours(
     order committing mid-step -- must not leave the goods standing unpaid.
 
     The spending commits at the very edge: after every machine worked, before
-    the first draw. The pass goes back and runs again without that owner:
-    nothing made, nothing drunk, the hours waiting by the clock. Another
-    owner's factory beside it works in the same step all the same -- its pool,
-    written and rolled back by the first run, read afresh by the second.
+    the first draw. The pass goes back and runs again with that purse empty:
+    nothing made, nothing drunk, and the hours gone -- as when the forecast
+    itself finds the purse short, so no owner banks hours by moving money away
+    before each draw. Another owner's factory beside it works in the same step
+    all the same -- its pool, written and rolled back by the first run, read
+    afresh by the second.
     """
     _, yard, identity, body, machine = await _factory_floor(session, constants)
     await world.grant_item(session, yard, IRON, amount=1000, quality=60, origin="test")
@@ -397,7 +399,7 @@ async def test_a_purse_emptied_under_the_tick_buys_no_free_hours(
         mine = await db.get(AutomatRow, row_id)
         theirs = await db.get(AutomatRow, neighbour_id)
         assert mine is not None and theirs is not None
-        assert mine.counted_at == started, "the unpaid machine's hours wait for the next tick"
+        assert mine.counted_at == moment, "the unpaid hours are gone, not banked for later"
         assert theirs.counted_at == moment
 
         def nails_in(container_id):

@@ -118,9 +118,13 @@ async def promise(
     A forecast can still overshoot the draw. The purse is held to it: one that
     pays less at the draw sends the pass back (`run.tick_automats`). The supply
     is not -- a crafter drank the same pool between the two, or the heat of a
-    cold city ate it. The machine then finishes those hours as a building
-    finishes what it began on an emptied pool: the draw takes what is there and
-    bills only that, and the pool never goes below nought.
+    cold city ate it. The machine keeps those hours: the draw takes what is
+    there and bills only that, and the pool never goes below nought. Whether a
+    consumer on an emptied pool stops at once or finishes what it began is an
+    open point of the vault (`20-systems/12-energy.md`), and this is the
+    tick's provisional answer, not a rule decided -- the field automaton's
+    decision (D-339, still on its branch) answers the same race with a debt
+    the next action waits out.
     """
     grid = await energy.grid_node(session, node)
     supply = battery.hull_of(node) if grid is None else grid.id
