@@ -4,10 +4,11 @@
 """Two transactions over one thing's row: the lock every door takes on a thing.
 
 One of the race files (see `test_races.py` for the family's method). The doors
-themselves are raced in `test_races_gone.py` and `test_races_harness.py`; this
-pins the one lock they share (`world.lock_thing`) -- what it answers when the
-thing is gone, and what it rereads when the wait is over -- so that five doors
-differing only in the refusal they raise cannot drift apart again.
+themselves are raced in `test_races_gone.py`, `test_races_harness.py` and
+`test_races_energy.py`; this pins the one lock they share (`world.lock_thing`)
+-- what it answers when the thing is gone, and what it rereads when the wait is
+over -- so that doors differing only in the refusal they raise cannot drift
+apart again.
 """
 
 from __future__ import annotations
@@ -20,7 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from automat_kit import _until_blocked_by
-from src.engine import station, storage, transport, world
+from src.engine import battery, station, storage, transport, world
 from src.engine.errors import Refusal
 from src.engine.world.things import ItemGone
 from src.models.inventory import Item
@@ -49,7 +50,14 @@ async def _sack(session: AsyncSession) -> tuple[uuid.UUID, uuid.UUID]:
 
 
 @pytest.mark.parametrize(
-    "gone", [storage.StorageError, station.StationError, transport.NotHere, ItemGone]
+    "gone",
+    [
+        storage.StorageError,
+        station.StationError,
+        transport.NotHere,
+        battery.BatteryError,
+        ItemGone,
+    ],
 )
 async def test_a_thing_gone_before_the_lock_is_refused_by_the_door_that_asked(
     session: AsyncSession,

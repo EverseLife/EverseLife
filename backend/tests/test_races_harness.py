@@ -39,9 +39,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from automat_kit import _until_blocked_by
-from gone_kit import _lifting
+from gone_kit import _burning, _lifting
 from src.constants import Catalog, Constants
-from src.engine import gear, plates, storage, transport, world
+from src.engine import gear, storage, transport, world
 from src.models.identity import Body
 from src.models.inventory import Item
 from src.models.travel import Harness
@@ -248,20 +248,13 @@ async def test_a_cart_burnt_while_harnessing_is_gone_in_words(
 
     held = asyncio.Event()
 
-    async def burn() -> float:
-        async with factory() as db, db.begin():
-            spot = await db.get(Node, node_id)
-            assert spot is not None
-            burnt = await plates._burn(db, [spot])
-            held.set()
-            await _until_blocked_by(factory, db)
-            return burnt
-
     async def yoke() -> str:
         await held.wait()
         return await _harnessing(factory, constants, catalog, carter_id, cart_id)
 
-    burnt, yoked = await asyncio.gather(burn(), yoke(), return_exceptions=True)
+    burnt, yoked = await asyncio.gather(
+        _burning(factory, node_id, held), yoke(), return_exceptions=True
+    )
 
     assert burnt == pytest.approx(1), burnt
     assert isinstance(yoked, transport.NotHere), yoked
