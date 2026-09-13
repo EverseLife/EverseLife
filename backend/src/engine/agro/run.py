@@ -12,15 +12,16 @@ a tick. What is due is read free from the beds' clocks (`plan.py`) and judged
 again under each bed's lock by the hands (`hands.py`).
 
 **Energy is the automat family's (D-253, `automat/bill.py`).** It is promised
-before the action -- what the supply holds and what the owner's purse pays at
-the tariff (D-135), less what this pass has promised already -- and drawn after
-every machine has worked, supply by supply in the family's one lock order. A
-machine is promised all its minute or none of it. What happens between the
-promise and the draw is the family's rule too (the owner, 2026-09-13,
-`20-systems/12-energy.md`): a pool a bench emptied meanwhile leaves the work
-done and bills only what the pool gave; a purse emptied meanwhile is not
-forgiven -- the pass runs again with it empty, and that owner's machines on
-the tariff stand and lose the minute.
+before the action, on the automats' own tab (`tick_machines`), and drawn after
+every machine of the family has worked, supply by supply in one lock order.
+The supply -- less what the pass has promised already -- caps the hours as the
+lubricant does: the machine is on for that part and acts on none of it; the
+owner's purse pays for those hours whole or the machine stands (D-135). What
+happens between the promise and the draw is the family's rule too (the owner,
+2026-09-13, `20-systems/12-energy.md`): a pool a bench emptied meanwhile leaves
+the work done and bills only what the pool gave; a purse emptied meanwhile is
+not forgiven -- the pass runs again with it empty, and that owner's machines
+on the tariff stand and lose those hours.
 
 Lock order, per machine: the machine's row, the yard's stacks (lubricant and
 water, one query), the plot (skipped if held), the storage named for the
