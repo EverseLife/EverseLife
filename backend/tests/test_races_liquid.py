@@ -42,7 +42,6 @@ from automat_kit import LUBRICANT, _factory_floor, _learn, _lube_in, _until_bloc
 from market_kit import _city, _trader
 from src.constants import Catalog, Constants
 from src.engine import automat, craft, jobs, liquid, market, rig, stock, storage, world
-from src.engine.plates.fire import _consume as burn
 from src.models.event import Event, EventKind
 from src.models.identity import Body
 from src.models.inventory import Container, Item
@@ -574,7 +573,7 @@ async def test_an_oil_hopper_emptied_beside_a_furnace_does_not_deadlock_the_tick
 
 
 #: What takes a canister off the yard while a pour waits for it: a hand picking
-#: it up (the floor is open, D-204), or the fire (`plates.fire`), which takes
+#: it up (the floor is open, D-204), or the fire (`world.destroy`), which takes
 #: it out of the world with what is in it.
 TAKEN = ("carried_off", "burnt")
 
@@ -583,7 +582,7 @@ async def _take_away(
     db: AsyncSession, constants: Constants, catalog: Catalog, taken: str, can: Item, taker_id
 ) -> None:
     if taken == "burnt":
-        await burn(db, [can])
+        await world.destroy(db, [can])
     else:
         taker = await db.get(Body, taker_id)
         assert taker is not None

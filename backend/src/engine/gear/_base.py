@@ -11,7 +11,11 @@ from __future__ import annotations
 from src.constants import Catalog
 from src.constants.catalog import ItemKind
 from src.engine.errors import Refusal
-from src.models.inventory import ContainerKind
+
+# Which containers a thing owns is the model's word now: the world's floor
+# ends a thing together with them (`world.destroy`) and cannot call up here.
+# Kept importable from this floor for `gear.load` and the package's door.
+from src.models.inventory import INSIDE_KINDS  # noqa: F401 -- re-exported
 
 
 class GearError(Refusal):
@@ -37,12 +41,6 @@ class Unmade(GearError):
 def mass_of(catalog: Catalog, type_key: str, quantity: float) -> float:
     """The mass of this much of this item, kg."""
     return catalog.recipes.mass_of(type_key) * quantity
-
-
-#: Containers a **thing** owns, and which therefore travel with it: a
-#: storage's inside (D-181) and a vehicle's hold (D-157). The market's cells
-#: belong to an identity and a pocket to a body, so neither is ever carried.
-INSIDE_KINDS = (ContainerKind.STORAGE, ContainerKind.VEHICLE)
 
 
 def has_store(catalog: Catalog, type_key: str) -> bool:

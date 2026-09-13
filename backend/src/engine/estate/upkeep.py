@@ -9,16 +9,15 @@ Split out of `engine/estate.py` along its sections (review 2026-08-23, wave 3).
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
-from sqlalchemy import ColumnElement, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants, current, current_catalog
 from src.constants import registry as R
-from src.engine import craft, events, goods, occupation, storage, travel, world
+from src.engine import craft, events, goods, occupation, stock, storage, travel, world
 from src.engine.estate._base import EstateError, Ruined
 from src.engine.estate.building import (
     _equipment,
@@ -34,7 +33,7 @@ from src.engine.jobs import enqueue, handler
 from src.models.estate import Building
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState
-from src.models.inventory import Container, ContainerKind, Item
+from src.models.inventory import Container, Item
 from src.models.job import Job, JobKind, JobState
 from src.models.works import WorkOrderKind
 from src.models.world import ABOARD, Node
@@ -42,7 +41,6 @@ from src.units import (
     SCALE_MAX,
     SCALE_MIN,
     SECONDS_PER_MINUTE,
-    amount_float,
 )
 
 
@@ -352,79 +350,53 @@ async def _bury(
     in a house proof against its collapse, losing neither its slot nor its use.
     """
     catalog = current_catalog()
-    #: **Locked before a thing is deleted, and reread** -- the way the fire
-    #: takes a field (`plates.fire._burn`): the vessels first, then the rest,
-    #: each in id order. Deleted one by one as the walk below reaches them, the
-    #: rows were taken in the order the heap happened to hold them, and a rig
-    #: pass holding the machine while it waited on the coal the fall had
-    #: already taken was a deadlock; one id order over all of them holds a sack
-    #: while it waits for a canister the automats' tick holds, the tick waiting
-    #: on that sack (`automat.run`). The reread is the fire's too: a sack carried
-    #: out while the fall waited is not in the store any more, and must not be
-    #: deleted out of the hands that took it.
-    vessels = sorted(key for key in catalog.recipes.names() if storage.is_vessel(catalog, key))
-    here = Item.container_id == store.id
-    things = [
-        thing
-        for thing in (
-            *await _locked(session, here, Item.type_key.in_(vessels)),
-            *await _locked(session, here, Item.type_key.not_in(vessels)),
-        )
-        if thing.container_id == store.id
-        and (
+
+    def falls(thing: Item) -> bool:
+        return (
             not filtered
             or not thing.outdoors
             or _equipment(catalog, thing.type_key)
             or storage.is_storage(catalog, thing.type_key)
         )
-    ]
-    for thing in things:
-        lost[thing.type_key] = lost.get(thing.type_key, 0.0) + amount_float(thing.amount)
-        #: A chest goes down with its contents: the inside is a container of
-        #: its own, and left behind it would be goods in no place at all.
-        inside = (
-            (
-                await session.execute(
-                    select(Container).where(
-                        Container.kind == ContainerKind.STORAGE,
-                        Container.owner_id == thing.id,
-                    )
-                )
-            )
+
+    doomed = [
+        thing
+        for thing in (
+            (await session.execute(select(Item).where(Item.container_id == store.id)))
             .scalars()
             .all()
         )
-        for box in inside:
-            #: The same lock and the same reread, inside the chest.
-            stored = await _locked(session, Item.container_id == box.id)
-            for held in stored:
-                lost[held.type_key] = lost.get(held.type_key, 0.0) + amount_float(held.amount)
-                await session.delete(held)
-            #: What lay in the box goes to the database before the box does, as
-            #: the fire does it (`plates.fire._consume`): flushed together, the
-            #: delete of the box went first and the key from what lay in it
-            #: refused it -- and the day's whole step with it.
-            await session.flush()
-            await session.delete(box)
-        await session.delete(thing)
-    await session.flush()
-
-
-async def _locked(session: AsyncSession, *where: ColumnElement[bool]) -> Sequence[Item]:
-    """The things matching `where`, locked in id order and reread under the lock."""
-    return (
-        (
-            await session.execute(
-                select(Item)
-                .where(*where)
-                .order_by(Item.id)
-                .with_for_update()
-                .execution_options(populate_existing=True)
-            )
+        if falls(thing)
+    ]
+    #: Only what goes down is taken under the lock, and asked again after it
+    #: whether it still lies here: a sack picked up off this floor in the same
+    #: second stays in the hands that reached it, rather than being deleted
+    #: out of them the moment the pick lands. What the rain spares is not
+    #: taken at all -- the machine ticks lock their own rows and then the fuel
+    #: in this same yard, and a lock on the spared heap would only cross them.
+    #: What goes down is taken the way the fire takes a field
+    #: (`plates.fire._burn`): the vessels first, then the rest, each in id
+    #: order. One id order over all of them held a sack while it waited for a
+    #: canister the automats' tick holds, the tick waiting on that sack
+    #: (`automat.run`); and no order at all -- the deletes one by one, as the
+    #: heap gave them -- crossed a rig pass, which takes a machine with its
+    #: coal by id (`rig._held`).
+    vessels = [thing for thing in doomed if storage.is_vessel(catalog, thing.type_key)]
+    rest = [thing for thing in doomed if not storage.is_vessel(catalog, thing.type_key)]
+    things = [
+        thing
+        for thing in (
+            *await stock.lock_items(session, vessels),
+            *await stock.lock_items(session, rest),
         )
-        .scalars()
-        .all()
-    )
+        if thing.container_id == store.id and falls(thing)
+    ]
+    #: A chest goes down with its contents, a cart with its load and out of
+    #: its harness, and a chest in a chest all the way down (`world.destroy`):
+    #: left behind, the inside would be goods in no place at all, and a
+    #: harness left pointing at the cart takes the whole collapse down.
+    for kind, much in (await world.destroy(session, things)).items():
+        lost[kind] = lost.get(kind, 0.0) + much
 
 
 async def collapse(session: AsyncSession, node: Node, house: Building) -> None:

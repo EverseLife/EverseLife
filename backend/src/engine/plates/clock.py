@@ -181,7 +181,17 @@ async def erupted(session: AsyncSession, job: Job) -> None:
     #: a chest the fire deletes is named as a store by a field automaton's row
     #: (`ON DELETE SET NULL`), which the minute holds from its first step --
     #: the fire holding the yard's vessels waits on that row at its flush while
-    #: the machine waits on the vessels.
+    #: the machine waits on the vessels. And since the fire opens carts
+    #: (`world.destroy`): a work that draws on its own convoy's hold (D-315)
+    #: takes the stacks of the pocket, the yard and the hold in one id order
+    #: (`stock.locked_stacks`), while the fire takes the yard and only then
+    #: the hold (Y <-> H); a carter dying at a machine in a shaken yard lets go
+    #: of the harness (`transport.unharness`) before freeing the machine
+    #: (`craft.freeze`), while the fire holds that machine with the yard and
+    #: then deletes the harness of the cart burning beside it (M <-> H); and a
+    #: convoy's leg landing out of a burning yard moves a cart the fire holds
+    #: (`transport.follow`) -- after the fire's commit the move finds no row
+    #: and the arrival fails whole, and its retry lands the carter on foot.
     ids = [node.id for node in shaken]
     await session.execute(
         select(Vein).where(Vein.node_id.in_(ids)).order_by(Vein.id).with_for_update()

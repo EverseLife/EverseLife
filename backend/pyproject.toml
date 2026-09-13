@@ -312,9 +312,10 @@ allow_indirect_imports = "true"
 # cycles it did not create (`veins` reaches into `mining` lazily, `ways` into
 # `death`, and both reach back), so a layers contract would fail on chains
 # that have nothing to do with this cut. The stack it pins directly:
-# clock -> {fire, ways, veins} -> _base, with `ways` allowed one door into
-# `fire` for `_consume` -- the rift under a walker burns the pocket by the
-# same rule the fields burn by.
+# clock -> {fire, ways, veins} -> _base. The rift under a walker ends the
+# pocket by the same rule the fields burn by, and that rule is no longer the
+# fire's: it is `world.destroy`, shared with a falling roof and a death, so
+# `ways` needs nothing from `fire` and is pinned off it.
 [[tool.importlinter.contracts]]
 name = "The planet's floor asks nobody above it"
 type = "forbidden"
@@ -339,10 +340,14 @@ forbidden_modules = [
 allow_indirect_imports = "true"
 
 [[tool.importlinter.contracts]]
-name = "The ways burn through the fire's one door and never ring the clock"
+name = "The ways never ring the clock, the fire or the veins"
 type = "forbidden"
 source_modules = ["src.engine.plates.ways"]
-forbidden_modules = ["src.engine.plates.clock", "src.engine.plates.veins"]
+forbidden_modules = [
+    "src.engine.plates.clock",
+    "src.engine.plates.fire",
+    "src.engine.plates.veins",
+]
 allow_indirect_imports = "true"
 
 [[tool.importlinter.contracts]]
@@ -354,6 +359,28 @@ forbidden_modules = [
     "src.engine.plates.fire",
     "src.engine.plates.ways",
 ]
+allow_indirect_imports = "true"
+
+# The world's door for endings (`world.destroy`): a thing leaves with what is
+# inside it and out of its harness. It borrows from no room of the world
+# package, and the ground and the matter rooms do not know an ending exists --
+# the fire, a death and a falling roof call it from above, never the floor.
+[[tool.importlinter.contracts]]
+name = "The world's endings ask nothing of its rooms"
+type = "forbidden"
+source_modules = ["src.engine.world.gone"]
+forbidden_modules = [
+    "src.engine.world.land",
+    "src.engine.world.people",
+    "src.engine.world.things",
+]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "The ground and the matter know no ending"
+type = "forbidden"
+source_modules = ["src.engine.world.land", "src.engine.world.things"]
+forbidden_modules = ["src.engine.world.gone"]
 allow_indirect_imports = "true"
 
 # Six more packages cut on 2026-09-01 -- bank, travel, vote, oxygen, net,
