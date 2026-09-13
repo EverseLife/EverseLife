@@ -397,6 +397,12 @@ async def _finish_recycle(
         type_key=item.type_key,
         cause="recycled",
     )
-    await session.delete(item)
-    await session.flush()
+    #: Through the world's one door, so the thing does not leave half of
+    #: itself behind: what lay in a chest or a barrow's hold goes with it
+    #: rather than living on in a container nothing owns, and a harness on it
+    #: lets go rather than failing the finish -- nothing pins the target to
+    #: the hands while the batch runs, so a barrow put down in a yard meanwhile
+    #: may have been harnessed. Whether a full thing may be taken apart at all
+    #: is asked before the work, not here (OQ-177).
+    await world_engine.destroy(session, [item])
     return returned

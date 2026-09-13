@@ -54,6 +54,12 @@ class ContainerKind(StrEnum):
     MINING_SESSION = "mining_session"
 
 
+#: Containers a **thing** owns, and which therefore travel with it: a
+#: storage's inside (D-181) and a vehicle's hold (D-157). The market's cells
+#: belong to an identity and a pocket to a body, so neither is ever carried.
+INSIDE_KINDS = (ContainerKind.STORAGE, ContainerKind.VEHICLE)
+
+
 class Container(Base):
     __tablename__ = "container"
     __table_args__ = (Index("ix_container_owner", "kind", "owner_id", "node_id"),)

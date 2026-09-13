@@ -33,7 +33,7 @@ from src.engine.jobs import enqueue, handler
 from src.models.estate import Building
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState
-from src.models.inventory import Container, ContainerKind, Item
+from src.models.inventory import Container, Item
 from src.models.job import Job, JobKind, JobState
 from src.models.works import WorkOrderKind
 from src.models.world import ABOARD, Node
@@ -41,7 +41,6 @@ from src.units import (
     SCALE_MAX,
     SCALE_MIN,
     SECONDS_PER_MINUTE,
-    amount_float,
 )
 
 
@@ -363,34 +362,12 @@ async def _bury(
         or _equipment(catalog, thing.type_key)
         or storage.is_storage(catalog, thing.type_key)
     ]
-    for thing in things:
-        lost[thing.type_key] = lost.get(thing.type_key, 0.0) + amount_float(thing.amount)
-        #: A chest goes down with its contents: the inside is a container of
-        #: its own, and left behind it would be goods in no place at all.
-        inside = (
-            (
-                await session.execute(
-                    select(Container).where(
-                        Container.kind == ContainerKind.STORAGE,
-                        Container.owner_id == thing.id,
-                    )
-                )
-            )
-            .scalars()
-            .all()
-        )
-        for box in inside:
-            stored = (
-                (await session.execute(select(Item).where(Item.container_id == box.id)))
-                .scalars()
-                .all()
-            )
-            for held in stored:
-                lost[held.type_key] = lost.get(held.type_key, 0.0) + amount_float(held.amount)
-                await session.delete(held)
-            await session.delete(box)
-        await session.delete(thing)
-    await session.flush()
+    #: A chest goes down with its contents, a cart with its load and out of
+    #: its harness, and a chest in a chest all the way down (`world.destroy`):
+    #: left behind, the inside would be goods in no place at all, and a
+    #: harness left pointing at the cart takes the whole collapse down.
+    for kind, much in (await world.destroy(session, things)).items():
+        lost[kind] = lost.get(kind, 0.0) + much
 
 
 async def collapse(session: AsyncSession, node: Node, house: Building) -> None:

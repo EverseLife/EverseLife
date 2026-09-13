@@ -459,6 +459,12 @@ async def wear_leg(
 
     rolled = await spill(session, vehicle, node)
     await drop_missing(session, vehicle.id)
+    #: And the hold itself, emptied: it is the wagon's own container, and a
+    #: row owned by a thing that no longer exists is an orphan even empty.
+    hold = await hold_of(session, vehicle)
+    if hold is not None:
+        await session.delete(hold)
+        await session.flush()
     await wear.spend(
         session,
         constants,

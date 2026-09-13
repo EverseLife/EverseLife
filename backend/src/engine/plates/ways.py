@@ -22,7 +22,6 @@ from src.constants import Constants
 from src.constants import registry as R
 from src.engine import death, net, travel, world
 from src.engine.plates._base import ANVIL, _adjacency, _connected, _exempt, _surface
-from src.engine.plates.fire import _consume
 from src.models.identity import BodyState
 from src.models.inventory import Item
 from src.models.travel import Travel, TravelState
@@ -201,7 +200,7 @@ async def _kill_on(
             .scalars()
             .all()
         )
-        await _consume(session, [thing for thing in held if thing.container_id == pocket.id])
+        await world.destroy(session, [thing for thing in held if thing.container_id == pocket.id])
         await death.die(session, constants, body, cause="rift", now=now)
         died += 1
     return died
