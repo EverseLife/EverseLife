@@ -267,6 +267,16 @@ async def charge_battery(
     return given
 
 
+def hull_of(node: Node) -> uuid.UUID:
+    """The id the cells feeding this node answer to: the hull's for a room aboard
+    (D-288), the node's own anywhere else -- the cells `batteries_in` gathers.
+
+    One key for every pass that takes several hulls' cells in one transaction
+    (the off-grid tick, the automats' tick), so that they take them in one order.
+    """
+    return node.parent_id if is_aboard(node) and node.parent_id is not None else node.id
+
+
 async def batteries_in(session: AsyncSession, node: Node) -> list[Item]:
     """The batteries standing in this node, locked for the transaction -- and
     aboard a ship, in **every** room of the hull.
@@ -569,12 +579,15 @@ async def tick_offgrid(
         )
     ).all()
     #: By room, so one hull's cells are read and settled once however many
-    #: panels stand on it -- and in room order, like every other pass.
+    #: panels stand on it -- and hull by hull (`hull_of`), like every other pass
+    #: that takes several hulls' cells: the automats' tick draws them too.
     by_room: dict[uuid.UUID, tuple[Node, list[Item]]] = {}
     for generator, node in rows:
         by_room.setdefault(node.id, (node, []))[1].append(generator)
     banked = 0.0
-    for _, (node, generators) in sorted(by_room.items(), key=lambda pair: pair[0]):
+    for _, (node, generators) in sorted(
+        by_room.items(), key=lambda pair: (hull_of(pair[1][0]), pair[0])
+    ):
         made = 0.0
         for generator in generators:
             if generator.charged_at is not None:

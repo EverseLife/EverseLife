@@ -584,6 +584,7 @@ type = "forbidden"
 source_modules = ["src.engine.automat._base"]
 forbidden_modules = [
     "src.engine.automat.wire",
+    "src.engine.automat.bill",
     "src.engine.automat.run",
     "src.engine.automat.board",
 ]
@@ -593,7 +594,22 @@ allow_indirect_imports = "true"
 name = "The wires know nothing of running or the board"
 type = "forbidden"
 source_modules = ["src.engine.automat.wire"]
-forbidden_modules = ["src.engine.automat.run", "src.engine.automat.board"]
+forbidden_modules = [
+    "src.engine.automat.bill",
+    "src.engine.automat.run",
+    "src.engine.automat.board",
+]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "The energy bill knows no machine at work, no wire and no board"
+type = "forbidden"
+source_modules = ["src.engine.automat.bill"]
+forbidden_modules = [
+    "src.engine.automat.wire",
+    "src.engine.automat.run",
+    "src.engine.automat.board",
+]
 allow_indirect_imports = "true"
 
 [[tool.importlinter.contracts]]
