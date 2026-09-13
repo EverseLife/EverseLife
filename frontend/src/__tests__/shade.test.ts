@@ -189,6 +189,7 @@ describe("formCodes and the sun", () => {
       height_unit_m: 0.1,
       biomes: [],
       temperature_c: { min: -64, step: 0.5, cold: -15, hot: 35 },
+      sea_wet: 0.36,
       forms: ["sea", "lake", "plain", "cliff", "canyon"],
       water: ["land", "sea", "lake", "river"],
       fluid: "water",

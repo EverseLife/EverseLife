@@ -81,7 +81,7 @@ export const CLOUDS_SHELL_GLSL = `
     //: not a measure: the sky reads the neutral half there, or the wet bias
     //: thinned every cloud to the shore and the clouds drew the coasts
     //: (owner, 2026-09-13).
-    float wet_sky = h_sky < 0.0 ? WX_SEA_WET : textureLod(u_rain, uv_sky, lod_sky).r;
+    float wet_sky = h_sky < 0.0 ? u_wx_sea_wet : textureLod(u_rain, uv_sky, lod_sky).r;
     float raw_sky;
     float fine;
     wxSky(sky, raw_sky, fine);
@@ -116,7 +116,7 @@ export const CLOUDS_FIELD_GLSL = `
   //: factor: a wet windward slope thickens what the wind brings, a dry lee
   //: thins it, and neither makes weather of a clear sky.
   //: The sea's rain share is the neutral half, as over the shell above.
-  float wet_here = h < 0.0 ? WX_SEA_WET : rain01;
+  float wet_here = h < 0.0 ? u_wx_sea_wet : rain01;
   float cover = clamp(wxCover(here) * (1.0 + u_wx_bias * (2.0 * wet_here - 1.0)), 0.0, 1.0);
   float cloud = smoothstep(u_wx_gates.x, u_wx_gates.y, cover);
   float rain_now = smoothstep(u_wx_gates.z, u_wx_gates.w, cover);

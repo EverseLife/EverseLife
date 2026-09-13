@@ -154,6 +154,8 @@ uniform vec3 u_wx_belts;
 uniform float u_wx_spin;
 uniform vec4 u_wx_gates;
 uniform float u_wx_bias;
+//: What the sky over the sea is stretched by: the land's mean rain share (passport.sea_wet).
+uniform float u_wx_sea_wet;
 uniform float u_wx_gain;
 uniform float u_clouds;
 //: The grain of each biome, by the raster's code: scale, stretch,

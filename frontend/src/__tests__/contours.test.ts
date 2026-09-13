@@ -125,6 +125,7 @@ function planet(
     rows, cols, across: 4, down: 3, border: 1,
     step_m: 500, relief_m: 3000, height_unit_m: 0.1, biomes: [], forms: FORMS, water: WATER,
     fluid: "water", flow_max_km2: 4000, temperature_c: { min: -64, step: 0.5, cold: -15, hot: 35 },
+    sea_wet: 0.36,
   };
   return { rasters, passport, lattice: meshOf(rows, cols) };
 }
@@ -488,6 +489,7 @@ describe("the figures of the growth", () => {
       biomes: NAMES, forms: ["plain"], water: ["land"],
       fluid: "water",
       temperature_c: { min: -64, step: 0.5, cold: -15, hot: 35 },
+      sea_wet: 0.36,
     };
     const growth: Growth = { figure: FIGURE, woods: WOODS, meadow: MEADOW, tallM: TALL };
     //: A frame of a few hundred metres, so the mesh is a handful of points
