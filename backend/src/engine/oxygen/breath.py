@@ -138,15 +138,16 @@ async def settle(
     locked = await _lock(session, body)
     node = await session.get(Node, locked.node_id)
     if node is None:  # pragma: no cover -- a body without a node is a bug
-        return Breath(left=0.0, uncovered=0.0)
+        return Breath(left=0.0, uncovered=None)
 
     hours = (moment - locked.air_at).total_seconds() / SECONDS_PER_HOUR
     #: "Up to now" does not work backwards: a tick step carries the nominal
     #: moment of its tick and can arrive behind a command that settled a second
     #: ago. Writing the older stamp back would hand those seconds to the next
-    #: settling to charge again -- the same rule the cold keeps.
+    #: settling to charge again -- the same rule the cold keeps. A stretch of
+    #: no length asked nothing, and says nothing about the cylinder.
     if hours <= 0:
-        return Breath(left=await carried(session, locked), uncovered=0.0)
+        return Breath(left=await carried(session, locked), uncovered=None)
 
     if await free_air(session, node) or vessels.is_aboard(node):
         #: Nothing was owed for the stretch, so it is over and done with.
@@ -164,7 +165,6 @@ async def settle(
         await session.flush()
         return Breath(left=0.0, uncovered=hours)
 
-    stacks = await stock.lock_items(session, await cylinders(session, locked))
     #: What the last stretch breathed and could not be charged for is asked
     #: for first. Down to the thousandth air is split into, never up:
     #: `amount()` rounds to the nearest and would take one the stretch had not
@@ -173,6 +173,18 @@ async def settle(
     #: is kept rather than dropped.
     owed = need + float(locked.air_owed)
     want = float(on_grid(owed, ROUND_AMOUNT, ROUND_FLOOR))
+    if want <= 0:
+        #: Not a whole thousandth to ask for, so nothing is learnt about the
+        #: cylinder either: full or dry, it answers the same to a question
+        #: nobody put. The breath waits on the body, and the stretch is
+        #: neither covered nor short: read as covered, the tick would give the
+        #: grace back to an empty bottle. The same rule the hull keeps
+        #: (`_breathe`).
+        locked.air_owed = on_grid(owed, ROUND_REMAINDER, ROUND_FLOOR)
+        locked.air_at = moment
+        await session.flush()
+        return Breath(left=await carried(session, locked), uncovered=None)
+    stacks = await stock.lock_items(session, await cylinders(session, locked))
     took = amount_float(await stock.consume(session, stacks, amount(want)))
     #: Exactly enough must not read as short: amounts are split into
     #: thousandths, and the last digit of an hour's draw is rounding, not a
@@ -239,6 +251,12 @@ async def tick_bodies(
         if node is None or vessels.is_aboard(node):  # pragma: no cover -- the hull's business
             continue
         breath = await settle(session, constants, catalog, found, now=moment)
+        if breath.uncovered is None:
+            #: The stretch asked the cylinder for nothing, so it neither gives
+            #: the grace back nor takes it. Every step settles the breathing,
+            #: and the tick can land seconds after one -- or, carrying the
+            #: nominal moment of its tick, before it.
+            continue
         if breath.uncovered <= 0:
             #: Breathing again gives the grace back. Without this a body that
             #: once ran dry and then refilled would carry the mark to its death

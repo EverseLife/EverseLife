@@ -150,10 +150,10 @@ async def test_a_body_out_of_air_cannot_step_onto_airless_ground(
 ) -> None:
     """What keeps a walker from outrunning suffocation is the door, not the debt.
 
-    Every step settles the breathing, and the tick settles it again -- and the
-    tick clears the mark of choking whenever its own stretch came up covered.
-    A step's stretch is far too short to come up short, so a walker could in
-    principle keep the reaper at bay by walking. It cannot, but not for the
+    Every step settles the breathing, and the tick decides the choking on its
+    own stretch alone -- and a stretch too short to ask the cylinder for a
+    thousandth decides nothing. A walker stepping just before every tick could
+    in principle freeze the countdown by walking. It cannot, but not for the
     reason the debt suggests: `require_air` refuses the step outright when the
     bottle is empty, so a body with nothing to breathe cannot take one. This
     pins that door, since removing it would make the hole real.
@@ -325,3 +325,46 @@ async def test_refilling_gives_the_grace_back(
     await session.flush()
     assert await oxygen.tick_bodies(session, constants, catalog) == 0
     assert body.choking_since is None, "заправился — отсрочка вернулась"
+
+
+async def test_a_stretch_that_asked_nothing_gives_no_grace_back(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Only a stretch that asked the cylinder can say it has air.
+
+    At `oxygen.body_draw` a thousandth of air is seven seconds, and every step
+    settles the breathing -- so the tick can find a stretch of two seconds
+    behind a walk, or, carrying the nominal moment of its tick, none at all.
+    Read as covered, either gave the grace back to a body with nothing to
+    breathe: the next full stretch only marked it again, and a body the
+    countdown had already warned was warned once more instead of dying.
+    """
+    pyroxis = await _sphere(session, Planet.PYROXIS, airless=True)
+    rock = await _ground(session, Planet.PYROXIS, pyroxis)
+    body = await _person(session, rock)
+    await _suited(session, constants, catalog, body)
+    started = datetime.now(UTC)
+    body.air_at = started - timedelta(hours=1)
+    await session.flush()
+
+    assert await oxygen.tick_bodies(session, constants, catalog, now=started) == 0
+    assert body.choking_since is not None, "первый пустой счёт ставит отсчёт"
+
+    #: A step settles two seconds on; one tick lands a second behind it and
+    #: the next two seconds past it. Four seconds in all, and not a thousandth
+    #: of air among them -- or the ticks ask the cylinder and prove nothing.
+    breathed = constants[R.OXYGEN_BODY_DRAW] * timedelta(seconds=4) / timedelta(hours=1)
+    assert breathed < 10**-ROUND_AMOUNT
+    step = started + timedelta(seconds=2)
+    await oxygen.settle(session, constants, catalog, body, now=step)
+    for moment in (step - timedelta(seconds=1), step + timedelta(seconds=2)):
+        assert await oxygen.tick_bodies(session, constants, catalog, now=moment) == 0
+        assert body.choking_since is not None, "отрезок ничего не спросил — отсрочку не вернул"
+
+    #: The four seconds are not forgiven either: they wait on the body. Less
+    #: a grain of the column's grid for each of the two carries that floored.
+    assert float(body.air_owed) == pytest.approx(breathed, abs=2 * 10**-ROUND_REMAINDER)
+
+    #: The first stretch that asks finds the bottle dry, and the grace is spent.
+    finish = started + timedelta(minutes=1)
+    assert await oxygen.tick_bodies(session, constants, catalog, now=finish) == 1
