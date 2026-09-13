@@ -14,7 +14,7 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src import i18n
-from src.api.commands.common import _alive, _own_item, goods_key
+from src.api.commands.common import _alive, _alive_read, _own_item, goods_key
 from src.api.registry import Refused, command
 from src.constants import current, current_catalog
 from src.engine import (
@@ -61,7 +61,11 @@ async def _item_hand(state: dict, db: AsyncSession, message: dict) -> dict:
     transfer between two people is a fact the others in the room can see, and a
     silent one would be a way to move property unobserved.
     """
-    giver = await _alive(state, db)
+    #: Found without a lock, unlike every other act: the handover locks the
+    #: giver and the taker together, in id order (`storage.hand`), and `_alive`
+    #: would take the giver's row ahead of that order -- two people handing
+    #: each other things at once would then hold the rows the other waits for.
+    giver = await _alive_read(state, db)
     item = await _own_item(db, giver, message["item"])
     taker = await db.get(Body, uuid.UUID(message["to"]))
     if taker is None:
