@@ -10,7 +10,8 @@ Checked is what it is built this way for:
 * the kind is mandatory, and there are three: speech, action, out-of-game;
 * circles are visible, their content is not; what leaked is marked as a fragment;
 * in an undertone -- fewer leaks; the formula is assembled from vault constants;
-* there is no history: the delivery buffer is swept, not stored.
+* there is no history: the delivery buffer is swept, not stored;
+* who stands in the room is who is in no transit: the list and the crowd (D-290).
 """
 
 from __future__ import annotations
@@ -23,12 +24,14 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.api.commands.account import _people_here
 from src.constants import Constants
 from src.constants import registry as R
 from src.engine import chat, jobs, travel, world
 from src.models.chat import ChatMessage, Utterance
 from src.models.identity import Body
 from src.models.travel import TravelState
+from src.models.world import Node
 
 
 async def _room(session: AsyncSession, *, people_count: int = 2):
@@ -263,6 +266,95 @@ async def test_leaving_disbands_circle(session: AsyncSession, constants: Constan
     left = await chat.circles(session, second)
     assert len(left) == 1
     assert len(left[0].members) == 1, "ушедшего в кружке больше нет"
+
+
+# --- who stands in the room (D-290) ------------------------------------------
+
+
+async def _road_out(session: AsyncSession, node: Node) -> Node:
+    """A way out of the room to set out along."""
+    away = await world.create_node(
+        session, f"terra.road.{uuid.uuid4().hex[:6]}", "Прочь", area_m2=50
+    )
+    await travel.connect(session, node, away, base_seconds=5)
+    return away
+
+
+async def _here(session: AsyncSession, body: Body) -> list[str]:
+    """`people.here` as the socket answers it, asked by `body`: the bodies named."""
+    answer = await _people_here({"identity_id": body.identity_id}, session, {})
+    return [row["body"] for row in answer["people"]]
+
+
+async def test_a_traveller_is_in_nobodys_list(session: AsyncSession, constants: Constants) -> None:
+    """One who has set out is not named by the room they left (D-290 p. 1).
+
+    The body keeps the node it left in `node_id` until the arrival job moves
+    it, and the list read `node_id` alone: the talk head named the
+    traveller, and the hand-over menu offered them as a receiver.
+    Turned back, they stand in the room again, and the list says so.
+    """
+    node, (stays, leaves) = await _room(session)
+    away = await _road_out(session, node)
+    assert await _here(session, stays) == [str(leaves.id)]
+
+    await travel.depart(session, constants, leaves, away)
+    assert leaves.node_id == node.id, "до прихода тело держит узел, откуда ушло"
+    assert await _here(session, stays) == [], "ушедший в путь не стоит в комнате"
+
+    await travel.turn_back(session, leaves)
+    assert await _here(session, stays) == [str(leaves.id)], "повернувший назад снова здесь"
+
+
+async def test_the_road_is_not_a_room_to_ask_about(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """Asked from the road, the question is refused (D-290 p. 1): there is no
+    room to name, and the one left behind is not it."""
+    node, (stays, leaves) = await _room(session)
+    away = await _road_out(session, node)
+    await travel.depart(session, constants, leaves, away)
+    with pytest.raises(travel.InTransit):
+        await _here(session, leaves)
+    await travel.turn_back(session, leaves)
+    assert await _here(session, leaves) == [str(stays.id)]
+
+
+async def test_a_sleeper_is_named_and_asks_nothing(session: AsyncSession) -> None:
+    """Sleep is not the road: a sleeper lies in the room and the room names
+    them. Asking is another matter -- the list is part of live talk (D-290),
+    and a sleeper hears no talk (`chat.hear`), so they are refused the same
+    way. Whether a sleeper can take a thing is the hand-over's to judge."""
+    _, (awake, asleep) = await _room(session)
+    asleep.sleeping_since = datetime.now(UTC)
+    await session.flush()
+    assert await _here(session, awake) == [str(asleep.id)]
+    with pytest.raises(travel.Asleep):
+        await _here(session, asleep)
+
+
+async def test_a_traveller_does_not_crowd_the_leak(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """The leak is priced by the crowd in the room (D-043), and one who has set
+    out is not in it: counted by `node_id` alone, the road raised the odds of
+    a room it had left. A sleeper still counts -- they lie in the room."""
+    #: Every body counts, one point each: the difference is the crowd itself.
+    crowded = constants.with_overrides({"chat.leak_crowd_free": 0, "chat.leak_per_person": 1})
+    node, (_, sleeper, leaves) = await _room(session, people_count=3)
+    away = await _road_out(session, node)
+    full = await chat.leak_chance(crowded, session, node, group_size=0)
+
+    sleeper.sleeping_since = datetime.now(UTC)
+    await session.flush()
+    assert await chat.leak_chance(crowded, session, node, group_size=0) == pytest.approx(full)
+
+    await travel.depart(session, constants, leaves, away)
+    on_the_road = await chat.leak_chance(crowded, session, node, group_size=0)
+    assert on_the_road == pytest.approx(full - 1), "ушедший в путь не шумит в комнате"
+
+    await travel.turn_back(session, leaves)
+    assert await chat.leak_chance(crowded, session, node, group_size=0) == pytest.approx(full)
 
 
 # --- a buffer, not history ---------------------------------------------------

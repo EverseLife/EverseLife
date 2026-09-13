@@ -3,7 +3,8 @@
 
 """The road's vocabulary and floor: every refusal a way can make, the exit
 mark and the reach, the price of an edge in seconds and stamina, and the
-presence prologue (`require_here`, `current`). Asks nobody above itself.
+presence prologue (`require_here`, `current`, `on_the_road`). Asks nobody
+above itself.
 """
 
 from __future__ import annotations
@@ -11,7 +12,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 
-from sqlalchemy import or_, select
+from sqlalchemy import ColumnElement, exists, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants
@@ -154,6 +155,21 @@ async def current(session: AsyncSession, body: Body) -> Travel | None:
     """This body's ongoing transit, if any."""
     stmt = select(Travel).where(Travel.body_id == body.id, Travel.state == TravelState.GOING)
     return (await session.execute(stmt)).scalars().first()
+
+
+def on_the_road(body_id: ColumnElement[uuid.UUID]) -> ColumnElement[bool]:
+    """`current` as a clause: the body named by `body_id` has a transit under way.
+
+    For a query that lists the bodies of a room. A body on the road keeps the
+    node it left in `node_id` until the arrival job moves it (`walk.arrive`),
+    so `node_id` alone counts a traveller as standing where they set out from
+    -- and a traveller stands in no node and is in nobody's list (D-290 p. 1,
+    after D-107). A scout
+    on a run is not caught, and that is the gap D-327 names out loud rather
+    than a rule: a run has no transit row yet, so the engine keeps the scout
+    in the origin node until it ends. When the run gets its row, it is read here.
+    """
+    return exists().where(Travel.body_id == body_id, Travel.state == TravelState.GOING)
 
 
 class Asleep(TravelError):
