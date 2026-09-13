@@ -3,7 +3,8 @@
 
 """The field automaton at work without the player (D-339): the advance that
 wears the machine, walks its cursor, does the one action due and pays for the
-hours in lubricant and energy -- and the tick that brings those minutes.
+hours in lubricant and energy -- and the family's minute that brings them, on
+the automats' own tab (`tick_machines`).
 
 One advance does at most one action: an action holds the machine for the
 minutes a hand's would (`busy_until`), and the shortest of them is longer than
@@ -33,6 +34,7 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import NamedTuple
 
 from sqlalchemy import delete, select, update
 from sqlalchemy.exc import DBAPIError
@@ -91,7 +93,9 @@ async def advance(
     The same rule as the tick's pass, for a pass of one: the advance runs in a
     savepoint, and a purse that no longer pays at the draw sends it back to run
     again with that purse empty -- the machine stands on the tariff and loses
-    the minute, worn and walked all the same (D-135, D-120).
+    the minute, worn and walked all the same (D-135, D-120). A barred purse is
+    never billed again, so the runs end -- while the tariff holds still, as in
+    the automats' tick.
     """
     moment = now or datetime.now(UTC)
     barred: set[uuid.UUID] = set()
@@ -181,8 +185,8 @@ async def _advance(
         by_name.setdefault(stack.type_key, []).append(stack)
 
     #: A machine with a programme and plots is on the whole time: holding a
-    #: setpoint is work (D-339 p. 8). The lubricant caps the hours; the energy
-    #: of those hours is promised first, all of it or none.
+    #: setpoint is work (D-339 p. 8). The lubricant caps the hours, and the
+    #: energy promised for them caps them again, as the automats' does.
     lube = [stack for name in sorted(lube_names) for stack in by_name.get(name, [])]
     lube_rate = constants[R.AUTO_LUBE_PER_HOUR]
     have = sum(amount_float(stack.amount) for stack in lube)
@@ -193,11 +197,14 @@ async def _advance(
         bill = await energy_bill.promise(
             session, constants, row, node, worked, rate, now=moment, tab=tab, purpose=PURPOSE
         )
-        if bill is None or amount(bill.hours * rate) < amount(worked * rate):
-            #: A minute half powered is not a minute: the setpoints hold for all
-            #: of it or the machine stands.
+        if bill is None:
             short, worked = NO_POWER, 0.0
         else:
+            if amount(bill.hours * rate) < amount(worked * rate):
+                #: The supply covers part of the hours: the machine is on for
+                #: that part and stands for the rest, acting on none of it --
+                #: the rule a short lubricant already keeps.
+                short, worked = NO_POWER, bill.hours
             #: Written down at once: should the work below fail, the tick takes
             #: this promise back with the machine's savepoint.
             tab.add(bill)
@@ -346,51 +353,43 @@ async def _take(session: AsyncSession, row_id: uuid.UUID) -> FieldAutomat | None
     ).scalar_one_or_none()
 
 
-async def tick_fields(
+class Minute(NamedTuple):
+    """What the automat family's minute did: the units the automats paid out
+    and the actions the field automatons took."""
+
+    made: float
+    actions: int
+
+
+async def tick_machines(
     session: AsyncSession, constants: Constants, *, now: datetime | None = None
-) -> int:
-    """Advance every field automaton of the world. Returns the actions done.
+) -> Minute:
+    """The automat family's minute (D-253, D-339): every automat and every field
+    automaton of the world on one tab, drawn once at its end.
 
-    The machines are paid for after they have worked (`bill.pay`), and a purse
-    can empty in between. Whoever cannot pay does not burn (D-135): the whole
-    pass goes back and runs again with that owner's purse taken as empty, as
-    the automats' tick does (`automat.run.tick_automats`) -- one outcome for
-    "did not pay", whichever second the money left in. A barred owner is never
-    billed again, so each run bars one owner more and the runs end.
+    One tab, not two passes: a pass of automats and a pass of field automatons
+    running side by side would each promise the same pool's last hour, and the
+    family's rule that a pool drunk after the promise keeps the hours worked
+    would pay the second pass every minute (`automat.run.tick_automats`). The
+    automats' tick owns the run -- the order, the draw and the rerun with a
+    moved purse empty -- and the field automatons work onto its tab.
     """
-    moment = now or datetime.now(UTC)
-    ids = list(
-        (
-            await session.execute(
-                select(FieldAutomat.id).order_by(FieldAutomat.node_id, FieldAutomat.id)
-            )
-        )
-        .scalars()
-        .all()
-    )
-    barred: set[uuid.UUID] = set()
-    while True:
-        try:
-            async with session.begin_nested():
-                return await _pass(session, constants, ids, barred, moment)
-        except PurseMoved as moved:
-            barred |= moved.owners
-            #: What the rolled-back run remembered must not answer for the next.
-            forget(session)
-            log.info(
-                "field automats: %d purse(s) emptied under the step, the pass runs again",
-                len(moved.owners),
-            )
+    actions = 0
+
+    async def fields(
+        session_: AsyncSession, constants_: Constants, tab: energy_bill.Tab, moment: datetime
+    ) -> None:
+        nonlocal actions
+        actions = await _work_fields(session_, constants_, tab, moment)
+
+    made = await automat.tick_automats(session, constants, now=now, members=(fields,))
+    return Minute(made=made, actions=actions)
 
 
-async def _pass(
-    session: AsyncSession,
-    constants: Constants,
-    ids: list[uuid.UUID],
-    barred: set[uuid.UUID],
-    moment: datetime,
+async def _work_fields(
+    session: AsyncSession, constants: Constants, tab: energy_bill.Tab, moment: datetime
 ) -> int:
-    """One run over every machine, the energy drawn at its end.
+    """One run over every field automaton, its energy written on the pass's tab.
 
     Each machine works in a savepoint of its own. One the database turned away
     this minute -- a lock waited too long -- is simply tried next minute. One
@@ -399,8 +398,15 @@ async def _pass(
     runs up a debt of wear and lubricant to be paid at once when mended. A
     machine its owner holds right now is skipped rather than waited for.
     """
-    #: A purse that already failed a draw this minute pays nothing in the rerun.
-    tab = energy_bill.Tab(purses=dict.fromkeys(barred, 0))
+    ids = (
+        (
+            await session.execute(
+                select(FieldAutomat.id).order_by(FieldAutomat.node_id, FieldAutomat.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
     done = 0
     for row_id in ids:
         owed = len(tab.bills)
@@ -419,9 +425,6 @@ async def _pass(
                 log.warning("field automat %s: the database refused this minute", row_id)
             else:
                 await _fault(session, row_id, moment)
-    refused = await energy_bill.pay(session, constants, tab.bills, now=moment)
-    if refused:
-        raise PurseMoved(refused)
     return done
 
 

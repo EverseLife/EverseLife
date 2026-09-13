@@ -19,6 +19,7 @@ from __future__ import annotations
 import logging
 import math
 import uuid
+from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime
 from decimal import Decimal
 
@@ -231,10 +232,20 @@ async def advance(
     return produced
 
 
+#: Another member of the automat family (the field automaton, D-339): it works
+#: its machines onto the pass's own tab, after the automats and before the one
+#: draw. Called once a run -- again when the pass runs again.
+Member = Callable[[AsyncSession, Constants, energy_bill.Tab, datetime], Awaitable[None]]
+
+
 async def tick_automats(
-    session: AsyncSession, constants: Constants, *, now: datetime | None = None
+    session: AsyncSession,
+    constants: Constants,
+    *,
+    now: datetime | None = None,
+    members: Sequence[Member] = (),
 ) -> float:
-    """Advance all automats of the world.
+    """Advance all automats of the world -- and the family's `members` on the same tab.
 
     The machine does not sleep -- that is its whole strength. Within a node
     the wires set the order (D-253 wave 5): a producer advances before the
@@ -258,6 +269,14 @@ async def tick_automats(
     owner more and the runs end -- while the tariff holds still: one raised
     between a forecast that saw it free and the draw costs one run more, and
     the run after it reads the new tariff at its forecast.
+
+    **One tab for the family.** Two passes of promises over one pool, each
+    blind to the other's, would both promise its last hour, and "a pool drunk
+    after the forecast keeps the hours" would then pay the second pass's work
+    every minute rather than forgive a crafter's rare one (the owner,
+    2026-09-13, `20-systems/12-energy.md`). So the other members promise
+    against this pass's tab and are drawn with it, and a moved purse sends them
+    back with it.
     """
     moment = now or datetime.now(UTC)
     rows = (await session.execute(select(AutomatRow).order_by(AutomatRow.id))).scalars().all()
@@ -268,7 +287,7 @@ async def tick_automats(
     while True:
         try:
             async with session.begin_nested():
-                return await _pass(session, constants, order, barred, now=moment)
+                return await _pass(session, constants, order, barred, now=moment, members=members)
         except _PurseMoved as moved:
             barred |= moved.owners
             _forget_the_run(session)
@@ -293,6 +312,7 @@ async def _pass(
     barred: set[uuid.UUID],
     *,
     now: datetime,
+    members: Sequence[Member] = (),
 ) -> float:
     """One run over every machine, the energy drawn at its end. Returns the units paid out.
 
@@ -336,6 +356,8 @@ async def _pass(
             log.exception("automat %s: the advance failed and was passed over", row_id)
             continue
         made += paid
+    for member in members:
+        await member(session, constants, tab, now)
     refused = await energy_bill.pay(session, constants, tab.bills, now=now)
     if refused:
         raise _PurseMoved(refused)

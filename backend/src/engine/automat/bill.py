@@ -1,9 +1,11 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Nurlan Urazkulov
 
-"""The automat's energy (D-253, D-135, D-071): drawn on the spot for a command,
-and for the tick forecast per machine, written down as a bill and drawn once
-every machine has worked.
+"""The automat family's energy (D-253, D-339, D-135, D-071): promised per
+machine, written down as a bill and drawn once every machine of the pass has
+worked -- the automats' tick with the field automatons on its tab
+(`run.tick_automats`), and a field automaton settled by a command as a pass of
+one (`agro.run.advance`). An automat's command draws on the spot (`draw`).
 
 Lock order of the tick's draw (`pay`): the pools city by city, each after the
 fuel its plants burn (`energy.produce`) -- the order `energy.tick_pools` takes
@@ -129,7 +131,8 @@ async def promise(
     count waiting for the draw.
 
     A forecast can still overshoot the draw. The purse is held to it: one that
-    pays less at the draw sends the pass back (`run.tick_automats`). The supply
+    pays less at the draw sends the pass back (`run.tick_automats`, and a
+    field automaton's command in `agro.run.advance`). The supply
     is not -- a crafter drank the same pool between the two, or the heat of a
     cold city ate it. The machine keeps those hours: the draw takes what is
     there and bills only that, and the pool never goes below nought. That is
@@ -279,7 +282,7 @@ async def pay(
 def _short(bill: Bill, hours: float) -> None:
     if amount(max(0.0, hours) * bill.rate) < amount(bill.hours * bill.rate):
         log.debug(
-            "automat %s: worked %.3f h on credit, the supply gave out after the forecast",
+            "automat %s: kept %.3f h the supply no longer held after the forecast",
             bill.row_id,
             bill.hours - max(0.0, hours),
         )

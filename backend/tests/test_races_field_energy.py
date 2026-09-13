@@ -16,14 +16,16 @@ from datetime import timedelta
 from decimal import Decimal
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from agro_kit import LUBRICANT, field, liquid_in, plot_of, programmed, second_now
+from automat_kit import IRON, NAILS, _learn
 from src.constants import Catalog, Constants, current, current_catalog
 from src.constants import registry as R
-from src.engine import agro, energy, ledger
+from src.engine import agro, automat, energy, ledger, world
 from src.engine.automat import bill as energy_bill
-from src.models.agro import FieldAutomat
+from src.models.agro import FieldAutomat, FieldAutomatPlot
 from src.models.farm import Plot, PlotState
 from src.models.identity import Body
 from src.models.inventory import Item
@@ -69,9 +71,12 @@ async def test_a_purse_emptied_under_the_fields_tick_buys_no_free_minute(
     )
     await programmed(session, constants, catalog, theirs, [{"do": "plow"}], [their_plot], moment)
     account = await ledger.account_for(session, AccountKind.IDENTITY, mine.identity.id)
-    ids = (my_row.id, my_plot.id, their_plot.id, account.id)
+    my_pool = await energy.pool_of(session, constants, mine.node)
+    assert my_pool is not None
+    stored = float(my_pool.stored)
+    ids = (my_row.id, my_plot.id, their_plot.id, account.id, mine.node.id)
     await session.commit()
-    row_id, my_plot_id, their_plot_id, account_id = ids
+    row_id, my_plot_id, their_plot_id, account_id, my_node_id = ids
 
     drawn = energy_bill.pay
     spent: list[bool] = []
@@ -85,7 +90,7 @@ async def test_a_purse_emptied_under_the_fields_tick_buys_no_free_minute(
     monkeypatch.setattr(energy_bill, "pay", spent_first)
     later = moment + timedelta(minutes=1)
     async with factory() as db, db.begin():
-        done = await agro.tick_fields(db, current(), now=later)
+        done = (await agro.tick_machines(db, current(), now=later)).actions
 
     assert spent, "the purse was emptied between the promise and the draw"
     assert done == 1, "the neighbour ploughed in the same step"
@@ -100,6 +105,11 @@ async def test_a_purse_emptied_under_the_fields_tick_buys_no_free_minute(
         assert mine_now.state is PlotState.IDLE, "nothing ploughed for free"
         assert theirs_now.state is PlotState.PLOWED
         assert await ledger.balance(db, account_id) == 0
+        here = await db.get(Node, my_node_id)
+        assert here is not None
+        pool = await energy.pool_of(db, constants, here, create=False)
+        assert pool is not None
+        assert float(pool.stored) == pytest.approx(stored), "whoever cannot pay does not burn"
 
 
 async def test_a_purse_emptied_under_a_command_loses_the_minute_and_the_command_goes_on(
@@ -120,9 +130,13 @@ async def test_a_purse_emptied_under_a_command_loses_the_minute_and_the_command_
     moment = second_now()
     row = await programmed(session, constants, catalog, place, [{"do": "plow"}], [first], moment)
     account = await ledger.account_for(session, AccountKind.IDENTITY, place.identity.id)
-    ids = (row.id, first.id, second.id, account.id, place.body.id, place.machine.id)
+    pool = await energy.pool_of(session, constants, place.node)
+    assert pool is not None
+    stored = float(pool.stored)
+    worn = (float(place.machine.condition), float(place.machine.wear_remainder))
+    ids = (row.id, first.id, second.id, account.id, place.body.id, place.machine.id, place.node.id)
     await session.commit()
-    row_id, first_id, second_id, account_id, body_id, machine_id = ids
+    row_id, first_id, second_id, account_id, body_id, machine_id, node_id = ids
 
     drawn = energy_bill.pay
     spent: list[bool] = []
@@ -161,6 +175,26 @@ async def test_a_purse_emptied_under_a_command_loses_the_minute_and_the_command_
         old = await db.get(Plot, first_id)
         assert old is not None and old.state is PlotState.IDLE, "nothing ploughed for free"
         assert await ledger.balance(db, account_id) == 0
+        given = (
+            (
+                await db.execute(
+                    select(FieldAutomatPlot.plot_id).where(FieldAutomatPlot.automat_id == row_id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert list(given) == [second_id], "the new programme is taken all the same"
+        machine_now = await db.get(Item, machine_id)
+        assert machine_now is not None
+        assert (float(machine_now.condition), float(machine_now.wear_remainder)) != worn, (
+            "the machine wore through the minute it stood"
+        )
+        here = await db.get(Node, node_id)
+        assert here is not None
+        left = await energy.pool_of(db, constants, here, create=False)
+        assert left is not None
+        assert float(left.stored) == pytest.approx(stored), "whoever cannot pay does not burn"
 
 
 async def test_a_pool_drunk_under_the_fields_tick_is_billed_for_what_it_gave(
@@ -203,7 +237,7 @@ async def test_a_pool_drunk_under_the_fields_tick_is_billed_for_what_it_gave(
     monkeypatch.setattr(energy_bill, "pay", drunk_first)
     later = moment + timedelta(minutes=1)
     async with factory() as db, db.begin():
-        done = await agro.tick_fields(db, current(), now=later)
+        done = (await agro.tick_machines(db, current(), now=later)).actions
 
     assert drunk and done == 1, "the ploughing was done"
     async with factory() as db:
@@ -219,3 +253,38 @@ async def test_a_pool_drunk_under_the_fields_tick_is_billed_for_what_it_gave(
         billed = purse - await ledger.balance(db, account_id)
         assert billed == pytest.approx(energy.price_at(constants, pool, half), abs=1)
         assert billed > 0
+
+
+async def test_an_automat_and_a_field_automaton_do_not_both_promise_one_pools_last_minute(
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+) -> None:
+    """The automats and the field automatons share one tab (`agro.tick_machines`):
+    a pool that holds one and a half machine-minutes is promised once in full
+    and once in half. Two passes side by side would each promise the whole
+    pool and, a pool drunk after the promise keeping the hours, both work free."""
+    place = await field(session, constants)
+    await liquid_in(session, place.yard, LUBRICANT, 100)
+    plot = await plot_of(session, constants, place.body)
+    moment = second_now()
+    row = await programmed(session, constants, catalog, place, [{"do": "plow"}], [plot], moment)
+    await _learn(session, place.identity, NAILS)
+    await world.grant_item(session, place.yard, IRON, amount=1000, quality=60, origin="тест")
+    station = await world.grant_item(session, place.yard, "auto_station", quality=70, origin="тест")
+    await automat.program(session, constants, catalog, place.body, station, NAILS, now=moment)
+    pool = await energy.pool_of(session, constants, place.node)
+    assert pool is not None
+    minute = constants[R.AGRO_ENERGY_PER_HOUR] / 60
+    assert constants[R.AUTO_ENERGY_PER_HOUR] / 60 == pytest.approx(minute)
+    pool.stored = Decimal(str(minute * 1.5))
+    await session.flush()
+
+    minute_done = await agro.tick_machines(session, constants, now=moment + timedelta(minutes=1))
+    await session.refresh(row)
+    await session.refresh(plot)
+    await session.refresh(pool)
+    assert minute_done.actions == 0, "the field automaton got half a minute and acted on none"
+    assert row.trouble == "no_power"
+    assert plot.state is PlotState.IDLE
+    assert float(pool.stored) == pytest.approx(0, abs=0.001)

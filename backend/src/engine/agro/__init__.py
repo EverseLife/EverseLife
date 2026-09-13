@@ -46,4 +46,4 @@ from src.engine.agro._base import (  # noqa: F401
     parse,
 )
 from src.engine.agro.board import program, stop, view  # noqa: F401
-from src.engine.agro.run import advance, tick_fields  # noqa: F401
+from src.engine.agro.run import Minute, advance, tick_machines  # noqa: F401

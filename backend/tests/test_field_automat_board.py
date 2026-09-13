@@ -134,7 +134,7 @@ async def test_a_broken_machine_is_passed_over_and_can_still_be_stopped(
     await programmed(session, constants, catalog, other, [{"do": "plow"}], [good_plot], t0)
     await session.flush()
 
-    done = await agro.tick_fields(session, constants, now=t0 + timedelta(minutes=1))
+    done = (await agro.tick_machines(session, constants, now=t0 + timedelta(minutes=1))).actions
     await session.refresh(good_plot)
     assert good_plot.state is PlotState.PLOWED, "the other machine worked"
     assert done == 1
@@ -209,7 +209,7 @@ async def test_two_machines_on_one_pool_do_not_both_promise_its_last_hour(
     pool.stored = one_minute * 1.5
     await session.flush()
 
-    done = await agro.tick_fields(session, constants, now=moment + timedelta(minutes=1))
+    done = (await agro.tick_machines(session, constants, now=moment + timedelta(minutes=1))).actions
     await session.refresh(row_a)
     await session.refresh(row_b)
     assert done == 1
@@ -227,7 +227,7 @@ async def test_an_owner_who_cannot_pay_gets_no_work(
     moment = second_now()
     row = await programmed(session, constants, catalog, place, [{"do": "plow"}], [plot], moment)
     for minute in (1, 2):
-        await agro.tick_fields(session, constants, now=moment + timedelta(minutes=minute))
+        await agro.tick_machines(session, constants, now=moment + timedelta(minutes=minute))
     await session.refresh(plot)
     await session.refresh(row)
     assert plot.state is PlotState.IDLE
@@ -266,7 +266,7 @@ async def test_a_broken_machine_stands_with_a_fault_and_its_clock_moves(
     plot.state = PlotState.PLOWED
     await session.flush()
     later = moment + timedelta(minutes=3)
-    await agro.tick_fields(session, constants, now=later)
+    await agro.tick_machines(session, constants, now=later)
     await session.refresh(row)
     assert row.trouble == "fault"
     assert row.counted_at == later

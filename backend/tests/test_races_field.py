@@ -101,7 +101,7 @@ async def test_a_harvest_and_a_hand_filling_the_store_never_overfill_it(
 
     async def tick() -> None:
         async with factory() as db, db.begin():
-            await agro.tick_fields(db, current(), now=moment)
+            await agro.tick_machines(db, current(), now=moment)
 
     async def put() -> str:
         await asyncio.sleep(0.05)
@@ -164,7 +164,7 @@ async def test_a_sowing_and_a_hand_taking_the_same_seeds_never_spend_them_twice(
 
     async def tick() -> None:
         async with factory() as db, db.begin():
-            await agro.tick_fields(db, current(), now=moment)
+            await agro.tick_machines(db, current(), now=moment)
 
     async def take() -> str:
         await asyncio.sleep(0.05)
@@ -223,7 +223,7 @@ async def test_a_machine_harvest_and_a_hand_harvest_reap_one_bed_once(
 
     async def tick() -> None:
         async with factory() as db, db.begin():
-            await agro.tick_fields(db, current(), now=moment)
+            await agro.tick_machines(db, current(), now=moment)
 
     async def reap() -> str:
         await asyncio.sleep(0.05)
