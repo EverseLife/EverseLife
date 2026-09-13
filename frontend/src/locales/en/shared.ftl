@@ -66,6 +66,14 @@ ui-arrange-no-maker = no maker's mark
 
 ui-liquid-empty = empty
 ui-liquid-fill = { $what } · { $mass } of { $capacity } kg
+ui-liquid-vent = { $way ->
+        [flare] Burn in the flare
+       *[void] Vent outside
+    }
+ui-liquid-vent-hint = { $way ->
+        [flare] the vent gas burns in the node's flare stack
+       *[void] there is no air outside: the gas goes out, and there is nothing for it to burn with
+    }
 
 ## Choosing quality: what to put to use.
 

@@ -141,6 +141,11 @@ async def print_body(session: AsyncSession, identity: Identity, node: Node) -> B
 #: bioprinter stands anywhere, printing happens at the city core (D-089).
 BIOPRINTER = "bioprinter"
 
+#: The class of the stack that burns the vent gas of a node's machines (D-340).
+#: Here beside the printer's rather than with the rule (`engine.vent`), so that
+#: the door refusing one aboard (`craft.place`) names a word, not the rule.
+FLARE_STACK = "flare"
+
 
 async def printer_nodes(session: AsyncSession) -> Sequence[Node]:
     """Every node where a bioprinter stands. Not every one of them is a door."""

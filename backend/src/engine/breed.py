@@ -669,13 +669,18 @@ def agrotech_key(variety: Variety) -> str:
     return variety.culture_id if variety.author_identity_id is None else str(variety.id)
 
 
-async def _variety_of(session: AsyncSession, item: Item) -> Variety:
+async def variety_of(session: AsyncSession, item: Item) -> Variety:
+    """The cultivar of a seed lot, refused for anything that is not one."""
     if item.variety_id is None:
         raise NotSeeds(key="breed-not-variety-seeds", goods=item.type_key)
     variety = await session.get(Variety, item.variety_id)
     if variety is None:  # pragma: no cover -- a cultivar is never deleted
         raise BreedError(key="breed-variety-gone")
     return variety
+
+
+#: The name the farm's own callers have always used (`farm.sow`).
+_variety_of = variety_of
 
 
 async def _node(session: AsyncSession, body: Body):

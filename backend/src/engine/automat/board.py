@@ -159,8 +159,9 @@ async def view(session: AsyncSession, catalog: Catalog, body: Body) -> dict:
     )
     #: The machine's kind and place the client already has from `look` --
     #: only what it cannot derive travels (D-225): the address, the
-    #: programme, the work in flight, and the wires (addressed by the same
-    #: item ids the commands take).
+    #: programme, the work in flight, why it stands when it does (the tick's
+    #: verdict, kept on the row -- D-340), and the wires (addressed by the
+    #: same item ids the commands take).
     return {
         "machines": [
             {
@@ -168,6 +169,7 @@ async def view(session: AsyncSession, catalog: Catalog, body: Body) -> dict:
                 "recipe": row.recipe_key,
                 "backlog": float(row.backlog),
                 "counted_at": row.counted_at.isoformat(),
+                **({"stall": row.stall} if row.stall is not None else {}),
             }
             for row in rows
         ],

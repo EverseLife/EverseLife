@@ -14,7 +14,9 @@
  */
 
 /** Which way a port's liquid runs: drunk, poured with the machine standing
- *  when all is full, or poured with the rest going overboard. */
+ *  when all is full, or poured with the rest let go -- the beds' oxygen into
+ *  the compartment's air, a vent gas overboard from a sealed hull and, under a
+ *  sky with air, nowhere: then the vent holds the machine like an outlet (D-340). */
 export type PortWay = "in" | "out" | "vent";
 
 export type FeedPort = {

@@ -82,6 +82,15 @@ const REREAD_DELAY_MS = 150;
 const RESERVE_POLL_MS = 30_000;
 /** How long an action waits for its own events before rereading on its own. */
 const SETTLE_MS = 400;
+/** Whether a running batch of the player's shows the room on its outlet (D-340). */
+function showsRoom(parts: Parts | null): boolean {
+  return Boolean(
+    parts?.orders.batches.some(
+      (batch) => batch.state === "running" && batch.outlets?.some((one) => one.room !== undefined),
+    ),
+  );
+}
+
 /** Which `touches` name the live look rather than a cached part. */
 const LIVE_TOUCHES = new Set([
   "body",
@@ -436,6 +445,11 @@ export default function App() {
         const part = PART_OF_TOUCH[touch];
         if (part) touched.add(part);
         else if (LIVE_TOUCHES.has(touch)) live = true;
+        //: A running batch shows the room its liquids find (D-340), and that
+        //: room moves with the place's vessels -- somebody else's pour, a
+        //: machine filling the same tank. While such a batch runs, what
+        //: changes the place rereads the orders too; otherwise nothing extra.
+        if (touch === "node" && showsRoom(partsRef.current)) touched.add("orders");
       }
       if (timer) return;
       timer = setTimeout(() => {

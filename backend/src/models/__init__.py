@@ -11,8 +11,10 @@ from __future__ import annotations
 
 from src.db import ddl
 from src.db.base import Base
+from src.models.agro import FieldAutomat, FieldAutomatPlot
 from src.models.automat import Automat, AutomatLink
 from src.models.bank import DefectReport, Loan, LoanState, RateDecision
+from src.models.catchup import CatchUpStep
 from src.models.chat import ChatGroup, ChatMember, ChatMessage, Utterance
 from src.models.city import City, CityGrant, Office, Power, UtilityMeter
 from src.models.config import ConstantChange, ConstantOverride
@@ -87,6 +89,8 @@ __all__ = [
     "Account",
     "Automat",
     "AutomatLink",
+    "FieldAutomat",
+    "FieldAutomatPlot",
     "FeedLine",
     "VesselName",
     "AccountKind",
@@ -97,6 +101,7 @@ __all__ = [
     "BodyState",
     "BuildSite",
     "Building",
+    "CatchUpStep",
     "ChatGroup",
     "ChatMember",
     "ChatMessage",

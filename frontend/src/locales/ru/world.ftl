@@ -203,10 +203,10 @@ ui-ship-scheme-way-out = выход
 ui-ship-scheme-way-vent = сброс
 ui-ship-scheme-way-in-note = Берёт из тары по порядку линии: опустела первая — берёт из следующей.
 ui-ship-scheme-way-out-note = Льёт в тару по порядку линии; когда полна вся — машина стоит.
-ui-ship-scheme-way-vent-note = Льёт в тару по порядку линии; что не вошло, уходит в воздух отсека или за борт, и машина из-за этого не встаёт.
+ui-ship-scheme-way-vent-note = Льёт в тару по порядку линии. Что не вошло: кислород гидропоники остаётся в воздухе отсека, сбросной газ уходит за борт, где снаружи нет воздуха; под небом с воздухом сбросному газу место только в таре, и без неё машина стоит.
 ui-ship-scheme-no-line = { $way ->
         [in] линии нет — порт ничего не берёт
-        [vent] линии нет — всё уходит в воздух или за борт
+        [vent] линии нет — кислород остаётся в воздухе отсека, сбросной газ в пустоте уходит за борт, а под небом с воздухом машина стоит
        *[other] линии нет — машине некуда лить, и она стоит
     }
 ui-ship-scheme-port = порт «{ $goods }»: потяните к таре
@@ -500,6 +500,58 @@ ui-factory-port-in = вход
 ui-factory-port-out = выход
 ui-factory-idle = — без программы —
 ui-factory-backlog = в работе { $backlog }
+# Почему автомат стоит (D-340): на земле сбросному газу некуда без факела,
+# на борту причину показывает схема корабля.
+ui-factory-stall-flare = стоит: в узле нет факельной установки для сбросного газа
+ui-factory-stall-lines = стоит: причина — на схеме корабля
+
+## Полевой автомат (D-339): программа из команд, делянки и хранилища.
+
+ui-agro-title = Полевой автомат
+ui-agro-rule = программа, делянки и хранилища
+ui-agro-idle = программы нет — автомат стоит
+ui-agro-standing = на строке { $line }: { $command }
+ui-agro-program = Программа
+ui-agro-add = + строка
+ui-agro-up = поднять строку
+ui-agro-down = опустить строку
+ui-agro-remove = удалить строку
+ui-agro-target = уставка влаги
+ui-agro-every = каждые
+ui-agro-days = сут.
+ui-agro-do-plow = Вспахать
+ui-agro-do-sow = Посеять
+ui-agro-do-moisture = Держать влагу
+ui-agro-do-feed = Подкормить
+ui-agro-do-weed = Прополоть
+ui-agro-do-thin = Проредить
+ui-agro-do-harvest = Убрать
+ui-agro-do-fallow = Пар
+ui-agro-plots = Делянки
+ui-agro-no-plots = Здесь нет ваших делянок: их размечают в окне «Земля».
+ui-agro-plot-small = меньше { $min } м²: автомат не берёт
+ui-agro-stores = Хранилища
+ui-agro-store-seeds = Откуда семена
+ui-agro-store-fertilizer = Откуда удобрения
+ui-agro-store-harvest = Куда урожай
+ui-agro-store-none = — не выбрано —
+ui-agro-store = { $goods } · { $mass } из { $capacity } кг
+ui-agro-bunker = свой бункер · { $mass } из { $capacity } кг
+ui-agro-save = Задать программу
+ui-agro-stop = Снять программу
+ui-agro-trouble-no-plots = Автомату не отдано ни одной делянки.
+ui-agro-trouble-no-power = Встал: нет энергии — ни в пуле, ни в аккумуляторах, или хозяину нечем платить.
+ui-agro-trouble-no-lube = Встал: в таре двора нет смазки.
+ui-agro-trouble-no-water = Не поливает: в таре двора нет воды.
+ui-agro-trouble-no-seeds = Не сеет: в хранилище семян нет партии этой культуры, которой хватит на делянку.
+ui-agro-trouble-no-fertilizer = Не подкармливает: в хранилище удобрений не хватает дозы.
+ui-agro-trouble-store-full = Не убирает: хранилище урожая полно, спелая делянка ждёт.
+ui-agro-trouble-no-store = Хранилище для этого действия не выбрано или не стоит во дворе.
+ui-agro-trouble-not-plowed = Не сеет: делянка не вспахана — перед «Посеять» нужна строка «Вспахать».
+ui-agro-trouble-unfit = Не сеет: место не пускает культуру — холодно, жарко, темно или лёд.
+ui-agro-trouble-not-entitled = Встал: у хозяина больше нет права на этот узел — программу задаёт тот, кто им распоряжается.
+ui-agro-trouble-fault = Встал: программа больше не исполняется — проверьте её строки и задайте заново.
+ui-agro-trouble-other = Встал.
 
 ## Ползунок курса: от самой быстрой дуги до самой дешёвой (D-271).
 
@@ -509,6 +561,7 @@ ui-ship-slider = время полёта
 ui-ship-end-fast = быстро: { $term }
 ui-ship-end-cheap = дёшево: { $term }
 ui-ship-arc-cost = { $term } · { $fuel } топлива · Δv { $dv }
+ui-ship-via = пролёт: { $planet }
 ui-ship-chart-cheap = дёшево { $term } · { $fuel }
 ui-ship-chart-fast = быстро { $term } · { $fuel }
 # The bridge display's own words (D-240): the scale in the corner and the names

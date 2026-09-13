@@ -176,6 +176,11 @@ class RecipeBook(Strict):
     #: Liquids (D-230): they exist only inside a vessel (`Recipe.holds`). One
     #: list, like `bulk` -- not a guess by the label class "Жидкость".
     liquid: tuple[str, ...] = ()
+    #: Vent gases (D-340): liquids that, finding no vessel, are let out where
+    #: there is no air outside and burned in the node's flare where there is
+    #: -- never poured onto the floor and never released into the air. A
+    #: flag of the thing, not a name (D-215): hydrogen is the first.
+    vent: tuple[str, ...] = ()
     #: What to draw next to a quantity: "5 шт", "3 м". Display only -- whether a
     #: quantity may be fractional is decided by `bulk`, not by the word (D-212).
     #: The engine never reads it; it travels so the client need not invent it.
@@ -290,6 +295,10 @@ class RecipeBook(Strict):
         """Whether the thing is a liquid (D-230): never loose, always in a vessel."""
         return self.resolve(name) in self._liquids
 
+    def is_vent(self, name: str) -> bool:
+        """Whether the thing is a vent gas (D-340): let out or flared, never kept loose."""
+        return self.resolve(name) in self._vents
+
     def holds_of(self, name: str) -> str | None:
         """What the thing admits as a storage: `жидкость` for a vessel, None otherwise."""
         found = self._by_name.get(self.resolve(name))
@@ -335,6 +344,7 @@ class RecipeBook(Strict):
     _names: set[str] = PrivateAttr(default_factory=set)
     _measured: set[str] = PrivateAttr(default_factory=set)
     _liquids: set[str] = PrivateAttr(default_factory=set)
+    _vents: set[str] = PrivateAttr(default_factory=set)
     _class_by_name: dict[str, str] = PrivateAttr(default_factory=dict)
     #: What the Forerunners left (D-232). A set, because every item of every
     #: node scene is asked about it.
@@ -348,6 +358,7 @@ class RecipeBook(Strict):
         self._names.update((material.id or material.name) for material in self.materials)
         self._measured.update(self.bulk)
         self._liquids.update(self.liquid)
+        self._vents.update(self.vent)
         self._relics.update(
             (material.id or material.name) for material in self.materials if material.relic
         )
@@ -705,7 +716,7 @@ def _renamed_recipes(payload: dict, renames: RenameTable) -> dict:
         }
         for op in payload.get("operations", [])
     ]
-    for listed in ("raw", "bulk", "edible", "liquid"):
+    for listed in ("raw", "bulk", "edible", "liquid", "vent"):
         out[listed] = [goods(x) for x in payload.get(listed, [])]
     out["units"] = keyed(payload.get("units"))
     out["gear_slots"] = [slot(s) for s in payload.get("gear_slots", [])]

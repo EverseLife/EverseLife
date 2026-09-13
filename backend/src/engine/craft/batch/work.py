@@ -9,14 +9,15 @@ from __future__ import annotations
 
 import uuid
 from bisect import bisect_left
+from dataclasses import replace
 from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import gear, liquid, occupation, travel, wear
-from src.engine.craft import power
+from src.engine import gear, occupation, travel, wear
+from src.engine.craft import outlet, plumbing, power
 from src.engine.craft._base import (
     BENCHLESS,
     CraftError,
@@ -46,6 +47,7 @@ from src.engine.world import body_container
 from src.models.craft import BatchKind, CraftBatch
 from src.models.identity import Body, BodyState
 from src.models.inventory import Item
+from src.models.world import Node
 from src.units import (
     MINUTES_PER_HOUR,
     PERCENT,
@@ -92,7 +94,19 @@ async def plan(
         recipe_key=recipe_key,
         tiers=tiers,
     )
-    return ready.plan
+    #: Where the liquids of the batch go and the room they find (D-340): the
+    #: room is not reserved, so the player is shown it before the start.
+    shown = await outlet.outlets(
+        session,
+        constants,
+        catalog,
+        node=await session.get(Node, body.node_id),
+        machine=ready.station,
+        output=ready.proc.output,
+        body=body,
+        plumbed=ready.plumbed,
+    )
+    return replace(ready.plan, outlets=tuple(shown)) if shown else ready.plan
 
 
 async def most(
@@ -163,23 +177,19 @@ async def most(
         minutes = batch_minutes(constants, ready.proc, units, grind)
         return power.need_of(constants, catalog, machine, minutes / MINUTES_PER_HOUR)
 
-    #: Aboard the air pours into its outlet line (D-340), and the start
-    #: refuses a batch the line cannot take: the most is capped by that room
-    #: too, read and not locked, like everything else here.
-    plumbed = ready.plumbed
-    room = (
-        None
-        if plumbed is None or ready.proc.output not in plumbed.outlets
-        else await liquid.room_in(
-            session, catalog, plumbed.outlets[ready.proc.output], ready.proc.output, lock=False
-        )
+    #: Aboard the air pours into its outlet line, and under a sky with air its
+    #: hydrogen has only its vent line (D-340): the start refuses a batch
+    #: either line cannot take, so the most is capped by both rooms too, read
+    #: and not locked, like everything else here.
+    caps = await plumbing.line_rooms(
+        session, catalog, await session.get(Node, body.node_id), ready.plumbed, ready.proc.output
     )
 
     def fits(units: float) -> bool:
         wanted = demand(constants, catalog, ready.proc, units, ready.stock, proportions=proportions)
         if any(amount(value) > have.get(name, 0) for name, value in wanted.items()):
             return False
-        if room is not None and amount(units) > amount(room):
+        if any(amount(units * per) > amount(room) for per, room in caps):
             return False
         return supply is None or juice(units) <= supply.have
 

@@ -147,6 +147,7 @@ from src.engine.craft.method_of_making import (  # noqa: F401
     procedure,
     step_hours,
 )
+from src.engine.craft.outlet import outlets  # noqa: F401
 from src.engine.craft.quality import (  # noqa: F401
     forecast_quality,
     optimal_amounts,

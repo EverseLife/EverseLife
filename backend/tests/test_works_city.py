@@ -29,9 +29,10 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from conftest import _slow
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import bank, energy, ledger, works, works_city, world
+from src.engine import bank, energy, fuel_plant, ledger, works, works_city, world
 from src.engine import city as town
 from src.engine.estate.building import build_minutes, kinds
 from src.engine.estate.upkeep import finish_repair, repair, repair_bill, repair_minutes
@@ -344,14 +345,14 @@ async def test_fuel_order_pays_per_unit_and_closes_when_filled(
     fuel_stack = (
         (await session.execute(select(Item).where(Item.container_id == pocket.id))).scalars().one()
     )
-    await energy.fuel(session, constants, hauler_body, fuel_stack, 4)
+    await fuel_plant.fuel(session, constants, hauler_body, fuel_stack, 4)
     half_paid = await _balance(session, hauler)
     assert half_paid > 0, "подвоз платится по факту каждой заливки"
 
     fuel_stack = (
         (await session.execute(select(Item).where(Item.container_id == pocket.id))).scalars().one()
     )
-    await energy.fuel(session, constants, hauler_body, fuel_stack, 6)
+    await fuel_plant.fuel(session, constants, hauler_body, fuel_stack, 6)
     fresh = await session.get(type(order), order.id)
     assert fresh is not None and fresh.state is WorkOrderState.DONE
     expected_fund = min(fund_labor, money(constants[R.WORKS_PLAYER_DAILY_CAP]))
@@ -419,6 +420,55 @@ async def test_two_pours_cannot_collect_one_unit_twice(
         assert paid <= order_tariff, "за десять единиц не платят дважды"
 
 
+async def test_two_city_orders_at_once_cannot_exceed_the_daily_cap(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    constants: Constants,
+    catalog: Catalog,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The cap is one counter over all the worker's payouts, and two stations
+    filled at once must not each read it before the other pays. The worker's
+    account serialises them (`_pay_share`) -- without that lock both read
+    nothing paid today and the fund pays its share twice.
+    """
+    from src.models.works import WorkOrder
+
+    stations = [(await _city_with_fuel_order(session, constants, catalog))[0] for _ in range(2)]
+    orders = (
+        (
+            await session.execute(
+                select(WorkOrder).where(WorkOrder.kind == WorkOrderKind.FUEL_DELIVERY)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(orders) == 2
+    city_part, fund_part = int(orders[0].payload["city_part"]), int(orders[0].payload["fund_part"])
+    assert all(int(one.payload["fund_part"]) == fund_part for one in orders)
+    #: The cap admits exactly one fund share: the second must clip to nothing.
+    capped = constants.with_overrides({"works.player_daily_cap": fund_part / MONEY_SCALE})
+    assert money(capped[R.WORKS_PLAYER_DAILY_CAP]) == fund_part
+    worker, _ = await _worker_at(session, stations[0])
+    #: Opened up front: the race is the cap read, not two inserts of one account.
+    await ledger.account_for(session, AccountKind.IDENTITY, worker.id)
+    station_ids, worker_id = [station.id for station in stations], worker.id
+    fuel_key = orders[0].payload["type_key"]
+    await session.commit()
+
+    _slow(monkeypatch, works, "paid_today")
+
+    async def pour_all(station_id) -> int:
+        async with factory() as db, db.begin():
+            place = await db.get(Node, station_id)
+            assert place is not None
+            return await works_city.pay_fuel_delivery(db, capped, place, fuel_key, 10.0, worker_id)
+
+    payments = await asyncio.gather(*(pour_all(one) for one in station_ids))
+    assert sum(payments) == 2 * city_part + fund_part, "the cap is per worker, not per order"
+
+
 async def _city_with_fuel_order(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> tuple[Node, str]:
@@ -458,7 +508,7 @@ async def test_poured_fuel_cannot_be_picked_back(
     fuel_stack = (
         (await session.execute(select(Item).where(Item.container_id == pocket.id))).scalars().one()
     )
-    await energy.fuel(session, constants, hauler_body, fuel_stack, 10)
+    await fuel_plant.fuel(session, constants, hauler_body, fuel_stack, 10)
     assert await _balance(session, hauler) > 0, "подвоз оплачен"
 
     yard = await world.node_container(session, station)

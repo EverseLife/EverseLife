@@ -50,12 +50,13 @@ class Automat(Base):
     #: consumed at payout, so the backlog is time, not matter.
     backlog: Mapped[float] = mapped_column(Numeric(12, 3), nullable=False, default=0)
 
-    #: Why the machine stands, aboard on its lines (D-288, D-340): the name of
+    #: Why the machine stands (D-288, D-340). Aboard on its lines: the name of
     #: the port that stopped it -- an inlet's line dry (`water`, `lube`), an
-    #: outlet full (`oxygen`), either with no line at all -- or `power` for
-    #: the hull's cells gone flat. NULL -- it works, or it is not on lines.
-    #: Kept so the crew is told once, when the reason appears or changes, and
-    #: not every minute it lasts.
+    #: outlet or a vent under air full (`oxygen`, `hydrogen`), any of them
+    #: with no line at all -- or `power` for the hull's cells gone flat. Off
+    #: the lines: `flare` -- its vent gas has nowhere safe to go. NULL -- it
+    #: works. Kept so whoever is owed the word is told once, when the reason
+    #: appears or changes, and not every minute it lasts.
     stall: Mapped[str | None] = mapped_column(nullable=True)
 
     #: Up to what moment work is computed. As with the rig: the machine lives

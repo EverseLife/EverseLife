@@ -142,6 +142,13 @@ liquid-no-room = в «{ NAME($vessel) }» свободно { NUMBER($free, minim
 liquid-vessel-not-here = «{ NAME($vessel) }» не в руках и не здесь
 liquid-vessel-not-yours = «{ NAME($vessel) }» не ваша: тарой в узле распоряжается его хозяин
 liquid-mixed = в «{ NAME($vessel) }» уже налито «{ NAME($have) }»: две жидкости в одну тару не смешивают
+# Сбросной газ (D-340): тару с ним опорожняют наружу, где нет воздуха, или в
+# факельную установку узла. Другую жидкость так не выливают.
+liquid-not-vent = в «{ NAME($vessel) }» налито «{ NAME($have) }»: выпускают или сжигают только сбросной газ, другие жидкости переливают в другую тару
+liquid-vent-nowhere = «{ NAME($goods) }» из «{ NAME($vessel) }» деть некуда: под небом с воздухом сбросной газ { $aboard ->
+        [true] с борта не выпускают, а факельной установки на корабле нет
+       *[other] не выпускают, а сжигают в факельной установке — в этом узле её нет
+    }
 
 # --- линии борта (engine/ship/lines.py, D-288) --------------------------------
 
@@ -156,15 +163,24 @@ oxygen-no-suit = в «{ $node }» нечем дышать: без «{ NAME($suit
 oxygen-tanks-empty = в «{ $node }» нечем дышать: в баллонах пусто, заправьтесь на борту
 oxygen-not-enough = на дорогу в «{ $node }» нужно { NUMBER($need, minimumFractionDigits: 1, maximumFractionDigits: 1) } кислорода, а в баллонах { NUMBER($have, minimumFractionDigits: 1, maximumFractionDigits: 1) }: переход кончится удушьем
 
-# --- холод (engine/frost.py) -------------------------------------------------
+# --- холод и пекло (engine/frost/) -------------------------------------------
 
-frost-node-frozen = «{ $node }» промёрз: «{ NAME($station) }» здесь не работает. Тепло даёт «{ NAME($plant) }», «{ NAME($heater) }» или «{ NAME($brazier) }» с топливом
+# $weather — климат планеты, ключ: frost (мерзлота, Аврора) или heat (пекло,
+# Пироксис). Механика одна, знак обратный: мёрзлый узел обогревают, а узел на
+# пекле не остудить ничем — прохладен только борт (D-230, D-231, D-233).
+frost-node-frozen = { $weather ->
+        [heat] узел «{ $node }» раскалён: «{ NAME($station) }» здесь не работает — остудить узел нельзя
+       *[frost] узел «{ $node }» промёрз: «{ NAME($station) }» здесь не работает. Тепло даёт «{ NAME($plant) }», «{ NAME($heater) }» или «{ NAME($brazier) }» с топливом
+    }
 frost-dead-warms = мёртвое тело не греется
 frost-asleep = тело спит: сначала проснуться
 frost-not-a-warmer = «{ NAME($goods) }» не греет: для этого есть «{ NAME($warmer) }»
 frost-warmer-from-hands = грелку достают из рук
 frost-no-cold-here = здесь не мёрзнут: греться незачем, а грелка одноразовая
-frost-reserve-full = теплозапас и так полон ({ NUMBER($have, minimumFractionDigits: 1, maximumFractionDigits: 1) } ч из { NUMBER($ceiling, minimumFractionDigits: 1, maximumFractionDigits: 1) }): грелку берегут на холод
+frost-reserve-full = { $weather ->
+        [heat] запас прохлады и так полон ({ NUMBER($have, minimumFractionDigits: 1, maximumFractionDigits: 1) } ч из { NUMBER($ceiling, minimumFractionDigits: 1, maximumFractionDigits: 1) }): сверх потолка не запасти
+       *[frost] теплозапас и так полон ({ NUMBER($have, minimumFractionDigits: 1, maximumFractionDigits: 1) } ч из { NUMBER($ceiling, minimumFractionDigits: 1, maximumFractionDigits: 1) }): грелку берегут на холод
+    }
 
 # --- энергия (engine/energy.py) ----------------------------------------------
 
@@ -252,6 +268,43 @@ auto-barred-input = «{ NAME($goods) }» не программируется: п
 auto-no-station-builds = «{ NAME($goods) }» — стройка: станции собирают руками, автомат их не строит
 auto-body-off-node = тело вне узла
 auto-link-self = «{ NAME($goods) }» сам себя не кормит: у провода два конца
+
+# --- полевой автомат (engine/agro, D-339) ------------------------------------
+
+agro-dead-works = мёртвое тело не работает
+agro-not-a-field-automat = «{ NAME($goods) }» — не полевой автомат
+agro-not-installed = «{ NAME($goods) }» лежит, а не стоит: полевой автомат работает установленным
+agro-not-here = полевой автомат стоит не здесь: программу задают на месте
+agro-not-entitled = полевой автомат программируют на своей земле
+agro-body-off-node = тело вне узла
+agro-machine-gone = «{ NAME($goods) }» — износ до конца, машина развалилась: программу загружать не во что
+agro-program-empty = в программе нет ни одной строки
+agro-program-long = программа длиннее { $steps ->
+        [one] { $steps } строки
+       *[other] { $steps } строк
+    }: столько автомат не держит
+agro-bad-command = строка { $line }: такой команды у автомата нет
+# Параметр — слово кода: подписью переводится здесь, а не в движке.
+agro-bad-parameter = строка { $line }: { $parameter ->
+        [culture] культура не задана или такой нет
+        [target] уставка влаги — число больше нуля и не выше ста
+        [goods] подкармливают удобрением
+        [stage] фаза подкормки — всходы, лист, цветение или налив
+        [days] сутки — число больше нуля
+       *[other] строку не разобрать
+    }
+agro-bad-days = строка { $line }: сутки — число больше нуля и не больше { $most }
+agro-program-idle = в программе одни уставки: без «Вспахать», «Посеять», «Убрать» или «Пар» автомату нечего делать
+agro-bad-plots = список делянок не читается
+agro-too-many-plots = один автомат обслуживает не больше { $most ->
+        [one] { $most } делянки
+       *[other] { $most } делянок
+    }
+agro-plot-not-yours = автомату отдают только свои делянки в узле, где он стоит
+agro-plot-small = делянка «{ $plot }» меньше { $min } м²: такую автомат не берёт
+agro-plot-taken = делянка «{ $plot }» уже на другом автомате
+agro-store-not-here = хранилище стоит не в этом дворе
+agro-not-a-store = «{ NAME($goods) }» — не хранилище для семян, удобрений и урожая
 
 # --- развалины Предтеч (engine/ruins.py) -------------------------------------
 

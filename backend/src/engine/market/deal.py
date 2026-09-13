@@ -16,7 +16,6 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants, current_catalog
@@ -44,7 +43,7 @@ from src.engine.market.match import _charges, _close, _hold, _match, _place, _tr
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState, Identity
 from src.models.job import Job, JobKind
-from src.models.ledger import AccountKind, LedgerAccount, PostingReason
+from src.models.ledger import AccountKind, PostingReason
 from src.models.market import (
     Order,
     OrderSide,
@@ -199,9 +198,7 @@ async def reserve(
     #: orders; a reservation by the same identity from a second socket must
     #: take them in the same order, or the two deadlock.
     account = await ledger.account_for(session, AccountKind.IDENTITY, identity.id)
-    await session.execute(
-        select(LedgerAccount.id).where(LedgerAccount.id == account.id).with_for_update()
-    )
+    await ledger.lock_accounts(session, [account.id])
     #: The order row is locked and reread before its remainder is read: two
     #: buyers reserving the last ten at once must queue, not both succeed
     #: (review 2026-08-23).

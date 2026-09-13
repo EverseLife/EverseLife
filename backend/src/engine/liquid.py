@@ -133,10 +133,20 @@ async def locked_stacks(
     type_keys: Iterable[str],
     *,
     worst_first: bool = False,
+    barred: Iterable[str] = (),
 ) -> list[Item]:
-    """`stock.locked_stacks` over the container and the vessels in it."""
+    """`stock.locked_stacks` over the container and the vessels in it.
+
+    `barred` names what is taken only out of the vessels, never off the
+    container itself (`stock.locked_stacks`).
+    """
+    names = tuple(barred)
     return await stock.locked_stacks(
-        session, await reach(session, catalog, container), type_keys, worst_first=worst_first
+        session,
+        await reach(session, catalog, container),
+        type_keys,
+        worst_first=worst_first,
+        barred=(container.id, names) if names else None,
     )
 
 
@@ -260,18 +270,36 @@ async def room_in(
 
     Locked by default, like `room_for`, so that an answer may be acted on in
     the same transaction; a forecast passes `lock=False` and reads. A vessel
-    holding another liquid takes none of it (D-288).
+    holding another liquid takes none of it (D-288). Counted by `room_seen`
+    either way: one arithmetic for the door that refuses and the window and
+    "as much as fits" that show it.
     """
     if not is_liquid(catalog, type_key) or not vessels:
         return 0.0
     if lock:
         await _lock(session, *vessels)
+    return await room_seen(session, catalog, vessels, type_key)
+
+
+async def room_seen(
+    session: AsyncSession, catalog: Catalog, vessels: Sequence[Item], type_key: str
+) -> float:
+    """`room_in` for a reading: how many units of this liquid these vessels
+    take together, their contents read in two queries for all of them and
+    nothing locked -- what a window shows and a forecast caps by, asked while
+    the player is still choosing. A vessel admits liquids alone, so what lies
+    in one is the whole of its load: no nested storage to walk into."""
+    if not is_liquid(catalog, type_key) or not vessels:
+        return 0.0
+    held = await storage.contents_of(session, vessels)
     unit = catalog.recipes.mass_of(type_key)
     free = 0.0
     for vessel in vessels:
-        if not await takes(session, vessel, type_key):
+        inside = held.get(vessel.id, [])
+        if any(one.type_key != type_key for one in inside):
             continue
-        free += max(0.0, await free_in(session, catalog, vessel))
+        load = sum(gear.mass_of(catalog, one.type_key, amount_float(one.amount)) for one in inside)
+        free += max(0.0, (storage.capacity(catalog, vessel.type_key) or 0.0) - load)
     return free if unit <= 0 else free / unit
 
 
@@ -355,8 +383,8 @@ async def pour(
     if node is None:  # pragma: no cover -- a body always stands in a node
         raise LiquidError(key="liquid-body-off-node")
     pocket = await world.body_container(session, body)
-    await _within_reach(session, catalog, body, node, pocket, source)
-    await _within_reach(session, catalog, body, node, pocket, target)
+    await within_reach(session, catalog, body, node, pocket, source)
+    await within_reach(session, catalog, body, node, pocket, target)
 
     #: Both vessels under lock, in id order, before the free space is read:
     #: the space is what the pour is sized by, a second hose must see this
@@ -420,7 +448,7 @@ async def pour(
     return liquid_name, poured
 
 
-async def _within_reach(
+async def within_reach(
     session: AsyncSession,
     catalog: Catalog,
     body: Body,

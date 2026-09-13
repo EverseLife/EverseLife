@@ -512,8 +512,9 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
 
     #: The air, and only where there is none (D-233, D-234). The second scale
     #: beside the cold and told the same way: the level, the rate and the stamp,
-    #: with the client counting the hand. Absent on Terra and Aurora -- for
-    #: everybody, always -- by the same rule as the key above.
+    #: with the client counting the hand. Absent on the ground of Terra and
+    #: Aurora -- for everybody, always -- by the same rule as the key above;
+    #: present in their orbits, which are the void (D-245).
     air = await oxygen.view(db, constants, current_catalog(), body, node)
     if air is not None:
         seen["air"] = air

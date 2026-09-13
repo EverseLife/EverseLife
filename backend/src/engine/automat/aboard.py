@@ -8,9 +8,12 @@ the vessels standing in the yard, a liquid output into them (D-253). Aboard
 the hull is one building, and the air machine -- the reactor programmed with
 the air -- works through its ports instead: water and lubricant from the
 vessels on their lines, oxygen into the vessels on its outlet in line order,
-hydrogen into the vessels on its vent and overboard when they are full or
-there are none. The four limiters are the same four: lubricant, inputs, room
-and electricity (the hull's cells, the bus of D-288).
+hydrogen into the vessels on its vent. What the vent cannot take goes where
+`engine.vent` sends it (D-340): overboard from a sealed hull, and nowhere
+from a hull set down under a sky with air -- a hull has no flare, so there
+the vent line binds like the outlet. The limiters are the same four --
+lubricant, inputs, room and electricity (the hull's cells, the bus of
+D-288) -- with the vent's room counted in the room under air.
 
 **Stalls are told once.** Standing still is not an error -- it is the
 enterprise's obligation -- but a crew that is not told the air machine stopped
@@ -35,10 +38,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import battery, events, liquid, stock, wear, world
+from src.engine import battery, events, liquid, stock, vent, wear, world
 from src.engine import ship as vessels
+from src.engine.automat import bill as energy_bill
 from src.engine.automat._base import LUBE
-from src.engine.automat.bill import draw_energy
 from src.engine.craft import Procedure
 from src.engine.ship import lines
 from src.models.automat import Automat as AutomatRow
@@ -70,11 +73,14 @@ async def advance_on_lines(
     hours: float,
     unit_hours: float,
     now: datetime,
+    tab: energy_bill.Tab | None = None,
 ) -> float:
     """Advance a plumbed automat by `hours`. Returns the units paid out.
 
     The caller holds the row, has charged the wear and knows the programme;
-    this is the stretch itself, as `run.advance` does it on the ground.
+    this is the stretch itself, as `run.advance` does it on the ground -- the
+    energy too: drawn here for a command, promised on the tick's `tab` and
+    drawn by the tick once every machine has worked (`bill.pay`).
     """
     book = catalog.recipes
     ports = {
@@ -85,7 +91,10 @@ async def advance_on_lines(
 
     #: Every stack the stretch touches in ONE query and one lock order: the
     #: plumbed liquids off their lines, anything else off the yard (the air
-    #: has nothing else, and a second recipe on lines would).
+    #: has nothing else, and a second recipe on lines would). No fuel plant's
+    #: pile is kept out here (D-342, `run.advance`): water and lubricant come
+    #: off the lines, and a second recipe on lines that burns a fuel off the
+    #: yard must bar the pile the way the ground does.
     lube_names = tuple(sorted(world.station_names(LUBE)))
     loose = [name for name in proc.per_unit if name not in plumbed.inlets]
     yard_reach = await liquid.reach(session, catalog, yard) if loose else []
@@ -128,14 +137,32 @@ async def advance_on_lines(
     )
     room_hours = max(0.0, (room_units - backlog) * unit_hours)
 
+    #: The hydrogen (D-340): a sealed hull lets what its vent line cannot take
+    #: go overboard, and nothing binds. Under a sky with air a hull has no
+    #: flare and may not release it: the vent line is the only place, and its
+    #: room is counted before the stretch, like the outlet's -- never "made,
+    #: then let out into the air".
+    let_out = await vent.sink(session, node) is not None
+    vent_units: dict[str, float] = {}
+    if not let_out:
+        for name, per in vent.gases_of(catalog, proc.output).items():
+            room = await liquid.room_in(
+                session, catalog, plumbed.vents.get(name, []), name, lock=False
+            )
+            vent_units[name] = room / per
+
     #: Which limiter binds, by the name the crew is told: the lubricant's
-    #: port, the input that runs out first, the outlet.
+    #: port, the input that runs out first, the outlet, the vent.
     limits = [
         (name, value)
         for name, value in (
             (lines.LUBE_PORT, lube_hours),
             (short_of, input_hours),
             (proc.output, room_hours),
+            *(
+                (name, max(0.0, (units - backlog) * unit_hours))
+                for name, units in vent_units.items()
+            ),
         )
         if name is not None
     ]
@@ -143,25 +170,51 @@ async def advance_on_lines(
     stall = min(limits, key=lambda one: one[1])[0] if worked + _EPS < hours else None
 
     energy_rate = constants[R.AUTO_ENERGY_PER_HOUR]
+    bill: energy_bill.Bill | None = None
     if worked > 0 and energy_rate > 0:
-        powered = await draw_energy(session, constants, row, node, worked, energy_rate, now=now)
+        if tab is None:
+            powered = await energy_bill.draw(
+                session, constants, row.owner_identity_id, node, worked, energy_rate, now=now
+            )
+        else:
+            bill = await energy_bill.promise(
+                session, constants, row, node, worked, energy_rate, now=now, tab=tab
+            )
+            if bill is not None and lube_rate > 0 and amount(lube_rate * bill.hours) <= 0:
+                #: A sliver the lubricant cannot be measured for is no work:
+                #: hours that burn nothing are not hours (D-339 p. 8).
+                bill = None
+            powered = 0.0 if bill is None else bill.hours
         #: Short by more than rounding, and with the cells really spent: a
         #: stack of cells rounds its charge a thousandth a cell, and a minute's
         #: draw off thirty of them comes back a little short of what was asked
         #: with charge still in them (review 2026-09-13).
         if powered + _EPS < worked and (
-            await battery.charge_in(session, constants, node, now=now) < energy_rate * _EPS
+            await _left_in_cells(session, constants, node, tab, powered * energy_rate, now=now)
+            < energy_rate * _EPS
         ):
             stall = POWER
         worked = powered
 
     produced = 0.0
     if worked > 0:
-        progress = min(backlog + worked / unit_hours, units_by_inputs, room_units)
+        progress = min(
+            backlog + worked / unit_hours, units_by_inputs, room_units, *vent_units.values()
+        )
         paid = progress
         if paid > 0:
             await _pay_out(
-                session, constants, catalog, row, machine, yard, proc, plumbed, paid, by_name
+                session,
+                constants,
+                catalog,
+                row,
+                machine,
+                yard,
+                proc,
+                plumbed,
+                paid,
+                by_name,
+                let_out=let_out,
             )
             produced = paid
             if row.owner_identity_id is not None:
@@ -180,7 +233,34 @@ async def advance_on_lines(
     await _tell(session, row, machine, plumbed, ports, stall)
     row.counted_at = now
     await session.flush()
+    #: Written down only once the machine's whole advance has gone through,
+    #: as on the ground: a machine that fails after its forecast leaves no bill.
+    if bill is not None and tab is not None:
+        tab.add(bill)
     return produced
+
+
+async def _left_in_cells(
+    session: AsyncSession,
+    constants: Constants,
+    node: Node,
+    tab: energy_bill.Tab | None,
+    taking: float,
+    *,
+    now: datetime,
+) -> float:
+    """The charge the hull's cells keep once this machine has had its share.
+
+    For a command the draw has happened and the cells say it themselves. On
+    the tick nothing is drawn yet: what the pass's earlier bills left of the
+    supply (`bill.Tab.supplies`, read once a pass) less this machine's own
+    promise -- the cells as they stand would still hold the charge the bills
+    before it are about to take.
+    """
+    supply = None if tab is None else tab.supplies.get(battery.hull_of(node))
+    if supply is None:
+        return await battery.charge_in(session, constants, node, now=now)
+    return supply - taking
 
 
 async def _pay_out(
@@ -194,12 +274,15 @@ async def _pay_out(
     plumbed: lines.Plumbing,
     paid: float,
     by_name: dict[str, list[Item]],
+    *,
+    let_out: bool,
 ) -> None:
     """Consume the inputs for `paid` units and pour the output down the lines.
 
     The oxygen into its outlet in line order: the room was counted under the
     vessels' locks, so nothing spills but what a race the locks forbid would
-    spill. The hydrogen into its vent, and the rest overboard without a word.
+    spill. The hydrogen into its vent, and -- from a sealed hull -- the rest
+    overboard without a word; under air its room was counted the same way.
     """
     for name, per in proc.per_unit.items():
         if per > 0:
@@ -226,7 +309,16 @@ async def _pay_out(
         )
         session.add(extra)
         await session.flush()
-        await liquid.fill_or_drop(session, catalog, extra, plumbed.vents.get(name, []))
+        dropped = await liquid.fill_or_drop(session, catalog, extra, plumbed.vents.get(name, []))
+        if dropped > 0 and not let_out:  # pragma: no cover -- the vessels are locked
+            await events.record(
+                session,
+                EventKind.STORAGE_SPILLED,
+                node_id=row.node_id,
+                automat=str(row.id),
+                spilled=dropped,
+                goods=name,
+            )
 
 
 async def _tell(
@@ -246,7 +338,9 @@ async def _tell(
     port = ports.get(stall)
     if stall == POWER:
         kind, goods = EventKind.SHIP_MACHINE_UNPOWERED, machine.type_key
-    elif port is not None and port in plumbed.dry:
+    elif port is not None and (
+        port in plumbed.dry or (port.way == lines.VENT and not plumbed.vents.get(port.liquids[0]))
+    ):
         #: No line at all is not an empty tank nor a full one: the word says
         #: what to do -- draw one.
         kind, goods = EventKind.SHIP_MACHINE_UNLINED, port.liquids[0]

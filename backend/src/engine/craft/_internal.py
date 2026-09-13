@@ -165,6 +165,17 @@ async def _prepare(
     )
     picks = _pick(stock, required)
     await plumbing.require_room(session, catalog, plumbed, proc.output, units, lock=lock)
+    #: The vent gas must have somewhere safe to go (D-340): its line, out where
+    #: there is no air, the node's flare where there is -- or no batch.
+    await plumbing.require_vent(
+        session,
+        catalog,
+        await session.get(Node, body.node_id),
+        plumbed,
+        proc.output,
+        units,
+        lock=lock,
+    )
     minutes = batch_minutes(constants, proc, units, wear.effective(constants, station))
     #: Electricity for a machine on it (D-269): the forecast reads it here, the
     #: start draws it -- one arithmetic for both, like everything in this flow.

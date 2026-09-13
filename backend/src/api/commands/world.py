@@ -294,6 +294,7 @@ TOLD = frozenset(
         EventKind.PLOT_DIED.value,
         EventKind.PLOT_RIPENED.value,
         EventKind.PLOT_STRUCK.value,
+        EventKind.AGRO_STALLED.value,
         EventKind.BODY_DIED.value,
         EventKind.BODY_PRINTED.value,
         EventKind.MINING_COLLAPSED.value,
@@ -328,5 +329,7 @@ TOLD = frozenset(
         EventKind.SHIP_MACHINE_FULL.value,
         EventKind.SHIP_MACHINE_UNPOWERED.value,
         EventKind.SHIP_MACHINE_UNLINED.value,
+        #: An automat on the ground standing for want of a flare (D-340).
+        EventKind.AUTOMAT_NO_FLARE.value,
     }
 )

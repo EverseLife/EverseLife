@@ -10,13 +10,15 @@ Checked is what the owner decided and what the wave had to settle:
   lubricant through a port of its own; the reading says which way each runs;
 * a manual batch aboard drinks its water from its line and nowhere else,
   pours its oxygen into its outlet in line order and its hydrogen into its
-  vent, and what the vent cannot take goes overboard without a spill;
+  vent, and -- from a sealed hull -- what the vent cannot take goes overboard
+  without a spill;
 * a port without a line and an outlet without room refuse the batch before
   anything is spent;
-* on the ground the hydrogen goes where the oxygen goes, and past it into the air;
-* the reactor aboard works by itself on its lines, keeps working with its
-  hydrogen going overboard, and stands for a full outlet, a dry line or flat
-  cells -- telling the crew once when the reason appears or changes;
+* the reactor aboard a sealed hull works by itself on its lines, keeps working
+  with its hydrogen going overboard, and stands for a full outlet, a dry line
+  or flat cells -- telling the crew once when the reason appears or changes;
+* under a sky with air the hull keeps its hydrogen in its vent line only
+  (`test_lines_vent.py`), and on the ground it burns in a flare (`test_vent.py`);
 * the catch-up of 2026-09-04 never plumbs the new ports;
 * two ticks of one reactor, and a tick racing a hand into one tank, keep the
   amounts whole.
@@ -31,62 +33,43 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from conftest import _slow
-from lines_kit import BATTERY, CANISTER, CYLINDER, WATER, _empty, _held, _hull, _room, _vessel
+from lines_kit import (
+    AIR,
+    CANISTER,
+    CYLINDER,
+    ELECTROLYSER,
+    HYDROGEN,
+    LUBRICANT,
+    REACTOR,
+    WATER,
+    _cells,
+    _empty,
+    _events,
+    _finish,
+    _held,
+    _hull,
+    _learned,
+    _room,
+    _seal,
+    _stacks,
+    _vessel,
+)
 from ship_kit import TANK, _equip
 from src.constants import Catalog, Constants
-from src.engine import automat, battery, craft, liquid, ship, stock, storage, world
+from src.constants import registry as R
+from src.engine import automat, craft, liquid, ship, stock, storage, world
 from src.engine.craft import plumbing
 from src.engine.ship import lines
 from src.models.automat import Automat as AutomatRow
-from src.models.event import Event, EventKind
-from src.models.identity import Body, Identity
+from src.models.event import EventKind
+from src.models.identity import Body
 from src.models.inventory import Item
-from src.models.job import Job, JobKind
-from src.models.world import Layer, Node
+from src.models.world import Node
 
-AIR = "oxygen"
-HYDROGEN = "hydrogen"
-LUBRICANT = "lubricant"
-ELECTROLYSER = "electrolyzer"
-REACTOR = "auto_reactor"
 UNIT = "hydroponic_unit"
-
-
-async def _cells(session: AsyncSession, constants: Constants, node: Node) -> Item:
-    """A battery standing in the room, full: the hull's bus (D-288)."""
-    yard = await world.node_container(session, node)
-    cell = await world.grant_item(session, yard, BATTERY, quality=60, origin="тест")
-    cell.charge = Decimal(str(battery.capacity(constants)))
-    cell.charged_at = datetime.now(UTC)
-    await session.flush()
-    return cell
-
-
-async def _learned(session: AsyncSession, body: Body, key: str = AIR) -> Identity:
-    identity = await session.get(Identity, body.identity_id)
-    await world.learn(session, identity, key)
-    return identity
-
-
-async def _events(session: AsyncSession, kind: EventKind) -> list[Event]:
-    return list((await session.execute(select(Event).where(Event.kind == kind))).scalars().all())
-
-
-async def _stacks(session: AsyncSession, type_key: str) -> float:
-    rows = (await session.execute(select(Item).where(Item.type_key == type_key))).scalars().all()
-    return sum(float(one.amount) for one in rows) / 1000
-
-
-async def _finish(session: AsyncSession) -> None:
-    """Land the batch's job by hand: the test is one transaction."""
-    job = (
-        (await session.execute(select(Job).where(Job.kind == JobKind.CRAFT_BATCH))).scalars().one()
-    )
-    await craft.finish(session, job)
 
 
 # --- the ports ----------------------------------------------------------------
@@ -141,10 +124,15 @@ async def test_the_reading_says_which_way_each_port_runs_and_why_a_machine_stand
 # --- the manual batch aboard -----------------------------------------------------
 
 
-async def _electrolysis_bay(session: AsyncSession, constants: Constants, catalog: Catalog):
+async def _electrolysis_bay(
+    session: AsyncSession, constants: Constants, catalog: Catalog, *, sealed: bool = True
+):
     """A hull with an electrolyser at the bridge, cells in the hold, water on
-    a line, two cylinders on the oxygen outlet and one on the hydrogen vent."""
+    a line, two cylinders on the oxygen outlet and one on the hydrogen vent.
+    Cast off into the void unless asked to stay in port under the sky of Terra."""
     vessel, body, connector = await _hull(session, constants, foundations=2)
+    if sealed:
+        _seal(vessel)
     hold = await _room(session, constants, body, vessel)
     machine = await _equip(session, connector, ELECTROLYSER)
     await _cells(session, constants, hold)
@@ -227,46 +215,18 @@ async def test_a_port_without_a_line_or_an_outlet_without_room_refuses_before_an
     )
 
 
-async def test_on_the_ground_the_hydrogen_goes_into_the_air(
-    session: AsyncSession, constants: Constants, catalog: Catalog
-) -> None:
-    """Not aboard there are no lines: the oxygen pours into a vessel in the
-    hands, and the hydrogen goes into the air -- it does not claim the spare
-    cylinder for good, and nothing is said as spilled (review 2026-09-13)."""
-    stamp = uuid.uuid4().hex[:8]
-    node = await world.create_node(
-        session, f"terra.lab.{stamp}", "Лаборатория", area_m2=200, layer=Layer.PLANET
-    )
-    identity = await world.create_identity(session, f"Химик-{stamp}")
-    body = await world.print_body(session, identity, node)
-    yard = await world.node_container(session, node)
-    await world.grant_item(session, yard, ELECTROLYSER, quality=60, origin="тест")
-    await _cells(session, constants, node)
-    await world.learn(session, identity, AIR)
-    pocket = await world.body_container(session, body)
-    can = await world.grant_item(session, pocket, CANISTER, quality=60, origin="тест")
-    await world.grant_item(
-        session, await storage.inside(session, can), WATER, amount=100, quality=60, origin="тест"
-    )
-    bottle = await world.grant_item(session, pocket, CYLINDER, quality=60, origin="тест")
-    spare = await world.grant_item(session, pocket, CYLINDER, quality=60, origin="тест")
-
-    await craft.start(session, constants, catalog, body, AIR, 1)
-    await _finish(session)
-    held = [await storage.content(session, one) for one in (bottle, spare)]
-    kinds = sorted(tuple(stack.type_key for stack in stacks) for stacks in held)
-    assert kinds == [(), (AIR,)], "кислород в одном баллоне, второй пуст"
-    assert await _stacks(session, HYDROGEN) == 0, "водород ушёл в воздух"
-    assert await _events(session, EventKind.STORAGE_SPILLED) == []
-
-
 # --- the reactor aboard ------------------------------------------------------------
 
 
-async def _reactor_bay(session: AsyncSession, constants: Constants, catalog: Catalog):
+async def _reactor_bay(
+    session: AsyncSession, constants: Constants, catalog: Catalog, *, sealed: bool = True
+):
     """A hull with the reactor programmed with the air, its water and lubricant
-    on lines, one cylinder on the outlet and no line on the hydrogen."""
+    on lines, one cylinder on the outlet and no line on the hydrogen. Cast off
+    into the void unless asked to stay in port under the sky of Terra."""
     vessel, body, connector = await _hull(session, constants, foundations=2)
+    if sealed:
+        _seal(vessel)
     hold = await _room(session, constants, body, vessel)
     reactor = await _equip(session, connector, REACTOR)
     cell = await _cells(session, constants, hold)
@@ -300,6 +260,66 @@ async def test_the_reactor_aboard_works_on_its_lines_and_vents_its_hydrogen(
     assert await _held(session, lube) < 50, "смазка ушла с линии"
     assert await _stacks(session, HYDROGEN) == 0, "водород за бортом, машина работает"
     assert row.stall is None
+
+
+async def test_the_tick_works_the_reactor_aboard_and_draws_the_hull_cells_after(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """On the world's tick the energy is promised per machine and drawn once
+    every machine has worked (`bill.pay`): the reactor on its lines goes the
+    same way, its cells drained by the pass, and flat cells are "flat" by what
+    the pass has left of them, not by the charge the bills are about to take."""
+    vessel, body, reactor, row, cell, water, lube, bottle = await _reactor_bay(
+        session, constants, catalog
+    )
+    full = float(cell.charge)
+    moment = row.counted_at + timedelta(minutes=30)
+    made = await automat.tick_automats(session, constants, now=moment)
+    await session.refresh(cell)
+    await session.refresh(row)
+    assert made > 0
+    assert await _held(session, bottle) == pytest.approx(made, abs=0.002)
+    assert float(cell.charge) < full, "ячейки корпуса списаны тиком"
+    assert row.stall is None
+
+    cell.charge = Decimal(0)
+    await session.flush()
+    await automat.tick_automats(session, constants, now=moment + timedelta(minutes=10))
+    await session.refresh(row)
+    assert row.stall == "power"
+    (flat,) = await _events(session, EventKind.SHIP_MACHINE_UNPOWERED)
+    assert flat.payload["goods"] == REACTOR
+
+
+async def test_two_reactors_on_one_hull_share_the_cells_the_tick_promised(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Charge for a machine and a half: the first reactor of the pass promises
+    its whole stretch, the second what is left, and the second is "flat" by
+    the pass's own reading of the supply -- the cells as they stand still hold
+    the charge the first bill is about to take, and asked alone they would let
+    the second stand without a word."""
+    vessel, body, reactor, row, cell, water, lube, bottle = await _reactor_bay(
+        session, constants, catalog
+    )
+    bridge = await session.get(Node, vessel.connector_node_id)
+    second = await _equip(session, bridge, REACTOR)
+    other_bottle = await _empty(session, bridge)
+    await ship.set_lines(session, constants, catalog, body, vessel, second, WATER, [water])
+    await ship.set_lines(session, constants, catalog, body, vessel, second, "lube", [lube])
+    await ship.set_lines(session, constants, catalog, body, vessel, second, AIR, [other_bottle])
+    other = await automat.program(session, constants, catalog, body, second, AIR)
+    rate = constants[R.AUTO_ENERGY_PER_HOUR]
+    other.counted_at = row.counted_at
+    cell.charge = Decimal(str(rate * 0.75))
+    await session.flush()
+
+    await automat.tick_automats(session, constants, now=row.counted_at + timedelta(minutes=30))
+    await session.refresh(row)
+    await session.refresh(other)
+    assert sorted([row.stall or "", other.stall or ""]) == ["", "power"], "встала вторая"
+    (flat,) = await _events(session, EventKind.SHIP_MACHINE_UNPOWERED)
+    assert flat.payload["goods"] == REACTOR
 
 
 async def test_the_reactor_stands_and_tells_the_crew_once_per_reason(
@@ -537,7 +557,9 @@ async def test_the_beds_and_the_reactor_share_two_cylinders_drawn_the_other_way_
     from src.models.farm import Plot, PlotState
 
     async with factory() as session, session.begin():
-        vessel, body, reactor, row, _, _, _, _ = await _reactor_bay(session, constants, catalog)
+        vessel, body, reactor, row, _, _, _, _ = await _reactor_bay(
+            session, constants, catalog, sealed=False
+        )
         rooms = await ship.nodes_of(session, vessel)
         bay = rooms[-1]
         low, high = sorted(

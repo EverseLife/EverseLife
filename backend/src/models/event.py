@@ -62,6 +62,16 @@ class EventKind(StrEnum):
     AUTOMAT_STOPPED = "automat.stopped"
     AUTOMAT_LINKED = "automat.linked"
     AUTOMAT_UNLINKED = "automat.unlinked"
+    #: An automat on the ground stood because its vent gas had nowhere to go
+    #: (D-340): air outside and no flare stack in the node. Said once, when
+    #: the reason appears, to whoever programmed it.
+    AUTOMAT_NO_FLARE = "automat.no_flare"
+
+    # the field automaton: a programme of commands over plots (D-339)
+    AGRO_PROGRAMMED = "agro.programmed"
+    AGRO_STOPPED = "agro.stopped"
+    #: The machine stands with a new trouble: no energy, no water, a full store...
+    AGRO_STALLED = "agro.stalled"
 
     # mining (D-143)
     MINING_STARTED = "mining.started"
@@ -280,6 +290,9 @@ class EventKind(StrEnum):
     #: batch ended in a liquid and no vessel within reach had room for it.
     STORAGE_POURED = "storage.poured"
     STORAGE_SPILLED = "storage.spilled"
+    #: A vessel emptied of its vent gas by hand (D-340): let out where there
+    #: is no air, burned in the node's flare where there is (`way`).
+    STORAGE_VENTED = "storage.vented"
 
     #: Put down on the floor of a place and picked up from it (D-192).
     ITEM_DROPPED = "item.dropped"

@@ -305,6 +305,10 @@ class Plan:
     #: question that does not arise (D-225).
     energy: float | None = None
     price: int | None = None
+    #: Where each liquid of the batch goes and the room it finds there now
+    #: (D-340, `craft.outlet`): shown, not reserved. Absent for a batch that
+    #: gives no liquid.
+    outlets: tuple[dict[str, object], ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)

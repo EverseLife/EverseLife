@@ -30,7 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import current, current_catalog
 from src.constants import registry as R
 from src.engine import (
-    automat,
+    agro,
     bank,
     chat,
     craft,
@@ -126,8 +126,11 @@ async def _energy(session: AsyncSession, now: datetime) -> dict[str, Any]:
 async def _automats(session: AsyncSession, now: datetime) -> dict[str, Any]:
     #: The automat does not sleep either (D-253): it drinks lubricant, draws
     #: the pool and fills the yard while the owner is busy elsewhere. Any of
-    #: the three runs out -- it stands.
-    return {"automat_made": await automat.tick_automats(session, current(), now=now)}
+    #: the three runs out -- it stands. The field automaton (D-339) is of the
+    #: family and works in the same step on the same tab: two steps promising
+    #: one pool side by side would both promise its last hour.
+    minute = await agro.tick_machines(session, current(), now=now)
+    return {"automat_made": minute.made, "field_actions": minute.actions}
 
 
 async def _rigs(session: AsyncSession, now: datetime) -> dict[str, Any]:

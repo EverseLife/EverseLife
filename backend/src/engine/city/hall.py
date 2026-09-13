@@ -72,4 +72,6 @@ async def require_at_hall(session: AsyncSession, body, city: City) -> None:
     from src.engine import frost  # noqa: PLC0415 -- lazy: breaks the import cycle with frost
 
     if not await frost.is_warm(session, current(), node):
-        raise NotAllowed(key="city-hall-frozen", node=node.name)
+        raise NotAllowed(
+            key="city-hall-frozen", node=node.name, weather=await frost.climate_of(session, node)
+        )

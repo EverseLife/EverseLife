@@ -57,11 +57,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Constants
 from src.constants import registry as R
 from src.db.base import remember
-from src.engine import events, frost, ledger, stock, travel, world
+from src.engine import events, frost, ledger, stock, world
 from src.engine.errors import Refusal
 from src.models.energy import EnergyPool
 from src.models.event import EventKind
-from src.models.identity import Body, BodyState
+from src.models.identity import Body
 from src.models.inventory import Container, ContainerKind, Item
 from src.models.ledger import AccountKind, PostingReason
 from src.models.world import Layer, Node, built_up
@@ -202,22 +202,18 @@ async def pool_of(
     node: Node,
     *,
     create: bool = True,
-    lock: bool = False,
 ) -> EnergyPool | None:
-    """This node's city pool. Created on first need.
+    """This node's city pool. Created on first need, never locked here.
 
-    `lock` takes the row for the transaction. Everything that **moves** the
-    stored energy asks for it: the pool is a remainder like money and grain
-    (CLAUDE.md), and without the lock two charges read the same hundred and
-    both spend it. Reads (`look`, the beacon, warmth) never lock and never
-    create -- a glance at a place must not write to it.
+    The pool is a remainder like money and grain (CLAUDE.md): whatever moves
+    the stored energy locks the row through `produce`, after the city's fuel.
+    Reads (`look`, the beacon, warmth) never create -- a glance at a place must
+    not write to it.
     """
     city = await grid_node(session, node)
     if city is None:
         return None
     stmt = select(EnergyPool).where(EnergyPool.node_id == city.id)
-    if lock:
-        stmt = stmt.with_for_update().execution_options(populate_existing=True)
     found = (await session.execute(stmt)).scalar_one_or_none()
     if found is not None or not create:
         return found
@@ -247,8 +243,52 @@ async def produce(
     taken off in the same pass (D-231) -- generation and consumption share one
     stamp, and two passes over one city would sooner or later disagree about
     the hours.
+
+    **This is where the pool's row is locked**, and whatever moves the stored
+    energy calls it first. After the fuel: the piles the city's plants burn
+    are stacks of goods, and goods come before their pool -- a bench takes its
+    inputs and then draws, the automats' tick holds its factories' stacks and
+    draws at the end (`automat.bill`). Cells come after it (`charge_battery`,
+    `bill.pay`). A pool held while the plant's coal was waited for deadlocked
+    with a smelter eating that coal.
     """
     moment = now or datetime.now(UTC)
+    #: In node order: the frost step locks the same yards for its braziers in
+    #: the same order, and two orders over one set of stacks are a deadlock
+    #: waiting for a busy world. None where the pool is counted to this moment
+    #: already (the automats' tick draws at the energy step's `now`): a stamp never goes back.
+    nodes = (
+        []
+        if pool.counted_at >= moment
+        else (
+            await session.execute(
+                select(Node).where(Node.parent_id == pool.node_id).order_by(Node.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    fuels: dict[str, float] = constants[R.ENERGY_FUEL_ENERGY]
+    fuel_plants = set(world.station_names(FUEL_PLANT))
+    #: What stands (D-278): a wheel lying in the yard turns nothing. Read with
+    #: the piles, before the row: a plant put up in between burns from the
+    #: next pass, having stood for none of these hours.
+    floors: list[tuple[Node, list[Item], int, list[Item]]] = []
+    for node in nodes:
+        yard = await world.node_container(session, node)
+        machines = list(
+            (
+                await session.execute(
+                    select(Item).where(Item.container_id == yard.id, Item.installed.is_(True))
+                )
+            )
+            .scalars()
+            .all()
+        )
+        plants = sum(1 for machine in machines if machine.type_key in fuel_plants)
+        tank = await stock.locked_stacks(session, yard.id, fuels) if plants else []
+        floors.append((node, machines, plants, tank))
+
     #: The row is taken for the transaction before anything is counted on it:
     #: the tick fills the pool while a player spends it, and both write the
     #: number they read (CLAUDE.md, review 2026-08-23).
@@ -259,18 +299,6 @@ async def produce(
         return 0.0
 
     dice = rng or random.Random(f"{pool.node_id}:{int(moment.timestamp())}")
-    #: In node order: the frost step locks the same yards for its braziers in
-    #: the same order, and two orders over one set of stacks are a deadlock
-    #: waiting for a busy world.
-    nodes = (
-        (
-            await session.execute(
-                select(Node).where(Node.parent_id == pool.node_id).order_by(Node.id)
-            )
-        )
-        .scalars()
-        .all()
-    )
     #: Heat is charged only where there is a climate (D-231): a heater standing
     #: in a Terran yard heats nothing, and a pool must not pay for it.
     city = await session.get(Node, pool.node_id)
@@ -286,23 +314,10 @@ async def produce(
     #: counted in the same pass as generation: two passes over one city with
     #: one stamp between them would sooner or later disagree about the hours.
     heat = 0.0
-    for node in nodes:
-        yard = await world.node_container(session, node)
-        #: What stands (D-278): a wheel lying in the yard turns nothing.
-        machines = (
-            (
-                await session.execute(
-                    select(Item).where(Item.container_id == yard.id, Item.installed.is_(True))
-                )
-            )
-            .scalars()
-            .all()
-        )
+    wheels = set(world.station_names(WHEEL))
+    windmills = set(world.station_names(WINDMILL))
+    for node, machines, plants, tank in floors:
         river = world.has_place(node, world.WATER)
-
-        wheels = set(world.station_names(WHEEL))
-        windmills = set(world.station_names(WINDMILL))
-        fuel_plants = set(world.station_names(FUEL_PLANT))
         standing: dict[str, float] = {}
         for machine in machines:
             #: By amount, not by row: two identical stoves nobody has touched
@@ -315,8 +330,9 @@ async def produce(
             elif machine.type_key in windmills:
                 wind = constants[R.ENERGY_WINDMILL_RATE]
                 added += dice.uniform(wind.min, wind.max) * elapsed
-            elif machine.type_key in fuel_plants:
-                added += await _burn_fuel(session, constants, yard.id, elapsed)
+        if plants:
+            #: Every plant of the yard eats its own draw off the one pile.
+            added += await _burn_fuel(session, constants, tank, elapsed * plants)
         if cold:
             #: Two purses (D-232): what the Forerunners left is paid by their
             #: reactor, what people built is paid by the city.
@@ -358,9 +374,9 @@ async def produce(
 
 
 async def _burn_fuel(
-    session: AsyncSession, constants: Constants, container_id: uuid.UUID, hours: float
+    session: AsyncSession, constants: Constants, stacks: list[Item], hours: float
 ) -> float:
-    """Burn fuel from the node and return the generation. No fuel -- the station stands.
+    """Burn fuel off the node's locked pile, return the generation. No fuel -- the station stands.
 
     What counts as fuel is data (D-215): every material with an entry in
     `energy.fuel_energy` burns, each at its own energy per unit. The station
@@ -370,7 +386,6 @@ async def _burn_fuel(
 
     calories: dict[str, float] = constants[R.ENERGY_FUEL_ENERGY]
     need = constants[R.ENERGY_COAL_PLANT_FUEL_DRAW] * hours
-    stacks = await stock.locked_stacks(session, container_id, calories)
     have = sum(amount_float(stack.amount) for stack in stacks)
     to_burn = min(need, have)
     if to_burn <= 0:
@@ -517,98 +532,6 @@ async def powered(
     return await relic_power(session, constants, node, now=now) > 0
 
 
-# --- fuel station (D-189) -----------------------------------------------------
-
-
-async def plant_view(session: AsyncSession, constants: Constants, node: Node) -> dict | None:
-    """What the station looks like from the outside: stock, draw, output.
-
-    Supply is a matter of agreement between the city and the haulers, and both
-    sides must see the same number -- hence the stock and the hours it lasts.
-    """
-
-    #: A look at the station, so the yard is read and not made for the look.
-    machines = await world.node_things(session, node)
-    plant_names = set(world.station_names(FUEL_PLANT))
-    plants = [thing for thing in machines if thing.type_key in plant_names and thing.installed]
-    if not plants:
-        return None
-
-    fuels: dict[str, float] = constants[R.ENERGY_FUEL_ENERGY]
-    stock = sum(amount_float(stack.amount) for stack in machines if stack.type_key in fuels)
-    draw = constants[R.ENERGY_COAL_PLANT_FUEL_DRAW] * len(plants)
-    return {
-        "station": plants[0].type_key,
-        "count": len(plants),
-        #: What burns here -- every material with a fuel value (D-215).
-        "fuel": ", ".join(sorted(fuels)),
-        "fuels": sorted(fuels),
-        "stock": round(stock, 1),
-        #: Per hour: how much it eats and how much it gives while it eats.
-        "draw": draw,
-        "output": constants[R.ENERGY_COAL_PLANT_RATE] * len(plants),
-        "hours_left": round(stock / draw, 1) if draw > 0 else None,
-    }
-
-
-async def fuel(
-    session: AsyncSession,
-    constants: Constants,
-    body: Body,
-    item: Item,
-    quantity: float | None = None,
-) -> float:
-    """Pour fuel from the hands into the station standing here (D-189).
-
-    Anyone who came with coal may do it: hauling fuel is the supply mechanic
-    itself, not a privilege of the authority. There is no way back -- pouring
-    in is a handover, otherwise the city's fuel pile would be a common pocket.
-    """
-
-    if body.state is not BodyState.ALIVE:
-        raise EnergyError(key="energy-dead-loads")
-    await travel.require_here(session, body)
-
-    node = await session.get(Node, body.node_id)
-    if node is None:  # pragma: no cover -- a body without a node is a bug
-        raise EnergyError(key="energy-body-off-node")
-    view = await plant_view(session, constants, node)
-    if view is None:
-        raise EnergyError(key="energy-no-station")
-    if item.type_key not in view["fuels"]:
-        raise EnergyError(
-            key="energy-wrong-fuel",
-            goods=item.type_key,
-            station=view["station"],
-            fuel=view["fuel"].lower(),
-        )
-
-    pocket = await world.body_container(session, body)
-    if item.container_id != pocket.id:
-        raise EnergyError(key="energy-fuel-from-hands")
-    qty = amount_float(item.amount) if quantity is None else quantity
-    if qty <= 0:
-        raise EnergyError(key="energy-nothing-to-load")
-
-    yard = await world.node_container(session, node)
-    fuel_key = item.type_key
-    poured = await world.move_stack(session, item, yard, qty)
-    await events.record(
-        session,
-        EventKind.ENERGY_FUELLED,
-        actor_identity_id=body.identity_id,
-        node_id=node.id,
-        type_key=fuel_key,
-        amount=poured,
-    )
-    #: Fuel the city ordered hauled pays per unit as it lands (D-248): the
-    #: pour is the handover, the engine just watched it happen.
-    from src.engine import works_city  # noqa: PLC0415 -- lazy: works_city imports energy
-
-    await works_city.pay_fuel_delivery(session, constants, node, fuel_key, poured, body.identity_id)
-    return poured
-
-
 # --- battery -----------------------------------------------------------------
 #: The cell itself lives in `engine.battery` (see its docstring for the seam).
 #: Re-exported so `energy.charge_of` and `energy.BATTERY` read as they always
@@ -657,7 +580,7 @@ async def draw_for_work(
     node = await session.get(Node, body.node_id)
     if node is None:  # pragma: no cover
         raise EnergyError(key="energy-body-off-node")
-    pool = await pool_of(session, constants, node, lock=True)
+    pool = await pool_of(session, constants, node)
     if pool is None:
         raise NoGrid(key="energy-no-grid", goods=goods)
     await produce(session, constants, pool, now=moment)
@@ -752,11 +675,9 @@ async def tick_pools(
     """
     moment = now or datetime.now(UTC)
     #: In city order: the frost step locks the same yards for its braziers, city
-    #: by city, and two orders over one set of stacks are a deadlock waiting for
-    #: a busy world.
-    #: Only the ids here: `produce` takes each row for itself, one at a time,
-    #: and holding every pool of the world locked for the whole pass would put
-    #: the tick in the way of every player at once.
+    #: by city, and the automats' tick draws its pools in it (`automat.bill`) --
+    #: each city's fuel, then its pool, all of them held until the step commits.
+    #: Two orders over one set of rows are a deadlock waiting for a busy world.
     pools = (await session.execute(select(EnergyPool).order_by(EnergyPool.node_id))).scalars().all()
     result = 0.0
     for pool in pools:

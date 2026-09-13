@@ -276,6 +276,7 @@ ui-stand-trade-factory = { " " }Machines work by themselves here.
 ui-stand-trade-nursery = { " " }Animals are bred here.
 ui-stand-trade-fuel-plant = { " " }Ship fuel is distilled here.
 ui-stand-trade-mint = { " " }The city's coin is minted here.
+ui-stand-trade-field-automat = { " " }An automaton works the plots to a programme here.
 ui-stand-gather-about = Gathering by the land sign: work by hand right on the spot.
 ui-stand-rig = Rig
 ui-stand-rig-in-hands = in hand: set it on a vein

@@ -17,12 +17,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import stock
-from src.engine.frost._base import BRAZIER, HEAT, _planet_marks, climate_of
-from src.engine.frost.body import _advance, _lock, _on_the_road, limit_of
+from src.engine.frost._base import BRAZIER, HEAT, _planet_marks
+from src.engine.frost.body import Known, _advance, _lock, _on_the_road, limit_of
 from src.engine.frost.warmth import _class_names, is_warm
 from src.models.identity import Body, BodyState
 from src.models.inventory import Container, ContainerKind, Item
-from src.models.world import Node
+from src.models.world import Node, Planet
 from src.units import amount, amount_float
 
 # --- the world's own hours ----------------------------------------------------
@@ -43,8 +43,8 @@ async def tick_bodies(
     world for everybody, and hibernation restores less than the cold takes.
     """
     moment = now or datetime.now(UTC)
-    weather = await _planet_marks(session)
-    if not weather:
+    marks = await _planet_marks(session)
+    if not marks:
         return 0
     bodies = (
         (
@@ -53,7 +53,7 @@ async def tick_bodies(
                 .join(Node, Node.id == Body.node_id)
                 .where(
                     Body.state == BodyState.ALIVE,
-                    Node.planet.in_([planet.value for planet in weather]),
+                    Node.planet.in_([planet.value for planet in marks]),
                 )
                 #: In id order: this sweep locks a body row per body
                 #: (`_lock`), and it runs beside every other sweep that does
@@ -72,7 +72,9 @@ async def tick_bodies(
     warm_here: dict[uuid.UUID, bool] = {}
     dead = 0
     for found in bodies:
-        if await _burn(session, constants, catalog, found, now=moment, warm_here=warm_here):
+        if await _burn(
+            session, constants, catalog, found, now=moment, warm_here=warm_here, marks=marks
+        ):
             dead += 1
     return dead
 
@@ -85,6 +87,7 @@ async def _burn(
     *,
     now: datetime,
     warm_here: dict[uuid.UUID, bool],
+    marks: dict[Planet, str | None],
 ) -> bool:
     """One body's stretch of cold, and its end if it has come.
 
@@ -101,9 +104,14 @@ async def _burn(
     if node.id not in warm_here:
         warm_here[node.id] = await is_warm(session, constants, node)
     warm = warm_here[node.id] and not await _on_the_road(session, locked)
-    ceiling = await limit_of(session, constants, catalog, locked)
+    #: The pass's own reading of the planets' climates, not a query per body,
+    #: and the one `_advance` settles with: the ceiling and the frozen toll
+    #: come from the same reading.
+    weather = marks.get(node.planet)
+    ceiling = await limit_of(session, constants, catalog, locked, weather)
+    known = Known(weather=weather, warm=warm, ceiling=ceiling)
 
-    spell = await _advance(session, constants, catalog, locked, now=now, warm=warm, ceiling=ceiling)
+    spell = await _advance(session, constants, catalog, locked, now=now, known=known)
     #: Death is the pair: no strength left, and still in the cold. Warm again
     #: and empty is a body that must eat and sleep, not a corpse.
     if spell.left > 0 or float(locked.stamina) > 0:
@@ -117,7 +125,7 @@ async def _burn(
         locked,
         #: The climate key itself: the journal's `cause` is a payload key
         #: (D-251), and the two climates already have their names.
-        cause="heat" if await climate_of(session, node) == HEAT else "cold",
+        cause="heat" if weather == HEAT else "cold",
         now=now,
     )
     return True
