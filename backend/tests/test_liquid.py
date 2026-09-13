@@ -23,6 +23,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from conftest import _slow
 from src.constants import Catalog, Constants
 from src.engine import craft, gear, jobs, liquid, storage, world
 from src.models.estate import Building
@@ -327,18 +328,6 @@ async def test_the_worker_and_the_owner_do_not_overfill_one_canister(
     assert (spilled > 0) != refused, outcomes
     async with factory() as db:
         assert await storage.stored_mass(db, catalog, await db.get(Item, target_id)) <= limit + 1e-6
-
-
-def _slow(monkeypatch: pytest.MonkeyPatch, module: object, name: str, delay: float = 0.2) -> None:
-    """Hold the transaction between its check and its write (as in `test_races`)."""
-    original = getattr(module, name)
-
-    async def held(*args, **kwargs):
-        result = await original(*args, **kwargs)
-        await asyncio.sleep(delay)
-        return result
-
-    monkeypatch.setattr(module, name, held)
 
 
 async def test_vessels_arrive_as_vessels_and_each_one_holds_its_own(

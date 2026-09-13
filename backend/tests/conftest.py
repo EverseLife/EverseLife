@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import sys
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 
@@ -275,6 +276,25 @@ def _slow(monkeypatch: pytest.MonkeyPatch, module: object, name: str, delay: flo
     Shared by the race files (`test_races*.py`), which is why it lives here
     and not beside one of them: the technique is the suite's, not one
     domain's.
+
+    A package is held wherever its function is bound. Once a module is cut
+    into a package, the name lives in several namespaces at once: the door
+    that re-exports it, the room that defines it, and every sibling room that
+    took it by `from ... import`. A call reads the globals of the module it is
+    written in, so a delay set on the door alone slows only the calls that
+    come through the door; the package's own calls stay fast, the window
+    closes, and the race test passes without testing the lock. For a package,
+    then, every attribute that *is* the original -- in the door and in every
+    loaded module under it -- is replaced: the set the single module covered
+    before the cut. A plain module is patched by name, as it always was, and a
+    binding outside the package (another package's `from ... import`) is no
+    more covered than it was before the cut.
+
+    Two things follow from taking what is loaded, by identity. A room imported
+    for the first time after the call would take the pause by `from ...
+    import` and keep it past `undo`, so every engine door loads all its rooms
+    (`test_slow.py` holds it so). And a package is one call per name: `_slow`
+    on the door and then on one of its rooms holds that room twice.
     """
     original = getattr(module, name)
 
@@ -283,7 +303,17 @@ def _slow(monkeypatch: pytest.MonkeyPatch, module: object, name: str, delay: flo
         await asyncio.sleep(delay)
         return result
 
-    monkeypatch.setattr(module, name, held)
+    if not hasattr(module, "__path__"):
+        monkeypatch.setattr(module, name, held)
+        return
+    prefix = module.__name__ + "."
+    rooms = [
+        sub for key, sub in list(sys.modules.items()) if key.startswith(prefix) and sub is not None
+    ]
+    for namespace in (module, *rooms):
+        for attr, value in list(vars(namespace).items()):
+            if value is original:
+                monkeypatch.setattr(namespace, attr, held)
 
 
 class Counter:
