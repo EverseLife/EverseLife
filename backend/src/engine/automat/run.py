@@ -30,7 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Catalog, Constants, current_catalog
 from src.constants import registry as R
 from src.db.base import forget
-from src.engine import events, liquid, stock, utility, wear, world
+from src.engine import events, liquid, stock, wear, world
 from src.engine.automat import bill as energy_bill
 from src.engine.automat._base import _EPS, LUBE
 from src.engine.automat.wire import _chain_order
@@ -65,7 +65,9 @@ async def advance(
     Four limiters, and any of them stops the machine: lubricant in the
     node's vessels, energy in the pool (or the batteries), inputs on the
     yard, and -- for a liquid output -- room in a vessel. None is an error:
-    these are the enterprise's obligations, exactly as with the rig.
+    these are the enterprise's obligations, exactly as with the rig. Before
+    them the machine must stand in its node, and the node must not be cut off
+    for non-payment (D-149): a stop there works nothing and the hours are gone.
 
     With a `tab` (the tick, which took the row already) the energy is not
     drawn but asked for without a lock and written down as a bill, for the
@@ -117,14 +119,13 @@ async def advance(
         row.counted_at = moment
         await session.flush()
         return 0.0
-    if await utility.cut_off(session, node):
+    if await energy_bill.cut_off(session, node, tab):
         #: Disconnected for non-payment (D-149): the machines of a node in debt
         #: do not work until the bill is paid -- the automat as much as a bench
-        #: (`craft._internal._pick_station`), whatever feeds it, the city's
-        #: pool or cells of its own. The hours pass as at any other stop, and
-        #: the wear above ran through them. Asked of the meter by a read that
-        #: locks nothing and writes nothing: the meter is on no lock order of
-        #: this module, and the tick holds every factory's stacks meanwhile.
+        #: (`craft._internal._pick_station`). Asked before the energy is, so
+        #: the source does not matter: a floor running on its own cells stops
+        #: with the plot whose meter it hangs on. The hours pass as at any
+        #: other stop, and the wear above ran through them.
         row.counted_at = moment
         await session.flush()
         return 0.0

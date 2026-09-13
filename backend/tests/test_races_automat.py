@@ -717,13 +717,14 @@ async def test_an_owner_pays_the_debt_while_the_tick_stands_the_cut_off_machine(
     constants: Constants,
     catalog: Catalog,
 ) -> None:
-    """The tick asks every machine's meter whether the node is cut off (D-149)
-    while it holds the stacks of every factory of the world, and the meter is on
-    no place of its lock order: it is only read. The owner paying the debt in
-    the middle of the step -- locking the purse, then writing the meter -- walks
-    straight through. A tick that took the meter would hold it until the end of
-    the step, where it reaches for the purses the payer holds: the two would
-    wait on each other."""
+    """The tick asks a machine's meter whether the node is cut off (D-149) and
+    keeps its transaction open for the rest of the world's factories; what this
+    pins is that the reading leaves no lock on the meter's row behind. The owner
+    paying the debt meanwhile -- locking the purse, then writing the meter --
+    walks straight through instead of waiting for the step to end. A meter held
+    that long would put it on the tick's lock order, ahead of the purses the
+    step reaches for last (`bill.pay`), where a payer holding a purse and
+    wanting the meter is that order the other way round."""
     node, yard, identity, body, machine = await _factory_floor(session, constants)
     node.owner_identity_id = identity.id
     await world.grant_item(session, yard, IRON, amount=1000, quality=60, origin="test")

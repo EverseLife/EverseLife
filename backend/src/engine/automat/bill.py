@@ -25,7 +25,7 @@ from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants
-from src.engine import battery, energy, ledger
+from src.engine import battery, energy, ledger, utility
 from src.models.automat import Automat as AutomatRow
 from src.models.energy import EnergyPool
 from src.models.inventory import Item
@@ -66,7 +66,8 @@ class Tab:
     Each supply and each purse is read once a pass, at the first machine that
     asks, and counted down by the bills from there -- a pool read and a purse
     summed per machine would cost the tick two queries a machine while it holds
-    the stacks of every factory of the world. The readings are numbers taken
+    the stacks of every factory of the world. Whether a node is cut off is read
+    once a pass the same way (`cut_off`). The readings are numbers taken
     from the database and outlive a machine's savepoint rolling back; the bills
     do not, and `keep` gives back what the dropped ones took.
     """
@@ -79,6 +80,10 @@ class Tab:
     #: writes a pool, so a machine's savepoint rolling back leaves it as read;
     #: a pass run again after a moved purse starts a tab of its own.
     pools: dict[uuid.UUID, EnergyPool | None] = field(default_factory=dict)
+    #: Whether a machine's node is cut off for non-payment (D-149), by that
+    #: node: two floors of one house are two readings of the one meter below
+    #: them (`utility.cut_off`), not two answers.
+    cut_off: dict[uuid.UUID, bool] = field(default_factory=dict)
 
     def add(self, bill: Bill) -> None:
         self.bills.append(bill)
@@ -93,6 +98,22 @@ class Tab:
             if bill.owner_identity_id is not None and bill.price > 0:
                 self.purses[bill.owner_identity_id] += bill.price
         del self.bills[count:]
+
+
+async def cut_off(session: AsyncSession, node: Node, tab: Tab | None) -> bool:
+    """Whether the node is disconnected for non-payment (D-149): read, never locked.
+
+    The meter is on no place of the tick's lock order, and the tick holds every
+    factory's stacks while it asks. On the tick's tab it is read once a pass per
+    node, like a supply; without a tab (a command) it is asked on the spot. A
+    debt paid in the middle of a pass stands the node's later machines of that
+    pass all the same -- the next tick works them.
+    """
+    if tab is None:
+        return await utility.cut_off(session, node)
+    if node.id not in tab.cut_off:
+        tab.cut_off[node.id] = await utility.cut_off(session, node)
+    return tab.cut_off[node.id]
 
 
 async def promise(

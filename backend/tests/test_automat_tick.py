@@ -6,7 +6,8 @@
 Cut out of `test_automat.py`, which keeps one machine at work. Here is what
 only the world's pass has: the energy asked for before each machine works and
 drawn once all of them have (`automat/bill.py`), so machines on one pool, one
-purse or one hull's cells share them rather than each spending the whole; and
+purse or one hull's cells share them rather than each spending the whole; a
+node's meter read once a pass and answering for that node alone (D-149); and
 one machine failing inside its own savepoint while the floor works on -- in
 the step itself and through the worker's job runner. The races of the same
 pass against a player are in `test_races_automat.py`.
@@ -19,18 +20,20 @@ from datetime import timedelta
 from decimal import Decimal
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from automat_kit import IRON, NAILS, _factory_floor, _learn, _lube_in
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import automat, energy, jobs, ledger, world
+from src.engine import automat, energy, jobs, ledger, utility, world
 from src.engine.automat import run as automat_run
 from src.engine.tick import WORLD_STEPS
 from src.models.automat import Automat as AutomatRow
+from src.models.inventory import Item
 from src.models.job import Job, JobKind, JobState
 from src.models.ledger import AccountKind, PostingReason
-from src.units import amount_float
+from src.units import amount_float, money
 
 
 @pytest.mark.parametrize("short", ["pool", "purse"])
@@ -255,3 +258,51 @@ async def test_a_broken_automat_does_not_fail_the_tick_step_job(
         waited = await db.get(AutomatRow, broken_id)
         assert worked is not None and worked.counted_at == moment
         assert waited is not None and waited.counted_at == started
+
+
+async def test_a_cut_off_node_stands_every_machine_in_it_and_none_of_its_owners_elsewhere(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The tick reads a node's meter once a pass (D-149), and the answer is the
+    node's: both machines on the floor in debt stand, and the same owner's
+    factory on a paid floor works in the same pass. An answer kept by the owner,
+    or one for the whole pass, would stand the paid floor or run the one in
+    debt, whichever machine the pass happened to ask first."""
+    node, yard, identity, body, assembler = await _factory_floor(session, constants)
+    node.owner_identity_id = identity.id
+    smelter = await world.grant_item(session, yard, "auto_furnace", quality=70, origin="test")
+    await world.grant_item(session, yard, IRON, amount=1000, quality=60, origin="test")
+    await world.grant_item(session, yard, "iron_ore", amount=4000, quality=60, origin="test")
+    await world.grant_item(session, yard, "coal", amount=1000, quality=60, origin="test")
+    lube = await _lube_in(session, yard, 100)
+    await _learn(session, identity, NAILS)
+    first = await automat.program(session, constants, catalog, body, assembler, NAILS)
+    second = await automat.program(session, constants, catalog, body, smelter, IRON)
+
+    elsewhere, other_yard, _, _, other_machine = await _factory_floor(session, constants)
+    elsewhere.owner_identity_id = identity.id
+    await world.grant_item(session, other_yard, IRON, amount=1000, quality=60, origin="test")
+    await _lube_in(session, other_yard, 100)
+    body.node_id = elsewhere.id
+    await session.flush()
+    third = await automat.program(session, constants, catalog, body, other_machine, NAILS)
+
+    meter = await utility.meter_of(session, node)
+    paid = await utility.meter_of(session, elsewhere)
+    assert meter is not None and paid is not None and not paid.cut_off
+    meter.cut_off, meter.debt = True, money(1)
+    for row in (second, third):
+        row.counted_at = first.counted_at
+    moment = first.counted_at + timedelta(hours=8)
+    await session.flush()
+
+    made = await automat.tick_automats(session, constants, now=moment)
+
+    assert made > 0, "the owner's paid floor worked"
+    await session.refresh(lube)
+    assert amount_float(lube.amount) == pytest.approx(100), "neither machine in debt ran"
+    nails = select(Item).where(Item.container_id == other_yard.id, Item.type_key == NAILS)
+    assert (await session.execute(nails)).scalars().all()
+    for row in (first, second, third):
+        await session.refresh(row)
+        assert row.counted_at == moment
