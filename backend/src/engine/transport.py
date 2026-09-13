@@ -331,7 +331,7 @@ async def fill(
     return min(1.0, await cargo_mass(session, catalog, vehicle) / limit)
 
 
-async def _pulled_here(session: AsyncSession, body: Body, *, refusal: str) -> Item:
+async def _pulled_here(session: AsyncSession, body: Body, *, key: str) -> Item:
     """The body's own convoy, under the vehicle's lock and reread after it.
 
     What loads and unloads the hold. A hold hangs off the vehicle by id, not
@@ -346,10 +346,13 @@ async def _pulled_here(session: AsyncSession, body: Body, *, refusal: str) -> It
 
     Asked again after the lock: where the vehicle stands. The body's own row
     holds the harness in place (the caller's `_alive`), but not the vehicle.
+
+    `key` is the refusal for a body with nothing harnessed, and it is passed
+    as `key=` so that `test_i18n` sees the call site name its message.
     """
     wagon = await harnessed(session, body)
     if wagon is None:
-        raise NotHarnessed(key=refusal)
+        raise NotHarnessed(key=key)
     await world.lock_thing(session, wagon, gone=NotHere)
     node = await session.get(Node, body.node_id)
     if node is None:  # pragma: no cover -- a body always stands in a node
@@ -373,7 +376,7 @@ async def load(
         raise TransportError(key="transport-load-dead")
     await travel.require_here(session, body)
 
-    wagon = await _pulled_here(session, body, refusal="transport-load-not-harnessed")
+    wagon = await _pulled_here(session, body, key="transport-load-not-harnessed")
     pocket = await world.body_container(session, body)
     if item.container_id != pocket.id:
         raise TransportError(key="transport-not-in-hands")
@@ -425,7 +428,7 @@ async def unload(
         raise TransportError(key="transport-unload-dead")
     await travel.require_here(session, body)
 
-    wagon = await _pulled_here(session, body, refusal="transport-unload-not-harnessed")
+    wagon = await _pulled_here(session, body, key="transport-unload-not-harnessed")
     hold = await cargo(session, wagon)
     if item.container_id != hold.id:
         raise TransportError(key="transport-not-in-hold")
