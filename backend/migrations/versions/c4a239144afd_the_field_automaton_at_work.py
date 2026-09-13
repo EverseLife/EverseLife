@@ -6,7 +6,7 @@ given to it, and the date a bed was last weeded -- a hand's weeding restarts
 the machine's "weed every N days" as surely as its own.
 
 Revision ID: c4a239144afd
-Revises: e1d7b8231374
+Revises: 7171e0c3a511
 Create Date: 2026-09-13 14:53:18.739044
 """
 from __future__ import annotations
@@ -17,7 +17,7 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 revision: str = 'c4a239144afd'
-down_revision: str | None = 'e1d7b8231374'
+down_revision: str | None = '7171e0c3a511'
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
