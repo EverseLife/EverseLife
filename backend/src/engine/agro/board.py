@@ -13,6 +13,7 @@ import logging
 import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import delete, select
@@ -147,6 +148,9 @@ async def program(
         row.cursor = 0
         row.step_since = moment
         row.trouble = None
+    if row.owner_identity_id != body.identity_id:
+        #: A new holder does not inherit the old one's debt for energy.
+        row.energy_owed = Decimal(0)
     row.owner_identity_id = body.identity_id
     #: A machine taken down and put up in another yard works there: the row
     #: follows the machine (the automat's own rule, `automat.board.program`).

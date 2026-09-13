@@ -336,7 +336,8 @@ async def test_a_short_draw_is_a_debt_paid_before_the_next_action(
     monkeypatch.setattr(automat, "draw_energy", real)
     pool = await energy.pool_of(session, constants, place.node)
     assert pool is not None
-    pool.stored = owed * 0.5
+    minute = constants[R.AGRO_ENERGY_PER_HOUR] / 60
+    pool.stored = minute + owed * 0.5
     row.busy_until = None
     await session.flush()
     done = await agro.tick_fields(session, constants, now=moment + timedelta(minutes=2))

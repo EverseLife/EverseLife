@@ -61,11 +61,11 @@ from src.models.agro import FieldAutomat
 from src.models.energy import EnergyPool
 from src.models.event import EventKind
 from src.models.inventory import Container, ContainerKind, Item
-from src.models.ledger import AccountKind
+from src.models.ledger import AccountKind, LedgerAccount
 from src.models.world import Node, is_aboard
 from src.units import (
     ENERGY_PER_TARIFF_UNIT,
-    ROUND_QUALITY,
+    ROUND_ENERGY,
     SECONDS_PER_HOUR,
     amount,
     amount_float,
@@ -94,26 +94,34 @@ class Bill:
 
 @dataclass
 class Promises:
-    """What the tick has promised: energy by source, and by source and owner,
+    """What the tick has promised: energy by source, and by owner and source,
     with each source's tariff and each owner's purse read once."""
 
     by_source: dict[uuid.UUID, float] = field(default_factory=dict)
-    by_bill: dict[tuple[uuid.UUID, uuid.UUID], float] = field(default_factory=dict)
+    by_owner: dict[uuid.UUID, dict[uuid.UUID, float]] = field(default_factory=dict)
     tariffs: dict[uuid.UUID, float] = field(default_factory=dict)
     purses: dict[uuid.UUID, int] = field(default_factory=dict)
 
-    def copy(self) -> Promises:
-        return Promises(
-            dict(self.by_source), dict(self.by_bill), dict(self.tariffs), dict(self.purses)
-        )
+    def spent(self, owner: uuid.UUID, source: uuid.UUID | None = None, more: float = 0.0) -> int:
+        """What this owner is promised to pay -- with `more` from `source` added --
+        priced as the bills will be: one sum per source."""
+        mine = self.by_owner.get(owner, {})
+        total = 0
+        for each in {*mine, *([source] if source is not None else [])}:
+            energy_ = mine.get(each, 0.0) + (more if each == source else 0.0)
+            total += money(energy_ / ENERGY_PER_TARIFF_UNIT * self.tariffs.get(each, 0.0))
+        return total
 
-    def spent(self, owner: uuid.UUID) -> int:
-        """What this owner is promised to pay, priced as the bills will be: one sum per source."""
-        return sum(
-            money(energy_ / ENERGY_PER_TARIFF_UNIT * self.tariffs.get(source, 0.0))
-            for (source, who), energy_ in self.by_bill.items()
-            if who == owner
-        )
+    def add(self, bill: Bill) -> None:
+        self.by_source[bill.source_id] = self.by_source.get(bill.source_id, 0.0) + bill.energy
+        mine = self.by_owner.setdefault(bill.owner_identity_id, {})
+        mine[bill.source_id] = mine.get(bill.source_id, 0.0) + bill.energy
+
+    def release(self, bill: Bill) -> None:
+        """Take a promise back: the machine's savepoint rolled back, and so did its work."""
+        self.by_source[bill.source_id] = self.by_source.get(bill.source_id, 0.0) - bill.energy
+        mine = self.by_owner.setdefault(bill.owner_identity_id, {})
+        mine[bill.source_id] = mine.get(bill.source_id, 0.0) - bill.energy
 
 
 async def advance(
@@ -199,18 +207,26 @@ async def advance(
     short = NO_LUBE if amount(lube_rate * worked) < amount(lube_rate * hours) else None
     need = worked * constants[R.AGRO_ENERGY_PER_HOUR] + float(row.energy_owed)
     promised = promises if promises is not None else Promises()
-    source: uuid.UUID | None = None
+    bill: Bill | None = None
     if need > 0:
         source = await _promise(session, constants, node, owner, need, promised, moment)
         if source is None:
             short, worked, need = NO_POWER, 0.0, 0.0
+        else:
+            bill = Bill(row.id, owner, node.id, source, need)
+            promised.add(bill)
+            if bills is not None:
+                #: Written down at once: should the work below fail, the tick
+                #: takes this promise back with the machine's savepoint.
+                bills.append(bill)
 
     done = 0
     if short is not None:
         trouble: str | None = short
     elif row.busy_until is not None and row.busy_until > moment:
-        #: Busy with the last action: the word it stood with stays.
-        trouble = row.trouble
+        #: Busy with the last action: the word it stood with stays -- unless it
+        #: was the energy's or the lubricant's, and this minute had both.
+        trouble = None if row.trouble in (NO_POWER, NO_LUBE) else row.trouble
     else:
         done, trouble = await _work(
             session, constants, book, row, node, yard, beds, by_name, moment
@@ -218,13 +234,12 @@ async def advance(
 
     if lube_rate > 0 and worked > 0:
         await stock.consume(session, lube, amount(lube_rate * worked))
-    if source is not None and need > 0:
+    if bill is not None:
         if bills is not None:
-            bills.append(Bill(row.id, owner, node.id, source, need))
             row.energy_owed = Decimal(0)
         else:
             left = await _draw(session, constants, owner, node, need, moment)
-            row.energy_owed = on_grid(left, ROUND_QUALITY)
+            row.energy_owed = on_grid(left, ROUND_ENERGY)
             if left > 0:
                 trouble = NO_POWER
     await _stand(session, row, trouble)
@@ -313,17 +328,12 @@ async def _promise(
     if grid is None:
         cells = node.parent_id if is_aboard(node) and node.parent_id is not None else node.id
         left = await battery.charge_in(session, constants, node, now=now)
-        if left - promises.by_source.get(cells, 0.0) < need:
-            return None
-        promises.by_source[cells] = promises.by_source.get(cells, 0.0) + need
-        return cells
+        return cells if left - promises.by_source.get(cells, 0.0) >= need else None
     pool = await energy.pool_of(session, constants, node, create=False)
     if pool is None or float(pool.stored) - promises.by_source.get(grid.id, 0.0) < need:
         return None
     promises.tariffs[grid.id] = float(pool.tariff)
-    after = promises.copy()
-    after.by_bill[(grid.id, owner)] = after.by_bill.get((grid.id, owner), 0.0) + need
-    price = after.spent(owner)
+    price = promises.spent(owner, grid.id, need)
     if price > 0:
         if owner not in promises.purses:
             account = await ledger.find_account(session, AccountKind.IDENTITY, owner)
@@ -332,8 +342,6 @@ async def _promise(
             )
         if promises.purses[owner] < price:
             return None
-    promises.by_bill = after.by_bill
-    promises.by_source[grid.id] = promises.by_source.get(grid.id, 0.0) + need
     return grid.id
 
 
@@ -345,16 +353,17 @@ async def _draw(
     energy_: float,
     now: datetime,
 ) -> float:
-    """Draw this energy through the family's door (D-253). Returns what was not drawn."""
-    rate = constants[R.AGRO_ENERGY_PER_HOUR]
-    if rate <= 0:  # pragma: no cover -- a machine that draws nothing owes nothing
-        return 0.0
-    hours = energy_ / rate
+    """Draw this energy through the family's door (D-253). Returns what was not drawn.
+
+    Asked in energy itself -- a rate of one per "hour" -- so the bill is priced
+    on exactly the sum the promise priced, not on a sum carried through hours
+    and back.
+    """
     powered = await automat.draw_energy(
-        session, constants, owner_identity_id, node, hours, rate, now=now, purpose="field_automat"
+        session, constants, owner_identity_id, node, energy_, 1.0, now=now, purpose="field_automat"
     )
     #: Short only by what the pool can show: a last thousandth is not a debt.
-    left = max(0.0, energy_ - powered * rate)
+    left = max(0.0, energy_ - powered)
     return 0.0 if amount(left) <= 0 else left
 
 
@@ -450,7 +459,6 @@ async def tick_fields(
     done = 0
     for row_id in ids:
         mine: list[Bill] = []
-        before = promises.copy()
         try:
             async with session.begin_nested():
                 row = await _take(session, row_id)
@@ -459,18 +467,32 @@ async def tick_fields(
                 done += await advance(
                     session, constants, row, now=moment, bills=mine, promises=promises
                 )
-        except DBAPIError:
-            #: The database's no, not the machine's fault: next minute.
-            promises = before
-            log.warning("field automat %s: the database refused this minute", row_id)
-            continue
-        except Exception:  # noqa: BLE001 -- one machine must not stop the world's fields
-            promises = before
-            await _fault(session, row_id, moment)
+        except Exception as failure:  # noqa: BLE001 -- one machine must not stop the world's fields
+            for bill in mine:
+                promises.release(bill)
+            if _passing(failure):
+                #: The database's no, not the machine's fault: next minute.
+                log.warning("field automat %s: the database refused this minute", row_id)
+            else:
+                await _fault(session, row_id, moment)
             continue
         bills += mine
     await _pay(session, constants, bills, moment)
     return done
+
+
+#: SQLSTATEs that say "not now" rather than "never": a deadlock, a
+#: serialization failure, a lock not available, a statement cancelled by its
+#: timeout. Anything else the database refuses would refuse again next minute.
+_PASSING = frozenset({"40P01", "40001", "55P03", "57014"})
+
+
+def _passing(failure: Exception) -> bool:
+    """Whether the database turned this minute away and will not the next."""
+    if not isinstance(failure, DBAPIError):
+        return False
+    state = getattr(failure.orig, "sqlstate", None) or getattr(failure.orig, "pgcode", None)
+    return state in _PASSING
 
 
 async def _fault(session: AsyncSession, row_id: uuid.UUID, now: datetime) -> None:
@@ -488,19 +510,35 @@ async def _fault(session: AsyncSession, row_id: uuid.UUID, now: datetime) -> Non
 async def _pay(
     session: AsyncSession, constants: Constants, bills: list[Bill], now: datetime
 ) -> None:
-    """Draw the tick's energy: every pool first, in one query by id, then one
-    draw per source and owner. A draw that comes up short leaves each machine
-    of the group its share as a debt, and the word `no_power`."""
+    """Draw the tick's energy: every pool and purse first, then one draw per
+    source and owner, each in a savepoint of its own. A draw that comes up
+    short -- or that the database turns away -- leaves each machine of the
+    group its share as a debt, and the word `no_power`; the minute's work of
+    the rest of the world stands."""
     if not bills:
         return
-    grids = sorted({bill.source_id for bill in bills})
-    #: Taken together and in one order, before any purse: a pool taken, then a
-    #: purse, then another pool would meet a bench that holds the second pool
-    #: and reaches for the same purse.
+    sources = sorted({bill.source_id for bill in bills})
+    owners = sorted({bill.owner_identity_id for bill in bills})
+    #: Taken together, before any draw, in the order the energy step takes
+    #: them (`energy.tick_pools`: by node), and then the purses by id: a pool,
+    #: a purse and another pool taken one after another would meet a bench
+    #: holding the second pool and reaching for the same purse.
     await session.execute(
         select(EnergyPool)
-        .where(EnergyPool.node_id.in_(grids))
-        .order_by(EnergyPool.id)
+        .where(EnergyPool.node_id.in_(sources))
+        .order_by(EnergyPool.node_id)
+        .with_for_update()
+    )
+    await session.execute(
+        select(LedgerAccount)
+        .where(
+            ((LedgerAccount.kind == AccountKind.IDENTITY) & LedgerAccount.owner_id.in_(owners))
+            | (
+                (LedgerAccount.kind == AccountKind.CITY_TREASURY)
+                & LedgerAccount.owner_id.in_(sources)
+            )
+        )
+        .order_by(LedgerAccount.id)
         .with_for_update()
     )
     grouped: dict[tuple[str, str], list[Bill]] = {}
@@ -508,17 +546,23 @@ async def _pay(
         grouped.setdefault((str(bill.source_id), str(bill.owner_identity_id)), []).append(bill)
     for key in sorted(grouped):
         group = grouped[key]
-        node = await session.get(Node, group[0].node_id)
-        if node is None:  # pragma: no cover -- a node is never deleted
-            continue
         total = sum(bill.energy for bill in group)
-        left = await _draw(session, constants, group[0].owner_identity_id, node, total, now)
+        try:
+            async with session.begin_nested():
+                node = await session.get(Node, group[0].node_id)
+                if node is None:  # pragma: no cover -- a node is never deleted
+                    continue
+                left = await _draw(session, constants, group[0].owner_identity_id, node, total, now)
+        except Exception as failure:  # noqa: BLE001 -- one purse must not undo the world's minute
+            if not _passing(failure):
+                log.exception("field automats: a draw of %s failed", key)
+            left = total
         if left <= 0:
             continue
         for bill in group:
             row = await session.get(FieldAutomat, bill.row_id)
             if row is None:
                 continue
-            row.energy_owed = on_grid(left * bill.energy / total, ROUND_QUALITY)
+            row.energy_owed = on_grid(left * bill.energy / total, ROUND_ENERGY)
             await _stand(session, row, NO_POWER)
     await session.flush()
