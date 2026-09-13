@@ -51,4 +51,6 @@ storage-body-off-node = тело вне узла
 storage-storage-not-here = этого хранилища здесь нет
 storage-person-not-here = этого человека здесь нет
 storage-dead-receives = мёртвому не передают
+storage-taker-asleep = этот человек спит: передать можно, когда проснётся
+storage-taker-in-transit = этот человек уже в пути
 storage-self-hand = себе передавать нечего

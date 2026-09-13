@@ -23,8 +23,11 @@ unless the handover takes it.
   the floor, or folds into a sack the giver picks up, which is no longer
   there to hand: the giver is found without a lock, so the thing is looked
   at before the wait and must be looked at again after it;
-* and a parcel for a body standing somewhere else, whose row the handover
-  must not take at all: the id comes off the wire.
+* a parcel for a body standing somewhere else, asleep or already on the road,
+  whose row the handover must not take at all: the id comes off the wire;
+* and a taker who lies down or sets off while the handover waits for their
+  row, who must get nothing: here is asked of both sides, and again after
+  the wait (D-345).
 
 The handshake is `automat_kit._until_blocked_by`: the side that went first
 keeps its transaction open and commits only once the other side has provably
@@ -47,11 +50,13 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from automat_kit import _until_blocked_by
 from conftest import _slow
 from src.api.commands.things import _ground_drop, _ground_pick, _item_hand
+from src.api.commands.travel import _rest_sleep, _travel_go
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import gear, storage, wear, world
+from src.engine import gear, rest, storage, travel, wear, world
 from src.models.identity import Body
 from src.models.inventory import Item
+from src.models.world import Node
 from src.units import amount_float
 
 ORE = "iron_ore"
@@ -448,24 +453,52 @@ async def test_daily_wear_and_a_handover_of_what_it_wore_both_land(
         assert float(handed.condition) < fresh
 
 
-async def test_a_parcel_for_a_body_elsewhere_does_not_take_its_row(
+#: Where a taker who cannot take is, and what the giver is told.
+ABSENT = {
+    "elsewhere": "storage-person-not-here",
+    "asleep": "storage-taker-asleep",
+    "on the road": "storage-taker-in-transit",
+}
+
+
+async def _away(session: AsyncSession, room: Room) -> Node:
+    """A node one hour's walk from the room, for the taker to set off to."""
+    here = await session.get(Node, room.taker.node_id)
+    assert here is not None
+    far = await world.create_node(session, f"terra.far.{uuid.uuid4().hex[:8]}", "Far", area_m2=200)
+    await travel.connect(session, here, far, base_seconds=3600)
+    return far
+
+
+@pytest.mark.parametrize("where", list(ABSENT))
+async def test_a_parcel_for_a_body_not_here_does_not_take_its_row(
     session: AsyncSession,
     factory: async_sessionmaker[AsyncSession],
     constants: Constants,
     catalog: Catalog,
+    where: str,
 ) -> None:
-    """A handover to somebody in another city is refused without touching them.
+    """A handover to somebody not here is refused without touching them.
 
     The taker is named by an id off the wire. Locking it before asking where
     the body stands would let any client queue a stranger's every command --
-    and a tick's -- behind handovers that were never going to happen. The
-    taker's row is held by another transaction here; the refusal must come
-    without waiting for it.
+    and a tick's -- behind handovers that were never going to happen. Not
+    here is three things: in another city, asleep in this room, or on the
+    road out of it with the node still the one left (D-345). The taker's row
+    is held by another transaction here; the refusal must come without
+    waiting for it.
     """
     room = await _room(session, constants, catalog)
-    stamp = uuid.uuid4().hex[:8]
-    far = await world.create_node(session, f"terra.far.{stamp}", "Far", area_m2=200)
-    room.taker.node_id = far.id
+    if where == "elsewhere":
+        far = await world.create_node(
+            session, f"terra.far.{uuid.uuid4().hex[:8]}", "Far", area_m2=200
+        )
+        room.taker.node_id = far.id
+    elif where == "asleep":
+        room.taker.stamina = Decimal("40")
+        await rest.sleep(session, constants, room.taker)
+    else:
+        await travel.depart(session, constants, room.taker, await _away(session, room))
     taker_id = room.taker.id
     await session.commit()
 
@@ -479,6 +512,55 @@ async def test_a_parcel_for_a_body_elsewhere_does_not_take_its_row(
         waited = await _until_blocked_by(factory, holder, unless=handing)
     (refused,) = await asyncio.gather(handing, return_exceptions=True)
 
-    assert not waited, "the handover waited on the row of a body in another city"
+    assert not waited, f"the handover waited on the row of a body {where}"
     assert isinstance(refused, storage.StorageError), refused
-    assert refused.key == "storage-person-not-here", refused.key
+    assert refused.key == ABSENT[where], refused.key
+
+
+@pytest.mark.parametrize("where", ["asleep", "on the road"])
+async def test_a_taker_gone_while_the_handover_waits_gets_nothing(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    constants: Constants,
+    catalog: Catalog,
+    where: str,
+) -> None:
+    """A taker who lies down or sets off while the handover waits is not here after it.
+
+    The handover asks whether the taker is here before it takes their row,
+    and the taker's own `rest.sleep` or `travel.go` holds that row with the
+    change not yet committed: the handover reads a taker awake and in the
+    room, and waits. Judged by what it read before the wait, the parcel went
+    into the hands of a sleeper or of somebody who had walked out -- the node
+    of a body on the road stays the one it left. The answer that counts is
+    the one asked of the row the lock reread (D-345).
+    """
+    room = await _room(session, constants, catalog)
+    state = {"identity_id": room.taker.identity_id}
+    if where == "asleep":
+        room.taker.stamina = Decimal("40")
+        message: dict = {}
+        going = _rest_sleep
+    else:
+        message = {"node": (await _away(session, room)).key}
+        going = _travel_go
+    parcel_id, giver_id = room.first_parcel.id, room.first.id
+    await session.commit()
+
+    async def leave(db: AsyncSession) -> float:
+        await going(state, db, message)
+        return 0.0
+
+    went, came, waited = await _first_holds(
+        factory, leave, _handing(room.first, room.taker, room.first_parcel)
+    )
+
+    assert went == 0.0, went
+    assert isinstance(came, storage.StorageError), came
+    assert came.key == ABSENT[where], came.key
+    assert waited, "the handover did not wait for the taker's own act"
+    async with factory() as db:
+        giver = await db.get(Body, giver_id)
+        parcel = await db.get(Item, parcel_id)
+        assert giver is not None and parcel is not None
+        assert parcel.container_id == (await world.body_container(db, giver)).id
