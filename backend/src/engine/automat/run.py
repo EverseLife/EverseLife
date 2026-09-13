@@ -334,10 +334,13 @@ def _forget_the_run(session: AsyncSession) -> None:
     A savepoint rolled back expires only the rows it wrote: a stack it deleted
     comes back with the numbers it had, and one it merely locked keeps them --
     while the locks themselves are gone, so a player may take from either
-    before the next machine reads it. What the tick writes it reads under a
-    lock that rereads the row (`stock.locked_stacks`, `world.stack_up`,
-    `energy.pool_of(lock=True)`), so a stale row can mislead a forecast and
-    never a write. The session is not expired wholesale: it is the caller's
+    before the next machine reads it. The amounts the tick writes it reads under
+    a lock that rereads the row (`stock.locked_stacks`, `world.stack_up`,
+    `energy.pool_of(lock=True)`), so a stale row misleads a forecast and not a
+    remainder. One known exception, older than this tick: a liquid output
+    measures a vessel's room off contents read without a reread
+    (`liquid.fill`, `storage.stored_mass`), and can overfill it by what a hand
+    poured in meanwhile. The session is not expired wholesale: it is the caller's
     too, and the job runner reads its own row after the step. What does go is
     the command's memory (`db.base.remember`), which only a write clears.
     """
