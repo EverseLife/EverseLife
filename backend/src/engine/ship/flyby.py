@@ -34,6 +34,7 @@ from src import sky
 from src.constants import Constants
 from src.constants import registry as R
 from src.engine.ship import course
+from src.runtime import SKY_WORKERS
 from src.units import (
     HOURS_PER_DAY,
     ROUND_DV,
@@ -42,10 +43,6 @@ from src.units import (
     SKY_CURVE_MEMO,
     SKY_MEMO_PER_DAY,
 )
-
-#: The processes the refinements run in: one per concurrent world asked
-#: about, and no more -- each is a whole core while it works.
-_WORKERS = 2
 
 
 async def offered(
@@ -181,7 +178,7 @@ def _pool() -> ProcessPoolExecutor:
     """The refinements' processes, started on the first miss."""
     global _EXECUTOR
     if _EXECUTOR is None:
-        _EXECUTOR = ProcessPoolExecutor(max_workers=_WORKERS)
+        _EXECUTOR = ProcessPoolExecutor(max_workers=SKY_WORKERS)
     return _EXECUTOR
 
 

@@ -521,21 +521,22 @@ async def depart(
             #: the console read it -- and the order flies what was quoted.
             here = await state_at(session, constants, ship, now=now)
             if here is not None:
+                r_now, v_now, t_now = here
                 exact = await flyby.given(
                     constants,
                     world,
                     goal,
                     await _leaving_of(session, world, ship),
-                    here[0],
-                    here[1],
-                    here[2],
+                    r_now,
+                    v_now,
+                    t_now,
                     hours=round(hours, ROUND_HOURS),
                     via=via,
                 )
                 if exact is not None:
                     found_sample = replace(
                         exact,
-                        wait=sky.eject_wait(world, goal, here[2], here[0], here[1], exact.v1)
+                        wait=sky.eject_wait(world, goal, t_now, r_now, v_now, exact.v1)
                         * HOURS_PER_DAY,
                     )
         if found_sample is None and via is not None:
