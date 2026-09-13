@@ -220,6 +220,10 @@ async def advance(
         row.counted_at = moment
         await session.flush()
         return 0.0
+    if (cut_off or frozen) and row.stall == vent.FLARE and not no_flare:
+        #: A flare put up while the node stood: the old reason is no longer
+        #: true, and the window would show it beside the node's own stop.
+        row.stall = None
     if cut_off:
         #: Disconnected for non-payment (D-149): the machines of a node in debt
         #: do not work until the bill is paid -- the automat as much as a bench
@@ -579,17 +583,27 @@ async def _ask(
 ) -> None:
     """Every programmed automat's hours since its count, at the rate, on its
     supply's demand -- read, not locked, before any stack is: the promise that
-    follows reads the supply the same way."""
+    follows reads the supply the same way.
+
+    Not a machine its node stands, cut off (D-149) or frozen (D-231): it takes
+    nothing this pass, and its hours asked of a short supply would cut the
+    share of every machine that does work there -- a debt or a cold floor paid
+    for with a neighbour's hours. Asked by the same answers `advance` reads,
+    kept on the tab for the pass."""
     rate = constants[R.AUTO_ENERGY_PER_HOUR]
     rows = (
         await session.execute(
-            select(AutomatRow.id, Node, AutomatRow.counted_at)
+            select(AutomatRow.id, Node, Item.type_key, AutomatRow.counted_at)
             .join(Node, Node.id == AutomatRow.node_id)
             .join(Item, Item.id == AutomatRow.item_id)
             .where(AutomatRow.recipe_key.is_not(None), Item.installed.is_(True))
         )
     ).all()
-    for row_id, node, counted_at in rows:
+    for row_id, node, type_key, counted_at in rows:
+        if await energy_bill.cut_off(session, node, tab) or await energy_bill.frozen(
+            session, constants, node, type_key, tab
+        ):
+            continue
         hours = max(0.0, (now - counted_at).total_seconds() / SECONDS_PER_HOUR)
         await energy_bill.ask(session, tab, row_id, node, rate * hours)
 
