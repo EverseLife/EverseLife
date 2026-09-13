@@ -186,7 +186,7 @@ async def test_the_weather_is_one_law_everywhere(
     pins too."""
     import math
 
-    from src.engine.climate import WeatherLaw, _wx_hash, weather_cover, weather_sky, wind_shear
+    from src.weather import WeatherLaw, _wx_hash, weather_cover, weather_sky, wind_shear
 
     assert _wx_hash(3, -7, 12, 5) == pytest.approx(0.4038313031196594, abs=1e-12)
     assert _wx_hash(0, 0, 0, 0) == 0

@@ -56,7 +56,7 @@ describe("the weather", () => {
 
   it("is the engine's own law to the last bit of the hash (D-335)", () => {
     //: The numbers the engine prints for the same corners and the same
-    //: points (`climate._wx_hash`, `climate.weather_cover` on a law of a
+    //: points (`src/weather.py`: `_wx_hash`, `weather_cover` on a law of a
     //: cell of 3 km on a radius of 12 km): the two repositories cannot
     //: import each other, and they meet here.
     expect(wxHash(3, -7, 12, 5)).toBeCloseTo(0.4038313031196594, 12);

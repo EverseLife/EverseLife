@@ -89,6 +89,17 @@ name = "Layers: api -> engine -> sky -> models -> constants -> i18n"
 type = "layers"
 layers = ["src.api", "src.engine", "src.sky", "src.models", "src.constants", "src.i18n"]
 
+# The weather's law (D-335, D-336) sits outside `engine` because it carries
+# numbers of its own -- its shape, shared with the map's shader -- and the rule
+# modules hold none (D-065). That only stays true while it is a pure function
+# of the book, the place and the moment: a law that reached into the engine,
+# the rows or the database would be a rule again, hiding from the rule test.
+[[tool.importlinter.contracts]]
+name = "The weather's law reads the book and nothing above it"
+type = "forbidden"
+source_modules = ["src.weather"]
+forbidden_modules = ["src.api", "src.engine", "src.sky", "src.models", "src.db"]
+
 # The city, cut out of a 1084-line `polity.py` that held founding, offices,
 # code-laws and citizenship at once and let all four reach into each other.
 # The cut only means something if it cannot silently grow back: without this

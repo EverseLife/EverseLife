@@ -7,7 +7,7 @@
  * and nothing else -- made of **systems**, not of a picture carried by the
  * wind.
  *
- * The same law the engine reads (`climate.weather_cover`) on the same
+ * The same law the engine reads (`src/weather.py`, `weather_cover`) on the same
  * numbers of the book, so what the picture shows raining is what the
  * engine reads as rain there. A lattice of cells in latitude and
  * longitude, a cell the vault's `weather.cell_km` of arc; each cell bears
