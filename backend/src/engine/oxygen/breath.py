@@ -29,6 +29,7 @@ from src.engine.oxygen._base import (
     airless_planets,
     free_air,
     sealed,
+    without_air,
 )
 from src.engine.oxygen.supply import (
     breathable_stacks,
@@ -205,11 +206,11 @@ async def tick_bodies(
 
     Returns how many died. Bodies aboard are not here: their air is the hull's,
     and `tick_ships` settles them by the hull.
+
+    A world where every planet has air is swept all the same: an orbit is the
+    void over any of them (D-245), and a body can stand in one.
     """
     moment = now or datetime.now(UTC)
-    airless = await airless_planets(session)
-    if not airless:
-        return 0
     bodies = (
         (
             await session.execute(
@@ -217,7 +218,7 @@ async def tick_bodies(
                 .join(Node, Node.id == Body.node_id)
                 .where(
                     Body.state == BodyState.ALIVE,
-                    Node.planet.in_([planet.value for planet in airless]),
+                    without_air(await airless_planets(session)),
                 )
                 #: In id order: this sweep locks a body row per body
                 #: (`_lock`), and it runs beside every other sweep that does
