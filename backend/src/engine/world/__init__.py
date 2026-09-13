@@ -26,7 +26,7 @@ is the door:
 
 The stack runs one way and only one way: `people` borrows from `land` (the
 refusal `LandError`) and from `things` (the printer's lookup), `gone` borrows
-from nobody, and neither `land` nor `things` knows that a person or an ending
+from no room here, and neither `land` nor `things` knows that a person or an ending
 exists. `land` and `things` do not know each other at all -- a node is born
 with its yard from the model, not from a lookup. So the only edge out of this
 package to `engine.city` is `people`'s, and it is the edge that already

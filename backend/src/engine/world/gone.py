@@ -27,6 +27,7 @@ from collections.abc import Sequence
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.engine import stock
 from src.models.inventory import INSIDE_KINDS, Container, Item
 from src.models.travel import Harness
 from src.units import amount_float
@@ -48,19 +49,23 @@ async def destroy(session: AsyncSession, things: Sequence[Item]) -> dict[str, fl
     the harness points at the vehicle's row. The body stays where it is: it
     pulled a thing, and the thing is gone.
 
-    The things themselves are the caller's to have locked, or not -- the
-    yard, the pocket, the floor each has its own reason and its own order.
-    What lies inside them is locked here, and reread after the lock: a chest
-    in a field is open to anybody (`station.may_build` gives the wild to
-    everybody), and somebody may be taking a sack out in the last minute --
-    doing precisely what the window before an eruption is for. Without the
-    lock the delete would queue behind their update and take the sack **out
-    of their hands** the moment it landed there.
+    **Everything under its lock, reread after it.** The things themselves
+    are taken in id order (`stock.lock_items`) -- held already by a caller
+    that had to ask where they lie first (the yard, the pocket, the floor), and
+    taken here for one that did not, a batch's target. One gone meanwhile is
+    simply not there to end. What lies inside them is locked here too, and
+    for the reason the fire gave first: a chest in a field is open to anybody
+    (`station.may_build` gives the wild to everybody), and somebody may be
+    taking a sack out in the last minute -- doing precisely what the window
+    before an eruption is for. Without the lock the delete would queue behind
+    their update and take the sack **out of their hands** the moment it
+    landed there.
     """
+    held_things = await stock.lock_items(session, things)
     opened: set[uuid.UUID] = set()
     emptied: list[Container] = []
-    everything = list(things)
-    layer = list(things)
+    everything = list(held_things)
+    layer = list(held_things)
     while layer:
         boxes = [
             box

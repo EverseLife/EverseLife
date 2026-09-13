@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants, current, current_catalog
 from src.constants import registry as R
-from src.engine import craft, events, goods, occupation, storage, travel, world
+from src.engine import craft, events, goods, occupation, stock, storage, travel, world
 from src.engine.estate._base import EstateError, Ruined
 from src.engine.estate.building import (
     _equipment,
@@ -350,17 +350,34 @@ async def _bury(
     in a house proof against its collapse, losing neither its slot nor its use.
     """
     catalog = current_catalog()
-    things = [
+
+    def falls(thing: Item) -> bool:
+        return (
+            not filtered
+            or not thing.outdoors
+            or _equipment(catalog, thing.type_key)
+            or storage.is_storage(catalog, thing.type_key)
+        )
+
+    doomed = [
         thing
         for thing in (
             (await session.execute(select(Item).where(Item.container_id == store.id)))
             .scalars()
             .all()
         )
-        if not filtered
-        or not thing.outdoors
-        or _equipment(catalog, thing.type_key)
-        or storage.is_storage(catalog, thing.type_key)
+        if falls(thing)
+    ]
+    #: Only what goes down is taken under the lock, and asked again after it
+    #: whether it still lies here: a sack picked up off this floor in the same
+    #: second stays in the hands that reached it, rather than being deleted
+    #: out of them the moment the pick lands. What the rain spares is not
+    #: taken at all -- the machine ticks lock their own rows and then the fuel
+    #: in this same yard, and a lock on the spared heap would only cross them.
+    things = [
+        thing
+        for thing in await stock.lock_items(session, doomed)
+        if thing.container_id == store.id and falls(thing)
     ]
     #: A chest goes down with its contents, a cart with its load and out of
     #: its harness, and a chest in a chest all the way down (`world.destroy`):
