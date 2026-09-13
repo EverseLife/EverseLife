@@ -246,7 +246,7 @@ async def test_a_way_breaking_under_a_walker_kills_them_with_the_pocket(
     )
     await session.flush()
 
-    died = await plates._kill_on(session, constants, edge, now=datetime.now(UTC))
+    died = await plates._kill_on(session, constants, [edge], now=datetime.now(UTC))
     assert died == 1
     assert body.state is BodyState.DEAD
     #: Nothing survived the fall: what a body drops on death lands in the node
