@@ -399,7 +399,8 @@ async def _ask(
         await session.execute(
             select(AutomatRow.id, Node, AutomatRow.counted_at)
             .join(Node, Node.id == AutomatRow.node_id)
-            .where(AutomatRow.recipe_key.is_not(None))
+            .join(Item, Item.id == AutomatRow.item_id)
+            .where(AutomatRow.recipe_key.is_not(None), Item.installed.is_(True))
         )
     ).all()
     for row_id, node, counted_at in rows:

@@ -131,10 +131,11 @@ async def _advance(
     #: for the cursor and the stamp. A no-op when the caller already holds it.
     await session.refresh(row, with_for_update=True)
     hours = (moment - row.counted_at).total_seconds() / SECONDS_PER_HOUR
-    if hours <= 0:
+    if hours <= 0 or _unmeasured(constants, hours):
+        #: Seconds whose lubricant or energy the grids cannot show -- a tick
+        #: just after a command: they carry over to the next count rather than
+        #: standing the machine for power it was never refused.
         return 0
-    if not row.program:
-        return await _stopped(session, row, moment)
     book = catalog or current_catalog()
     machine = await session.get(Item, row.item_id)
     node = await session.get(Node, row.node_id)
@@ -143,6 +144,8 @@ async def _advance(
         #: contents would vanish with it: they fall to the yard instead.
         await _gone(session, row, node)
         return 0
+    if not row.program:
+        return await _stopped(session, row, moment)
     #: Wear by the clock, worked or stood (D-120), by the Terran day like the
     #: rig it is modelled on and like its own fallow and weeding (D-008).
     if await wear.spend(
@@ -226,7 +229,7 @@ async def _advance(
 
     if lube_rate > 0 and worked > 0:
         await stock.consume(session, lube, amount(lube_rate * worked))
-    await _stand(session, constants, row, trouble, moment, told=worked <= 0 or trouble != short)
+    await _stand(session, constants, row, trouble, moment, stood=worked <= 0 or trouble != short)
     row.counted_at = moment
     await session.flush()
     return done
@@ -307,6 +310,14 @@ async def _idle(
     return 0
 
 
+def _unmeasured(constants: Constants, hours: float) -> bool:
+    """Whether a stretch this short burns less lubricant or energy than their
+    grids show: no hours yet, rather than hours refused."""
+    lube = constants[R.AUTO_LUBE_PER_HOUR]
+    rate = constants[R.AGRO_ENERGY_PER_HOUR]
+    return (lube > 0 and amount(lube * hours) <= 0) or (rate > 0 and amount(rate * hours) <= 0)
+
+
 def _stretch(row: FieldAutomat, idle_hours: float) -> None:
     """The machine's clock runs only while it has power and lubricant (D-339
     p. 8): the hours it stood since its count do not count toward the action
@@ -318,7 +329,9 @@ def _stretch(row: FieldAutomat, idle_hours: float) -> None:
 async def _stopped(session: AsyncSession, row: FieldAutomat, now: datetime) -> int:
     """A machine whose programme was taken off while it was still busy: its row
     keeps the action's unserved minutes, so a programme set again waits them out
-    (D-339 p. 8). It draws, wears and says nothing; not busy any more, it goes."""
+    (D-339 p. 8). Its clock does not run -- it draws, wears and says nothing --
+    and the tick passes it over; a command settling it moves the stamp and the
+    end together. A row with nothing owed goes."""
     if row.busy_until is None or row.busy_until <= row.counted_at:
         await session.delete(row)
         await session.flush()
@@ -336,17 +349,17 @@ async def _stand(
     trouble: str | None,
     now: datetime,
     *,
-    told: bool = True,
+    stood: bool = True,
 ) -> None:
-    """Write the word the machine stands with; tell the owner when a new one comes.
+    """Write the word the machine stands with; tell the owner when it matters.
 
     The journal line names the place; why the machine stands is its window's
     word, where the owner can act on it (D-339 p. 11). The window hears every
-    change at once. The journal is told a word only when the machine stood
-    for it (`told`: not a machine merely slowed by a short supply), and the
-    same word not again within a Terran day of telling it -- a supply that
-    comes and goes around the demand would otherwise tell the owner every other
-    tick.
+    change at once. The journal is told a word when the machine stood for it
+    (`stood`: not a machine merely slowed by a short supply), and each word not
+    again within a Terran day of telling it -- a supply that comes and goes
+    around the demand, or two words taking turns, would otherwise tell the
+    owner every other tick; a stall that lasts is told again the next day.
     """
     changed = trouble != row.trouble
     if changed:
@@ -358,12 +371,15 @@ async def _stand(
             event="agro.trouble",
             machine=str(row.item_id),
         )
-    if trouble is None or not told or (not changed and trouble == row.told):
+    if trouble is None or not stood:
         return
     day = timedelta(hours=farm.day_hours(constants))
-    if trouble == row.told and row.told_at is not None and now - row.told_at < day:
+    told = dict(row.told or {})
+    last = told.get(trouble)
+    if last is not None and now - datetime.fromisoformat(last) < day:
         return
-    row.told, row.told_at = trouble, now
+    told[trouble] = now.isoformat()
+    row.told = told
     node = await session.get(Node, row.node_id)
     await events.record(
         session,
@@ -393,6 +409,28 @@ async def _gone(session: AsyncSession, row: FieldAutomat, node: Node | None) -> 
         await session.execute(delete(Container).where(Container.id == hold.id))
     await session.delete(row)
     await session.flush()
+
+
+async def _sweep_stopped(session: AsyncSession) -> None:
+    """Stopped machines whose thing is gone meanwhile: the rows the tick passes
+    over would otherwise outlive them. Their bunkers fall to the yard (`_gone`)."""
+    gone = (
+        (
+            await session.execute(
+                select(FieldAutomat.id).where(
+                    func.jsonb_array_length(FieldAutomat.program) == 0,
+                    ~select(Item.id).where(Item.id == FieldAutomat.item_id).exists(),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for row_id in gone:
+        async with session.begin_nested():
+            row = await _take(session, row_id)
+            if row is not None:
+                await _gone(session, row, await session.get(Node, row.node_id))
 
 
 async def _take(session: AsyncSession, row_id: uuid.UUID) -> FieldAutomat | None:
@@ -454,7 +492,12 @@ class _Fields:
             await session.execute(
                 select(FieldAutomat.id, Node, FieldAutomat.counted_at)
                 .join(Node, Node.id == FieldAutomat.node_id)
-                .where(func.jsonb_array_length(FieldAutomat.program) > 0, given.exists())
+                .join(Item, Item.id == FieldAutomat.item_id)
+                .where(
+                    func.jsonb_array_length(FieldAutomat.program) > 0,
+                    given.exists(),
+                    Item.installed.is_(True),
+                )
             )
         ).all()
         for row_id, node, counted_at in rows:
@@ -481,10 +524,13 @@ async def _work_fields(
     runs up a debt of wear and lubricant to be paid at once when mended. A
     machine its owner holds right now is skipped rather than waited for.
     """
+    await _sweep_stopped(session)
     ids = (
         (
             await session.execute(
-                select(FieldAutomat.id).order_by(FieldAutomat.node_id, FieldAutomat.id)
+                select(FieldAutomat.id)
+                .where(func.jsonb_array_length(FieldAutomat.program) > 0)
+                .order_by(FieldAutomat.node_id, FieldAutomat.id)
             )
         )
         .scalars()

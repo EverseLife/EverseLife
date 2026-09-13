@@ -19,7 +19,16 @@ import pytest
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from agro_kit import LUBRICANT, events_of, field, liquid_in, plot_of, programmed, second_now
+from agro_kit import (
+    LUBRICANT,
+    SPELT,
+    events_of,
+    field,
+    liquid_in,
+    plot_of,
+    programmed,
+    second_now,
+)
 from automat_kit import IRON, NAILS, _factory_floor, _learn, _lube_in
 from src.constants import Catalog, Constants, current, current_catalog
 from src.constants import registry as R
@@ -602,3 +611,122 @@ async def test_a_supply_that_comes_and_goes_tells_the_journal_once_a_day(
         words.append(row.trouble)
     assert words.count("no_power") == 5 and words.count(None) == 5
     assert await events_of(session, EventKind.AGRO_STALLED) == 1, "told once a day"
+
+
+async def test_a_tick_seconds_after_a_command_is_no_stall(
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+) -> None:
+    """A tick two seconds after the programme is set, on a full pool: seconds
+    whose lubricant the grid cannot show carry over, and the machine is not
+    told it had no power."""
+    place = await field(session, constants)
+    await liquid_in(session, place.yard, LUBRICANT, 100)
+    plot = await plot_of(session, constants, place.body)
+    moment = second_now()
+    row = await programmed(session, constants, catalog, place, [{"do": "plow"}], [plot], moment)
+    await agro.tick_machines(session, constants, now=moment + timedelta(seconds=2))
+    await session.refresh(row)
+    assert row.trouble is None
+    assert row.counted_at == moment, "the seconds carry over"
+    assert await events_of(session, EventKind.AGRO_STALLED) == 0
+
+
+async def test_two_words_taking_turns_are_each_told_once_a_day(
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+) -> None:
+    """A pool empty one tick and full the next, and a sowing the unploughed bed
+    refuses: the words take turns -- no power, not ploughed -- and each is
+    told once, not every tick."""
+    place = await field(session, constants)
+    await liquid_in(session, place.yard, LUBRICANT, 100)
+    plot = await plot_of(session, constants, place.body)
+    moment = second_now()
+    row = await programmed(
+        session, constants, catalog, place, [{"do": "sow", "culture": SPELT}], [plot], moment
+    )
+    pool = await energy.pool_of(session, constants, place.node)
+    assert pool is not None
+    step = timedelta(minutes=constants[R.TIME_TICK])
+    now = moment
+    words = set()
+    for tick in range(8):
+        pool.stored = Decimal(0) if tick % 2 == 0 else Decimal(1000)
+        await session.flush()
+        now += step
+        await agro.tick_machines(session, constants, now=now)
+        await session.refresh(row)
+        words.add(row.trouble)
+    assert {"no_power", "not_plowed"} <= words
+    assert await events_of(session, EventKind.AGRO_STALLED) == 2, "each word once"
+
+
+async def test_a_stall_that_comes_back_days_later_is_told_again(
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+) -> None:
+    """Told once, the power comes back; three days on the pool runs thin -- a
+    slowed tick first, then a stop. The stop is news again: a day has passed."""
+    place = await field(session, constants)
+    await liquid_in(session, place.yard, LUBRICANT, 1000)
+    plot = await plot_of(session, constants, place.body)
+    moment = second_now()
+    row = await programmed(session, constants, catalog, place, [{"do": "plow"}], [plot], moment)
+    pool = await energy.pool_of(session, constants, place.node)
+    assert pool is not None
+    step = timedelta(minutes=constants[R.TIME_TICK])
+    minute = constants[R.AGRO_ENERGY_PER_HOUR] * constants[R.TIME_TICK] / 60
+
+    pool.stored = Decimal(0)
+    await session.flush()
+    await agro.tick_machines(session, constants, now=moment + step)
+    assert await events_of(session, EventKind.AGRO_STALLED) == 1
+
+    later = moment + timedelta(days=3)
+    row.counted_at = later - step
+    pool.stored = Decimal(str(round(minute / 2, 3)))
+    await session.flush()
+    await agro.tick_machines(session, constants, now=later)
+    await session.refresh(row)
+    assert row.trouble == "no_power"
+    assert await events_of(session, EventKind.AGRO_STALLED) == 1, "slowed, not stood"
+
+    pool.stored = Decimal(0)
+    await session.flush()
+    await agro.tick_machines(session, constants, now=later + step)
+    assert await events_of(session, EventKind.AGRO_STALLED) == 2, "a stop three days on is news"
+
+
+async def test_a_stopped_machine_is_passed_over_and_its_row_goes_with_the_thing(
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+) -> None:
+    """Stopped while busy, the machine keeps its row for the minutes it owes,
+    and the tick does not work it. Taken apart meanwhile, it leaves nothing
+    behind: the tick sweeps the row."""
+    place = await field(session, constants)
+    await liquid_in(session, place.yard, LUBRICANT, 100)
+    plot = await plot_of(session, constants, place.body)
+    moment = second_now()
+    step = timedelta(minutes=constants[R.TIME_TICK])
+    await programmed(session, constants, catalog, place, [{"do": "plow"}], [plot], moment)
+    await agro.tick_machines(session, constants, now=moment + step)
+    await agro.stop(session, constants, catalog, place.body, place.machine, now=moment + step)
+    kept = await agro.of_item(session, place.machine)
+    assert kept is not None and not kept.program
+    stamp = kept.counted_at
+
+    await agro.tick_machines(session, constants, now=moment + 2 * step)
+    await session.refresh(kept)
+    assert kept.counted_at == stamp, "the tick passes a stopped machine over"
+
+    row_id = kept.id
+    await session.delete(place.machine)
+    await session.flush()
+    await agro.tick_machines(session, constants, now=moment + 3 * step)
+    assert await session.get(FieldAutomat, row_id) is None
