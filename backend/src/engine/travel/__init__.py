@@ -140,7 +140,6 @@ from src.engine.travel._base import (  # noqa: F401
     _edge_between,
     current,
     edge_seconds,
-    edge_snow,
     has_transport,
     require_here,
     snow_multiplier,
@@ -154,6 +153,7 @@ from src.engine.travel.map import (  # noqa: F401
     exits,
     neighbours,
 )
+from src.engine.travel.snow import edge_snow, place_of  # noqa: F401
 from src.engine.travel.walk import (  # noqa: F401
     arrive,
     depart,

@@ -428,13 +428,17 @@ async def _aurora_under_snow(session: AsyncSession, constants) -> None:
         if here is None or here == biome.ICE:
             continue
         face = facet.at(constants, catalog, node.planet, *point, here=here)
-        changes: dict = {
-            biome.BIOME: here,
-            biome.TEMPERATURE_SWING: facet.swing_c(constants, here, face),
-        }
-        if face is not None:
-            changes[facet.FACET] = face.id
-        await props.stamp(session, node, changes)
+        #: The face goes with the biome: a stamp merges, and a find with no
+        #: face of the snow would otherwise keep its crevasses.
+        await props.stamp(
+            session,
+            node,
+            {
+                biome.BIOME: here,
+                biome.TEMPERATURE_SWING: facet.swing_c(constants, here, face),
+                facet.FACET: None if face is None else face.id,
+            },
+        )
         changed += 1
     if changed:
         await session.flush()

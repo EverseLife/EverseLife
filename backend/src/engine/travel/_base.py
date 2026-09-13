@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
 
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,13 +17,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Constants
 from src.constants import registry as R
 from src.engine import (
-    climate,
     transport,
 )
 from src.engine.errors import Refusal, left_to_say
 from src.models.identity import Body
 from src.models.travel import Travel, TravelState
-from src.models.world import Edge, Node, Surface
+from src.models.world import Edge, Surface
 from src.units import METRES_PER_KM, SECONDS_PER_HOUR
 
 
@@ -90,10 +88,9 @@ def surface_multiplier(constants: Constants, surface: Surface) -> float:
     return constants[R.ROAD_ROAD_MULTIPLIER]
 
 
-#: The off-road (D-338): the surfaces the season's snow lies on the way --
-#: the wild and the trail, where no vehicle passes either
-#: (`transport.passable`). A road is a road because it is kept clear.
-OFF_ROAD = frozenset({Surface.WILD, Surface.TRAIL})
+#: The off-road, the transport's (D-107, D-338): where no vehicle passes and
+#: where the season's snow lies on the way.
+OFF_ROAD = transport.OFF_ROAD
 
 
 def snow_multiplier(constants: Constants, surface: Surface, snow: float) -> float:
@@ -107,7 +104,7 @@ def snow_multiplier(constants: Constants, surface: Surface, snow: float) -> floa
 
 def edge_seconds(constants: Constants, edge: Edge, *, snow: float) -> float:
     """The time an edge takes: its metres at the walk, the surface's factor
-    (D-107) and the snow on the way (D-338, `edge_snow`). `snow` is asked for
+    (D-107) and the snow on the way (D-338, `travel.snow.edge_snow`). `snow` is asked for
     on purpose: the walk and the route say the season's, and a caller that
     wants the edge's own time -- the map, the road window, a letter -- says
     nought where it can be read."""
@@ -116,23 +113,6 @@ def edge_seconds(constants: Constants, edge: Edge, *, snow: float) -> float:
         * surface_multiplier(constants, edge.surface)
         * snow_multiplier(constants, edge.surface, snow)
     )
-
-
-def edge_snow(
-    constants: Constants,
-    edge: Edge,
-    ends: tuple[Node | None, Node | None],
-    origin: datetime | None,
-    moment: datetime,
-) -> float:
-    """The snow an edge is walked through, nought to one (D-338): the mean of
-    the season's snow on its two ends (`climate.snow_on`), the way running
-    from the one to the other. A road is not asked at all -- the snow does not
-    lengthen it -- and an end off the sphere has no ground to lie on."""
-    if edge.surface not in OFF_ROAD:
-        return 0.0
-    lying = [climate.snow_on(constants, end, origin, moment) for end in ends if end is not None]
-    return sum(lying) / len(lying) if lying else 0.0
 
 
 def walk_seconds(constants: Constants, metres: float) -> float:

@@ -214,7 +214,13 @@ def day_band(
     mean = mean_temperature(node)
     if mean is None:
         return None
-    mean += season_c(constants, node.planet, latitude_of(node), origin, moment)
+    #: The season as it stood when the planetary day began (D-263's calendar
+    #: day), so the band is one for the whole day and moves once a day.
+    day = None
+    if origin is not None:
+        length = timedelta(hours=day_hours_of(constants, node.planet))
+        day = origin + length * day_index(constants, node.planet, origin, moment)
+    mean += season_c(constants, node.planet, latitude_of(node), origin, day or moment)
     swing = swing_of(constants, node.planet, node)
     return mean - swing, mean + swing
 

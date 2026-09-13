@@ -32,17 +32,13 @@ BROME = "brome"
 
 
 async def _farmstead(
-    session: AsyncSession,
-    *,
-    water: str = "river",
-    fertility: float = 55,
-    area: float = 200,
-    sky: bool = False,
+    session: AsyncSession, *, water: str = "river", fertility: float = 55, area: float = 200
 ):
-    """A farmer on their own land. Off the sphere unless `sky` is asked for:
-    a new node is seated at its group's origin, and the weather there would
-    water every bed of every farm test by the rain of that point (D-338) --
-    a retune of `weather.*` would then fail tests that never meant the rain."""
+    """A farmer on their own land, off the sphere: a new node is seated at its
+    group's origin, and the weather there would water every bed of every farm
+    test by the rain of that point (D-338) -- a retune of `weather.*` would
+    then fail tests that never meant the rain. A test of the weather puts the
+    node back on the sphere itself."""
     stamp = uuid.uuid4().hex[:8]
     node = await world.create_node(
         session,
@@ -51,8 +47,7 @@ async def _farmstead(
         area_m2=area,
         properties={"water": water, "fertility": fertility},
     )
-    if not sky:
-        node.properties = {k: v for k, v in node.properties.items() if k != places.PLACE}
+    node.properties = {k: v for k, v in node.properties.items() if k != places.PLACE}
     identity = await world.create_identity(session, f"Фермер-{stamp}")
     body = await world.print_body(session, identity, node)
     #: The holder runs the estate: the fixture's farmer has already taken their plot.

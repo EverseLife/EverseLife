@@ -30,7 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from farm_kit import SPELT, _farmstead, _norms, _weather
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import biome, breed, climate, estate, farm, places, terrain, world
+from src.engine import biome, breed, climate, craft, estate, farm, places, terrain, world
 from src.engine.farm import life
 from src.engine.farm.settle import _weather as place_weather
 from src.models.farm import PlotState
@@ -437,8 +437,6 @@ async def test_no_station_is_built_in_place_on_ice(
 ) -> None:
     """A station built in place stands where it is made (D-268), so the ice
     refuses the batch before the hours, not after (D-338)."""
-    from src.engine import craft
-
     built = "coal_plant"
     assert catalog.recipes.built(built), "the test needs a station built in place"
     node, body = await _yard(session, **{biome.BIOME: biome.ICE})

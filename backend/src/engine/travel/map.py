@@ -21,12 +21,12 @@ from src.engine import (
     world,
 )
 from src.engine import ship as vessels
+from src.engine.travel import snow as snowy
 from src.engine.travel._base import (
     EdgeInUse,
     Exit,
     _edge_between,
     edge_seconds,
-    edge_snow,
     walk_seconds,
 )
 from src.models.travel import Travel, TravelState
@@ -74,7 +74,15 @@ async def exits(session: AsyncSession, constants: Constants, node: Node) -> tupl
                 name=other.name,
                 surface=edge.surface,
                 seconds=edge_seconds(
-                    constants, edge, snow=edge_snow(constants, edge, (node, other), epoch, moment)
+                    constants,
+                    edge,
+                    snow=snowy.edge_snow(
+                        constants,
+                        edge,
+                        (snowy.place_of(node), snowy.place_of(other)),
+                        epoch,
+                        moment,
+                    ),
                 ),
                 condition=float(edge.condition),
             )

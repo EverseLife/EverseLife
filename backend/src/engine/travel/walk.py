@@ -28,11 +28,13 @@ from src.engine import (
     food,
     justice,
     memory,
+    places,
     transport,
     world,
 )
 from src.engine.errors import left_to_say
 from src.engine.jobs import enqueue, handler
+from src.engine.travel import snow as snowy
 from src.engine.travel._base import (
     OFF_ROAD,
     AlreadyGoing,
@@ -46,7 +48,6 @@ from src.engine.travel._base import (
     _edge_between,
     current,
     edge_seconds,
-    edge_snow,
     has_transport,
     require_here,
     stamina_cost,
@@ -92,23 +93,31 @@ async def route(
     moment = now or datetime.now(UTC)
     edges = (await session.execute(select(Edge))).scalars().all()
     #: The ends of the off-road only, and only for a walker: a vehicle does
-    #: not pass the off-road at all, and a road's time knows no snow.
-    snowy = (
-        {edge.node_a_id for edge in edges if edge.surface in OFF_ROAD}
-        | {edge.node_b_id for edge in edges if edge.surface in OFF_ROAD}
-        if vehicle is None
-        else set()
-    )
-    ends: dict[uuid.UUID, Node] = {}
-    if snowy:
-        found = await session.execute(select(Node).where(Node.id.in_(snowy)))
-        ends = {node.id: node for node in found.scalars()}
-    epoch = await world.epoch(session) if snowy else None
+    #: not pass the off-road at all, and a road's time knows no snow. Asked
+    #: by a subquery and for three columns -- every find hangs on a wild edge
+    #: (D-321), so the ends are nearly the whole explored world, and a list of
+    #: ids would outgrow the driver's parameters long before the world stops.
+    ends: dict[uuid.UUID, snowy.Place] = {}
+    epoch: datetime | None = None
+    if vehicle is None and any(edge.surface in OFF_ROAD for edge in edges):
+        off_road = (
+            select(Edge.node_a_id)
+            .where(Edge.surface.in_(OFF_ROAD))
+            .union(select(Edge.node_b_id).where(Edge.surface.in_(OFF_ROAD)))
+        )
+        rows = await session.execute(
+            select(Node.id, Node.planet, Node.properties[places.PLACE]).where(Node.id.in_(off_road))
+        )
+        ends = {
+            node_id: (planet, places.geo_in({places.PLACE: place}))
+            for node_id, planet, place in rows.all()
+        }
+        epoch = await world.epoch(session)
     graph: dict[uuid.UUID, list[tuple[uuid.UUID, float]]] = {}
     for edge in edges:
         if vehicle is not None and not transport.passable(constants, edge.surface, vehicle):
             continue
-        snow = edge_snow(
+        snow = snowy.edge_snow(
             constants, edge, (ends.get(edge.node_a_id), ends.get(edge.node_b_id)), epoch, moment
         )
         seconds = edge_seconds(constants, edge, snow=snow)
@@ -245,7 +254,13 @@ async def depart(
     #: The season's snow on the leg (D-338): the off-road under snow is longer,
     #: and the time, the air it takes and the strength it costs all follow it.
     origin_node = await session.get(Node, body.node_id)
-    snow = edge_snow(constants, edge, (origin_node, target), await world.epoch(session), moment)
+    snow = snowy.edge_snow(
+        constants,
+        edge,
+        (snowy.place_of(origin_node), snowy.place_of(target)),
+        await world.epoch(session),
+        moment,
+    )
 
     #: Nothing to breathe where the leg ends (D-233): refused **before** the
     #: step, never at the far end -- death by ignorance in one click is not this

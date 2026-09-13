@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -81,17 +82,15 @@ def test_the_snow_lies_where_the_map_draws_it(constants: Constants) -> None:
 
     wet = _land(constants, Planet.AURORA, frozen(True))
     assert climate.snow_now(constants, Planet.AURORA, *wet, EPOCH, EPOCH) == pytest.approx(1.0)
-    dry_points = [
-        (float(lat), float(lon))
-        for lat in range(-86, 87, 2)
-        for lon in range(-180, 180, 3)
-        if not terrain.field_of(constants, Planet.AURORA).is_water(lat, lon)
-        and frozen(False)(terrain.field_of(constants, Planet.AURORA), float(lat), float(lon))
-    ]
-    if dry_points:
-        assert climate.snow_now(
-            constants, Planet.AURORA, *dry_points[0], EPOCH, EPOCH
-        ) == pytest.approx(keep)
+    #: A dry cold keeps the dry share: read where the rain share is nought,
+    #: or -- a planet with no such place -- by the rain read as nought there.
+    dry = _land(constants, Planet.AURORA, frozen(True))
+    ground = terrain.field_of(constants, Planet.AURORA)
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(type(ground), "rain_at", lambda self, lat, lon: 0.0)
+        climate._HOURS.clear()
+        assert climate.snow_now(constants, Planet.AURORA, *dry, EPOCH, EPOCH) == pytest.approx(keep)
+    climate._HOURS.clear()
 
     #: Aurora is under snow all the year round, and none lies on its water.
     for moment in _year(constants, Planet.AURORA):
@@ -163,16 +162,19 @@ async def test_a_leg_through_the_snow_is_longer(
 ) -> None:
     """The departure pays the snow: the leg's time and the strength it costs."""
     here, there = await _node(session, "here"), await _node(session, "there")
-    wild = await travel.connect(session, here, there, base_seconds=60, surface=Surface.WILD)
+    wild = await travel.connect(session, here, there, base_seconds=600, surface=Surface.WILD)
     body = await _walker(session, here)
+    body.stamina = Decimal(100)
     moment = datetime.now(UTC)
-    monkeypatch.setattr(climate, "snow_on", lambda *_args: 1.0)
+    monkeypatch.setattr(climate, "snow_now", lambda *_args: 1.0)
     going = await travel.depart(session, constants, body, there, now=moment)
     seconds = (going.arrives_at - moment).total_seconds()
-    assert seconds == pytest.approx(travel.edge_seconds(constants, wild, snow=1.0), abs=1)
-    assert seconds == pytest.approx(
-        travel.edge_seconds(constants, wild, snow=0.0) * constants[R.TRAVEL_SNOW_MULTIPLIER], abs=1
-    )
+    times = constants[R.TRAVEL_SNOW_MULTIPLIER]
+    assert seconds == pytest.approx(travel.edge_seconds(constants, wild, snow=0.0) * times, abs=1)
+    spent = 100 - float(body.stamina)
+    assert spent == pytest.approx(
+        travel.stamina_cost(constants, seconds, transport=False), rel=0.02
+    ), "the strength follows the longer leg"
 
 
 async def test_the_exits_and_the_route_know_the_snow(
@@ -193,11 +195,11 @@ async def test_the_exits_and_the_route_know_the_snow(
     await travel.connect(session, a, c, base_seconds=around, surface=Surface.ROAD)
     await travel.connect(session, c, b, base_seconds=around, surface=Surface.ROAD)
 
-    monkeypatch.setattr(climate, "snow_on", lambda *_args: 0.0)
+    monkeypatch.setattr(climate, "snow_now", lambda *_args: 0.0)
     assert await travel.route(session, constants, a.id, b.id) == [b.id]
     bare = {exit.node_id: exit.seconds for exit in await travel.exits(session, constants, a)}
 
-    monkeypatch.setattr(climate, "snow_on", lambda *_args: 1.0)
+    monkeypatch.setattr(climate, "snow_now", lambda *_args: 1.0)
     assert await travel.route(session, constants, a.id, b.id) == [c.id, b.id]
     white = {exit.node_id: exit.seconds for exit in await travel.exits(session, constants, a)}
     assert white[b.id] == pytest.approx(bare[b.id] * times)
