@@ -11,15 +11,16 @@ master at a powered machine (D-269), or the owner reprogramming a machine --
 and the owner's purse and the pool, which the tick draws only after the
 machines have worked.
 
-The handshake is `_until_one_waits`: the side holding the contended rows lets
-go only once the other side has provably walked into them.
+The handshake is `_until_blocked_by`: the side holding the contended rows
+lets go only once the other side has provably walked into them.
 """
 
 from __future__ import annotations
 
 import asyncio
 import uuid
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 
 import pytest
 from sqlalchemy import select, text
@@ -28,43 +29,61 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from automat_kit import IRON, NAILS, _factory_floor, _learn, _lube_in
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import automat, craft, energy, ledger, stock, world
+from src.engine import automat, battery, craft, energy, ledger, stock, world
 from src.engine.automat import bill as energy_bill
+from src.engine.automat import run as automat_run
 from src.models.automat import Automat as AutomatRow
 from src.models.craft import CraftBatch
 from src.models.identity import Body
 from src.models.inventory import Item
 from src.models.ledger import AccountKind, PostingReason
-from src.models.world import Node
-from src.units import amount_float
+from src.models.world import ABOARD, Layer, Node
+from src.units import amount, amount_float
 
 FURNACE = "blast_furnace"
 SILICON = "silicon"
 SAND = "quartz_sand"
 COKE = "petroleum_coke"
 
-_WAITING = text(
-    "SELECT count(*) FROM pg_stat_activity "
-    "WHERE datname = current_database() AND wait_event_type = 'Lock'"
-)
+_BLOCKED = text("SELECT count(*) FROM pg_stat_activity WHERE :holder = ANY(pg_blocking_pids(pid))")
 
 
-async def _until_one_waits(factory: async_sessionmaker[AsyncSession]) -> None:
-    """Return once a transaction of this database waits on a lock.
+async def _until_blocked_by(
+    factory: async_sessionmaker[AsyncSession], holder: AsyncSession
+) -> None:
+    """Return once another transaction waits on a lock `holder` holds.
 
     A fixed pause would let a busy run release the held rows before the other
     side reached them, and the race would pass on the very code it exists to
-    catch. The activity view is a snapshot per transaction, so each look is a
-    transaction of its own.
+    catch. Asked by the holder's own backend, so no unrelated wait in the
+    database counts; the activity view is a snapshot per transaction, so each
+    look is a transaction of its own.
     """
+    pid = (await holder.execute(text("SELECT pg_backend_pid()"))).scalar_one()
     async with factory() as probe:
         for _ in range(500):
-            waiting = (await probe.execute(_WAITING)).scalar_one()
+            blocked = (await probe.execute(_BLOCKED, {"holder": pid})).scalar_one()
             await probe.rollback()
-            if waiting:
+            if blocked:
                 return
             await asyncio.sleep(0.01)
     raise AssertionError("nobody came to wait on the held rows")
+
+
+async def _nails_on(db: AsyncSession, yard_id) -> list[Item]:
+    stmt = select(Item).where(Item.container_id == yard_id, Item.type_key == NAILS)
+    return list((await db.execute(stmt.execution_options(populate_existing=True))).scalars())
+
+
+async def _take_a_nail(factory: async_sessionmaker[AsyncSession], yard_id) -> None:
+    """A player takes one nail off the yard's stack, committed on the spot."""
+    async with factory() as hand, hand.begin():
+        #: A lock the tick still held would hang here: fail fast instead.
+        await hand.execute(text("SET LOCAL lock_timeout = '3s'"))
+        (stack,) = await _nails_on(hand, yard_id)
+        locked = await hand.get(Item, stack.id, with_for_update=True)
+        assert locked is not None and locked.amount > amount(1)
+        locked.amount -= amount(1)
 
 
 async def _pool_left(factory: async_sessionmaker[AsyncSession], constants, node_id) -> float:
@@ -122,10 +141,10 @@ async def test_a_crafter_drawing_the_pool_does_not_deadlock_the_automats_tick(
     held = asyncio.Event()
     locked = stock.lock_items
 
-    async def holding(*args, **kwargs):
-        rows = await locked(*args, **kwargs)
+    async def holding(db, *args, **kwargs):
+        rows = await locked(db, *args, **kwargs)
         held.set()
-        await _until_one_waits(factory)
+        await _until_blocked_by(factory, db)
         return rows
 
     monkeypatch.setattr(stock, "lock_items", holding)
@@ -228,7 +247,7 @@ async def test_a_bench_holding_a_later_pool_does_not_deadlock_the_tick_on_its_pu
         if benches and db is benches[0] and not held.is_set():
             #: The bench holds its pool now; the purse comes next.
             held.set()
-            await _until_one_waits(factory)
+            await _until_blocked_by(factory, db)
         return result
 
     monkeypatch.setattr(energy, "produce", holding)
@@ -445,3 +464,245 @@ async def test_a_pool_drunk_under_the_tick_is_billed_for_what_it_gave(
         assert worked is not None and worked.counted_at == moment
         assert await ledger.balance(db, account_id) == purse, "nothing billed for nothing given"
     assert await _pool_left(factory, constants, node_id) == pytest.approx(0, abs=0.001)
+
+
+async def test_the_off_grid_tick_and_the_automats_tick_take_hulls_cells_in_one_order(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    constants: Constants,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two passes take several hulls' cells in one transaction: the off-grid
+    tick charging them from the panels (`battery.tick_offgrid`), and the
+    automats' tick drawing them at its end (`bill.pay`). Both go hull by hull
+    (`battery.hull_of`) -- and they run as two jobs of one tick at once.
+
+    Two hulls whose rooms sort the other way round from the hulls themselves.
+    The off-grid tick holds its first hull's cells until the automats' tick
+    has come to wait for them. When it went room by room, that first hull was
+    the automats' second: each held the hull the other wanted next.
+    """
+    moment = datetime.now(UTC)
+    stamp = uuid.uuid4().hex[:8]
+    hulls = sorted(
+        [
+            await world.create_node(
+                session, f"hull.{stamp}.{n}", "Hull", area_m2=100, layer=Layer.SPACE
+            )
+            for n in range(2)
+        ],
+        key=lambda node: node.id,
+    )
+    rooms = sorted(
+        [
+            await world.create_node(
+                session,
+                f"hull.{stamp}.room{n}",
+                "Room",
+                area_m2=50,
+                layer=Layer.LOCATION,
+                properties={ABOARD: True},
+            )
+            for n in range(2)
+        ],
+        key=lambda node: node.id,
+    )
+    #: The lower room to the higher hull: room order and hull order disagree.
+    rooms[0].parent_id, rooms[1].parent_id = hulls[1].id, hulls[0].id
+    solar = world.station_names(battery.SOLAR)[0]
+    row_ids = []
+    for room in rooms:
+        yard = await world.node_container(session, room)
+        panel = await world.grant_item(session, yard, solar, quality=60, origin="test")
+        panel.charged_at = moment - timedelta(hours=1)
+        cell = await world.grant_item(session, yard, "battery", quality=60, origin="test")
+        cell.charge = Decimal(str(battery.capacity(constants) / 2))
+        cell.charged_at = moment
+        machine = await world.grant_item(session, yard, "auto_station", quality=70, origin="test")
+        await world.grant_item(session, yard, IRON, amount=1000, quality=60, origin="test")
+        await _lube_in(session, yard, 100)
+        #: Put straight in: a programme is an owner's command, and the race is
+        #: the two ticks'. No owner, no bill -- the cells are the whole draw.
+        row = AutomatRow(
+            item_id=machine.id,
+            node_id=room.id,
+            owner_identity_id=None,
+            recipe_key=NAILS,
+            backlog=Decimal(0),
+            counted_at=moment - timedelta(hours=2),
+        )
+        session.add(row)
+        await session.flush()
+        row_ids.append(row.id)
+    await session.commit()
+
+    held = asyncio.Event()
+    offgrid: list[AsyncSession] = []
+    gathered = battery.batteries_in
+
+    async def holding(db, *args, **kwargs):
+        cells = await gathered(db, *args, **kwargs)
+        if offgrid and db is offgrid[0] and not held.is_set():
+            held.set()
+            await _until_blocked_by(factory, db)
+        return cells
+
+    monkeypatch.setattr(battery, "batteries_in", holding)
+
+    async def charge() -> float:
+        async with factory() as db, db.begin():
+            offgrid.append(db)
+            return await energy.tick_offgrid(db, constants, now=moment)
+
+    async def tick() -> float:
+        await held.wait()
+        async with factory() as db, db.begin():
+            return await automat.tick_automats(db, constants, now=moment)
+
+    banked, made = await asyncio.gather(charge(), tick())
+
+    assert banked > 0 and made > 0
+    async with factory() as db:
+        for row_id in row_ids:
+            worked = await db.get(AutomatRow, row_id)
+            assert worked is not None and worked.counted_at == moment
+
+
+async def test_a_stack_taken_after_a_machine_rolled_back_is_not_counted_twice(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    constants: Constants,
+    catalog: Catalog,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A machine that fails goes back to its savepoint, and the rollback puts
+    back the nails stack its payout had merged and deleted -- with the amount it
+    had then, while the lock on it is already gone. A player takes a nail from
+    it before the next machine lands its own nails there: the merge must add
+    what is left, not what was there.
+
+    The session keeps its rows weakly, so the stale stack survives the rollback
+    only while something holds it -- a memo, a local further up. The test holds
+    it on purpose: the tick must not rely on nobody doing so."""
+    _, yard, identity, body, first = await _factory_floor(session, constants)
+    #: A different quality, so the two machines stand as two things.
+    second = await world.grant_item(session, yard, "auto_station", quality=71, origin="test")
+    await world.grant_item(session, yard, IRON, amount=1000, quality=60, origin="test")
+    await _lube_in(session, yard, 1000)
+    await _learn(session, identity, NAILS)
+    breaking = await automat.program(session, constants, catalog, body, first, NAILS)
+    landing = await automat.program(session, constants, catalog, body, second, NAILS)
+    await automat.link(session, body, first, second)
+    earlier = breaking.counted_at + timedelta(hours=10)
+    ids = (yard.id, breaking.id, landing.id)
+    await session.commit()
+    yard_id, breaking_id, landing_id = ids
+
+    async with factory() as db, db.begin():
+        await automat.tick_automats(db, constants, now=earlier)
+    async with factory() as db:
+        (stack,) = await _nails_on(db, yard_id)
+        before = amount_float(stack.amount)
+    assert before > 1
+
+    real = automat_run.advance
+    paid: list[float] = []
+    held: list[Item] = []
+
+    async def failing(*args, **kwargs):
+        if args[2].id == landing_id:
+            await _take_a_nail(factory, yard_id)
+            paid.append(await real(*args, **kwargs))
+            return paid[-1]
+        held.extend(await _nails_on(args[0], yard_id))
+        made = await real(*args, **kwargs)
+        if args[2].id == breaking_id:
+            raise RuntimeError("a programme the vault has since broken")
+        return made
+
+    monkeypatch.setattr(automat_run, "advance", failing)
+
+    async with factory() as db, db.begin():
+        await automat.tick_automats(db, constants, now=earlier + timedelta(hours=10))
+
+    assert paid and paid[0] > 0
+    async with factory() as db:
+        total = sum(amount_float(one.amount) for one in await _nails_on(db, yard_id))
+    assert total == pytest.approx(before - 1 + paid[0]), "the nail taken is not given back"
+
+
+async def test_a_stack_taken_between_two_runs_of_a_pass_is_not_counted_twice(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    constants: Constants,
+    catalog: Catalog,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The same hole one level up: a purse that moved sends the whole pass
+    back, and the rollback puts the neighbour's merged nails stack back as it
+    was. A player takes a nail before the second run lands the neighbour's
+    nails there again: the merge must add what is left."""
+    _, yard, identity, body, machine = await _factory_floor(session, constants)
+    await world.grant_item(session, yard, IRON, amount=1000, quality=60, origin="test")
+    await _lube_in(session, yard, 1000)
+    await _learn(session, identity, NAILS)
+    row = await automat.program(session, constants, catalog, body, machine, NAILS)
+    _, other_yard, other, other_body, other_machine = await _factory_floor(session, constants)
+    await world.grant_item(session, other_yard, IRON, amount=1000, quality=60, origin="test")
+    await _lube_in(session, other_yard, 1000)
+    await _learn(session, other, NAILS)
+    await automat.program(session, constants, catalog, other_body, other_machine, NAILS)
+    earlier = row.counted_at + timedelta(hours=10)
+    account = await ledger.account_for(session, AccountKind.IDENTITY, identity.id)
+    ids = (other_yard.id, account.id)
+    await session.commit()
+    other_yard_id, account_id = ids
+
+    async with factory() as db, db.begin():
+        await automat.tick_automats(db, constants, now=earlier)
+    async with factory() as db:
+        (stack,) = await _nails_on(db, other_yard_id)
+        before = amount_float(stack.amount)
+    assert before > 1
+
+    drawn = energy_bill.pay
+    passed = automat_run._pass
+    runs: list[int] = []
+
+    async def spent_first(*args, **kwargs):
+        if len(runs) == 1:
+            async with factory() as elsewhere, elsewhere.begin():
+                purse = await ledger.balance(elsewhere, account_id)
+                shop = await ledger.account_for(elsewhere, AccountKind.IDENTITY, uuid.uuid4())
+                await ledger.transfer(
+                    elsewhere,
+                    PostingReason.TRANSFER,
+                    debit=account_id,
+                    credit=shop.id,
+                    amount=purse,
+                    memo={},
+                )
+        return await drawn(*args, **kwargs)
+
+    held: list[Item] = []
+
+    async def counted(*args, **kwargs):
+        runs.append(1)
+        if len(runs) == 1:
+            #: Held across the rollback, as in the machine-level race above.
+            held.extend(await _nails_on(args[0], other_yard_id))
+        if len(runs) == 2:
+            await _take_a_nail(factory, other_yard_id)
+        return await passed(*args, **kwargs)
+
+    monkeypatch.setattr(energy_bill, "pay", spent_first)
+    monkeypatch.setattr(automat_run, "_pass", counted)
+
+    async with factory() as db, db.begin():
+        made = await automat.tick_automats(db, constants, now=earlier + timedelta(hours=10))
+
+    assert len(runs) == 2, "the moved purse sent the pass back once"
+    assert made > 0
+    async with factory() as db:
+        total = sum(amount_float(one.amount) for one in await _nails_on(db, other_yard_id))
+    assert total == pytest.approx(before - 1 + made), "the nail taken is not given back"

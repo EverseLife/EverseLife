@@ -66,16 +66,17 @@ class Tab:
     Each supply and each purse is read once a pass, at the first machine that
     asks, and counted down by the bills from there -- a pool read and a purse
     summed per machine would cost the tick two queries a machine while it holds
-    the stacks of every factory of the world. The readings are the database's
-    and outlive a machine's savepoint rolling back; only the bills do not, and
-    `keep` gives back what the dropped ones took.
+    the stacks of every factory of the world. The readings are numbers taken
+    from the database and outlive a machine's savepoint rolling back; the bills
+    do not, and `keep` gives back what the dropped ones took.
     """
 
     bills: list[Bill] = field(default_factory=list)
     supplies: dict[uuid.UUID, float] = field(default_factory=dict)
     purses: dict[uuid.UUID, int] = field(default_factory=dict)
-    #: The pool behind a grid supply, for its tariff. Never written by the
-    #: advances, so a savepoint rolling back does not expire it.
+    #: The pool row behind a grid supply, for its tariff. A row, not a number,
+    #: so the tariff is priced by `energy.price_at` like the draw's; after a
+    #: rollback the tick expires the session and `forget_rows` drops these.
     pools: dict[uuid.UUID, EnergyPool | None] = field(default_factory=dict)
 
     def add(self, bill: Bill) -> None:
@@ -91,6 +92,10 @@ class Tab:
             if bill.owner_identity_id is not None and bill.price > 0:
                 self.purses[bill.owner_identity_id] += bill.price
         del self.bills[count:]
+
+    def forget_rows(self) -> None:
+        """Drop the rows held for their tariff: the session was expired under them."""
+        self.pools.clear()
 
 
 async def promise(
@@ -122,18 +127,20 @@ async def promise(
     """
     grid = await energy.grid_node(session, node)
     supply = battery.hull_of(node) if grid is None else grid.id
+    pool = None
+    if grid is not None:
+        if supply not in tab.pools:
+            tab.pools[supply] = await energy.pool_of(session, constants, node, create=False)
+        pool = tab.pools[supply]
     if supply not in tab.supplies:
         if grid is None:
             tab.supplies[supply] = await battery.charge_in(session, constants, node, now=now)
         else:
-            pool = await energy.pool_of(session, constants, node, create=False)
             tab.supplies[supply] = 0.0 if pool is None else float(pool.stored)
-            tab.pools[supply] = pool
     hours = min(worked, max(0.0, tab.supplies[supply]) / rate)
     if hours <= 0:
         return None
     price = 0
-    pool = tab.pools.get(supply)
     owner = row.owner_identity_id
     if pool is not None and owner is not None:
         price = energy.price_at(constants, pool, hours * rate)
@@ -226,22 +233,26 @@ async def pay(
 
     refused: set[uuid.UUID] = set()
     accounts: dict[uuid.UUID, LedgerAccount] = {}
+    treasuries: dict[uuid.UUID, LedgerAccount] = {}
     for charge in charges:
         if charge.owner_identity_id not in accounts:
             accounts[charge.owner_identity_id] = await ledger.account_for(
                 session, AccountKind.IDENTITY, charge.owner_identity_id
             )
+        if charge.city_id not in treasuries:
+            treasuries[charge.city_id] = await ledger.account_for(
+                session, AccountKind.CITY_TREASURY, charge.city_id
+            )
     for charge in sorted(
         charges, key=lambda one: (accounts[one.owner_identity_id].id, one.bill.row_id)
     ):
         owner = charge.owner_identity_id
-        treasury = await ledger.account_for(session, AccountKind.CITY_TREASURY, charge.city_id)
         try:
             await ledger.transfer(
                 session,
                 PostingReason.ENERGY_BILL,
                 debit=accounts[owner].id,
-                credit=treasury.id,
+                credit=treasuries[charge.city_id].id,
                 amount=charge.price,
                 memo={"energy": charge.drawn, "for": "automat", "tariff": charge.tariff},
             )

@@ -28,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants, current_catalog
 from src.constants import registry as R
+from src.db.base import forget
 from src.engine import events, liquid, stock, wear, world
 from src.engine.automat import bill as energy_bill
 from src.engine.automat._base import _EPS, LUBE
@@ -257,6 +258,7 @@ async def tick_automats(
                 return await _pass(session, constants, order, barred, now=moment)
         except _PurseMoved as moved:
             barred |= moved.owners
+            _forget_the_run(session)
             log.info(
                 "automats: %d purse(s) emptied under the step, the pass runs again without them",
                 len(moved.owners),
@@ -316,6 +318,8 @@ async def _pass(
                 #: machine after this one would fail the same way.
                 raise
             tab.keep(owed)
+            _forget_the_run(session)
+            tab.forget_rows()
             log.exception("automat %s: the advance failed and was passed over", row_id)
             continue
         made += paid
@@ -323,6 +327,20 @@ async def _pass(
     if refused:
         raise _PurseMoved(refused)
     return made
+
+
+def _forget_the_run(session: AsyncSession) -> None:
+    """Let nothing the rolled-back run read answer for the next one.
+
+    A savepoint rolled back expires only the rows it wrote: a stack it deleted
+    comes back with the numbers it had, and one it merely locked keeps them --
+    while the locks themselves are gone, so a player may take from either
+    before the next machine reads it. The tick holds only ids across machines,
+    so everything is expired, and the command's memory (`db.base.remember`) --
+    which only a write clears -- goes with it.
+    """
+    session.expire_all()
+    forget(session)
 
 
 async def _pay_out(
