@@ -235,7 +235,7 @@ async def test_a_cart_burnt_while_harnessing_is_gone_in_words(
     constants: Constants,
     catalog: Catalog,
 ) -> None:
-    """A carter reaching for a cart the fire took is told it is gone (D-011).
+    """A carter reaching for a cart the fire took is told it is gone (D-251).
 
     The fire takes what lies in the yard, the cart among it, and holds the
     rows. The carter, having seen the cart standing there, harnesses to it and

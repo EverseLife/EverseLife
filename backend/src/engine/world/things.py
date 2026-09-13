@@ -285,7 +285,7 @@ async def lock_thing(session: AsyncSession, thing: Item, *, gone: type[Refusal])
     stack gone meanwhile is simply left out, `stock.lock_items`.
 
     Burnt, fallen with the house, carried off between the look and the click:
-    the world's ordinary answer, said in words (D-011) -- `thing-gone`, raised
+    the world's ordinary answer, a refusal by key (D-251) -- `thing-gone`, raised
     as `gone`, the refusal class of the door that asks, so its callers catch
     what they always caught. The name is read first: a failed refresh leaves
     the instance with no usable state, and touching a column on it then goes
@@ -341,7 +341,7 @@ async def move_stack(
     #: and what came back was `InvalidRequestError` -- the player reading
     #: "the server failed" where the truth is that the sack is gone. A thing
     #: that vanished under a hand is an ordinary answer of the world, so it
-    #: is said in words like any other (D-011).
+    #: is a refusal by key like any other (D-251).
     await lock_thing(session, item, gone=ItemGone)
     #: A worn thing does not move (D-305): it comes off first, and the player
     #: is told so. Every move in the world comes through here, so the rule is

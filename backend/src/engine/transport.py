@@ -219,7 +219,7 @@ async def harness(
     #: this one. A caller from a job must take the body first too.
     #:
     #: Broke on its last leg, burnt with the yard: the world's ordinary
-    #: answer, said in words (D-011) and refused as `NotHere`.
+    #: answer, a refusal by key (D-251), raised as `NotHere`.
     await world.lock_thing(session, item, gone=NotHere)
     if item.container_id != yard.id:
         raise NotHere(key="transport-not-here")
