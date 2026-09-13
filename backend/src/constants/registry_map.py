@@ -1,17 +1,20 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Nurlan Urazkulov
 
-"""The map's own keys: the relief, the trails, the lattice, the biomes (D-319, D-321).
+"""The world's own keys: its clock, its sphere, its ground, relief, biomes and sky (D-319, D-321).
 
-The other half of `registry`, split off when the registry passed the eight
-hundred lines the quality bar allows. Imported into the registry by a star
-import so that `declared()` sees these specs among the rest and the startup
-check covers them; nothing else imports this module directly.
+The first section split off `registry`, when the registry passed the eight
+hundred lines the quality bar allows; it took the map's keys then and the
+rest of the world's on the cut by roadmap stage (2026-09-13): the length of
+each planet's day, the sphere nodes are laid on, what a place carries, how
+its veins are weighted and what it is like (E2), and the relief, trails,
+lattice, biomes, season and weather.
+Star-imported into the registry, which is the only module that imports it.
 """
 
 from __future__ import annotations
 
-from src.constants.spec import Bands, Book, Num, Shape, Table, Words
+from src.constants.spec import Bands, Book, Num, Shape, Span, Table, Words
 
 #: The four worlds, by the same keys the vault writes them under. Spelled out
 #: rather than taken from `models.world.Planet`: the registry sits under the
@@ -20,6 +23,63 @@ from src.constants.spec import Bands, Book, Num, Shape, Table, Words
 #: and a line there, and the boot then refuses a vault that named only four.
 PLANETS = ("terra", "aquatica", "pyroxis", "aurora")
 
+# --- Time and tick ----------------------------------------------------------
+TIME_TICK = Num("time.tick")
+TIME_DAY_TERRA = Num("time.day_terra")
+TIME_DAY_AQUATICA = Num("time.day_aquatica")
+TIME_DAY_PYROXIS = Num("time.day_pyroxis")
+TIME_DAY_AURORA = Num("time.day_aurora")
+#: Diurnal temperature swing around the node's mean, per planet (D-261).
+PLANET_TEMP_SWING = Table("planet.temp_swing")
+
+# --- The sphere and its nodes (D-319, D-324) ---------------------------------
+#: The yardstick both of a planet's sizes are measured against (D-324): the
+#: radius of the Earth. The body in the sky is `PLANET_RADIUS` of it; the
+#: land underfoot is this times the root of `PLANET_LAND_AREA_SHARE`.
+PLANET_EARTH_RADIUS_KM = Num("planet.earth_radius_km")
+#: How much land a world has, as a share of the Earth's surface (D-324). A
+#: game convention and nothing else: a world of honest area could not be
+#: peopled by every human alive, and the game is about crowding. The surface
+#: is a sphere (D-319), so the radius one walks on is the root of this.
+PLANET_LAND_AREA_SHARE = Table("planet.land_area_share")
+#: The ring a node is seated at from what it was laid beside, and the gap
+#: two nodes never stand nearer than -- metres on the tangent plane. Balance
+#: since the surface is finite: they decide how much fits on a planet (D-065).
+MAP_CITY_STEP_M = Num("map.city_step_m")
+MAP_MIN_GAP_M = Num("map.min_gap_m")
+#: No node is laid nearer the pole than this latitude: "north up" is not
+#: defined there.
+MAP_CITY_LAT_MAX = Num("map.city_lat_max")
+
+# --- Ground (D-126, D-151, D-191, D-196; laid at birth since D-319) ----------
+#: Once the scout's dice (`explore.*`), the world's now: what a place carries
+#: when it is made without a point of the field -- rooms, hand-laid nodes.
+GROUND_VEIN_SHARE = Num("ground.vein_share")
+#: Forest cover of the world (D-191): the share of places carrying woods.
+GROUND_FOREST_SHARE = Num("ground.forest_share")
+#: Stony and meadow places (D-196): signs of a place; since D-210 they have
+#: no mechanic of their own yet.
+GROUND_STONES_SHARE = Num("ground.stones_share")
+GROUND_MEADOW_SHARE = Num("ground.meadow_share")
+EXPLORE_NODE_AREA = Span("explore.node_area")
+GROUND_VEIN_RICHNESS = Span("ground.vein_richness")
+GROUND_VEIN_STOCK = Span("ground.vein_stock")
+#: An hour's yield of every raw material (D-151): the weight a vein is laid
+#: with -- the relative price of everything in the world, in one table.
+HARVEST_RATES = Table("harvest.rates")
+#: What a planet does to those rates (D-232): Aurora is generous with coal and
+#: poor in iron. Multipliers over one table, never a second rarity table.
+HARVEST_PLANET_WEIGHTS = Book("harvest.planet_weights")
+
+# --- Place properties (D-126) -----------------------------------------------
+SITE_TEMP_RANGE = Span("site.temp_range")
+SITE_RAIN_RANGE = Span("site.rain_range")
+#: How much of the watering round the rain covers at the top of the scale (D-261).
+SITE_RAIN_WATER_OFFSET = Num("site.rain_water_offset")
+SITE_RIVER_SHARE = Num("site.river_share")
+SITE_QUALITY_BUDGET = Num("site.quality_budget")
+
+# --- Relief, trails, lattice, biomes, season, weather (D-319, D-321, D-334, D-335) ---
 #: The field of a planet (D-319, landscape plan wave 2): the vault's pipeline
 #: builds it from the planet's own seed, its share of fluid, its own warm and
 #: cold ends and the land's rise in metres, and the engine reads the file
@@ -189,63 +249,3 @@ WEATHER_GAIN = Num("weather.gain")
 TERRAIN_WIND_BELTS = Table("terrain.wind_belts", keys=("trade_lat", "westerly_lat"))
 WEATHER_BELT_EDGE_DEG = Num("weather.belt_edge_deg")
 WEATHER_EDDY_TURN_DEG = Num("weather.eddy_turn_deg")
-
-__all__ = [
-    "TERRAIN_SEED",
-    "TERRAIN_SEA_LEVEL",
-    "TERRAIN_FLUID",
-    "TERRAIN_TEMP_RANGE",
-    "TERRAIN_MOUNTAIN_SHARE",
-    "TERRAIN_LAPSE_C",
-    "TERRAIN_RELIEF_M",
-    "TERRAIN_STEP_M",
-    "TERRAIN_VERSION",
-    "TERRAIN_RIVER_REACH_KM",
-    "TERRAIN_CONTINENTAL_C",
-    "TERRAIN_CLIMATE_NOISE_C",
-    "PATH_WEAR_THRESHOLD",
-    "PATH_FADE_THRESHOLD",
-    "PATH_FADE_PER_DAY",
-    "MAP_APPROACH_KM",
-    "MAP_LATTICE_M",
-    "MAP_EYE_M",
-    "MAP_SIGHT_KM",
-    "MAP_SIGHT_STEP_M",
-    "MAP_MEMORY_PLACES",
-    "MAP_DRAW_STAMINA",
-    "MAP_PUBLIC_DELAY_DAYS",
-    "EXPLORE_FILL_SHARE",
-    "EXPLORE_WINDOW_KM",
-    "BIOME_NAMES",
-    "BIOME_REACH_M",
-    "BIOME_SWING_C",
-    "BIOME_MARKS",
-    "BIOME_FIGURE",
-    "BIOME_GRAIN",
-    "BIOME_VEIN_K",
-    "BIOME_ZONAL",
-    "BIOME_FACET_AXES",
-    "BIOME_AZONAL",
-    "BIOME_BOUNDS",
-    "COMPLEX_CHANCE",
-    "COMPLEX_SCHEMES",
-    "SEASON_TILT_DEG",
-    "SEASON_SWING_C",
-    "SEASON_SNOW_C",
-    "SEASON_SNOW_BAND_C",
-    "SEASON_ICE_C",
-    "SEASON_SNOW_DRY_RAIN",
-    "SEASON_SNOW_DRY_SHARE",
-    "WEATHER_CELL_KM",
-    "WEATHER_WIND_DEG_PER_DAY",
-    "WEATHER_CHANGE_DAYS",
-    "WEATHER_WET_BIAS",
-    "WEATHER_CLOUD_FROM",
-    "WEATHER_CLOUD_FULL",
-    "WEATHER_RAIN_FROM",
-    "WEATHER_RAIN_FULL",
-    "WEATHER_GAIN",
-    "TERRAIN_WIND_BELTS",
-    "WEATHER_BELT_EDGE_DEG",
-    "WEATHER_EDDY_TURN_DEG",
-]
