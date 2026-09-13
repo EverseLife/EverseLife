@@ -476,8 +476,10 @@ async def hold_ground(session: AsyncSession, node: Node) -> None:
     plot goes into a minus that nothing afterwards can notice, because nothing
     afterwards ever re-adds the parts.
 
-    The **plot**, always: a storey is spent by nothing, and a house on it is
-    spoken for by the ground it stands on.
+    The **plot**, always, for its ground: a storey is spent by nothing, and a
+    house on it is spoken for by the ground it stands on. A storey's row is
+    held the same way by the doors that spend its **floor** (`station.place`,
+    `station.take`), before the thing they stand or take down.
 
     The whole row rather than its id, and `populate_existing` with it: whoever
     held the lock before us may have written the very fields we are about to
@@ -487,11 +489,19 @@ async def hold_ground(session: AsyncSession, node: Node) -> None:
     throws them away (`db.base`), and a wait is not a write -- so a footprint
     counted before the lock would be handed back after it, from before the very
     change we waited out.
+
+    `FOR NO KEY UPDATE`, not `FOR UPDATE`: the lock is held against the other
+    spenders of the plot, and none of them changes the node's key. A plain
+    `FOR UPDATE` also refuses the `FOR KEY SHARE` the database takes on the
+    node for any row that points at it -- an insert, or the second write of a
+    row in one transaction (the rig tick writes its row twice, and the machine
+    in between) -- so a collapse holding the plot and burying the machine
+    deadlocked against the tick holding the machine and re-checking the plot.
     """
     await session.execute(
         select(Node)
         .where(Node.id == node.id)
-        .with_for_update()
+        .with_for_update(key_share=True)
         .execution_options(populate_existing=True)
     )
     forget(session)

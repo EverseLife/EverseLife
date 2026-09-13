@@ -535,16 +535,20 @@ async def test_an_oil_hopper_emptied_beside_a_furnace_does_not_deadlock_the_tick
     await session.commit()
 
     held = asyncio.Event()
-    burned = rig._burn
+    #: The rig burns out of the stacks its pass locked (`rig._held`), through
+    #: the one write-off every consumer shares; the owner goes first, so the
+    #: first burn is the rig's.
+    burned = stock.consume
 
-    async def holding(db: AsyncSession, *args) -> None:
-        await burned(db, *args)
+    async def holding(db: AsyncSession, *args) -> int:
+        taken = await burned(db, *args)
         if not held.is_set():
             #: The rig's coal is burnt and held; the tick starts only now.
             held.set()
             await _until_blocked_by(factory, db)
+        return taken
 
-    monkeypatch.setattr(rig, "_burn", holding)
+    monkeypatch.setattr(stock, "consume", holding)
 
     async def owner() -> float:
         async with factory() as db, db.begin():

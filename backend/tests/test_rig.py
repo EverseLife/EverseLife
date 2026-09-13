@@ -476,6 +476,25 @@ async def test_a_loaded_rig_is_not_taken_down(session: AsyncSession, constants: 
     assert machine.installed is False
 
 
+async def test_a_standing_rig_is_not_stood_up_again(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """A machine is stood from the hands or off the floor (D-278); off its vein
+    it comes through the taking-down door, which asks for the hopper (D-308,
+    D-314). The place door asks the same under the machine's lock, so it holds
+    for the engine and not only for the command's free look."""
+    _, vein, body, installation, machine = await _face(session)
+    await rig.advance(session, constants, installation, now=_via(installation, 2))
+    hopper, counted = float(installation.hopper), installation.counted_at
+
+    with pytest.raises(rig.RigError) as refused:
+        await rig.place(session, body, machine, vein, now=_via(installation, 3))
+    assert refused.value.key == "station-not-in-hands"
+    assert machine.installed is True
+    assert float(installation.hopper) == pytest.approx(hopper), "бункер не тронут"
+    assert installation.counted_at == counted, "и метка тоже"
+
+
 async def test_a_rig_moves_to_another_vein_only_empty(
     session: AsyncSession, constants: Constants
 ) -> None:
@@ -485,6 +504,11 @@ async def test_a_rig_moves_to_another_vein_only_empty(
     other = await world.create_vein(session, node, "coal", richness=40, remaining=50_000)
     await rig.advance(session, constants, installation, now=_via(installation, 2))
     moment = _via(installation, 2)
+    #: Knocked over: the place door stands only what lies or is in the hands,
+    #: and the taking-down door refuses a loaded hopper (D-314) -- so this is
+    #: how a loaded machine comes to be moved at all.
+    machine.installed = False
+    await session.flush()
 
     with pytest.raises(rig.HopperNotEmpty):
         await rig.place(session, body, machine, other, now=moment)

@@ -34,6 +34,26 @@ apart, and it is repaired by the same repair as any thing.
 dropped by a demolition or fallen with its owner, it drills nothing: the row
 waits for the machine and dies with it.
 
+## Lock order
+
+The rig row, then its vein, then the machine and the fuel of its yard in one
+statement by id (`_held`), and the node last and unasked: the second write of
+the row re-checks its keys and holds the node `FOR KEY SHARE`, which is why
+the plot's holders take it `FOR NO KEY UPDATE` (`estate.hold_ground`). It is
+the order of the fire and of a falling house: an eruption takes a field's
+veins and then what lies in it (`plates.clock`), a fall the plot and then
+what it buries (`estate.upkeep._bury`). `tick_rigs` holds every rig of the
+world in one transaction, so it takes all the veins and then all the machines
+and fuel before the first pass (`_hold_the_world`): one rig at a time, the
+order held within a rig and not across two.
+
+The doors keep it. `empty_hopper` takes the row, the vessels a liquid pours
+into (`_hold_vessels`) and settles through `advance`; `station.take` takes
+the node, the row (`hopper_left`) and then the machine; `place` the row, the
+vein (`FOR KEY SHARE`) and then the machine. A first placement has no row to
+lock; a rig stood up and taken down again between that empty select and the
+machine's lock trips the unique `rig.item_id` rather than making a second row.
+
 ## What is not here yet
 
 * **City licence and mining tax** (D-115): the rig occupies a node and is
@@ -45,10 +65,11 @@ waits for the machine and dies with it.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from decimal import ROUND_FLOOR, Decimal
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants, current, current_catalog
@@ -57,7 +78,7 @@ from src.engine import events, liquid, station, stock, travel, wear, world
 from src.engine.errors import Refusal
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState
-from src.models.inventory import Item
+from src.models.inventory import Container, ContainerKind, Item
 from src.models.rig import Rig as RigRow
 from src.models.world import Node, Vein
 from src.units import (
@@ -146,24 +167,40 @@ async def place(
     #: row is the enterprise, and it travels with the machine rather than with
     #: the vein: the hopper, the stamp and the slivers go on where they
     #: stopped. Taken under the transaction here, in the tick's own order
-    #: (row, then the machine's own row through `wear`), so two hands standing
+    #: (row, then the vein and the machine just below), so two hands standing
     #: one rig do not both re-point it.
     exists = (
         await session.execute(select(RigRow).where(RigRow.item_id == item.id).with_for_update())
     ).scalar_one_or_none()
+    #: The vein before the machine (the lock order): writing the row points it
+    #: at the vein, and the key it checks holds the vein `FOR KEY SHARE` at the
+    #: flush -- taken there, after the machine, it crossed an eruption holding
+    #: the field's veins and reaching for everything lying in it.
+    await session.execute(
+        select(Vein.id).where(Vein.id == vein.id).with_for_update(read=True, key_share=True)
+    )
+    #: Then the machine's own row, after the rig's (the lock order). The
+    #: command read free whether it is in the hands or lying here, and a pick
+    #: or a fire committed since shows only under this lock: written from that
+    #: look, the machine stood up out of the pocket it had just gone into. A
+    #: thing gone is the world's answer, as at `station.place` (D-251).
+    await world.lock_thing(session, item, gone=NoRig)
+    pocket = await world.body_container(session, body)
+    floor = await world.node_yard(session, node_here)
+    #: What stands is not stood up again: a machine is stood from the hands or
+    #: off the floor (D-278), and off its vein it goes through the taking-down
+    #: door, which asks for the hopper (D-308, D-314).
+    lying = floor is not None and item.container_id == floor.id and not item.installed
+    if item.container_id != pocket.id and not lying:
+        raise RigError(key="station-not-in-hands")
     if exists is not None:
-        #: Settle where it stood before the row moves: standing already (the
-        #: same vein, a second click), it must not lose the pass it had not
-        #: banked yet; lying, this only brings the stamp up to now -- and
-        #: doing it **before** the machine is stood up is what keeps the hours
-        #: it lay from being mined.
+        #: Settle before the row moves. The machine does not stand, so this
+        #: banks nothing and only brings the stamp up to now -- before it is
+        #: stood up, which is what keeps the hours it lay from being mined.
         await advance(session, current(), exists, now=moment)
         #: The rock is read off the vein the machine stands on **now**, so ore
         #: of the old vein would come out of the hopper as the new one's. A rig
-        #: moves empty, and back onto the same vein it moves loaded. Asked
-        #: **after** the settling and not before: a rig still standing on its
-        #: old vein banks the unsettled pass right here, and an emptiness read
-        #: before that would wave the fresh ore through onto the new vein.
+        #: moves empty, and back onto the same vein it moves loaded.
         if exists.vein_id != vein.id and float(exists.hopper) > 0:
             raise HopperNotEmpty(key="rig-hopper-not-empty", goods=item.type_key)
 
@@ -235,16 +272,7 @@ async def advance(
 
     machine = await session.get(Item, rig.item_id)
     if machine is None:
-        #: The machine is gone -- worn to nothing (`wear.spend` deletes what it
-        #: finishes), burnt, fallen with the house. The enterprise ends with
-        #: it, and so does the row: nothing else ever deleted one, and
-        #: `tick_rigs` takes every row in the world under lock each pass, so an
-        #: orphan is a lock the world pays for to the end of time. What the
-        #: hopper still held goes too -- the ore was **inside** the machine
-        #: (D-314). The automat buries its row the same way (D-253).
-        await session.delete(rig)
-        await session.flush()
-        return 0.0
+        return await _bury_row(session, rig)
     vein = await session.get(Vein, rig.vein_id)
     if vein is None:  # pragma: no cover -- a vein outlives every rig upon it
         rig.counted_at = moment
@@ -261,7 +289,7 @@ async def advance(
     #: one falls apart" is said of a machine standing on its vein with nobody
     #: coming, not of one lying in a chest.
     yard = await world.node_container(session, await session.get(Node, rig.node_id))
-    if not machine.installed or machine.container_id != yard.id:
+    if not _stands(machine, yard.id):
         rig.counted_at = moment
         await session.flush()
         return 0.0
@@ -284,6 +312,30 @@ async def advance(
     )
     workers = max(0.0, min(hours, hours_by_fuel, hours_by_bunker, hours_by_vein))
 
+    #: What this pass writes is taken before it writes any of it, in the
+    #: module's lock order: the vein for a pass that drills, then the machine
+    #: and its fuel in one statement. A tick's pass finds it all taken already.
+    if workers > 0:
+        await session.refresh(vein, with_for_update=True)
+    held, stacks = await _held(session, rig.item_id, yard.id if workers > 0 else None)
+    if held is None:
+        #: Burnt, or fallen with the house, since the free read above -- and a
+        #: write to a row that is gone throws out of `tick_rigs`, taking the
+        #: pass of every rig in the world with it. The row ends as it does
+        #: for a machine found gone; the free copy goes out of the session
+        #: too, or whoever settles through here would read the machine back
+        #: out of its memory (`empty_hopper`, `place`).
+        session.expunge(machine)
+        return await _bury_row(session, rig)
+    machine = held
+    if not _stands(machine, yard.id):
+        rig.counted_at = moment
+        await session.flush()
+        return 0.0
+    if workers > 0 and fuel > 0:
+        #: The plan counted the coal free; the pass burns only what it holds.
+        workers = min(workers, sum(amount_float(stack.amount) for stack in stacks) / fuel)
+
     mined = banked = 0.0
     if workers > 0:
         #: What the last pass raised and the hopper could not be credited with
@@ -296,7 +348,7 @@ async def advance(
         raised = output_per_hour * workers + float(rig.hopper_remainder)
         banked = float(on_grid(raised, ROUND_AMOUNT, ROUND_FLOOR))
         #: Shared with the miners (`mining.swing`) and with any other rig on
-        #: the same vein; same lock order: rig -> vein. The **roof** is not
+        #: the same vein, and held since the plan above. The **roof** is not
         #: shared and is meant not to be (D-304): it is a mechanic of the
         #: swing -- a hidden number and a choice each time (D-143) -- and a
         #: machine that works by the clock has no swing to choose at, so
@@ -307,12 +359,7 @@ async def advance(
         #: twice as fast leaves every later working a kinder roof. The hours above were
         #: planned against a free read, and a plan may be stale -- so nothing
         #: the vein gives up is settled from that plan: it is all derived below,
-        #: under this lock. The coal is another matter and not bounded here --
-        #: `hours_by_fuel` is read free too, and `_burn` does not check what it
-        #: actually got, so a yard raided for its coal mid-pass can leave the
-        #: rig with ore it did not pay for. Older than this fix and left as it
-        #: was found.
-        await session.refresh(vein, with_for_update=True)
+        #: under the lock. The coal was capped under its own lock above.
         #: The hours were capped by what the vein holds, but the sliver from
         #: the last pass is added after that, so on the vein's last pass the
         #: raise can ask for a shade more than is left in the ground. Take what
@@ -364,7 +411,7 @@ async def advance(
         burns = float(on_grid(owed_coal, ROUND_AMOUNT, ROUND_FLOOR))
         rig.fuel_remainder = on_grid(max(0.0, owed_coal - burns), ROUND_REMAINDER, ROUND_FLOOR)
         if burns > 0:
-            await _burn(session, yard.id, burns)
+            await stock.consume(session, stacks, amount(burns))
 
     #: Wear goes by the time it **stands**, not by what is mined: a rig with no
     #: coal, a full hopper or an eaten-out vein wears exactly as fast as a
@@ -560,8 +607,8 @@ async def hopper_left(session: AsyncSession, item: Item) -> float:
     the world in one uncommitted transaction, and an unlocked read would see
     the last committed hopper -- a nought where a whole pass already stands --
     and wave the loaded machine out through the very rule this asks for. The
-    order is the tick's own (the rig row, then the machine's through
-    `wear.spend`), so whoever asks must ask **before** locking the machine's
+    order is the tick's own (the rig row, then the machine's, `_held`), so
+    whoever asks must ask **before** locking the machine's
     row: the taking-down door once locked the machine first, and a take-down
     arriving mid-pass waited here while the tick waited on the machine.
     """
@@ -585,6 +632,7 @@ async def tick_rigs(
         .scalars()
         .all()
     )
+    await _hold_the_world(session, rigs)
     result = 0.0
     for rig in rigs:
         result += await advance(session, constants, rig, now=moment)
@@ -658,9 +706,81 @@ async def _coal_available(session: AsyncSession, container_id: uuid.UUID) -> flo
     return sum(amount_float(stack.amount) for stack in stacks)
 
 
-async def _burn(session: AsyncSession, container_id: uuid.UUID, qty: float) -> None:
-    stacks = await stock.locked_stacks(session, container_id, _fuel_names())
-    await stock.consume(session, stacks, amount(qty))
+async def _held(
+    session: AsyncSession, machine_id: uuid.UUID, yard_id: uuid.UUID | None
+) -> tuple[Item | None, list[Item]]:
+    """The machine and, given its yard, the fuel lying there: locked in one
+    statement by id and reread (the module's lock order). `None` for a machine
+    whose row is gone; the stacks in id order, as `stock.consume` spends them.
+    """
+    wanted = Item.id == machine_id
+    if yard_id is not None:
+        wanted = or_(wanted, and_(Item.container_id == yard_id, Item.type_key.in_(_fuel_names())))
+    rows = (
+        (
+            await session.execute(
+                select(Item)
+                .where(wanted)
+                .order_by(Item.id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    machine = next((row for row in rows if row.id == machine_id), None)
+    return machine, [row for row in rows if row.id != machine_id]
+
+
+async def _hold_the_world(session: AsyncSession, rigs: Sequence[RigRow]) -> None:
+    """Take what every pass of this tick may write, before the first pass does:
+    all the veins, then all the machines and the fuel of their yards, each in
+    one statement by id (the module's lock order). More than a pass needs -- the
+    vein of a rig with a full hopper -- and held to the end of the tick, where
+    the passes' rows were held anyway; each pass takes its own again (`_held`).
+    """
+    if not rigs:
+        return
+    await session.execute(
+        select(Vein.id)
+        .where(Vein.id.in_({rig.vein_id for rig in rigs}))
+        .order_by(Vein.id)
+        .with_for_update()
+    )
+    yards = select(Container.id).where(
+        Container.kind == ContainerKind.NODE,
+        Container.owner_id.in_({rig.node_id for rig in rigs}),
+    )
+    await session.execute(
+        select(Item.id)
+        .where(
+            or_(
+                Item.id.in_({rig.item_id for rig in rigs}),
+                and_(Item.container_id.in_(yards), Item.type_key.in_(_fuel_names())),
+            )
+        )
+        .order_by(Item.id)
+        .with_for_update()
+    )
+
+
+def _stands(machine: Item, yard_id: uuid.UUID) -> bool:
+    """Put up in its own node's yard: the one state a rig drills in (D-278, D-314)."""
+    return machine.installed and machine.container_id == yard_id
+
+
+async def _bury_row(session: AsyncSession, rig: RigRow) -> float:
+    """The machine is gone -- worn to nothing (`wear.spend` deletes what it
+    finishes), burnt, fallen with the house. The enterprise ends with it, and
+    so does the row: nothing else ever deleted one, and `tick_rigs` takes every
+    row in the world under lock each pass, so an orphan is a lock the world
+    pays for to the end of time. What the hopper still held goes too -- the ore
+    was **inside** the machine (D-314). The automat buries its row the same way
+    (D-253)."""
+    await session.delete(rig)
+    await session.flush()
+    return 0.0
 
 
 def _deplete(constants: Constants, vein: Vein, moment: datetime, extracted_before: int) -> None:

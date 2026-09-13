@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants, current
 from src.constants import registry as R
-from src.engine import events, travel
+from src.engine import estate, events, travel
 from src.engine.jobs import enqueue, handler
 from src.engine.ship import course, sim
 from src.engine.ship._base import (
@@ -569,6 +569,14 @@ async def arrived(session: AsyncSession, job: Job) -> None:
     connector = await session.get(Node, ship.connector_node_id)
     if connector is None:  # pragma: no cover
         raise ShipError(key="ship-no-connector")
+    #: The pad's row, as whoever spends its ground takes it (`require_port`):
+    #: setting down moves the hull from the hulls on their way to the hulls
+    #: standing, and `estate.free_ground` counts the two in two statements --
+    #: an order counting between them would read the hull in neither and give
+    #: its place away. The gangway's foreign key used to make this wait by
+    #: accident, while the plot was held `FOR UPDATE`. An orbit has no ground.
+    if not is_orbit(port):
+        await estate.hold_ground(session, port)
 
     #: The berth is taken on arrival, and it is whichever is free **there**:
     #: a ship does not carry its place from the port it left. On bare ground

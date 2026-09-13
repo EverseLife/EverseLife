@@ -374,15 +374,21 @@ async def _bury(
     #: out of them the moment the pick lands. What the rain spares is not
     #: taken at all -- the machine ticks lock their own rows and then the fuel
     #: in this same yard, and a lock on the spared heap would only cross them.
-    #: What goes down is still taken in one id order, machines, vessels and
-    #: fuel together, as the deletes took it before; against the automat
-    #: family's minute (vessels, then the machine, then its stacks) that can
-    #: cross once in a house's life, and the daily step's retry replays it.
-    #: The fire, which meets that minute every eruption, splits the vessels
-    #: out first (`plates.fire._burn`); a roof falls once.
+    #: What goes down is taken the way the fire takes a field
+    #: (`plates.fire._burn`): the vessels first, then the rest, each in id
+    #: order. One id order over all of them held a sack while it waited for a
+    #: canister the automats' tick holds, the tick waiting on that sack
+    #: (`automat.run`); and no order at all -- the deletes one by one, as the
+    #: heap gave them -- crossed a rig pass, which takes a machine with its
+    #: coal by id (`rig._held`).
+    vessels = [thing for thing in doomed if storage.is_vessel(catalog, thing.type_key)]
+    rest = [thing for thing in doomed if not storage.is_vessel(catalog, thing.type_key)]
     things = [
         thing
-        for thing in await stock.lock_items(session, doomed)
+        for thing in (
+            *await stock.lock_items(session, vessels),
+            *await stock.lock_items(session, rest),
+        )
         if thing.container_id == store.id and falls(thing)
     ]
     #: A chest goes down with its contents, a cart with its load and out of
@@ -420,7 +426,9 @@ async def collapse(session: AsyncSession, node: Node, house: Building) -> None:
     #: The plot's row first, and for the same reason building takes it
     #: (`estate.hold_ground`, D-246): what the floors are is read off what
     #: stands here, and a build finishing in another session in this same second
-    #: would leave a four-storey house with no stair to any of its floors.
+    #: would leave a four-storey house with no stair to any of its floors. And
+    #: before any of the things it buries: the doors that stand and take down
+    #: machines take the node before the thing too (`station`).
     await hold_ground(session, node)
 
     await session.delete(house)
@@ -492,6 +500,12 @@ async def decay(session: AsyncSession, constants: Constants) -> tuple[int, int]:
             fallen.append(house)
     await session.flush()
 
+    #: What this still leaves to the worker's retry: the houses fall one plot
+    #: after another in one transaction, each taking its own floor's things,
+    #: while the rig tick holds the machines and fuel of every rig yard in one
+    #: id order (`rig._hold_the_world`) and the automats take a yard at a time.
+    #: Two houses falling on one day over two such yards, reached the other
+    #: way round, are a deadlock and the day's step is replayed.
     for house in fallen:
         node = await session.get(Node, house.node_id)
         if node is None:  # pragma: no cover -- a building without a node is a defect
