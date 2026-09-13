@@ -35,6 +35,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants
 from src.engine import battery, energy, ledger
+from src.models.agro import FieldAutomat
 from src.models.automat import Automat as AutomatRow
 from src.models.energy import EnergyPool
 from src.models.inventory import Item
@@ -66,6 +67,8 @@ class Bill:
     rate: float
     #: What the owner's purse was asked for at the forecast; nought off the grid.
     price: int
+    #: What the bill names the energy for: the family member that burnt it.
+    purpose: str = "automat"
 
 
 @dataclass
@@ -107,13 +110,14 @@ class Tab:
 async def promise(
     session: AsyncSession,
     constants: Constants,
-    row: AutomatRow,
+    row: AutomatRow | FieldAutomat,
     node: Node,
     worked: float,
     rate: float,
     *,
     now: datetime,
     tab: Tab,
+    purpose: str = "automat",
 ) -> Bill | None:
     """The hours the energy will cover, asked without a lock. `None` -- none.
 
@@ -171,6 +175,7 @@ async def promise(
         hours=hours,
         rate=rate,
         price=price,
+        purpose=purpose,
     )
 
 
@@ -264,7 +269,7 @@ async def pay(
                 debit=accounts[owner].id,
                 credit=treasuries[charge.city_id].id,
                 amount=charge.price,
-                memo={"energy": charge.drawn, "for": "automat", "tariff": charge.tariff},
+                memo={"energy": charge.drawn, "for": charge.bill.purpose, "tariff": charge.tariff},
             )
         except ledger.InsufficientFunds:
             #: Refused before a posting is written.

@@ -4,7 +4,7 @@
 """The field automaton's board and its tick (D-339): the plots and storages
 it may be given, a programme changed or set again, a machine moved to another
 yard, a machine whose programme broke, the owner's right to the node, and the
-energy a tick promises its machines.
+energy a tick promises its machines and draws after them.
 """
 
 from __future__ import annotations
@@ -28,10 +28,10 @@ from agro_kit import (
 )
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import agro, automat, energy, farm, world
+from src.engine import agro, energy, farm, ledger, world
 from src.models.event import EventKind
 from src.models.farm import PlotState
-from src.units import ENERGY_PER_TARIFF_UNIT, MONEY_SCALE
+from src.models.ledger import AccountKind
 
 WATER = "water"
 
@@ -303,90 +303,75 @@ async def test_a_small_bed_is_watered_when_a_big_one_cannot_be(
     assert row.trouble == "no_water"
 
 
-async def test_a_short_draw_is_a_debt_paid_before_the_next_action(
+async def test_a_pool_emptied_between_the_promise_and_the_draw_keeps_the_work(
     session: AsyncSession,
     constants: Constants,
     catalog: Catalog,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A bench emptied the pool between the promise and the draw: the minute
-    went on credit, the machine owes it, and it does not act again until the
-    debt is promised with the minute's own energy."""
+    """A bench emptied the pool between the promise and the draw: the minute's
+    work stays done, the pool gives what it has and goes no lower than nought,
+    and the owner is billed only for that (the family's rule, 20-systems/12)."""
     place = await field(session, constants)
     await liquid_in(session, place.yard, LUBRICANT, 100)
-    first = await plot_of(session, constants, place.body, name="first")
-    second = await plot_of(session, constants, place.body, name="second")
+    plot = await plot_of(session, constants, place.body)
     moment = second_now()
-    row = await programmed(
-        session, constants, catalog, place, [{"do": "plow"}], [first, second], moment
-    )
-    real = automat.draw_energy
+    row = await programmed(session, constants, catalog, place, [{"do": "plow"}], [plot], moment)
+    account = await ledger.find_account(session, AccountKind.IDENTITY, place.body.identity_id)
+    assert account is not None
+    before = await ledger.balance(session, account.id)
 
-    async def nothing(*args, **kwargs):
-        return 0.0
+    async def drunk(session_, constants_, pool, *, now):
+        pool.stored = 0
 
-    monkeypatch.setattr(automat, "draw_energy", nothing)
-    await agro.tick_fields(session, constants, now=moment + timedelta(minutes=1))
-    await session.refresh(row)
-    assert row.trouble == "no_power"
-    owed = float(row.energy_owed)
-    assert owed > 0
-
-    #: The pool holds the minute but not the debt with it: no action.
-    monkeypatch.setattr(automat, "draw_energy", real)
-    pool = await energy.pool_of(session, constants, place.node)
-    assert pool is not None
-    minute = constants[R.AGRO_ENERGY_PER_HOUR] / 60
-    pool.stored = minute + owed * 0.5
-    row.busy_until = None
-    await session.flush()
-    done = await agro.tick_fields(session, constants, now=moment + timedelta(minutes=2))
-    assert done == 0
-
-    #: With the debt covered, it pays and works.
-    pool.stored = 10_000
-    await session.flush()
-    done = await agro.tick_fields(session, constants, now=moment + timedelta(minutes=3))
-    await session.refresh(row)
-    assert done == 1
-    assert float(row.energy_owed) == 0
-
-
-async def test_a_tariff_too_small_to_price_one_machine_still_prices_three(
-    session: AsyncSession, constants: Constants, catalog: Catalog
-) -> None:
-    """The promise is priced as the bill is -- one sum per pool and owner -- so
-    three machines whose minutes each round to nothing do not all run free on
-    an empty purse when their sum does not."""
-    place = await field(session, constants, funded=False)
-    await liquid_in(session, place.yard, LUBRICANT, 1000)
-    pool = await energy.pool_of(session, constants, place.node)
-    assert pool is not None
-    minute = constants[R.AGRO_ENERGY_PER_HOUR] / 60
-    #: A tariff at which one minute costs a little under half a minor unit.
-    pool.tariff = 0.45 / MONEY_SCALE * ENERGY_PER_TARIFF_UNIT / minute
-    moment = second_now()
-    rows = []
-    for index in range(3):
-        machine = await world.grant_item(
-            session, place.yard, "field_automaton", quality=70, origin="тест"
-        )
-        plot = await plot_of(session, constants, place.body, name=f"поле {index}")
-        rows.append(
-            await agro.program(
-                session,
-                constants,
-                catalog,
-                place.body,
-                machine,
-                steps=[{"do": "plow"}],
-                plots=[str(plot.id)],
-                seeds=None,
-                fertilizer=None,
-                harvest=None,
-                now=moment,
-            )
-        )
-    await session.flush()
+    monkeypatch.setattr(energy, "produce", drunk)
     done = await agro.tick_fields(session, constants, now=moment + timedelta(minutes=1))
-    assert done < 3, "the sum of the minutes is priced, and the purse is empty"
+    await session.refresh(row)
+    await session.refresh(plot)
+    pool = await energy.pool_of(session, constants, place.node)
+    assert pool is not None
+    assert done == 1
+    assert plot.state is PlotState.PLOWED
+    assert row.trouble is None
+    assert float(pool.stored) == 0
+    assert await ledger.balance(session, account.id) == before
+
+
+async def test_a_purse_emptied_between_the_promise_and_the_draw_loses_the_minute(
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Whoever cannot pay does not burn (D-135), whichever second the money
+    left in: the pass runs again with the purse taken as empty, the machine
+    stands with `no_power`, and the minute is gone rather than kept for later."""
+    place = await field(session, constants)
+    await liquid_in(session, place.yard, LUBRICANT, 100)
+    plot = await plot_of(session, constants, place.body)
+    moment = second_now()
+    row = await programmed(session, constants, catalog, place, [{"do": "plow"}], [plot], moment)
+    pool = await energy.pool_of(session, constants, place.node)
+    assert pool is not None
+    stored = float(pool.stored)
+    real = ledger.transfer
+    refused = []
+
+    async def moved(*args, **kwargs):
+        if kwargs.get("memo", {}).get("for") == "field_automat" and not refused:
+            refused.append(True)
+            raise ledger.InsufficientFunds
+        return await real(*args, **kwargs)
+
+    monkeypatch.setattr(ledger, "transfer", moved)
+    later = moment + timedelta(minutes=1)
+    done = await agro.tick_fields(session, constants, now=later)
+    await session.refresh(row)
+    await session.refresh(plot)
+    await session.refresh(pool)
+    assert refused
+    assert done == 0
+    assert plot.state is PlotState.IDLE
+    assert row.trouble == "no_power"
+    assert row.counted_at == later
+    assert float(pool.stored) == pytest.approx(stored)

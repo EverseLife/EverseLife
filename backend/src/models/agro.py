@@ -23,7 +23,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, ForeignKey, Index, Numeric, Uuid, text
+from sqlalchemy import DateTime, ForeignKey, Index, Uuid, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -84,12 +84,6 @@ class FieldAutomat(Base):
     #: (`engine.agro.TROUBLES`), or None while nothing it was asked to do is
     #: held back. Written when it changes, told to the owner then.
     trouble: Mapped[str | None] = mapped_column(nullable=True)
-    #: Energy a draw came up short by -- a bench took the pool between the
-    #: tick's promise and its draw. Paid before the next action is promised:
-    #: a machine never works on credit twice (D-339 p. 8).
-    energy_owed: Mapped[float] = mapped_column(
-        Numeric(12, 3), nullable=False, default=0, server_default="0"
-    )
 
     #: Up to what moment energy, lubricant and wear are counted.
     counted_at: Mapped[datetime] = created_column()
