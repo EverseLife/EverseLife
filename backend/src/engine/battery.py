@@ -206,7 +206,7 @@ async def charge_battery(
     yard = await world.node_container(session, node)
     if item.container_id not in (pocket.id, yard.id):
         raise BatteryError(key="battery-not-here")
-    pool = await _grid().pool_of(session, constants, node, lock=True)
+    pool = await _grid().pool_of(session, constants, node)
     if pool is None:
         raise _grid().NoGrid(key="battery-no-grid")
     await _grid().produce(session, constants, pool, now=moment)

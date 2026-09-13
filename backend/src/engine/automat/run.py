@@ -345,7 +345,7 @@ def _forget_the_run(session: AsyncSession) -> None:
     while the locks themselves are gone, so a player may take from either
     before the next machine reads it. The amounts the tick writes it reads under
     a lock that rereads the row (`stock.locked_stacks`, `world.stack_up`,
-    `energy.pool_of(lock=True)`), so a stale row misleads a forecast and not a
+    `energy.produce`), so a stale row misleads a forecast and not a
     remainder. One known exception, older than this tick: a liquid output
     measures a vessel's room off contents read without a reread
     (`liquid.fill`, `storage.stored_mass`), and can overfill it by what a hand

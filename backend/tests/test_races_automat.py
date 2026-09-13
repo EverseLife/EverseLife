@@ -26,7 +26,15 @@ import pytest
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from automat_kit import IRON, NAILS, _factory_floor, _learn, _lube_in
+from automat_kit import (
+    IRON,
+    NAILS,
+    _factory_floor,
+    _learn,
+    _lube_in,
+    _pool_left,
+    _until_blocked_by,
+)
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import automat, battery, craft, energy, ledger, stock, world
@@ -45,30 +53,6 @@ SILICON = "silicon"
 SAND = "quartz_sand"
 COKE = "petroleum_coke"
 
-_BLOCKED = text("SELECT count(*) FROM pg_stat_activity WHERE :holder = ANY(pg_blocking_pids(pid))")
-
-
-async def _until_blocked_by(
-    factory: async_sessionmaker[AsyncSession], holder: AsyncSession
-) -> None:
-    """Return once another transaction waits on a lock `holder` holds.
-
-    A fixed pause would let a busy run release the held rows before the other
-    side reached them, and the race would pass on the very code it exists to
-    catch. Asked by the holder's own backend, so no unrelated wait in the
-    database counts; the activity view is a snapshot per transaction, so each
-    look is a transaction of its own.
-    """
-    pid = (await holder.execute(text("SELECT pg_backend_pid()"))).scalar_one()
-    async with factory() as probe:
-        for _ in range(500):
-            blocked = (await probe.execute(_BLOCKED, {"holder": pid})).scalar_one()
-            await probe.rollback()
-            if blocked:
-                return
-            await asyncio.sleep(0.01)
-    raise AssertionError("nobody came to wait on the held rows")
-
 
 async def _nails_on(db: AsyncSession, yard_id) -> list[Item]:
     stmt = select(Item).where(Item.container_id == yard_id, Item.type_key == NAILS)
@@ -84,15 +68,6 @@ async def _take_a_nail(factory: async_sessionmaker[AsyncSession], yard_id) -> No
         locked = await hand.get(Item, stack.id, with_for_update=True)
         assert locked is not None and locked.amount > amount(1)
         locked.amount -= amount(1)
-
-
-async def _pool_left(factory: async_sessionmaker[AsyncSession], constants, node_id) -> float:
-    async with factory() as db:
-        node = await db.get(Node, node_id)
-        assert node is not None
-        pool = await energy.pool_of(db, constants, node, create=False)
-        assert pool is not None
-        return float(pool.stored)
 
 
 async def test_a_crafter_drawing_the_pool_does_not_deadlock_the_automats_tick(
@@ -449,8 +424,9 @@ async def test_a_pool_drunk_under_the_tick_is_billed_for_what_it_gave(
             async with factory() as elsewhere, elsewhere.begin():
                 here = await elsewhere.get(Node, node_id)
                 assert here is not None
-                pool = await energy.pool_of(elsewhere, constants, here, lock=True)
+                pool = await energy.pool_of(elsewhere, constants, here)
                 assert pool is not None
+                await energy.produce(elsewhere, constants, pool)
                 energy.take_from_pool(pool, float(pool.stored))
             drunk.append(True)
         return await drawn(*args, **kwargs)
