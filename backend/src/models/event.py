@@ -31,11 +31,6 @@ class EventKind(StrEnum):
     WORLD_BOOTSTRAPPED = "world.bootstrapped"
     CONSTANTS_CHANGED = "constants.changed"
     TICK_RAN = "tick.ran"
-    #: A one-off repair of the seed's catch-up ran on this world, or the world
-    #: was laid under the rule it mends and never needed it (`seed_catchup.ONCE`,
-    #: payload `step`). The journal is the only record that it ran: what such a
-    #: step writes cannot be told from a player's choice afterwards (D-007).
-    WORLD_CAUGHT_UP = "world.caught_up"
 
     # identity and body
     IDENTITY_CREATED = "identity.created"
@@ -133,7 +128,8 @@ class EventKind(StrEnum):
     #: back to the pier it left, for as long as it has already flown.
     SHIP_RECALLED = "ship.recalled"
     #: The owner plumbed a port (D-288): which vessels a machine drinks from
-    #: and in what order. An empty list is the port going back to "any".
+    #: or pours into, and in what order. An empty list is the port reaching
+    #: nothing (as amended 2026-09-04).
     LINE_SET = "line.set"
     #: The engines ran dry under way (D-289): the hull coasts from here, and
     #: the order is gone. Said to everybody aboard, like the air running out.

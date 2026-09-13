@@ -12,9 +12,9 @@ what stays written out by hand is everything data cannot say.
 
 **Every step is idempotent**: this runs at each deploy, and running it again
 must double nothing. That is the one rule a repair here has to keep. A repair
-whose result cannot be told from a player's choice the day after -- a line
-drawn to an empty port looks exactly like a port its owner emptied -- cannot
-keep it by reading the world, and runs once per world instead (`ONCE`).
+whose result cannot be told from a player's choice the day after -- a port
+its owner emptied looks exactly like one the step has yet to draw -- cannot
+keep it by reading the world, and runs once per world instead (`seed_once`).
 """
 
 from __future__ import annotations
@@ -27,8 +27,8 @@ from decimal import Decimal
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src import seed_once, seed_world
 from src import seed_parts as parts
-from src import seed_world
 from src.constants import current, current_catalog
 from src.constants import registry as R
 from src.constants.catalog import ItemKind
@@ -38,7 +38,6 @@ from src.engine import (
     death,
     energy,
     estate,
-    events,
     facet,
     ground,
     places,
@@ -66,17 +65,6 @@ log = logging.getLogger("everselife.seed")
 #: Fertility of a place, by its D-251 property id (D-126). The catch-up that
 #: gives soil to old city plots reads and writes exactly this key (D-246).
 FERTILITY = "fertility"
-
-#: The lines of hulls that lived under the old default (D-288 as amended
-#: 2026-09-04): `_lines_catch_up`.
-LINES_DEFAULT_ENDED = "lines_default_ended"
-
-#: The one-off steps: repairs a world takes once and never again, because a
-#: second run could not tell what it would mend from what a player chose. The
-#: journal remembers that a step ran (`EventKind.WORLD_CAUGHT_UP`), and a world
-#: laid fresh is born with all of them done (`born_caught_up`): it never lived
-#: under the rules they mend.
-ONCE = (LINES_DEFAULT_ENDED,)
 
 
 async def catch_up(session: AsyncSession, core: Node) -> None:
@@ -115,14 +103,17 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
     #: it. Relaid here rather than by the migration, for the same reason the
     #: gangways are: what a step is worth in seconds is the vault's number.
     await _ship_steps(session, constants)
-    #: Once per world, never at each deploy: run again, the step plumbed back
-    #: every port an owner had left empty on purpose, and drew the hulls laid
-    #: since under the rule that a port without a line reaches nothing.
-    if not await _done(session, LINES_DEFAULT_ENDED):
+    #: Once per world, never at each deploy (`seed_once`): run again, the step
+    #: plumbed back every port an owner had left empty on purpose, and drew the
+    #: hulls laid since under the rule that a port without a line reaches
+    #: nothing. On a world deployed before that was mended (2026-09-13) the one
+    #: run still owed is approximate, knowingly: it cannot tell an old hull from
+    #: one laid since that nobody has plumbed, nor a port whose tank was taken
+    #: apart from one never drawn -- the rows are gone either way. What it can
+    #: tell, a port its owner has plumbed, it leaves alone (`_plumbed`).
+    if await seed_once.claim(session, seed_once.LINES_DEFAULT_ENDED):
         drawn = await _lines_catch_up(session, constants)
-        await events.record(
-            session, EventKind.WORLD_CAUGHT_UP, step=LINES_DEFAULT_ENDED, drawn=drawn
-        )
+        await seed_once.done(session, seed_once.LINES_DEFAULT_ENDED, ports=drawn)
 
     #: Login by email and password (D-187): identities created before it get
     #: the seed's test accounts. Only those without an email yet -- anything
@@ -717,39 +708,17 @@ async def _lines_catch_up(session: AsyncSession, constants) -> int:
 
 async def _plumbed(session: AsyncSession) -> set[tuple[str, str]]:
     """Every port a player has ever drawn, as `(machine id, port)`: the
-    `line.set` of the journal (`ship.set_lines`, the only door a line is drawn
-    through). Ids as the payload keeps them, as text."""
+    `line.set` of the journal. `ship.set_lines` is the only door a player
+    draws a line through, and it always writes one. The catch-up's own lines
+    write none: they are the `feed_line` rows whose `created_at` is the step
+    row's `at` -- one transaction, one `now()`. Ids as the payload keeps them,
+    as text."""
     rows = await session.execute(
         select(Event.payload["item_id"].astext, Event.payload["port"].astext).where(
             Event.kind == EventKind.LINE_SET.value
         )
     )
     return {(machine, port) for machine, port in rows.all()}
-
-
-async def _done(session: AsyncSession, step: str) -> bool:
-    """Whether this one-off step (`ONCE`) has run on this world, or the world
-    was born past it."""
-    found = await session.scalar(
-        select(Event.id)
-        .where(
-            Event.kind == EventKind.WORLD_CAUGHT_UP.value,
-            Event.payload["step"].astext == step,
-        )
-        .limit(1)
-    )
-    return found is not None
-
-
-async def born_caught_up(session: AsyncSession) -> None:
-    """Mark every one-off step done on a world laid today (`ONCE`).
-
-    Without it the first deploy after the world was laid would mend what was
-    never broken: the lines step would plumb every hull the players had built
-    by then, under the rule that there is no default.
-    """
-    for step in ONCE:
-        await events.record(session, EventKind.WORLD_CAUGHT_UP, step=step, born=True)
 
 
 async def _founder_powers_catch_up(session: AsyncSession, city: City) -> None:
