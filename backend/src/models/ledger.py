@@ -86,8 +86,15 @@ class PostingReason(StrEnum):
     #: The CB printed into the works fund under `works.print_cap` (D-248).
     #: A separate ground: the emission-share sensor must see it.
     WORKS_PRINT = "works_print"
-    #: A work order's escrow paid out to whoever completed it (D-248).
+    #: The fund's money on a work order paid out to whoever completed it
+    #: (D-248). The daily cap `works.player_daily_cap` counts this ground and
+    #: nothing else (`works.paid_today`).
     WORKS_PAYOUT = "works_payout"
+    #: The city's part of a city order paid out to the worker: its offer for
+    #: materials and its labour share (D-248). The city's own money, the price
+    #: of goods rather than a subsidy -- a ground apart so that the fund's cap
+    #: never counts it.
+    WORKS_CITY_PAYOUT = "works_city_payout"
     #: The capital printed into its treasury by the holders' signatures (D-270).
     #: A separate ground: the emission-share sensor must see it.
     EMISSION = "emission"

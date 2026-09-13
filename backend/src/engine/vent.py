@@ -139,10 +139,17 @@ async def empty(
     await liquid.within_reach(session, catalog, body, node, pocket, vessel)
 
     where = await sink(session, node)
-    await liquid.lock_vessels(session, [vessel])
-    inside = await storage.inside(session, vessel, create=False)
-    held = [] if inside is None else list(await world.contents(session, inside))
-    if not held:
+    #: The reach was asked of the row the command was handed, and the lock may
+    #: have waited on a hand lifting the cylinder or a fire taking it: asked
+    #: again of the row it reread, as a pour asks (`liquid.pour`).
+    locked = (await liquid.lock_vessels(session, [vessel])).get(vessel.id)
+    if locked is None:
+        raise VentError(key="thing-gone", goods=vessel.type_key)
+    if locked.moved:
+        await liquid.within_reach(session, catalog, body, node, pocket, vessel)
+    inside = locked.inside
+    held = list(locked.things)
+    if inside is None or not held:
         raise VentError(key="liquid-source-empty", vessel=vessel.type_key, named="false")
     kept = next((one for one in held if not catalog.recipes.is_vent(one.type_key)), None)
     if kept is not None:

@@ -11,11 +11,13 @@ leaves half-way and haunts the schema as orphans.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 
-from sqlalchemy import select
+from sqlalchemy import ColumnElement, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.engine import world
+from src.constants import current_catalog
+from src.engine import storage, world
 from src.models.inventory import Container, ContainerKind, Item
 from src.models.world import Node
 from src.units import amount_float
@@ -31,13 +33,36 @@ async def _burn(session: AsyncSession, shaken: list[Node]) -> float:
     Taken under a lock, and re-read after it: somebody carrying a sack out of
     the node in the last minute of the window is doing exactly what the window
     is for, and their sack must not be burned out of their hands.
+
+    The vessels are locked before the rest, each part in id order: a pour
+    takes its canisters before the liquid in them, and the automat family's
+    tick takes a yard's vessels before the machine it wears and the stacks it
+    draws (`liquid.lock_vessels`, `automat.run`). One id order over all of them
+    held a sack on the floor while it waited for a canister that tick held --
+    the tick waiting on that sack. What this still leaves to the worker's retry
+    is written down with the rest of the package's lock order (`clock.py`).
     """
     yards = [(await world.node_container(session, node)).id for node in shaken]
-    lying = (
+    catalog = current_catalog()
+    vessels = sorted(key for key in catalog.recipes.names() if storage.is_vessel(catalog, key))
+    here_now = Item.container_id.in_(yards)
+    lying = [
+        *await _lock(session, here_now, Item.type_key.in_(vessels)),
+        *await _lock(session, here_now, Item.type_key.not_in(vessels)),
+    ]
+    #: Only what is still here: somebody carrying a sack out in the last minute
+    #: of the window is doing exactly what the window is for.
+    here = [thing for thing in lying if thing.container_id in yards]
+    return await _consume(session, here)
+
+
+async def _lock(session: AsyncSession, *where: ColumnElement[bool]) -> Sequence[Item]:
+    """The things matching `where`, locked in id order and reread under the lock."""
+    return (
         (
             await session.execute(
                 select(Item)
-                .where(Item.container_id.in_(yards))
+                .where(*where)
                 .order_by(Item.id)
                 .with_for_update()
                 .execution_options(populate_existing=True)
@@ -46,10 +71,6 @@ async def _burn(session: AsyncSession, shaken: list[Node]) -> float:
         .scalars()
         .all()
     )
-    #: Only what is still here: somebody carrying a sack out in the last minute
-    #: of the window is doing exactly what the window is for.
-    here = [thing for thing in lying if thing.container_id in yards]
-    return await _consume(session, here)
 
 
 async def _consume(session: AsyncSession, things: list[Item]) -> float:

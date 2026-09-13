@@ -798,11 +798,10 @@ async def test_a_chest_filled_mid_lift_is_not_carried_off(
     it too heavy.
     """
     from src.engine import gear, storage
-    from src.engine.gear import load as gear_load
 
-    #: Both names of the reading: the room's, reached by the lift and by the fill's
-    #: `gear.moved_inside`, and the door's, through which `storage.stored_mass` weighs.
-    _slow(monkeypatch, gear_load, "inner_mass")
+    #: Both paths of the reading are held: the room's, reached by the lift and by
+    #: the fill's `gear.moved_inside`, and the door's, through which
+    #: `storage.stored_mass` weighs -- `_slow` on a package takes both.
     _slow(monkeypatch, gear, "inner_mass")
     catalog = current_catalog()
     per_unit = gear.mass_of(catalog, ORE, 1)

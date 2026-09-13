@@ -216,5 +216,6 @@ ledger-ground-bank_margin = city margin
 ledger-ground-transfer = transfer
 ledger-ground-works_recycle = returned to the works fund
 ledger-ground-works_print = printed into the works fund
-ledger-ground-works_payout = work order payout
+ledger-ground-works_payout = work order payout from the works fund
+ledger-ground-works_city_payout = work order payout from the city treasury
 ledger-ground-emission = the capital's emission by signatures

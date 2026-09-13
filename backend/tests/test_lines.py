@@ -25,6 +25,7 @@ Checked is what the plumbing rests on:
 from __future__ import annotations
 
 import asyncio
+import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
@@ -563,3 +564,32 @@ async def test_two_names_given_at_once_leave_one(
     async with factory() as session:
         named = await lines.names_of(session, [ids[2]])
     assert named[ids[2]] in {"Левый", "Правый"}
+
+
+def test_the_plumbing_after_a_lock_keeps_only_the_vessels_the_lock_kept() -> None:
+    """What a machine works through once its vessels are locked (D-340).
+
+    The plumbing is read before the lock, and the lock may find a vessel gone
+    or moved: from then on the outlet, the vent and the inlet reach only what
+    it kept (`liquid.standing`). The dry ports stay as read.
+    """
+    kept, lost = (Item(id=uuid.uuid4(), type_key=CYLINDER) for _ in range(2))
+    kept_inside, lost_inside = uuid.uuid4(), uuid.uuid4()
+    port = lines.Port(name=WATER, liquids=(WATER,))
+    drawn = lines.Plumbing(
+        ship=Ship(),
+        machine=Item(),
+        inlets={WATER: (lost_inside, kept_inside)},
+        outlets={AIR: [lost, kept]},
+        vents={"hydrogen": [lost]},
+        dry=(port,),
+        vessels=(lost, kept),
+    )
+
+    narrowed = drawn.keeping({kept.id}, {kept_inside})
+
+    assert narrowed.inlets == {WATER: (kept_inside,)}
+    assert narrowed.outlets == {AIR: [kept]}
+    assert narrowed.vents == {"hydrogen": []}
+    assert narrowed.vessels == (kept,)
+    assert narrowed.dry == (port,)
