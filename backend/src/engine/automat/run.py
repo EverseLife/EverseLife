@@ -19,9 +19,10 @@ from __future__ import annotations
 import logging
 import math
 import uuid
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from decimal import Decimal
+from typing import Protocol
 
 from sqlalchemy import select
 from sqlalchemy.exc import DBAPIError
@@ -44,7 +45,6 @@ from src.units import (
     HOURS_PER_DAY,
     PERCENT,
     SECONDS_PER_HOUR,
-    SECONDS_PER_MINUTE,
     amount,
     amount_float,
 )
@@ -233,11 +233,19 @@ async def advance(
     return produced
 
 
-#: Another member of the automat family (the field automaton, D-339): it works
-#: its machines onto the pass's own tab, before the automats or after them by
-#: the tick's turn, and before the one draw. Called once a run -- again when
-#: the pass runs again.
-Member = Callable[[AsyncSession, Constants, energy_bill.Tab, datetime], Awaitable[None]]
+class Member(Protocol):
+    """Another member of the automat family (the field automaton, D-339): its
+    machines' demand counted with the automats' before the pass, and its
+    machines worked onto the pass's tab after them, before the one draw. Both
+    are called once a run -- again when the pass runs again."""
+
+    async def ask(
+        self, session: AsyncSession, constants: Constants, tab: energy_bill.Tab, now: datetime
+    ) -> None: ...
+
+    async def work(
+        self, session: AsyncSession, constants: Constants, tab: energy_bill.Tab, now: datetime
+    ) -> None: ...
 
 
 async def tick_automats(
@@ -335,14 +343,11 @@ async def _pass(
     """
     #: A purse that already failed a draw this tick pays nothing in the rerun.
     tab = energy_bill.Tab(purses=dict.fromkeys(barred, 0))
-    #: On a pool too small for the whole family, whoever promises first drinks
-    #: first. Neither kind may take it every tick: the other members go first
-    #: on odd ticks, the automats on even ones (D-339 p. 8) -- counted by the
-    #: tick's number, since a tick of two minutes would never change a minute's.
-    tick_seconds = constants[R.TIME_TICK] * SECONDS_PER_MINUTE
-    early = int(now.timestamp() // tick_seconds) & 1
-    if early:
-        await _members(session, constants, members, tab, now)
+    #: The whole family's demand first, so a supply short of it is shared out
+    #: alike (`bill.promise`) whatever the order the machines work in.
+    await _ask(session, constants, tab, now)
+    for member in members:
+        await member.ask(session, constants, tab, now)
     made = 0.0
     for row_id in order:
         owed = len(tab.bills)
@@ -369,12 +374,33 @@ async def _pass(
             log.exception("automat %s: the advance failed and was passed over", row_id)
             continue
         made += paid
-    if not early:
-        await _members(session, constants, members, tab, now)
+    await _members(session, constants, members, tab, now)
     refused = await energy_bill.pay(session, constants, tab.bills, now=now)
     if refused:
         raise PurseMoved(refused)
     return made
+
+
+async def _ask(
+    session: AsyncSession, constants: Constants, tab: energy_bill.Tab, now: datetime
+) -> None:
+    """Every programmed automat's hours since its count, at the rate, on its
+    supply's demand -- read, not locked: the promise that follows reads the
+    supply the same way."""
+    rate = constants[R.AUTO_ENERGY_PER_HOUR]
+    rows = (
+        await session.execute(
+            select(AutomatRow.node_id, AutomatRow.counted_at).where(
+                AutomatRow.recipe_key.is_not(None)
+            )
+        )
+    ).all()
+    for node_id, counted_at in rows:
+        node = await session.get(Node, node_id)
+        if node is None:  # pragma: no cover -- a node is never deleted
+            continue
+        hours = max(0.0, (now - counted_at).total_seconds() / SECONDS_PER_HOUR)
+        await energy_bill.ask(session, tab, node, rate * hours)
 
 
 async def _members(
@@ -392,7 +418,7 @@ async def _members(
         owed = len(tab.bills)
         try:
             async with session.begin_nested():
-                await member(session, constants, tab, now)
+                await member.work(session, constants, tab, now)
         except Exception as failure:  # noqa: BLE001 -- one member must not stop the world's factories
             if isinstance(failure, DBAPIError) and failure.connection_invalidated:
                 raise

@@ -147,7 +147,6 @@ async def program(
         row.cursor = 0
         row.step_since = moment
         row.trouble = None
-        row.told = None
     row.owner_identity_id = body.identity_id
     #: A machine taken down and put up in another yard works there: the row
     #: follows the machine (the automat's own rule, `automat.board.program`).

@@ -14,11 +14,11 @@ again under each bed's lock by the hands (`hands.py`).
 **Energy is the automat family's (D-253, `automat/bill.py`).** It is promised
 before the action, on the automats' own tab (`tick_machines`), and drawn after
 every machine of the family has worked, supply by supply in one lock order.
-A machine is promised the whole of its hours or none of them: energy is a flow,
-not a stock like the lubricant, and a machine paid for a sliver of a scarce
-pool every minute and acting on none of it would never act; promised whole
-or nothing, it leaves the pool to gather. The owner's purse pays for the hours
-whole or the machine stands (D-135). What
+The supply caps the hours as the lubricant does -- and, short of the whole
+family's demand, gives every machine on it the same share of its hours
+(`bill.promise`); the machine's clock runs only for the hours it had, so its
+actions go the slower. The owner's purse pays for those hours whole or the
+machine stands (D-135). What
 happens between the promise and the draw is the family's rule too (the owner,
 2026-09-13, `20-systems/12-energy.md`): a pool a bench emptied meanwhile leaves
 the work done and bills only what the pool gave; a purse emptied meanwhile is
@@ -180,8 +180,8 @@ async def _advance(
         by_name.setdefault(stack.type_key, []).append(stack)
 
     #: A machine with a programme and plots is on the whole time: holding a
-    #: setpoint is work (D-339 p. 8). The lubricant caps the hours; the energy
-    #: for them is promised whole or not at all.
+    #: setpoint is work (D-339 p. 8). The lubricant caps the hours, and the
+    #: energy promised for them caps them again.
     lube = [stack for name in sorted(lube_names) for stack in by_name.get(name, [])]
     lube_rate = constants[R.AUTO_LUBE_PER_HOUR]
     have = sum(amount_float(stack.amount) for stack in lube)
@@ -192,35 +192,31 @@ async def _advance(
         bill = await energy_bill.promise(
             session, constants, row, node, worked, rate, now=moment, tab=tab, purpose=PURPOSE
         )
-        if bill is None or amount(bill.hours * rate) < amount(worked * rate):
-            #: A flow, not a stock: paid for a sliver of a scarce pool every
-            #: minute and acting on none of it, the machine would never act.
-            #: Refused whole, it holds what it found for the rest of the pass,
-            #: and the pool gathers the hours rather than feeding whoever
-            #: promises after it.
-            if bill is not None:
-                tab.hold(bill)
+        if bill is None:
             short, worked = NO_POWER, 0.0
         else:
+            if amount(bill.hours * rate) < amount(worked * rate):
+                #: Part of the hours: the supply is short, or shared alike with
+                #: the rest of the family on it. The machine is on for that part.
+                short, worked = NO_POWER, bill.hours
             #: Written down at once: should the work below fail, the tick takes
             #: this promise back with the machine's savepoint.
             tab.add(bill)
 
+    _stretch(row, hours - worked)
     done = 0
-    if short is not None:
+    if worked <= 0:
         trouble: str | None = short
-        if row.busy_until is not None and row.busy_until > row.counted_at:
-            #: The machine's clock runs only while it has power and lubricant:
-            #: the hours it stood do not count toward the action it is busy with.
-            row.busy_until += timedelta(hours=hours - worked)
     elif row.busy_until is not None and row.busy_until > moment:
         #: Busy with the last action: the word it stood with stays -- unless it
-        #: was the energy's or the lubricant's, and this minute had both.
-        trouble = None if row.trouble in (NO_POWER, NO_LUBE) else row.trouble
+        #: was the energy's or the lubricant's, and this stretch had both.
+        kept = None if row.trouble in (NO_POWER, NO_LUBE) else row.trouble
+        trouble = short if short is not None else kept
     else:
-        done, trouble = await _work(
-            session, constants, book, row, node, yard, beds, by_name, moment
-        )
+        done, word = await _work(session, constants, book, row, node, yard, beds, by_name, moment)
+        #: What the work could not do is the more pressing word; short of
+        #: power or lubricant it went the slower, and says so otherwise.
+        trouble = word if word is not None else short
 
     if lube_rate > 0 and worked > 0:
         await stock.consume(session, lube, amount(lube_rate * worked))
@@ -267,8 +263,6 @@ async def _work(
         tried.add(entry.work)
         if isinstance(outcome, Done):
             row.busy_until = now + timedelta(minutes=outcome.minutes)
-            #: Work done: the next stall is news again (`_stand`).
-            row.told = None
             done = 1
             break
         failures.append(outcome)
@@ -296,27 +290,32 @@ async def _idle(
     session: AsyncSession, row: FieldAutomat, trouble: str | None, now: datetime
 ) -> int:
     """The machine stands through these hours: nothing worked, nothing drawn."""
+    _stretch(row, (now - row.counted_at).total_seconds() / SECONDS_PER_HOUR)
     await _stand(session, row, trouble)
     row.counted_at = now
     await session.flush()
     return 0
 
 
+def _stretch(row: FieldAutomat, idle_hours: float) -> None:
+    """The machine's clock runs only while it has power and lubricant (D-339
+    p. 8): the hours it stood since its count do not count toward the action
+    it is busy with."""
+    if idle_hours > 0 and row.busy_until is not None and row.busy_until > row.counted_at:
+        row.busy_until += timedelta(hours=idle_hours)
+
+
 async def _stand(session: AsyncSession, row: FieldAutomat, trouble: str | None) -> None:
     """Write the word the machine stands with; tell the owner when a new one comes.
 
     The journal line names the place; why the machine stands is its window's
-    word, where the owner can act on it (D-339 p. 11). A word is told once a
-    stretch of work: not again until the machine has done something or stood
-    with another word -- a machine a scarce pool powers one tick and refuses
-    the next would otherwise tell its owner every other tick.
+    word, where the owner can act on it (D-339 p. 11).
     """
     if trouble == row.trouble:
         return
     row.trouble = trouble
-    if trouble is None or trouble == row.told:
+    if trouble is None:
         return
-    row.told = trouble
     node = await session.get(Node, row.node_id)
     await events.record(
         session,
@@ -381,18 +380,37 @@ async def tick_machines(
     automats' tick owns the run -- the order, the draw and the rerun with a
     moved purse empty -- and the field automatons work onto its tab.
     """
-    actions = 0
-
-    async def fields(
-        session_: AsyncSession, constants_: Constants, tab: energy_bill.Tab, moment: datetime
-    ) -> None:
-        nonlocal actions
-        #: A run gone back took its actions with it.
-        actions = 0
-        actions = await _work_fields(session_, constants_, tab, moment)
-
+    fields = _Fields()
     made = await automat.tick_automats(session, constants, now=now, members=(fields,))
-    return Minute(made=made, actions=actions)
+    return Minute(made=made, actions=fields.actions)
+
+
+class _Fields:
+    """The field automatons as a member of the automat family's pass
+    (`automat.run.Member`): their demand counted before it, their machines
+    worked on its tab, and the actions of its last run counted."""
+
+    def __init__(self) -> None:
+        self.actions = 0
+
+    async def ask(
+        self, session: AsyncSession, constants: Constants, tab: energy_bill.Tab, now: datetime
+    ) -> None:
+        rate = constants[R.AGRO_ENERGY_PER_HOUR]
+        rows = (await session.execute(select(FieldAutomat.node_id, FieldAutomat.counted_at))).all()
+        for node_id, counted_at in rows:
+            node = await session.get(Node, node_id)
+            if node is None:  # pragma: no cover -- a node is never deleted
+                continue
+            hours = max(0.0, (now - counted_at).total_seconds() / SECONDS_PER_HOUR)
+            await energy_bill.ask(session, tab, node, rate * hours)
+
+    async def work(
+        self, session: AsyncSession, constants: Constants, tab: energy_bill.Tab, now: datetime
+    ) -> None:
+        #: A run gone back took its actions with it.
+        self.actions = 0
+        self.actions = await _work_fields(session, constants, tab, now)
 
 
 async def _work_fields(

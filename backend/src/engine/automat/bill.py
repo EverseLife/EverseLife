@@ -88,6 +88,15 @@ class Tab:
     bills: list[Bill] = field(default_factory=list)
     supplies: dict[uuid.UUID, float] = field(default_factory=dict)
     purses: dict[uuid.UUID, int] = field(default_factory=dict)
+    #: What the family asks of each supply this pass, energy: every machine's
+    #: hours at its rate, counted before any of them works (`ask`). An upper
+    #: bound -- a machine short of lubricant or inputs asks for hours it will
+    #: not take, and what it leaves stays in the supply.
+    demand: dict[uuid.UUID, float] = field(default_factory=dict)
+    #: The share of its hours each machine on a supply is promised: one while
+    #: the supply covers the demand, less for all of them alike when it does
+    #: not (D-339 p. 8). Set at the supply's first reading.
+    shares: dict[uuid.UUID, float] = field(default_factory=dict)
     #: The pool row behind a grid supply, for its tariff. A row, not a number,
     #: so the tariff is priced by `energy.price_at` like the draw's. No advance
     #: writes a pool, so a machine's savepoint rolling back leaves it as read;
@@ -100,14 +109,6 @@ class Tab:
         if bill.owner_identity_id is not None and bill.price > 0:
             self.purses[bill.owner_identity_id] -= bill.price
 
-    def hold(self, bill: Bill) -> None:
-        """Keep what a refused promise found left on its supply for the rest of
-        the pass, with no bill: a field automaton refused its hours whole
-        leaves the pool to gather toward them, not to whoever promises after it
-        (D-339 p. 8). Not given back by `keep` -- a machine that failed after
-        holding held for nothing, and the pass is the shorter for a minute."""
-        self.supplies[bill.supply] -= bill.hours * bill.rate
-
     def keep(self, count: int) -> None:
         """Drop the bills written after the first `count`, giving back what they took."""
         for bill in self.bills[count:]:
@@ -115,6 +116,22 @@ class Tab:
             if bill.owner_identity_id is not None and bill.price > 0:
                 self.purses[bill.owner_identity_id] += bill.price
         del self.bills[count:]
+
+
+async def supply_of(session: AsyncSession, node: Node) -> tuple[uuid.UUID, Node | None]:
+    """What a machine in this node draws from: the city's grid node, or --
+    where no grid reaches -- the hull or node whose cells stand beside it
+    (`battery.hull_of`). The grid node itself comes along, or nothing."""
+    grid = await energy.grid_node(session, node)
+    return (battery.hull_of(node) if grid is None else grid.id), grid
+
+
+async def ask(session: AsyncSession, tab: Tab, node: Node, energy_needed: float) -> None:
+    """Count a machine's demand on its supply before the pass works (`Tab.demand`)."""
+    if energy_needed <= 0:
+        return
+    supply, _ = await supply_of(session, node)
+    tab.demand[supply] = tab.demand.get(supply, 0.0) + energy_needed
 
 
 async def promise(
@@ -148,8 +165,7 @@ async def promise(
     `20-systems/12-energy.md`) -- provisional, and for the family only: for
     the other buildings on an emptied pool the point is still open.
     """
-    grid = await energy.grid_node(session, node)
-    supply = battery.hull_of(node) if grid is None else grid.id
+    supply, grid = await supply_of(session, node)
     pool = None
     if grid is not None:
         if supply not in tab.pools:
@@ -160,7 +176,13 @@ async def promise(
             tab.supplies[supply] = await battery.charge_in(session, constants, node, now=now)
         else:
             tab.supplies[supply] = 0.0 if pool is None else float(pool.stored)
-    hours = min(worked, max(0.0, tab.supplies[supply]) / rate)
+        #: Short of the family's demand, every machine on the supply gets the
+        #: same share of its hours -- not the first machines of the pass all of
+        #: theirs and the last none (D-339 p. 8).
+        asked = tab.demand.get(supply, 0.0)
+        held = max(0.0, tab.supplies[supply])
+        tab.shares[supply] = 1.0 if asked <= held else held / asked
+    hours = min(worked * tab.shares[supply], max(0.0, tab.supplies[supply]) / rate)
     if hours <= 0:
         return None
     price = 0

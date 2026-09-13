@@ -176,11 +176,13 @@ async def test_a_machine_put_up_in_another_yard_works_there(
 # --- the tick's promises ------------------------------------------------------------
 
 
-async def test_two_machines_on_one_pool_do_not_both_promise_its_last_hour(
+async def test_two_machines_on_a_short_pool_share_it_alike(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """The pool holds one machine's minute: the tick promises it once, and the
-    second machine stands with `no_power` instead of working on credit."""
+    """The pool holds one and a half machine-minutes: it is never promised
+    twice, and neither machine takes a whole minute while the other gets half
+    -- each is on for three quarters of it, ploughs the slower for it and says
+    `no_power` (D-339 p. 8)."""
     place = await field(session, constants)
     await liquid_in(session, place.yard, LUBRICANT, 100)
     first = await plot_of(session, constants, place.body, name="first")
@@ -212,8 +214,12 @@ async def test_two_machines_on_one_pool_do_not_both_promise_its_last_hour(
     done = (await agro.tick_machines(session, constants, now=moment + timedelta(minutes=1))).actions
     await session.refresh(row_a)
     await session.refresh(row_b)
-    assert done == 1
-    assert sorted([row_a.trouble or "", row_b.trouble or ""]) == ["", "no_power"]
+    await session.refresh(pool)
+    assert done == 2, "each ploughs on its share"
+    assert row_a.trouble == row_b.trouble == "no_power"
+    assert float(pool.stored) == pytest.approx(0, abs=0.001)
+    #: Both began their ploughing on the same tick, and are busy alike.
+    assert row_a.busy_until is not None and row_a.busy_until == row_b.busy_until
 
 
 async def test_an_owner_who_cannot_pay_gets_no_work(

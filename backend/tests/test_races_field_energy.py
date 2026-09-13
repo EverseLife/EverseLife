@@ -12,7 +12,7 @@ only what it gave.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta
+from datetime import timedelta
 from decimal import Decimal
 
 import pytest
@@ -48,21 +48,6 @@ async def _empty_purse(factory: async_sessionmaker[AsyncSession], account_id: uu
             amount=purse,
             memo={},
         )
-
-
-def _fields_first(constants: Constants, moment: datetime) -> bool:
-    """Whether the field automatons promise before the automats at this tick
-    (`automat.run._pass`: odd ticks by number)."""
-    return bool(int(moment.timestamp() // (constants[R.TIME_TICK] * 60)) & 1)
-
-
-def _tick_after(constants: Constants, moment: datetime, *, fields_first: bool) -> datetime:
-    """The first tick after `moment` whose turn is the one asked for."""
-    step = timedelta(minutes=constants[R.TIME_TICK])
-    later = moment + step
-    while _fields_first(constants, later) != fields_first:
-        later += step
-    return later
 
 
 async def test_a_purse_emptied_under_the_fields_tick_buys_no_free_minute(
@@ -273,16 +258,16 @@ async def test_a_pool_drunk_under_the_fields_tick_is_billed_for_what_it_gave(
         assert billed > 0
 
 
-async def test_the_family_shares_one_pool_and_takes_turns_at_its_last_minute(
+async def test_an_automat_and_a_field_automaton_on_a_short_pool_get_the_same_share(
     session: AsyncSession,
     constants: Constants,
     catalog: Catalog,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """An automat and a field automaton on one pool that holds one and a half
-    machine-minutes, two minutes running. They promise on one tab, so the pool
-    is never promised twice; the field automaton takes its hours whole or not
-    at all; and the first to promise changes with the minute, so neither kind
-    drinks the pool every minute (`automat.run._pass`, D-339 p. 8)."""
+    """An automat and a field automaton on one pool holding one and a half
+    machine-minutes. The family's demand is counted before the pass, so the
+    automat -- first in the pass -- does not take a whole minute and leave the
+    field half: each gets three quarters of its minute, and the pool is spent."""
     place = await field(session, constants)
     await liquid_in(session, place.yard, LUBRICANT, 100)
     plot = await plot_of(session, constants, place.body)
@@ -296,33 +281,34 @@ async def test_the_family_shares_one_pool_and_takes_turns_at_its_last_minute(
     assert pool is not None
     minute = constants[R.AGRO_ENERGY_PER_HOUR] / 60
     assert constants[R.AUTO_ENERGY_PER_HOUR] / 60 == pytest.approx(minute)
+    pool.stored = Decimal(str(minute * 1.5))
+    await session.flush()
 
-    for step in (1, 2):
-        pool.stored = Decimal(str(minute * 1.5))
-        await session.flush()
-        now = moment + timedelta(minutes=step)
-        await agro.tick_machines(session, constants, now=now)
-        await session.refresh(row)
-        await session.refresh(pool)
-        if _fields_first(constants, now):
-            #: The field automaton first: its whole minute, the automat half of one.
-            assert row.trouble != "no_power", "the field automaton promised first"
-            assert float(pool.stored) == pytest.approx(0, abs=0.001)
-        else:
-            #: The automat first: its whole minute; half a minute is no minute
-            #: for the field automaton, and the half stays in the pool.
-            assert row.trouble == "no_power", "half a minute is not promised"
-            assert float(pool.stored) == pytest.approx(minute * 0.5, abs=0.001)
+    drawn = energy_bill.pay
+    billed: list[float] = []
+
+    async def seen(session_, constants_, bills, *, now):
+        billed.extend(one.hours * one.rate for one in bills)
+        return await drawn(session_, constants_, bills, now=now)
+
+    monkeypatch.setattr(energy_bill, "pay", seen)
+    result = await agro.tick_machines(session, constants, now=moment + timedelta(minutes=1))
+    await session.refresh(row)
+    await session.refresh(plot)
+    await session.refresh(pool)
+    assert sorted(billed) == pytest.approx([minute * 0.75, minute * 0.75], abs=0.002)
+    assert result.actions == 1, "the field automaton ploughs on its share"
+    assert plot.state is PlotState.PLOWED
+    assert row.trouble == "no_power"
+    assert float(pool.stored) == pytest.approx(0, abs=0.001)
 
 
-@pytest.mark.parametrize("fields_first", [True, False])
 async def test_a_factory_owners_purse_emptied_under_the_family_does_not_count_a_field_twice(
     session: AsyncSession,
     factory: async_sessionmaker[AsyncSession],
     constants: Constants,
     catalog: Catalog,
     monkeypatch: pytest.MonkeyPatch,
-    fields_first: bool,
 ) -> None:
     """One owner's automat and another owner's field automaton in one pass. The
     automat's owner empties the purse before the draw: the whole pass goes back
@@ -358,7 +344,7 @@ async def test_a_factory_owners_purse_emptied_under_the_family_does_not_count_a_
         return await drawn(*args, **kwargs)
 
     monkeypatch.setattr(energy_bill, "pay", spent_first)
-    later = _tick_after(constants, moment, fields_first=fields_first)
+    later = moment + timedelta(minutes=constants[R.TIME_TICK])
     async with factory() as db, db.begin():
         minute_done = await agro.tick_machines(db, current(), now=later)
 
@@ -390,21 +376,21 @@ async def test_a_factory_owners_purse_emptied_under_the_family_does_not_count_a_
         assert not nails, "the unpaid factory made nothing"
 
 
-async def test_a_field_automaton_on_a_thin_grid_beside_an_automat_still_works_and_tells_once(
+async def test_a_field_automaton_on_a_thin_grid_beside_an_automat_goes_slower_and_tells_once(
     session: AsyncSession,
     constants: Constants,
     catalog: Catalog,
 ) -> None:
-    """A grid that brings less than one machine-minute a tick, an automat on it
-    too. Refused its hours whole, the field automaton holds what it found for
-    the rest of the pass, so the pool gathers toward its hours instead of
-    feeding the automat every tick: within a few ticks it ploughs. And a word
-    that comes and goes with the turns is told once, not every other tick."""
+    """A grid that brings a third of one machine-minute a tick, an automat on it
+    too. Neither machine starves: each is on for its share of every tick, the
+    field automaton ploughs on the first and its clock for the ploughing runs
+    only for the hours it had, and a machine short of power every tick says so
+    once."""
     place = await field(session, constants)
     await liquid_in(session, place.yard, LUBRICANT, 100)
     plot = await plot_of(session, constants, place.body)
     moment = second_now()
-    await programmed(session, constants, catalog, place, [{"do": "plow"}], [plot], moment)
+    row = await programmed(session, constants, catalog, place, [{"do": "plow"}], [plot], moment)
     await _learn(session, place.identity, NAILS)
     await world.grant_item(session, place.yard, IRON, amount=1000, quality=60, origin="тест")
     station = await world.grant_item(session, place.yard, "auto_station", quality=70, origin="тест")
@@ -414,16 +400,64 @@ async def test_a_field_automaton_on_a_thin_grid_beside_an_automat_still_works_an
     pool.stored = Decimal(0)
     await session.flush()
     step = timedelta(minutes=constants[R.TIME_TICK])
-    inflow = constants[R.AGRO_ENERGY_PER_HOUR] * constants[R.TIME_TICK] / 60 * 0.8
+    inflow = constants[R.AGRO_ENERGY_PER_HOUR] * constants[R.TIME_TICK] / 60 / 3
 
     now = moment
-    for _ in range(8):
+    busy = []
+    for _ in range(6):
         pool.stored = Decimal(str(round(float(pool.stored) + inflow, 3)))
         await session.flush()
         now += step
         await agro.tick_machines(session, constants, now=now)
         await session.refresh(pool)
         await session.refresh(plot)
+        await session.refresh(row)
         assert float(pool.stored) >= 0
-    assert plot.state is PlotState.PLOWED, "the pool gathered the field automaton's hours"
-    assert await events_of(session, EventKind.AGRO_STALLED) <= 2, "told once a stretch of work"
+        busy.append(row.busy_until)
+    assert plot.state is PlotState.PLOWED, "the field automaton ploughed on its share"
+    assert row.trouble == "no_power"
+    assert await events_of(session, EventKind.AGRO_STALLED) == 1, "told once, not every tick"
+    #: The ploughing stretches: every tick after it moves the end by the tick's
+    #: unpowered part.
+    gaps = [
+        (later - earlier).total_seconds()
+        for earlier, later in zip(busy[:-1], busy[1:], strict=True)
+    ]
+    assert all(gap > 0 for gap in gaps), "the clock ran only for the hours it had"
+
+
+async def test_a_busy_machine_without_power_keeps_its_action_waiting(
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+) -> None:
+    """The machine's clock runs only while it has power: a tick with none moves
+    the end of the action it is busy with by the whole tick, a tick with half
+    its minute by half (D-339 p. 8)."""
+    place = await field(session, constants)
+    await liquid_in(session, place.yard, LUBRICANT, 100)
+    plot = await plot_of(session, constants, place.body)
+    moment = second_now()
+    row = await programmed(session, constants, catalog, place, [{"do": "plow"}], [plot], moment)
+    step = timedelta(minutes=constants[R.TIME_TICK])
+    await agro.tick_machines(session, constants, now=moment + step)
+    await session.refresh(row)
+    assert row.busy_until is not None
+    ends = row.busy_until
+    pool = await energy.pool_of(session, constants, place.node)
+    assert pool is not None
+
+    pool.stored = Decimal(0)
+    await session.flush()
+    await agro.tick_machines(session, constants, now=moment + 2 * step)
+    await session.refresh(row)
+    assert row.busy_until == ends + step, "a tick with no power does not count"
+
+    minute = constants[R.AGRO_ENERGY_PER_HOUR] * constants[R.TIME_TICK] / 60
+    pool.stored = Decimal(str(round(minute / 2, 3)))
+    await session.flush()
+    await agro.tick_machines(session, constants, now=moment + 3 * step)
+    await session.refresh(row)
+    assert (row.busy_until - (ends + step)).total_seconds() == pytest.approx(
+        step.total_seconds() / 2, abs=1
+    ), "half a tick of power counts half"
