@@ -12,6 +12,7 @@ holds every automat of the world in one transaction, so it takes no pool until
 every machine has worked, and then all of them at once in one order (`bill.pay`):
 a pool held while the next machine reached for a stack a crafter held would be
 that crafter's pool the other way round, and the two would wait on each other.
+The node's meter (D-149) is on no place of that order: it is only read.
 """
 
 from __future__ import annotations
@@ -29,7 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Catalog, Constants, current_catalog
 from src.constants import registry as R
 from src.db.base import forget
-from src.engine import events, liquid, stock, wear, world
+from src.engine import events, liquid, stock, utility, wear, world
 from src.engine.automat import bill as energy_bill
 from src.engine.automat._base import _EPS, LUBE
 from src.engine.automat.wire import _chain_order
@@ -113,6 +114,17 @@ async def advance(
     yard = await world.node_container(session, node)
     if machine.container_id != yard.id or not machine.installed:
         #: Carried away from its node: a machine works only where it stands.
+        row.counted_at = moment
+        await session.flush()
+        return 0.0
+    if await utility.cut_off(session, node):
+        #: Disconnected for non-payment (D-149): the machines of a node in debt
+        #: do not work until the bill is paid -- the automat as much as a bench
+        #: (`craft._internal._pick_station`), whatever feeds it, the city's
+        #: pool or cells of its own. The hours pass as at any other stop, and
+        #: the wear above ran through them. Asked of the meter by a read that
+        #: locks nothing and writes nothing: the meter is on no lock order of
+        #: this module, and the tick holds every factory's stacks meanwhile.
         row.counted_at = moment
         await session.flush()
         return 0.0

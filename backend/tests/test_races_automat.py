@@ -29,16 +29,17 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from automat_kit import IRON, NAILS, _factory_floor, _learn, _lube_in
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import automat, battery, craft, energy, ledger, stock, world
+from src.engine import automat, battery, craft, energy, ledger, stock, utility, world
 from src.engine.automat import bill as energy_bill
 from src.engine.automat import run as automat_run
 from src.models.automat import Automat as AutomatRow
+from src.models.city import UtilityMeter
 from src.models.craft import CraftBatch
-from src.models.identity import Body
+from src.models.identity import Body, Identity
 from src.models.inventory import Item
 from src.models.ledger import AccountKind, PostingReason
 from src.models.world import ABOARD, Layer, Node
-from src.units import amount, amount_float
+from src.units import amount, amount_float, money
 
 FURNACE = "blast_furnace"
 SILICON = "silicon"
@@ -708,3 +709,47 @@ async def test_a_stack_taken_between_two_runs_of_a_pass_is_not_counted_twice(
     async with factory() as db:
         total = sum(amount_float(one.amount) for one in await _nails_on(db, other_yard_id))
     assert total == pytest.approx(before - 1 + made), "the nail taken is not given back"
+
+
+async def test_an_owner_pays_the_debt_while_the_tick_stands_the_cut_off_machine(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    constants: Constants,
+    catalog: Catalog,
+) -> None:
+    """The tick asks every machine's meter whether the node is cut off (D-149)
+    while it holds the stacks of every factory of the world, and the meter is on
+    no place of its lock order: it is only read. The owner paying the debt in
+    the middle of the step -- locking the purse, then writing the meter -- walks
+    straight through. A tick that took the meter would hold it until the end of
+    the step, where it reaches for the purses the payer holds: the two would
+    wait on each other."""
+    node, yard, identity, body, machine = await _factory_floor(session, constants)
+    node.owner_identity_id = identity.id
+    await world.grant_item(session, yard, IRON, amount=1000, quality=60, origin="test")
+    await _lube_in(session, yard, 100)
+    await _learn(session, identity, NAILS)
+    row = await automat.program(session, constants, catalog, body, machine, NAILS)
+    meter = await utility.meter_of(session, node)
+    assert meter is not None
+    meter.cut_off, meter.debt = True, money(1)
+    moment = row.counted_at + timedelta(hours=2)
+    ids = (row.id, meter.id, node.id, identity.id)
+    await session.commit()
+    row_id, meter_id, node_id, identity_id = ids
+
+    async with factory() as tick, tick.begin():
+        assert await automat.tick_automats(tick, constants, now=moment) == 0
+        async with factory() as owner, owner.begin():
+            #: A tick holding the meter makes this fail at once, not hang.
+            await owner.execute(text("SET LOCAL lock_timeout = '2s'"))
+            payer = await owner.get(Identity, identity_id)
+            where = await owner.get(Node, node_id)
+            assert payer is not None and where is not None
+            assert await utility.pay(owner, constants, payer, where) == money(1)
+
+    async with factory() as db:
+        paid = await db.get(UtilityMeter, meter_id)
+        stood = await db.get(AutomatRow, row_id)
+        assert paid is not None and not paid.cut_off and paid.debt == 0
+        assert stood is not None and stood.counted_at == moment

@@ -4,8 +4,8 @@
 """What the automat tests build a factory floor out of.
 
 The floor -- a city yard with a machine, a pool and a funded owner -- and the
-lubricant canister are shared by `test_automat.py` and
-`test_races_automat.py`, which is why they are here and not beside one of
+lubricant canister are shared by `test_automat.py`, `test_automat_tick.py`
+and `test_races_automat.py`, which is why they are here and not beside one of
 them (the family's own pattern, see `mining_kit.py`).
 
 Pytest does not collect this file: it holds no tests and no fixtures -- a
