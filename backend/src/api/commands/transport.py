@@ -20,6 +20,7 @@ from src.api.registry import Refused, command
 from src.constants import current, current_catalog
 from src.engine import (
     energy,
+    fuel_plant,
     ship,
     transport,
 )
@@ -88,7 +89,7 @@ async def _energy_plant(state: dict, db: AsyncSession, message: dict) -> dict:
     node = await db.get(Node, body.node_id)
     if node is None:  # pragma: no cover
         raise Refused(key="cmd-body-off-node")
-    return {"plant": await energy.plant_view(db, current(), node)}
+    return {"plant": await fuel_plant.plant_view(db, current(), node)}
 
 
 @command("energy.fuel")
@@ -97,7 +98,7 @@ async def _energy_fuel(state: dict, db: AsyncSession, message: dict) -> dict:
     body = await _alive(state, db)
     item = await _own_item(db, body, message["item"])
     qty = message.get("amount")
-    poured = await energy.fuel(
+    poured = await fuel_plant.fuel(
         db,
         current(),
         body,

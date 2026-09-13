@@ -30,7 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Catalog, Constants, current_catalog
 from src.constants import registry as R
 from src.db.base import forget
-from src.engine import events, liquid, stock, wear, world
+from src.engine import events, fuel_plant, liquid, stock, wear, world
 from src.engine.automat import bill as energy_bill
 from src.engine.automat._base import _EPS, LUBE
 from src.engine.automat.wire import _chain_order
@@ -152,8 +152,13 @@ async def advance(
     lube_rate = constants[R.AUTO_LUBE_PER_HOUR]
     lube_names = set(world.station_names(LUBE))
     every_key = lube_names | set(proc.per_unit)
+    #: Fuel lying where a fuel plant stands is the plant's bunker, and the
+    #: machine does not take it (D-342): kept out by that same query, so the
+    #: pile is not even locked. Asked only when a fuel is among the keys.
+    burns = every_key & set(constants[R.ENERGY_FUEL_ENERGY])
+    pile = await fuel_plant.off_the_pile(session, constants, node) if burns else frozenset()
     by_name: dict[str, list[Item]] = {}
-    for stack in await liquid.locked_stacks(session, book, yard, tuple(every_key)):
+    for stack in await liquid.locked_stacks(session, book, yard, tuple(every_key), barred=pile):
         by_name.setdefault(stack.type_key, []).append(stack)
     lube_stacks = [stack for name in sorted(lube_names) for stack in by_name.get(name, [])]
     lube_have = sum(amount_float(stack.amount) for stack in lube_stacks)
@@ -358,7 +363,7 @@ def _forget_the_run(session: AsyncSession) -> None:
     while the locks themselves are gone, so a player may take from either
     before the next machine reads it. The amounts the tick writes it reads under
     a lock that rereads the row (`stock.locked_stacks`, `world.stack_up`,
-    `energy.pool_of(lock=True)`), so a stale row misleads a forecast and not a
+    `energy.produce`), so a stale row misleads a forecast and not a
     remainder. One known exception, older than this tick: a liquid output
     measures a vessel's room off contents read without a reread
     (`liquid.fill`, `storage.stored_mass`), and can overfill it by what a hand

@@ -28,6 +28,7 @@ async def locked_stacks(
     type_keys: Iterable[str],
     *,
     worst_first: bool = False,
+    barred: tuple[uuid.UUID, Iterable[str]] | None = None,
 ) -> list[Item]:
     """Stacks of the named goods in a container, **locked** for the transaction.
 
@@ -39,9 +40,17 @@ async def locked_stacks(
     `worst_first` puts the lowest quality first for write-offs. Several
     containers at once -- a pocket and the canisters in it (D-230) -- are one
     query and one lock order, never two.
+
+    `barred` keeps some of the names out of one of those containers -- the
+    fuel of a plant's pile, kept from the hand, a work and an automat (D-189,
+    D-315, D-342) -- in the same query: a stack the consumer may not have is
+    never locked.
     """
     within = [container_id] if isinstance(container_id, uuid.UUID) else list(container_id)
     stmt = select(Item).where(Item.container_id.in_(within), Item.type_key.in_(tuple(type_keys)))
+    if barred is not None:
+        pile, names = barred
+        stmt = stmt.where(~((Item.container_id == pile) & Item.type_key.in_(tuple(names))))
     if worst_first:
         stmt = stmt.order_by(Item.quality.asc().nulls_first(), Item.id)
     else:

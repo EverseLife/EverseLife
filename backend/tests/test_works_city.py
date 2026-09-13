@@ -31,7 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import bank, energy, ledger, works, works_city, world
+from src.engine import bank, energy, fuel_plant, ledger, works, works_city, world
 from src.engine import city as town
 from src.engine.estate.building import build_minutes, kinds
 from src.engine.estate.upkeep import finish_repair, repair, repair_bill, repair_minutes
@@ -344,14 +344,14 @@ async def test_fuel_order_pays_per_unit_and_closes_when_filled(
     fuel_stack = (
         (await session.execute(select(Item).where(Item.container_id == pocket.id))).scalars().one()
     )
-    await energy.fuel(session, constants, hauler_body, fuel_stack, 4)
+    await fuel_plant.fuel(session, constants, hauler_body, fuel_stack, 4)
     half_paid = await _balance(session, hauler)
     assert half_paid > 0, "подвоз платится по факту каждой заливки"
 
     fuel_stack = (
         (await session.execute(select(Item).where(Item.container_id == pocket.id))).scalars().one()
     )
-    await energy.fuel(session, constants, hauler_body, fuel_stack, 6)
+    await fuel_plant.fuel(session, constants, hauler_body, fuel_stack, 6)
     fresh = await session.get(type(order), order.id)
     assert fresh is not None and fresh.state is WorkOrderState.DONE
     expected_fund = min(fund_labor, money(constants[R.WORKS_PLAYER_DAILY_CAP]))
@@ -458,7 +458,7 @@ async def test_poured_fuel_cannot_be_picked_back(
     fuel_stack = (
         (await session.execute(select(Item).where(Item.container_id == pocket.id))).scalars().one()
     )
-    await energy.fuel(session, constants, hauler_body, fuel_stack, 10)
+    await fuel_plant.fuel(session, constants, hauler_body, fuel_stack, 10)
     assert await _balance(session, hauler) > 0, "подвоз оплачен"
 
     yard = await world.node_container(session, station)

@@ -5,14 +5,23 @@
 and for the tick forecast per machine, written down as a bill and drawn once
 every machine has worked.
 
-Lock order of the tick's draw (`pay`): the pools in id order -- the order
-`energy.tick_pools` takes them in -- then the hulls' cells in hull order -- the
-order `battery.tick_offgrid` takes them in -- then the owners' accounts in id
-order, the order `ledger.post` locks debited accounts in. A bench takes its
-stacks, then its pool, then its master's account (`energy.draw_for_work`): an
-account taken between two pools would be that bench's account the other way
-round. One known exception is shared with every draw from a pool:
-`energy.produce` burns a fuel plant's stacks under the pool's lock.
+Lock order of the tick's draw (`pay`): the pools city by city, each after the
+fuel its plants burn (`energy.produce`) -- the order `energy.tick_pools` takes
+them in -- then the hulls' cells in hull order -- the order
+`battery.tick_offgrid` takes them in -- then the owners' accounts in id order,
+the order `ledger.post` locks debited accounts in. A bench takes its stacks,
+then its pool, then its master's account (`energy.draw_for_work`): an account
+taken between two pools would be that bench's account the other way round.
+
+One hole the order does not close (OQ-174): a machine standing by a fuel
+plant no longer eats its pile (D-342), but one that makes fuel folds it into
+the pile (D-214) and holds that stack from its advance, out of the piles' own
+order and before any pool. Whoever takes the piles in order can then wait on
+the tick holding what the tick reaches for next: the energy step (an earlier
+city's pool, an earlier plant yard of the same city, the rest of the pile),
+the frost step's braziers on those piles, or a command drawing this city's
+pool (a bench, a charge, a print, the meter) while it holds a stack a later
+machine of the tick needs.
 """
 
 from __future__ import annotations
@@ -221,7 +230,7 @@ async def pay(
             node = await session.get(Node, bill.node_id, populate_existing=True)
             if node is None:  # pragma: no cover -- a node is never deleted
                 continue
-            pool = await energy.pool_of(session, constants, node, lock=True)
+            pool = await energy.pool_of(session, constants, node)
             if pool is None:  # pragma: no cover -- the forecast saw this grid a moment ago
                 continue
             await energy.produce(session, constants, pool, now=now)
@@ -312,7 +321,7 @@ async def draw(
     batteries where no grid reaches (D-071): no pool, no tariff, the energy was
     bought when the battery was charged.
     """
-    pool = await energy.pool_of(session, constants, node, lock=True)
+    pool = await energy.pool_of(session, constants, node)
     if pool is None:
         taken = await battery.drain_batteries(session, constants, node, worked * rate, now=now)
         return taken / rate
