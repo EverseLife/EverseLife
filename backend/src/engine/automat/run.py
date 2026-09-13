@@ -5,17 +5,33 @@
 the programme hour by hour, the tick that brings those hours, the energy
 drawn and the wages paid out.
 
-Lock order: the automat's row, the yard's stacks (lubricant and inputs, one
-query), the output's twins on the yard, and the energy **last** -- as a bench
-takes its stacks before the pool it draws (`craft/batch/work.py`). The tick
-holds every automat of the world in one transaction, so it takes no pool until
-every machine has worked, and then all of them at once in one order (`bill.pay`):
-a pool held while the next machine reached for a stack a crafter held would be
-that crafter's pool the other way round, and the two would wait on each other.
-A machine on a hull's lines (`aboard`, D-340) takes the rows of every vessel on
+Lock order: the automat's row, the yard's vessels (one lock, id order), the
+yard's stacks (lubricant and inputs, one query), the output's twins on the yard
+or in those vessels, and the energy **last** -- as a bench takes its stacks
+before the pool it draws (`craft/batch/work.py`). The tick holds every automat
+of the world in one transaction, so it takes no pool until every machine has
+worked, and then all of them at once in one order (`bill.pay`): a pool held
+while the next machine reached for a stack a crafter held would be that
+crafter's pool the other way round, and the two would wait on each other. A
+machine on a hull's lines (`aboard`, D-340) takes the rows of every vessel on
 its lines first, in id order, then the stacks in them -- the order a hand's pour
 takes -- and promises its energy like the rest: the hull's cells are locked by
 `bill.pay` alone.
+
+The vessels come before the stacks in them because a pour takes them in that
+order (`liquid.lock_vessels`): a tick holding the lubricant and reaching for its
+canister at the payout met a hand pouring out of that canister head on. So the
+payout pours only into the vessels the advance locked, and never lists the yard
+again. **Every** vessel of the yard, and not only those the recipe reaches: a
+pour into a canister of water at a nail machine waits for the tick to commit,
+and that is the price of one lock set per yard for the whole pass. A set chosen
+per recipe differs between two machines of one yard, and the second would take
+a vessel the first passed over after the first one's stacks -- a pour between
+that vessel and one of them would then be a deadlock, not a wait. The order
+holds across the pass but for one case: a vessel put down in a yard after an
+earlier machine of the pass locked that yard is locked after the rest, and a
+pour between it and one of them in that moment fails one side -- the machine's
+savepoint, whose hours wait for the next tick, or the pour.
 """
 
 from __future__ import annotations
@@ -180,6 +196,13 @@ async def advance(
     #: reprogramming -- says nothing true any more.
     row.stall = None
 
+    #: The yard's vessels before anything in them, every one in one lock
+    #: (`liquid.lock_vessels`): the lubricant and a liquid input are drawn out
+    #: of them and a liquid output is poured in, and a pour by hand takes a
+    #: vessel before its stacks. The draw, the room and the payout below all
+    #: go by this answer and list the yard no more.
+    vessels = await liquid.lock_vessels(session, await liquid.vessels_in(session, book, yard))
+
     #: Everything the advance will touch, taken in ONE query and one lock
     #: order (stock.py: "one query and one lock order, never two"): the
     #: lubricant and every input, off the yard and the vessels in it. Split
@@ -194,7 +217,10 @@ async def advance(
     burns = every_key & set(constants[R.ENERGY_FUEL_ENERGY])
     pile = await fuel_plant.off_the_pile(session, constants, node) if burns else frozenset()
     by_name: dict[str, list[Item]] = {}
-    for stack in await liquid.locked_stacks(session, book, yard, tuple(every_key), barred=pile):
+    drawn = await liquid.locked_stacks(
+        session, book, yard, tuple(every_key), barred=pile, held=vessels
+    )
+    for stack in drawn:
         by_name.setdefault(stack.type_key, []).append(stack)
     lube_stacks = [stack for name in sorted(lube_names) for stack in by_name.get(name, [])]
     lube_have = sum(amount_float(stack.amount) for stack in lube_stacks)
@@ -216,14 +242,12 @@ async def advance(
     room_units = math.inf
     if is_liquid_out:
         unit_mass = book.recipes.mass_of(proc.output)
-        #: Only the vessels that take this liquid (D-288): a tank of water in
-        #: the yard is no room for spirit, and counting it poured the next
-        #: stretch's output onto the floor as a spill every tick.
-        vessels = await liquid.vessels_in(session, book, yard)
+        #: Only the vessels that take this liquid (D-288), and still in the
+        #: yard: a tank of water -- or the lubricant's canister, however empty
+        #: -- is no room for spirit, and counting it poured the next stretch's
+        #: output onto the floor as a spill every tick.
         room_units = (
-            await liquid.room_in(session, book, vessels, proc.output, lock=False)
-            if unit_mass > 0
-            else math.inf
+            liquid.room_of(book, vessels.values(), proc.output) if unit_mass > 0 else math.inf
         )
     room_hours = max(0.0, (room_units - backlog) * unit_hours) if is_liquid_out else hours
 
@@ -259,7 +283,11 @@ async def advance(
             #: A piece is whole (D-212): the started one waits in the backlog.
             paid = float(math.floor(progress + _EPS))
         if paid > 0:
-            await _pay_out(session, constants, book, row, machine, yard, proc, paid, by_name)
+            #: Into the vessels the advance holds and nowhere else: one put
+            #: down since would be locked after the stacks, and one carried off
+            #: meanwhile is in somebody's hands.
+            into = [one.vessel for one in vessels.values() if not one.moved]
+            await _pay_out(session, constants, book, row, machine, yard, proc, paid, by_name, into)
             produced = paid
             #: Told, not journaled (D-227), like a swing: the owner watching
             #: the floor sees the payout land without acting, and a thousand
@@ -511,12 +539,12 @@ def _forget_the_run(session: AsyncSession) -> None:
     before the next machine reads it. The amounts the tick writes it reads under
     a lock that rereads the row (`stock.locked_stacks`, `world.stack_up`,
     `energy.produce`), so a stale row misleads a forecast and not a
-    remainder. One known exception, older than this tick: a liquid output
-    measures a vessel's room off contents read without a reread
-    (`liquid.fill`, `storage.stored_mass`), and can overfill it by what a hand
-    poured in meanwhile. The session is not expired wholesale: it is the caller's
-    too, and the job runner reads its own row after the step. What does go is
-    the command's memory (`db.base.remember`), which only a write clears.
+    remainder -- a vessel's room included: the forecast and the pour both
+    measure it off the contents reread under the vessel's lock
+    (`liquid.lock_vessels`). The session is not expired wholesale: it is the
+    caller's too, and the job runner reads its own row after the step. What
+    does go is the command's memory (`db.base.remember`), which only a write
+    clears.
     """
     forget(session)
 
@@ -531,14 +559,16 @@ async def _pay_out(
     proc: Procedure,
     paid: float,
     by_name: dict[str, list[Item]],
+    into: Sequence[Item],
 ) -> None:
     """Consume the inputs for `paid` units and land the output on the yard.
 
     The stacks arrive already locked by the advance's single query -- asking
     again here would be the second lock order that door forbids. A liquid
     input was found without the payout knowing it reached into a canister
-    (D-230). The output quality is the machine's ceiling: `auto.quality_cap`,
-    lowered by wear -- the vein of the factory floor.
+    (D-230), and a liquid output goes `into` the vessels the advance locked
+    before them, for the same reason. The output quality is the machine's
+    ceiling: `auto.quality_cap`, lowered by wear -- the vein of the factory floor.
     """
     book = catalog.recipes
     for name, per in proc.per_unit.items():
@@ -556,11 +586,12 @@ async def _pay_out(
     session.add(fresh)
     await session.flush()
     if book.is_liquid(proc.output):
-        #: Into the vessels standing here (D-230). The room was counted under
-        #: this transaction's locks; a pour that raced it anyway spills the
-        #: difference with an event, exactly as a batch's liquid output does.
-        spilled = await liquid.settle(session, catalog, fresh, (yard,))
-        if spilled > 0:  # pragma: no cover -- a race the vessel locks make rare
+        #: Into the vessels standing here (D-230), those the advance locked
+        #: before anything else: the room was counted off them, so no pour can
+        #: have filled them since; what spills anyway is said with an event,
+        #: exactly as a batch's liquid output does.
+        spilled = await liquid.fill_or_drop(session, catalog, fresh, into)
+        if spilled > 0:  # pragma: no cover -- the room was counted under the vessels' lock
             await events.record(
                 session,
                 EventKind.STORAGE_SPILLED,

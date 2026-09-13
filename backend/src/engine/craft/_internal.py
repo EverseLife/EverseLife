@@ -577,8 +577,9 @@ async def _stock(
     transaction. Wider than it takes, and deliberately -- picking first and
     locking the picks second would lock rows chosen off numbers already stale.
     """
-    from src.engine import (  # noqa: PLC0415 -- lazy: breaks craft -> reach -> station -> craft and craft -> market -> craft
+    from src.engine import (  # noqa: PLC0415 -- lazy: breaks craft -> reach/liquid -> station -> craft and craft -> market -> craft
         gear,
+        liquid,
         market,
         reach,
     )
@@ -620,7 +621,15 @@ async def _stock(
         #: make the batch wait on the tick over a stack it never wanted.
         rows = [item for item in rows if item.container_id in allowed[item.type_key]]
         if lock:
-            rows = _reread(await stock.lock_items(session, rows))
+            #: The vessels among them first, then the rest: a vessel before
+            #: any stack, the order the automats' tick takes a yard in
+            #: (`liquid.lock_vessels`). A battery takes a clay pot, and in one
+            #: id order with the acid the master held the acid and waited for
+            #: a pot the tick held while it waited for the acid.
+            pots = [item for item in rows if liquid.is_vessel(catalog, item.type_key)]
+            rest = [item for item in rows if not liquid.is_vessel(catalog, item.type_key)]
+            locked = await stock.lock_items(session, pots) if pots else []
+            rows = _reread([*locked, *await stock.lock_items(session, rest)])
 
     out: dict[str, list[Item]] = {}
     for name in asked:

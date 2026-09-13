@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Constants, current, current_catalog
 from src.constants import current_catalog as _catalog
 from src.constants import registry as R
-from src.engine import craft, events, gear, liquid, stock, storage, travel, world
+from src.engine import craft, events, gear, liquid, storage, travel, world
 from src.engine.market._base import (
     TERMINAL,
     MarketError,
@@ -315,7 +315,12 @@ async def _stacks(
         #: The counter sells blank sheets, and only those.
         stmt = stmt.where(~exists().where(MapSheet.item_id == Item.id))
     #: The stacks themselves are locked: `_move` splits and re-parents them,
-    #: and two trades off one stack must see each other's decrement.
+    #: and two trades off one stack must see each other's decrement. And reread
+    #: under the lock (`populate_existing`, as `stock.locked_stacks` does): a
+    #: stack the command read earlier and still refers to keeps the amount it
+    #: was read with -- `_worn_stays_home` and `liquid.lock_vessels` both read
+    #: a seller's goods before a load comes here -- and `_move` would write its
+    #: split from that amount, over whatever a draw committed during the wait.
     rows = (
         (
             await session.execute(
@@ -328,7 +333,9 @@ async def _stacks(
                 #: weighed chest need not be the one that travelled.
                 stmt.order_by(
                     Item.quality.asc().nulls_first(), Item.created_at.asc(), Item.id.asc()
-                ).with_for_update()
+                )
+                .with_for_update()
+                .execution_options(populate_existing=True)
             )
         )
         .scalars()
@@ -461,11 +468,11 @@ async def _pour_in(
         raise TankFull(key="market-tank-full", goods=kind)
 
     #: The vessels are locked before their stacks are read, in id order --
-    #: the one rule every pour keeps (`liquid._lock`): `_stacks` below locks
-    #: by quality order, and without this first lock a `market.load` against
-    #: a batch draining the same canister is a deadlock.
+    #: the one rule every pour keeps (`liquid.lock_vessels`): `_stacks` below
+    #: locks by quality order, and without this first lock a `market.load`
+    #: against a batch draining the same canister is a deadlock.
     vessels = await liquid.vessels_in(session, catalog, inventory)
-    await stock.lock_items(session, vessels)
+    await liquid.lock_vessels(session, vessels)
     moved = 0
     for vessel in vessels:
         if moved >= room:
@@ -493,13 +500,18 @@ async def _pour_out(
     kind = split_key(type_key)[0]
     unit = catalog.recipes.mass_of(kind)
     vessels = await liquid.vessels_in(session, catalog, inventory)
-    #: The vessels are locked before their room is read, in id order -- the
-    #: same rule every pour keeps (`liquid._lock`).
-    await stock.lock_items(session, vessels)
+    #: The vessels are locked before their room is read, in id order, and
+    #: their contents reread under the lock -- the door every pour takes
+    #: (`liquid.lock_vessels`). Room only in a vessel that takes this liquid
+    #: (D-288): a canister of water in the hands is none for lubricant.
+    held = await liquid.lock_vessels(session, vessels)
     rooms: list[int] = []
     for vessel in vessels:
-        room_kg = await liquid.free_in(session, catalog, vessel)
-        rooms.append(want if unit <= 0 else _units_floor(room_kg / unit))
+        one = held.get(vessel.id)
+        if one is None or one.moved or not one.takes(kind):
+            rooms.append(0)
+        else:
+            rooms.append(want if unit <= 0 else _units_floor(one.room(catalog) / unit))
     planned = min(want, sum(rooms))
     if planned <= 0:
         raise NoRoom(key="market-liquid-no-room", goods=kind)
@@ -516,7 +528,7 @@ async def _pour_out(
         take_units = min(planned - moved, room)
         if take_units <= 0:
             continue
-        inside = await storage.inside(session, vessel)
+        inside = held[vessel.id].inside or await storage.inside(session, vessel)
         moved += await _move(
             session, cell, inside, type_key, take_units, tier=tier, constants=constants
         )

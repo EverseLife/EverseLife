@@ -5,10 +5,11 @@
 
 The floor -- a city yard with a machine, a pool and a funded owner -- and the
 lubricant canister are shared by `test_automat.py`, `test_fuel_plant.py` and
-the two race files, `test_races_automat.py` and `test_races_energy.py`; so are
-the races' handshake and their reading of a pool, which the meter's races
-(`test_races_meter.py`) take as well. That is why they are here and not beside
-one of them (the family's own pattern, see `mining_kit.py`).
+the race files, `test_races_automat.py`, `test_races_energy.py` and
+`test_races_liquid.py`; so are the races' handshake and their reading of a
+pool, which the meter's races (`test_races_meter.py`) take as well. That is why
+they are here and not beside one of them (the family's own pattern, see
+`mining_kit.py`).
 
 Pytest does not collect this file: it holds no tests and no fixtures -- a
 real `@pytest.fixture` must not live here, because the import that puts its
