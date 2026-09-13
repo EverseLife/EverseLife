@@ -23,6 +23,7 @@ from src.engine import (
 from src.engine import (
     bank,
     events,
+    travel,
 )
 from src.engine import city as town
 from src.models.identity import Body, BodyState, Identity
@@ -130,10 +131,22 @@ async def _people_here(state: dict, db: AsyncSession, message: dict) -> dict:
 
     Needed to hand a thing to somebody: a name typed by hand would be a way to
     give things to anyone anywhere, and the point of handing over is that both
-    people are in the same room. Those passing through are not in it -- the query
-    asks for bodies in the node, and a body in transit is nowhere.
+    people are in the same room. Those passing through are not in it, on
+    either side of the question (D-290 p. 1): a body in transit is nowhere, so
+    it is in nobody's list, and asked from the road the question is refused --
+    there is no room to name. `node_id` says neither: it keeps the node the
+    body left until the arrival job moves it.
+
+    The asker stands at the door the talk does (`chat.hear`): the room's list
+    is part of live talk and lives by its rules (D-290), so a sleeper, who
+    hears nothing, is refused too. Listed, a sleeper is: they lie in the room,
+    and whether they can take a thing is the hand-over's to judge, not the
+    list's. A scout on a run is listed and asks from the origin node -- not by
+    rule but by the gap D-327 names out loud: a run has no transit row yet, so
+    the engine keeps the scout home until it ends.
     """
     body = await _alive_read(state, db)
+    await travel.require_here(db, body)
     rows = (
         await db.execute(
             select(Body, Identity)
@@ -142,6 +155,7 @@ async def _people_here(state: dict, db: AsyncSession, message: dict) -> dict:
                 Body.node_id == body.node_id,
                 Body.state == BodyState.ALIVE,
                 Body.id != body.id,
+                ~travel.on_the_road(Body.id),
             )
         )
     ).all()

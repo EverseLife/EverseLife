@@ -141,6 +141,7 @@ from src.engine.travel._base import (  # noqa: F401
     current,
     edge_seconds,
     has_transport,
+    on_the_road,
     require_here,
     snow_multiplier,
     stamina_cost,
