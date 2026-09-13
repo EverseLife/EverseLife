@@ -500,6 +500,8 @@ ui-factory-port-in = input
 ui-factory-port-out = output
 ui-factory-idle = -- no programme --
 ui-factory-backlog = in work { $backlog }
+ui-factory-stall-flare = stopped: no flare stack in the node for its vent gas
+ui-factory-stall-lines = stopped: the reason is on the ship's schematic
 
 ## The course slider: from the fastest arc to the cheapest (D-271).
 

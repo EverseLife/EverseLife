@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, ConstantError, Constants, current, current_catalog
 from src.constants import registry as R
-from src.engine import events, goods, liquid
+from src.engine import events, goods, liquid, vent
 from src.engine import world as world_engine
 from src.engine.craft._base import (
     CraftError,
@@ -277,33 +277,54 @@ async def _shed(
 ) -> None:
     """The batch's byproduct (D-340): the hydrogen of electrolysis.
 
-    Aboard on the lines it goes into the vessels on its vent line, and what
-    finds no room is let out without a word: it never held the machine, and
-    nobody kept it. Off the lines it goes into the air at once: poured into
-    whatever empty vessel the hands or the bench hold, it would claim a
-    cylinder for good -- a liquid is only poured out into another vessel, and
-    hydrogen has no use yet (review 2026-09-13). A byproduct that is not a
-    liquid lands with the yield.
+    A liquid byproduct is a vent gas (the vault build holds it to that), and
+    it goes where `engine.vent` sends it: into the vessels on its vent line
+    aboard, and what finds no room out where there is no air outside or into
+    the node's flare stack where there is -- without a word, because nothing
+    anybody kept was lost.
+
+    The start refused a batch whose gas would have had nowhere to go, but the
+    place can change during the hours: a hull that set down under a sky with
+    air, a vent tank somebody filled meanwhile. Then what finds no place
+    **spills with an event**, as the oxygen does when its room was taken --
+    an accident said aloud, never a release planned into the air. The flare
+    itself cannot vanish meanwhile: a station built in place is never taken
+    down (D-268). A byproduct that is not a liquid lands with the yield.
     """
     units = amount_float(batch.units)
+    node = await session.get(Node, batch.node_id)
     for name, per in byproduct.items():
-        if liquid.is_liquid(catalog, name) and plumbed is None:
+        made = amount(per * units)
+        if made <= 0:
             continue
-        extra = Item(
-            container_id=where.id,
-            type_key=name,
-            amount=amount(per * units),
-            quality=batch.quality,
-            maker_identity_id=body.identity_id,
-            made_at=moment,
-            made_node_id=batch.node_id,
-        )
-        session.add(extra)
-        await session.flush()
-        if not liquid.is_liquid(catalog, name) or plumbed is None:
-            await world_engine.stack_up(session, extra)
-            continue
-        await liquid.fill_or_drop(session, catalog, extra, plumbed.vents.get(name, []))
+        solid = not liquid.is_liquid(catalog, name)
+        vessels = [] if solid or plumbed is None else plumbed.vents.get(name, [])
+        left = amount_float(made)
+        if solid or vessels:
+            extra = Item(
+                container_id=where.id,
+                type_key=name,
+                amount=made,
+                quality=batch.quality,
+                maker_identity_id=body.identity_id,
+                made_at=moment,
+                made_node_id=batch.node_id,
+            )
+            session.add(extra)
+            await session.flush()
+            if solid:
+                await world_engine.stack_up(session, extra)
+                continue
+            left = await liquid.fill_or_drop(session, catalog, extra, vessels)
+        if left > 0 and await vent.sink(session, node) is None:
+            await events.record(
+                session,
+                EventKind.STORAGE_SPILLED,
+                actor_identity_id=body.identity_id,
+                node_id=batch.node_id,
+                type_key=name,
+                amount=left,
+            )
 
 
 async def _vessels_reach(

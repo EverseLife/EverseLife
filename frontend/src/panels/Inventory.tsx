@@ -35,7 +35,7 @@ import { chosen, tally } from "../amounts";
 import { labelOf, tells, weightCell } from "./inventory/rows";
 import { sections, sums } from "./inventory/sections";
 import { TERMINAL, classOf, firstOfClass, isGear, lifts } from "../classes";
-import { fill, isVessel } from "../liquids";
+import { fill, isVessel, ventIn, ventWay } from "../liquids";
 import { whoIsHere, type Person } from "../people";
 import {
   GROUPINGS,
@@ -119,6 +119,8 @@ export function Inventory({ look }: Props) {
   //: Vessels take a pour, not a "put" (D-230): a canister goes into a chest
   //: like any thing, but what is in it goes into a tank by the hose.
   const tanks = chests.filter((chest) => isVessel(book, chest.goods));
+  //: Where a vessel of vent gas may be emptied from here (D-340), or nowhere.
+  const vents = ventWay(book, look);
   const boxes = chests.filter((chest) => !isVessel(book, chest.goods));
   const things = look.inventory;
   //: The floor is symmetric since D-204: whoever got in through the door puts
@@ -565,6 +567,19 @@ export function Inventory({ look }: Props) {
                                 {t("ui-inventory-pour", { target: target.goods.toLowerCase() })}
                               </button>
                             ))}
+                          {/* A vessel of vent gas is emptied the way the machines
+                              let theirs go (D-340): out where there is no air,
+                              into the flare where there is. */}
+                          {vents !== null && ventIn(book, thing.content ?? []) !== null && (
+                            <button
+                              role="menuitem"
+                              onClick={() => send("liquid.vent", { vessel: thing.id })}
+                              disabled={busy}
+                              title={t("ui-liquid-vent-hint", { way: vents })}
+                            >
+                              {t("ui-liquid-vent", { way: vents })}
+                            </button>
+                          )}
                           {boxes.map((chest) => (
                             <button
                               key={chest.id}

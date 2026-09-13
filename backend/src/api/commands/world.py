@@ -328,5 +328,7 @@ TOLD = frozenset(
         EventKind.SHIP_MACHINE_FULL.value,
         EventKind.SHIP_MACHINE_UNPOWERED.value,
         EventKind.SHIP_MACHINE_UNLINED.value,
+        #: An automat on the ground standing for want of a flare (D-340).
+        EventKind.AUTOMAT_NO_FLARE.value,
     }
 )

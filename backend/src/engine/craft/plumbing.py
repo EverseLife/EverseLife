@@ -9,7 +9,7 @@ the tank beside it in the room -- and its oxygen and hydrogen go into the
 vessels on their lines. The hull is one building, and a machine in the engine
 room fills a cylinder in the hold.
 
-Three rules follow, and all three are said before the work, not after it:
+Four rules follow, and all four are said before the work, not after it:
 
 * **a port with no line is refused by name.** An inlet with no line reaches
   nothing (D-288 as amended 2026-09-04), and "not enough water" beside a full
@@ -19,8 +19,12 @@ Three rules follow, and all three are said before the work, not after it:
   the start, while nothing is spent. Space poured away by somebody else during
   the hours is the finish's business, and it spills with a word, as a batch
   on the ground does;
-* **the hydrogen never stands in the way.** A vent pours what fits and lets
-  the rest go overboard; no line at all is not a refusal (owner, 2026-09-13);
+* **the hydrogen must have somewhere safe to go** (D-340, `engine.vent`).
+  Into its vent line first; the rest out, where there is no air outside
+  (a sealed hull), and nowhere at all under a sky with air -- a hull has no
+  flare. So a sealed hull never refuses for it, and a hull under air refuses
+  a batch its vent line cannot take whole. On the ground there are no lines,
+  and the gas burns in the node's flare stack or the batch is not started;
 * **the tanks are the owner's.** A batch on the lines is work that reaches
   the place, and only whoever may dispose of it runs one (D-315).
 
@@ -33,11 +37,11 @@ from __future__ import annotations
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog
-from src.engine import liquid
+from src.engine import liquid, vent
 from src.engine.craft._base import CraftError
 from src.engine.ship import lines
 from src.models.identity import Body
-from src.models.world import Node
+from src.models.world import Node, is_aboard
 from src.units import AMOUNT_SCALE
 
 #: Amounts split into thousandths: room for exactly the batch must not read short.
@@ -54,6 +58,10 @@ class OutletFull(CraftError):
 
 class LinesNotYours(CraftError):
     """The lines reach the owner's tanks, and this body may not dispose of the place."""
+
+
+class NoFlare(CraftError):
+    """Air outside, no vessel for the vent gas, and no flare stack to burn it in."""
 
 
 async def require_plumbing(
@@ -118,3 +126,84 @@ async def require_room(
             room=room,
             units=units,
         )
+
+
+async def require_vent(
+    session: AsyncSession,
+    catalog: Catalog,
+    node: Node,
+    plumbed: lines.Plumbing | None,
+    output: str,
+    units: float,
+    *,
+    lock: bool,
+) -> None:
+    """Refuse a batch whose vent gas would have nowhere to go (D-340) -- before
+    anything is spent, never "made, then released into the air".
+
+    Where the gas has a way out of the place (`vent.sink`: out where there is
+    no air, the node's flare where there is), nothing is asked: the vent line
+    takes what fits and the rest goes out. Under a sky with air and no flare
+    the batch is refused on the ground outright, and aboard it needs its whole
+    gas room on the vent line -- a port with no line said by name, a line too
+    small said with its room, as the outlet is.
+
+    Locked at the start, read in the forecast, like `require_room`.
+    """
+    gases = vent.gases_of(catalog, output)
+    if not gases or await vent.sink(session, node) is not None:
+        return
+    for name, per in gases.items():
+        if plumbed is None:
+            raise NoFlare(
+                key="craft-no-flare", goods=name, aboard="true" if is_aboard(node) else "false"
+            )
+        vessels = plumbed.vents.get(name, [])
+        if not vessels:
+            raise PortDry(
+                key="craft-port-no-line",
+                station=plumbed.machine.type_key,
+                goods=name,
+                way=lines.VENT,
+            )
+        room = await liquid.room_in(session, catalog, vessels, name, lock=lock)
+        if room + _EPS < per * units:
+            raise OutletFull(
+                key="craft-outlet-full",
+                station=plumbed.machine.type_key,
+                goods=name,
+                room=room,
+                units=per * units,
+            )
+
+
+async def line_rooms(
+    session: AsyncSession,
+    catalog: Catalog,
+    node: Node,
+    plumbed: lines.Plumbing | None,
+    output: str,
+) -> list[tuple[float, float]]:
+    """What the start would refuse a batch for on its lines, as caps: for each
+    line the batch must fit, the units it takes per unit of output and the
+    room it has. The outlet's, and the vent line's where the gas has no way
+    out (`require_vent`). Read, never locked: "as much as fits" is a forecast.
+    """
+    if plumbed is None:
+        return []
+    caps: list[tuple[float, float]] = []
+    if output in plumbed.outlets:
+        caps.append(
+            (
+                1.0,
+                await liquid.room_in(session, catalog, plumbed.outlets[output], output, lock=False),
+            )
+        )
+    gases = vent.gases_of(catalog, output)
+    if gases and await vent.sink(session, node) is None:
+        for name, per in gases.items():
+            room = await liquid.room_in(
+                session, catalog, plumbed.vents.get(name, []), name, lock=False
+            )
+            caps.append((per, room))
+    return caps

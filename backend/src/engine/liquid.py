@@ -355,8 +355,8 @@ async def pour(
     if node is None:  # pragma: no cover -- a body always stands in a node
         raise LiquidError(key="liquid-body-off-node")
     pocket = await world.body_container(session, body)
-    await _within_reach(session, catalog, body, node, pocket, source)
-    await _within_reach(session, catalog, body, node, pocket, target)
+    await within_reach(session, catalog, body, node, pocket, source)
+    await within_reach(session, catalog, body, node, pocket, target)
 
     #: Both vessels under lock, in id order, before the free space is read:
     #: the space is what the pour is sized by, a second hose must see this
@@ -420,7 +420,7 @@ async def pour(
     return liquid_name, poured
 
 
-async def _within_reach(
+async def within_reach(
     session: AsyncSession,
     catalog: Catalog,
     body: Body,

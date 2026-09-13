@@ -145,6 +145,13 @@ liquid-no-room = “{ NAME($vessel) }” has { NUMBER($free, minimumFractionDigi
 liquid-vessel-not-here = “{ NAME($vessel) }” is neither in hand nor here
 liquid-vessel-not-yours = “{ NAME($vessel) }” is not yours: vessels in a node are the owner's to dispose of
 liquid-mixed = “{ NAME($vessel) }” already holds “{ NAME($have) }”: two liquids are not mixed in one vessel
+# Vent gas (D-340): a vessel of it is emptied outside, where there is no air, or
+# into the node's flare stack. No other liquid leaves a vessel this way.
+liquid-not-vent = “{ NAME($vessel) }” holds “{ NAME($have) }”: only vent gas is let out or burned, anything else is poured into another vessel
+liquid-vent-nowhere = nowhere to put the “{ NAME($goods) }” from the “{ NAME($vessel) }”: under a sky with air it is { $aboard ->
+        [true] not let out of a ship, and a ship has no flare
+       *[other] not released but burned in a flare stack, and there is none in this node
+    }
 
 # --- the hull's lines (engine/ship/lines.py, D-288) ---------------------------
 

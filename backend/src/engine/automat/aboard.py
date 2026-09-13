@@ -8,9 +8,12 @@ the vessels standing in the yard, a liquid output into them (D-253). Aboard
 the hull is one building, and the air machine -- the reactor programmed with
 the air -- works through its ports instead: water and lubricant from the
 vessels on their lines, oxygen into the vessels on its outlet in line order,
-hydrogen into the vessels on its vent and overboard when they are full or
-there are none. The four limiters are the same four: lubricant, inputs, room
-and electricity (the hull's cells, the bus of D-288).
+hydrogen into the vessels on its vent. What the vent cannot take goes where
+`engine.vent` sends it (D-340): overboard from a sealed hull, and nowhere
+from a hull set down under a sky with air -- a hull has no flare, so there
+the vent line binds like the outlet. The limiters are the same four --
+lubricant, inputs, room and electricity (the hull's cells, the bus of
+D-288) -- with the vent's room counted in the room under air.
 
 **Stalls are told once.** Standing still is not an error -- it is the
 enterprise's obligation -- but a crew that is not told the air machine stopped
@@ -35,7 +38,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import battery, events, liquid, stock, wear, world
+from src.engine import battery, events, liquid, stock, vent, wear, world
 from src.engine import ship as vessels
 from src.engine.automat._base import LUBE
 from src.engine.automat.bill import draw_energy
@@ -128,14 +131,32 @@ async def advance_on_lines(
     )
     room_hours = max(0.0, (room_units - backlog) * unit_hours)
 
+    #: The hydrogen (D-340): a sealed hull lets what its vent line cannot take
+    #: go overboard, and nothing binds. Under a sky with air a hull has no
+    #: flare and may not release it: the vent line is the only place, and its
+    #: room is counted before the stretch, like the outlet's -- never "made,
+    #: then let out into the air".
+    let_out = await vent.sink(session, node) is not None
+    vent_units: dict[str, float] = {}
+    if not let_out:
+        for name, per in vent.gases_of(catalog, proc.output).items():
+            room = await liquid.room_in(
+                session, catalog, plumbed.vents.get(name, []), name, lock=False
+            )
+            vent_units[name] = room / per
+
     #: Which limiter binds, by the name the crew is told: the lubricant's
-    #: port, the input that runs out first, the outlet.
+    #: port, the input that runs out first, the outlet, the vent.
     limits = [
         (name, value)
         for name, value in (
             (lines.LUBE_PORT, lube_hours),
             (short_of, input_hours),
             (proc.output, room_hours),
+            *(
+                (name, max(0.0, (units - backlog) * unit_hours))
+                for name, units in vent_units.items()
+            ),
         )
         if name is not None
     ]
@@ -157,11 +178,23 @@ async def advance_on_lines(
 
     produced = 0.0
     if worked > 0:
-        progress = min(backlog + worked / unit_hours, units_by_inputs, room_units)
+        progress = min(
+            backlog + worked / unit_hours, units_by_inputs, room_units, *vent_units.values()
+        )
         paid = progress
         if paid > 0:
             await _pay_out(
-                session, constants, catalog, row, machine, yard, proc, plumbed, paid, by_name
+                session,
+                constants,
+                catalog,
+                row,
+                machine,
+                yard,
+                proc,
+                plumbed,
+                paid,
+                by_name,
+                let_out=let_out,
             )
             produced = paid
             if row.owner_identity_id is not None:
@@ -194,12 +227,15 @@ async def _pay_out(
     plumbed: lines.Plumbing,
     paid: float,
     by_name: dict[str, list[Item]],
+    *,
+    let_out: bool,
 ) -> None:
     """Consume the inputs for `paid` units and pour the output down the lines.
 
     The oxygen into its outlet in line order: the room was counted under the
     vessels' locks, so nothing spills but what a race the locks forbid would
-    spill. The hydrogen into its vent, and the rest overboard without a word.
+    spill. The hydrogen into its vent, and -- from a sealed hull -- the rest
+    overboard without a word; under air its room was counted the same way.
     """
     for name, per in proc.per_unit.items():
         if per > 0:
@@ -226,7 +262,16 @@ async def _pay_out(
         )
         session.add(extra)
         await session.flush()
-        await liquid.fill_or_drop(session, catalog, extra, plumbed.vents.get(name, []))
+        dropped = await liquid.fill_or_drop(session, catalog, extra, plumbed.vents.get(name, []))
+        if dropped > 0 and not let_out:  # pragma: no cover -- the vessels are locked
+            await events.record(
+                session,
+                EventKind.STORAGE_SPILLED,
+                node_id=row.node_id,
+                automat=str(row.id),
+                spilled=dropped,
+                goods=name,
+            )
 
 
 async def _tell(
@@ -246,7 +291,9 @@ async def _tell(
     port = ports.get(stall)
     if stall == POWER:
         kind, goods = EventKind.SHIP_MACHINE_UNPOWERED, machine.type_key
-    elif port is not None and port in plumbed.dry:
+    elif port is not None and (
+        port in plumbed.dry or (port.way == lines.VENT and not plumbed.vents.get(port.liquids[0]))
+    ):
         #: No line at all is not an empty tank nor a full one: the word says
         #: what to do -- draw one.
         kind, goods = EventKind.SHIP_MACHINE_UNLINED, port.liquids[0]

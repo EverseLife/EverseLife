@@ -20,6 +20,9 @@ export type RecipeBook = {
   bulk: string[];
   /** Liquids (D-230): they exist only inside a vessel, never loose in the hands. */
   liquid?: string[];
+  /** Vent gases (D-340): liquids let out where there is no air outside and
+   *  burned in the node's flare stack where there is -- hydrogen. */
+  vent?: string[];
   /**
    * Things no recipe makes: world raw material and operation products (D-215).
    * `/public/recipes` has always sent them; they are typed here because the
@@ -71,6 +74,8 @@ export type Recipe = {
   /** Capacity as a storage, kg (D-181); `holds` says what it admits (D-230). */
   store?: number | null;
   holds?: string | null;
+  /** What else a batch gives per unit of this (D-340): the hydrogen of electrolysis. */
+  byproduct?: Record<string, number>;
 };
 
 export type Operation = {
@@ -96,6 +101,24 @@ export type Plan = {
   /** Electricity for a machine on it and what the grid bills (D-269); absent at a machine driven by the hands. */
   energy?: number;
   price?: number;
+  /** Where each liquid of the batch goes and the room it finds now (D-340); absent for a batch with no liquid. */
+  outlets?: Outlet[];
+};
+
+/**
+ * Where one liquid of a batch goes (D-340), as the engine's finish will pour
+ * it: into the vessels on the port's line aboard (`line`), into those in the
+ * hands and at the machine (`reach`) or only at the machine (`place`), with
+ * the `room` they have now -- or, for a vent gas with a way out of the place,
+ * out where there is no air (`void`) or into the node's flare (`flare`), with
+ * no room to fall short of. The room is shown, not reserved: what the batch
+ * will give is the client's to count, from the batch's size and the recipe's
+ * byproduct (D-225).
+ */
+export type Outlet = {
+  goods: string;
+  where: "line" | "reach" | "place" | "void" | "flare";
+  room?: number;
 };
 
 export type Batch = {
@@ -122,6 +145,8 @@ export type Batch = {
   left_seconds?: number;
   /** For a carrier being written: which recipe goes onto it. */
   recipe?: string;
+  /** A running make's liquids: where they go and the room there now (D-340). */
+  outlets?: Outlet[];
 };
 
 /** What came of an attempt to make something without a recipe (D-064, D-209). */

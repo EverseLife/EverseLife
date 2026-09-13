@@ -51,6 +51,8 @@ event-ship-machine_dry = машина борта встала: на линии �
 event-ship-machine_full = машина борта встала: тара на выходе полна
 event-ship-machine_unpowered = машина борта встала: аккумуляторы корпуса сели
 event-ship-machine_unlined = машина борта встала: у порта нет линии
+# Автомат на земле (D-340): сбросному газу некуда, пока в узле нет факела.
+event-automat-no_flare = автомат встал: в узле нет факельной установки для сбросного газа
 event-road-laid = дорога уложена
 event-deed-sold = бумага продана
 event-land-reclaimed = город забрал свою локацию

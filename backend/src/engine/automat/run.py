@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants, current_catalog
 from src.constants import registry as R
-from src.engine import events, liquid, stock, wear, world
+from src.engine import events, liquid, stock, vent, wear, world
 from src.engine.automat import aboard
 from src.engine.automat._base import _EPS, LUBE
 from src.engine.automat.bill import draw_energy
@@ -52,6 +52,11 @@ async def advance(
     node's vessels, energy in the pool (or the batteries), inputs on the
     yard, and -- for a liquid output -- room in a vessel. None is an error:
     these are the enterprise's obligations, exactly as with the rig.
+
+    And a door before all four (D-340): a recipe that gives off a vent gas
+    works only where the gas has somewhere safe to go -- out where there is
+    no air outside, the node's flare stack where there is. Nowhere, and the
+    machine stands for the whole stretch with the reason kept on its row.
     """
     moment = now or datetime.now(UTC)
     #: The row is taken for the transaction: the tick and an owner
@@ -129,8 +134,18 @@ async def advance(
             unit_hours=unit_hours,
             now=moment,
         )
-    #: Off the lines the machine has no crew to tell; a reason left from
-    #: before a reprogramming says nothing true any more.
+    #: The vent gas first (D-340), before a limiter is counted: a machine
+    #: whose hydrogen has nowhere safe to go works nothing -- it is never made
+    #: and then let out into the air. The reason is kept on the row and
+    #: told once; a flare put up, and the next stretch runs and clears it.
+    gases = vent.gases_of(book, proc.output)
+    if gases and await vent.sink(session, node) is None:
+        await _stand(session, row, machine, next(iter(gases)))
+        row.counted_at = moment
+        await session.flush()
+        return 0.0
+    #: Working: a reason left from before -- a flare since put up, a
+    #: reprogramming -- says nothing true any more.
     row.stall = None
 
     #: Everything the advance will touch, taken in ONE query and one lock
@@ -220,6 +235,24 @@ async def advance(
     return produced
 
 
+async def _stand(session: AsyncSession, row: AutomatRow, machine: Item, gas: str) -> None:
+    """Keep the reason the machine stands for its vent gas, and tell whoever
+    programmed it when the reason appears -- once, not every tick it lasts."""
+    if row.stall == vent.FLARE:
+        return
+    row.stall = vent.FLARE
+    await events.record(
+        session,
+        EventKind.AUTOMAT_NO_FLARE,
+        actor_identity_id=row.owner_identity_id,
+        node_id=row.node_id,
+        automat=str(row.id),
+        item_id=str(machine.id),
+        machine=machine.type_key,
+        goods=gas,
+    )
+
+
 async def tick_automats(
     session: AsyncSession, constants: Constants, *, now: datetime | None = None
 ) -> float:
@@ -290,11 +323,12 @@ async def _pay_out(
             )
     else:
         await world.stack_up(session, fresh)
-    #: The byproduct (D-340): off the hull's lines a liquid byproduct -- the
-    #: hydrogen of electrolysis -- goes into the air. Poured into the yard's
-    #: empty vessels it would claim them for good, and the next stretch's
-    #: oxygen would find no room (review 2026-09-13). One that is not a liquid
-    #: lands on the yard with the output.
+    #: The byproduct (D-340). A liquid one is a vent gas, and the advance let
+    #: the stretch run only where it has a way out of the place -- out where
+    #: there is no air, the node's flare where there is -- so it goes there
+    #: and never into the yard's vessels: poured into an empty one it would
+    #: claim it for good, and the next stretch's oxygen would find no room
+    #: (review 2026-09-13). One that is not a liquid lands with the output.
     for name, per in book.byproduct_of(proc.output).items():
         if book.is_liquid(name):
             continue

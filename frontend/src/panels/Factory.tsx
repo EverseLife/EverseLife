@@ -31,6 +31,9 @@ import { curve } from "./curve";
 /** The automat thing class (D-253): the window, like the engine, binds to it. */
 const AUTOMATON = "automaton";
 
+/** The reason an automat on the ground stands: no flare for its vent gas (D-340). */
+const STALL_FLARE = "flare";
+
 /** The card grid, in pixels: positions are computed, never measured. */
 const CARD_W = 216;
 const CARD_H = 96;
@@ -277,6 +280,14 @@ export function Factory({ look, values }: Props) {
               </select>
               {row != null && row.backlog > 0 && (
                 <p className="note">{t("ui-factory-backlog", { backlog: row.backlog.toFixed(2) })}</p>
+              )}
+              {/* Why it stands, as of the last tick (D-340): on the ground its
+                  vent gas has nowhere safe to go; aboard the ports say why,
+                  and the ship's schematic is where they are drawn. */}
+              {row?.stall != null && (
+                <p className="trouble">
+                  {t(row.stall === STALL_FLARE ? "ui-factory-stall-flare" : "ui-factory-stall-lines")}
+                </p>
               )}
             </div>
           );
