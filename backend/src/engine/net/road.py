@@ -59,7 +59,8 @@ async def _load(session: AsyncSession, constants: Constants, now: datetime) -> G
         return _graph
     edges: Adjacency = {}
     for edge in (await session.execute(select(Edge))).scalars():
-        seconds = travel.edge_seconds(constants, edge)
+        #: A letter is not a walker in the snow (D-338): the way as laid.
+        seconds = travel.edge_seconds(constants, edge, snow=0.0)
         edges.setdefault(edge.node_a_id, []).append((edge.node_b_id, seconds))
         edges.setdefault(edge.node_b_id, []).append((edge.node_a_id, seconds))
     planets = {

@@ -70,6 +70,9 @@ CITY_RING_SLOTS_BASE = Num("city.ring_slots_base")
 #: A city step is that too -- `travel.city_step` was seconds by decree and is
 #: the ring's metres at this pace now.
 TRAVEL_WALK_SPEED_KMH = Num("travel.walk_speed_kmh")
+#: How many times longer the off-road is under full snow (D-338): the wild
+#: and the trail, and the scout's walk, by the season's snow on the way.
+TRAVEL_SNOW_MULTIPLIER = Num("travel.snow_multiplier")
 TRAVEL_STAMINA_PER_HOUR = Num("travel.stamina_per_hour")
 TRANSPORT_STAMINA_K = Num("transport.stamina_k")
 # --- Transport (D-107, D-129, D-157) ----------------------------------------

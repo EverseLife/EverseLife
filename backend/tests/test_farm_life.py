@@ -46,7 +46,7 @@ from src import i18n
 from src.api.commands.farm import _plot
 from src.constants import Catalog, Constants, current, current_catalog
 from src.constants import registry as R
-from src.engine import breed, climate, farm, occupation, world
+from src.engine import breed, farm, occupation, world
 from src.engine.farm import life
 from src.models.event import Event, EventKind
 from src.models.farm import Plot, PlotState
@@ -266,11 +266,10 @@ async def test_feeding_is_what_the_table_says(
 
 
 async def test_a_bed_without_water_dies_and_the_land_pays(
-    session: AsyncSession, constants: Constants, catalog: Catalog, monkeypatch: pytest.MonkeyPatch
+    session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    #: A month without a drop: the weather's rain would water the bed where
-    #: the node stands (D-338), and this is the bed nobody waters at all.
-    monkeypatch.setattr(climate, "rain_along", lambda *_args: lambda _hours: 0.0)
+    #: The farmstead stands off the sphere (`farm_kit`): no rain falls there
+    #: (D-338), and this is the bed nobody waters at all.
     _, _, body = await _farmstead(session, water="none", fertility=55)
     plot = await _sown(session, constants, catalog, body, culture=FLAX)
     later = plot.sown_at + timedelta(days=30)

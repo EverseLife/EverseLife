@@ -85,7 +85,7 @@ async def sow(
     #: Nothing is sown on ice (D-338): a strip marked before the rule, or on
     #: ground the field has since frozen, is refused here as at the marking.
     if node is not None and biome.on_ice(constants, node):
-        raise FarmError(key="farm-on-ice", node=node.name)
+        raise FarmError(key="farm-on-ice")
     #: The climate gate (D-261): the crop lives through every hour of its
     #: cycle, so the node's whole daily band must fit the culture's range,
     #: and the day must carry enough light. The band is the season's (D-338):
@@ -94,16 +94,18 @@ async def sow(
     #: so a strip the map draws white is not sown in winter. A node without
     #: a temperature record -- old ones, a ship's hydroponics bay -- carries
     #: no gate: absence of a record is not a climate.
-    mean = climate.mean_temperature(node)
-    if node is not None and mean is not None:
-        epoch = await world.epoch(session)
-        mean += climate.season_c(constants, node.planet, climate.latitude_of(node), epoch, moment)
-        swing = climate.swing_of(constants, node.planet, node)
+    band = (
+        None
+        if node is None
+        else climate.day_band(constants, node, await world.epoch(session), moment)
+    )
+    if node is not None and band is not None:
+        night, noon = band
         wants = plant.requires.temp
-        if mean - swing < wants["min"]:
-            raise WrongClimate(key="farm-too-cold", culture=plant.name, night=round(mean - swing))
-        if mean + swing > wants["max"]:
-            raise WrongClimate(key="farm-too-hot", culture=plant.name, noon=round(mean + swing))
+        if night < wants.min:
+            raise WrongClimate(key="farm-too-cold", culture=plant.name, night=round(night))
+        if noon > wants.max:
+            raise WrongClimate(key="farm-too-hot", culture=plant.name, noon=round(noon))
         shine = await climate.daylight(session, constants, node)
         if shine < plant.requires.light:
             raise WrongClimate(
@@ -408,7 +410,12 @@ async def survey(
             row["moisture_at"] = now.isoformat()
             #: With the weeds' thirst in it (D-297): the engine dries the bed by
             #: it, and a curve drawn without it would show the ground wetter than
-            #: it is, and the farmer would water later than the bed asks.
+            #: it is, and the farmer would water later than the bed asks. The
+            #: rain is not in it (D-338), on purpose: it pours only up to the top
+            #: of the culture's band, the band is the Library's text (D-296), and
+            #: a curve that rose with the rain would draw the band. After a rain
+            #: the ground is wetter than the curve until the next reading; the
+            #: watering to a target takes the water by the true moisture.
             row["dry_per_day"] = round(
                 life.dry_rate(constants, norm, weather, warmth)
                 * life.weeds_thirst(constants, state.weeds)
@@ -445,7 +452,7 @@ async def survey(
                 fertility=float(plot.fertility),
                 fertility_needed=float(signs.get("fertility", plant.requires.fertility)),
                 fed=given,
-                temperature=warmth,
+                band=climate.day_band(constants, node, epoch, now),
             )
         out.append(row)
     return out

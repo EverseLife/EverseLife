@@ -638,7 +638,7 @@ describe("the ramps and the drying law", () => {
     expect(FRAGMENT).toContain(glsl);
   });
 
-  it("works the soil's moisture out as the engine's drying law does", () => {
+  it("works the soil's moisture out by the engine's drying law, wet under the rain", () => {
     //: The vault's numbers (D-296): water within reach leaves 50 % of the
     //: drying, three per cent a degree over fifteen. Terra's hot end is 35
     //: -- bare ground there dries at 1.6 of the reference, and that is the
@@ -664,7 +664,9 @@ describe("the ramps and the drying law", () => {
     //: Cold ground barely dries and reads wet, as the law says it is.
     expect(moistureOf(law, -15, 0, 35, 0)).toBeGreaterThan(0.9);
     //: The rain waters the ground (D-338): a downpour on the hottest bare
-    //: ground reads wet, and a drizzle never makes wet ground drier.
+    //: ground reads wet, and a drizzle never makes wet ground drier. This
+    //: part is the picture's, not the engine's -- a bed is watered only up
+    //: to its culture's band, and the layer knows no culture.
     expect(moistureOf(law, 35, 0, 35, 1)).toBe(1);
     expect(moistureOf(law, -15, 0, 35, 0.1)).toBeCloseTo(moistureOf(law, -15, 0, 35, 0), 6);
     expect(FRAGMENT).toContain("float soil = max(clamp(1.0 - pace / fastest, 0.0, 1.0), rain_now);");

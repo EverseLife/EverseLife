@@ -8,11 +8,11 @@ is their reading at a point, sorted into the classes the vault names
 (`biome.names`): the zonal ones -- tundra, taiga, steppe, woodland, forest,
 semidesert, desert, savanna, rainforest -- which the climate alone decides, the
 azonal ones -- alpine, foothills, floodplain, coast, marsh -- which the land's
-shape decides over the climate, and one for the whole of Aurora (ice) and
-Pyroxis (cinder). The class decides what exploration may do from a node
-(`biome.reach_m`), what a found node looks like (`biome.marks`,
-`biome.vein_k`), how hot its day and cold its night (`biome.swing_c`) and what
-it is called.
+shape decides over the climate, and one for the whole of Aurora (snow,
+with the field's ice at its poles since D-338) and Pyroxis (cinder). The
+class decides what exploration may do from a node (`biome.reach_m`), what a
+found node looks like (`biome.marks`, `biome.vein_k`), how hot its day and
+cold its night (`biome.swing_c`) and what it is called.
 
 The sorting is the vault's, not this module's (landscape plan, wave 4): the
 zonal classes are rectangles of temperature and rain in `biome.zonal`, the
@@ -45,6 +45,7 @@ MARSH = "marsh"
 FOOTHILLS = "foothills"
 ALPINE = "alpine"
 ICE = "ice"
+SNOW = "snow"
 CINDER = "cinder"
 
 #: The node properties a found node carries from its biome.
@@ -54,9 +55,13 @@ TEMPERATURE_SWING = "temperature_swing"
 #: vault's table, named through renames like any thing of the world.
 PROVINCE = "province"
 
-#: Planets whose whole surface is one biome: the ice of Aurora (D-232), the
-#: black fields of Pyroxis (D-233). Their relief still decides water and rock.
-OF_PLANET: dict[Planet, str] = {Planet.AURORA: ICE, Planet.PYROXIS: CINDER}
+#: Planets whose whole surface is one biome: the snow of Aurora (D-232,
+#: D-338), the black fields of Pyroxis (D-233). Their relief still decides
+#: water and rock, and the field's ice cap is read before them: Aurora was
+#: ice to its equator, and nothing could be built or sown on the planet the
+#: vault calls fully habitable (D-231) -- the owner put it under snow and
+#: left the ice at its poles (2026-09-13).
+OF_PLANET: dict[Planet, str] = {Planet.AURORA: SNOW, Planet.PYROXIS: CINDER}
 
 
 def _bound(constants: Constants, name: str) -> float:
@@ -100,18 +105,18 @@ def _near_river(constants: Constants, planet: Planet, lat: float, lon: float) ->
 def classify(constants: Constants, planet: Planet, lat: float, lon: float) -> str | None:
     """The biome at a point, or nothing where there is water.
 
-    Read top-down the way a geographer would: the planets of one face, then
-    the ice the field laid, then the mountain line, then the shape of the
+    Read top-down the way a geographer would: the ice the field laid, then
+    the planets of one face, then the mountain line, then the shape of the
     land (`biome.azonal`), then the water's edge and the bog, and the climate
     (`biome.zonal`) sorts whatever the land's shape did not claim.
     """
     field = terrain.field_of(constants, planet)
     if field.is_water(lat, lon):
         return None
-    if planet in OF_PLANET:
-        return OF_PLANET[planet]
     if field.ice_at(lat, lon):
         return ICE
+    if planet in OF_PLANET:
+        return OF_PLANET[planet]
     if field.is_mountain(lat, lon):
         return ALPINE
     azonal = constants[R.BIOME_AZONAL].get(field.form_at(lat, lon))
@@ -158,13 +163,13 @@ def raster(constants: Constants, planet: Planet) -> np.ndarray:
         out[taken] = code[name]
         todo[taken] = False
 
+    claim(field.ice, ICE)
     if planet in OF_PLANET:
         claim(todo.copy(), OF_PLANET[planet])
         return out
     #: Float64 like the point reading: a cell exactly on the mountain line
     #: must fall the same side of it here and there.
     height = field.height.astype(np.float64)
-    claim(field.ice, ICE)
     claim(height >= field.mountain_level, ALPINE)
     azonal = constants[R.BIOME_AZONAL]
     for index, form in enumerate(field.forms):
@@ -230,10 +235,10 @@ def on_ice(constants: Constants, node: Node) -> bool:
     """Whether the node stands on ice (D-338): nothing is built on it and nothing sown.
 
     The node's own biome (`of_node`) -- the word the player reads it by: the
-    ice sheets and caps the field laid, and the whole of a planet whose one
-    face is ice, Aurora's cities included. Not the season's snow, which comes
-    and goes over any ground (D-334) and is answered by the warmth of the
-    moment. A node off the sphere -- a room, a storey, a hull -- has no biome
+    ice sheets and caps the field laid, Aurora's poles among them. Not the
+    snow -- the season's over any ground (D-334), answered by the warmth of
+    the moment and the way through it, and Aurora's for ever (a snow field,
+    D-338). A node off the sphere -- a room, a storey, a hull -- has no biome
     and stands on a floor, not on the ice under it.
     """
     return of_node(constants, node) == ICE

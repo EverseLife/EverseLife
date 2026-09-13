@@ -30,8 +30,21 @@ from src.constants import current, current_catalog
 from src.constants import registry as R
 from src.constants.catalog import ItemKind
 from src.engine import account as accounts
+from src.engine import (
+    biome,
+    death,
+    energy,
+    estate,
+    facet,
+    ground,
+    places,
+    props,
+    ship,
+    tick,
+    travel,
+    utility,
+)
 from src.engine import city as town
-from src.engine import death, energy, estate, ground, props, ship, tick, travel, utility
 from src.engine.ship import lines
 from src.engine.world.things import stands
 from src.models.city import City
@@ -40,7 +53,7 @@ from src.models.event import Event, EventKind
 from src.models.identity import Account, Identity
 from src.models.inventory import Container, ContainerKind, Item
 from src.models.ship import Ship
-from src.models.world import PLOT, Edge, Layer, Node, built_up
+from src.models.world import PLOT, Edge, Layer, Node, Planet, built_up
 from src.seed_surfaces import surfaces
 
 log = logging.getLogger("everselife.seed")
@@ -260,6 +273,11 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
     #: servers replaying one world lay the same ground (D-007).
     await _soil(session, constants, scenario)
 
+    #: Aurora under snow (D-338). A find keeps the biome it was found with,
+    #: and the ones written `ice` before the field drew Aurora's ice back to
+    #: its poles would stay unbuildable ground on a planet that is snow now.
+    await _aurora_under_snow(session, constants)
+
     #: City locations handed out as if they were plots (D-282). The allotment
     #: asked only whether the node was the city's and free, and the capital's
     #: core answers both -- so a signature at the town hall could turn the
@@ -373,6 +391,54 @@ async def _return_city_locations(session: AsyncSession) -> None:
                 log.info("city location returned to %s: %s", city.name, node.key)
     if taken:
         await session.flush()
+
+
+async def _aurora_under_snow(session: AsyncSession, constants) -> None:
+    """Read again the biome of Aurora's ice finds the field no longer lays ice under (D-338).
+
+    A find keeps the biome, the face and the swing it was found with (D-321):
+    the words of a node do not drift with a retuned number. This is the one
+    retune the owner made to the ground itself -- Aurora was ice to its
+    equator, and is snow now with the ice at its poles -- and nothing may be
+    built or sown on ice, so a find left `ice` would be a plot sold for
+    nothing. Only the ice finds, only where the field reads another biome
+    now; the marks rolled for the find stay, they were the find. A second run
+    finds nothing left to change.
+    """
+    catalog = current_catalog()
+    finds = (
+        (
+            await session.execute(
+                select(Node).where(
+                    Node.planet == Planet.AURORA,
+                    Node.layer == Layer.PLANET,
+                    Node.properties[biome.BIOME].astext == biome.ICE,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    changed = 0
+    for node in finds:
+        point = places.geo_of(node)
+        if point is None:
+            continue
+        here = biome.classify(constants, node.planet, *point)
+        if here is None or here == biome.ICE:
+            continue
+        face = facet.at(constants, catalog, node.planet, *point, here=here)
+        changes: dict = {
+            biome.BIOME: here,
+            biome.TEMPERATURE_SWING: facet.swing_c(constants, here, face),
+        }
+        if face is not None:
+            changes[facet.FACET] = face.id
+        await props.stamp(session, node, changes)
+        changed += 1
+    if changed:
+        await session.flush()
+        log.info("Aurora under snow: %s ice finds read again", changed)
 
 
 async def _soil(session: AsyncSession, constants, scenario: seed_world.Scenario) -> None:

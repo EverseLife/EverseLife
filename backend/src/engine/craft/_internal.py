@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Catalog, Constants, current, current_catalog
 from src.constants import registry as R
 from src.engine import goods, stock, travel, wear
+from src.engine.biome import on_ice
 from src.engine.craft import power
 from src.engine.craft._base import (
     Busy,
@@ -116,6 +117,12 @@ async def _prepare(
 
         if units > 1 and await town.of_node(session, where) is not None:
             raise CraftError(key="craft-one-printer-at-a-time")
+
+    #: Nothing is built on ice (D-338), and a station built in place stands where it is made.
+    if catalog.recipes.built(proc.output):
+        here = await session.get(Node, body.node_id)
+        if here is not None and on_ice(constants, here):
+            raise CraftError(key="craft-build-on-ice", goods=proc.output)
 
     #: A knowledge carrier is written by whoever knows the recipe (D-209): the
     #: name of what goes onto it is part of the request, and it must be in the

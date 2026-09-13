@@ -23,7 +23,7 @@ care-feeding-row = “{ NAME($goods) }” { $stage ->
        *[fill] at filling
     }
 care-feeding-none = It takes no feeding: any fertilizer burns it.
-care-warmth = Warmth: { $min } to { $max } °C. Colder, it stops growing and suffers the frost; hotter, it suffers the heat.
+care-warmth = Warmth: { $min }…{ $max }°. Colder, it stops growing and the cold harms it; hotter, it keeps growing but the heat harms it.
 care-hardiness = Hardiness: { $hardiness } of 5.
 care-crowd = Fear of crowding: { $risk } of 5. Thinning lifts the crowding but takes its own share of the harvest — and only { $until ->
         [sprout] at sprouting

@@ -95,7 +95,7 @@ ui-map-road-pave = Pave for { $needs }
 ui-map-road-mend-need = patching: { $needs } roadbed
 ui-map-road-mend = Patch for { $needs }
 ui-map-road-at-hand = roadbed in hand { $hand }
-ui-map-road-rule = The surface rises a step for roadbed and time: trackless ground → trail → road → paved way. A trail is worn in by feet and grows over without walking; without upkeep a road grows over too. No convoy goes over trackless ground or a trail.
+ui-map-road-rule = The surface rises a step for roadbed and time: trackless ground → trail → road → paved way. A trail is worn in by feet and grows over without walking; without upkeep a road grows over too. No convoy goes over trackless ground or a trail. Under snow, trackless ground and trails take longer; roads and paved ways are kept clear.
 
 ## The sky: winding time on and the layer of space.
 
@@ -345,9 +345,9 @@ ui-farm-symptom-burn = leaf edges scorched
 ui-farm-symptom-fat = running to leaf
 ui-farm-symptom-weedy = weeds
 ui-farm-symptom-crowded = crowded
-# Warmth outside the crop's band (D-338): seen while it lasts.
-ui-farm-symptom-chilled = nipped by the cold
-ui-farm-symptom-wilted = leaves curling in the heat
+# The day's warmth outside the crop's band (D-338): seen all day.
+ui-farm-symptom-chilled = leaves nipped by the cold
+ui-farm-symptom-heat = leaves curling in the heat
 # The pests' signs (D-299): what the eye sees. Which bottle answers is in the agronomy.
 ui-farm-symptom-spots = spots on the leaf
 ui-farm-symptom-web = webbing

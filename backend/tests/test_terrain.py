@@ -327,14 +327,18 @@ def test_the_biome_raster_is_the_classifier_at_every_cell_centre(constants: Cons
             code < len(names) and names[code] == word
         ), f"клетка {cell}: растр говорит {code}, классификатор {word}"
     #: A planet of one biome (`OF_PLANET`): every cell that is not water
-    #: carries it and nothing else. Asked of the whole raster rather than of
+    #: carries it, and the field's ice cap before it (D-338: Aurora is snow
+    #: with its ice at the poles). Asked of the whole raster rather than of
     #: its maximum -- Aurora had no sea until D-329 gave it one, and the
     #: maximum was `NONE` the moment a single cell went under water.
-    icy = biome.raster(constants, Planet.AURORA)
+    snowy = biome.raster(constants, Planet.AURORA)
     frozen = terrain.field_of(constants, Planet.AURORA)
     dry = (frozen.water != fields.SEA) & (frozen.water != fields.LAKE)
-    assert (icy[dry] == names.index(biome.ICE)).all(), "Аврора — один лёд"
-    assert (icy[~dry] == biome.NONE).all(), "у воды биома нет и на ледяной планете"
+    cap = dry & frozen.ice
+    assert (snowy[cap] == names.index(biome.ICE)).all(), "шапка Авроры — лёд"
+    assert (snowy[dry & ~cap] == names.index(biome.SNOW)).all(), "остальная Аврора — снег"
+    assert 0 < cap.sum() < dry.sum() / 5, "лёд Авроры — у полюсов, а не вся суша"
+    assert (snowy[~dry] == biome.NONE).all(), "у воды биома нет и на снежной планете"
 
 
 def test_the_rasters_are_the_field_thinned_and_named(constants: Constants) -> None:

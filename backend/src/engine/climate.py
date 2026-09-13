@@ -27,9 +27,10 @@ so a read stays a read (the quality bar's "look does not write").
 from __future__ import annotations
 
 import math
+from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -38,6 +39,7 @@ from src.constants import Constants
 from src.constants import registry as R
 from src.engine import estate, places, terrain, world
 from src.models.world import Node, Planet
+from src.runtime import HOURS_KEPT
 from src.units import (
     DAY_PHASE_DAWN,
     DAY_PHASE_DUSK,
@@ -199,6 +201,24 @@ def _days_since(origin: datetime | None, moment: datetime) -> float:
     return (moment - origin).total_seconds() / (HOURS_PER_DAY * SECONDS_PER_HOUR)
 
 
+def day_band(
+    constants: Constants, node: Node, origin: datetime | None, moment: datetime
+) -> tuple[float, float] | None:
+    """The node's night and noon on the day of the moment, degrees (D-261, D-338):
+    the year's mean moved by the latitude's season, swinging by the node's
+    own day (D-321). What the sowing gate fits a culture's warmth into and
+    what a bed's cold and heat signs are read by -- one band for the day,
+    so a sign does not come and go between two looks. None where no
+    temperature was ever written: absence of a record is not a climate.
+    """
+    mean = mean_temperature(node)
+    if mean is None:
+        return None
+    mean += season_c(constants, node.planet, latitude_of(node), origin, moment)
+    swing = swing_of(constants, node.planet, node)
+    return mean - swing, mean + swing
+
+
 def orbit_turns(
     constants: Constants, planet: Planet, origin: datetime | None, moment: datetime
 ) -> float:
@@ -229,8 +249,9 @@ def season_c(
     the sine of the orbit's angle in time: the equator knows no season, the
     two hemispheres run opposite, and the north's summer is where the sine
     of the angle is positive. Read into the temperature of the moment
-    (`temperature_now`), which is what the beds and the window feel; the
-    sowing gate and the biome judge by the year's mean still (D-334).
+    (`temperature_now`), which is what the beds and the window feel, and
+    into the day's band the sowing gate judges (`day_band`, D-338); the
+    biome judges by the year's mean still (D-334).
     """
     swing = float(constants[R.SEASON_SWING_C].get(planet.value, 0.0))
     turns = orbit_turns(constants, planet, origin, moment)
@@ -510,23 +531,113 @@ def weather_at(
     )
 
 
+#: What a place's sky and ground are in a world hour, as the engine reads
+#: them over and over (D-338): the tick walks every growing bed each minute
+#: from a stamp up to a Terran day old, and a route weighs every off-road
+#: edge by its snow. The hours behind are the same for every walk, every bed
+#: of the node and every edge of the place, and only the newest is new.
+#: Keyed by what is read, the book's digest and the epoch, so a reloaded book
+#: or another world never reads a stale hour.
+_HOURS: OrderedDict[tuple[str, str, str, float, float, datetime | None, int], float] = OrderedDict()
+
+
+def _hourly(
+    kind: str,
+    constants: Constants,
+    planet: Planet,
+    lat: float,
+    lon: float,
+    origin: datetime | None,
+    hour: int,
+    work: Callable[[], float],
+) -> float:
+    key = (kind, constants.digest, planet.value, lat, lon, origin, hour)
+    value = _HOURS.get(key)
+    if value is None:
+        value = work()
+        _HOURS[key] = value
+        if len(_HOURS) > HOURS_KEPT:
+            _HOURS.popitem(last=False)
+    else:
+        _HOURS.move_to_end(key)
+    return value
+
+
 def rain_along(
     constants: Constants, node: Node, origin: datetime | None, since: datetime
 ) -> Callable[[float], float]:
     """The rain on the node as a function of the hours after `since`, nought
     to one (D-338): the weather's own law at the node's place, the rain the
-    map draws there. The law and the ground's wetness are read once -- a bed
-    is walked by the hour, and the place does not change under it. Nothing
-    rains off the sphere: in a room, on a storey, aboard a hull.
+    map draws there, taken at the start of each world hour -- the hour is
+    the bed's step (`FARM_STEP_HOURS`), and so the walk of every bed of the
+    node asks the same hours and the law is worked out once for each.
+    Nothing rains off the sphere: in a room, on a storey, aboard a hull.
     """
     point = places.geo_of(node)
     if point is None:
         return lambda _hours: 0.0
     lat, lon = point
-    law = weather_law(constants, node.planet)
-    wetness = sky_wetness(constants, node.planet, lat, lon)
-    start = _days_since(origin, since)
-    return lambda hours: weather_of(law, wetness, lat, lon, start + hours / HOURS_PER_DAY)[1]
+    planet = node.planet
+    start = _days_since(origin, since) * HOURS_PER_DAY
+
+    def at(hours: float) -> float:
+        hour = math.floor(start + hours)
+
+        def work() -> float:
+            law = weather_law(constants, planet)
+            wetness = sky_wetness(constants, planet, lat, lon)
+            return weather_of(law, wetness, lat, lon, hour / HOURS_PER_DAY)[1]
+
+        return _hourly("rain", constants, planet, lat, lon, origin, hour, work)
+
+    return at
+
+
+def snow_now(
+    constants: Constants,
+    planet: Planet,
+    lat: float,
+    lon: float,
+    origin: datetime | None,
+    moment: datetime,
+) -> float:
+    """How much of the ground the season's snow covers at a point, nought to
+    one (D-334, D-338): the map's own law of snow (`fragment.ts`, `season.ts`)
+    on the field's readings -- the year's mean of the place moved by the
+    latitude's season, white below `season.snow_c` over `season.snow_band_c`
+    degrees, and a dry cold keeping `season.snow_dry_share` of it up to
+    `season.snow_dry_rain` of the rain scale. The day does not melt it: the
+    map draws no swing either. Water is not snowed over -- ice lies there,
+    and nobody walks it. Taken at the start of the world hour, as the rain;
+    a band of nought is a hard line (`_smoothstep` holds the width off nought).
+    """
+    field = terrain.field_of(constants, planet)
+    if field.is_water(lat, lon):
+        return 0.0
+    hour = math.floor(_days_since(origin, moment) * HOURS_PER_DAY)
+
+    def work() -> float:
+        at = origin + timedelta(hours=hour) if origin is not None else moment
+        warmth = float(field.temperature_at(lat, lon)) + season_c(
+            constants, planet, lat, origin, at
+        )
+        line = float(constants[R.SEASON_SNOW_C])
+        band = float(constants[R.SEASON_SNOW_BAND_C])
+        cover = 1.0 - _smoothstep(line - band, line, warmth)
+        dry_rain = float(constants[R.SEASON_SNOW_DRY_RAIN]) / PERCENT
+        keep = float(constants[R.SEASON_SNOW_DRY_SHARE]) / PERCENT
+        return cover * _lerp(keep, 1.0, _smoothstep(0.0, dry_rain, float(field.rain_at(lat, lon))))
+
+    return _hourly("snow", constants, planet, lat, lon, origin, hour, work)
+
+
+def snow_on(constants: Constants, node: Node, origin: datetime | None, moment: datetime) -> float:
+    """The season's snow on the node's ground, nought to one (D-338): none off
+    the sphere -- a room, a storey, a hull has a floor, not a ground."""
+    point = places.geo_of(node)
+    if point is None:
+        return 0.0
+    return snow_now(constants, node.planet, point[0], point[1], origin, moment)
 
 
 async def daylight(session: AsyncSession, constants: Constants, node: Node) -> int:

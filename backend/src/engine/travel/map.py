@@ -8,6 +8,7 @@ how a way is laid or taken up -- never from under somebody walking it.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import UTC, datetime
 
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,9 +18,17 @@ from src.engine import (
     estate,
     net,
     places,
+    world,
 )
 from src.engine import ship as vessels
-from src.engine.travel._base import EdgeInUse, Exit, _edge_between, edge_seconds, walk_seconds
+from src.engine.travel._base import (
+    EdgeInUse,
+    Exit,
+    _edge_between,
+    edge_seconds,
+    edge_snow,
+    walk_seconds,
+)
 from src.models.travel import Travel, TravelState
 from src.models.world import Edge, Node, Surface
 
@@ -47,6 +56,10 @@ async def exits(session: AsyncSession, constants: Constants, node: Node) -> tupl
         else {}
     )
 
+    #: The time as the leg would be walked now (D-338): the season's snow on
+    #: the off-road is in it, so the fastest exit is the fastest in winter too.
+    epoch = await world.epoch(session)
+    moment = datetime.now(UTC)
     found: list[Exit] = []
     for edge in rows:
         other_id = edge.node_b_id if edge.node_a_id == node.id else edge.node_a_id
@@ -60,7 +73,9 @@ async def exits(session: AsyncSession, constants: Constants, node: Node) -> tupl
                 key=other.key,
                 name=other.name,
                 surface=edge.surface,
-                seconds=edge_seconds(constants, edge),
+                seconds=edge_seconds(
+                    constants, edge, snow=edge_snow(constants, edge, (node, other), epoch, moment)
+                ),
                 condition=float(edge.condition),
             )
         )

@@ -124,6 +124,7 @@ and the price beaten down. Knowing the price is not getting the goods.
 """
 
 from src.engine.travel._base import (  # noqa: F401
+    OFF_ROAD,
     AlreadyGoing,
     Asleep,
     EdgeInUse,
@@ -139,8 +140,10 @@ from src.engine.travel._base import (  # noqa: F401
     _edge_between,
     current,
     edge_seconds,
+    edge_snow,
     has_transport,
     require_here,
+    snow_multiplier,
     stamina_cost,
     surface_multiplier,
     walk_seconds,

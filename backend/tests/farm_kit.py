@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import breed, farm, world
+from src.engine import breed, farm, places, world
 from src.engine.farm import life
 from src.models.farm import PlotState
 from src.models.identity import Body
@@ -32,8 +32,17 @@ BROME = "brome"
 
 
 async def _farmstead(
-    session: AsyncSession, *, water: str = "river", fertility: float = 55, area: float = 200
+    session: AsyncSession,
+    *,
+    water: str = "river",
+    fertility: float = 55,
+    area: float = 200,
+    sky: bool = False,
 ):
+    """A farmer on their own land. Off the sphere unless `sky` is asked for:
+    a new node is seated at its group's origin, and the weather there would
+    water every bed of every farm test by the rain of that point (D-338) --
+    a retune of `weather.*` would then fail tests that never meant the rain."""
     stamp = uuid.uuid4().hex[:8]
     node = await world.create_node(
         session,
@@ -42,6 +51,8 @@ async def _farmstead(
         area_m2=area,
         properties={"water": water, "fertility": fertility},
     )
+    if not sky:
+        node.properties = {k: v for k, v in node.properties.items() if k != places.PLACE}
     identity = await world.create_identity(session, f"Фермер-{stamp}")
     body = await world.print_body(session, identity, node)
     #: The holder runs the estate: the fixture's farmer has already taken their plot.

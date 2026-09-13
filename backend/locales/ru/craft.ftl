@@ -31,6 +31,7 @@ craft-not-enough = не хватает «{ NAME($goods) }»: нужно ещё {
 craft-item-not-in-hands = вещь не в руках: чинят и разбирают своё, а не чужое
 
 craft-no-place = здесь нет: { NAME($place) }
+craft-build-on-ice = «{ NAME($goods) }» на ледяном поле не ставят: лёд ползёт и трескается под основанием
 craft-place-not-yours = { NAME($place) } на чужой земле: рубить может хозяин
 
 craft-no-station = в узле нет рабочей станции «{ NAME($station) }»

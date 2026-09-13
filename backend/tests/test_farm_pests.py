@@ -126,7 +126,7 @@ def test_each_mistake_breeds_its_own_trouble(constants: Constants, catalog: Cata
     }
     for pest, bed in struck.items():
         signs = life.symptoms(
-            constants, norm, bed, fertility=PERCENT, fertility_needed=0.0, fed=(), temperature=None
+            constants, norm, bed, fertility=PERCENT, fertility_needed=0.0, fed=(), band=None
         )
         assert life.PEST_SIGNS[pest] in signs
         #: And not before: a trouble under the threshold is not yet seen, so
@@ -146,7 +146,7 @@ def test_each_mistake_breeds_its_own_trouble(constants: Constants, catalog: Cata
             fertility=PERCENT,
             fertility_needed=0.0,
             fed=(),
-            temperature=None,
+            band=None,
         )
         assert life.PEST_SIGNS[pest] not in quiet
 

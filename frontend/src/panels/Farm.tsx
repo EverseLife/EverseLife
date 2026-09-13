@@ -92,9 +92,9 @@ const SYMPTOM: Record<string, string> = {
   fat: "ui-farm-symptom-fat",
   weedy: "ui-farm-symptom-weedy",
   crowded: "ui-farm-symptom-crowded",
-  //: The moment's warmth outside the culture's band (D-338), while it lasts.
+  //: The day's warmth outside the culture's band (D-338), for the day.
   chilled: "ui-farm-symptom-chilled",
-  wilted: "ui-farm-symptom-wilted",
+  heat: "ui-farm-symptom-heat",
   //: The four pests (D-299): the sign says what the eye sees and never
   //: which bottle answers it -- that is the agrotech text's to teach.
   spots: "ui-farm-symptom-spots",
@@ -145,7 +145,10 @@ const TARGET_STEP = 5;
  * The moisture curve (D-296): the point the server gave, drawn forward at the
  * pace it gave. `moisture(t) = m0 * exp(-k * days)` -- the same exponential
  * the engine walks, so the picture and the bed agree. Drawn at render time
- * and redrawn when the world says so (D-226), never by a timer.
+ * and redrawn when the world says so (D-226), never by a timer. The rain is
+ * not drawn (D-338): it waters only up to the culture's band, and the band
+ * is the Library's text, not the window's mark -- after a rain the ground
+ * is wetter than the line until the next reading.
  */
 function MoistureCurve({ row, dayHours }: { row: Row; dayHours: number }) {
   if (row.moisture == null || !row.moisture_at || row.dry_per_day == null) return null;

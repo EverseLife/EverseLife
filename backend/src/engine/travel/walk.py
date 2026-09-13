@@ -29,10 +29,12 @@ from src.engine import (
     justice,
     memory,
     transport,
+    world,
 )
 from src.engine.errors import left_to_say
 from src.engine.jobs import enqueue, handler
 from src.engine.travel._base import (
+    OFF_ROAD,
     AlreadyGoing,
     Imprisoned,
     NoEdge,
@@ -44,6 +46,7 @@ from src.engine.travel._base import (
     _edge_between,
     current,
     edge_seconds,
+    edge_snow,
     has_transport,
     require_here,
     stamina_cost,
@@ -63,6 +66,7 @@ async def route(
     to_node_id: uuid.UUID,
     *,
     vehicle: str | None = None,
+    now: datetime | None = None,
 ) -> list[uuid.UUID]:
     """The fastest path by time between nodes: a list of nodes, without the start.
 
@@ -80,14 +84,34 @@ async def route(
     The path therefore does not depend on who walks it -- only the destination
     does, and it is checked by `depart`, where a refusal can name the reason
     instead of reporting "no road at all".
+
+    The off-road is weighed by the season's snow on it (D-338), as the legs
+    will be walked: in winter the way round by the road is the shorter one.
     """
 
+    moment = now or datetime.now(UTC)
     edges = (await session.execute(select(Edge))).scalars().all()
+    #: The ends of the off-road only, and only for a walker: a vehicle does
+    #: not pass the off-road at all, and a road's time knows no snow.
+    snowy = (
+        {edge.node_a_id for edge in edges if edge.surface in OFF_ROAD}
+        | {edge.node_b_id for edge in edges if edge.surface in OFF_ROAD}
+        if vehicle is None
+        else set()
+    )
+    ends: dict[uuid.UUID, Node] = {}
+    if snowy:
+        found = await session.execute(select(Node).where(Node.id.in_(snowy)))
+        ends = {node.id: node for node in found.scalars()}
+    epoch = await world.epoch(session) if snowy else None
     graph: dict[uuid.UUID, list[tuple[uuid.UUID, float]]] = {}
     for edge in edges:
         if vehicle is not None and not transport.passable(constants, edge.surface, vehicle):
             continue
-        seconds = edge_seconds(constants, edge)
+        snow = edge_snow(
+            constants, edge, (ends.get(edge.node_a_id), ends.get(edge.node_b_id)), epoch, moment
+        )
+        seconds = edge_seconds(constants, edge, snow=snow)
         if vehicle is not None:
             seconds /= transport.speed(constants, vehicle)
         graph.setdefault(edge.node_a_id, []).append((edge.node_b_id, seconds))
@@ -208,6 +232,7 @@ async def depart(
             body.node_id,
             target.id,
             vehicle=None if convoy is None else convoy.type_key,
+            now=moment,
         )
         edge = await _edge_between(session, body.node_id, legs[0])
         assert edge is not None  # noqa: S101 -- a route consists of edges
@@ -216,6 +241,11 @@ async def depart(
             raise TravelError(key="travel-route-node-gone")
         target = next_node
         plan = legs[1:] + plan
+
+    #: The season's snow on the leg (D-338): the off-road under snow is longer,
+    #: and the time, the air it takes and the strength it costs all follow it.
+    origin_node = await session.get(Node, body.node_id)
+    snow = edge_snow(constants, edge, (origin_node, target), await world.epoch(session), moment)
 
     #: Nothing to breathe where the leg ends (D-233): refused **before** the
     #: step, never at the far end -- death by ignorance in one click is not this
@@ -234,14 +264,14 @@ async def depart(
         target,
         #: The leg's own length: a cylinder must hold the whole of the walk, not
         #: merely be non-empty when it starts.
-        seconds=edge_seconds(constants, edge),
+        seconds=edge_seconds(constants, edge, snow=snow),
     )
 
     #: Left the workshop -- left the conversation: the circle does not follow (D-043).
 
     await chat.leave_groups(session, body.identity_id)
 
-    seconds = edge_seconds(constants, edge)
+    seconds = edge_seconds(constants, edge, snow=snow)
     if convoy is not None:
         #: Surface decides not only time but the very possibility to drive through.
         if not transport.passable(constants, edge.surface, convoy.type_key):
@@ -255,7 +285,6 @@ async def depart(
     #: The border is settled **before** leaving: both sides are already known,
     #: and paying on arrival would let into the city what cannot be paid for (D-123).
 
-    origin_node = await session.get(Node, body.node_id)
     if origin_node is not None:
         await customs.cross(
             session,

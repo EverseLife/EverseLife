@@ -66,7 +66,7 @@ async def mark(
     #: Nothing is sown on ice (D-338), so no strip is marked on it either:
     #: a plot nobody can ever sow would be a thing sold for nothing (D-231).
     if biome.on_ice(constants, node):
-        raise FarmError(key="farm-on-ice", node=node.name)
+        raise FarmError(key="farm-on-ice")
     #: A floor of a house is not ground (D-247). Left to the room check below it
     #: would refuse with "nothing free here" -- true of a third floor, and no
     #: explanation of why it will never be otherwise.

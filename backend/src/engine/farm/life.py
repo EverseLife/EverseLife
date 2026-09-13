@@ -88,10 +88,10 @@ FAT = "fat"
 #: it is past sprouting -- shown to everybody, priced by the culture.
 WEEDY = "weedy"
 CROWDED = "crowded"
-#: D-338: the moment's temperature outside the culture's warmth, below it
-#: and above it -- shown while it lasts, as thirst is.
+#: D-338: the day's night under the culture's warmth, the day's noon over
+#: it -- shown for the day, since the day is what the bed lives through.
 CHILLED = "chilled"
-WILTED = "wilted"
+HEAT = "heat"
 #: Wave 3 (D-299): what a struck bed shows past `farm.pest_seen`. The sign
 #: says what the eye sees and never names the trouble or its cure: that
 #: coupling is the agrotech text's to teach (D-057).
@@ -201,8 +201,8 @@ def norms(constants: Constants, plant: Plant, signs: Mapping[str, Any]) -> Norms
         hardiness=float(signs.get("hardiness", plant.traits.hardiness)),
         cycle_days=float(signs.get("cycle_days", plant.cycle_days)),
         pest_risk=float(signs.get("disease_risk", plant.traits.disease_risk)),
-        temp_min=float(plant.requires.temp["min"]),
-        temp_max=float(plant.requires.temp["max"]),
+        temp_min=float(plant.requires.temp.min),
+        temp_max=float(plant.requires.temp.max),
     )
 
 
@@ -445,7 +445,7 @@ def symptoms(
     fertility: float,
     fertility_needed: float,
     fed: Iterable[Mapping[str, Any]],
-    temperature: float | None,
+    band: tuple[float, float] | None,
 ) -> list[str]:
     """What the bed shows, to everybody alike (D-057): signs, never norms.
 
@@ -453,19 +453,21 @@ def symptoms(
     repeated one as a bed running to leaf, until the stage is over. Weeds show
     past `farm.weed_seen`; an unthinned stand shows as crowded from the leaf
     stage on -- to every crop, though only some pay for it (D-297). The
-    moment's temperature outside the culture's warmth shows while it lasts
-    (D-338): a frost at night is seen at night.
+    day's band (`climate.day_band`) outside the culture's warmth shows for
+    the whole day (D-338): a night that falls under it is seen at noon too,
+    and the sign does not come and go between two looks the window has no
+    touch for (D-226).
     """
     seen: list[str] = []
     if life.moisture < norms.band_min:
         seen.append(THIRST)
     elif life.moisture > norms.band_max:
         seen.append(SOAKED)
-    cold, hot = warmth_gaps(norms, temperature)
-    if cold > 0:
-        seen.append(CHILLED)
-    elif hot > 0:
-        seen.append(WILTED)
+    if band is not None:
+        if band[0] < norms.temp_min:
+            seen.append(CHILLED)
+        if band[1] > norms.temp_max:
+            seen.append(HEAT)
     if fertility < fertility_needed:
         seen.append(PALE)
     effects = {str(row.get("effect")) for row in fed}
