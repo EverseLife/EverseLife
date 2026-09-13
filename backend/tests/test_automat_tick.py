@@ -33,6 +33,7 @@ from src.models.automat import Automat as AutomatRow
 from src.models.inventory import Item
 from src.models.job import Job, JobKind, JobState
 from src.models.ledger import AccountKind, PostingReason
+from src.models.world import Node
 from src.units import amount_float, money
 
 
@@ -261,13 +262,17 @@ async def test_a_broken_automat_does_not_fail_the_tick_step_job(
 
 
 async def test_a_cut_off_node_stands_every_machine_in_it_and_none_of_its_owners_elsewhere(
-    session: AsyncSession, constants: Constants, catalog: Catalog
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The tick reads a node's meter once a pass (D-149), and the answer is the
     node's: both machines on the floor in debt stand, and the same owner's
     factory on a paid floor works in the same pass. An answer kept by the owner,
     or one for the whole pass, would stand the paid floor or run the one in
-    debt, whichever machine the pass happened to ask first."""
+    debt, whichever machine the pass happened to ask first. And a meter read per
+    machine is a query a machine while the tick holds every factory's stacks."""
     node, yard, identity, body, assembler = await _factory_floor(session, constants)
     node.owner_identity_id = identity.id
     smelter = await world.grant_item(session, yard, "auto_furnace", quality=70, origin="test")
@@ -296,8 +301,18 @@ async def test_a_cut_off_node_stands_every_machine_in_it_and_none_of_its_owners_
     moment = first.counted_at + timedelta(hours=8)
     await session.flush()
 
+    real = utility.cut_off
+    asked: list[uuid.UUID] = []
+
+    async def counted(db: AsyncSession, where: Node) -> bool:
+        asked.append(where.id)
+        return await real(db, where)
+
+    monkeypatch.setattr(utility, "cut_off", counted)
+
     made = await automat.tick_automats(session, constants, now=moment)
 
+    assert sorted(asked) == sorted([node.id, elsewhere.id]), "one reading a node, not a machine"
     assert made > 0, "the owner's paid floor worked"
     await session.refresh(lube)
     assert amount_float(lube.amount) == pytest.approx(100), "neither machine in debt ran"

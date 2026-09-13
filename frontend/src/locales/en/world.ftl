@@ -474,7 +474,7 @@ ui-factory-port-in = input
 ui-factory-port-out = output
 ui-factory-idle = -- no programme --
 ui-factory-backlog = in work { $backlog }
-ui-factory-cut-off = The node is cut off for non-payment: the machines stand until the debt is closed, and the hours they stand are not given back. The bill is in the sidebar, in the “estate” tab.
+ui-factory-cut-off = The node is cut off for non-payment: the machines do not run until the debt is closed; they will not make up the hours lost. The bill is in the sidebar, in the “estate” tab.
 
 ## The course slider: from the fastest arc to the cheapest (D-271).
 
