@@ -19,8 +19,8 @@ machine that burnt before the lock, nor burn coal that was carried off.
 Each race is built to meet on the crossing every time, not when a pass happens
 to outrun a pause: one side stops holding the row the other needs and goes on
 only once the other is seen waiting on it (`automat_kit._until_blocked_by`).
-The taking-down door against the tick over a rig's hopper is
-`test_races_mining.py`'s.
+The tick against the hands on a rig's coal, hopper and machine -- the
+taking-down door and the place door among them -- is `test_races_rig.py`'s.
 """
 
 from __future__ import annotations
@@ -282,44 +282,29 @@ async def test_a_machine_stood_or_taken_down_as_its_house_falls(
         assert await db.get(Item, bench.id) is None, "верстак ушёл под крышу после двери"
 
 
-@pytest.mark.parametrize("hand", ["empty", "place"])
-async def test_a_rig_burnt_while_it_is_settled_by_hand_is_refused(
+async def test_a_rig_burnt_while_its_hopper_is_emptied_is_refused(
     session: AsyncSession,
     factory: async_sessionmaker[AsyncSession],
     monkeypatch: pytest.MonkeyPatch,
-    hand: str,
 ) -> None:
-    """Emptying the hopper and standing the rig up again settle it through the
-    pass and go on with the machine after it. The fire burns it between the
-    plan and the lock: a write to its row would throw, and the session must not
-    go on answering for the machine out of memory either -- the carter would be
-    handed the hopper of a machine that is ash, the owner told that cinders
-    stand on the vein. The row ends with the machine, and both hear the world's
-    word for it (D-314). The tick takes every machine before it reads one
-    (`rig._hold_the_world`), so a fire comes to the tick's after it commits."""
+    """Emptying the hopper settles the rig through the pass and goes on with the
+    machine after it. The fire burns it between the plan and the lock: a write
+    to its row would throw, and the session must not go on answering for the
+    machine out of memory either -- the carter would be handed the hopper of a
+    machine that is ash. The row ends with the machine, and the carter hears
+    the world's word for it (D-314). The tick takes every machine before it
+    reads one (`rig._hold_the_world`), and the place door takes its machine
+    before the pass (`test_races_rig.py`), so a fire comes to those after."""
     _, fields = await _surface(session, count=1)
     field = fields[0]
     vein = await world.create_vein(session, field, ORE, richness=60, remaining=100_000)
-    installation, machine, _, body = await _rig_on(session, field, vein)
+    installation, _, _, body = await _rig_on(session, field, vein)
     #: Ore from the passes before: what the carter must not be handed.
     installation.hopper = Decimal(5)
     pocket = (await world.body_container(session, body)).id
     planned, burnt = _after_the_plan(monkeypatch, (await world.node_container(session, field)).id)
     await session.commit()
     moment = installation.counted_at + timedelta(hours=4)
-
-    async def settle() -> float | str:
-        if hand == "empty":
-            return await _empty(factory, body, installation, moment)
-        try:
-            async with factory() as db, db.begin():
-                own_body = await db.get(Body, body.id)
-                own_machine = await db.get(Item, machine.id)
-                own_vein = await db.get(Vein, vein.id)
-                await rig.place(db, own_body, own_machine, own_vein, now=moment)
-        except rig.NoRig as refusal:
-            return refusal.key
-        return "done"
 
     async def erupt() -> None:
         await asyncio.wait_for(planned.wait(), timeout=30)
@@ -328,7 +313,9 @@ async def test_a_rig_burnt_while_it_is_settled_by_hand_is_refused(
         finally:
             burnt.set()
 
-    outcome = await asyncio.gather(settle(), erupt(), return_exceptions=True)
+    outcome = await asyncio.gather(
+        _empty(factory, body, installation, moment), erupt(), return_exceptions=True
+    )
 
     assert outcome == ["rig-machine-gone", None], outcome
     async with factory() as db:
