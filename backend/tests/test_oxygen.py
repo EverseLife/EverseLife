@@ -33,7 +33,7 @@ from src.constants import registry as R
 from src.engine import oxygen, travel
 from src.models.identity import Body
 from src.models.world import Planet, Surface
-from src.units import AMOUNT_SCALE, ROUND_AMOUNT, ROUND_REMAINDER
+from src.units import AMOUNT_SCALE, ROUND_AMOUNT, ROUND_REMAINDER, SECONDS_PER_HOUR
 
 # --- where the question arises at all -----------------------------------------
 
@@ -389,10 +389,14 @@ async def test_a_thousandth_the_empty_bottle_did_not_give_is_short(
     await _suited(session, constants, catalog, body)
     started = datetime.now(UTC)
     #: The stretch a thousandth of air lasts, to the microsecond a stamp keeps.
-    #: The premise is checked, not assumed: off the grid the stretch asks for
-    #: nothing or for more, and the edge is never reached.
-    thousandth = timedelta(hours=1) * (10**-ROUND_AMOUNT / constants[R.OXYGEN_BODY_DRAW])
-    assert thousandth / timedelta(hours=1) * constants[R.OXYGEN_BODY_DRAW] == 10**-ROUND_AMOUNT
+    #: The premise is checked, not assumed, and counted the way `settle`
+    #: counts it: a hair short, the stretch asks for nothing; a hair long, the
+    #: old tolerance saw the shortage too, and the edge goes untested.
+    draw = constants[R.OXYGEN_BODY_DRAW]
+    thousandth = timedelta(hours=1) * (10**-ROUND_AMOUNT / draw)
+    assert thousandth.total_seconds() / SECONDS_PER_HOUR * draw == 10**-ROUND_AMOUNT, (
+        f"at oxygen.body_draw {draw} a thousandth of air is not a whole number of microseconds"
+    )
     body.air_at = started - thousandth
     await session.flush()
 
