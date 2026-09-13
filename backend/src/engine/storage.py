@@ -530,19 +530,42 @@ async def hand(
 
     The receiver's hands are not bottomless: the load limit is theirs to obey
     (D-146), so a full pair of hands refuses the parcel instead of swallowing it.
+
+    **Both bodies' rows are taken here**, in id order (`world.lock_bodies`),
+    before anything in either pair of hands is read. The taker's row is what
+    every other door into those hands already queues on -- their own pick-up
+    (`_alive`), a batch paying out and a fallen limit (`overload._fall`) --
+    and without it two parcels, or a parcel and a pick-up, weighed the same
+    room and both filled it. The order is what lets two people hand each
+    other things at once: taken giver first, each would hold the row the
+    other waits for. So the caller must hold **neither** row before this: the
+    command finds the giver without a lock.
     """
 
-    if giver.state is not BodyState.ALIVE:
-        raise StorageError(key="storage-dead-hands")
-    if taker.state is not BodyState.ALIVE:
-        raise StorageError(key="storage-dead-receives")
+    _beside(giver, taker)
     if giver.id == taker.id:
         raise StorageError(key="storage-self-hand")
     await travel.require_here(session, giver)
-    #: Both in the same room: shouting across the map is not handing over.
-    if taker.node_id != giver.node_id:
-        raise StorageError(key="storage-person-not-here")
+    #: Asked above of the rows as they were handed in, so that a body lying
+    #: dead or standing in another city -- or a giver asleep or on the road --
+    #: is refused without either row being taken: the taker's id comes off the
+    #: wire, and a handover must not be a way to queue a stranger's every
+    #: command from across the map. Asked again of the rows the lock reread,
+    #: which is the answer that counts.
+    await world.lock_bodies(session, (giver.id, taker.id))
+    _beside(giver, taker)
+    await travel.require_here(session, giver)
 
+    #: The thing's row after both bodies' -- the body first, then what lies in
+    #: its hands -- and reread with the lock: it was looked up before the
+    #: giver's row was held, and the giver may have put it down meanwhile.
+    #: `world.move_stack` moves a row from wherever it now is, so a stale
+    #: answer here would hand over a sack from the floor.
+    named = item.type_key
+    try:
+        await session.refresh(item, with_for_update=True)
+    except InvalidRequestError as gone:
+        raise StorageError(key="thing-gone", goods=named) from gone
     pocket = await world.body_container(session, giver)
     if item.container_id != pocket.id:
         raise StorageError(key="storage-not-in-hands-to-hand")
@@ -565,6 +588,16 @@ async def hand(
         reason="handover",
     )
     return given
+
+
+def _beside(giver: Body, taker: Body) -> None:
+    """Both alive, and in the same room: shouting across the map is not handing over."""
+    if giver.state is not BodyState.ALIVE:
+        raise StorageError(key="storage-dead-hands")
+    if taker.state is not BodyState.ALIVE:
+        raise StorageError(key="storage-dead-receives")
+    if taker.node_id != giver.node_id:
+        raise StorageError(key="storage-person-not-here")
 
 
 async def _allowed(session: AsyncSession, catalog: Catalog, body: Body, chest: Item) -> Node:

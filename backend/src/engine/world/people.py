@@ -33,7 +33,7 @@ put a `SELECT` over every container in the world within easy reach.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from decimal import ROUND_FLOOR, Decimal
 from typing import Any
 
@@ -42,6 +42,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants, current, current_catalog
 from src.constants import registry as R
+from src.db.base import forget
 from src.engine import account as accounts
 from src.engine import city as town
 from src.engine import events, places
@@ -135,6 +136,41 @@ async def print_body(session: AsyncSession, identity: Identity, node: Node) -> B
         body_id=str(body.id),
     )
     return body
+
+
+async def lock_bodies(session: AsyncSession, ids: Iterable[uuid.UUID]) -> list[Body]:
+    """Several bodies' rows, locked for the transaction and reread, in id order.
+
+    A body's row is what queues everything done to it and its hands (D-211):
+    a command takes its own through `_alive`, and whoever takes **more than
+    one** takes them all at once and in one order, ascending id, before
+    anything that lies in their hands -- the sweeps over many bodies at a time
+    and a handover between two (`storage.hand`). Two holders taking the same
+    pair the two ways round wait on each other for ever.
+
+    Reread under the lock, since the wait was for whoever held a row and they
+    may have moved the body or ended it; and the command's memory goes with
+    the wait (`forget`) for the same reason. A body that is not there is simply
+    absent from the answer.
+    """
+    wanted = sorted(set(ids))
+    if not wanted:
+        return []
+    rows = (
+        (
+            await session.execute(
+                select(Body)
+                .where(Body.id.in_(wanted))
+                .order_by(Body.id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    forget(session)
+    return list(rows)
 
 
 #: The class of machines bodies are printed at (D-033, D-215). While no
