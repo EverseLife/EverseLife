@@ -42,6 +42,18 @@ def reserve_of(constants: Constants, weather: str | None) -> float:
     return float(constants[R.FROST_RESERVE_MAX][weather or FROST])
 
 
+def frozen_toll_of(constants: Constants, weather: str | None) -> float:
+    """The stamina a frozen body burns an hour on nothing but time, in a
+    climate (D-231, D-338).
+
+    Each climate has its own, like the reserve: the frost's was raised with its
+    doubled reserve, so a bare night in its cold still kills. Read with the
+    same fallback as `reserve_of`, though a body with no climate is never
+    frozen and pays nothing.
+    """
+    return float(constants[R.FROST_FROZEN_STAMINA][weather or FROST])
+
+
 async def limit_of(
     session: AsyncSession, constants: Constants, catalog: Catalog, body: Body, weather: str | None
 ) -> float:
@@ -114,6 +126,20 @@ class Spell:
     uncovered: float
 
 
+@dataclass(frozen=True, slots=True)
+class Known:
+    """What the tick already knows of a body's place, for a whole pass.
+
+    Handed to `_advance` whole, so that one settling reads its climate from
+    one source: the ceiling and the frozen toll must not come from two
+    readings of the same fact.
+    """
+
+    weather: str | None
+    warm: bool
+    ceiling: float
+
+
 async def _lock(session: AsyncSession, body: Body) -> Body:
     """The body's row, locked for this transaction.
 
@@ -161,29 +187,29 @@ async def _advance(
     locked: Body,
     *,
     now: datetime | None = None,
-    warm: bool | None = None,
-    ceiling: float | None = None,
+    known: Known | None = None,
 ) -> Spell:
     """The arithmetic of one settling, on a row already locked.
 
     Everything it reads it reads from that row, so nothing here can be computed
-    from a value somebody else has meanwhile moved. `warm` and `ceiling` are
-    for the tick, which knows the answer for a whole node and must not ask it
-    once per body.
+    from a value somebody else has meanwhile moved. `known` is for the tick,
+    which knows the climate for a whole planet and the warmth for a whole node,
+    and must not ask them once per body.
     """
     moment = now or datetime.now(UTC)
     node = await session.get(Node, locked.node_id)
     if node is None:  # pragma: no cover -- a body without a node is a bug
         return Spell(left=reserve_of(constants, FROST), uncovered=0.0)
-    #: The climate is asked first so that a planet without one costs a single
-    #: query: on Terra there is nothing to be on the road from.
-    weather = await climate_of(session, node)
-    if warm is None:
+    if known is None:
+        #: The climate is asked first so that a planet without one costs a
+        #: single query: on Terra there is nothing to be on the road from.
+        weather = await climate_of(session, node)
         warm = weather is None or (
             await is_warm(session, constants, node) and not await _on_the_road(session, locked)
         )
-    if ceiling is None:
         ceiling = await limit_of(session, constants, catalog, locked, weather)
+    else:
+        weather, warm, ceiling = known.weather, known.warm, known.ceiling
 
     #: Empty means never measured, and a body that has never been cold carries
     #: a full reserve: every body printed before the frost existed is one.
@@ -203,9 +229,10 @@ async def _advance(
     #: all. The stamp moves only as far as the reserve actually shifted, and
     #: the leftover seconds wait in the clock for the next settling.
     if warm:
-        #: Coming back is as much faster than going as the vault says, and the
-        #: suit speeds both: a big coat must not take half a day to warm up.
-        rate = constants[R.FROST_WARM_RATE] * (ceiling / reserve_of(constants, weather))
+        #: An empty body fills in `frost.warm_hours` whatever its ceiling: a
+        #: big coat, or the frost's larger reserve (D-338), must not take half
+        #: a day to warm up.
+        rate = ceiling / constants[R.FROST_WARM_HOURS]
         gain = rate * hours
         #: Down: never more warmth than the hours earned. The ceiling is put
         #: on the grid too -- clamping to a ceiling off it would hand the row
@@ -233,7 +260,7 @@ async def _advance(
     #: active frozen player would burn a sixth of what a sleeping one does,
     #: while D-231 charges for time and not for idleness.
     if uncovered > 0:
-        toll = constants[R.FROST_FROZEN_STAMINA]
+        toll = frozen_toll_of(constants, weather)
         had = float(locked.stamina)
         #: Up, toward what the body had: never charged more than the cold
         #: brought. What the column cannot show is not paid, and the hours it
@@ -336,7 +363,7 @@ async def view(
     #: rose while the body walked across the ice would be a lie on the screen.
     warm = await is_warm(session, constants, node) and not await _on_the_road(session, body)
     ceiling = await limit_of(session, constants, catalog, body, weather)
-    rate = constants[R.FROST_WARM_RATE] * (ceiling / reserve_of(constants, weather))
+    rate = ceiling / constants[R.FROST_WARM_HOURS]
     #: Empty is a body that has never been cold: a full reserve **as of now**,
     #: not as of the stamp it was printed with. The client counts down from
     #: whatever it is given, and an old stamp would have it show a body frozen
@@ -345,7 +372,10 @@ async def view(
     return {
         "climate": weather,
         "warm": warm,
-        "hours": ceiling if never else float(body.warmth),
+        #: Capped the way `_advance` caps it: a reserve above the ceiling (a
+        #: suit taken off, a climate changed) is spent from the ceiling, and a
+        #: hand counting down from above it would stand still while it melts.
+        "hours": ceiling if never else min(float(body.warmth), ceiling),
         "at": datetime.now(UTC).isoformat() if never else body.warmth_at.isoformat(),
         #: Hours of reserve gained per hour here: negative is the countdown.
         "per_hour": rate if warm else -1.0,

@@ -207,7 +207,7 @@ class Body(Base):
     #: The heat reserve, hours, as of `warmth_at` (D-231). Warmth is binary --
     #: the node is warm or it is cold -- so the body needs no temperature, only
     #: how long it has left: in the cold the reserve melts hour by hour, in a
-    #: warm node it comes back `frost.warm_rate` times faster than it went.
+    #: warm node it fills from empty in `frost.warm_hours`.
     #:
     #: **Empty means never measured**, and that is a body that has never been
     #: cold: it reads as a full reserve. Kept as a pair rather than ticked into,

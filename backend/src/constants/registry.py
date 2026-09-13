@@ -677,19 +677,20 @@ OXYGEN_AUTONOMY_TARGET = Num("oxygen.autonomy_target")
 
 #: The body's heat reserve, hours, by climate -- the frost's and the heat's
 #: are their own since D-338: Aurora's snow lengthens its off-road, and
-#: Pyroxis has no snow. Melts hour by hour in the climate, comes back
-#: `frost.warm_rate` hours per hour in a warm node.
+#: Pyroxis has no snow. Melts hour by hour in the climate, and in a warm node
+#: fills from empty to its ceiling in `frost.warm_hours`, whatever the ceiling.
 FROST_RESERVE_MAX = Table("frost.reserve_max", keys=("frost", "heat"))
-FROST_WARM_RATE = Num("frost.warm_rate")
+FROST_WARM_HOURS = Num("frost.warm_hours")
 #: How much worn gear multiplies the reserve, by thing class -- keyed the way
 #: `inventory.exo_bonus` is: the engine keeps no list of warm clothes.
 FROST_SUIT_K = Table("frost.suit_k")
 #: Hours one warmer adds. The thing one walks into the cold with.
 FROST_WARMER_HOURS = Num("frost.warmer_hours")
 #: The frozen body: how much more it spends on any work, and how much stamina
-#: it burns on nothing but time.
+#: it burns on nothing but time -- the latter by climate since D-338, so that
+#: the frost's larger reserve does not make a bare night in its cold survivable.
 FROST_FROZEN_DRAIN_K = Num("frost.frozen_drain_k")
-FROST_FROZEN_STAMINA = Num("frost.frozen_stamina")
+FROST_FROZEN_STAMINA = Table("frost.frozen_stamina", keys=("frost", "heat"))
 #: What heat costs the city pool per hour, and what the brazier burns instead
 #: of a pool: heat is a round-the-clock drain, and that is the price of living
 #: on a frozen planet.

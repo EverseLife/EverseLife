@@ -14,11 +14,12 @@ this module, and no place where "a little warm" could be written:
 * **the node is cold** otherwise. On the scorching planet it is always cold in
   that sense -- there are no shelters on Pyroxis and never will be (D-230):
   the ship's board and the suit are what a body has there;
-* **the body holds a reserve in hours**. In a warm node it comes back
-  `frost.warm_rate` times faster than it goes; in a cold one it melts hour by
-  hour. Empty reserve -- **frozen**: the body burns stamina on any work at
-  `frost.frozen_drain_k` and burns `frost.frozen_stamina` an hour on nothing
-  at all. That hour is charged by whatever settles the reserve -- a command as
+* **the body holds a reserve in hours**, its bare size the climate's own
+  (`frost.reserve_max`, D-338). In a warm node it fills from empty in
+  `frost.warm_hours`; in a cold one it melts hour by hour. Empty reserve --
+  **frozen**: the body burns stamina on any work at
+  `frost.frozen_drain_k` and burns its climate's `frost.frozen_stamina` an
+  hour on nothing at all. That hour is charged by whatever settles the reserve -- a command as
   readily as the tick -- so acting is no way to outrun the cold. Stamina gone
   while still in the cold -- death, and it is always an explainable one: the
   hours were on the screen the whole time.
@@ -73,6 +74,7 @@ from src.engine.frost._base import (  # noqa: F401
 from src.engine.frost.body import (  # noqa: F401
     Spell,
     drain_multiplier,
+    frozen_toll_of,
     limit_of,
     reserve_of,
     settle,
