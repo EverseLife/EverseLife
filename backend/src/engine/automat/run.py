@@ -138,6 +138,9 @@ async def advance(
     #: whose hydrogen has nowhere safe to go works nothing -- it is never made
     #: and then let out into the air. The reason is kept on the row and
     #: told once; a flare put up, and the next stretch runs and clears it.
+    #: Off the lines means on the ground: aboard every air machine is plumbed
+    #: (`lines.plumbed_for`), and a second vent-gas recipe worked off the
+    #: lines aboard would need words of its own rather than "no flare".
     gases = vent.gases_of(book, proc.output)
     if gases and await vent.sink(session, node) is None:
         await _stand(session, row, machine, next(iter(gases)))

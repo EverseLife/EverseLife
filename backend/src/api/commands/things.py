@@ -225,7 +225,7 @@ async def _liquid_vent(state: dict, db: AsyncSession, message: dict) -> dict:
     vessel = await db.get(Item, uuid.UUID(str(message.get("vessel") or "")))
     if vessel is None:
         raise Refused(key="cmd-no-such-vessel")
-    goods_, amount, way = await vent.empty(db, current(), current_catalog(), body, vessel)
+    goods_, amount, way = await vent.empty(db, current_catalog(), body, vessel)
     return {"vented": amount, "goods": goods_, "way": way}
 
 

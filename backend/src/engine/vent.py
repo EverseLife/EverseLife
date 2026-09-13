@@ -41,10 +41,15 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.constants import Catalog, Constants
+from src.constants import Catalog
 from src.engine import events, liquid, stock, storage, travel, world
 from src.engine.errors import Refusal
+
+#: The oxygen's floor, not its door: whether there is air outside is the
+#: floor's question, and the package door would pull breathing, the gauge and
+#: the hydroponic beds in behind every batch that only asks about the sky.
 from src.engine.oxygen._base import free_air
+from src.engine.world import FLARE_STACK
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState
 from src.models.inventory import Item
@@ -56,9 +61,6 @@ from src.units import amount_float
 VOID = "void"
 #: ... or into the node's flare stack, where there is.
 FLARE = "flare"
-
-#: The thing class of the flare stack (D-215): the engine finds one by it.
-FLARE_CLASS = "flare"
 
 
 class VentError(Refusal):
@@ -87,7 +89,7 @@ async def flare_in(session: AsyncSession, node: Node) -> Item | None:
             select(Item)
             .where(
                 Item.container_id == yard.id,
-                Item.type_key.in_(world.station_names(FLARE_CLASS)),
+                Item.type_key.in_(world.station_names(FLARE_STACK)),
                 #: Put up, not lying (D-278): a flare in parts burns nothing.
                 Item.installed.is_(True),
             )
@@ -114,11 +116,7 @@ async def sink(session: AsyncSession, node: Node | None) -> str | None:
 
 
 async def empty(
-    session: AsyncSession,
-    constants: Constants,
-    catalog: Catalog,
-    body: Body,
-    vessel: Item,
+    session: AsyncSession, catalog: Catalog, body: Body, vessel: Item
 ) -> tuple[str, float, str]:
     """Empty a vessel of its vent gas: out where there is no air, into the
     node's flare where there is. Returns the gas, how much, and where it went.

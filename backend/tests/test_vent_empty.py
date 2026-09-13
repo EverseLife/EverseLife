@@ -57,7 +57,7 @@ async def test_a_cylinder_of_hydrogen_burns_in_the_flare_on_the_ground(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
     _, body, bottle = await _field(session, flare=True)
-    gas, amount, way = await vent.empty(session, constants, catalog, body, bottle)
+    gas, amount, way = await vent.empty(session, catalog, body, bottle)
     assert (gas, amount, way) == (HYDROGEN, pytest.approx(20), vent.FLARE)
     assert await _held(session, bottle) == 0
     (said,) = await _events(session, EventKind.STORAGE_VENTED)
@@ -70,7 +70,7 @@ async def test_under_a_sky_with_no_flare_the_cylinder_keeps_its_hydrogen(
 ) -> None:
     _, body, bottle = await _field(session, flare=False)
     with pytest.raises(vent.NowhereToVent) as refused:
-        await vent.empty(session, constants, catalog, body, bottle)
+        await vent.empty(session, catalog, body, bottle)
     assert refused.value.key == "liquid-vent-nowhere"
     assert refused.value.params["aboard"] == "false"
     assert await _held(session, bottle) == pytest.approx(20)
@@ -84,12 +84,12 @@ async def test_a_tank_aboard_goes_overboard_in_the_void_and_nowhere_in_port(
     vessel, body, connector = await _hull(session, constants)
     tank = await _vessel(session, connector, CYLINDER, HYDROGEN, 30)
     with pytest.raises(vent.NowhereToVent) as refused:
-        await vent.empty(session, constants, catalog, body, tank)
+        await vent.empty(session, catalog, body, tank)
     assert refused.value.params["aboard"] == "true"
 
     _seal(vessel)
     await session.flush()
-    _, amount, way = await vent.empty(session, constants, catalog, body, tank)
+    _, amount, way = await vent.empty(session, catalog, body, tank)
     assert (amount, way) == (pytest.approx(30), vent.VOID)
     assert await _held(session, tank) == 0
 
@@ -102,13 +102,13 @@ async def test_only_a_vent_gas_goes_out_and_only_from_a_vessel_one_may_open(
         session, await world.body_container(session, body), CYLINDER, quality=60, origin="тест"
     )
     with pytest.raises(vent.VentError) as empty:
-        await vent.empty(session, constants, catalog, body, oxygen)
+        await vent.empty(session, catalog, body, oxygen)
     assert empty.value.key == "liquid-source-empty"
     await world.grant_item(
         session, await storage.inside(session, oxygen), AIR, amount=3, origin="тест"
     )
     with pytest.raises(vent.VentError) as kept:
-        await vent.empty(session, constants, catalog, body, oxygen)
+        await vent.empty(session, catalog, body, oxygen)
     assert kept.value.key == "liquid-not-vent"
     assert kept.value.params["have"] == AIR
     assert await _held(session, oxygen) == pytest.approx(3)
@@ -118,7 +118,7 @@ async def test_only_a_vent_gas_goes_out_and_only_from_a_vessel_one_may_open(
     node.owner_identity_id = stranger.id
     standing = await _vessel(session, node, CYLINDER, HYDROGEN, 5)
     with pytest.raises(storage.NotYours):
-        await vent.empty(session, constants, catalog, body, standing)
+        await vent.empty(session, catalog, body, standing)
     assert await _held(session, standing) == pytest.approx(5)
 
 
@@ -145,7 +145,7 @@ async def test_two_hands_emptying_one_cylinder_take_its_hydrogen_once(
     async def empty(body_id: uuid.UUID) -> float:
         async with factory() as db, db.begin():
             me = await db.get(Body, body_id)
-            _, amount, _ = await vent.empty(db, constants, catalog, me, await db.get(Item, ids[2]))
+            _, amount, _ = await vent.empty(db, catalog, me, await db.get(Item, ids[2]))
             return amount
 
     outcomes = await asyncio.gather(empty(ids[0]), empty(ids[1]), return_exceptions=True)

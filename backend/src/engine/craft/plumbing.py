@@ -155,6 +155,10 @@ async def require_vent(
         return
     for name, per in gases.items():
         if plumbed is None:
+            #: Aboard every air machine is plumbed today (`lines.plumbed_for`),
+            #: so `aboard` is "true" only for a second vent-gas recipe worked off
+            #: the lines -- said now, so that recipe does not read "put up a
+            #: flare" in a hull that may not have one.
             raise NoFlare(
                 key="craft-no-flare", goods=name, aboard="true" if is_aboard(node) else "false"
             )
@@ -194,16 +198,11 @@ async def line_rooms(
     caps: list[tuple[float, float]] = []
     if output in plumbed.outlets:
         caps.append(
-            (
-                1.0,
-                await liquid.room_in(session, catalog, plumbed.outlets[output], output, lock=False),
-            )
+            (1.0, await liquid.room_seen(session, catalog, plumbed.outlets[output], output))
         )
     gases = vent.gases_of(catalog, output)
     if gases and await vent.sink(session, node) is None:
         for name, per in gases.items():
-            room = await liquid.room_in(
-                session, catalog, plumbed.vents.get(name, []), name, lock=False
-            )
+            room = await liquid.room_seen(session, catalog, plumbed.vents.get(name, []), name)
             caps.append((per, room))
     return caps

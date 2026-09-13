@@ -48,6 +48,9 @@ PLACE = "place"
 #: overboard -- nothing to fall short of, but not "all of it out" either.
 OVERBOARD = "overboard"
 
+#: `outlets` was not handed the plumbing, and reads it itself.
+_UNREAD = object()
+
 
 async def outlets(
     session: AsyncSession,
@@ -58,19 +61,23 @@ async def outlets(
     machine: Item | None,
     output: str,
     body: Body | None,
+    plumbed: lines.Plumbing | None | object = _UNREAD,
 ) -> list[dict[str, object]]:
     """The places a batch of `output` at this machine pours into, for the window.
 
     One row per liquid: `goods`, `where` -- `line`, `reach` or `place` with the
     `room` they have now, in units of that liquid; a vent gas with a way out of
-    the place says `void`, `overboard` or `flare` and has no room to fall short of. Empty for
-    a batch that gives no liquid at all.
+    the place says `void`, `overboard` or `flare` and has no room to fall short
+    of. Empty for a batch that gives no liquid at all. `plumbed` is the
+    machine's plumbing when the caller has read it already (the forecast has).
     """
     book = catalog.recipes
     gases = vent.gases_of(catalog, output)
     if not book.is_liquid(output) and not gases:
         return []
-    plumbed = await lines.plumbing_of(session, constants, catalog, machine, output)
+    if plumbed is _UNREAD:
+        plumbed = await lines.plumbing_of(session, constants, catalog, machine, output)
+    assert plumbed is None or isinstance(plumbed, lines.Plumbing)
     rows: list[dict[str, object]] = []
     if book.is_liquid(output):
         if plumbed is not None:
@@ -82,7 +89,7 @@ async def outlets(
                 body is not None and body.state is BodyState.ALIVE and body.node_id == node.id
             )
             where, vessels = await _reach(session, catalog, node, body if at_bench else None)
-        room = await liquid.room_in(session, catalog, vessels, output, lock=False)
+        room = await liquid.room_seen(session, catalog, vessels, output)
         rows.append({"goods": output, "where": where, "room": amount_float(amount(room))})
     if gases:
         way = await vent.sink(session, node)
@@ -91,9 +98,7 @@ async def outlets(
                 lined = plumbed is not None and way == vent.VOID and plumbed.vents.get(name)
                 rows.append({"goods": name, "where": OVERBOARD if lined else way})
             elif plumbed is not None:
-                room = await liquid.room_in(
-                    session, catalog, plumbed.vents.get(name, []), name, lock=False
-                )
+                room = await liquid.room_seen(session, catalog, plumbed.vents.get(name, []), name)
                 rows.append({"goods": name, "where": LINE, "room": amount_float(amount(room))})
     return rows
 

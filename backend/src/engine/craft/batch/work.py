@@ -104,6 +104,7 @@ async def plan(
         machine=ready.station,
         output=ready.proc.output,
         body=body,
+        plumbed=ready.plumbed,
     )
     return replace(ready.plan, outlets=tuple(shown)) if shown else ready.plan
 

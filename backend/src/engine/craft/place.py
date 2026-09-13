@@ -17,8 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Catalog, Constants
 from src.engine.biome import on_ice
 from src.engine.craft._base import CraftError
-from src.engine.vent import FLARE_CLASS
-from src.engine.world import BIOPRINTER, station_names
+from src.engine.world import BIOPRINTER, FLARE_STACK, station_names
 from src.models.identity import Body
 from src.models.world import Node, is_aboard
 
@@ -44,7 +43,7 @@ async def require_place(
     #: A flare stack burns vent gas under a sky with air, and a hull has none
     #: (D-340): a sealed hull lets the gas out, one under a sky keeps it in the
     #: vessels on its line. Made aboard, it would stand and serve nothing.
-    if output in station_names(FLARE_CLASS) and is_aboard(where):
+    if output in station_names(FLARE_STACK) and is_aboard(where):
         raise CraftError(key="craft-flare-aboard", goods=output)
     #: Making a bioprinter in a city **is** putting one up there, and the door
     #: it must pass is the same one (D-312).

@@ -275,6 +275,28 @@ async def room_in(
     return free if unit <= 0 else free / unit
 
 
+async def room_seen(
+    session: AsyncSession, catalog: Catalog, vessels: Sequence[Item], type_key: str
+) -> float:
+    """`room_in` for a reading: how many units of this liquid these vessels
+    take together, their contents read in two queries for all of them and
+    nothing locked -- what a window shows and a forecast caps by, asked while
+    the player is still choosing. A vessel admits liquids alone, so what lies
+    in one is the whole of its load: no nested storage to walk into."""
+    if not is_liquid(catalog, type_key) or not vessels:
+        return 0.0
+    held = await storage.contents_of(session, vessels)
+    unit = catalog.recipes.mass_of(type_key)
+    free = 0.0
+    for vessel in vessels:
+        inside = held.get(vessel.id, [])
+        if any(one.type_key != type_key for one in inside):
+            continue
+        load = sum(gear.mass_of(catalog, one.type_key, amount_float(one.amount)) for one in inside)
+        free += max(0.0, (storage.capacity(catalog, vessel.type_key) or 0.0) - load)
+    return free if unit <= 0 else free / unit
+
+
 async def settle(
     session: AsyncSession,
     catalog: Catalog,
