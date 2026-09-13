@@ -8,7 +8,7 @@ sliver is carried to the next stretch instead, as `body.air_owed` carries it
 outside. Writes no row: every hull starts owing nothing.
 
 Revision ID: 5797e1bbb4e6
-Revises: 4fa065ef3486
+Revises: b129894d1b9a
 Create Date: 2026-09-13 18:40:00.000000
 """
 from __future__ import annotations
@@ -19,7 +19,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = '5797e1bbb4e6'
-down_revision: str | None = '4fa065ef3486'
+down_revision: str | None = 'b129894d1b9a'
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
