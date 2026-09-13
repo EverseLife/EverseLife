@@ -64,6 +64,7 @@ from src.engine.world.people import (  # noqa: F401
     doors,
     is_door,
     learn,
+    lock_bodies,
     population,
     print_body,
     printer_nodes,

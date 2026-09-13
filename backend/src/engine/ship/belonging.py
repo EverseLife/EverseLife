@@ -74,10 +74,17 @@ async def crew_of(session: AsyncSession, ship: Ship) -> list[Body]:
     return list(
         (
             await session.execute(
-                select(Body).where(
+                select(Body)
+                .where(
                     Body.node_id.in_([node.id for node in nodes]),
                     Body.state == BodyState.ALIVE,
                 )
+                #: In id order, the one every holder of several bodies keeps
+                #: (`world.lock_bodies`): the life support writes the crew row
+                #: by row in this order (`oxygen._breathing`), and in any other
+                #: it would hold one member while waiting for another that a
+                #: handover between the two already holds.
+                .order_by(Body.id)
             )
         )
         .scalars()
