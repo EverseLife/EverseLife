@@ -43,7 +43,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import access, energy, estate, events, gear, station, travel, world
+from src.engine import access, estate, events, fuel_plant, gear, station, travel, world
 from src.engine.errors import Refusal
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState
@@ -486,10 +486,7 @@ async def pick(
     #: and pouring in is a handover with no way back. Without this the
     #: promise was a docstring -- and once the works fund began paying for
     #: hauls (D-248), pour-collect-pick-up turned theft into a money pump.
-    if (
-        item.type_key in constants[R.ENERGY_FUEL_ENERGY]
-        and await energy.plant_view(session, constants, node) is not None
-    ):
+    if item.type_key in await fuel_plant.off_the_pile(session, constants, node):
         raise StorageError(key="storage-station-fuel", goods=item.type_key)
 
     qty = amount_float(item.amount) if quantity is None else quantity

@@ -125,10 +125,20 @@ async def locked_stacks(
     type_keys: Iterable[str],
     *,
     worst_first: bool = False,
+    barred: Iterable[str] = (),
 ) -> list[Item]:
-    """`stock.locked_stacks` over the container and the vessels in it."""
+    """`stock.locked_stacks` over the container and the vessels in it.
+
+    `barred` names what is taken only out of the vessels, never off the
+    container itself (`stock.locked_stacks`).
+    """
+    names = tuple(barred)
     return await stock.locked_stacks(
-        session, await reach(session, catalog, container), type_keys, worst_first=worst_first
+        session,
+        await reach(session, catalog, container),
+        type_keys,
+        worst_first=worst_first,
+        barred=(container.id, names) if names else None,
     )
 
 

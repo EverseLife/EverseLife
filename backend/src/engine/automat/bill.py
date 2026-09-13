@@ -13,15 +13,15 @@ the order `ledger.post` locks debited accounts in. A bench takes its stacks,
 then its pool, then its master's account (`energy.draw_for_work`): an account
 taken between two pools would be that bench's account the other way round.
 
-One hole the order does not close: a machine standing on a fuel plant's pile
-and eating its fuel (or making it, folded into the pile) -- the pile is barred
-to a bench's work, not to an automat's (D-315) -- holds part of that pile from
-its advance, out of the piles' own order and before any pool. Whoever takes
-the piles in order can then wait on the tick holding what the tick reaches for
-next: the energy step (an earlier city's pool, an earlier plant yard of the
-same city, the rest of the pile), the frost step's braziers on those piles, or
-a command drawing this city's pool (a bench, a charge, a print, the meter)
-while it holds a stack a later machine of the tick needs.
+One hole the order does not close (OQ-174): a machine standing by a fuel
+plant no longer eats its pile (D-342), but one that makes fuel folds it into
+the pile (D-214) and holds that stack from its advance, out of the piles' own
+order and before any pool. Whoever takes the piles in order can then wait on
+the tick holding what the tick reaches for next: the energy step (an earlier
+city's pool, an earlier plant yard of the same city, the rest of the pile),
+the frost step's braziers on those piles, or a command drawing this city's
+pool (a bench, a charge, a print, the meter) while it holds a stack a later
+machine of the tick needs.
 """
 
 from __future__ import annotations
