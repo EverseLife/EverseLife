@@ -190,6 +190,10 @@ async def advance(
             bill = await energy_bill.promise(
                 session, constants, row, node, worked, energy_rate, now=moment, tab=tab
             )
+            if bill is not None and lube_rate > 0 and amount(lube_rate * bill.hours) <= 0:
+                #: A sliver the lubricant cannot be measured for is no work:
+                #: hours that burn nothing are not hours (D-339 p. 8).
+                bill = None
             worked = 0.0 if bill is None else bill.hours
 
     produced = 0.0
@@ -373,6 +377,9 @@ async def _pass(
             _forget_the_run(session)
             log.exception("automat %s: the advance failed and was passed over", row_id)
             continue
+        finally:
+            #: Its turn is over, whatever it took: what it left goes to the next.
+            energy_bill.settle(tab, row_id)
         made += paid
     await _members(session, constants, members, tab, now)
     refused = await energy_bill.pay(session, constants, tab.bills, now=now)
@@ -385,22 +392,19 @@ async def _ask(
     session: AsyncSession, constants: Constants, tab: energy_bill.Tab, now: datetime
 ) -> None:
     """Every programmed automat's hours since its count, at the rate, on its
-    supply's demand -- read, not locked: the promise that follows reads the
-    supply the same way."""
+    supply's demand -- read, not locked, before any stack is: the promise that
+    follows reads the supply the same way."""
     rate = constants[R.AUTO_ENERGY_PER_HOUR]
     rows = (
         await session.execute(
-            select(AutomatRow.node_id, AutomatRow.counted_at).where(
-                AutomatRow.recipe_key.is_not(None)
-            )
+            select(AutomatRow.id, Node, AutomatRow.counted_at)
+            .join(Node, Node.id == AutomatRow.node_id)
+            .where(AutomatRow.recipe_key.is_not(None))
         )
     ).all()
-    for node_id, counted_at in rows:
-        node = await session.get(Node, node_id)
-        if node is None:  # pragma: no cover -- a node is never deleted
-            continue
+    for row_id, node, counted_at in rows:
         hours = max(0.0, (now - counted_at).total_seconds() / SECONDS_PER_HOUR)
-        await energy_bill.ask(session, tab, node, rate * hours)
+        await energy_bill.ask(session, tab, row_id, node, rate * hours)
 
 
 async def _members(

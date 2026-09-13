@@ -84,6 +84,10 @@ class FieldAutomat(Base):
     #: (`engine.agro.TROUBLES`), or None while nothing it was asked to do is
     #: held back. Written when it changes, told to the owner then.
     trouble: Mapped[str | None] = mapped_column(nullable=True)
+    #: The word last told to the owner's journal, and when: the same word is
+    #: not told again within a Terran day (D-339 p. 11).
+    told: Mapped[str | None] = mapped_column(nullable=True)
+    told_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     #: Up to what moment energy, lubricant and wear are counted.
     counted_at: Mapped[datetime] = created_column()

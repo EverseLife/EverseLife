@@ -143,7 +143,8 @@ async def test_a_broken_machine_is_passed_over_and_can_still_be_stopped(
     await session.refresh(place.machine)
     await session.refresh(place.body)
     assert await agro.stop(session, constants, catalog, place.body, place.machine) is True
-    assert await agro.of_item(session, place.machine) is None
+    kept = await agro.of_item(session, place.machine)
+    assert kept is None or not kept.program, "nothing programmed; a busy machine keeps its minutes"
 
 
 async def test_a_machine_put_up_in_another_yard_works_there(

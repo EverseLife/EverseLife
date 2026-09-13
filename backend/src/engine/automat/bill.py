@@ -88,15 +88,17 @@ class Tab:
     bills: list[Bill] = field(default_factory=list)
     supplies: dict[uuid.UUID, float] = field(default_factory=dict)
     purses: dict[uuid.UUID, int] = field(default_factory=dict)
-    #: What the family asks of each supply this pass, energy: every machine's
-    #: hours at its rate, counted before any of them works (`ask`). An upper
-    #: bound -- a machine short of lubricant or inputs asks for hours it will
-    #: not take, and what it leaves stays in the supply.
+    #: What the machines still to work ask of each supply this pass, energy:
+    #: every machine's hours at its rate, counted before any of them works
+    #: (`ask`) and taken off once its turn is over, whatever it took (`settle`).
+    #: An upper bound -- a machine short of lubricant or inputs asks for hours
+    #: it will not take, and what it leaves goes to the machines after it.
     demand: dict[uuid.UUID, float] = field(default_factory=dict)
-    #: The share of its hours each machine on a supply is promised: one while
-    #: the supply covers the demand, less for all of them alike when it does
-    #: not (D-339 p. 8). Set at the supply's first reading.
-    shares: dict[uuid.UUID, float] = field(default_factory=dict)
+    #: Each asking machine's supply and energy, by its row, for `settle`.
+    asked: dict[uuid.UUID, tuple[uuid.UUID, float]] = field(default_factory=dict)
+    #: The supply of each node the pass has met, and whether it is a grid:
+    #: asked once a node, by `ask` and `promise` alike.
+    nodes: dict[uuid.UUID, tuple[uuid.UUID, bool]] = field(default_factory=dict)
     #: The pool row behind a grid supply, for its tariff. A row, not a number,
     #: so the tariff is priced by `energy.price_at` like the draw's. No advance
     #: writes a pool, so a machine's savepoint rolling back leaves it as read;
@@ -118,20 +120,35 @@ class Tab:
         del self.bills[count:]
 
 
-async def supply_of(session: AsyncSession, node: Node) -> tuple[uuid.UUID, Node | None]:
-    """What a machine in this node draws from: the city's grid node, or --
-    where no grid reaches -- the hull or node whose cells stand beside it
-    (`battery.hull_of`). The grid node itself comes along, or nothing."""
-    grid = await energy.grid_node(session, node)
-    return (battery.hull_of(node) if grid is None else grid.id), grid
+async def supply_of(session: AsyncSession, tab: Tab, node: Node) -> tuple[uuid.UUID, bool]:
+    """What a machine in this node draws from, and whether it is a grid: the
+    city's grid node, or -- where no grid reaches -- the hull or node whose
+    cells stand beside it (`battery.hull_of`). Asked once a node a pass."""
+    if node.id not in tab.nodes:
+        grid = await energy.grid_node(session, node)
+        tab.nodes[node.id] = (battery.hull_of(node) if grid is None else grid.id), grid is not None
+    return tab.nodes[node.id]
 
 
-async def ask(session: AsyncSession, tab: Tab, node: Node, energy_needed: float) -> None:
+async def ask(
+    session: AsyncSession, tab: Tab, key: uuid.UUID, node: Node, energy_needed: float
+) -> None:
     """Count a machine's demand on its supply before the pass works (`Tab.demand`)."""
     if energy_needed <= 0:
         return
-    supply, _ = await supply_of(session, node)
+    supply, _ = await supply_of(session, tab, node)
     tab.demand[supply] = tab.demand.get(supply, 0.0) + energy_needed
+    tab.asked[key] = (supply, energy_needed)
+
+
+def settle(tab: Tab, key: uuid.UUID) -> None:
+    """A machine's turn is over, whatever it took: its demand is off the supply,
+    and what it left is there for the machines after it."""
+    found = tab.asked.pop(key, None)
+    if found is None:
+        return
+    supply, energy_needed = found
+    tab.demand[supply] = max(0.0, tab.demand.get(supply, 0.0) - energy_needed)
 
 
 async def promise(
@@ -155,6 +172,13 @@ async def promise(
     or advanced: the pool is read as it stands, its production since its last
     count waiting for the draw.
 
+    A supply short of what the machines still to work ask of it (`Tab.demand`)
+    gives this one the same share of its hours it gives each of them -- what
+    is left over what is still asked -- so the first machines of the pass do
+    not take all of theirs and leave the last none (D-339 p. 8). Hours whose
+    energy is below the pool's grid are no hours: a sliver nobody can measure
+    is not given away.
+
     A forecast can still overshoot the draw. The purse is held to it: one that
     pays less at the draw sends the pass back (`run.tick_automats`, and a
     field automaton's command in `agro.run.advance`). The supply
@@ -165,25 +189,22 @@ async def promise(
     `20-systems/12-energy.md`) -- provisional, and for the family only: for
     the other buildings on an emptied pool the point is still open.
     """
-    supply, grid = await supply_of(session, node)
+    supply, grid = await supply_of(session, tab, node)
     pool = None
-    if grid is not None:
+    if grid:
         if supply not in tab.pools:
             tab.pools[supply] = await energy.pool_of(session, constants, node, create=False)
         pool = tab.pools[supply]
     if supply not in tab.supplies:
-        if grid is None:
+        if not grid:
             tab.supplies[supply] = await battery.charge_in(session, constants, node, now=now)
         else:
             tab.supplies[supply] = 0.0 if pool is None else float(pool.stored)
-        #: Short of the family's demand, every machine on the supply gets the
-        #: same share of its hours -- not the first machines of the pass all of
-        #: theirs and the last none (D-339 p. 8).
-        asked = tab.demand.get(supply, 0.0)
-        held = max(0.0, tab.supplies[supply])
-        tab.shares[supply] = 1.0 if asked <= held else held / asked
-    hours = min(worked * tab.shares[supply], max(0.0, tab.supplies[supply]) / rate)
-    if hours <= 0:
+    left = max(0.0, tab.supplies[supply])
+    wanted = tab.demand.get(supply, 0.0)
+    share = 1.0 if wanted <= left else left / wanted
+    hours = min(worked * share, left / rate)
+    if amount(hours * rate) <= 0:
         return None
     price = 0
     owner = row.owner_identity_id
@@ -202,7 +223,7 @@ async def promise(
         owner_identity_id=owner,
         node_id=node.id,
         supply=supply,
-        grid=grid is not None,
+        grid=grid,
         hours=hours,
         rate=rate,
         price=price,

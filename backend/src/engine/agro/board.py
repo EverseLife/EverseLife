@@ -15,7 +15,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -217,14 +217,22 @@ async def stop(
     moment = now or datetime.now(UTC)
     node = await _machine_here(session, body, item)
     row = await of_item(session, item)
-    if row is None:
+    if row is None or not row.program:
         return False
     await session.refresh(row, with_for_update=True)
     await _settle_old(session, constants, catalog, row, item, moment)
     row = await of_item(session, item)
-    if row is None:
+    if row is None or not row.program:
         return False
-    await session.delete(row)
+    if row.busy_until is not None and row.busy_until > moment:
+        #: Busy with an action whose minutes it has not served: the row keeps
+        #: them, so a programme set again waits them out rather than acting at
+        #: once on the time taking the programme off wiped (D-339 p. 8).
+        row.program = []
+        row.trouble = None
+        await session.execute(delete(FieldAutomatPlot).where(FieldAutomatPlot.automat_id == row.id))
+    else:
+        await session.delete(row)
     await session.flush()
     await events.record(
         session,
@@ -256,6 +264,9 @@ async def view(session: AsyncSession, body: Body) -> dict[str, Any]:
                 .join(Item, Item.id == FieldAutomat.item_id)
                 .where(FieldAutomat.node_id == node.id, Item.container_id == yard.id)
                 .where(Item.type_key.in_(world.station_names(FIELD_AUTOMAT)))
+                #: A machine stopped while busy keeps its row for the minutes it
+                #: owes, and is not programmed.
+                .where(func.jsonb_array_length(FieldAutomat.program) > 0)
                 .order_by(FieldAutomat.created_at)
             )
         )

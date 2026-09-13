@@ -39,7 +39,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import NamedTuple
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -60,7 +60,7 @@ from src.engine.agro._base import FAULT, NO_LUBE, NO_PLOTS, NO_POWER, NOT_ENTITL
 from src.engine.agro.hands import Done, Shift
 from src.engine.agro.plan import BY_AMOUNT, TROUBLE_WORK, Bed, Due, beds_of, plan, walk
 from src.engine.automat import bill as energy_bill
-from src.models.agro import FieldAutomat
+from src.models.agro import FieldAutomat, FieldAutomatPlot
 from src.models.event import EventKind
 from src.models.inventory import Container, ContainerKind, Item
 from src.models.world import Node
@@ -133,6 +133,8 @@ async def _advance(
     hours = (moment - row.counted_at).total_seconds() / SECONDS_PER_HOUR
     if hours <= 0:
         return 0
+    if not row.program:
+        return await _stopped(session, row, moment)
     book = catalog or current_catalog()
     machine = await session.get(Item, row.item_id)
     node = await session.get(Node, row.node_id)
@@ -155,18 +157,18 @@ async def _advance(
     yard = None if node is None else await world.node_container(session, node)
     if node is None or yard is None or machine.container_id != yard.id or not machine.installed:
         #: Taken down or carried off: a machine works only where it stands.
-        return await _idle(session, row, row.trouble, moment)
+        return await _idle(session, constants, row, row.trouble, moment)
     #: The owner's right to the node, asked every time: land sold from under
     #: the machine stops it -- the seller neither pays for it nor takes from
     #: chests that are the buyer's now, and the buyer may set it anew.
     owner = row.owner_identity_id
     if owner is None or not await station.may_build_as(session, owner, node):
-        return await _idle(session, row, NOT_ENTITLED, moment)
+        return await _idle(session, constants, row, NOT_ENTITLED, moment)
 
     beds = await beds_of(session, constants, book, row, moment)
     if not beds:
         #: Nothing given to it: it idles, and idling draws nothing.
-        return await _idle(session, row, NO_PLOTS, moment)
+        return await _idle(session, constants, row, NO_PLOTS, moment)
     walk(constants, row, beds, moment)
 
     #: The yard's stacks the hours may touch, in ONE query and one lock order
@@ -192,6 +194,10 @@ async def _advance(
         bill = await energy_bill.promise(
             session, constants, row, node, worked, rate, now=moment, tab=tab, purpose=PURPOSE
         )
+        if bill is not None and lube_rate > 0 and amount(lube_rate * bill.hours) <= 0:
+            #: A sliver the lubricant cannot be measured for is no work: hours
+            #: that burn nothing do not start an action (D-339 p. 8).
+            bill = None
         if bill is None:
             short, worked = NO_POWER, 0.0
         else:
@@ -220,7 +226,7 @@ async def _advance(
 
     if lube_rate > 0 and worked > 0:
         await stock.consume(session, lube, amount(lube_rate * worked))
-    await _stand(session, row, trouble)
+    await _stand(session, constants, row, trouble, moment, told=worked <= 0 or trouble != short)
     row.counted_at = moment
     await session.flush()
     return done
@@ -287,11 +293,15 @@ def _kept(was: str | None, due: list[Due], tried: set[str]) -> str | None:
 
 
 async def _idle(
-    session: AsyncSession, row: FieldAutomat, trouble: str | None, now: datetime
+    session: AsyncSession,
+    constants: Constants,
+    row: FieldAutomat,
+    trouble: str | None,
+    now: datetime,
 ) -> int:
     """The machine stands through these hours: nothing worked, nothing drawn."""
     _stretch(row, (now - row.counted_at).total_seconds() / SECONDS_PER_HOUR)
-    await _stand(session, row, trouble)
+    await _stand(session, constants, row, trouble, now)
     row.counted_at = now
     await session.flush()
     return 0
@@ -305,17 +315,55 @@ def _stretch(row: FieldAutomat, idle_hours: float) -> None:
         row.busy_until += timedelta(hours=idle_hours)
 
 
-async def _stand(session: AsyncSession, row: FieldAutomat, trouble: str | None) -> None:
+async def _stopped(session: AsyncSession, row: FieldAutomat, now: datetime) -> int:
+    """A machine whose programme was taken off while it was still busy: its row
+    keeps the action's unserved minutes, so a programme set again waits them out
+    (D-339 p. 8). It draws, wears and says nothing; not busy any more, it goes."""
+    if row.busy_until is None or row.busy_until <= row.counted_at:
+        await session.delete(row)
+        await session.flush()
+        return 0
+    _stretch(row, (now - row.counted_at).total_seconds() / SECONDS_PER_HOUR)
+    row.counted_at = now
+    await session.flush()
+    return 0
+
+
+async def _stand(
+    session: AsyncSession,
+    constants: Constants,
+    row: FieldAutomat,
+    trouble: str | None,
+    now: datetime,
+    *,
+    told: bool = True,
+) -> None:
     """Write the word the machine stands with; tell the owner when a new one comes.
 
     The journal line names the place; why the machine stands is its window's
-    word, where the owner can act on it (D-339 p. 11).
+    word, where the owner can act on it (D-339 p. 11). The window hears every
+    change at once. The journal is told a word only when the machine stood
+    for it (`told`: not a machine merely slowed by a short supply), and the
+    same word not again within a Terran day of telling it -- a supply that
+    comes and goes around the demand would otherwise tell the owner every other
+    tick.
     """
-    if trouble == row.trouble:
+    changed = trouble != row.trouble
+    if changed:
+        row.trouble = trouble
+        await events.announce(
+            session,
+            touches=("node",),
+            identity_id=row.owner_identity_id,
+            event="agro.trouble",
+            machine=str(row.item_id),
+        )
+    if trouble is None or not told or (not changed and trouble == row.told):
         return
-    row.trouble = trouble
-    if trouble is None:
+    day = timedelta(hours=farm.day_hours(constants))
+    if trouble == row.told and row.told_at is not None and now - row.told_at < day:
         return
+    row.told, row.told_at = trouble, now
     node = await session.get(Node, row.node_id)
     await events.record(
         session,
@@ -397,13 +445,21 @@ class _Fields:
         self, session: AsyncSession, constants: Constants, tab: energy_bill.Tab, now: datetime
     ) -> None:
         rate = constants[R.AGRO_ENERGY_PER_HOUR]
-        rows = (await session.execute(select(FieldAutomat.node_id, FieldAutomat.counted_at))).all()
-        for node_id, counted_at in rows:
-            node = await session.get(Node, node_id)
-            if node is None:  # pragma: no cover -- a node is never deleted
-                continue
+        #: Only a machine with a programme and plots given to it: one without
+        #: either draws nothing and must not shrink the others' share.
+        given = select(FieldAutomatPlot.automat_id).where(
+            FieldAutomatPlot.automat_id == FieldAutomat.id
+        )
+        rows = (
+            await session.execute(
+                select(FieldAutomat.id, Node, FieldAutomat.counted_at)
+                .join(Node, Node.id == FieldAutomat.node_id)
+                .where(func.jsonb_array_length(FieldAutomat.program) > 0, given.exists())
+            )
+        ).all()
+        for row_id, node, counted_at in rows:
             hours = max(0.0, (now - counted_at).total_seconds() / SECONDS_PER_HOUR)
-            await energy_bill.ask(session, tab, node, rate * hours)
+            await energy_bill.ask(session, tab, row_id, node, rate * hours)
 
     async def work(
         self, session: AsyncSession, constants: Constants, tab: energy_bill.Tab, now: datetime
@@ -455,7 +511,10 @@ async def _work_fields(
                 #: The database's no, not the machine's fault: next minute.
                 log.warning("field automat %s: the database refused this minute", row_id)
             else:
-                await _fault(session, row_id, moment)
+                await _fault(session, constants, row_id, moment)
+        finally:
+            #: Its turn is over, whatever it took: what it left goes to the next.
+            energy_bill.settle(tab, row_id)
     return done
 
 
@@ -473,7 +532,9 @@ def _passing(failure: Exception) -> bool:
     return state in _PASSING
 
 
-async def _fault(session: AsyncSession, row_id: uuid.UUID, now: datetime) -> None:
+async def _fault(
+    session: AsyncSession, constants: Constants, row_id: uuid.UUID, now: datetime
+) -> None:
     """A machine whose advance failed: the word `fault`, the clock moved on, told once."""
     async with session.begin_nested():
         row = await _take(session, row_id)
@@ -482,4 +543,4 @@ async def _fault(session: AsyncSession, row_id: uuid.UUID, now: datetime) -> Non
             return
         if row.trouble != FAULT:
             log.exception("field automat %s: the advance failed; it stands with a fault", row_id)
-        await _idle(session, row, FAULT, now)
+        await _idle(session, constants, row, FAULT, now)
