@@ -49,11 +49,6 @@ export const WX_TEX_FLOOR = 0.35;
 export const WX_OCTAVE_2 = 0.35;
 export const WX_HASH = [1597334677, 3812015801, 2798796415, 3367900313] as const;
 export const WX_MIX = 0x45d9f3b;
-/** What the ground's rain share is taken to be over the sea, where the
- *  rain raster holds nought (the march records nothing falling onto the
- *  sea): the neutral half, so the wet bias neither thins nor thickens the
- *  sky there. Read as nought, the sea thinned every cloud to the shore's
- *  line and the clouds drew the coasts (owner, 2026-09-13). */
 /** The picture's grain of a system (D-336 item 9): two finer octaves of
  *  its own texture, this many times finer, riding its spin. */
 export const WX_GRAIN_SCALE = 4;

@@ -163,11 +163,12 @@ class Field:
     sea_m: np.ndarray  # to the nearest sea, metres, uint16, capped
     temperature_c: np.ndarray  # int8
     rain: np.ndarray  # uint8, 255 = 1.0
-    #: The rain share of the planet's land on the mean -- every cell that is
-    #: neither sea nor lake, each of the same area (D-328). What the sky over
-    #: the sea is stretched by (`climate.sky_wetness`): the raster holds no
-    #: measure there, and the land's own mean keeps a sea as cloudy as the
-    #: land about it on the whole, so no coast is drawn by the clouds.
+    #: The rain share of the planet's ground on the mean -- every cell that
+    #: is not sea, each of the same area (D-328). What the sky over the sea
+    #: is stretched by (`climate.sky_wetness`): the sea is the raster's one
+    #: hole (a lake is measured), and the ground's own mean keeps a sea as
+    #: cloudy as the ground about it on the whole, so the clouds draw no
+    #: coast on the mean.
     land_rain: float
     ice: np.ndarray  # bool
     province: np.ndarray  # uint8: 0 none, k the province with code k
@@ -577,9 +578,9 @@ def _loaded(directory: str, planet: str, mountain_share: float, expected: tuple)
 
 
 def _land_rain(water: np.ndarray, rain: np.ndarray) -> float:
-    """The land's mean rain share, nought to one; a world of no land at all
-    has no coast to draw, and its sea reads the neutral half."""
-    land = (water != SEA) & (water != LAKE)
+    """The mean rain share of all that is not sea, nought to one; a world of
+    no ground at all has no coast to draw, and its sea reads the neutral half."""
+    land = water != SEA
     if not land.any():
         return NEUTRAL_RAIN
     return float(rain[land].astype(np.float64).mean() / BYTE)

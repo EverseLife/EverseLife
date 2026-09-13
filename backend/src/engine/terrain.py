@@ -374,9 +374,10 @@ def raster_passport(constants: Constants, planet: Planet, field: fields.Field) -
         #: drying law read it on, not a share of the planet's wettest cell.
         "temperature_c": _temperature_passport(constants, planet),
         #: What the sky over the sea is stretched by (`Field.land_rain`): the
-        #: land's mean rain share over the field's own cells. Sent, not left
-        #: to the picture: the atlas repeats its border cells and thins into
-        #: mips, and a mean of what the picture holds would be another number
-        #: than the engine's -- and the probe must say the engine's weather.
+        #: ground's mean rain share over the field's own cells. Sent, not left
+        #: to the picture: the picture's rasters are the field thinned to a
+        #: coarser grid (`raster_nside`), and a mean of what the picture holds
+        #: would be another number than the engine's -- and the probe must say
+        #: the engine's weather.
         "sea_wet": field.land_rain,
     }

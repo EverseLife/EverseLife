@@ -78,9 +78,10 @@ export const CLOUDS_SHELL_GLSL = `
     vec2 uv_sky = atlasAt(facePlace(sky), marginOf(lod_sky));
     float h_sky = heightAt(uv_sky, lod_sky);
     //: Over the sea (the ground below nought) the rain raster is a hole,
-    //: not a measure: the sky reads the neutral half there, or the wet bias
-    //: thinned every cloud to the shore and the clouds drew the coasts
-    //: (owner, 2026-09-13).
+    //: not a measure: the sky reads the land's mean there (u_wx_sea_wet,
+    //: the passport's sea_wet), or the wet bias thinned the clouds over
+    //: the sea against the land and the clouds drew the coasts (owner,
+    //: 2026-09-13).
     float wet_sky = h_sky < 0.0 ? u_wx_sea_wet : textureLod(u_rain, uv_sky, lod_sky).r;
     float raw_sky;
     float fine;
@@ -115,7 +116,7 @@ export const CLOUDS_FIELD_GLSL = `
   //: this ground. The ground's own rain share stretches the cover as a
   //: factor: a wet windward slope thickens what the wind brings, a dry lee
   //: thins it, and neither makes weather of a clear sky.
-  //: The sea's rain share is the neutral half, as over the shell above.
+  //: The sea's rain share is the land's mean, as over the shell above.
   float wet_here = h < 0.0 ? u_wx_sea_wet : rain01;
   float cover = clamp(wxCover(here) * (1.0 + u_wx_bias * (2.0 * wet_here - 1.0)), 0.0, 1.0);
   float cloud = smoothstep(u_wx_gates.x, u_wx_gates.y, cover);
