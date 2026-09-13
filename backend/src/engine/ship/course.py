@@ -184,9 +184,9 @@ def curve(
 
     One sample per point of the grid: the cheapest direct arc at that time.
     Missing samples are times no arc serves -- everything grazes the corona,
-    or the geometry gives nothing. No arc is bent round a third planet any
-    more (D-289): the planets pull the whole way, and the flyby comes out of
-    the simulation rather than out of a search.
+    or the geometry gives nothing. The corridor's curve and the map's calendar
+    stay direct: a flyby is searched and refined for the one hull's slider
+    (`sky.flybys`, D-341), at a cost no map read of every pair could pay.
 
     Planetary and nothing else: what the hull can do with it is `deliverable`
     and the tanks. Memoised, because every hull over a planet asks the same

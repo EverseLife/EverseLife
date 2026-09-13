@@ -18,7 +18,8 @@ end is a job in the journal.
 
 **What a tick costs.** Only hulls under an order are stepped every minute;
 a coasting hull costs a step every few hours, a moored one nothing. The
-helm asks the sky one Lambert solution a step.
+helm asks the sky one Lambert solution a step -- under a flyby (D-341) none:
+it coasts, and asks for a correction whenever the time left has halved.
 """
 
 from __future__ import annotations

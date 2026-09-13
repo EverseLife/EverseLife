@@ -24,6 +24,8 @@ import pytest
 
 from sky_kit import system
 from src import astro, sky
+from src.constants import Constants
+from src.constants import registry as R
 from src.engine.ship import course
 from src.sky import assist, field, flyby, lambert
 from src.units import HOURS_PER_DAY, MINUTES_PER_HOUR, TRACE_POINTS
@@ -289,3 +291,13 @@ def test_the_helm_flies_a_flyby_onto_the_circle_within_the_promise() -> None:
     #: The price is the plan's, give or take what finite burns cost at both
     #: ends -- the same looseness a crossing's quote has.
     assert spent <= 1.3 * bent.dv
+
+
+def test_the_numbers_here_are_the_vaults_own(constants: Constants) -> None:
+    """The grid, the ceilings and the floor written out above are the vault's
+    (D-317, D-341): the build is read here and nowhere else in this file."""
+    assert float(constants[R.ORBIT_SLIDER_FROM_HOURS]) == HOURS[0]
+    assert course.flyby_grid(constants) == HOURS
+    assert float(constants[R.ORBIT_LONGEST_DAYS]) * HOURS_PER_DAY == CEILING
+    assert float(constants[R.ORBIT_FLYBY_LONGEST_DAYS]) * HOURS_PER_DAY == HOURS[-1]
+    assert float(constants[R.ORBIT_FLYBY_FLOOR_RADII]) == FLOOR

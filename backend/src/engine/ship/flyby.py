@@ -120,7 +120,6 @@ async def order_of(
         "rp": flyby.rp,
         "aim": [flyby.aim[0], flyby.aim[1]],
         "burn": flyby.burn,
-        "dv_pass": round(flyby.cost, ROUND_DV),
         "leg": leg_row(sky.Leg()),
     }
 

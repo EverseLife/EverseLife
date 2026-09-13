@@ -148,10 +148,11 @@ def steer_pass(
             left = route.at - t
             if _due(leg, left):
                 return _coast(), leg, PASS_FIX
-            if gap < zone:
-                signed, until = periapsis(route.via.mu, rel[None, :], v_rel[None, :])
-                if until[0] > 0.0 and abs(float(signed[0])) < route.floor:
-                    return _lift(rel, route.rp, a_max), leg, None
+    #: The floor, on every step of both coasting stages while the hull is in
+    #: the world's sphere and still falling toward it: a hull late for its
+    #: pass is onward before it gets there, and the floor holds all the same.
+    if leg.stage in (CRUISE, ONWARD) and gap < zone and _sinking(route, rel, v_rel):
+        return _lift(rel, route.rp, a_max), leg, None
     if leg.stage == ONWARD:
         there, moving = place(target, t)
         gap_in = float(np.hypot(r[0] - there[0, 0], r[1] - there[0, 1]))
@@ -201,6 +202,13 @@ def _due(leg: Leg, left: float) -> bool:
     if leg.pending != (0.0, 0.0) or left <= _LAST_FIX:
         return False
     return leg.mark is None or left <= leg.mark * _HALVED
+
+
+def _sinking(route: Route, rel: np.ndarray, v_rel: np.ndarray) -> bool:
+    """Whether the pass ahead goes under the floor: the osculating periapsis
+    round the world, still to come and lower than the floor."""
+    signed, until = periapsis(route.via.mu, rel[None, :], v_rel[None, :])
+    return bool(until[0] > 0.0 and abs(float(signed[0])) < route.floor)
 
 
 def _coast() -> Helm:

@@ -163,7 +163,9 @@ async def fly(
         hours = cheapest.hours
         via = None if cheapest.via is None else cheapest.via.via
     if via is not None and isinstance(target, Ship):
-        raise NoArc(key="ship-no-flyby", hours=round(hours, ROUND_HOURS), planet=via)
+        #: A flyby is laid to a planet only (D-341): a hull is met on its
+        #: approach profile, which bends round nothing.
+        raise NoArc(key="ship-no-flyby-to-ship")
     #: A flyby has a ceiling of its own past the direct arc's (D-341).
     limit = (
         float(constants[R.ORBIT_LONGEST_DAYS if via is None else R.ORBIT_FLYBY_LONGEST_DAYS])

@@ -13,7 +13,7 @@
  * helm flies that point under the whole sky from there.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useEdition, useSession } from "../../actions";
 import { refusalText, t } from "../../locale";
 import { planetName } from "../../planets";
@@ -43,6 +43,17 @@ export function Course({
   const [trouble, setTrouble] = useState<string | null>(null);
   const [why, setWhy] = useState<CourseAnswer["why"]>(null);
   const [pick, setPick] = useState<number | null>(null);
+  //: Reread after an order that did not take (D-341): a flyby gone by the
+  //: order's moment is refused, and the slider must show the sky that
+  //: refused it rather than offer the same pass again. Counted on the order
+  //: settling, not on a clock (D-226).
+  const [settled, setSettled] = useState(0);
+  const wasBusy = useRef(busy);
+  const held = useRef<number | null>(null);
+  useEffect(() => {
+    if (wasBusy.current && !busy) setSettled((count) => count + 1);
+    wasBusy.current = busy;
+  }, [busy]);
 
   const planet = target !== null && "planet" in target ? target.planet : null;
   const other = target !== null && "ship" in target ? target.ship : null;
@@ -66,9 +77,11 @@ export function Course({
         setSamples(got);
         setReserve(answer.reserve ?? 0);
         setWhy(answer.why ?? null);
-        //: Start at the cheap end: the default the engine flies unnamed.
+        //: Start at the cheap end: the default the engine flies unnamed --
+        //: or, rereading after a refusal, at the hours that were chosen.
         const span = range(got);
-        setPick(span ? span[1] : null);
+        const again = got.findIndex((one) => one.hours === held.current);
+        setPick(again >= 0 ? again : span ? span[1] : null);
       })
       .catch((error: unknown) => {
         //: The refusal in the engine's own words, not a guess about engines:
@@ -78,13 +91,14 @@ export function Course({
     return () => {
       live = false;
     };
-  }, [session, vessel.ship, planet, other, edition]);
+  }, [session, vessel.ship, planet, other, edition, settled]);
 
   //: The chart follows the thumb (D-289): the arc of the point under it, and
   //: nothing once the target is dropped.
   useEffect(() => {
-    const held = target !== null && samples !== null && pick !== null ? samples[pick] : null;
-    onPlan(held?.trace ?? null);
+    const standing = target !== null && samples !== null && pick !== null ? samples[pick] : null;
+    if (standing) held.current = standing.hours;
+    onPlan(standing?.trace ?? null);
     //: And nothing once the slider is gone: a line left behind after the
     //: order would lie on top of the order's own.
     return () => onPlan(null);

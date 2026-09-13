@@ -12,10 +12,16 @@ Two things, deliberately unequal in cost:
   one cost by patched conics. Cheap, and drawn as the two-body arc; the
   chart redraws it as the slider moves;
 * **the order's line** -- the preview's own two-body arc, no more. A
-  refinement by shooting under all five bodies was built and dropped in the
-  same wave: it diverged on the cheap end of the slider and bought only a
-  picture, since the helm re-solves the passage from where the hull is every
-  tick whatever line was drawn at the order.
+  refinement by shooting under all five bodies was built and dropped for the
+  direct arc in the same wave: it diverged on the cheap end of the slider and
+  bought only a picture, since the helm re-solves the passage from where the
+  hull is every tick whatever line was drawn at the order.
+
+A flyby is the exception, and a deliberate one (D-341): near Pyroxis the
+conics name a pass that is not there, so the slider's bent points are refined
+in the whole sky before they are offered (`flybys`, `sky.shoot`) -- flown out
+of the periapsis both ways, which converges where a shot aimed at the world
+did not -- and the order carries the pass the refinement found.
 
 The plan is an approximation and the simulation is the truth (D-289): a
 plan is what one pays for, the tick is what one gets.
@@ -42,7 +48,7 @@ from src.sky._base import (
     place_any,
     star_circle,
 )
-from src.sky.flyby import search
+from src.sky.flyby import Candidate, search
 from src.sky.guide import BRAKE_SHARE, eject_wait
 from src.sky.shoot import Shot, refine
 from src.units import HOURS_PER_DAY, MINUTES_PER_HOUR, TRACE_POINTS
@@ -162,7 +168,7 @@ def escape_dv(body: Body, park: float, v_inf: float) -> float:
 
 def preview(
     system: System,
-    constants: Constants,
+    constants: Constants | None,
     r0: tuple[float, float],
     v0: tuple[float, float],
     t0: float,
@@ -286,38 +292,47 @@ def flybys(
     #: ceiling there is no direct arc of the same hour to beat, and what a
     #: point must beat instead is every shorter one: a passage both longer
     #: and dearer than one already offered is no choice (D-341).
-    queue = {
-        hour: [one for one in kept if one.dv < direct.get(hour, np.inf)]
-        for hour, kept in found.items()
-        if hour in direct
-    }
-    cheapest = min(direct.values(), default=np.inf)
-    for hour in sorted(found):
-        if hour <= ceiling:
-            continue
-        queue[hour] = [one for one in found[hour] if one.dv < cheapest]
-        cheapest = min([cheapest, *(one.dv for one in queue[hour][:1])])
+    #: Within the slider every hour competes with its own direct arc -- or with
+    #: nothing, where every arc of the hour cuts the corona and the flyby is
+    #: the only passage there is.
     shots: dict[float, Shot] = {}
-    while True:
-        batch = [kept.pop(0) for hour, kept in sorted(queue.items()) if kept and hour not in shots]
-        if not batch:
-            break
-        for one, shot in zip(
-            batch,
-            refine(
-                system,
-                here,
-                beside,
-                t0,
-                target,
-                batch,
-                leaving=leaving,
-                floor_radii=floor_radii,
-            ),
-            strict=True,
-        ):
-            if shot is not None and shot.dv < direct.get(one.hours, np.inf):
-                shots[one.hours] = shot
+    _refine_all(
+        system,
+        here,
+        beside,
+        t0,
+        target,
+        {
+            hour: [one for one in kept if one.dv < direct.get(hour, np.inf)]
+            for hour, kept in found.items()
+            if hour <= ceiling
+        },
+        direct,
+        shots,
+        leaving=leaving,
+        floor_radii=floor_radii,
+    )
+    #: Past the ceiling a candidate is refined only if it could beat what is
+    #: already certain -- the direct arcs and the flybys the sky has confirmed
+    #: within the slider; a conic's own price is no bound, since a sixth of
+    #: them name passes that do not exist.
+    known = min([*direct.values(), *(shot.dv for shot in shots.values())], default=np.inf)
+    _refine_all(
+        system,
+        here,
+        beside,
+        t0,
+        target,
+        {
+            hour: [one for one in kept if one.dv < known]
+            for hour, kept in found.items()
+            if hour > ceiling
+        },
+        direct,
+        shots,
+        leaving=leaving,
+        floor_radii=floor_radii,
+    )
     #: The same rule on the refined prices: the conics named the candidates,
     #: the whole sky priced them.
     cheapest = min(
@@ -332,6 +347,34 @@ def flybys(
             cheapest = shot.dv
         offered.append(_bent(system, here, t0, target, shot))
     return offered
+
+
+def _refine_all(
+    system: System,
+    here: tuple[float, float],
+    beside: tuple[float, float],
+    t0: float,
+    target: Body,
+    queue: dict[float, list[Candidate]],
+    direct: dict[float, float],
+    shots: dict[float, Shot],
+    *,
+    leaving: Body | None,
+    floor_radii: float,
+) -> None:
+    """Refine each hour's candidates cheapest first, all hours in one batch a
+    round, until every hour has a flyby that exists and beats its direct arc
+    or has no candidates left. Found shots are added to `shots`."""
+    while True:
+        batch = [kept.pop(0) for hour, kept in sorted(queue.items()) if kept and hour not in shots]
+        if not batch:
+            return
+        found = refine(
+            system, here, beside, t0, target, batch, leaving=leaving, floor_radii=floor_radii
+        )
+        for one, shot in zip(batch, found, strict=True):
+            if shot is not None and shot.dv < direct.get(one.hours, np.inf):
+                shots[one.hours] = shot
 
 
 def _bent(
