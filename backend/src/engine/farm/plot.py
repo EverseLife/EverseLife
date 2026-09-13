@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import ConstantError, Constants, current_catalog
 from src.constants import registry as R
-from src.engine import estate, events
+from src.engine import biome, estate, events
 from src.engine.farm._base import (
     FERTILIZER,
     FarmError,
@@ -63,6 +63,10 @@ async def mark(
     if node is None:  # pragma: no cover
         raise FarmError(key="farm-body-off-node")
     await _open_ground(session, node)
+    #: Nothing is sown on ice (D-338), so no strip is marked on it either:
+    #: a plot nobody can ever sow would be a thing sold for nothing (D-231).
+    if biome.on_ice(constants, node):
+        raise FarmError(key="farm-on-ice", node=node.name)
     #: A floor of a house is not ground (D-247). Left to the room check below it
     #: would refuse with "nothing free here" -- true of a third floor, and no
     #: explanation of why it will never be otherwise.

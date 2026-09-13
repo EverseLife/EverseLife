@@ -145,6 +145,7 @@ estate-build-house-stands = на участке уже стоит дом или 
 estate-build-not-yours = участок не ваш: строят у себя
 estate-build-no-floors = дом без этажей — это яма
 estate-build-not-on-pyroxis = на Пироксисе не строят: землетрясения рушат постройки быстрее, чем их ставят. Жильё здесь — борт корабля
+estate-build-on-ice = на льду не строят: лёд ползёт и трескается под стенами
 estate-build-too-small = пятно меньше { NUMBER($smallest, maximumFractionDigits: 0) } м² — это навес, а не здание: просят { NUMBER($area, maximumFractionDigits: 0) }
 estate-build-no-room = на участке { NUMBER($plot, maximumFractionDigits: 0) } м², свободно { NUMBER($free, maximumFractionDigits: 0) }{ $started ->
         [true] , в стройке { NUMBER($going, maximumFractionDigits: 0) }

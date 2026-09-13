@@ -166,7 +166,7 @@ describe("the weather", () => {
     //: The temperature layer and the soil's moisture read the moment's
     //: temperature now (D-334), not the year's mean.
     expect(FRAGMENT).toContain("clamp((t_now - u_temp_cold)");
-    expect(FRAGMENT).toContain("u_dry.z * (t_now - u_dry.w)");
+    expect(FRAGMENT).toContain("u_dry.y * (t_now - u_dry.z)");
   });
 });
 

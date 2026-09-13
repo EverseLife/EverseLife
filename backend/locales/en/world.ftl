@@ -78,6 +78,7 @@ farm-not-ripe = “{ $plot }” is not ripe yet: { $stage ->
 farm-halves-too-small = both halves must be no smaller than farm.plot_min_area
 farm-merge-other-node = neighbouring plots are merged, not land from different nodes
 farm-no-open-ground = “{ $node }”: { NAME($weather) } — nothing grows in open ground here. Food comes in by ship
+farm-on-ice = “{ $node }” stands on ice: nothing is sown here
 farm-dead-works = a dead body does not work
 farm-plot-not-yours = another's plot: renting and hiring go through a contract
 farm-recut-sown = { $state ->

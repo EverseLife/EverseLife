@@ -345,6 +345,9 @@ ui-farm-symptom-burn = leaf edges scorched
 ui-farm-symptom-fat = running to leaf
 ui-farm-symptom-weedy = weeds
 ui-farm-symptom-crowded = crowded
+# Warmth outside the crop's band (D-338): seen while it lasts.
+ui-farm-symptom-chilled = nipped by the cold
+ui-farm-symptom-wilted = leaves curling in the heat
 # The pests' signs (D-299): what the eye sees. Which bottle answers is in the agronomy.
 ui-farm-symptom-spots = spots on the leaf
 ui-farm-symptom-web = webbing

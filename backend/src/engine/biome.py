@@ -226,6 +226,19 @@ def of_node(constants: Constants, node: Node) -> str | None:
     return classify(constants, node.planet, *point)
 
 
+def on_ice(constants: Constants, node: Node) -> bool:
+    """Whether the node stands on ice (D-338): nothing is built on it and nothing sown.
+
+    The node's own biome (`of_node`) -- the word the player reads it by: the
+    ice sheets and caps the field laid, and the whole of a planet whose one
+    face is ice, Aurora's cities included. Not the season's snow, which comes
+    and goes over any ground (D-334) and is answered by the warmth of the
+    moment. A node off the sphere -- a room, a storey, a hull -- has no biome
+    and stands on a floor, not on the ice under it.
+    """
+    return of_node(constants, node) == ICE
+
+
 def province_of(node: Node) -> str | None:
     """The province written on a found node, or None: a seeded node and a
     node off the ground have none."""

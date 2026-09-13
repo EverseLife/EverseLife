@@ -345,6 +345,9 @@ ui-farm-symptom-burn = ожог по краю листа
 ui-farm-symptom-fat = жирует в ботву
 ui-farm-symptom-weedy = сорняк
 ui-farm-symptom-crowded = тесно
+# Тепло за полосой культуры (D-338): видно, пока длится.
+ui-farm-symptom-chilled = прихвачено холодом
+ui-farm-symptom-wilted = лист скручивается от зноя
 # Знаки напастей (D-299): что видно глазом. Чем гасят — в тексте агротехники.
 ui-farm-symptom-spots = пятна на листе
 ui-farm-symptom-web = паутина

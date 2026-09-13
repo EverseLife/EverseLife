@@ -56,9 +56,12 @@ def _norms(constants: Constants, catalog: Catalog, culture: str = SPELT) -> life
     return life.norms(constants, plant, breed.traits_of_plant(plant))
 
 
-def _weather(rain: float = 0.0, river: bool = False, temperature: float | None = None):
-    """A place that does not breathe: one temperature for every hour."""
-    return life.Weather(rain=rain, river=river, temperature_at=lambda _hours: temperature)
+def _weather(river: bool = False, temperature: float | None = None, rain: float = 0.0):
+    """A place that does not breathe: one temperature and one rain for every
+    hour -- the rain as the weather gives it, nought to one (D-338)."""
+    return life.Weather(
+        river=river, temperature_at=lambda _hours: temperature, rain_at=lambda _hours: rain
+    )
 
 
 async def _sown(session, constants, catalog, body, *, culture: str = SPELT, area: float = 10):

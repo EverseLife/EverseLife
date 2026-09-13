@@ -117,15 +117,23 @@ export function Probe({
           text = t("ui-map-probe-rain", { percent: reading.rainPercent });
           break;
         case "moisture": {
-          //: The same arithmetic the layer is drawn by (`shade.moistureOf`).
+          //: The same arithmetic the layer is drawn by (`shade.moistureOf`),
+          //: with the rain of the moment shown (D-338).
           const law = dryLaw(book?.constants);
           const beside = reading.riverM <= law.reachM ? 1 : 0;
+          const rain = weatherAt(
+            weather,
+            at.lat,
+            at.lon,
+            { rain01: reading.rainPercent / 100, sea: reading.heightM < 0 },
+            weatherDays,
+          ).rain;
           const share = moistureOf(
             law,
             reading.temperatureC + seasonC(season, at.lat),
-            reading.rainPercent / 100,
             beside,
             passport.temperature_c.hot,
+            rain,
           );
           text = t("ui-map-probe-moisture", { percent: Math.round(share * 100) });
           break;

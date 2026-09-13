@@ -18,9 +18,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import breed, climate, events, food, world
+from src.engine import biome, breed, climate, events, food, world
 from src.engine.farm import life
 from src.engine.farm._base import (
+    FarmError,
     NoSeeds,
     WrongClimate,
     WrongState,
@@ -80,15 +81,24 @@ async def sow(
     if seeds.container_id != pocket.id:
         raise NoSeeds(key="farm-seeds-not-in-hands")
 
+    node = await session.get(Node, plot.node_id)
+    #: Nothing is sown on ice (D-338): a strip marked before the rule, or on
+    #: ground the field has since frozen, is refused here as at the marking.
+    if node is not None and biome.on_ice(constants, node):
+        raise FarmError(key="farm-on-ice", node=node.name)
     #: The climate gate (D-261): the crop lives through every hour of its
     #: cycle, so the node's whole daily band must fit the culture's range,
-    #: and the day must carry enough light. A node without a temperature
-    #: record -- old ones, a ship's hydroponics bay -- carries no gate:
-    #: absence of a record is not a climate.
-    node = await session.get(Node, plot.node_id)
+    #: and the day must carry enough light. The band is the season's (D-338):
+    #: the year's mean moved by the latitude's season now (D-334), swinging
+    #: by the node's own day (D-321) -- the same band the bed then lives in,
+    #: so a strip the map draws white is not sown in winter. A node without
+    #: a temperature record -- old ones, a ship's hydroponics bay -- carries
+    #: no gate: absence of a record is not a climate.
     mean = climate.mean_temperature(node)
     if node is not None and mean is not None:
-        swing = climate.swing_of(constants, node.planet)
+        epoch = await world.epoch(session)
+        mean += climate.season_c(constants, node.planet, climate.latitude_of(node), epoch, moment)
+        swing = climate.swing_of(constants, node.planet, node)
         wants = plant.requires.temp
         if mean - swing < wants["min"]:
             raise WrongClimate(key="farm-too-cold", culture=plant.name, night=round(mean - swing))
@@ -383,6 +393,7 @@ async def survey(
             state = peek(constants, plant, signs, node, epoch, plot, now)
             stage = life.stage_of(constants, state.growth)
             weather = _weather(constants, node, epoch, now)
+            warmth = weather.temperature_at(0.0)
 
             #: No `culture_name` beside `culture` (D-225): the client reads
             #: the word from `/public/renames`. The cultivar goes the same way
@@ -399,7 +410,7 @@ async def survey(
             #: it, and a curve drawn without it would show the ground wetter than
             #: it is, and the farmer would water later than the bed asks.
             row["dry_per_day"] = round(
-                life.dry_rate(constants, norm, weather, weather.temperature_at(0.0))
+                life.dry_rate(constants, norm, weather, warmth)
                 * life.weeds_thirst(constants, state.weeds)
                 * PERCENT,
                 ROUND_QUALITY,
@@ -434,6 +445,7 @@ async def survey(
                 fertility=float(plot.fertility),
                 fertility_needed=float(signs.get("fertility", plant.requires.fertility)),
                 fed=given,
+                temperature=warmth,
             )
         out.append(row)
     return out

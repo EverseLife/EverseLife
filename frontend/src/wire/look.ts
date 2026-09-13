@@ -185,7 +185,8 @@ export type Look = {
     fertility: number;
     /**
      * The place's climate as farming reads it (D-261): the node's mean and
-     * the planet's swing, the day's light and the rainfall. The current
+     * its own day's swing -- the band the sowing gate and the bed live by
+     * (D-338) -- the day's light and the rainfall. The current
      * temperature and the night are this client's arithmetic over
      * `look.clock` (D-225) -- alive between looks by construction.
      * Absent where exploration never wrote a temperature -- no gate there.

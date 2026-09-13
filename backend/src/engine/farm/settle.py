@@ -59,7 +59,7 @@ def _life_of(plot: Plot) -> life.Life:
 def _weather(
     constants: Constants, node: Node | None, epoch: datetime | None, since: datetime
 ) -> life.Weather:
-    """The place as the bed feels it, with the temperature counted from `since`."""
+    """The place as the bed feels it, with the temperature and the rain counted from `since`."""
 
     def temperature_at(hours: float) -> float | None:
         if node is None:
@@ -67,9 +67,11 @@ def _weather(
         return climate.temperature_now(constants, node, epoch, since + timedelta(hours=hours))
 
     return life.Weather(
-        rain=0.0 if node is None else climate.precipitation(node),
         river=world.has_place(node, world.WATER),
         temperature_at=temperature_at,
+        rain_at=(lambda _hours: 0.0)
+        if node is None
+        else climate.rain_along(constants, node, epoch, since),
     )
 
 

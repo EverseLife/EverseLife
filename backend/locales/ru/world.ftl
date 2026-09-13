@@ -75,6 +75,7 @@ farm-not-ripe = делянка «{ $plot }» ещё не созрела: { $stag
 farm-halves-too-small = обе части обязаны быть не меньше farm.plot_min_area
 farm-merge-other-node = сливают соседние делянки, а не землю из разных узлов
 farm-no-open-ground = «{ $node }»: { NAME($weather) } — в открытом грунте здесь ничего не растёт. Еда сюда приходит кораблём
+farm-on-ice = «{ $node }» стоит на льду: здесь не сеют
 farm-dead-works = мёртвое тело не работает
 farm-plot-not-yours = чужая делянка: аренда и наём — через договор
 farm-recut-sown = { $state ->

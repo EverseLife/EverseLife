@@ -123,7 +123,7 @@ uniform float u_temp_min;
 uniform float u_temp_step;
 uniform float u_temp_cold;
 uniform float u_temp_hot;
-uniform vec4 u_dry;
+uniform vec3 u_dry;
 uniform float u_reach_m;
 uniform sampler2D u_river;
 //: The top of the ground, the max chain of the height (shade.topChain):

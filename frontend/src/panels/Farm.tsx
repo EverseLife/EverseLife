@@ -92,6 +92,9 @@ const SYMPTOM: Record<string, string> = {
   fat: "ui-farm-symptom-fat",
   weedy: "ui-farm-symptom-weedy",
   crowded: "ui-farm-symptom-crowded",
+  //: The moment's warmth outside the culture's band (D-338), while it lasts.
+  chilled: "ui-farm-symptom-chilled",
+  wilted: "ui-farm-symptom-wilted",
   //: The four pests (D-299): the sign says what the eye sees and never
   //: which bottle answers it -- that is the agrotech text's to teach.
   spots: "ui-farm-symptom-spots",
