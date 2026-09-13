@@ -53,6 +53,7 @@ import {
   orbitTurns,
   seasonC,
   seasonOf,
+  snowCover,
   subsolarLat,
   SEASON_FALLBACK,
 } from "../panels/map/season";
@@ -636,6 +637,25 @@ describe("the ramps and the drying law", () => {
     expect(glsl).toContain("share < 0.66 ? mix(vec3(0.75, 0.85, 0.95), vec3(0.95, 0.80, 0.30), (share - 0.33) / 0.33)");
     expect(glsl).toContain(": mix(vec3(0.95, 0.80, 0.30), vec3(0.75, 0.15, 0.10), (share - 0.66) / 0.34)");
     expect(FRAGMENT).toContain(glsl);
+  });
+
+  it("lays the snow by one law with the engine (D-338)", () => {
+    //: The engine's `weather.snow_cover` at the vault's numbers -- line 0,
+    //: band 4, dry below a quarter of the rain, a dry cold keeping half --
+    //: pasted from Python (`test_snow.py` holds the same numbers there).
+    const season = { ...SEASON_FALLBACK, snowC: 0, bandC: 4, dryRain: 0.25, dryKeep: 0.5 };
+    const cases: [number, number, number][] = [
+      [-10, 0.6, 1.0],
+      [-2, 0.1, 0.338],
+      [1, 0.8, 0.0],
+      [-3.5, 0, 0.478515625],
+      [-1, 0.2, 0.148125],
+    ];
+    for (const [warmth, rain, snow] of cases) {
+      expect(snowCover(season, warmth, rain)).toBeCloseTo(snow, 12);
+    }
+    expect(FRAGMENT).toContain("float snow = (1.0 - smoothstep(u_snow.x - u_snow.y, u_snow.x, t_now))");
+    expect(FRAGMENT).toContain("mix(u_snow_dry.y, 1.0, smoothstep(0.0, max(u_snow_dry.x, 1e-3), rain01))");
   });
 
   it("works the soil's moisture out by the engine's drying law, wet under the rain", () => {

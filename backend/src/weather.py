@@ -253,6 +253,23 @@ def weather_cover(law: WeatherLaw, lat_deg: float, lon_deg: float, days: float) 
     return min(1.0, max(0.0, 0.5 + (weather_sky(law, lat_deg, lon_deg, days) - 0.5) * law.gain))
 
 
+def snow_cover(
+    warmth_c: float,
+    rain01: float,
+    *,
+    line_c: float,
+    band_c: float,
+    dry_rain: float,
+    dry_keep: float,
+) -> float:
+    """How much of the ground the snow covers, nought to one (D-334, D-338):
+    the shader's law (`fragment.ts`) -- white below `line_c` over `band_c`
+    degrees, and a dry cold keeping `dry_keep` of it, ramped up to the whole
+    by `dry_rain` of the rain share. A band of nought is a hard line."""
+    cover = 1.0 - _smoothstep(line_c - band_c, line_c, warmth_c)
+    return cover * _lerp(dry_keep, 1.0, _smoothstep(0.0, dry_rain, rain01))
+
+
 def weather_of(
     law: WeatherLaw, wetness: float, lat_deg: float, lon_deg: float, days: float
 ) -> tuple[float, float]:

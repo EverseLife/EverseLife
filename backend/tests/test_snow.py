@@ -25,7 +25,7 @@ from decimal import Decimal
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src import seed_catchup
+from src import seed_catchup, weather
 from src.constants import Constants
 from src.constants import registry as R
 from src.engine import biome, climate, facet, places, terrain, travel, world
@@ -51,6 +51,22 @@ def _year(constants: Constants, planet: Planet) -> list[datetime]:
 
 
 # --- the law -------------------------------------------------------------------
+
+
+def test_the_snow_law_is_the_maps(constants: Constants) -> None:
+    """One law in two trees (D-338): the numbers `shade.test.ts` holds the
+    client's `snowCover` to, at the vault's line, band and dry share."""
+    cases = [
+        (-10.0, 0.6, 1.0),
+        (-2.0, 0.1, 0.338),
+        (1.0, 0.8, 0.0),
+        (-3.5, 0.0, 0.478515625),
+        (-1.0, 0.2, 0.148125),
+    ]
+    for warmth, rain, snow in cases:
+        assert weather.snow_cover(
+            warmth, rain, line_c=0.0, band_c=4.0, dry_rain=0.25, dry_keep=0.5
+        ) == pytest.approx(snow, abs=1e-12)
 
 
 def test_the_snow_lies_where_the_map_draws_it(constants: Constants) -> None:
@@ -88,9 +104,9 @@ def test_the_snow_lies_where_the_map_draws_it(constants: Constants) -> None:
     ground = terrain.field_of(constants, Planet.AURORA)
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(type(ground), "rain_at", lambda self, lat, lon: 0.0)
-        climate._HOURS.clear()
+        climate._SNOW_HOURS.clear()
         assert climate.snow_now(constants, Planet.AURORA, *dry, EPOCH, EPOCH) == pytest.approx(keep)
-    climate._HOURS.clear()
+    climate._SNOW_HOURS.clear()
 
     #: Aurora is under snow all the year round, and none lies on its water.
     for moment in _year(constants, Planet.AURORA):

@@ -29,12 +29,11 @@ from __future__ import annotations
 import math
 from collections import OrderedDict
 from collections.abc import Callable
-from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src import globe, sky
+from src import globe, sky, weather
 from src.constants import Constants
 from src.constants import registry as R
 from src.engine import estate, places, terrain, world
@@ -46,7 +45,6 @@ from src.units import (
     FULL_TURN_DEGREES,
     HOURS_PER_DAY,
     LIGHT_MAX,
-    METRES_PER_KM,
     PERCENT,
     SECONDS_PER_HOUR,
 )
@@ -204,23 +202,22 @@ def _days_since(origin: datetime | None, moment: datetime) -> float:
 def day_band(
     constants: Constants, node: Node, origin: datetime | None, moment: datetime
 ) -> tuple[float, float] | None:
-    """The node's night and noon on the day of the moment, degrees (D-261, D-338):
-    the year's mean moved by the latitude's season, swinging by the node's
-    own day (D-321). What the sowing gate fits a culture's warmth into and
-    what a bed's cold and heat signs are read by -- one band for the day,
-    so a sign does not come and go between two looks. None where no
-    temperature was ever written: absence of a record is not a climate.
+    """The node's night and noon on the planetary day of the moment, degrees
+    (D-261, D-338): the year's mean moved by the latitude's season, swinging by
+    the node's own day (D-321). What the sowing gate fits a culture's warmth
+    into and what a bed's cold and heat signs are read by. The season is taken
+    as it stood when the day began (the calendar day of D-263), so the band is
+    one for the whole day and moves once a day. None where no temperature was
+    ever written: absence of a record is not a climate.
     """
     mean = mean_temperature(node)
     if mean is None:
         return None
-    #: The season as it stood when the planetary day began (D-263's calendar
-    #: day), so the band is one for the whole day and moves once a day.
-    day = None
+    day = moment
     if origin is not None:
         length = timedelta(hours=day_hours_of(constants, node.planet))
         day = origin + length * day_index(constants, node.planet, origin, moment)
-    mean += season_c(constants, node.planet, latitude_of(node), origin, day or moment)
+    mean += season_c(constants, node.planet, latitude_of(node), origin, day)
     swing = swing_of(constants, node.planet, node)
     return mean - swing, mean + swing
 
@@ -256,8 +253,8 @@ def season_c(
     two hemispheres run opposite, and the north's summer is where the sine
     of the angle is positive. Read into the temperature of the moment
     (`temperature_now`), which is what the beds and the window feel, and
-    into the day's band the sowing gate judges (`day_band`, D-338); the
-    biome judges by the year's mean still (D-334).
+    into the day's band the sowing gate and a bed's signs judge (`day_band`,
+    D-338); the biome judges by the year's mean still (D-334).
     """
     swing = float(constants[R.SEASON_SWING_C].get(planet.value, 0.0))
     turns = orbit_turns(constants, planet, origin, moment)
@@ -274,216 +271,11 @@ def sun_latitude(
     return math.degrees(math.asin(math.sin(tilt) * math.sin(math.tau * turns)))
 
 
-#: The weather (D-335): cloud and rain as a field over the sphere that is a
-#: function of the place and the moment and of nothing else -- the same
-#: function the map draws by (`weatherGlsl.ts`) and the probe reads
-#: (`weather.ts`), on the same numbers of the book, so what the picture
-#: shows raining is what the engine reads as rain. The lattice is the unit
-#: ball scaled to the vault's cell, turned about the pole by the wind's
-#: drift as the days go; the field is two slices of a value noise on an
-#: **integer hash** blended over `weather.change_days` -- integer, because
-#: float sines differ between a GPU and a CPU and whole numbers do not.
-#: Two octaves, the finer drifting faster, so the systems turn as they go:
-#: the finer at twice the scale and 1.6 of the drift, its slices a thousand
-#: apart from the coarser's, weighted 0.65/0.35 -- the law's shape, one on
-#: every side (D-335 п. 2); the gain that spreads the noise's heap before
-#: the gates is the vault's (`weather.gain`), because it moves the rain as
-#: the gates do.
-_WX_MASK = 0xFFFFFFFF
-
-
-def _wx_hash(x: int, y: int, z: int, w: int) -> float:
-    n = ((x * 1597334677) ^ (y * 3812015801) ^ (z * 2798796415) ^ (w * 3367900313)) & _WX_MASK
-    n = ((n ^ (n >> 16)) * 0x45D9F3B) & _WX_MASK
-    n = ((n ^ (n >> 16)) * 0x45D9F3B) & _WX_MASK
-    n ^= n >> 16
-    return (n & 0xFFFFFF) / 16777216.0
-
-
-def _smooth(f: float) -> float:
-    return f * f * (3.0 - 2.0 * f)
-
-
-#: What the ground's rain share is taken to be over the sea, where the rain
-#: raster holds nought: the neutral half, the fixed point of the wet bias's
-#: factor -- the client's `weatherGlsl.WX_SEA_WET`, the law's shape.
-SEA_WET = 0.5
-#: The law's shape (D-336 item 13), the client's `weatherGlsl.WX_*`: how many
-#: slices a system lives, the smallest and the largest system in cells (at
-#: most one and a half, so the three cells about a point are all the systems
-#: that reach it), the step the wind's shear is read over, how much an
-#: anticyclone clears, and how cloudy a system's texture is at its floor.
-LIFE_SLICES = 2.0
-SIZE_MIN = 0.8
-SIZE_MAX = 1.5
-SHEAR_DEG = 1.0
-CLEAR_HIGH = 0.5
-TEX_FLOOR = 0.35
-
-
-@dataclass(frozen=True)
-class WeatherLaw:
-    """The weather's numbers for one planet, off the book (D-335, D-336)."""
-
-    #: A cell of the lattice, degrees of arc: `weather.cell_km` on the radius.
-    cell_deg: float
-    #: The wind's drift, degrees a real day.
-    wind_deg: float
-    #: One slice, real days; a system lives LIFE_SLICES of them.
-    change_days: float
-    #: A factor on the cover, not a summand (D-336): the wet windward slope
-    #: thickens what the wind brings, the dry lee thins it.
-    bias: float
-    cloud_from: float
-    cloud_full: float
-    rain_from: float
-    rain_full: float
-    gain: float
-    #: The belts of the wind, radians of latitude (`terrain.wind_belts`): to
-    #: the trades' edge the wind is west, to the westerlies' edge east, past
-    #: it west again; the wind turns over `belt_edge` (`weather.belt_edge_deg`),
-    #: and that is where it shears and the systems spin.
-    trade_lat: float
-    westerly_lat: float
-    belt_edge: float
-    #: How fast a system spins at full shear, radians a real day.
-    spin: float
-
-
-def weather_law(constants: Constants, planet: Planet) -> WeatherLaw:
-    """The law for a planet: its own radius under the vault's cell, the rest as written."""
-    cell_m = float(constants[R.WEATHER_CELL_KM]) * METRES_PER_KM
-    belts = constants[R.TERRAIN_WIND_BELTS]
-    return WeatherLaw(
-        cell_deg=360.0 * cell_m / (2.0 * math.pi * globe.radius_m(constants, planet)),
-        wind_deg=float(constants[R.WEATHER_WIND_DEG_PER_DAY]),
-        change_days=max(float(constants[R.WEATHER_CHANGE_DAYS]), 1e-3),
-        bias=float(constants[R.WEATHER_WET_BIAS]),
-        cloud_from=float(constants[R.WEATHER_CLOUD_FROM]),
-        cloud_full=float(constants[R.WEATHER_CLOUD_FULL]),
-        rain_from=float(constants[R.WEATHER_RAIN_FROM]),
-        rain_full=float(constants[R.WEATHER_RAIN_FULL]),
-        gain=float(constants[R.WEATHER_GAIN]),
-        trade_lat=math.radians(float(belts["trade_lat"])),
-        westerly_lat=math.radians(float(belts["westerly_lat"])),
-        belt_edge=math.radians(max(float(constants[R.WEATHER_BELT_EDGE_DEG]), 1e-3)),
-        spin=math.radians(float(constants[R.WEATHER_EDDY_TURN_DEG])),
-    )
-
-
-def _belt(x: float) -> float:
-    """The rain march's own edge: a smooth step a belt's edge wide, centred."""
-    t = min(1.0, max(0.0, x + 0.5))
-    return t * t * (3.0 - 2.0 * t)
-
-
-def _lerp(a: float, b: float, t: float) -> float:
-    """The GPU's own mix: exact at both ends."""
-    return a * (1.0 - t) + b * t
-
-
-def _wx_noise2(x: float, y: float, z: int, w: int) -> float:
-    """A value noise on the plane, on the system's own corners (z is the system)."""
-    ix, iy = math.floor(x), math.floor(y)
-    fx, fy = _smooth(x - ix), _smooth(y - iy)
-    n0 = _lerp(_wx_hash(ix, iy, z, w), _wx_hash(ix + 1, iy, z, w), fx)
-    n1 = _lerp(_wx_hash(ix, iy + 1, z, w), _wx_hash(ix + 1, iy + 1, z, w), fx)
-    return _lerp(n0, n1, fy)
-
-
-def wind_west(law: WeatherLaw, z: float) -> float:
-    """How much of the westerlies blow at the latitude given by the ball's
-    z: one between the belts' edges, nought in the trades and past the
-    westerlies, the edge's own step between (D-336)."""
-    a = abs(math.asin(min(1.0, max(-1.0, z))))
-    return _belt((a - law.trade_lat) / law.belt_edge) * (
-        1.0 - _belt((a - law.westerly_lat) / law.belt_edge)
-    )
-
-
-def wind_east(law: WeatherLaw, lat: float) -> float:
-    """The eastward wind at a latitude (radians), minus one to one."""
-    return 2.0 * wind_west(law, math.sin(lat)) - 1.0
-
-
-def wind_shear(law: WeatherLaw, lat: float) -> float:
-    """The wind's shear at a latitude, minus one to one: positive where the
-    eastward wind falls off poleward (the polar front -- cyclones), negative
-    where it rises (the subtropical edge -- anticyclones), nought in the
-    middle of a belt."""
-    d = math.radians(SHEAR_DEG)
-    a = abs(lat)
-    s = (wind_east(law, a + d) - wind_east(law, max(0.0, a - d))) / (2.0 * d)
-    return min(1.0, max(-1.0, -s * law.belt_edge / 3.0))
-
-
-def _smoothstep(lo: float, hi: float, x: float) -> float:
-    t = min(1.0, max(0.0, (x - lo) / max(hi - lo, 1e-9)))
-    return t * t * (3.0 - 2.0 * t)
-
-
-def weather_sky(law: WeatherLaw, lat_deg: float, lon_deg: float, days: float) -> float:
-    """The cover of the sky over a point at so many real days since the
-    epoch, nought to one, before the gain and the ground's wetness: the
-    union of the systems that reach the point (D-336 item 13). Each cell
-    of a lattice in latitude and longitude bears one system per life --
-    drifting with the wind of its own row, born and gone on a phase of its
-    own, spinning where the wind shears, a new place, size and texture each
-    life."""
-    cell = law.cell_deg
-    n_rows = max(2, round(180.0 / cell))
-    dr = 180.0 / n_rows
-    r0 = math.floor((lat_deg + 90.0) / dr)
-    keep = 1.0
-    for r in range(r0 - 1, r0 + 2):
-        if r < 0 or r >= n_rows:
-            continue
-        lat_r = -90.0 + (r + 0.5) * dr
-        n_cols = max(4, round(360.0 * math.cos(math.radians(lat_r)) / cell))
-        dc = 360.0 / n_cols
-        speed = law.wind_deg * wind_east(law, math.radians(lat_r))
-        c0 = math.floor((lon_deg - speed * days) / dc)
-        for c in range(c0 - 1, c0 + 2):
-            cc = c % n_cols
-            #: The system's life: which life the cell is on, and how far along.
-            phase = _wx_hash(cc, r, 0, 11)
-            life = days / (LIFE_SLICES * law.change_days) + phase
-            k = math.floor(life)
-            age = life - k
-            env = math.sin(math.pi * age)
-            jx = _wx_hash(cc, r, k, 12) - 0.5
-            jy = _wx_hash(cc, r, k, 13) - 0.5
-            size = SIZE_MIN + (SIZE_MAX - SIZE_MIN) * _wx_hash(cc, r, k, 14)
-            lat_s = lat_r + jy * dr
-            lon_s = (c + 0.5 + jx) * dc + speed * days
-            dlon = (lon_deg - lon_s + 180.0) % 360.0 - 180.0
-            dx = dlon * math.cos(math.radians(lat_s)) / cell
-            dy = (lat_deg - lat_s) / cell
-            d2 = (dx * dx + dy * dy) / (size * size)
-            if d2 >= 1.0:
-                continue
-            fall = (1.0 - d2) * (1.0 - d2)
-            z = wind_shear(law, math.radians(lat_s))
-            hemi = 1.0 if lat_s >= 0.0 else -1.0
-            #: The spin: faster in the core than at the rim, so the texture
-            #: winds into a spiral over the system's life.
-            theta = law.spin * z * hemi * age * LIFE_SLICES * law.change_days * (1.0 - d2)
-            cs, sn = math.cos(theta), math.sin(theta)
-            ux = (dx * cs + dy * sn) / size * 2.0 + 7.0 * jx
-            uy = (-dx * sn + dy * cs) / size * 2.0 + 7.0 * jy
-            sid = (r * 4096 + cc) * 64 + (k & 63)
-            tex = 0.65 * _wx_noise2(ux, uy, sid, 21) + 0.35 * _wx_noise2(
-                ux * 2.0, uy * 2.0, sid, 22
-            )
-            tex = TEX_FLOOR + (1.0 - TEX_FLOOR) * tex
-            clear = 1.0 - CLEAR_HIGH * max(0.0, -z)
-            keep *= 1.0 - tex * env * fall * clear
-    return 1.0 - keep
-
-
-def weather_cover(law: WeatherLaw, lat_deg: float, lon_deg: float, days: float) -> float:
-    """The cover spread by the gain about a half: the law's own number."""
-    return min(1.0, max(0.0, 0.5 + (weather_sky(law, lat_deg, lon_deg, days) - 0.5) * law.gain))
+def weather_law(constants: Constants, planet: Planet) -> weather.WeatherLaw:
+    """The weather's law for a planet (D-335, D-336): its own radius under the
+    vault's cell, the rest as written. The law's shape is `src/weather.py`'s,
+    outside the rules (D-065); its balance is the vault's."""
+    return weather.law_of(constants, globe.radius_m(constants, planet))
 
 
 def sky_wetness(constants: Constants, planet: Planet, lat: float, lon: float) -> float:
@@ -491,30 +283,12 @@ def sky_wetness(constants: Constants, planet: Planet, lat: float, lon: float) ->
 
     Over the sea the rain raster is a hole, not a measure -- the march
     records nothing falling onto the sea -- and the sky reads the neutral
-    half there (the client's `WX_SEA_WET`), or the wet bias thinned every
-    cloud to the shore and the clouds drew the coasts (owner, 2026-09-13).
-    A property of the place, not of the moment: a walk over the hours
-    reads it once (`rain_along`).
+    half there (`weather.SEA_WET`, the client's `WX_SEA_WET`), or the wet
+    bias thinned every cloud to the shore and the clouds drew the coasts
+    (owner, 2026-09-13). A property of the place, not of the moment.
     """
     field = terrain.field_of(constants, planet)
-    return SEA_WET if field.is_sea(lat, lon) else float(field.rain_at(lat, lon))
-
-
-def weather_of(
-    law: WeatherLaw, wetness: float, lat: float, lon: float, days: float
-) -> tuple[float, float]:
-    """How clouded the sky is and how hard it rains, nought to one each, at
-    so many real days since the epoch over ground of this wetness: the cover
-    stretched by the ground's rain share -- a wet windward slope thickens
-    what the wind brings, a dry lee thins it -- and gated by the vault's
-    numbers."""
-    cover = min(
-        1.0, max(0.0, weather_cover(law, lat, lon, days) * (1.0 + law.bias * (2.0 * wetness - 1.0)))
-    )
-    return (
-        _smoothstep(law.cloud_from, law.cloud_full, cover),
-        _smoothstep(law.rain_from, law.rain_full, cover),
-    )
+    return weather.SEA_WET if field.is_sea(lat, lon) else float(field.rain_at(lat, lon))
 
 
 def weather_at(
@@ -526,9 +300,9 @@ def weather_at(
     moment: datetime,
 ) -> tuple[float, float]:
     """How clouded the sky is and how hard it rains at a point now, nought to
-    one each (D-335): `weather_of` on the planet's law and the place's
-    wetness."""
-    return weather_of(
+    one each (D-335): `weather.weather_of` on the planet's law and the
+    place's wetness."""
+    return weather.weather_of(
         weather_law(constants, planet),
         sky_wetness(constants, planet, lat, lon),
         lat,
@@ -537,35 +311,37 @@ def weather_at(
     )
 
 
-#: What a place's sky and ground are in a world hour, as the engine reads
-#: them over and over (D-338): the tick walks every growing bed each minute
-#: from a stamp up to a Terran day old, and a route weighs every off-road
-#: edge by its snow. The hours behind are the same for every walk, every bed
-#: of the node and every edge of the place, and only the newest is new.
-#: Keyed by what is read, the book's digest and the epoch, so a reloaded book
-#: or another world never reads a stale hour.
-_HOURS: OrderedDict[tuple[str, str, str, float, float, datetime | None, int], float] = OrderedDict()
+#: What the engine reads of a place over and over, by the world hour (D-338):
+#: the tick walks every growing bed each minute from a stamp up to a Terran
+#: day old, and a route weighs every off-road edge by its snow. The hours
+#: behind are the same for every walk, every bed of the place and every edge
+#: of it, and only the newest is new. Two stores and not one: a route over a
+#: large world would otherwise push the tick's rain -- the dear reading -- out
+#: of a shared one. Keyed by the book's digest and the epoch, so a reloaded
+#: book or another world never reads a stale hour.
+_Hour = tuple[str, str, float, float, datetime | None, int]
+_RAIN_HOURS: OrderedDict[_Hour, float] = OrderedDict()
+_SNOW_HOURS: OrderedDict[_Hour, float] = OrderedDict()
 
 
 def _hourly(
-    kind: str,
+    store: OrderedDict[_Hour, float],
     constants: Constants,
     planet: Planet,
-    lat: float,
-    lon: float,
+    point: tuple[float, float],
     origin: datetime | None,
     hour: int,
     work: Callable[[], float],
 ) -> float:
-    key = (kind, constants.digest, planet.value, lat, lon, origin, hour)
-    value = _HOURS.get(key)
+    key = (constants.digest, planet.value, point[0], point[1], origin, hour)
+    value = store.get(key)
     if value is None:
         value = work()
-        _HOURS[key] = value
-        if len(_HOURS) > HOURS_KEPT:
-            _HOURS.popitem(last=False)
+        store[key] = value
+        if len(store) > HOURS_KEPT:
+            store.popitem(last=False)
     else:
-        _HOURS.move_to_end(key)
+        store.move_to_end(key)
     return value
 
 
@@ -582,7 +358,6 @@ def rain_along(
     point = places.geo_of(node)
     if point is None:
         return lambda _hours: 0.0
-    lat, lon = point
     planet = node.planet
     start = _days_since(origin, since) * HOURS_PER_DAY
 
@@ -591,10 +366,10 @@ def rain_along(
 
         def work() -> float:
             law = weather_law(constants, planet)
-            wetness = sky_wetness(constants, planet, lat, lon)
-            return weather_of(law, wetness, lat, lon, hour / HOURS_PER_DAY)[1]
+            wetness = sky_wetness(constants, planet, *point)
+            return weather.weather_of(law, wetness, *point, hour / HOURS_PER_DAY)[1]
 
-        return _hourly("rain", constants, planet, lat, lon, origin, hour, work)
+        return _hourly(_RAIN_HOURS, constants, planet, point, origin, hour, work)
 
     return at
 
@@ -608,14 +383,11 @@ def snow_now(
     moment: datetime,
 ) -> float:
     """How much of the ground the season's snow covers at a point, nought to
-    one (D-334, D-338): the map's own law of snow (`fragment.ts`, `season.ts`)
-    on the field's readings -- the year's mean of the place moved by the
-    latitude's season, white below `season.snow_c` over `season.snow_band_c`
-    degrees, and a dry cold keeping `season.snow_dry_share` of it up to
-    `season.snow_dry_rain` of the rain scale. The day does not melt it: the
-    map draws no swing either. Water is not snowed over -- ice lies there,
-    and nobody walks it. Taken at the start of the world hour, as the rain;
-    a band of nought is a hard line (`_smoothstep` holds the width off nought).
+    one (D-334, D-338): the map's own law of snow (`weather.snow_cover`, the
+    shader's `fragment.ts`) on the field's readings -- the year's mean of the
+    place moved by the latitude's season. The day does not melt it: the map
+    draws no swing either. Water is not snowed over -- ice lies there, and
+    nobody walks it. Taken at the start of the world hour, as the rain.
     """
     field = terrain.field_of(constants, planet)
     if field.is_water(lat, lon):
@@ -623,18 +395,17 @@ def snow_now(
     hour = math.floor(_days_since(origin, moment) * HOURS_PER_DAY)
 
     def work() -> float:
-        at = origin + timedelta(hours=hour) if origin is not None else moment
-        warmth = float(field.temperature_at(lat, lon)) + season_c(
-            constants, planet, lat, origin, at
+        at = moment if origin is None else origin + timedelta(hours=hour)
+        return weather.snow_cover(
+            float(field.temperature_at(lat, lon)) + season_c(constants, planet, lat, origin, at),
+            float(field.rain_at(lat, lon)),
+            line_c=float(constants[R.SEASON_SNOW_C]),
+            band_c=float(constants[R.SEASON_SNOW_BAND_C]),
+            dry_rain=float(constants[R.SEASON_SNOW_DRY_RAIN]) / PERCENT,
+            dry_keep=float(constants[R.SEASON_SNOW_DRY_SHARE]) / PERCENT,
         )
-        line = float(constants[R.SEASON_SNOW_C])
-        band = float(constants[R.SEASON_SNOW_BAND_C])
-        cover = 1.0 - _smoothstep(line - band, line, warmth)
-        dry_rain = float(constants[R.SEASON_SNOW_DRY_RAIN]) / PERCENT
-        keep = float(constants[R.SEASON_SNOW_DRY_SHARE]) / PERCENT
-        return cover * _lerp(keep, 1.0, _smoothstep(0.0, dry_rain, float(field.rain_at(lat, lon))))
 
-    return _hourly("snow", constants, planet, lat, lon, origin, hour, work)
+    return _hourly(_SNOW_HOURS, constants, planet, (lat, lon), origin, hour, work)
 
 
 def snow_on(constants: Constants, node: Node, origin: datetime | None, moment: datetime) -> float:
