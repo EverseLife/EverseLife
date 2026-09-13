@@ -44,7 +44,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.db.base import forget
-from src.engine import access, estate, events, fuel_plant, gear, station, travel, world
+from src.engine import access, estate, events, fuel_plant, gear, station, transport, travel, world
 from src.engine.errors import Refusal
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState
@@ -506,6 +506,17 @@ async def pick(
     await _held(session, item)
     if item.container_id != yard.id:
         raise StorageError(key="storage-not-on-ground")
+    #: A vehicle somebody is in the shafts of is pulled, not carried (D-157):
+    #: the harness comes off first, the carter's own hands included. An empty
+    #: barrow fits in the hands, so the carry limit alone let it be pocketed
+    #: with the harness still on -- and the carter's next leg pulled it out of
+    #: those hands (`transport.follow`). Asked under the vehicle's lock, which
+    #: `transport.harness` inserts under.
+    if (
+        transport.is_vehicle(catalog, item.type_key)
+        and await transport.pulled(session, item) is not None
+    ):
+        raise StorageError(key="storage-harnessed", goods=item.type_key)
 
     #: A relic of the Forerunners is not picked up, ever (D-232): it was found
     #: here, and the world holds no second copy of it. The refusal is here

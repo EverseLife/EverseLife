@@ -13,7 +13,7 @@ for, did not exist for a single day.
 
 | State | What it means |
 |---|---|
-| **standing** | an item `kind: vehicle` lies in the node, like a machine. Never taken in hand |
+| **standing** | an item `kind: vehicle` lies in the node. Lifted only light and out of harness |
 | **harnessed** | the body pulls it along all transits. One at a time, and only what is nearby |
 | **loaded** | cargo rides **in the hold** up to `transport.capacity` kilograms, not in hands |
 
@@ -54,11 +54,13 @@ from __future__ import annotations
 import uuid
 
 from sqlalchemy import select
+from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.constants.catalog import current_catalog
+from src.db.base import forget
 from src.engine import events, gear, travel, wear, world
 from src.engine.errors import Refusal
 from src.models.event import EventKind
@@ -172,6 +174,17 @@ async def harnessed(session: AsyncSession, body: Body) -> Item | None:
     return await session.get(Item, line.item_id)
 
 
+async def pulled(session: AsyncSession, vehicle: Item) -> Harness | None:
+    """The harness this vehicle is pulled by, if anybody is in the shafts.
+
+    Asked of a vehicle whose row the asker holds: `harness` inserts under
+    that lock, so only then is "nobody" an answer that stays true.
+    """
+    return (
+        await session.execute(select(Harness).where(Harness.item_id == vehicle.id))
+    ).scalar_one_or_none()
+
+
 async def harness(
     session: AsyncSession, constants: Constants, catalog: Catalog, body: Body, item: Item
 ) -> Item:
@@ -192,13 +205,35 @@ async def harness(
     yard = await world.node_container(session, node)
     if item.container_id != yard.id:
         raise NotHere(key="transport-not-here")
+    #: And again after the vehicle's lock, both questions -- where it stands
+    #: and who pulls it. The vehicle's row is what a door lifting it off the
+    #: ground takes before reading where it lies (`storage.pick`), and what a
+    #: second harness queues on: judged by the sight from before the wait, a
+    #: harness landed on a barrow already in somebody's hands, for the
+    #: carter's first leg to pull out of them (`follow`), and a second carter
+    #: at the same cart died on `uq_harness_item` instead of being told the
+    #: cart was taken. The memory goes too (`forget`), for the same reason.
+    #: The cheap question above stays: the id is the client's, and a vehicle
+    #: plainly not here is refused without taking its row.
+    #:
+    #: The body's side -- one harness per body, not on the road, not dead --
+    #: is held by the caller's lock on the body row (`_alive`), taken before
+    #: this one. A caller from a job must take the body first too.
+    named = item.type_key
+    try:
+        await session.refresh(item, with_for_update=True)
+    except InvalidRequestError as gone:
+        #: Broke on its last leg, burnt with the yard: the world's ordinary
+        #: answer, said in words (D-011). The name is read first -- a failed
+        #: refresh leaves none.
+        raise NotHere(key="thing-gone", goods=named) from gone
+    forget(session)
+    if item.container_id != yard.id:
+        raise NotHere(key="transport-not-here")
 
     if await harnessed(session, body) is not None:
         raise AlreadyHarnessed(key="transport-already-harnessed")
-    foreign_ = (
-        await session.execute(select(Harness).where(Harness.item_id == item.id))
-    ).scalar_one_or_none()
-    if foreign_ is not None:
+    if await pulled(session, item) is not None:
         raise AlreadyHarnessed(key="transport-vehicle-taken")
 
     session.add(Harness(body_id=body.id, item_id=item.id))

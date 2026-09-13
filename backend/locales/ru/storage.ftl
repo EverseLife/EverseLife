@@ -30,6 +30,7 @@ storage-not-a-storage = «{ NAME($chest) }» — не хранилище: в н�
 storage-relic = «{ NAME($goods) }» — наследие Предтеч: его не поднимают и не уносят
 storage-built-in-place = { NAME($goods) }: строится на месте, с земли не поднимается
 storage-standing = «{ NAME($goods) }» стоит, а не лежит: стоящее не поднимают с пола — сначала снимают
+storage-harnessed = в «{ NAME($goods) }» впряжены: запряжённое не поднимают — сначала распрягают
 storage-station-fuel = «{ NAME($goods) }» у станции — это её топливо: залитое обратно не поднимают
 
 storage-no-building = здесь нет здания: класть можно только на землю
