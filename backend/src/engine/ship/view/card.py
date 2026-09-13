@@ -16,7 +16,7 @@ from src import sky
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import estate, world
-from src.engine.ship import course, sighting, sim
+from src.engine.ship import course, sighting, sim, slider
 from src.engine.ship._base import (
     ADRIFT,
     AT_PORT,
@@ -243,7 +243,9 @@ async def profile(
             #: The direct arcs alone, cut as the slider cuts (D-341): the
             #: flybys are laid for one planet at a time, when it is chosen, and
             #: seconds a planet are no summary's to spend.
-            arcs = await sim.arcs(session, constants, ship, bodies.body(target.value), now=moment)
+            arcs = await slider.arcs(
+                session, constants, ship, bodies.body(target.value), now=moment
+            )
             if not arcs:
                 continue
             samples = sky.choices(
@@ -475,7 +477,7 @@ async def forecast(
     offers this hull from where it is right now, priced for it.
 
     Samples from the hull's own state -- the parking circle or the point
-    inertia has carried it to -- cut to its choices (`sim.offers`), each with
+    inertia has carried it to -- cut to its choices (`slider.offers`), each with
     what it burns by the hull's class and mass and the line to draw while the
     slider moves. The client draws every sample from the first, the fast
     end, to the last, the cheap end, and sends back the hours it picked and
@@ -506,13 +508,13 @@ async def forecast(
     #: The slider as offered (D-341): one point a flight time, fastest first,
     #: each cheaper than the one before -- nothing the engines cannot deliver
     #: and nothing that is no choice, so the client draws all of it.
-    offered = await sim.offers(
+    offered = await slider.offers(
         session, constants, catalog, ship, goal, now=moment, thrust_ratio=thrust_ratio
     )
     t0 = await sky_days(session, moment)
     if isinstance(goal, sky.Drifter) and any(sim.gone_by(goal, t0, one.hours) for one in offered):
         #: The hull's line ends before the profile gets there: nothing is
-        #: offered, as nothing would be flown (`sim.depart` refuses it).
+        #: offered, as nothing would be flown (`slider.point` refuses it).
         assert isinstance(target, Ship)
         return _nothing(target, NoArc(key="ship-target-gone-by-then", other=target.name))
     share = 1.0 if have_class is None else efficiency(constants, have_class)

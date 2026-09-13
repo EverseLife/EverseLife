@@ -30,6 +30,7 @@ plan is what one pays for, the tick is what one gets.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -57,13 +58,24 @@ from src.sky.shoot import Shot, refine
 from src.units import HOURS_PER_DAY, MINUTES_PER_HOUR, TRACE_POINTS
 
 #: The numerics' guard on the outward search for flybys (D-341), in years of
-#: the slowest world: no window reaches past two of them. The search stops by
-#: itself at the first window that adds no choice -- on the sky of 2026-09-13
-#: the chain of choices ended by 72 days and the last window searched by 145,
-#: with Aurora's year 130 -- so the guard is not a ceiling anything is offered
-#: or withheld by: it only keeps a sky that went on offering from searching
-#: without end.
+#: the slowest world: no window reaches past two of them. A limit of the
+#: computation, and one that does bound what is offered: a chain of choices
+#: that ran past a year of the slowest world would lose its windows beyond
+#: the guard. On the sky of 2026-09-13 the chain ended by 106 days at most and
+#: the search by 207, against Aurora's 260; a window the guard cuts is logged.
 _SEARCH_YEARS = 2.0
+
+#: How far under its conic price a refined flyby can come out: over 324
+#: refinements from 96 departures measured 2026-09-13 the sky's price was the
+#: conic's own in the median, under 0.9 of it in one in twenty, and 0.68 of it
+#: at the least. A candidate is refined while its conic price times this still
+#: beats what a choice must beat. Tried at 0.75 against refining by the bare
+#: conic price, it found better passages on four sliders of twenty-four --
+#: a flyby cheaper than the direct arc of its hour, a chain a window longer --
+#: for a fifth more time.
+_CONIC_SPREAD = 0.68
+
+_LOG = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -251,7 +263,8 @@ def preview(
 
 def search_days(system: System) -> float:
     """How far out the flyby search may ever reach, days: the numerics' guard
-    (`_SEARCH_YEARS` of the slowest world), and not a ceiling of the game."""
+    (`_SEARCH_YEARS` of the slowest world) -- a limit of the computation, not
+    a number of the game's balance."""
     return _SEARCH_YEARS * max((one.orbit[1] for one in system.bodies), default=0.0)
 
 
@@ -286,16 +299,20 @@ def routes(
     end of the chain -- and stops at the first window that adds no choice.
     A choice is cheaper than every faster route, so a window's choices do not
     depend on anything slower; and past an empty window nothing can join the
-    chain, being more than `gap` times longer than its end. The search is
-    exact for the chain: the groups it never reaches are not seen, and the
-    largest group is the largest of those it saw.
+    chain, being more than `gap` times longer than its end. The groups the
+    search never reaches are not seen, and the largest group is the largest
+    of those it saw.
 
     **Refined only what could be a choice.** The conics name the candidates
     (`flyby.search`), the whole sky decides which exist (`shoot.refine`), and
-    a candidate is refined only if its conic price beats every route already
+    a candidate is refined only if its conic price, less the spread the sky's
+    prices have shown against it (`_CONIC_SPREAD`), beats every route already
     certain at its hour or faster -- a direct arc of the engines' reach or a
-    confirmed flyby -- and the direct arc of its own hour. An hour whose best
-    world does not survive the refinement is tried through the next.
+    confirmed flyby -- and whatever is priced at its own hour. An hour whose
+    best world does not survive the refinement is tried through the next, and
+    so is one whose next world might still come out cheaper. The search is
+    exact for the chain the refinements confirm; a pass the conics do not
+    name at all, or name dearer than the spread, is not seen.
     """
     shortest = hours[0] / HOURS_PER_DAY
     guard = search_days(system) * HOURS_PER_DAY
@@ -313,6 +330,13 @@ def routes(
     while True:
         window = tuple(one for one in hours if top < one <= min(bound, guard))
         if not window:
+            if bound > guard:
+                #: The chain still grew, and only the guard stops it.
+                _LOG.warning(
+                    "flyby search cut by its guard: the chain reaches %.1f days, the guard %.1f",
+                    bound / HOURS_PER_DAY,
+                    guard / HOURS_PER_DAY,
+                )
             break
         shots = _refine_all(
             system,
@@ -361,18 +385,21 @@ def _refine_all(
     floor_radii: float,
 ) -> list[Shot]:
     """Refine each hour's candidates cheapest first, all hours in one batch a
-    round, until every hour has a flyby that exists and could be a choice or
-    has no candidates left. What could be a choice beats the `certain` routes
-    (`routes`); each confirmed flyby joins them for the rounds after."""
+    round, until no hour has a candidate left that could still be a choice.
+
+    What a choice must beat is the `certain` routes (`routes`), and every
+    confirmed flyby joins them for the rounds after -- its own hour's too, so
+    another world's pass at that hour is refined only if it might come out
+    cheaper still. Whether a candidate might is judged by its conic price
+    with `_CONIC_SPREAD` taken off: the conic is no bound on what the sky
+    confirms, and a choice pruned by it would cut the chain short."""
     known = list(certain)
     shots: dict[float, Shot] = {}
     while True:
         bar = _bars(known, reach)
         batch = []
         for hour, kept in sorted(queue.items()):
-            if hour in shots:
-                continue
-            kept[:] = [one for one in kept if one.dv < bar(hour)]
+            kept[:] = [one for one in kept if one.dv * _CONIC_SPREAD < bar(hour)]
             if kept:
                 batch.append(kept.pop(0))
         if not batch:

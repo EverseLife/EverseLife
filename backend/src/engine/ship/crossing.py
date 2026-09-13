@@ -25,13 +25,14 @@ from src import sky
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import events
-from src.engine.ship import fate, hold, meet, sighting, sim
+from src.engine.ship import course, fate, hold, meet, sighting, sim, slider
 from src.engine.ship._base import (
     PASSAGE,
     Docked,
     InFlight,
     NoArc,
     NoPort,
+    NotEnoughThrust,
     ShipError,
     TooFar,
     is_orbit,
@@ -73,13 +74,14 @@ async def fly(
     order is a point of the slider: `hours` one of the points it offers
     this hull (D-341), unnamed its cheap end. The
     sky plans it as D-271 priced it -- a Lambert arc, the burns at both ends
-    -- and then flies the chosen point under all five bodies (`sim.depart`);
+    -- and then flies the chosen point under all five bodies (`slider.point`,
+    `sim.depart`);
     from there the helm re-solves the passage every tick from where the hull
     actually is, and the tanks pay as the engines burn (`sim.tick_sky`).
 
-    Refused for what is impossible now and for nothing else: no thrust, no
-    life support, a dark planet at the far end, a point the slider does not
-    offer, no fuel for the departure burn. The
+    Refused for what is impossible now -- no thrust, no life support, a dark
+    planet at the far end, no fuel for the departure burn -- and for a point
+    the slider does not offer (D-341). The
     arrival burn is the console's warning: a hull short of it goes adrift
     rather than being kept at the pier, and adrift is a place one may be
     fetched from (D-289).
@@ -92,10 +94,18 @@ async def fly(
     slider the console quoted for those hours through it. Unnamed hours take
     the slider's cheap end, flyby or not. Either way only a point of the
     slider as the sky offers this hull at the order's moment is flown
-    (`sim.depart`): what is not on it is refused, not flown as something else.
+    (`slider.point`): what is not on it is refused, not flown as something else.
     """
     moment = now or datetime.now(UTC)
+    if hours is not None and not hours > 0:
+        raise NoArc(key="ship-hours-out-of-range", hours=round(hours, ROUND_HOURS))
     await _commanded_by(session, body, ship)
+    #: The slider before the row is locked (D-341): laid in the sky's pool it
+    #: takes seconds -- half a minute for a pair with Aurora on a bad day -- and
+    #: a hull row held for update that long would stall the tick and every
+    #: other order to it. Under the lock the hull is read again, and a hull
+    #: that moved, was moored or lost thrust meanwhile is laid again.
+    early = await _slider(session, constants, catalog, ship, target, moment)
     await session.refresh(ship, with_for_update=True)
     meeting = isinstance(target, Ship)
     if not meeting and not is_orbit(target):
@@ -145,12 +155,28 @@ async def fly(
         goal = world.body(target.planet.value)
     #: The slider as the sky offers this hull now (D-341): the order flies a
     #: point of it and nothing else, named or not.
-    offered = await sim.offers(
-        session, constants, catalog, ship, goal, now=moment, thrust_ratio=thrust_ratio
-    )
+    if early is not None and early[1] == _basis(ship, thrust_ratio):
+        offered = early[0]
+    else:
+        offered = await slider.offers(
+            session, constants, catalog, ship, goal, now=moment, thrust_ratio=thrust_ratio
+        )
     if not offered:
         if isinstance(target, Ship):
             raise TooFar(key="ship-no-route-to-ship", other=target.name)
+        assert isinstance(goal, sky.Body)
+        arcs = await slider.arcs(session, constants, ship, goal, now=moment)
+        if arcs:
+            #: The sky has arcs and the engines deliver none of them: said in
+            #: the thrust's own numbers, as an order for the cheapest would be.
+            cheapest = min(arcs, key=lambda one: one.dv)
+            can = course.deliverable(constants, thrust_ratio, cheapest.hours)
+            raise NotEnoughThrust(
+                key="ship-too-fast-for-thrust",
+                hours=round(cheapest.hours, ROUND_HOURS),
+                need=round(cheapest.dv, ROUND_DV),
+                have=round(can, ROUND_DV),
+            )
         if here is None:
             raise TooFar(key="ship-no-route-adrift", planet_to=target.planet.value)
         raise TooFar(
@@ -164,8 +190,20 @@ async def fly(
         cheap = offered[-1]
         hours = cheap.hours
         via = None if cheap.via is None else cheap.via.via
-    if not hours > 0:
-        raise NoArc(key="ship-hours-out-of-range", hours=round(hours, ROUND_HOURS))
+    #: The point the order names, or the refusal that says what is true of
+    #: its hours -- before anything about the hull is touched.
+    chosen = await slider.point(
+        session,
+        constants,
+        ship,
+        target if isinstance(target, Ship) else None,
+        goal,
+        offered,
+        hours=hours,
+        via=via,
+        now=moment,
+        thrust_ratio=thrust_ratio,
+    )
 
     #: Whoever holds on to this hull is let go of first, from the state
     #: they shared (wave 3); then the plan is written onto the row from the
@@ -180,11 +218,9 @@ async def fly(
         catalog,
         ship,
         target,
-        hours=hours,
+        plan=chosen,
         thrust_ratio=thrust_ratio,
         now=moment,
-        offered=offered,
-        via=via,
     )
     if here is not None and connector is not None:
         await _cast_off(session, ship, here, connector)
@@ -214,6 +250,59 @@ async def fly(
         **({"via": via} if via else {}),
     )
     return arrives
+
+
+async def _slider(
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    ship: Ship,
+    target: Node | Ship,
+    moment: datetime,
+) -> tuple[list[sky.Sample], tuple] | None:
+    """The slider to a planet from the hull as it stands before its row is
+    locked, and what it was laid on (`_basis`) -- or nothing where `fly` lays
+    it under the lock: a hull as the target, whose one quote is cheap, and a
+    hull that is under an order, lost, off the sky or on another's hold, which
+    the checks under the lock refuse or read through the other hull."""
+    if (
+        isinstance(target, Ship)
+        or not is_orbit(target)
+        or ship.course
+        or ship.lost_at is not None
+        or ship.sky_at is None
+        or ship.held_ship_id is not None
+    ):
+        return None
+    thrust_ratio = await _fit(session, constants, catalog, ship)
+    world = await sim.system(session, constants)
+    offered = await slider.offers(
+        session,
+        constants,
+        catalog,
+        ship,
+        world.body(target.planet.value),
+        now=moment,
+        thrust_ratio=thrust_ratio,
+    )
+    return offered, _basis(ship, thrust_ratio)
+
+
+def _basis(ship: Ship, thrust_ratio: float) -> tuple:
+    """What a slider from this hull is laid on: where it is and how it moves,
+    what holds it, and its thrust."""
+    return (
+        ship.docked_node_id,
+        ship.park_phase,
+        ship.sky_at,
+        ship.sky_x,
+        ship.sky_y,
+        ship.sky_vx,
+        ship.sky_vy,
+        ship.held_ship_id,
+        ship.course,
+        thrust_ratio,
+    )
 
 
 async def cancel(

@@ -23,6 +23,7 @@ Pinned is what the feature stands on:
 
 from __future__ import annotations
 
+import inspect
 import itertools
 import math
 from typing import NamedTuple
@@ -282,28 +283,41 @@ def test_the_search_walks_outward_and_stops_at_the_first_empty_window(
     reaching `orbit.route_gap` times the slowest choice found so far, until a
     window adds none -- and nothing past it is searched at all (D-341)."""
     world = system()
+    bind = inspect.signature(plan.search).bind
     walked = {}
     for origin, goal, t0 in (("terra", "aurora", 101.1), ("terra", "pyroxis", 75.8)):
         windows: list[tuple[float, ...]] = []
-        search = plan.search
+        chains: list[list[sky.Sample]] = []
+        search, front = plan.search, plan.front
 
-        def recording(*args, _seen=windows, _search=search, **kwargs):  # type: ignore[no-untyped-def]
-            _seen.append(args[5])
+        def searching(*args, _seen=windows, _search=search, **kwargs):  # type: ignore[no-untyped-def]
+            _seen.append(bind(*args, **kwargs).arguments["hours"])
             return _search(*args, **kwargs)
 
-        monkeypatch.setattr(plan, "search", recording)
+        def chaining(*args, _seen=chains, _front=front, **kwargs):  # type: ignore[no-untyped-def]
+            chain = _front(*args, **kwargs)
+            _seen.append(chain)
+            return chain
+
+        monkeypatch.setattr(plan, "search", searching)
+        monkeypatch.setattr(plan, "front", chaining)
         offered = _offers(world, origin, goal, t0)
         monkeypatch.undo()
-        #: One group from end to end on both days, so the offered points are
-        #: every choice there is, and the chain can be read off them.
+        #: The chain after every window, as the search itself read it.
+        assert len(chains) == len(windows)
         assert windows[0] == tuple(one for one in HOURS if one <= LONGEST)
-        for before, window in itertools.pairwise(windows):
-            slowest = max(one.hours for one in offered if one.hours <= before[-1])
-            assert window == tuple(one for one in HOURS if before[-1] < one <= GAP * slowest)
-        added = [any(one.hours in window for one in offered) for window in windows[1:]]
+        for k in range(1, len(windows)):
+            end = chains[k - 1][-1].hours
+            assert windows[k] == tuple(
+                one for one in HOURS if windows[k - 1][-1] < one <= GAP * end
+            ), "окно доходит до разрыва от конца цепочки"
+        added = [
+            any(windows[k - 1][-1] < one.hours for one in chains[k]) for k in range(1, len(windows))
+        ]
         assert added and not added[-1], "поиск кончился на окне без выбора"
         assert all(added[:-1]), "каждое окно до последнего добавило выбор"
-        walked[goal] = (len(windows), offered[-1].hours)
+        assert max(one.hours for one in offered) <= windows[-1][-1]
+        walked[goal] = (len(windows), chains[-1][-1].hours)
     #: Terra to Aurora on day 101.1 walks on past the direct slider through a
     #: chain of flybys; Terra to Pyroxis on day 75.8 ends at eight days, and
     #: its one window past twelve finds nothing.

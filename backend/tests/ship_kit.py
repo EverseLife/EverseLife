@@ -292,13 +292,13 @@ async def _fast_sample(
     *,
     now: datetime | None = None,
 ) -> dict:
-    """The fastest arc the engines deliver to `planet`, off the slider.
+    """The fastest direct arc the slider offers to `planet` (D-341).
 
     The one a test flies: the tick steps the sky a minute at a time (D-289),
     and the horizon's twelve days of the cheapest arc is not a test
     (`orbit.longest_days`, D-271 as reset by D-317). It is also the arc with
-    the least room in it -- the first point of the slider is the one the
-    thrust barely covers -- so a test that flies it and waits for the mooring
+    the least room in it -- near the slider's fast end the thrust barely
+    covers the arc -- so a test that flies it and waits for the mooring
     reads the sky at the hour it casts off from (`now`) and departs from a
     pinned place on the circle (`PARK_HEADING`), or it is a different passage
     every run.

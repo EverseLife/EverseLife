@@ -39,7 +39,7 @@ from src import sky
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import ship
-from src.engine.ship import course, sim
+from src.engine.ship import course, sim, slider
 from src.models.event import Event, EventKind
 from src.models.identity import Body
 from src.models.ship import Ship
@@ -177,10 +177,11 @@ async def test_the_slider_has_two_ends_and_the_order_names_one(
 ) -> None:
     """The owner picks the flight time; the engines and the tanks bound it (D-271).
 
-    Unnamed, the cheapest arc flies. Named, the arc for those hours is what is
-    paid for: more delta-v than the cheapest and more fuel with it. Asked for
-    a speed the engines cannot deliver in the time, the order is refused with
-    the numbers; asked for an hour off the slider, refused likewise.
+    Unnamed, the slider's cheap end flies. Named, the point for those hours is
+    what is paid for: more delta-v than the cheap end and more fuel with it.
+    Asked for a speed the engines cannot deliver in the time, the order is
+    refused with the numbers; asked for an hour off the slider, refused
+    likewise (D-341).
     """
     here = await _port(session)
     await _port(session, name="Порт Авроры", planet=Planet.AURORA)
@@ -206,9 +207,23 @@ async def test_the_slider_has_two_ends_and_the_order_names_one(
     assert fast["dv"] > cheap["dv"] and fast["fuel"] > cheap["fuel"]
     assert all(a["hours"] < b["hours"] and a["dv"] > b["dv"] for a, b in pairwise(samples))
     #: Off the slider on either side: refused before anything is burnt.
-    with pytest.raises(ship.NoArc):
-        await ship.fly(session, constants, catalog, owner, vessel, far, hours=0)
-    with pytest.raises(ship.NoArc):
+    for off in (0, constants[R.ORBIT_LONGEST_DAYS] * 24 + 1):
+        with pytest.raises(ship.NoArc) as refused:
+            await ship.fly(session, constants, catalog, owner, vessel, far, hours=off, now=moment)
+        assert refused.value.key == "ship-hours-out-of-range"
+    #: A time the engines cannot make: a direct arc the slider leaves off for
+    #: its thrust -- the slider's first hours ask hundreds of units a day of
+    #: any hull -- is refused by thrust and not by fuel.
+    thrust = await ship.ratio(session, constants, catalog, vessel)
+    world = await sim.system(session, constants)
+    arcs = await slider.arcs(
+        session, constants, vessel, world.body(Planet.AURORA.value), now=moment
+    )
+    slow_engines = [
+        one for one in arcs if one.dv > course.deliverable(constants, thrust, one.hours)
+    ]
+    assert slow_engines, "у первых делений дуги двигателям не по силам"
+    with pytest.raises(ship.NotEnoughThrust):
         await ship.fly(
             session,
             constants,
@@ -216,28 +231,9 @@ async def test_the_slider_has_two_ends_and_the_order_names_one(
             owner,
             vessel,
             far,
-            hours=constants[R.ORBIT_LONGEST_DAYS] * 24 + 1,
+            hours=slow_engines[0].hours,
+            now=moment,
         )
-    #: A time the engines cannot make: a direct arc the slider leaves off for
-    #: its thrust, if the sky has one, is refused by thrust and not by fuel.
-    thrust = await ship.ratio(session, constants, catalog, vessel)
-    world = await sim.system(session, constants)
-    arcs = await sim.arcs(session, constants, vessel, world.body(Planet.AURORA.value), now=moment)
-    slow_engines = [
-        one for one in arcs if one.dv > course.deliverable(constants, thrust, one.hours)
-    ]
-    if slow_engines:
-        with pytest.raises(ship.NotEnoughThrust):
-            await ship.fly(
-                session,
-                constants,
-                catalog,
-                owner,
-                vessel,
-                far,
-                hours=slow_engines[0].hours,
-                now=moment,
-            )
     #: The order is the point of the slider, and nothing is burnt at the
     #: order (D-289): the tanks pay as the engines burn, tick by tick.
     before = await ship.fuel_aboard(session, constants, catalog, vessel)
@@ -272,6 +268,40 @@ async def test_the_slider_has_two_ends_and_the_order_names_one(
     assert await ship.fuel_aboard(session, constants, catalog, vessel) < before, (
         "час пути — и баки легче"
     )
+
+
+async def test_engines_that_deliver_nothing_the_sky_has_are_refused_by_thrust(
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A slider with no point the engines deliver (D-341) is not a route that
+    does not exist: the order is refused in the thrust's own numbers, for the
+    cheapest arc the sky has."""
+    here = await _port(session)
+    await _port(session, name="Порт Авроры", planet=Planet.AURORA)
+    far = await _orbit(session, Planet.AURORA)
+    _, owner = await _shipwright(session, here)
+    vessel = await _laid(session, constants, owner, here)
+    await _flightworthy(session, constants, catalog, vessel)
+    connector = await session.get(Node, vessel.connector_node_id)
+    await _fuel(session, connector, 5000)
+    owner.node_id = connector.id
+    await session.flush()
+    await _in_orbit(session, constants, catalog, owner, vessel)
+
+    async def nothing(*args: object, **kwargs: object) -> list[sky.Sample]:
+        return []
+
+    #: No legal hull delivers nothing in twelve days of flight, so the empty
+    #: slider is put in by hand: what is pinned is the refusal it meets.
+    monkeypatch.setattr(slider, "offers", nothing)
+    with pytest.raises(ship.NotEnoughThrust) as refused:
+        await ship.fly(session, constants, catalog, owner, vessel, far)
+    assert refused.value.key == "ship-too-fast-for-thrust"
+    assert refused.value.params["hours"] > 0 and refused.value.params["need"] > 0
+    assert vessel.course is None and vessel.docked_node_id is not None
 
 
 async def _under_way(

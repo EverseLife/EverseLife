@@ -128,7 +128,8 @@ async def test_a_flyby_the_sky_does_not_have_is_refused(
     assert epoch is not None
     moment = epoch + timedelta(days=SWING_DAY)
     forecast = await ship.forecast(session, constants, catalog, vessel, Planet.AURORA, now=moment)
-    #: The slider's first hour: too short for any pass to lie inside it.
+    #: The slider's fast end, a direct arc: no pass round Pyroxis is offered
+    #: at its hours.
     straight = forecast["samples"][0]
     assert "via" not in straight
     body = await _body_of(session, vessel)
@@ -148,13 +149,48 @@ async def test_a_flyby_the_sky_does_not_have_is_refused(
     assert vessel.course is None and vessel.docked_node_id is not None
 
 
+async def test_an_order_a_minute_after_the_console_flies_what_it_showed(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The console reads the slider, the owner presses the button a minute
+    later: the hull has moved on along its circle, and the order still flies
+    the pass the console quoted, at its price -- the slider this hull laid in
+    the sky's ten minutes is found again, and only the wait is counted anew
+    from where the hull now is (D-341, D-316)."""
+    vessel, far = await _moored_over_terra(session, constants, catalog)
+    epoch = await world.epoch(session)
+    assert epoch is not None
+    moment = epoch + timedelta(days=SWING_DAY)
+    forecast = await ship.forecast(session, constants, catalog, vessel, Planet.AURORA, now=moment)
+    bent = next(one for one in forecast["samples"] if one.get("via") == Planet.PYROXIS.value)
+    later = moment + timedelta(minutes=1)
+    body = await _body_of(session, vessel)
+    arrives = await ship.fly(
+        session,
+        constants,
+        catalog,
+        body,
+        vessel,
+        far,
+        hours=bent["hours"],
+        via=Planet.PYROXIS.value,
+        now=later,
+    )
+    course = vessel.course
+    assert course is not None and course["via"] == Planet.PYROXIS.value
+    assert course["hours"] == bent["hours"]
+    assert course["dv"] == pytest.approx(bent["dv"], abs=0.01)
+    assert timedelta(hours=bent["hours"]) <= arrives - later < timedelta(hours=bent["hours"] + 24)
+
+
 async def test_an_order_off_the_slider_is_refused(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
     """The order flies a point of the slider as the sky offers it this hull
     at the order's moment, and nothing else (D-341): the hours of a flyby
     named without its world ask for the direct arc of that hour, which the
-    slider does not offer -- refused as off the slider, and nothing is laid."""
+    slider does not offer -- refused with the world the hour bends round, and
+    nothing is laid."""
     vessel, far = await _moored_over_terra(session, constants, catalog)
     epoch = await world.epoch(session)
     assert epoch is not None
@@ -166,7 +202,8 @@ async def test_an_order_off_the_slider_is_refused(
         await ship.fly(
             session, constants, catalog, body, vessel, far, hours=bent["hours"], now=moment
         )
-    assert "ship-hours-out-of-range" in str(refused.value)
+    assert refused.value.key == "ship-hours-are-a-flyby"
+    assert refused.value.params["planet"] == Planet.PYROXIS.value
     assert vessel.course is None and vessel.docked_node_id is not None
 
 

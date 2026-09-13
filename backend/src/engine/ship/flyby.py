@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Nurlan Urazkulov
 
-"""ship: the flyby's rows (D-341) -- what the slider remembers of the
-passages bent round a third world, and what an order keeps of the one it
-flies.
+"""ship: the flyby's rows (D-341) -- what one hull's slider remembers of the
+passages the sky offers it, bent round a third world or not, and what an
+order keeps of the flyby it flies.
 
-Beside `sim`, below it: the slider (`sim.offers`) asks here for what one hull
-is offered at the moment -- direct arcs and flybys together, cut to the
+Beside `sim`, below it: the slider (`slider.offers`) asks here for what one
+hull is offered at the moment -- direct arcs and flybys together, cut to the
 choices -- and the order (`sim.depart`) for the fields a flyby adds to the
 course; the tick (`helm`) reads the helm's leg back. The arithmetic is the
 sky's (`sky.routes`, `sky.steer_pass`); this module remembers it, runs it
@@ -38,7 +38,6 @@ from src.runtime import SKY_WORKERS
 from src.units import (
     HOURS_PER_DAY,
     ROUND_DV,
-    ROUND_TRACE,
     SKY_CURVE_MEMO,
     SKY_MEMO_PER_DAY,
 )
@@ -54,26 +53,25 @@ async def offered(
     t: float,
     *,
     reach: float,
+    basis: tuple,
 ) -> list[sky.Sample]:
     """The slider one hull is offered to a planet (D-341): direct arcs and
     flybys, cut to the choices for engines that give `reach` a day of flight.
 
     Laid from the hull's own place and velocity at the moment asked -- on its
-    parking circle or adrift -- so a plan is never shared between hulls, and
-    the wait for the ejection window in it is the hull's own. Remembered on
-    that state as the wire rounds it, the sky's ten-minute bucket and the
-    engines' reach: two consoles of one hull asking together wait on one
-    computation, and a hull that has moved on along its circle asks anew.
+    parking circle or adrift -- never from a world's centre, so a plan is its
+    hull's. Remembered on the hull's `basis` (`slider._basis`), the sky's
+    ten-minute bucket and the engines' reach: the console's rereads and the
+    order after them find the slider the first reading of the bucket laid,
+    and two consoles of one hull asking together wait on one computation.
     """
     key = (
         constants.digest,
+        tuple(one.key for one in world.bodies),
         target.key,
         None if leaving is None else leaving.key,
         round(t * SKY_MEMO_PER_DAY),
-        round(r[0], ROUND_TRACE),
-        round(r[1], ROUND_TRACE),
-        round(v[0], ROUND_DV),
-        round(v[1], ROUND_DV),
+        basis,
         round(reach, ROUND_DV),
     )
     return await _remembered(

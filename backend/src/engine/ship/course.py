@@ -154,7 +154,7 @@ def grid(constants: Constants) -> tuple[float, ...]:
 def flyby_grid(constants: Constants, days: float) -> tuple[float, ...]:
     """The slider's hours on past the direct arc's horizon (D-341): the same
     geometric steps, out to `days` -- the sky's own guard on the search
-    (`sky.search_days`), not a ceiling of the game. Up to the horizon the
+    (`sky.search_days`), a limit of the computation. Up to the horizon the
     hours are the direct slider's own, so a direct arc and a flyby of one
     hour meet on one point; past it the geometric steps go on unbroken, the
     guard itself no step of theirs."""
@@ -189,7 +189,7 @@ def curve(
     Missing samples are times no arc serves -- everything grazes the corona,
     or the geometry gives nothing. The corridor's curve and the map's calendar
     stay direct: a flyby is searched and refined for the one hull's slider
-    (`sky.flybys`, D-341), at a cost no map read of every pair could pay.
+    (`sky.routes`, D-341), at a cost no map read of every pair could pay.
 
     Planetary and nothing else: what the hull can do with it is `deliverable`
     and the tanks. Memoised, because every hull over a planet asks the same

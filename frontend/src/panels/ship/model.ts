@@ -51,8 +51,9 @@ export type ArcPrice = {
 };
 
 /** A destination the console offers: a planet's orbit, and the two ends of
- *  the slider to it -- the fastest arc the engines deliver and the cheapest
- *  the horizon offers. The whole slider is read on demand (`ship.course`). */
+ *  the direct arcs to it as the slider's rule cuts them (D-341) -- the first
+ *  choice and the cheapest of the group offered. The whole slider, flybys
+ *  and all, is read on demand (`ship.course`). */
 export type Route = {
   node: string;
   name: string;
