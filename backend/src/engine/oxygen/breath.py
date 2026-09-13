@@ -170,9 +170,12 @@ async def settle(
     #: `amount()` rounds to the nearest and would take one the stretch had not
     #: earned. Flooring alone would be worse than the disease -- an error that
     #: cancelled would become one that always took -- which is why the shaving
-    #: is kept rather than dropped.
-    owed = need + float(locked.air_owed)
-    want = float(on_grid(owed, ROUND_AMOUNT, ROUND_FLOOR))
+    #: is kept rather than dropped. In decimals, as on the hull, so the rest is
+    #: below a thousandth exactly and not by a float's grace: the column's
+    #: check would refuse the tick otherwise.
+    owed = Decimal(str(need)) + Decimal(str(locked.air_owed))
+    whole = on_grid(owed, ROUND_AMOUNT, ROUND_FLOOR)
+    want = amount(whole)
     if want <= 0:
         #: Not a whole thousandth to ask for, so nothing is learnt about the
         #: cylinder either: full or dry, it answers the same to a question
@@ -185,12 +188,14 @@ async def settle(
         await session.flush()
         return Breath(left=await carried(session, locked), uncovered=None)
     stacks = await stock.lock_items(session, await cylinders(session, locked))
-    took = amount_float(await stock.consume(session, stacks, amount(want)))
-    #: Exactly enough must not read as short: amounts are split into
-    #: thousandths, and the last digit of an hour's draw is rounding, not a
-    #: gasp. The same tolerance the fuel check uses before a passage.
-    missing = owed - took
-    if missing > _EPS:
+    took = await stock.consume(session, stacks, want)
+    #: Asked and given are both whole thousandths, so short means short and
+    #: never a rounding, exactly as on the hull: nothing below the grid was
+    #: asked, and the last digit of an hour needs no forgiving. The tolerance
+    #: that used to stand here was a thousandth wide, and a dry bottle owing
+    #: exactly one read as covered.
+    short = took < want
+    if short:
         #: A real shortage. The body choked for it and is not billed twice:
         #: nothing is carried on top of choking.
         locked.air_owed = Decimal(0)
@@ -199,14 +204,16 @@ async def settle(
         #: body, not on the stamp: this stretch may have ended aboard, and
         #: arriving in air moves the stamp to now -- which would forgive the
         #: debt every time a body stepped back up its own gangway.
-        locked.air_owed = on_grid(max(0.0, missing), ROUND_REMAINDER, ROUND_FLOOR)
+        locked.air_owed = on_grid(owed - whole, ROUND_REMAINDER, ROUND_FLOOR)
     locked.air_at = moment
     await session.flush()
     #: Asked again rather than summed off the stacks in hand: a stack spent to
     #: nothing is **deleted** by `consume`, and its object keeps the amount it
     #: had -- the sum would count air that no longer exists.
     left = await carried(session, locked)
-    return Breath(left=left, uncovered=missing / draw if missing > _EPS and draw > 0 else 0.0)
+    #: What nothing covered: all that was owed, less what the cylinder gave.
+    missing = float(owed) - amount_float(took)
+    return Breath(left=left, uncovered=missing / draw if short else 0.0)
 
 
 async def tick_bodies(

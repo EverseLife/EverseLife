@@ -368,3 +368,34 @@ async def test_a_stretch_that_asked_nothing_gives_no_grace_back(
     #: The first stretch that asks finds the bottle dry, and the grace is spent.
     finish = started + timedelta(minutes=1)
     assert await oxygen.tick_bodies(session, constants, catalog, now=finish) == 1
+
+
+async def test_a_thousandth_the_empty_bottle_did_not_give_is_short(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Short is what the cylinder did not give, not what a tolerance forgives.
+
+    The body used to call a stretch short only when the air missing from it
+    exceeded a thousandth. A stretch owing exactly one, asked of a dry bottle,
+    was missing exactly the tolerance: read as covered it gave the grace back,
+    and the whole missing thousandth went into the debt column -- whose check
+    refuses one, and took the tick's transaction down with it. What is asked
+    is floored to the grid, so "given less than asked" is the whole test, as it
+    is on the hull.
+    """
+    pyroxis = await _sphere(session, Planet.PYROXIS, airless=True)
+    rock = await _ground(session, Planet.PYROXIS, pyroxis)
+    body = await _person(session, rock)
+    await _suited(session, constants, catalog, body)
+    started = datetime.now(UTC)
+    #: The stretch a thousandth of air lasts, to the microsecond a stamp keeps.
+    #: The premise is checked, not assumed: off the grid the stretch asks for
+    #: nothing or for more, and the edge is never reached.
+    thousandth = timedelta(hours=1) * (10**-ROUND_AMOUNT / constants[R.OXYGEN_BODY_DRAW])
+    assert thousandth / timedelta(hours=1) * constants[R.OXYGEN_BODY_DRAW] == 10**-ROUND_AMOUNT
+    body.air_at = started - thousandth
+    await session.flush()
+
+    assert await oxygen.tick_bodies(session, constants, catalog, now=started) == 0
+    assert body.choking_since is not None, "не дали тысячную — это нехватка"
+    assert body.air_owed == 0, "на удушье долг не копится"
