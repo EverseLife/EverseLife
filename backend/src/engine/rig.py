@@ -70,7 +70,6 @@ from datetime import UTC, datetime
 from decimal import ROUND_FLOOR, Decimal
 
 from sqlalchemy import and_, or_, select
-from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants, current, current_catalog
@@ -184,11 +183,8 @@ async def place(
     #: command read free whether it is in the hands or lying here, and a pick
     #: or a fire committed since shows only under this lock: written from that
     #: look, the machine stood up out of the pocket it had just gone into. A
-    #: thing gone is the world's answer, said in words (D-314).
-    try:
-        await session.refresh(item, with_for_update=True)
-    except InvalidRequestError as gone:
-        raise NoRig(key="rig-machine-gone") from gone
+    #: thing gone is the world's answer, as at `station.place` (D-251).
+    await world.lock_thing(session, item, gone=NoRig)
     pocket = await world.body_container(session, body)
     floor = await world.node_yard(session, node_here)
     #: What stands is not stood up again: a machine is stood from the hands or

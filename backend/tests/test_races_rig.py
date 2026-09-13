@@ -552,7 +552,7 @@ async def test_a_rig_burnt_under_the_place_door_is_refused_in_words(
         _HUNG,
     )
 
-    assert verdict == "rig-machine-gone", "сказано словами: машины больше нет"
+    assert verdict == "thing-gone", "сказано словами: машины больше нет"
     assert await session.scalar(select(Item.id).where(Item.id == machine_id)) is None
 
 
