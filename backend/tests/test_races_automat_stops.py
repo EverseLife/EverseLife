@@ -41,29 +41,35 @@ async def test_an_owner_pays_the_debt_while_the_tick_stands_the_cut_off_machine(
     keeps its transaction open for the rest of the world's factories; what this
     pins is that the reading leaves no lock on the meter's row behind. The owner
     paying the debt meanwhile -- locking the purse, then writing the meter --
-    walks straight through instead of waiting for the step to end. A meter held
-    that long would put it on the tick's lock order, ahead of the purses the
-    step reaches for last (`bill.pay`), where a payer holding a purse and
-    wanting the meter is that order the other way round."""
+    walks straight through instead of waiting for the step to end, and so does
+    a hand on the floor's canister: the machine the debt stands locks no vessel.
+    A meter held that long would put it on the tick's lock order, ahead of the
+    purses the step reaches for last (`bill.pay`), where a payer holding a purse
+    and wanting the meter is that order the other way round."""
     node, yard, identity, body, machine = await _factory_floor(session, constants)
     node.owner_identity_id = identity.id
     await world.grant_item(session, yard, IRON, amount=1000, quality=60, origin="test")
-    await _lube_in(session, yard, 100)
+    lube = await _lube_in(session, yard, 100)
     await _learn(session, identity, NAILS)
     row = await automat.program(session, constants, catalog, body, machine, NAILS)
     meter = await utility.meter_of(session, node)
     assert meter is not None
     meter.cut_off, meter.debt = True, money(1)
     moment = row.counted_at + timedelta(hours=2)
-    ids = (row.id, meter.id, node.id, identity.id)
+    inside = await session.get(Container, lube.container_id)
+    assert inside is not None
+    ids = (row.id, meter.id, node.id, identity.id, inside.owner_id, lube.id)
     await session.commit()
-    row_id, meter_id, node_id, identity_id = ids
+    row_id, meter_id, node_id, identity_id, canister_id, lube_id = ids
 
     async with factory() as tick, tick.begin():
         assert await automat.tick_automats(tick, constants, now=moment) == 0
         async with factory() as owner, owner.begin():
-            #: A tick holding the meter makes this fail at once, not hang.
+            #: A tick holding the meter, or the floor's canister and the
+            #: lubricant in it, makes this fail at once, not hang.
             await owner.execute(text("SET LOCAL lock_timeout = '2s'"))
+            assert await owner.get(Item, canister_id, with_for_update=True) is not None
+            assert await owner.get(Item, lube_id, with_for_update=True) is not None
             payer = await owner.get(Identity, identity_id)
             where = await owner.get(Node, node_id)
             assert payer is not None and where is not None
