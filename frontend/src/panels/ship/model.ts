@@ -350,3 +350,20 @@ export function range(samples: Sample[]): [number, number] | null {
   }
   return [first, cheapest];
 }
+
+/**
+ * A count as this window writes one: whole units once there are many of them,
+ * a tenth of one while there are few.
+ *
+ * Shared by the hull's card, the plumbing list and the scheme: one vessel
+ * must not read «0» in one window and «0.4» in the next.
+ *
+ * The server rounds a reserve to the tenth it keeps it in, and a bare
+ * `toFixed(0)` turned four tenths of a bottle into «0» -- under a sentence
+ * that had just said there was some, and told the reader to draw a line to
+ * it. The figure and the sentence must agree about whether anything is there.
+ */
+const SPELT_TENTHS_TO = 10;
+export function spelt(amount: number): string {
+  return amount < SPELT_TENTHS_TO ? amount.toFixed(1) : amount.toFixed(0);
+}

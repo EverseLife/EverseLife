@@ -20,13 +20,12 @@ from src.engine import events, goods, travel
 from src.engine import world as world_engine
 from src.engine.craft._base import Busy, CutOff, NoStation
 from src.engine.craft._internal import (
-    _hours_run,
     _num,
     _occupy,
     _pick_station,
     _release,
-    _wear_tools,
 )
+from src.engine.craft.wearing import _hours_run, _wear_tools
 from src.engine.jobs import enqueue
 from src.engine.world import body_container, node_container
 from src.models.craft import BatchState, CraftBatch

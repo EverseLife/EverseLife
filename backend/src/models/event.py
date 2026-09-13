@@ -62,6 +62,10 @@ class EventKind(StrEnum):
     AUTOMAT_STOPPED = "automat.stopped"
     AUTOMAT_LINKED = "automat.linked"
     AUTOMAT_UNLINKED = "automat.unlinked"
+    #: An automat on the ground stood because its vent gas had nowhere to go
+    #: (D-340): air outside and no flare stack in the node. Said once, when
+    #: the reason appears, to whoever programmed it.
+    AUTOMAT_NO_FLARE = "automat.no_flare"
 
     # the field automaton: a programme of commands over plots (D-339)
     AGRO_PROGRAMMED = "agro.programmed"
@@ -137,6 +141,17 @@ class EventKind(StrEnum):
     #: or pours into, and in what order. An empty list is the port reaching
     #: nothing (as amended 2026-09-04).
     LINE_SET = "line.set"
+    #: The owner gave a vessel on the lines a name, or took it off (D-340).
+    LINE_NAMED = "line.named"
+    #: The air machine aboard stopped on its lines (D-288, D-340), in three
+    #: words: the line of a port ran dry (water, lubricant), every vessel on
+    #: its outlet is full, the hull's cells are flat. Said to everybody aboard
+    #: once, when the reason appears or changes, like the air running out.
+    SHIP_MACHINE_DRY = "ship.machine_dry"
+    SHIP_MACHINE_FULL = "ship.machine_full"
+    SHIP_MACHINE_UNPOWERED = "ship.machine_unpowered"
+    #: And a fourth: a port it needs has no line drawn at all.
+    SHIP_MACHINE_UNLINED = "ship.machine_unlined"
     #: The engines ran dry under way (D-289): the hull coasts from here, and
     #: the order is gone. Said to everybody aboard, like the air running out.
     SHIP_ADRIFT = "ship.adrift"
@@ -275,6 +290,9 @@ class EventKind(StrEnum):
     #: batch ended in a liquid and no vessel within reach had room for it.
     STORAGE_POURED = "storage.poured"
     STORAGE_SPILLED = "storage.spilled"
+    #: A vessel emptied of its vent gas by hand (D-340): let out where there
+    #: is no air, burned in the node's flare where there is (`way`).
+    STORAGE_VENTED = "storage.vented"
 
     #: Put down on the floor of a place and picked up from it (D-192).
     ITEM_DROPPED = "item.dropped"

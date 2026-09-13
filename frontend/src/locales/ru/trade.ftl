@@ -101,6 +101,23 @@ ui-workshop-forecast = Прогноз считается сам, пока вы �
 ui-workshop-queue = В очередь
 ui-workshop-start = Запустить партию
 ui-workshop-running = сейчас идёт «{ $goods }»: новая партия встанет за ней
+# Куда льётся жидкость партии и сколько там места сейчас (D-340): место не
+# бронируется, и игрок видит это до запуска и пока партия идёт.
+ui-workshop-outlet = { $goods }: { $where ->
+        [line] в тару на линии
+        [reach] в тару в руках и у станка
+       *[place] в тару у станка
+    } — свободно { $room }, партия даст { $need }; место не бронируется
+ui-workshop-outlet-short = { $goods }: { $where ->
+        [line] в тару на линии
+        [reach] в тару в руках и у станка
+       *[place] в тару у станка
+    } — свободно { $room }, партия даст { $need }: лишнее прольётся
+ui-workshop-outlet-gone = { $goods }: { $where ->
+        [flare] сгорит в факельной установке узла
+        [overboard] в тару на линии, остальное — за борт: снаружи нет воздуха
+       *[void] уйдёт наружу — там нет воздуха
+    }
 ui-workshop-repair-title = Починить или разобрать
 ui-workshop-thing-condition = { $goods } · состояние { $condition }
 ui-workshop-repair = Починить

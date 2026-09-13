@@ -196,6 +196,10 @@ OXYGEN_CYLINDER_STORE = Num("oxygen.cylinder_store")
 #: simulation, never by the engine: three months is a promise about numbers,
 #: not a rule the world enforces.
 OXYGEN_AUTONOMY_TARGET = Num("oxygen.autonomy_target")
+#: What a sown hydroponic plot breathes out an hour per square metre while
+#: its culture grows (D-288, D-340): into the vessels on the oxygen line of
+#: the hydroponic units standing in its compartment.
+OXYGEN_HYDROPONICS_RATE = Num("oxygen.hydroponics_rate")
 
 # --- Frost and heat (D-231) --------------------------------------------------
 #: The body's heat reserve, hours, by climate -- the frost's and the heat's

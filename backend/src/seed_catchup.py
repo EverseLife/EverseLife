@@ -683,8 +683,15 @@ async def _lines_catch_up(session: AsyncSession, constants) -> int:
     port that has no line gets one to every vessel installed aboard, in the
     order they stood -- exactly what the port reached the day before -- and
     is never touched again: the owner's plumbing from then on is the owner's.
-    Returns how many ports were drawn."""
+    Returns how many ports were drawn.
+
+    Only the two ports that lived under that default -- the engines' fuel and
+    the life support's oxygen. The ports wave 4 of D-288 brought (D-340: the
+    electrolyser's water, oxygen and hydrogen, the automat's lubricant, the
+    hydroponics' oxygen) never had a default, and a catch-up that drew every
+    vessel aboard onto them would pour hydrogen into the crew's cylinders."""
     catalog = current_catalog()
+    legacy = {lines.fuel_port(), lines.air_port()}
     drawn = 0
     #: A port its owner ever plumbed is the owner's, drawn empty included, and
     #: only the journal can say so: an emptied port has no rows left. Read
@@ -696,7 +703,9 @@ async def _lines_catch_up(session: AsyncSession, constants) -> int:
         for machine in hold:
             if not machine.installed:
                 continue
-            for port in lines.ports_of(constants, machine.type_key):
+            for port in lines.ports_of(constants, catalog, machine.type_key):
+                if port not in legacy:
+                    continue
                 if await lines.lines_of(session, machine.id, port.name):
                     continue
                 if (str(machine.id), port.name) in plumbed:

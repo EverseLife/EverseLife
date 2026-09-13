@@ -160,7 +160,7 @@ python tools/spdx.py --apply
   разрез. Добавлять в такой файл без упоминания нельзя. Список на 2026-09-13
   (пересчитан при разрезе реестра): `engine/gear.py` (865),
   `engine/bank/loan.py` (848), `panels/GraphMap.tsx` (1068),
-  `panels/Sidebar.tsx` (820) и тесты `test_explore.py` (1324),
+  `panels/Sidebar.tsx` (820) и тесты `test_explore.py` (1325),
   `test_races.py` (862), `test_oxygen.py` (814), `bands.test.ts` (849),
   `map.test.ts` (809), `pure.test.ts` (802). 2026-09-01 он был пуст —
   последние шесть (`bank`, `travel`, `vote`, `oxygen`, `net`, `frost`)

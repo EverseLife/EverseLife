@@ -49,6 +49,9 @@ def test_constants_served_to_client_whole(client) -> None:
 def test_catalogs_available(client) -> None:
     recipes = client.get("/public/recipes").json()
     assert recipes["recipes"] and recipes["raw"] and recipes["operations"]
+    #: The vent gases travel with the liquids (D-340): without them the client
+    #: never offers to empty a vessel of hydrogen.
+    assert "hydrogen" in recipes["vent"]
 
     laws = client.get("/public/laws").json()
     #: A new city works on defaults, filling in nothing (D-130).

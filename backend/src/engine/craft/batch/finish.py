@@ -15,23 +15,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, ConstantError, Constants, current, current_catalog
 from src.constants import registry as R
-from src.engine import events, goods, liquid
+from src.engine import events, goods, liquid, vent
 from src.engine import world as world_engine
 from src.engine.craft._base import (
     CraftError,
 )
 from src.engine.craft._internal import (
-    _hours_run,
     _num,
     _pieces,
     _release,
-    _wear_station,
-    _wear_tools,
 )
 from src.engine.craft.batch.work import _target
 from src.engine.craft.method_of_making import procedure
 from src.engine.craft.queue import wake, wake_node
+from src.engine.craft.wearing import _hours_run, _wear_station, _wear_tools
 from src.engine.jobs import handler
+from src.engine.ship import lines
 from src.engine.world import BIOPRINTER, body_container, node_container, station_names
 from src.models.craft import BatchKind, BatchState, CraftBatch
 from src.models.event import EventKind
@@ -183,6 +182,14 @@ async def _finish_make(
             else moment + timedelta(hours=food.shelf_hours(constants, rate=1))
         )
 
+    #: The air aboard pours through the hull's lines (D-340): the machine the
+    #: batch ran at, read again now -- it may have been taken down meanwhile,
+    #: and then the yield lands at the bench like any other.
+    station_item = (
+        None if batch.station_item_id is None else await session.get(Item, batch.station_item_id)
+    )
+    plumbed = await lines.plumbing_of(session, constants, catalog, station_item, batch.output)
+
     made: list[float] = []
     #: What arrived in the hands, for the carry rule below (D-265): judged
     #: once for the whole yield, not piece by piece.
@@ -225,7 +232,15 @@ async def _finish_make(
         #: nowhere is spilled -- and said so, because matter that vanished in
         #: silence is a bug report waiting to happen.
         within = await _vessels_reach(session, batch, where)
-        spilled = await liquid.settle(session, catalog, fresh, within)
+        if plumbed is not None and liquid.is_liquid(catalog, batch.output):
+            #: Into the vessels on the outlet, in line order. The start made
+            #: sure they could take it all; what somebody filled them with
+            #: during the hours is a spill, said as one.
+            spilled = await liquid.fill_or_drop(
+                session, catalog, fresh, plumbed.outlets.get(batch.output, [])
+            )
+        else:
+            spilled = await liquid.settle(session, catalog, fresh, within)
         if spilled > 0:
             await events.record(
                 session,
@@ -237,6 +252,9 @@ async def _finish_make(
             )
         elif len(within) > 1 and not liquid.is_liquid(catalog, batch.output):
             arrived.append(fresh)
+    shed = catalog.recipes.byproduct_of(batch.output)
+    if shed:
+        await _shed(session, catalog, batch, body, where, plumbed, shed, moment)
     if arrived:
         #: Paid into the master's hands past the carry limit, the yield falls
         #: underfoot (D-265): a station is not carried off because it was
@@ -245,6 +263,68 @@ async def _finish_make(
 
         await overload.settle_load(session, constants, catalog, body, arrived)
     return made
+
+
+async def _shed(
+    session: AsyncSession,
+    catalog: Catalog,
+    batch: CraftBatch,
+    body: Body,
+    where: Container,
+    plumbed: lines.Plumbing | None,
+    byproduct: dict[str, float],
+    moment: datetime,
+) -> None:
+    """The batch's byproduct (D-340): the hydrogen of electrolysis.
+
+    A liquid byproduct is a vent gas (the vault build holds it to that), and
+    it goes where `engine.vent` sends it: into the vessels on its vent line
+    aboard, and what finds no room out where there is no air outside or into
+    the node's flare stack where there is -- without a word, because nothing
+    anybody kept was lost.
+
+    The start refused a batch whose gas would have had nowhere to go, but the
+    place can change during the hours: a hull that set down under a sky with
+    air, a vent tank somebody filled meanwhile. Then what finds no place
+    **spills with an event**, as the oxygen does when its room was taken --
+    an accident said aloud, never a release planned into the air. The flare
+    itself cannot vanish meanwhile: a station built in place is never taken
+    down (D-268). A byproduct that is not a liquid lands with the yield.
+    """
+    units = amount_float(batch.units)
+    node = await session.get(Node, batch.node_id)
+    for name, per in byproduct.items():
+        made = amount(per * units)
+        if made <= 0:
+            continue
+        solid = not liquid.is_liquid(catalog, name)
+        vessels = [] if solid or plumbed is None else plumbed.vents.get(name, [])
+        left = amount_float(made)
+        if solid or vessels:
+            extra = Item(
+                container_id=where.id,
+                type_key=name,
+                amount=made,
+                quality=batch.quality,
+                maker_identity_id=body.identity_id,
+                made_at=moment,
+                made_node_id=batch.node_id,
+            )
+            session.add(extra)
+            await session.flush()
+            if solid:
+                await world_engine.stack_up(session, extra)
+                continue
+            left = await liquid.fill_or_drop(session, catalog, extra, vessels)
+        if left > 0 and await vent.sink(session, node) is None:
+            await events.record(
+                session,
+                EventKind.STORAGE_SPILLED,
+                actor_identity_id=body.identity_id,
+                node_id=batch.node_id,
+                type_key=name,
+                amount=left,
+            )
 
 
 async def _vessels_reach(

@@ -97,6 +97,9 @@ async def recipes() -> dict[str, Any]:
         #: Liquids (D-230): they exist only inside a vessel, and the client
         #: reads which things those are the same way the engine does.
         "liquid": list(book.liquid),
+        #: Vent gases (D-340): the client offers to let one out or burn it,
+        #: and it knows which things those are by the vault's flag, as the engine does.
+        "vent": list(book.vent),
         #: What to draw next to a quantity: "5 шт", "3 м" (display only).
         "units": book.units,
         "operations": [operation.model_dump(by_alias=True) for operation in book.operations],

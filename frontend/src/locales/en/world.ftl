@@ -187,13 +187,39 @@ ui-ship-air-outside = there is air outside, the system sleeps
 ## The feed (D-288): lines from a machine to a vessel.
 
 ui-ship-feed = Feed lines
-ui-ship-feed-hint = A port with nothing ticked draws from nothing. Tick the vessels the port draws from; the order of ticking is the order of use.
-ui-ship-feed-none = No machine with lines aboard: the engine and the life support system appear here once they stand in a compartment.
-ui-ship-feed-nothing = no line, and the port draws nothing
+ui-ship-feed-hint = A port with nothing ticked draws from no vessel and fills none. Tick the vessels; the order of ticking is the order the port draws from them or fills them.
 ui-ship-feed-reset = clear the line
 ui-ship-feed-no-vessels = No suitable installed vessel aboard: put up a fuel tank, a canister or an oxygen tank in a compartment.
 ui-ship-feed-empty = empty
 ui-ship-feed-up = up
+# The ship's scheme (D-288, D-340): where the lines are edited, from the bridge.
+ui-ship-scheme = Ship schematic
+ui-ship-scheme-rule = lines from machines to vessels
+ui-ship-scheme-hint = Lanes are the compartments in the order they were laid: machines on the left, vessels on the right. A line runs from a port's dot to a vessel — drag it, or press the port and then the vessel. Pressing a line opens its port; pressing a vessel with no port chosen opens its name for editing.
+ui-ship-scheme-read-only = The ship's owner draws the lines and names the vessels at a console; the crew sees the scheme as it stands.
+ui-ship-scheme-none = No machine with ports aboard — none that draws or gives a liquid by lines: they appear here once they stand in a compartment.
+ui-ship-scheme-way-in = inlet
+ui-ship-scheme-way-out = outlet
+ui-ship-scheme-way-vent = vent
+ui-ship-scheme-way-in-note = Draws from the vessels in line order: when the first runs dry it draws from the next.
+ui-ship-scheme-way-out-note = Pours into the vessels in line order; when all of them are full the machine stops.
+ui-ship-scheme-way-vent-note = Pours into the vessels in line order. What does not fit: the hydroponics' oxygen stays in the compartment's air, vent gas goes overboard where there is no air outside; under a sky with air vent gas has no place but the vessels, and without them the machine stops.
+ui-ship-scheme-no-line = { $way ->
+        [in] no line: the port draws nothing
+        [vent] no line: oxygen stays in the compartment's air, vent gas goes overboard in the void, and under a sky with air the machine stops
+       *[other] no line: the machine has nowhere to pour, and it stops
+    }
+ui-ship-scheme-port = the “{ $goods }” port: drag it to a vessel
+ui-ship-scheme-line-pick = open this line's port
+ui-ship-scheme-down = down
+ui-ship-scheme-unline = remove
+ui-ship-scheme-done = done
+ui-ship-scheme-name-label = Vessel name
+ui-ship-scheme-name-clear = remove the name
+ui-ship-scheme-stall-power = stopped: the hull's batteries are flat
+ui-ship-scheme-stall-dry = stopped: the “{ $goods }” line is dry
+ui-ship-scheme-stall-full = stopped: the vessels on the “{ $goods }” line are full
+ui-ship-scheme-stall-unlined = stopped: no “{ $goods }” line
 
 ## A line about the hull, one for each: where it is and what it breathes.
 
@@ -474,6 +500,8 @@ ui-factory-port-in = input
 ui-factory-port-out = output
 ui-factory-idle = -- no programme --
 ui-factory-backlog = in work { $backlog }
+ui-factory-stall-flare = stopped: no flare stack in the node for its vent gas
+ui-factory-stall-lines = stopped: the reason is on the ship's schematic
 
 ## The field automaton (D-339): a programme of commands, plots and storages.
 
