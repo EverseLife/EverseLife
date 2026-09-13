@@ -363,7 +363,7 @@ async def test_a_carter_and_a_falling_house_take_the_machine_and_its_coal_in_one
         assert await db.get(Item, fuel.id) is None, "и уголь"
 
 
-async def test_a_falling_house_buries_in_id_order_under_a_carters_pass(
+async def test_a_falling_house_holds_what_it_buries_under_a_carters_pass(
     session: AsyncSession,
     factory: async_sessionmaker[AsyncSession],
     constants,
@@ -371,19 +371,14 @@ async def test_a_falling_house_buries_in_id_order_under_a_carters_pass(
 ) -> None:
     """The other way round: the fall goes first. It deleted what it buried one
     row at a time, in whatever order the heap gave them -- the coal first, say
-    -- while a pass takes the machine and the coal by id. The fall held the
-    coal and came to the machine the pass had just taken while waiting on the
-    coal. The fall takes everything it buries in one statement, by id, before
-    it deletes a thing (`estate.upkeep._bury`)."""
+    -- while a pass takes the machine and the coal by id, and the two crossed.
+    The fall takes everything it buries by id before it deletes a thing
+    (`estate.upkeep._bury`, then `world.destroy`), so the pass arriving now
+    waits for it holding nothing the fall wants, and finds the machine gone."""
     node, vein = await _pit(session)
     await _falling_house(session, constants, node)
     installation, machine, fuel, body = await _rig_on(session, node, vein)
-    #: Where nothing orders the rows they come in the heap's order, and a row
-    #: rewritten last lies last: the coal is renumbered before the machine, so
-    #: it leads, and a fall walking the heap takes the coal first.
-    fuel.id = _high()
-    await session.flush()
-    machine.id = _low()
+    machine.id, fuel.id = _low(), _high()
     installation.item_id = machine.id
     await session.commit()
     moment = installation.counted_at + timedelta(hours=4)
@@ -391,29 +386,20 @@ async def test_a_falling_house_buries_in_id_order_under_a_carters_pass(
     planned, buried = _after_the_plan(monkeypatch, fuel.container_id)
     waited: list[bool] = []
     tasks: dict[str, asyncio.Future] = {}
+    destroy = world.destroy
+
+    async def held_then_destroyed(db, things):
+        #: What goes down is the fall's by now, and nothing is deleted yet:
+        #: the carter's pass is let on here.
+        buried.set()
+        waited.append(await _until_blocked_by(factory, db, unless=tasks["empty"]))
+        return await destroy(db, things)
+
+    monkeypatch.setattr(world, "destroy", held_then_destroyed)
 
     async def fall() -> int:
         await asyncio.wait_for(planned.wait(), timeout=30)
         async with factory() as db, db.begin():
-            execute = db.execute
-            seen: dict[str, int] = {"bury": 0, "boxes": 0}
-
-            async def watched(statement, *args, **kwargs):
-                #: The walk looks for a chest inside each thing it buries, and
-                #: the look flushes the delete before it: the second look is
-                #: the first thing gone and the second not yet.
-                result = await execute(statement, *args, **kwargs)
-                said = str(statement)
-                if "FROM item" in said and "item.container_id" in said:
-                    seen["bury"] += 1
-                elif seen["bury"] and "FROM container" in said:
-                    seen["boxes"] += 1
-                    if seen["boxes"] == 2:
-                        buried.set()
-                        waited.append(await _until_blocked_by(factory, db, unless=tasks["empty"]))
-                return result
-
-            monkeypatch.setattr(db, "execute", watched)
             _, fallen = await estate.decay(db, current())
             return fallen
 
