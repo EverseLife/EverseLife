@@ -68,9 +68,10 @@ class Travel(Base):
 class Harness(Base):
     """Who is harnessed to what (D-157).
 
-    A vehicle is heavier than a person and is never taken in hand: it stands in
-    the node, like a machine. A harnessed one follows the body along all
-    transits -- that is the only way to carry more than `inventory.carry_mass`.
+    A vehicle stands in the node, like a machine; only a light one, empty and
+    out of harness, is ever taken in hand (D-313). A harnessed one follows the
+    body along all transits -- that is the only way to carry more than
+    `inventory.carry_mass` -- and is not picked up until it is unharnessed.
 
     The constraints are in the database, not in engine checks: a body pulls one
     vehicle, and one vehicle is pulled by one body. A convoy of two carters is

@@ -248,9 +248,11 @@ async def produce(
     energy calls it first. After the fuel: the piles the city's plants burn
     are stacks of goods, and goods come before their pool -- a bench takes its
     inputs and then draws, the automats' tick holds its factories' stacks and
-    draws at the end (`automat.bill`). Cells come after it (`charge_battery`,
-    `bill.pay`). A pool held while the plant's coal was waited for deadlocked
-    with a smelter eating that coal.
+    draws at the end (`automat.bill`). The cell a counter charges is such a
+    stack too -- a battery is an input to an exoskeleton -- and is taken before
+    (`charge_battery`); the cells a pass drains off the grid, where no pool is,
+    come after (`bill.pay`). A pool held while the plant's coal was waited for
+    deadlocked with a smelter eating that coal.
     """
     moment = now or datetime.now(UTC)
     #: In node order: the frost step locks the same yards for its braziers in

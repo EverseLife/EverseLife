@@ -20,13 +20,14 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import access, craft, energy, estate, ledger, utility, world
 from src.engine import city as town
+from src.models.city import UtilityMeter
 from src.models.estate import Deed
 from src.models.event import Event, EventKind
 from src.models.ledger import AccountKind, PostingReason
@@ -291,6 +292,92 @@ async def test_a_free_grid_counts_the_hours_and_bills_nothing(
         .all()
     )
     assert told == []
+
+
+async def _due_only(
+    session: AsyncSession, constants: Constants, moment: datetime, *nodes
+) -> list[UtilityMeter]:
+    """Every meter of the world opened and counted up to `moment`, and only the
+    meters of `nodes` a period due."""
+    await utility.ensure_meters(session, constants)
+    await session.execute(update(UtilityMeter).values(counted_at=moment))
+    meters = []
+    for node in nodes:
+        meter = await utility.meter_of(session, node, create=False)
+        assert meter is not None
+        meter.counted_at = moment - timedelta(hours=constants[R.ENERGY_METER_PERIOD])
+        meters.append(meter)
+    await session.flush()
+    return meters
+
+
+async def test_the_meter_run_posts_every_purse_into_its_own_city(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The run takes every pool first and posts the money after, purse by purse:
+    a purse that cannot pay cuts its own node off and the purses after it pay
+    on, each into the treasury of the city whose pool gave the energy (D-149)."""
+    moment = datetime.now(UTC)
+    north, _, north_plot = await _city(session, catalog, "Северная")
+    south, _, south_plot = await _city(session, catalog, "Южная")
+    for plot in (north_plot, south_plot):
+        await _pool(session, constants, plot, 100_000)
+    holders = []
+    for name in ("Первый", "Второй"):
+        identity, _ = await _resident(session, north_plot, name)
+        account = await ledger.account_for(session, AccountKind.IDENTITY, identity.id)
+        holders.append((account.id, identity))
+    #: The empty purse is posted first, so the one after it is seen to pay on.
+    (_, broke), (purse_id, payer) = sorted(holders, key=lambda holder: holder[0])
+    genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
+    await ledger.transfer(
+        session, PostingReason.GENESIS, debit=genesis.id, credit=purse_id, amount=money(100)
+    )
+    north_plot.owner_identity_id = broke.id
+    south_plot.owner_identity_id = payer.id
+    unpaid, paid = await _due_only(session, constants, moment, north_plot, south_plot)
+
+    assert await utility.run_meters(session, constants, now=moment) == 2
+
+    #: Two plots of one area, one period, one tariff: one price.
+    price = unpaid.debt
+    assert price > 0 and unpaid.cut_off
+    assert paid.debt == 0 and not paid.cut_off
+    assert unpaid.counted_at == paid.counted_at == moment
+    assert await ledger.balance(session, purse_id) == money(100) - price
+    assert await town.treasury_balance(session, south) == price
+    assert await town.treasury_balance(session, north) == 0, "a refused bill pays nobody"
+
+
+async def test_a_short_pool_gives_its_meters_what_it_holds_and_no_more(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A pool too short for its meters gives out what it holds and stops at
+    nought, and no meter is given more than its own draw: a city without fuel
+    cannot release what it does not have (D-149). Who of them goes short is
+    not asserted -- for buildings outside the automats' family that rule is
+    still open in the vault (`20-systems/12-energy.md`)."""
+    moment = datetime.now(UTC)
+    _, delegate, home = await _city(session, catalog)
+    annex = await world.create_node(
+        session,
+        f"{delegate.key}.annex",
+        "Флигель",
+        area_m2=100,
+        parent=delegate,
+        properties={PLOT: True},
+    )
+    annex.owner_city_id = home.owner_city_id
+    need = utility.draw_for(constants, home, constants[R.ENERGY_METER_PERIOD])
+    pool = await _pool(session, constants, home, need * 1.5)
+    meters = await _due_only(session, constants, moment, home, annex)
+
+    await utility.run_meters(session, constants, now=moment)
+
+    given = [float(meter.last_energy) for meter in meters]
+    assert sum(given) == pytest.approx(need * 1.5, abs=0.01)
+    assert all(one <= need + 0.01 for one in given)
+    assert float(pool.stored) == pytest.approx(0, abs=0.01)
 
 
 async def test_holdings_show_own_nodes(

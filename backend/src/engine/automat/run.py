@@ -39,6 +39,10 @@ vessel put down in a yard after an earlier machine of the pass locked that yard
 is locked after the rest, and a pour between it and one of them in that moment
 fails one side -- the machine's savepoint, whose hours wait for the next tick,
 or the pour.
+
+The node's meter (D-149) and its warmth (D-231) are on no place of that order:
+they are only read, and before the vessels are locked, so a machine either of
+them stands takes nothing of its yard.
 """
 
 from __future__ import annotations
@@ -95,7 +99,10 @@ async def advance(
     Four limiters, and any of them stops the machine: lubricant in the
     node's vessels, energy in the pool (or the batteries), inputs on the
     yard, and -- for a liquid output -- room in a vessel. None is an error:
-    these are the enterprise's obligations, exactly as with the rig.
+    these are the enterprise's obligations, exactly as with the rig. Before
+    them the machine must stand in its node, and the node must be neither cut
+    off for non-payment (D-149) nor frozen (D-231): a stop there works nothing
+    and the hours are gone.
 
     And a door before all four (D-340): a recipe that gives off a vent gas
     works only where the gas has somewhere safe to go -- out where there is
@@ -143,6 +150,14 @@ async def advance(
         and machine.container_id == yard.id
         and machine.installed
     )
+    #: The node's own two stops, read and never locked (`bill.cut_off`,
+    #: `bill.frozen`): a machine either of them stands locks no vessel either.
+    cut_off = placed and await energy_bill.cut_off(session, node, tab)
+    frozen = (
+        placed
+        and not cut_off
+        and await energy_bill.frozen(session, constants, node, machine.type_key, tab)
+    )
     share = constants[R.AUTO_SPEED_SHARE] / PERCENT
     unit_hours = (proc.step_hours / share) if proc is not None and share > 0 else 0.0
     #: The vent gas (D-340): a machine whose hydrogen has nowhere safe to go
@@ -161,7 +176,14 @@ async def advance(
     #: wear written first held the machine against a fire holding the canister.
     #: The draw, the room and the payout below all go by this answer and list
     #: the yard no more.
-    works = placed and proc is not None and unit_hours > 0 and not no_flare
+    works = (
+        placed
+        and not cut_off
+        and not frozen
+        and proc is not None
+        and unit_hours > 0
+        and not no_flare
+    )
     vessels = (
         await liquid.lock_vessels(
             session,
@@ -195,6 +217,26 @@ async def advance(
         return 0.0
     if not placed:
         #: Carried away from its node: a machine works only where it stands.
+        row.counted_at = moment
+        await session.flush()
+        return 0.0
+    if cut_off:
+        #: Disconnected for non-payment (D-149): the machines of a node in debt
+        #: do not work until the bill is paid -- the automat as much as a bench
+        #: (`craft._internal._pick_station`). Asked before the energy is, so
+        #: the source does not matter: a floor running on its own cells stops
+        #: with the plot whose meter it hangs on. The hours pass as at any
+        #: other stop, and the wear above ran through them.
+        row.counted_at = moment
+        await session.flush()
+        return 0.0
+    if frozen:
+        #: A frozen node stops its machines (D-231), a scorching one as well,
+        #: and the automat does not burn its own fuel: it stands as a bench does
+        #: (`craft._internal._pick_station`) -- whatever feeds it, since a pool
+        #: or a floor's cells with energy in them are not a stove. The hours
+        #: pass as at any other stop, the started piece waits in the backlog,
+        #: and the wear above ran through them.
         row.counted_at = moment
         await session.flush()
         return 0.0
