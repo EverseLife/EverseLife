@@ -214,21 +214,20 @@ export function cssRamp(stops: readonly Stop[]): string {
 
 /** The drying law of a bed (D-296, `farm.life.dry_rate`) as the moisture
  *  layer reads it off the book of constants (D-225: the client derives what
- *  it can): what share of the drying the rain closes at the wettest
- *  (`site.rain_water_offset`), what share is left beside water
- *  (`farm.river_dry_share`), how much a degree over the reference adds
- *  (`farm.dry_per_degree`, `farm.dry_temp_ref`), and how near water has to
- *  be to count (`terrain.river_reach_km`). Without the book there is no
- *  law: the offsets are nought and the layer is one moisture everywhere,
- *  and the picture says so rather than guessing. */
-export type DryLaw = { offset: number; share: number; perDegree: number; ref: number; reachM: number };
+ *  it can): what share is left beside water (`farm.river_dry_share`), how
+ *  much a degree over the reference adds (`farm.dry_per_degree`,
+ *  `farm.dry_temp_ref`), and how near water has to be to count
+ *  (`terrain.river_reach_km`). The year's rainfall is no longer in it
+ *  (D-338): the rain of the moment waters the bed instead. Without the
+ *  book there is no law: the offsets are nought and the layer is one
+ *  moisture everywhere, and the picture says so rather than guessing. */
+export type DryLaw = { share: number; perDegree: number; ref: number; reachM: number };
 export function dryLaw(constants: Record<string, unknown> | null | undefined): DryLaw {
   const num = (key: string, fallback: number) => {
     const v = Number(constants?.[key]);
     return Number.isFinite(v) ? v : fallback;
   };
   return {
-    offset: num("site.rain_water_offset", 0) / 100,
     share: num("farm.river_dry_share", 100) / 100,
     perDegree: num("farm.dry_per_degree", 0) / 100,
     ref: num("farm.dry_temp_ref", 0),
@@ -238,24 +237,28 @@ export function dryLaw(constants: Record<string, unknown> | null | undefined): D
 
 /** The moisture layer's number for a point, as the shader works it out
  *  (`fragment.ts`, the soil's moisture): the pace a bed dries at by the
- *  law of D-296 -- the heat over the reference, the rain's share closed,
- *  the share left beside water -- against the fastest the planet has,
- *  bare ground at its hottest, and one minus that. Kept beside the GLSL so
- *  a test can hold the two to the engine's numbers; the GLSL cannot run
- *  in a test. `beside` is nought to one: one within the reach of fresh
- *  water by the river raster, nought a cell past it, as the shader reads
- *  it. */
+ *  law of D-296 -- the heat over the reference, the share left beside
+ *  water -- against the fastest the planet has, bare ground at its
+ *  hottest, and one minus that; and where it rains, at least the rain's
+ *  strength (D-338: the rain waters the ground, so a shower reads wet
+ *  whatever the heat). Kept beside the GLSL so a test can hold the two to
+ *  the engine's numbers; the GLSL cannot run in a test. `beside` is nought
+ *  to one: one within the reach of fresh water by the river raster,
+ *  nought a cell past it, as the shader reads it. `rainNow` is the
+ *  weather's rain at the moment (`weather.weatherAt`), nought for a place
+ *  read without one. */
 export function moistureOf(
   law: DryLaw,
   tC: number,
-  rain01: number,
   beside: number,
   hotC: number,
+  rainNow: number,
 ): number {
   const heat = Math.max(0, 1 + law.perDegree * (tC - law.ref));
-  const pace = heat * (1 - law.offset * rain01) * (1 + (law.share - 1) * beside);
+  const pace = heat * (1 + (law.share - 1) * beside);
   const fastest = Math.max(1 + law.perDegree * (hotC - law.ref), 0.05);
-  return Math.min(1, Math.max(0, 1 - pace / fastest));
+  const keeps = Math.min(1, Math.max(0, 1 - pace / fastest));
+  return Math.max(keeps, Math.min(1, Math.max(0, rainNow)));
 }
 
 /** The rivers on the far frames: a river narrower than a pixel is drawn as

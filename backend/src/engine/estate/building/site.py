@@ -39,7 +39,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import craft, events, goods, occupation, travel
+from src.engine import biome, craft, events, goods, occupation, travel
 from src.engine.estate._base import EstateError, NoRoom, TooSmall, storey_of
 from src.engine.estate.building.build import (
     bill,
@@ -152,6 +152,11 @@ async def lay(
         raise EstateError(key="estate-build-no-floors")
     if node.planet is Planet.PYROXIS:
         raise EstateError(key="estate-build-not-on-pyroxis")
+    #: Nothing is built on ice (D-338): the ground under a wall would be a
+    #: sheet that flows and splits, and on Aurora that is the whole planet --
+    #: what stands there is the Forerunners' and what arrived by ship.
+    if biome.on_ice(constants, node):
+        raise EstateError(key="estate-build-on-ice")
     kind = kind or kinds(constants)[0]
     composition(constants, kind)
     smallest = constants[R.BUILD_AREA_MIN]

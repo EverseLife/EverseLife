@@ -123,7 +123,7 @@ uniform float u_temp_min;
 uniform float u_temp_step;
 uniform float u_temp_cold;
 uniform float u_temp_hot;
-uniform vec4 u_dry;
+uniform vec3 u_dry;
 uniform float u_reach_m;
 uniform sampler2D u_river;
 //: The top of the ground, the max chain of the height (shade.topChain):
@@ -154,6 +154,8 @@ uniform vec3 u_wx_belts;
 uniform float u_wx_spin;
 uniform vec4 u_wx_gates;
 uniform float u_wx_bias;
+//: What the sky over the sea is stretched by: the land's mean rain share (passport.sea_wet).
+uniform float u_wx_sea_wet;
 uniform float u_wx_gain;
 uniform float u_clouds;
 //: The grain of each biome, by the raster's code: scale, stretch,

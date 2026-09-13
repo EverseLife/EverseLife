@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import breed, farm, world
+from src.engine import breed, farm, places, world
 from src.engine.farm import life
 from src.models.farm import PlotState
 from src.models.identity import Body
@@ -34,6 +34,11 @@ BROME = "brome"
 async def _farmstead(
     session: AsyncSession, *, water: str = "river", fertility: float = 55, area: float = 200
 ):
+    """A farmer on their own land, off the sphere: a new node is seated at its
+    group's origin, and the weather there would water every bed of every farm
+    test by the rain of that point (D-338) -- a retune of `weather.*` would
+    then fail tests that never meant the rain. A test of the weather puts the
+    node back on the sphere itself."""
     stamp = uuid.uuid4().hex[:8]
     node = await world.create_node(
         session,
@@ -42,6 +47,7 @@ async def _farmstead(
         area_m2=area,
         properties={"water": water, "fertility": fertility},
     )
+    node.properties = {k: v for k, v in node.properties.items() if k != places.PLACE}
     identity = await world.create_identity(session, f"Фермер-{stamp}")
     body = await world.print_body(session, identity, node)
     #: The holder runs the estate: the fixture's farmer has already taken their plot.
@@ -56,9 +62,12 @@ def _norms(constants: Constants, catalog: Catalog, culture: str = SPELT) -> life
     return life.norms(constants, plant, breed.traits_of_plant(plant))
 
 
-def _weather(rain: float = 0.0, river: bool = False, temperature: float | None = None):
-    """A place that does not breathe: one temperature for every hour."""
-    return life.Weather(rain=rain, river=river, temperature_at=lambda _hours: temperature)
+def _weather(river: bool = False, temperature: float | None = None, rain: float = 0.0):
+    """A place that does not breathe: one temperature and one rain for every
+    hour -- the rain as the weather gives it, nought to one (D-338)."""
+    return life.Weather(
+        river=river, temperature_at=lambda _hours: temperature, rain_at=lambda _hours: rain
+    )
 
 
 async def _sown(session, constants, catalog, body, *, culture: str = SPELT, area: float = 10):

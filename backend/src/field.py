@@ -102,6 +102,11 @@ def temperature_scale(cold: float, hot: float) -> tuple[float, float]:
 SKETCH_SAMPLES = 6
 
 
+#: The fixed point of the sky's wet factor (`1 + bias * (2 * share - 1)`):
+#: what a world without land reads over its sea, where no coast can be drawn.
+NEUTRAL_RAIN = 0.5
+
+
 class FieldMissing(RuntimeError):
     """The vault's build carries no field for this planet."""
 
@@ -158,6 +163,13 @@ class Field:
     sea_m: np.ndarray  # to the nearest sea, metres, uint16, capped
     temperature_c: np.ndarray  # int8
     rain: np.ndarray  # uint8, 255 = 1.0
+    #: The rain share of the planet's ground on the mean -- every cell that
+    #: is not sea, each of the same area (D-328). What the sky over the sea
+    #: is stretched by (`climate.sky_wetness`): the sea is the raster's one
+    #: hole (a lake is measured), and the ground's own mean keeps a sea as
+    #: cloudy as the ground about it on the whole, so the clouds draw no
+    #: coast on the mean.
+    land_rain: float
     ice: np.ndarray  # bool
     province: np.ndarray  # uint8: 0 none, k the province with code k
     forms: tuple[str, ...]  # the passport's table: code -> id
@@ -545,6 +557,7 @@ def _loaded(directory: str, planet: str, mountain_share: float, expected: tuple)
         sea_m=sea_m,
         temperature_c=temperature,
         rain=rain,
+        land_rain=_land_rain(water, rain),
         ice=ice,
         stream=stream,
         province=province,
@@ -562,6 +575,15 @@ def _loaded(directory: str, planet: str, mountain_share: float, expected: tuple)
         lakes=lakes,
         warmth=warmth,
     )
+
+
+def _land_rain(water: np.ndarray, rain: np.ndarray) -> float:
+    """The mean rain share of all that is not sea, nought to one; a world of
+    no ground at all has no coast to draw, and its sea reads the neutral half."""
+    land = water != SEA
+    if not land.any():
+        return NEUTRAL_RAIN
+    return float(rain[land].astype(np.float64).mean() / BYTE)
 
 
 def _sketch(

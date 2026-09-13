@@ -127,7 +127,7 @@ async def _from_pier(
                     "a": port.key,
                     "b": connector.key,
                     "surface": gangway.surface.value,
-                    "seconds": round(travel.edge_seconds(constants, gangway)),
+                    "seconds": round(travel.edge_seconds(constants, gangway, snow=0.0)),
                 }
             )
     return {"nodes": nodes, "edges": edges} if nodes else None
@@ -198,7 +198,7 @@ async def _from_aboard(
                 "a": keys[edge.node_a_id],
                 "b": keys[edge.node_b_id],
                 "surface": edge.surface.value,
-                "seconds": round(travel.edge_seconds(constants, edge)),
+                "seconds": round(travel.edge_seconds(constants, edge, snow=0.0)),
             }
             for edge in ways
             if edge.node_a_id in keys and edge.node_b_id in keys

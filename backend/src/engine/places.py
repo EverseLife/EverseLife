@@ -108,6 +108,12 @@ def _geo(properties: dict | None) -> globe.Geo | None:
         return None
 
 
+def geo_in(properties: dict | None) -> globe.Geo | None:
+    """A sphere's point out of a node's properties read without the row --
+    a query that asked for three columns, not for the node (D-338)."""
+    return _geo(properties)
+
+
 def place_of(node: Node) -> tuple[float, float] | None:
     """The node's flat place -- a floor's, a room's -- or None."""
     return _flat(node.properties)
