@@ -228,7 +228,12 @@ def burns_own_fuel(type_key: str) -> bool:
 async def works_here(
     session: AsyncSession, constants: Constants, node: Node, type_key: str
 ) -> bool:
-    """Whether this machine works in this node. In the frost only what burns does."""
+    """Whether this machine works in this node. In the frost only what burns does.
+
+    The automats' tick asks the same rule in its two halves, to read the node's
+    half once a pass (`automat.bill.frozen`): a condition added here goes there
+    too.
+    """
     if burns_own_fuel(type_key):
         return True
     return await is_warm(session, constants, node)

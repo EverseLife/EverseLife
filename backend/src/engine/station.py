@@ -37,7 +37,6 @@ from __future__ import annotations
 import uuid
 
 from sqlalchemy import select
-from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, current
@@ -236,13 +235,9 @@ async def place(session: AsyncSession, catalog: Catalog, body: Body, item: Item)
     #: The thing's own row next: two hands putting up one machine from the
     #: same floor must not both read it lying. And it may be gone
     #: -- picked up, burnt, fallen with the house -- between the look and the
-    #: click: that is the world's ordinary answer, said in words, not a
-    #: failed refresh. The name is read first: a failed refresh leaves none.
-    named = item.type_key
-    try:
-        await session.refresh(item, with_for_update=True)
-    except InvalidRequestError as gone:
-        raise StationError(key="thing-gone", goods=named) from gone
+    #: click: that is the world's ordinary answer, a refusal by key (D-251), not
+    #: a failed refresh.
+    await world.lock_thing(session, item, gone=StationError)
     yard_now = await world.node_yard(session, node)
     lying = yard_now is not None and item.container_id == yard_now.id and not item.installed
     if item.container_id != pocket.id and not lying:
@@ -343,13 +338,9 @@ async def take(session: AsyncSession, catalog: Catalog, body: Body, item: Item) 
     hopper = await rig.hopper_left(session, item)
     #: The thing's own row last -- the order `place` locks in, because the two
     #: doors meet on the same pair. And the thing may be gone between the look
-    #: and the click: the world's ordinary answer, said in words. The name is
-    #: read first: a failed refresh leaves none.
-    named = item.type_key
-    try:
-        await session.refresh(item, with_for_update=True)
-    except InvalidRequestError as gone:
-        raise StationError(key="thing-gone", goods=named) from gone
+    #: and the click: a refusal by key like any other (D-251), not a failed
+    #: refresh.
+    await world.lock_thing(session, item, gone=StationError)
     yard = await world.node_container(session, node)
     if item.container_id != yard.id:
         raise StationError(key="station-not-in-node")

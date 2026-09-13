@@ -252,6 +252,33 @@ async def test_a_loaded_barrow_is_not_pocketed(
         await storage.pick(session, constants, catalog, body, barrow)
 
 
+async def test_a_harnessed_barrow_is_not_pocketed(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A vehicle somebody is harnessed to is pulled, not picked up (D-157).
+
+    An empty barrow fits in the hands, so the carry limit alone let a
+    neighbour pocket it with the carter still in the shafts -- and the
+    carter's next leg pulled it out of the neighbour's hands. Nor does the
+    carter pocket their own: the harness comes off first.
+    """
+    here, _, body, barrow = await _convoy(session, vehicle=BARROW)
+    await transport.harness(session, constants, catalog, body, barrow)
+    neighbour = await world.print_body(
+        session, await world.create_identity(session, f"Neighbour-{uuid.uuid4().hex[:6]}"), here
+    )
+
+    for reaching in (neighbour, body):
+        with pytest.raises(storage.StorageError) as refused:
+            await storage.pick(session, constants, catalog, reaching, barrow)
+        assert refused.value.key == "storage-harnessed"
+    yard = await world.node_container(session, here)
+    assert barrow.container_id == yard.id
+
+    await transport.unharness(session, body)
+    assert await storage.pick(session, constants, catalog, neighbour, barrow) == pytest.approx(1)
+
+
 # --- road (D-107) ------------------------------------------------------------
 
 

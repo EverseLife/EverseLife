@@ -33,8 +33,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from automat_kit import _until_blocked_by
+from gone_kit import _burning, _lifting
 from src.constants import Catalog, Constants
-from src.engine import gear, liquid, plates, storage, world
+from src.engine import gear, liquid, storage, world
 from src.models.identity import Body
 from src.models.inventory import Container, Item
 from src.models.world import Node
@@ -160,40 +161,6 @@ async def _two_hands(session: AsyncSession, catalog: Catalog):
         origin="test",
     )
     return node, first, second, sack
-
-
-async def _lifting(
-    factory: async_sessionmaker[AsyncSession],
-    constants: Constants,
-    catalog: Catalog,
-    lifter_id: uuid.UUID,
-    lifted_id: uuid.UUID,
-    held: asyncio.Event,
-) -> float:
-    """The lift that goes first: the thing into the hands, and its row held
-    until the other side provably waits on it."""
-    async with factory() as db, db.begin():
-        me = await db.get(Body, lifter_id)
-        thing = await db.get(Item, lifted_id)
-        assert me is not None and thing is not None
-        taken = await storage.pick(db, constants, catalog, me, thing)
-        held.set()
-        await _until_blocked_by(factory, db)
-        return taken
-
-
-async def _burning(
-    factory: async_sessionmaker[AsyncSession], node_id: uuid.UUID, held: asyncio.Event
-) -> float:
-    """The fire that goes first: the yard burnt (`plates._burn`), and the
-    rows it took held until the other side provably waits on one of them."""
-    async with factory() as db, db.begin():
-        spot = await db.get(Node, node_id)
-        assert spot is not None
-        burnt = await plates._burn(db, [spot])
-        held.set()
-        await _until_blocked_by(factory, db)
-        return burnt
 
 
 async def _within_limit(
@@ -326,7 +293,7 @@ async def test_a_canister_lifted_before_the_pour_is_not_poured_into_in_the_hands
             return poured
 
     lifted, poured = await asyncio.gather(
-        _lifting(factory, constants, catalog, lifter_id, canister_id, held),
+        _lifting(factory, constants, catalog, lifter_id, canister_id, held=held),
         fill(),
         return_exceptions=True,
     )
@@ -375,7 +342,7 @@ async def test_an_output_does_not_settle_into_a_canister_lifted_off_the_floor(
             return await liquid.settle(db, catalog, made, (floor,))
 
     taken, spilled = await asyncio.gather(
-        _lifting(factory, constants, catalog, lifter_id, lifted_id, held),
+        _lifting(factory, constants, catalog, lifter_id, lifted_id, held=held),
         output(),
         return_exceptions=True,
     )
@@ -420,7 +387,7 @@ async def test_the_room_for_a_find_does_not_count_a_canister_lifted_off_the_floo
             return await liquid.room_for(db, catalog, await world.node_container(db, spot), WATER)
 
     taken, room = await asyncio.gather(
-        _lifting(factory, constants, catalog, lifter_id, lifted_id, held),
+        _lifting(factory, constants, catalog, lifter_id, lifted_id, held=held),
         ask(),
         return_exceptions=True,
     )
@@ -460,7 +427,7 @@ async def test_two_hands_reaching_for_one_sack_do_not_take_it_out_of_each_other(
             return await storage.pick(db, constants, catalog, me, thing)
 
     taken, reached = await asyncio.gather(
-        _lifting(factory, constants, catalog, first_id, sack_id, held),
+        _lifting(factory, constants, catalog, first_id, sack_id, held=held),
         reach(),
         return_exceptions=True,
     )

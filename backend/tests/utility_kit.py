@@ -4,7 +4,8 @@
 """The meter tests' shared ground: a city with a grid, a plot in it, a charged
 pool and a resident with money (D-135, D-149).
 
-Used by `test_utility.py` and `test_races_meter.py`; not collected by pytest.
+Used by `test_utility.py` and the meter's race files, `test_races_meter.py`
+and `test_races_meter_land.py`; not collected by pytest.
 No real fixture lives here on purpose -- a `@pytest.fixture` in a kit is
 imported for its name alone, ruff removes the import as unused, and pytest
 then cannot find it.
@@ -16,14 +17,15 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import city as town
-from src.engine import energy, ledger, world
+from src.engine import energy, ledger, utility, world
+from src.models.city import UtilityMeter
 from src.models.ledger import AccountKind, PostingReason
-from src.models.world import PLOT, Layer
+from src.models.world import PLOT, Layer, Node
 from src.units import money
 
 
@@ -82,3 +84,66 @@ async def _resident(session: AsyncSession, node, name: str, *, funds: float = 0)
 
 def _yesterday(constants: Constants) -> datetime:
     return datetime.now(UTC) - timedelta(hours=constants[R.ENERGY_METER_PERIOD])
+
+
+async def _grids(session: AsyncSession, constants: Constants, catalog: Catalog, count: int):
+    """Cities with a charged pool each and a plot in each, in their grid node's order.
+
+    Each treasury's account is opened here: opened by the first bill instead,
+    two transactions would meet on its insert, and the race would be about
+    that row rather than the order under test.
+    """
+    made = []
+    for number in range(count):
+        _, delegate, home = await _city(session, catalog, name=f"Столица {number}")
+        await _pool(session, constants, home, 100_000)
+        await ledger.account_for(session, AccountKind.CITY_TREASURY, delegate.id)
+        made.append((delegate, home))
+    return sorted(made, key=lambda one: one[0].id)
+
+
+async def _open(
+    session: AsyncSession, constants: Constants, homes: list[Node], since: datetime
+) -> list[UtilityMeter]:
+    """Open the meters one by one in this order, each counted from `since`.
+
+    Written in this order and with ids sorting in it too: a table read with no
+    `order_by` comes back in the order its rows were written, and a run that
+    walks its meters by id alone goes the same way -- so either is the order
+    a race sets against the pools' or the purses'.
+    """
+    meters = []
+    for meter_id, home in zip(sorted(uuid.uuid4() for _ in homes), homes, strict=True):
+        meter = UtilityMeter(id=meter_id, node_id=home.id, counted_at=since)
+        session.add(meter)
+        await session.flush()
+        meters.append(meter)
+    #: Nothing else in these worlds carries a meter, so no other meter slips
+    #: into the run's order.
+    assert await utility.ensure_meters(session, constants) == 0
+    return meters
+
+
+async def _purse(factory: async_sessionmaker[AsyncSession], identity_id) -> int:
+    """The identity's purse as committed."""
+    async with factory() as db:
+        account = await ledger.find_account(db, AccountKind.IDENTITY, identity_id)
+        assert account is not None
+        return await ledger.balance(db, account.id)
+
+
+async def _meter(factory: async_sessionmaker[AsyncSession], meter_id) -> UtilityMeter:
+    """The meter as committed."""
+    async with factory() as db:
+        meter = await db.get(UtilityMeter, meter_id)
+        assert meter is not None
+        return meter
+
+
+async def _held_by(factory: async_sessionmaker[AsyncSession], node_id, meter_id):
+    """Who holds the node, and what its meter owes: `(holder, debt, cut_off)`."""
+    async with factory() as db:
+        node = await db.get(Node, node_id)
+        meter = await db.get(UtilityMeter, meter_id)
+        assert node is not None and meter is not None
+        return node.owner_identity_id, meter.debt, meter.cut_off
