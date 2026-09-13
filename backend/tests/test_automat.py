@@ -23,14 +23,17 @@ from decimal import Decimal
 
 import pytest
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from automat_kit import IRON, NAILS, _factory_floor, _learn, _lube_in
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import automat, energy, ledger, storage, world
+from src.engine import automat, energy, jobs, ledger, storage, world
 from src.engine.automat import run as automat_run
+from src.engine.tick import WORLD_STEPS
+from src.models.automat import Automat as AutomatRow
 from src.models.inventory import Item
+from src.models.job import Job, JobKind, JobState
 from src.models.ledger import AccountKind, PostingReason
 from src.models.world import Node
 from src.units import amount_float
@@ -579,6 +582,65 @@ async def test_a_broken_automat_is_passed_over_and_the_floor_works_on(
     assert stored - float(pool.stored) == pytest.approx(
         hours * constants[R.AUTO_ENERGY_PER_HOUR], abs=0.01
     ), "only the sound machine's bill was drawn"
+
+
+async def test_a_broken_automat_does_not_fail_the_tick_step_job(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    constants: Constants,
+    catalog: Catalog,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The same broken machine through the worker's own door: the step runs as a
+    job (`tick.tick_step` under `jobs.run_one`), and the runner reads the job's
+    row after the step. Passing a machine over must leave that row readable -- a
+    step that expired the whole session under the runner failed the job, and
+    with it every factory of the world, on every tick the machine stayed broken."""
+    assert "automats" in WORLD_STEPS
+    _, yard, identity, body, assembler = await _factory_floor(session, constants)
+    smelter = await world.grant_item(session, yard, "auto_furnace", quality=70, origin="test")
+    await world.grant_item(session, yard, IRON, amount=1000, quality=60, origin="test")
+    await world.grant_item(session, yard, "iron_ore", amount=4000, quality=60, origin="test")
+    await world.grant_item(session, yard, "coal", amount=1000, quality=60, origin="test")
+    await _lube_in(session, yard, 100)
+    await _learn(session, identity, NAILS)
+    sound = await automat.program(session, constants, catalog, body, assembler, NAILS)
+    broken = await automat.program(session, constants, catalog, body, smelter, IRON)
+    started = broken.counted_at
+    moment = sound.counted_at + timedelta(hours=10)
+    step = await jobs.enqueue(
+        session,
+        JobKind.TICK_STEP,
+        moment,
+        payload={"step": "automats", "tick": "world", "at": moment.isoformat()},
+        dedup_key=f"test.automats:{moment.isoformat()}",
+    )
+    assert step is not None
+    ids = (sound.id, broken.id, step.id)
+    await session.commit()
+    sound_id, broken_id, step_id = ids
+
+    real = automat_run.advance
+
+    async def failing(*args, **kwargs):
+        made = await real(*args, **kwargs)
+        if args[2].id == broken_id:
+            raise RuntimeError("a programme the vault has since broken")
+        return made
+
+    monkeypatch.setattr(automat_run, "advance", failing)
+
+    while await jobs.run_one(factory, now=moment) is not None:
+        pass
+
+    async with factory() as db:
+        ran = await db.get(Job, step_id)
+        assert ran is not None
+        assert ran.state is JobState.DONE, ran.last_error
+        worked = await db.get(AutomatRow, sound_id)
+        waited = await db.get(AutomatRow, broken_id)
+        assert worked is not None and worked.counted_at == moment
+        assert waited is not None and waited.counted_at == started
 
 
 async def test_stop_takes_the_programme_off(

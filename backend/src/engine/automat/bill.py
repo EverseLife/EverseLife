@@ -75,8 +75,9 @@ class Tab:
     supplies: dict[uuid.UUID, float] = field(default_factory=dict)
     purses: dict[uuid.UUID, int] = field(default_factory=dict)
     #: The pool row behind a grid supply, for its tariff. A row, not a number,
-    #: so the tariff is priced by `energy.price_at` like the draw's; after a
-    #: rollback the tick expires the session and `forget_rows` drops these.
+    #: so the tariff is priced by `energy.price_at` like the draw's. No advance
+    #: writes a pool, so a machine's savepoint rolling back leaves it as read;
+    #: a pass run again after a moved purse starts a tab of its own.
     pools: dict[uuid.UUID, EnergyPool | None] = field(default_factory=dict)
 
     def add(self, bill: Bill) -> None:
@@ -92,10 +93,6 @@ class Tab:
             if bill.owner_identity_id is not None and bill.price > 0:
                 self.purses[bill.owner_identity_id] += bill.price
         del self.bills[count:]
-
-    def forget_rows(self) -> None:
-        """Drop the rows held for their tariff: the session was expired under them."""
-        self.pools.clear()
 
 
 async def promise(

@@ -319,7 +319,6 @@ async def _pass(
                 raise
             tab.keep(owed)
             _forget_the_run(session)
-            tab.forget_rows()
             log.exception("automat %s: the advance failed and was passed over", row_id)
             continue
         made += paid
@@ -330,16 +329,18 @@ async def _pass(
 
 
 def _forget_the_run(session: AsyncSession) -> None:
-    """Let nothing the rolled-back run read answer for the next one.
+    """Let nothing the rolled-back run remembered answer for the next one.
 
     A savepoint rolled back expires only the rows it wrote: a stack it deleted
     comes back with the numbers it had, and one it merely locked keeps them --
     while the locks themselves are gone, so a player may take from either
-    before the next machine reads it. The tick holds only ids across machines,
-    so everything is expired, and the command's memory (`db.base.remember`) --
-    which only a write clears -- goes with it.
+    before the next machine reads it. What the tick writes it reads under a
+    lock that rereads the row (`stock.locked_stacks`, `world.stack_up`,
+    `energy.pool_of(lock=True)`), so a stale row can mislead a forecast and
+    never a write. The session is not expired wholesale: it is the caller's
+    too, and the job runner reads its own row after the step. What does go is
+    the command's memory (`db.base.remember`), which only a write clears.
     """
-    session.expire_all()
     forget(session)
 
 
