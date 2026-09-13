@@ -30,7 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from automat_kit import IRON, NAILS, _factory_floor, _learn, _lube_in, _on_aurora
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import automat, energy, ledger, storage, utility, world
+from src.engine import automat, energy, ledger, storage, utility, vent, world
 from src.engine.craft import procedure
 from src.models.inventory import Item
 from src.models.ledger import AccountKind
@@ -458,6 +458,9 @@ async def test_a_frozen_node_stands_its_automat_until_it_is_heated(
     await _learn(session, identity, NAILS)
     row = await automat.program(session, constants, catalog, body, machine, NAILS)
     machine.condition = Decimal("100")
+    #: A reason left from before the cold (D-340) that no longer holds: nails
+    #: give off no vent gas, so the window must not go on showing it.
+    row.stall = vent.FLARE
     await session.flush()
     pool = await energy.pool_of(session, constants, node)
     assert pool is not None
@@ -475,6 +478,7 @@ async def test_a_frozen_node_stands_its_automat_until_it_is_heated(
     stood = row.counted_at + timedelta(hours=8)
     assert await settle(stood) == 0, "a frozen node runs no machine"
     assert row.counted_at == stood and row.recipe_key == NAILS
+    assert row.stall is None, "the stale flare reason is gone"
     nails = select(Item).where(Item.container_id == yard.id, Item.type_key == NAILS)
     assert not (await session.execute(nails)).scalars().all()
     assert amount_float(lube.amount) == pytest.approx(100), "no lubricant burnt"
