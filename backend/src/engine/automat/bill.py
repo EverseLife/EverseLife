@@ -100,6 +100,14 @@ class Tab:
         if bill.owner_identity_id is not None and bill.price > 0:
             self.purses[bill.owner_identity_id] -= bill.price
 
+    def hold(self, bill: Bill) -> None:
+        """Keep what a refused promise found left on its supply for the rest of
+        the pass, with no bill: a field automaton refused its hours whole
+        leaves the pool to gather toward them, not to whoever promises after it
+        (D-339 p. 8). Not given back by `keep` -- a machine that failed after
+        holding held for nothing, and the pass is the shorter for a minute."""
+        self.supplies[bill.supply] -= bill.hours * bill.rate
+
     def keep(self, count: int) -> None:
         """Drop the bills written after the first `count`, giving back what they took."""
         for bill in self.bills[count:]:

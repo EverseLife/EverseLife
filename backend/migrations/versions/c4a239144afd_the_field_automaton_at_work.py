@@ -37,6 +37,7 @@ def upgrade() -> None:
     sa.Column('harvest_item_id', sa.Uuid(), nullable=True),
     sa.Column('busy_until', sa.DateTime(timezone=True), nullable=True),
     sa.Column('trouble', sa.String(), nullable=True),
+    sa.Column('told', sa.String(), nullable=True),
     sa.Column('counted_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.ForeignKeyConstraint(['fertilizer_item_id'], ['item.id'], name=op.f('fk_field_automat_fertilizer_item_id_item'), ondelete='SET NULL'),

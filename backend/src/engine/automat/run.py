@@ -44,6 +44,7 @@ from src.units import (
     HOURS_PER_DAY,
     PERCENT,
     SECONDS_PER_HOUR,
+    SECONDS_PER_MINUTE,
     amount,
     amount_float,
 )
@@ -233,8 +234,9 @@ async def advance(
 
 
 #: Another member of the automat family (the field automaton, D-339): it works
-#: its machines onto the pass's own tab, after the automats and before the one
-#: draw. Called once a run -- again when the pass runs again.
+#: its machines onto the pass's own tab, before the automats or after them by
+#: the tick's turn, and before the one draw. Called once a run -- again when
+#: the pass runs again.
 Member = Callable[[AsyncSession, Constants, energy_bill.Tab, datetime], Awaitable[None]]
 
 
@@ -334,9 +336,11 @@ async def _pass(
     #: A purse that already failed a draw this tick pays nothing in the rerun.
     tab = energy_bill.Tab(purses=dict.fromkeys(barred, 0))
     #: On a pool too small for the whole family, whoever promises first drinks
-    #: first. Neither kind may take it every minute: the other members go first
-    #: on odd minutes, the automats on even ones (D-339 p. 8).
-    early = now.minute & 1
+    #: first. Neither kind may take it every tick: the other members go first
+    #: on odd ticks, the automats on even ones (D-339 p. 8) -- counted by the
+    #: tick's number, since a tick of two minutes would never change a minute's.
+    tick_seconds = constants[R.TIME_TICK] * SECONDS_PER_MINUTE
+    early = int(now.timestamp() // tick_seconds) & 1
     if early:
         await _members(session, constants, members, tab, now)
     made = 0.0

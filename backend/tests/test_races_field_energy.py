@@ -12,20 +12,21 @@ only what it gave.
 from __future__ import annotations
 
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from agro_kit import LUBRICANT, field, liquid_in, plot_of, programmed, second_now
+from agro_kit import LUBRICANT, events_of, field, liquid_in, plot_of, programmed, second_now
 from automat_kit import IRON, NAILS, _factory_floor, _learn, _lube_in
 from src.constants import Catalog, Constants, current, current_catalog
 from src.constants import registry as R
 from src.engine import agro, automat, energy, ledger, world
 from src.engine.automat import bill as energy_bill
 from src.models.agro import FieldAutomat, FieldAutomatPlot
+from src.models.event import EventKind
 from src.models.farm import Plot, PlotState
 from src.models.identity import Body
 from src.models.inventory import Item
@@ -47,6 +48,21 @@ async def _empty_purse(factory: async_sessionmaker[AsyncSession], account_id: uu
             amount=purse,
             memo={},
         )
+
+
+def _fields_first(constants: Constants, moment: datetime) -> bool:
+    """Whether the field automatons promise before the automats at this tick
+    (`automat.run._pass`: odd ticks by number)."""
+    return bool(int(moment.timestamp() // (constants[R.TIME_TICK] * 60)) & 1)
+
+
+def _tick_after(constants: Constants, moment: datetime, *, fields_first: bool) -> datetime:
+    """The first tick after `moment` whose turn is the one asked for."""
+    step = timedelta(minutes=constants[R.TIME_TICK])
+    later = moment + step
+    while _fields_first(constants, later) != fields_first:
+        later += step
+    return later
 
 
 async def test_a_purse_emptied_under_the_fields_tick_buys_no_free_minute(
@@ -287,7 +303,7 @@ async def test_the_family_shares_one_pool_and_takes_turns_at_its_last_minute(
         await agro.tick_machines(session, constants, now=now)
         await session.refresh(row)
         await session.refresh(pool)
-        if now.minute % 2:
+        if _fields_first(constants, now):
             #: The field automaton first: its whole minute, the automat half of one.
             assert row.trouble != "no_power", "the field automaton promised first"
             assert float(pool.stored) == pytest.approx(0, abs=0.001)
@@ -298,12 +314,14 @@ async def test_the_family_shares_one_pool_and_takes_turns_at_its_last_minute(
             assert float(pool.stored) == pytest.approx(minute * 0.5, abs=0.001)
 
 
+@pytest.mark.parametrize("fields_first", [True, False])
 async def test_a_factory_owners_purse_emptied_under_the_family_does_not_count_a_field_twice(
     session: AsyncSession,
     factory: async_sessionmaker[AsyncSession],
     constants: Constants,
     catalog: Catalog,
     monkeypatch: pytest.MonkeyPatch,
+    fields_first: bool,
 ) -> None:
     """One owner's automat and another owner's field automaton in one pass. The
     automat's owner empties the purse before the draw: the whole pass goes back
@@ -325,7 +343,6 @@ async def test_a_factory_owners_purse_emptied_under_the_family_does_not_count_a_
     purse = await ledger.balance(session, account.id)
     pool = await energy.pool_of(session, constants, place.node)
     assert pool is not None
-    price = energy.price_at(constants, pool, constants[R.AGRO_ENERGY_PER_HOUR] / 60)
     ids = (maker_account.id, maker_oil.id, floor_yard.id, plot.id, oil.id, account.id)
     await session.commit()
     maker_account_id, maker_oil_id, floor_yard_id, plot_id, oil_id, account_id = ids
@@ -340,7 +357,7 @@ async def test_a_factory_owners_purse_emptied_under_the_family_does_not_count_a_
         return await drawn(*args, **kwargs)
 
     monkeypatch.setattr(energy_bill, "pay", spent_first)
-    later = moment + timedelta(minutes=1)
+    later = _tick_after(constants, moment, fields_first=fields_first)
     async with factory() as db, db.begin():
         minute_done = await agro.tick_machines(db, current(), now=later)
 
@@ -351,10 +368,12 @@ async def test_a_factory_owners_purse_emptied_under_the_family_does_not_count_a_
         assert ploughed is not None and ploughed.state is PlotState.PLOWED
         left = await db.get(Item, oil_id)
         assert left is not None
+        hours = (later - moment).total_seconds() / 3600
         assert amount_float(left.amount) == pytest.approx(
-            100 - constants[R.AUTO_LUBE_PER_HOUR] / 60, abs=0.002
+            100 - constants[R.AUTO_LUBE_PER_HOUR] * hours, abs=0.002
         ), "one minute's lubricant, not two"
-        assert purse - await ledger.balance(db, account_id) == pytest.approx(price, abs=1)
+        billed = energy.price_at(constants, pool, constants[R.AGRO_ENERGY_PER_HOUR] * hours)
+        assert purse - await ledger.balance(db, account_id) == pytest.approx(billed, abs=1)
         assert await ledger.balance(db, maker_account_id) == 0
         maker_left = await db.get(Item, maker_oil_id)
         assert maker_left is not None and amount_float(maker_left.amount) == pytest.approx(100)
@@ -368,3 +387,42 @@ async def test_a_factory_owners_purse_emptied_under_the_family_does_not_count_a_
             .all()
         )
         assert not nails, "the unpaid factory made nothing"
+
+
+async def test_a_field_automaton_on_a_thin_grid_beside_an_automat_still_works_and_tells_once(
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+) -> None:
+    """A grid that brings less than one machine-minute a tick, an automat on it
+    too. Refused its hours whole, the field automaton holds what it found for
+    the rest of the pass, so the pool gathers toward its hours instead of
+    feeding the automat every tick: within a few ticks it ploughs. And a word
+    that comes and goes with the turns is told once, not every other tick."""
+    place = await field(session, constants)
+    await liquid_in(session, place.yard, LUBRICANT, 100)
+    plot = await plot_of(session, constants, place.body)
+    moment = second_now()
+    await programmed(session, constants, catalog, place, [{"do": "plow"}], [plot], moment)
+    await _learn(session, place.identity, NAILS)
+    await world.grant_item(session, place.yard, IRON, amount=1000, quality=60, origin="тест")
+    station = await world.grant_item(session, place.yard, "auto_station", quality=70, origin="тест")
+    await automat.program(session, constants, catalog, place.body, station, NAILS, now=moment)
+    pool = await energy.pool_of(session, constants, place.node)
+    assert pool is not None
+    pool.stored = Decimal(0)
+    await session.flush()
+    step = timedelta(minutes=constants[R.TIME_TICK])
+    inflow = constants[R.AGRO_ENERGY_PER_HOUR] * constants[R.TIME_TICK] / 60 * 0.8
+
+    now = moment
+    for _ in range(8):
+        pool.stored = Decimal(str(round(float(pool.stored) + inflow, 3)))
+        await session.flush()
+        now += step
+        await agro.tick_machines(session, constants, now=now)
+        await session.refresh(pool)
+        await session.refresh(plot)
+        assert float(pool.stored) >= 0
+    assert plot.state is PlotState.PLOWED, "the pool gathered the field automaton's hours"
+    assert await events_of(session, EventKind.AGRO_STALLED) <= 2, "told once a stretch of work"

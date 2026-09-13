@@ -195,7 +195,11 @@ async def _advance(
         if bill is None or amount(bill.hours * rate) < amount(worked * rate):
             #: A flow, not a stock: paid for a sliver of a scarce pool every
             #: minute and acting on none of it, the machine would never act.
-            #: Refused whole, it leaves the pool to gather the hours.
+            #: Refused whole, it holds what it found for the rest of the pass,
+            #: and the pool gathers the hours rather than feeding whoever
+            #: promises after it.
+            if bill is not None:
+                tab.hold(bill)
             short, worked = NO_POWER, 0.0
         else:
             #: Written down at once: should the work below fail, the tick takes
@@ -205,6 +209,10 @@ async def _advance(
     done = 0
     if short is not None:
         trouble: str | None = short
+        if row.busy_until is not None and row.busy_until > row.counted_at:
+            #: The machine's clock runs only while it has power and lubricant:
+            #: the hours it stood do not count toward the action it is busy with.
+            row.busy_until += timedelta(hours=hours - worked)
     elif row.busy_until is not None and row.busy_until > moment:
         #: Busy with the last action: the word it stood with stays -- unless it
         #: was the energy's or the lubricant's, and this minute had both.
@@ -259,6 +267,8 @@ async def _work(
         tried.add(entry.work)
         if isinstance(outcome, Done):
             row.busy_until = now + timedelta(minutes=outcome.minutes)
+            #: Work done: the next stall is news again (`_stand`).
+            row.told = None
             done = 1
             break
         failures.append(outcome)
@@ -296,13 +306,17 @@ async def _stand(session: AsyncSession, row: FieldAutomat, trouble: str | None) 
     """Write the word the machine stands with; tell the owner when a new one comes.
 
     The journal line names the place; why the machine stands is its window's
-    word, where the owner can act on it (D-339 p. 11).
+    word, where the owner can act on it (D-339 p. 11). A word is told once a
+    stretch of work: not again until the machine has done something or stood
+    with another word -- a machine a scarce pool powers one tick and refuses
+    the next would otherwise tell its owner every other tick.
     """
     if trouble == row.trouble:
         return
     row.trouble = trouble
-    if trouble is None:
+    if trouble is None or trouble == row.told:
         return
+    row.told = trouble
     node = await session.get(Node, row.node_id)
     await events.record(
         session,
@@ -373,6 +387,8 @@ async def tick_machines(
         session_: AsyncSession, constants_: Constants, tab: energy_bill.Tab, moment: datetime
     ) -> None:
         nonlocal actions
+        #: A run gone back took its actions with it.
+        actions = 0
         actions = await _work_fields(session_, constants_, tab, moment)
 
     made = await automat.tick_automats(session, constants, now=now, members=(fields,))
