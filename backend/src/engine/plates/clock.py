@@ -142,8 +142,9 @@ async def erupted(session: AsyncSession, job: Job) -> None:
     #: **The lock order of the whole package, and it is written down once here.**
     #:
     #:     veins  ->  the sessions at a face  ->  the things lying in a node
-    #:     ->  bodies  ->  (inside a closer) the face's things  ->  the node's
-    #:     heaps  ->  the pocket
+    #:     ->  the ways that break  ->  bodies, all at once in id order  ->
+    #:     (inside a closer) the face's things  ->  the node's heaps  ->  the
+    #:     pocket
     #:
     #: A miner can die in another transaction while the planet shakes -- of
     #: the heat, of their own roof -- and the session row is the **gate** the
@@ -168,7 +169,9 @@ async def erupted(session: AsyncSession, job: Job) -> None:
     #: `_close_faces` is seen there but its gate is taken with the yards
     #: already burnt; and a tick that killed two bodies in one pass holds the
     #: first death's heaps in a shaken yard while the second death waits at a
-    #: gate this job pre-locked (N <-> S).
+    #: gate this job pre-locked (N <-> S); and a walker's arrival holds the
+    #: body and then treads the way (`road.tread`) this job has already taken
+    #: to break (E <-> B).
     ids = [node.id for node in shaken]
     await session.execute(
         select(Vein).where(Vein.node_id.in_(ids)).order_by(Vein.id).with_for_update()

@@ -399,6 +399,17 @@ async def _breathe(
     #: The hull ran dry. One settling of grace, exactly as outside: a stretch
     #: only half covered kills nobody, and the next one begun on empty tanks
     #: does. The whole crew shares one hull, so it shares one countdown.
+    #:
+    #: Every member's row is written below -- the countdown or the death --
+    #: so it is taken before the first of them, in id order, and the death
+    #: then reaches into hands it already holds (`vessels.lock_crew`). Only
+    #: here: a stretch the tanks covered writes a crew row only to give the
+    #: grace back, and has no business queueing the whole crew's acts.
+    crew = await vessels.lock_crew(session, locked)
+    if not crew:
+        #: All of them stepped off while the rows were waited for: nobody is
+        #: left to choke, and nobody to tell.
+        return drawn, 0
     dead = 0
     for member in crew:
         if member.choking_since is None:
