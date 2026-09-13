@@ -54,7 +54,7 @@ from src.constants import Catalog, Constants, current_catalog
 from src.constants import registry as R
 from src.constants.catalog import ItemKind
 from src.constants.spec import ConstantError
-from src.engine import events, gear
+from src.engine import events, gear, world
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState
 from src.models.inventory import Container, ContainerKind, Item
@@ -262,19 +262,31 @@ async def daily_gear_wear(session: AsyncSession, constants: Constants, catalog: 
         #: `wear.environment_k` keys are planet ids since D-251 normalization.
         worn.setdefault(body_id, []).append((item, modifiers.get(planet.value, 1.0), identity_id))
 
+    #: **The bodies first, then what lies in their hands** -- but only the
+    #: bodies something ends on today. Writing wear takes the thing's row, and
+    #: a thing worn through then takes its wearer's to settle the load, so the
+    #: order here would otherwise be the thing and then the body, against
+    #: every other holder in the world (`overload._fall` takes the body and
+    #: then the stacks it moves). Asked with `wears_out` rather than taken
+    #: blindly, so a daily step does not hold the row of every living body in
+    #: the world for a wearing-through that happens to a handful.
+    #:
+    #: **All of them before the first write**, not each before its own. This
+    #: is one transaction over the world, and the rows of a body nothing ends
+    #: on are written without its lock; a body further down the walk taken
+    #: after them held that write while waiting for a row -- and a handover
+    #: holds two bodies' rows at once (`storage.hand`): the giver's thing,
+    #: worn here, against the taker's row, taken here later, was a knot the
+    #: database could only cut by killing one of the two.
+    ending = [
+        body_id
+        for body_id, theirs in worn.items()
+        if any(wears_out(constants, one, per_day, environment=where) for one, where, _ in theirs)
+    ]
+    await world.lock_bodies(session, ending)
+
     gone = 0
-    for body_id, theirs in worn.items():
-        #: **The body first, then what lies in its hands** -- but only for a
-        #: body something ends on today. Writing wear takes the thing's row,
-        #: and a thing worn through then takes its wearer's to settle the load,
-        #: so the order here would otherwise be the thing and then the body,
-        #: against every other holder in the world (`overload._fall` takes the
-        #: body and then the stacks it moves). Asked before the first write of
-        #: this body's, so the order holds; asked with `wears_out` rather than
-        #: taken blindly, so a daily step does not hold the row of every living
-        #: body in the world for a wearing-through that happens to a handful.
-        if any(wears_out(constants, one, per_day, environment=where) for one, where, _ in theirs):
-            await session.execute(select(Body.id).where(Body.id == body_id).with_for_update())
+    for theirs in worn.values():
         for one, where, identity_id in theirs:
             if await spend(
                 session,
