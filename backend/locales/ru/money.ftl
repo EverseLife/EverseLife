@@ -210,5 +210,6 @@ ledger-ground-bank_margin = маржа города
 ledger-ground-transfer = перевод
 ledger-ground-works_recycle = возврат в фонд работ
 ledger-ground-works_print = печать в фонд работ
-ledger-ground-works_payout = оплата госзаказа
+ledger-ground-works_payout = оплата госзаказа из фонда работ
+ledger-ground-works_city_payout = оплата госзаказа из казны города
 ledger-ground-emission = эмиссия по подписям столицы

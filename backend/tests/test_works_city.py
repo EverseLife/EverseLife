@@ -36,98 +36,12 @@ from src.engine import city as town
 from src.engine.estate.building import build_minutes, kinds
 from src.engine.estate.upkeep import finish_repair, repair, repair_bill, repair_minutes
 from src.models.estate import Building
-from src.models.ledger import AccountKind, PostingReason
+from src.models.ledger import AccountKind
 from src.models.market import Order, OrderSide, Trade
 from src.models.works import WorkOrderKind, WorkOrderState
-from src.models.world import Layer, Node
+from src.models.world import Node
 from src.units import MONEY_SCALE, money
-
-
-async def _city_with_ruler(session: AsyncSession, catalog: Catalog, *, funds: float = 0):
-    """A city, its core with the administration, and a ruler standing in it."""
-    stamp = uuid.uuid4().hex[:8]
-    planet = await world.create_node(
-        session, f"terra.{stamp}", "Терра", area_m2=1, layer=Layer.SPACE
-    )
-    delegate = await world.create_node(
-        session,
-        f"terra.city.{stamp}",
-        f"Город-{stamp}",
-        area_m2=1,
-        layer=Layer.PLANET,
-        parent=planet,
-    )
-    core = await world.create_node(
-        session, f"terra.city.{stamp}.core", "Ядро", area_m2=100, parent=delegate
-    )
-    city = await town.found(session, catalog, delegate, f"Город-{stamp}")
-    core.owner_city_id = city.id
-    await session.flush()
-    yard = await world.node_container(session, core)
-    await world.grant_item(session, yard, town.HALL, quality=65, origin="тест")
-
-    ruler = await world.create_identity(session, f"Мэр-{stamp}")
-    ruler_body = await world.print_body(session, ruler, core)
-    await town.install_founder(session, city, ruler)
-
-    if funds:
-        treasury = await town.treasury(session, city)
-        genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
-        await ledger.transfer(
-            session,
-            PostingReason.GENESIS,
-            debit=genesis.id,
-            credit=treasury.id,
-            amount=money(funds),
-        )
-    return city, core, ruler, ruler_body
-
-
-async def _civic_plot(
-    session: AsyncSession, constants: Constants, city, core, *, condition: float
-) -> Node:
-    """A city plot next door with one worn house on it."""
-    plot = await world.create_node(
-        session,
-        f"{core.key}.plot{uuid.uuid4().hex[:4]}",
-        "Городской двор",
-        area_m2=100,
-        parent=core,
-    )
-    plot.owner_city_id = city.id
-    session.add(
-        Building(
-            node_id=plot.id,
-            area_m2=20,
-            footprint_m2=20,
-            floors=1,
-            kind=kinds(constants)[0],
-            condition=condition,
-        )
-    )
-    await session.flush()
-    return plot
-
-
-async def _worker_at(session: AsyncSession, node: Node, *, materials: dict | None = None):
-    identity = await world.create_identity(session, f"Работник-{uuid.uuid4().hex[:6]}")
-    body = await world.print_body(session, identity, node)
-    if materials:
-        pocket = await world.body_container(session, body)
-        for name, qty in materials.items():
-            await world.grant_item(session, pocket, name, amount=qty, origin="тест")
-    return identity, body
-
-
-async def _feed_fund(session: AsyncSession, amount: int) -> None:
-    genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
-    await ledger.transfer(
-        session,
-        PostingReason.WORKS_PRINT,
-        debit=genesis.id,
-        credit=(await works.fund_account(session)).id,
-        amount=amount,
-    )
+from works_kit import _city_with_ruler, _civic_plot, _feed_fund, _worker_at
 
 
 async def _balance(session: AsyncSession, identity) -> int:

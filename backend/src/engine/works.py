@@ -403,7 +403,11 @@ async def _withdraw(session: AsyncSession, order: WorkOrder, *, now: datetime) -
 
 
 async def paid_today(session: AsyncSession, identity_id: uuid.UUID, *, now: datetime) -> int:
-    """What the fund paid this identity over the last day -- the cap's counter."""
+    """What the fund paid this identity over the last day -- the cap's counter.
+
+    The fund's ground alone: a city order pays the city's part under
+    `works_city_payout`, and that money is the city's, not the fund's.
+    """
     account = await ledger.find_account(session, AccountKind.IDENTITY, identity_id)
     if account is None:
         return 0
@@ -484,7 +488,7 @@ async def pay_road_order(
             debit=escrow.id,
             credit=recipient.id,
             amount=payment,
-            memo={"госзаказ": str(order.id), "ребро": str(edge.id)},
+            memo={"work_order": str(order.id), "edge": str(edge.id)},
         )
     leftover = held - payment
     if leftover > 0:

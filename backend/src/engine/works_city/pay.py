@@ -41,7 +41,11 @@ async def _pay_share(
 
     The city's share goes in full -- it is the price of goods, not a subsidy.
     The fund's share is clipped by the worker's daily cap; the clipped rest is
-    not the worker's and returns to the fund at once. Cumulative sums are kept
+    not the worker's and returns to the fund at once. The two shares are two
+    postings under two grounds: the cap is on the fund's payouts to a player
+    (`works.player_daily_cap`), and its counter reads the fund's ground alone
+    -- one posting for both let a large offer eat the allowance for the
+    fund's share on every other order that day. Cumulative sums are kept
     against rounding drift: each step pays `int(part * done) - paid so far`.
     """
     done_before = float(order.payload.get("done", 0.0))
@@ -68,16 +72,14 @@ async def _pay_share(
     fund_pay = max(0, min(fund_due, allowance))
 
     escrow = await ledger.account_for(session, AccountKind.ESCROW, order.id)
-    payment = max(0, city_due) + fund_pay
-    if payment > 0:
-        await ledger.transfer(
-            session,
-            Reason.WORKS_PAYOUT,
-            debit=escrow.id,
-            credit=recipient.id,
-            amount=payment,
-            memo={"госзаказ": str(order.id)},
-        )
+    city_pay = max(0, city_due)
+    payment = city_pay + fund_pay
+    memo = {"work_order": str(order.id)}
+    for ground, amount in ((Reason.WORKS_CITY_PAYOUT, city_pay), (Reason.WORKS_PAYOUT, fund_pay)):
+        if amount > 0:
+            await ledger.transfer(
+                session, ground, debit=escrow.id, credit=recipient.id, amount=amount, memo=memo
+            )
     clipped = fund_due - fund_pay
     if clipped > 0:
         await ledger.transfer(
@@ -91,7 +93,7 @@ async def _pay_share(
     order.payload = {
         **order.payload,
         "done": done_now,
-        "city_paid": city_paid + max(0, city_due),
+        "city_paid": city_paid + city_pay,
         "fund_used": fund_used + fund_due,
     }
     await session.flush()
