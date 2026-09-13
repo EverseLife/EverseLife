@@ -3,11 +3,10 @@
 
 """The farm's own keys: the bed, its care, its pests and its seed (D-118, D-296, D-299, D-057).
 
-The second half split off `registry` when it passed the eight hundred lines
-the quality bar allows again (the map's went first, `registry_map`).
-Imported into the registry by a star import so that `declared()` sees these
-specs among the rest and the startup check covers them; nothing else
-imports this module directly.
+A section of `registry`, cut off by roadmap stage when the registry passed the
+eight hundred lines the quality bar allows (2026-09-13): land farming in plots
+(E2) and the breeding of what grows on them.
+Star-imported into the registry, which is the only module that imports it.
 """
 
 from __future__ import annotations

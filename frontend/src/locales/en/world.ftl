@@ -559,6 +559,7 @@ ui-ship-slider = flight time
 ui-ship-end-fast = fast: { $term }
 ui-ship-end-cheap = cheap: { $term }
 ui-ship-arc-cost = { $term } · { $fuel } fuel · Δv { $dv }
+ui-ship-via = flyby: { $planet }
 ui-ship-chart-cheap = cheap { $term } · { $fuel }
 ui-ship-chart-fast = fast { $term } · { $fuel }
 # The bridge display's own words (D-240): the scale in the corner and the names
