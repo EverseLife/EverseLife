@@ -135,6 +135,7 @@ from src.engine.city.land import (  # noqa: F401
     cede,
     lay_ring,
     reclaim,
+    reclaim_all,
     survey,
     upkeep_of,
 )

@@ -26,6 +26,7 @@ from src.engine.city.treasury import treasury_balance
 from src.models.city import (
     City,
     Power,
+    UtilityMeter,
 )
 from src.models.estate import Deed
 from src.models.event import EventKind
@@ -221,6 +222,20 @@ async def cede(session: AsyncSession, body, node: Node) -> City:
     await travel.require_here(session, body)
     if body.node_id != node.id:
         raise CityError(key="city-land-cede-on-foot")
+    #: The meter, then the node, each read afresh under its lock: a meter run
+    #: adding its bill to the debt, or a holder changing, between these checks
+    #: and the hand-over would hand the city a debt it can never collect, or a
+    #: plot that was not this holder's to give. The meter first, as `reclaim`
+    #: takes them: a meter run holds every meter before anything else
+    #: (`utility`), and a node held here while its meter was waited for would
+    #: be one more thing the run may reach for, held the other way round.
+    meter = await utility.meter_of(session, node, create=False, lock=True)
+    await session.execute(
+        select(Node)
+        .where(Node.id == node.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
     if node.owner_identity_id != body.identity_id:
         raise NotYours(key="city-land-not-yours")
     #: Reached from a floor of one's own house (D-247): it is held land and it
@@ -237,7 +252,6 @@ async def cede(session: AsyncSession, body, node: Node) -> City:
     if deed is not None and deed.sale_price is not None:
         raise CityError(key="city-land-deed-on-sale")
 
-    meter = await utility.meter_of(session, node, create=False)
     if meter is not None and meter.debt > 0:
         raise CityError(key="city-land-debt", debt=money_str(meter.debt))
 
@@ -300,6 +314,10 @@ async def reclaim(session: AsyncSession, node: Node, city: City) -> bool:
     #: the length of the seed.
     if not _handed_out_by_mistake(node, city):
         return False
+    #: The meter before the node, as `cede` takes them: a meter run holds
+    #: every meter first, and through the city's pool it reaches for the city's
+    #: own node (`utility`) -- a location this may be taking back.
+    await utility.meter_of(session, node, create=False, lock=True)
     #: And now the row itself, before the decision rather than inside
     #: `hand_over` after it. The deploy starts the new backend beside the old
     #: one, so this runs against a world still being played: a deed sale
@@ -328,6 +346,35 @@ async def reclaim(session: AsyncSession, node: Node, city: City) -> bool:
         city_id=str(city.id),
     )
     return True
+
+
+async def reclaim_all(session: AsyncSession) -> list[tuple[City, Node]]:
+    """Take back every city location of the world handed out as a plot (`reclaim`).
+
+    Returns what came back, and to which city. Their meters are taken first,
+    all at once and in id order -- the order a meter run takes every meter of
+    the world in (`utility`). Taken one location at a time, in the order the
+    cities list their land, a later location's meter could sort before an
+    earlier one's: the run would hold it while it waited for the earlier one,
+    and this would wait for it. The promise holds within this call: a caller
+    that locked a city's node before it (the seed's catch-up stamps marks on
+    nodes) is outside it.
+    """
+    found: list[tuple[City, Node]] = []
+    for city in (await session.execute(select(City).order_by(City.id))).scalars().all():
+        found.extend(
+            (city, node)
+            for node in await territory(session, city)
+            if _handed_out_by_mistake(node, city)
+        )
+    if found:
+        await session.execute(
+            select(UtilityMeter.id)
+            .where(UtilityMeter.node_id.in_([node.id for _, node in found]))
+            .order_by(UtilityMeter.id)
+            .with_for_update()
+        )
+    return [(city, node) for city, node in found if await reclaim(session, node, city)]
 
 
 async def upkeep_of(session: AsyncSession, constants: Constants, city: City) -> dict:
@@ -462,8 +509,10 @@ async def _into_the_citys_hands(
     #: would never be paid and the cut-off would never be lifted -- the
     #: location would come back to the city electrically dead, with neither
     #: craft nor council possible in it, for ever. `cede` never arrives with a
-    #: debt (it refuses first); a location taken back does.
-    meter = await utility.meter_of(session, node, create=False)
+    #: debt (it refuses first); a location taken back does. Read afresh under
+    #: the lock both callers take before the node (the order `utility` keeps):
+    #: a debt a meter run wrote meanwhile is cleared rather than left behind.
+    meter = await utility.meter_of(session, node, create=False, lock=True)
     if meter is not None:
         meter.debt = 0
         meter.cut_off = False
