@@ -476,8 +476,10 @@ async def hold_ground(session: AsyncSession, node: Node) -> None:
     plot goes into a minus that nothing afterwards can notice, because nothing
     afterwards ever re-adds the parts.
 
-    The **plot**, always: a storey is spent by nothing, and a house on it is
-    spoken for by the ground it stands on.
+    The **plot**, always, for its ground: a storey is spent by nothing, and a
+    house on it is spoken for by the ground it stands on. A storey's row is
+    held the same way by the doors that spend its **floor** (`station.place`,
+    `station.take`), before the thing they stand or take down.
 
     The whole row rather than its id, and `populate_existing` with it: whoever
     held the lock before us may have written the very fields we are about to

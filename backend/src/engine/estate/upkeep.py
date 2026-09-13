@@ -351,10 +351,26 @@ async def _bury(
     in a house proof against its collapse, losing neither its slot nor its use.
     """
     catalog = current_catalog()
+    #: **Locked in one statement, in id order, and reread** -- the way the fire
+    #: takes a field (`plates.fire._burn`) and the rig tick takes a machine with
+    #: its coal (`rig.advance`). Deleted one by one as the walk below reaches
+    #: them, the rows were taken in the order the heap happened to hold them,
+    #: and a tick holding the machine while it waited on the coal the fall had
+    #: already taken was a deadlock. The reread is the fire's too: a sack
+    #: carried out while the fall waited is not in the store any more, and must
+    #: not be deleted out of the hands that took it.
     things = [
         thing
         for thing in (
-            (await session.execute(select(Item).where(Item.container_id == store.id)))
+            (
+                await session.execute(
+                    select(Item)
+                    .where(Item.container_id == store.id)
+                    .order_by(Item.id)
+                    .with_for_update()
+                    .execution_options(populate_existing=True)
+                )
+            )
             .scalars()
             .all()
         )
@@ -380,8 +396,17 @@ async def _bury(
             .all()
         )
         for box in inside:
+            #: The same lock and the same reread, inside the chest.
             stored = (
-                (await session.execute(select(Item).where(Item.container_id == box.id)))
+                (
+                    await session.execute(
+                        select(Item)
+                        .where(Item.container_id == box.id)
+                        .order_by(Item.id)
+                        .with_for_update()
+                        .execution_options(populate_existing=True)
+                    )
+                )
                 .scalars()
                 .all()
             )

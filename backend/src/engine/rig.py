@@ -45,6 +45,7 @@ waits for the machine and dies with it.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from decimal import ROUND_FLOOR, Decimal
 
@@ -57,7 +58,7 @@ from src.engine import events, liquid, station, stock, travel, wear, world
 from src.engine.errors import Refusal
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState
-from src.models.inventory import Item
+from src.models.inventory import Container, ContainerKind, Item
 from src.models.rig import Rig as RigRow
 from src.models.world import Node, Vein
 from src.units import (
@@ -294,7 +295,9 @@ async def advance(
     #: whenever the machine's id was the lower. The node comes
     #: last and unasked: writing the row a second time re-checks its keys,
     #: which is why the plot's own holders take it `FOR NO KEY UPDATE`
-    #: (`estate.hold_ground`, `station`).
+    #: (`estate.hold_ground`). The tick has already taken all of it, for every
+    #: rig at once (`_hold_the_world`): one rig at a time, the order held
+    #: within a rig and not across two.
     if workers > 0:
         await session.refresh(vein, with_for_update=True)
     held, stacks = await _held(session, rig.item_id, yard.id if workers > 0 else None)
@@ -581,21 +584,12 @@ async def tick_rigs(
 ) -> float:
     """Advance all rigs of the world. The machine does not sleep -- that is its whole strength."""
     moment = now or datetime.now(UTC)
-    #: In the order of the veins, not of the rows: a pass takes its vein as it
-    #: comes to the rig, and one transaction holds them all, so walking the
-    #: rigs by their own ids takes the veins in no order at all. An eruption
-    #: takes a field's veins by id (`plates.clock`), and two rigs on two veins
-    #: numbered the other way round held one each against it. The rows
-    #: themselves are taken one at a time everywhere else.
     rigs = (
-        (
-            await session.execute(
-                select(RigRow).order_by(RigRow.vein_id, RigRow.id).with_for_update()
-            )
-        )
+        (await session.execute(select(RigRow).order_by(RigRow.id).with_for_update()))
         .scalars()
         .all()
     )
+    await _hold_the_world(session, rigs)
     result = 0.0
     for rig in rigs:
         result += await advance(session, constants, rig, now=moment)
@@ -699,6 +693,49 @@ async def _held(
     )
     machine = next((row for row in rows if row.id == machine_id), None)
     return machine, [row for row in rows if row.id != machine_id]
+
+
+async def _hold_the_world(session: AsyncSession, rigs: Sequence[RigRow]) -> None:
+    """Take what every pass of this tick may write, before the first pass writes.
+
+    `advance` takes its rows in the order of the others -- the vein, then the
+    machine and its fuel by id -- but it takes them one rig at a time, and the
+    tick holds every rig of the world in one transaction. So the order held
+    within a rig and broke across two: the veins went in the order of the
+    rigs, and an eruption taking a field's veins by id (`plates.clock`) held
+    the one the tick came to next; two rigs in one house took their machines
+    and the shared coal in two statements, and the fall taking the floor by id
+    (`estate.collapse`) held the second machine. All the veins first, then all
+    the machines and the fuel of their yards, each in one statement by id.
+
+    More than a pass needs -- the vein of a rig with a full hopper, the coal of
+    one taken down and lying -- and held to the end of the tick, which is
+    where the rows of the passes were held anyway. Each pass takes its own
+    again and rereads them (`_held`).
+    """
+    if not rigs:
+        return
+    await session.execute(
+        select(Vein.id)
+        .where(Vein.id.in_({rig.vein_id for rig in rigs}))
+        .order_by(Vein.id)
+        .with_for_update()
+    )
+    yards = select(Container.id).where(
+        Container.kind == ContainerKind.NODE,
+        Container.owner_id.in_({rig.node_id for rig in rigs}),
+    )
+    await session.execute(
+        select(Item.id)
+        .where(
+            or_(
+                Item.id.in_({rig.item_id for rig in rigs}),
+                and_(Item.container_id.in_(yards), Item.type_key.in_(_fuel_names())),
+            )
+        )
+        .order_by(Item.id)
+        .with_for_update()
+    )
 
 
 def _stands(machine: Item, yard_id: uuid.UUID) -> bool:
