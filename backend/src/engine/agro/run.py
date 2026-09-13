@@ -14,9 +14,11 @@ again under each bed's lock by the hands (`hands.py`).
 **Energy is the automat family's (D-253, `automat/bill.py`).** It is promised
 before the action, on the automats' own tab (`tick_machines`), and drawn after
 every machine of the family has worked, supply by supply in one lock order.
-The supply -- less what the pass has promised already -- caps the hours as the
-lubricant does: the machine is on for that part and acts on none of it; the
-owner's purse pays for those hours whole or the machine stands (D-135). What
+A machine is promised the whole of its hours or none of them: energy is a flow,
+not a stock like the lubricant, and a machine paid for a sliver of a scarce
+pool every minute and acting on none of it would never act; promised whole
+or nothing, it leaves the pool to gather. The owner's purse pays for the hours
+whole or the machine stands (D-135). What
 happens between the promise and the draw is the family's rule too (the owner,
 2026-09-13, `20-systems/12-energy.md`): a pool a bench emptied meanwhile leaves
 the work done and bills only what the pool gave; a purse emptied meanwhile is
@@ -71,14 +73,6 @@ log = logging.getLogger(__name__)
 PURPOSE = "field_automat"
 
 
-class PurseMoved(Exception):
-    """A purse the promise found full could not pay the draw: the minute goes back."""
-
-    def __init__(self, owners: set[uuid.UUID]) -> None:
-        super().__init__(owners)
-        self.owners = owners
-
-
 async def advance(
     session: AsyncSession,
     constants: Constants,
@@ -107,9 +101,9 @@ async def advance(
                 done = await _advance(session, constants, row, catalog=catalog, now=moment, tab=tab)
                 refused = await energy_bill.pay(session, constants, tab.bills, now=moment)
                 if refused:
-                    raise PurseMoved(refused)
+                    raise automat.PurseMoved(refused)
                 return done
-        except PurseMoved as moved:
+        except automat.PurseMoved as moved:
             barred |= moved.owners
             #: What the rolled-back run remembered must not answer for the next.
             forget(session)
@@ -186,8 +180,8 @@ async def _advance(
         by_name.setdefault(stack.type_key, []).append(stack)
 
     #: A machine with a programme and plots is on the whole time: holding a
-    #: setpoint is work (D-339 p. 8). The lubricant caps the hours, and the
-    #: energy promised for them caps them again, as the automats' does.
+    #: setpoint is work (D-339 p. 8). The lubricant caps the hours; the energy
+    #: for them is promised whole or not at all.
     lube = [stack for name in sorted(lube_names) for stack in by_name.get(name, [])]
     lube_rate = constants[R.AUTO_LUBE_PER_HOUR]
     have = sum(amount_float(stack.amount) for stack in lube)
@@ -198,14 +192,12 @@ async def _advance(
         bill = await energy_bill.promise(
             session, constants, row, node, worked, rate, now=moment, tab=tab, purpose=PURPOSE
         )
-        if bill is None:
+        if bill is None or amount(bill.hours * rate) < amount(worked * rate):
+            #: A flow, not a stock: paid for a sliver of a scarce pool every
+            #: minute and acting on none of it, the machine would never act.
+            #: Refused whole, it leaves the pool to gather the hours.
             short, worked = NO_POWER, 0.0
         else:
-            if amount(bill.hours * rate) < amount(worked * rate):
-                #: The supply covers part of the hours: the machine is on for
-                #: that part and stands for the rest, acting on none of it --
-                #: the rule a short lubricant already keeps.
-                short, worked = NO_POWER, bill.hours
             #: Written down at once: should the work below fail, the tick takes
             #: this promise back with the machine's savepoint.
             tab.add(bill)
@@ -418,6 +410,10 @@ async def _work_fields(
                     continue
                 done += await _advance(session, constants, row, catalog=None, now=moment, tab=tab)
         except Exception as failure:  # noqa: BLE001 -- one machine must not stop the world's fields
+            if isinstance(failure, DBAPIError) and failure.connection_invalidated:
+                #: Not the machine's fault: the connection is gone, and every
+                #: machine after this one would fail the same way.
+                raise
             tab.keep(owed)
             #: What the rolled-back machine remembered must not answer for the next.
             forget(session)

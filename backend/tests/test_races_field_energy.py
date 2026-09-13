@@ -20,7 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from agro_kit import LUBRICANT, field, liquid_in, plot_of, programmed, second_now
-from automat_kit import IRON, NAILS, _learn
+from automat_kit import IRON, NAILS, _factory_floor, _learn, _lube_in
 from src.constants import Catalog, Constants, current, current_catalog
 from src.constants import registry as R
 from src.engine import agro, automat, energy, ledger, world
@@ -31,6 +31,7 @@ from src.models.identity import Body
 from src.models.inventory import Item
 from src.models.ledger import AccountKind, PostingReason
 from src.models.world import Node
+from src.units import amount_float
 
 
 async def _empty_purse(factory: async_sessionmaker[AsyncSession], account_id: uuid.UUID) -> None:
@@ -255,15 +256,16 @@ async def test_a_pool_drunk_under_the_fields_tick_is_billed_for_what_it_gave(
         assert billed > 0
 
 
-async def test_an_automat_and_a_field_automaton_do_not_both_promise_one_pools_last_minute(
+async def test_the_family_shares_one_pool_and_takes_turns_at_its_last_minute(
     session: AsyncSession,
     constants: Constants,
     catalog: Catalog,
 ) -> None:
-    """The automats and the field automatons share one tab (`agro.tick_machines`):
-    a pool that holds one and a half machine-minutes is promised once in full
-    and once in half. Two passes side by side would each promise the whole
-    pool and, a pool drunk after the promise keeping the hours, both work free."""
+    """An automat and a field automaton on one pool that holds one and a half
+    machine-minutes, two minutes running. They promise on one tab, so the pool
+    is never promised twice; the field automaton takes its hours whole or not
+    at all; and the first to promise changes with the minute, so neither kind
+    drinks the pool every minute (`automat.run._pass`, D-339 p. 8)."""
     place = await field(session, constants)
     await liquid_in(session, place.yard, LUBRICANT, 100)
     plot = await plot_of(session, constants, place.body)
@@ -277,14 +279,92 @@ async def test_an_automat_and_a_field_automaton_do_not_both_promise_one_pools_la
     assert pool is not None
     minute = constants[R.AGRO_ENERGY_PER_HOUR] / 60
     assert constants[R.AUTO_ENERGY_PER_HOUR] / 60 == pytest.approx(minute)
-    pool.stored = Decimal(str(minute * 1.5))
-    await session.flush()
 
-    minute_done = await agro.tick_machines(session, constants, now=moment + timedelta(minutes=1))
-    await session.refresh(row)
-    await session.refresh(plot)
-    await session.refresh(pool)
-    assert minute_done.actions == 0, "the field automaton got half a minute and acted on none"
-    assert row.trouble == "no_power"
-    assert plot.state is PlotState.IDLE
-    assert float(pool.stored) == pytest.approx(0, abs=0.001)
+    for step in (1, 2):
+        pool.stored = Decimal(str(minute * 1.5))
+        await session.flush()
+        now = moment + timedelta(minutes=step)
+        await agro.tick_machines(session, constants, now=now)
+        await session.refresh(row)
+        await session.refresh(pool)
+        if now.minute % 2:
+            #: The field automaton first: its whole minute, the automat half of one.
+            assert row.trouble != "no_power", "the field automaton promised first"
+            assert float(pool.stored) == pytest.approx(0, abs=0.001)
+        else:
+            #: The automat first: its whole minute; half a minute is no minute
+            #: for the field automaton, and the half stays in the pool.
+            assert row.trouble == "no_power", "half a minute is not promised"
+            assert float(pool.stored) == pytest.approx(minute * 0.5, abs=0.001)
+
+
+async def test_a_factory_owners_purse_emptied_under_the_family_does_not_count_a_field_twice(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    constants: Constants,
+    catalog: Catalog,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One owner's automat and another owner's field automaton in one pass. The
+    automat's owner empties the purse before the draw: the whole pass goes back
+    and runs again -- the automat standing, the field automaton ploughing once,
+    burning one minute's lubricant and billed for one minute, not two."""
+    floor, floor_yard, maker, maker_body, station = await _factory_floor(session, constants)
+    await world.grant_item(session, floor_yard, IRON, amount=1000, quality=60, origin="тест")
+    maker_oil = await _lube_in(session, floor_yard, 100)
+    await _learn(session, maker, NAILS)
+    moment = second_now()
+    await automat.program(session, constants, catalog, maker_body, station, NAILS, now=moment)
+    maker_account = await ledger.account_for(session, AccountKind.IDENTITY, maker.id)
+
+    place = await field(session, constants)
+    oil = await liquid_in(session, place.yard, LUBRICANT, 100)
+    plot = await plot_of(session, constants, place.body)
+    await programmed(session, constants, catalog, place, [{"do": "plow"}], [plot], moment)
+    account = await ledger.account_for(session, AccountKind.IDENTITY, place.identity.id)
+    purse = await ledger.balance(session, account.id)
+    pool = await energy.pool_of(session, constants, place.node)
+    assert pool is not None
+    price = energy.price_at(constants, pool, constants[R.AGRO_ENERGY_PER_HOUR] / 60)
+    ids = (maker_account.id, maker_oil.id, floor_yard.id, plot.id, oil.id, account.id)
+    await session.commit()
+    maker_account_id, maker_oil_id, floor_yard_id, plot_id, oil_id, account_id = ids
+
+    drawn = energy_bill.pay
+    spent: list[bool] = []
+
+    async def spent_first(*args, **kwargs):
+        if not spent:
+            await _empty_purse(factory, maker_account_id)
+            spent.append(True)
+        return await drawn(*args, **kwargs)
+
+    monkeypatch.setattr(energy_bill, "pay", spent_first)
+    later = moment + timedelta(minutes=1)
+    async with factory() as db, db.begin():
+        minute_done = await agro.tick_machines(db, current(), now=later)
+
+    assert spent, "the maker's purse was emptied between the promise and the draw"
+    assert minute_done.actions == 1, "the field automaton's ploughing counted once"
+    async with factory() as db:
+        ploughed = await db.get(Plot, plot_id)
+        assert ploughed is not None and ploughed.state is PlotState.PLOWED
+        left = await db.get(Item, oil_id)
+        assert left is not None
+        assert amount_float(left.amount) == pytest.approx(
+            100 - constants[R.AUTO_LUBE_PER_HOUR] / 60, abs=0.002
+        ), "one minute's lubricant, not two"
+        assert purse - await ledger.balance(db, account_id) == pytest.approx(price, abs=1)
+        assert await ledger.balance(db, maker_account_id) == 0
+        maker_left = await db.get(Item, maker_oil_id)
+        assert maker_left is not None and amount_float(maker_left.amount) == pytest.approx(100)
+        nails = (
+            (
+                await db.execute(
+                    select(Item).where(Item.container_id == floor_yard_id, Item.type_key == NAILS)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert not nails, "the unpaid factory made nothing"

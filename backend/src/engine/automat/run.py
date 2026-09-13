@@ -288,7 +288,7 @@ async def tick_automats(
         try:
             async with session.begin_nested():
                 return await _pass(session, constants, order, barred, now=moment, members=members)
-        except _PurseMoved as moved:
+        except PurseMoved as moved:
             barred |= moved.owners
             _forget_the_run(session)
             log.info(
@@ -297,8 +297,11 @@ async def tick_automats(
             )
 
 
-class _PurseMoved(Exception):
-    """A purse the forecast found full could not pay the draw: the pass goes back."""
+class PurseMoved(Exception):
+    """A purse the forecast found full could not pay the draw: the pass goes back.
+
+    The family's one word for it: the field automaton's command, a pass of one,
+    goes back on it as well (`agro.run.advance`)."""
 
     def __init__(self, owners: set[uuid.UUID]) -> None:
         super().__init__(owners)
@@ -330,6 +333,12 @@ async def _pass(
     """
     #: A purse that already failed a draw this tick pays nothing in the rerun.
     tab = energy_bill.Tab(purses=dict.fromkeys(barred, 0))
+    #: On a pool too small for the whole family, whoever promises first drinks
+    #: first. Neither kind may take it every minute: the other members go first
+    #: on odd minutes, the automats on even ones (D-339 p. 8).
+    early = now.minute & 1
+    if early:
+        await _members(session, constants, members, tab, now)
     made = 0.0
     for row_id in order:
         owed = len(tab.bills)
@@ -356,12 +365,36 @@ async def _pass(
             log.exception("automat %s: the advance failed and was passed over", row_id)
             continue
         made += paid
-    for member in members:
-        await member(session, constants, tab, now)
+    if not early:
+        await _members(session, constants, members, tab, now)
     refused = await energy_bill.pay(session, constants, tab.bills, now=now)
     if refused:
-        raise _PurseMoved(refused)
+        raise PurseMoved(refused)
     return made
+
+
+async def _members(
+    session: AsyncSession,
+    constants: Constants,
+    members: Sequence[Member],
+    tab: energy_bill.Tab,
+    now: datetime,
+) -> None:
+    """The family's other members on the pass's tab, each in a savepoint of its
+    own: one that fails gives back what it promised and is passed over, and the
+    world's factories and the rest of the family go on -- as one machine that
+    fails does not stop the others."""
+    for member in members:
+        owed = len(tab.bills)
+        try:
+            async with session.begin_nested():
+                await member(session, constants, tab, now)
+        except Exception as failure:  # noqa: BLE001 -- one member must not stop the world's factories
+            if isinstance(failure, DBAPIError) and failure.connection_invalidated:
+                raise
+            tab.keep(owed)
+            _forget_the_run(session)
+            log.exception("automats: a member of the family failed and was passed over")
 
 
 def _forget_the_run(session: AsyncSession) -> None:
