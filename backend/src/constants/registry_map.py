@@ -74,8 +74,6 @@ HARVEST_PLANET_WEIGHTS = Book("harvest.planet_weights")
 # --- Place properties (D-126) -----------------------------------------------
 SITE_TEMP_RANGE = Span("site.temp_range")
 SITE_RAIN_RANGE = Span("site.rain_range")
-#: How much of the watering round the rain covers at the top of the scale (D-261).
-SITE_RAIN_WATER_OFFSET = Num("site.rain_water_offset")
 SITE_RIVER_SHARE = Num("site.river_share")
 SITE_QUALITY_BUDGET = Num("site.quality_budget")
 

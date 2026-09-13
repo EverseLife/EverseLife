@@ -44,6 +44,7 @@ from src.constants import registry as R
 from src.engine import (
     biome,
     chat,
+    climate,
     craft,
     customs,
     events,
@@ -90,8 +91,14 @@ VEIN = "vein"
 NAMELESS = ""
 
 
-def _wild_seconds(constants: Constants, metres: float) -> float:
-    return travel.walk_seconds(constants, metres) * float(constants[R.ROAD_WILD_MULTIPLIER])
+def _wild_seconds(constants: Constants, metres: float, snow: float) -> float:
+    """A run over the wild: the metres at the walk, the wild's factor and the
+    season's snow where the scout sets out from (D-338)."""
+    return (
+        travel.walk_seconds(constants, metres)
+        * float(constants[R.ROAD_WILD_MULTIPLIER])
+        * travel.snow_multiplier(constants, Surface.WILD, snow)
+    )
 
 
 async def survey(
@@ -139,7 +146,8 @@ async def survey(
         None if aim.existing is None else await town.of_node(session, aim.existing),
         now=moment,
     )
-    seconds = _wild_seconds(constants, aim.metres)
+    snow = climate.snow_on(constants, origin, await world.epoch(session), moment)
+    seconds = _wild_seconds(constants, aim.metres, snow)
     await travel.pay_for_road(session, constants, body, seconds, moment=moment)
     started = await events.record(
         session,

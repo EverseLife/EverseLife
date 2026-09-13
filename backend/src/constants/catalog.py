@@ -346,8 +346,18 @@ class RecipeBook(Strict):
                 self._class_by_name[member] = thing_class
 
 
+class PlantWarmth(Strict):
+    """The warmth a culture lives in, degrees (D-261, D-338)."""
+
+    min: float
+    max: float
+
+
 class PlantRequirements(Strict):
-    temp: dict[str, float]
+    #: A band with both ends, checked at the load: since D-338 every growing
+    #: bed reads it on every tick, and a culture missing an end would stop the
+    #: tick of the whole world rather than refuse one sowing.
+    temp: PlantWarmth
     water: float
     fertility: float
     light: float

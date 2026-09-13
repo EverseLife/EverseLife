@@ -258,3 +258,8 @@ SUMMARY_LIMIT = 40
 #: with the planetary day and a feeding's boost ends at a stage bound, and an
 #: hour is far below anything a player can see.
 FARM_STEP_HOURS = 1.0
+#: How many (place, world hour) readings of the rain and the snow the
+#: engine keeps worked out (D-338, `climate._hourly`). A cache bound, not a
+#: balance number: a Terran day of hours for some seventeen hundred places,
+#: and a place past it is worked out again rather than wrong.
+HOURS_KEPT = 65_536

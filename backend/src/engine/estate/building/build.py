@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants
 from src.constants import registry as R
-from src.engine import craft, events, goods, occupation, travel, world
+from src.engine import biome, craft, events, goods, occupation, travel, world
 from src.engine.estate._base import (
     GROUND_FLOOR,
     STOREY,
@@ -379,6 +379,11 @@ async def construct(
     #: a wall to outlive its builder, and what stands there arrived by ship.
     if node.planet is Planet.PYROXIS:
         raise EstateError(key="estate-build-not-on-pyroxis")
+    #: Nothing is built on ice (D-338): the ground under a wall would be a
+    #: sheet that flows and splits, and on Aurora that is the whole planet --
+    #: what stands there is the Forerunners' and what arrived by ship.
+    if biome.on_ice(constants, node):
+        raise EstateError(key="estate-build-on-ice")
 
     #: Unnamed, the house is of the plainest type there is: that is what the
     #: world was built of before types arrived, and the default must not silently

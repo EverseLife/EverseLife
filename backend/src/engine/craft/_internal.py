@@ -37,6 +37,7 @@ from src.engine.craft._base import (
     carrier_names,
 )
 from src.engine.craft.method_of_making import batch_minutes, procedure
+from src.engine.craft.place import require_place
 from src.engine.craft.quality import (
     forecast_quality,
     optimal_amounts,
@@ -44,7 +45,7 @@ from src.engine.craft.quality import (
     spread_of,
     waste_share,
 )
-from src.engine.world import BIOPRINTER, body_container, has_place, node_yard, station_names
+from src.engine.world import body_container, has_place, node_yard, station_names
 from src.models.craft import CraftBatch
 from src.models.identity import Body, BodyState, Knowledge, KnowledgeKind
 from src.models.inventory import Item
@@ -98,24 +99,9 @@ async def _prepare(
     if proc.needs_recipe and not await _knows(session, body, proc.output):
         raise NotLearned(key="craft-not-learned", recipe=proc.output)
 
-    #: A station built in place stands where it is made (D-268), so making a
-    #: bioprinter in a city **is** putting one up there, and the door it must
-    #: pass is the same one (D-312). Asked before the work rather than after:
-    #: twenty hours and two steel frames are not a thing to spend on a refusal.
-    if proc.output in station_names(BIOPRINTER):
-        from src.engine import station as gate  # noqa: PLC0415 -- lazy: cycle with station
-
-        where = await session.get(Node, body.node_id)
-        if where is None:  # pragma: no cover -- a body without a node is a bug
-            raise CraftError(key="craft-body-off-node")
-        await gate.require_printer_room(session, body, where)
-        #: And one at a time: the door is asked once for the batch, so a batch
-        #: of two would pass it once and stand two (D-312). Outside a city
-        #: nothing is refused -- there a printer is just a machine.
-        from src.engine import city as town  # noqa: PLC0415 -- lazy: cycle with city
-
-        if units > 1 and await town.of_node(session, where) is not None:
-            raise CraftError(key="craft-one-printer-at-a-time")
+    #: A station built in place stands where it is made (D-268): its doors
+    #: are the batch's, asked before the work (`craft.place`).
+    await require_place(session, constants, catalog, body, proc.output, units)
 
     #: A knowledge carrier is written by whoever knows the recipe (D-209): the
     #: name of what goes onto it is part of the request, and it must be in the
@@ -400,10 +386,6 @@ async def _pick_station(
     from src.engine import frost  # noqa: PLC0415 -- lazy: breaks the import cycle with frost
 
     await frost.require_working(session, current(), node, name)
-
-    from src.engine.world import (  # noqa: PLC0415 -- lazy: breaks the import cycle with world
-        station_names,
-    )
 
     #: The yard is read, not made: choosing a machine is the forecast's step
     #: too (`craft.plan`), and a place with nothing in it has no yard at all --

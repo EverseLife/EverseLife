@@ -53,6 +53,7 @@ import {
   orbitTurns,
   seasonC,
   seasonOf,
+  snowCover,
   subsolarLat,
   SEASON_FALLBACK,
 } from "../panels/map/season";
@@ -547,19 +548,18 @@ describe("the ramps and the drying law", () => {
     );
     expect(FRAGMENT).toContain(glsl);
     expect(FRAGMENT).toContain(glslRamp("rampMoist", RAMPS.moisture));
-    expect(FRAGMENT).toContain("uniform vec4 u_dry;");
+    expect(FRAGMENT).toContain("uniform vec3 u_dry;");
   });
 
   it("reads the drying law off the book in shares, and has no law without it", () => {
     const law = dryLaw({
-      "site.rain_water_offset": 60,
       "farm.river_dry_share": 50,
       "farm.dry_per_degree": 3,
       "farm.dry_temp_ref": 15,
       "terrain.river_reach_km": 0.1,
     });
-    expect(law).toEqual({ offset: 0.6, share: 0.5, perDegree: 0.03, ref: 15, reachM: 100 });
-    expect(dryLaw(null)).toEqual({ offset: 0, share: 1, perDegree: 0, ref: 0, reachM: 0 });
+    expect(law).toEqual({ share: 0.5, perDegree: 0.03, ref: 15, reachM: 100 });
+    expect(dryLaw(null)).toEqual({ share: 1, perDegree: 0, ref: 0, reachM: 0 });
     //: The reach and the river raster meet in the shader: metres against
     //: metres, with a cell's soft edge.
     expect(FRAGMENT).toContain("uniform sampler2D u_river;");
@@ -639,33 +639,58 @@ describe("the ramps and the drying law", () => {
     expect(FRAGMENT).toContain(glsl);
   });
 
-  it("works the soil's moisture out as the engine's drying law does", () => {
-    //: The vault's numbers (D-296): the rain closes 60 % of the drying at
-    //: the wettest, water within reach leaves 50 %, three per cent a degree
-    //: over fifteen. Terra's hot end is 35 -- bare ground there dries at
-    //: 1.6 of the reference, and that is the ramp's dry end.
+  it("lays the snow by one law with the engine (D-338)", () => {
+    //: The engine's `weather.snow_cover` at the vault's numbers -- line 0,
+    //: band 4, dry below a quarter of the rain, a dry cold keeping half --
+    //: pasted from Python (`test_snow.py` holds the same numbers there).
+    const season = { ...SEASON_FALLBACK, snowC: 0, bandC: 4, dryRain: 0.25, dryKeep: 0.5 };
+    const cases: [number, number, number][] = [
+      [-10, 0.6, 1.0],
+      [-2, 0.1, 0.338],
+      [1, 0.8, 0.0],
+      [-3.5, 0, 0.478515625],
+      [-1, 0.2, 0.148125],
+    ];
+    for (const [warmth, rain, snow] of cases) {
+      expect(snowCover(season, warmth, rain)).toBeCloseTo(snow, 12);
+    }
+    expect(FRAGMENT).toContain("float snow = (1.0 - smoothstep(u_snow.x - u_snow.y, u_snow.x, t_now))");
+    expect(FRAGMENT).toContain("mix(u_snow_dry.y, 1.0, smoothstep(0.0, max(u_snow_dry.x, 1e-3), rain01))");
+  });
+
+  it("works the soil's moisture out by the engine's drying law, wet under the rain", () => {
+    //: The vault's numbers (D-296): water within reach leaves 50 % of the
+    //: drying, three per cent a degree over fifteen. Terra's hot end is 35
+    //: -- bare ground there dries at 1.6 of the reference, and that is the
+    //: ramp's dry end.
     const law = dryLaw({
-      "site.rain_water_offset": 60,
       "farm.river_dry_share": 50,
       "farm.dry_per_degree": 3,
       "farm.dry_temp_ref": 15,
       "terrain.river_reach_km": 0.1,
     });
-    //: `farm.life.dry_rate` less its constant factor: heat x rain x river.
-    const pace = (t: number, rain: number, river: boolean) =>
-      Math.max(0, 1 + 0.03 * (t - 15)) * (1 - 0.6 * rain) * (river ? 0.5 : 1);
-    const moisture = (t: number, rain: number, river: boolean) => 1 - pace(t, rain, river) / pace(35, 0, false);
-    expect(moistureOf(law, 15, 0, 0, 35)).toBeCloseTo(moisture(15, 0, false), 6);
-    expect(moistureOf(law, 15, 1, 1, 35)).toBeCloseTo(moisture(15, 1, true), 6);
-    expect(moistureOf(law, 28, 0.5, 0, 35)).toBeCloseTo(moisture(28, 0.5, false), 6);
+    //: `farm.life.dry_rate` less its constant factor: heat x river. The
+    //: year's rainfall is out of it since D-338.
+    const pace = (t: number, river: boolean) => Math.max(0, 1 + 0.03 * (t - 15)) * (river ? 0.5 : 1);
+    const moisture = (t: number, river: boolean) => 1 - pace(t, river) / pace(35, false);
+    expect(moistureOf(law, 15, 0, 35, 0)).toBeCloseTo(moisture(15, false), 6);
+    expect(moistureOf(law, 15, 1, 35, 0)).toBeCloseTo(moisture(15, true), 6);
+    expect(moistureOf(law, 28, 0, 35, 0)).toBeCloseTo(moisture(28, false), 6);
     //: The ends: bare ground at the hot end is the dry end of the ramp; a
     //: bed that would dry faster still (no such place on the planet) is
     //: clipped there, not sent negative.
-    expect(moistureOf(law, 35, 0, 0, 35)).toBe(0);
-    expect(moistureOf(law, 40, 0, 0, 35)).toBe(0);
+    expect(moistureOf(law, 35, 0, 35, 0)).toBe(0);
+    expect(moistureOf(law, 40, 0, 35, 0)).toBe(0);
     //: Cold ground barely dries and reads wet, as the law says it is.
-    expect(moistureOf(law, -15, 0, 0, 35)).toBeGreaterThan(0.9);
+    expect(moistureOf(law, -15, 0, 35, 0)).toBeGreaterThan(0.9);
+    //: The rain waters the ground (D-338): a downpour on the hottest bare
+    //: ground reads wet, and a drizzle never makes wet ground drier. This
+    //: part is the picture's, not the engine's -- a bed is watered only up
+    //: to its culture's band, and the layer knows no culture.
+    expect(moistureOf(law, 35, 0, 35, 1)).toBe(1);
+    expect(moistureOf(law, -15, 0, 35, 0.1)).toBeCloseTo(moistureOf(law, -15, 0, 35, 0), 6);
+    expect(FRAGMENT).toContain("float soil = max(clamp(1.0 - pace / fastest, 0.0, 1.0), rain_now);");
     //: Without the book there is no law and the ground is one moisture.
-    expect(moistureOf(dryLaw(null), 30, 0.2, 1, 35)).toBe(0);
+    expect(moistureOf(dryLaw(null), 30, 1, 35, 0)).toBe(0);
   });
 });

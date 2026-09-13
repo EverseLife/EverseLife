@@ -175,13 +175,14 @@ def test_water_has_no_biome_and_the_frozen_planets_have_one(constants: Constants
     #: than named: Aurora had no sea until D-329 gave it one, and (0, 0) went
     #: under it -- a fixed pair of coordinates pins a test to a world, and
     #: every rebuild is a new world.
-    for planet, word in ((Planet.AURORA, biome.ICE), (Planet.PYROXIS, biome.CINDER)):
+    for planet, word in ((Planet.AURORA, biome.SNOW), (Planet.PYROXIS, biome.CINDER)):
         ground = terrain.field_of(constants, planet)
         dry = next(
             (lat, lon)
             for lat in range(-60, 61, 5)
             for lon in range(-180, 180, 5)
             if not ground.is_water(float(lat), float(lon))
+            and not ground.ice_at(float(lat), float(lon))
         )
         assert biome.classify(constants, planet, *map(float, dry)) == word
         wet = next(
@@ -679,7 +680,7 @@ async def test_a_run_on_the_ice_may_find_a_complex_of_the_forerunners(
         near, far = _reach(constants, catalog, camp)
         #: Runs from one camp at the cells whose own roll hides a complex: the
         #: roll is the cell's (`complex_roll`), so the test may ask it first.
-        chance = constants[R.COMPLEX_CHANCE]["aurora"][biome.ICE] / 100
+        chance = constants[R.COMPLEX_CHANCE]["aurora"][biome.SNOW] / 100
         picked = []
         for k in range(48):
             target = _step(constants, Planet.AURORA, here, far * 0.9, bearing=math.tau * k / 48)

@@ -88,8 +88,31 @@ def surface_multiplier(constants: Constants, surface: Surface) -> float:
     return constants[R.ROAD_ROAD_MULTIPLIER]
 
 
-def edge_seconds(constants: Constants, edge: Edge) -> float:
-    return edge.base_seconds * surface_multiplier(constants, edge.surface)
+#: The off-road, the transport's (D-107, D-338): where no vehicle passes and
+#: where the season's snow lies on the way.
+OFF_ROAD = transport.OFF_ROAD
+
+
+def snow_multiplier(constants: Constants, surface: Surface, snow: float) -> float:
+    """How much longer the off-road is under the season's snow (D-338):
+    `travel.snow_multiplier` under full cover, its share under less, and
+    nothing at all on a road."""
+    if surface not in OFF_ROAD:
+        return 1.0
+    return 1.0 + (constants[R.TRAVEL_SNOW_MULTIPLIER] - 1.0) * min(1.0, max(0.0, snow))
+
+
+def edge_seconds(constants: Constants, edge: Edge, *, snow: float) -> float:
+    """The time an edge takes: its metres at the walk, the surface's factor
+    (D-107) and the snow on the way (D-338, `travel.snow.edge_snow`). `snow` is asked for
+    on purpose: the walk and the route say the season's, and a caller that
+    wants the edge's own time -- the map, the road window, a letter -- says
+    nought where it can be read."""
+    return (
+        edge.base_seconds
+        * surface_multiplier(constants, edge.surface)
+        * snow_multiplier(constants, edge.surface, snow)
+    )
 
 
 def walk_seconds(constants: Constants, metres: float) -> float:

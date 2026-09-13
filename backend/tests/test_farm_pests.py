@@ -125,7 +125,9 @@ def test_each_mistake_breeds_its_own_trouble(constants: Constants, catalog: Cata
         for pest in life.PESTS
     }
     for pest, bed in struck.items():
-        signs = life.symptoms(constants, norm, bed, fertility=PERCENT, fertility_needed=0.0, fed=())
+        signs = life.symptoms(
+            constants, norm, bed, fertility=PERCENT, fertility_needed=0.0, fed=(), band=None
+        )
         assert life.PEST_SIGNS[pest] in signs
         #: And not before: a trouble under the threshold is not yet seen, so
         #: the journal has nothing to say either (D-299).
@@ -138,7 +140,13 @@ def test_each_mistake_breeds_its_own_trouble(constants: Constants, catalog: Cata
             illness_kind=pest,
         )
         quiet = life.symptoms(
-            constants, norm, early, fertility=PERCENT, fertility_needed=0.0, fed=()
+            constants,
+            norm,
+            early,
+            fertility=PERCENT,
+            fertility_needed=0.0,
+            fed=(),
+            band=None,
         )
         assert life.PEST_SIGNS[pest] not in quiet
 
@@ -151,7 +159,7 @@ def test_the_pressure_builds_by_the_mistake_and_falls_when_it_is_mended(
     norm = _norms(constants, catalog)
     day = constants[R.TIME_DAY_TERRA]
     low, high = _band(constants, catalog)
-    weather = _weather(rain=PERCENT, river=True, temperature=constants[R.FARM_DRY_TEMP_REF])
+    weather = _weather(river=True, temperature=constants[R.FARM_DRY_TEMP_REF])
 
     #: An hour of it: long enough to measure, short enough that the ground
     #: has not dried out from under the mistake being measured.
@@ -210,7 +218,7 @@ def test_the_trouble_strikes_spreads_and_takes_the_health(
     norm = _norms(constants, catalog)
     day = constants[R.TIME_DAY_TERRA]
     low, high = _band(constants, catalog)
-    weather = _weather(rain=PERCENT, river=True, temperature=constants[R.FARM_DRY_TEMP_REF])
+    weather = _weather(river=True, temperature=constants[R.FARM_DRY_TEMP_REF])
 
     brink = life.Life(SCALE_MAX, SCALE_MAX, 0.0, thinned=True, pest={life.FUNGUS: SCALE_MAX - 0.1})
     struck = life.advance(constants, norm, weather, brink, hours=1, day_hours=day, fertility=0)
@@ -258,7 +266,7 @@ def test_a_guard_freezes_the_pressure_and_holds_the_trouble_where_it_stands(
     norm = _norms(constants, catalog)
     day = constants[R.TIME_DAY_TERRA]
     low, high = _band(constants, catalog)
-    weather = _weather(rain=PERCENT, river=True, temperature=constants[R.FARM_DRY_TEMP_REF])
+    weather = _weather(river=True, temperature=constants[R.FARM_DRY_TEMP_REF])
     guarded = {life.FUNGUS: day * 2}
 
     soaked = life.Life(SCALE_MAX, SCALE_MAX, 0.0, thinned=True)

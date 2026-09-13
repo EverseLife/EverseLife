@@ -78,6 +78,16 @@ def care_text(constants: Constants, plant: Plant, signs: Mapping[str, Any], *, l
         said.append(i18n.render("care-feeding", {"rows": rows}, locale=locale))
     else:
         said.append(i18n.render("care-feeding-none", locale=locale))
+    #: The warmth (D-338): the band the sowing gate judges and the bed then
+    #: lives in -- colder it sleeps and suffers, hotter it suffers. The
+    #: crop's own, read through the norms like the moisture band.
+    said.append(
+        i18n.render(
+            "care-warmth",
+            {"min": round(norm.temp_min), "max": round(norm.temp_max)},
+            locale=locale,
+        )
+    )
     said.append(i18n.render("care-hardiness", {"hardiness": int(norm.hardiness)}, locale=locale))
     #: Wave 2 (D-297): how much the crowd costs this crop, and when thinning
     #: still works; the weeds are the same for every crop and said once.

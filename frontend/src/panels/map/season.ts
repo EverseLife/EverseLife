@@ -97,6 +97,23 @@ export function seasonOf(
   };
 }
 
+const smoothstep = (lo: number, hi: number, x: number) => {
+  const t = Math.min(1, Math.max(0, (x - lo) / Math.max(hi - lo, 1e-9)));
+  return t * t * (3 - 2 * t);
+};
+
+/** How much of the ground the snow covers, nought to one (D-334, D-338):
+ *  the fragment's law (`fragment.ts`, `float snow = ...`) in TypeScript,
+ *  held by golden numbers to the engine's copy (`weather.snow_cover`, which
+ *  lengthens the off-road by it) -- the GLSL cannot run in a test, and the
+ *  two trees cannot import each other. `warmthC` is the place's mean and the
+ *  season's offset; `rain01` the rain raster's share. */
+export function snowCover(season: Season, warmthC: number, rain01: number): number {
+  const cover = 1 - smoothstep(season.snowC - season.bandC, season.snowC, warmthC);
+  const dry = smoothstep(0, Math.max(season.dryRain, 1e-3), rain01);
+  return cover * (season.dryKeep + (1 - season.dryKeep) * dry);
+}
+
 /** The season's offset of the mean temperature at a latitude, degrees. */
 export function seasonC(season: Season, latDeg: number): number {
   return season.swingC * Math.sin((latDeg * Math.PI) / 180) * Math.sin(2 * Math.PI * season.turns);

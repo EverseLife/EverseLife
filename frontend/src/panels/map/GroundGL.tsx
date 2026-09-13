@@ -419,7 +419,7 @@ function sync(
   gl.uniform1f(at("u_temp_hot"), passport.temperature_c.hot);
   //: The drying law for the moisture layer (D-331 addendum): off the book,
   //: with the reach in metres, read against the river raster.
-  gl.uniform4f(at("u_dry"), law.offset, law.share, law.perDegree, law.ref);
+  gl.uniform3f(at("u_dry"), law.share, law.perDegree, law.ref);
   gl.uniform1f(at("u_reach_m"), law.reachM);
   program.synced = { planet, palette, highFrom, law, grains };
   return true;

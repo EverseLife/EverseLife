@@ -13,13 +13,19 @@ callers, so a read and a write never disagree about the same strip.
 Moisture leaves as a share of what is there (`farm.dry_rate` per Terran day,
 D-008): wet ground dries fast, dry ground barely, and nothing ever reaches
 nought. The culture drinks at its own pace (`farm.water_by_need`), heat
-quickens the loss (`farm.dry_per_degree` past `farm.dry_temp_ref`), rain
-covers a share of it (`site.rain_water_offset`) and a river halves it
-(`farm.river_dry_share`). Health falls in proportion to how far the moisture
-sits outside the culture's band (`farm.stress_per_point` per point per day),
-softened by the cultivar's hardiness (D-261), and heals inside it; growth
-adds its nominal share of the cycle scaled by health and by a feeding's
-boost, and a boost lasts to the end of the stage it was given in.
+quickens the loss (`farm.dry_per_degree` past `farm.dry_temp_ref`) and a
+river halves it (`farm.river_dry_share`). The rain the weather brings
+(D-335) waters the bed by the hour (D-338): `farm.rain_per_hour` points at a
+downpour, a lighter rain its share, and never past the top of the culture's
+band -- the ground sheds the rest, so a rain can only help. Health falls in
+proportion to how far the moisture sits outside the culture's band
+(`farm.stress_per_point` per point per day) and how far the moment's
+temperature sits outside its warmth (`farm.temp_stress_per_degree` per
+degree per day, D-338), softened by the cultivar's hardiness (D-261), and
+heals when both are inside; growth adds its nominal share of the cycle
+scaled by health and by a feeding's boost -- and nothing while the bed is
+colder than its band, which is the winter's sleep -- and a boost lasts to
+the end of the stage it was given in.
 
 Weeds come up with the crop (D-297): `farm.weed_per_day` scaled by the
 land's fertility -- rich soil feeds them too -- and a full cover drags the
@@ -41,8 +47,9 @@ share and taking `farm.pest_stress` of health at full cover. One trouble at
 a time: while a bed is struck the other three pressures stand still.
 
 Stepped by the hour rather than integrated in closed form: temperature
-breathes with the planetary day, and a boost ends at a stage bound the
-integral would have to know in advance. An hour is far below anything a
+breathes with the planetary day and the season, the rain comes and goes with
+the weather, and a boost ends at a stage bound the integral would have to
+know in advance. An hour is far below anything a
 player can see, and the same steps from the same stamp give the same numbers
 wherever they are taken.
 """
@@ -81,6 +88,10 @@ FAT = "fat"
 #: it is past sprouting -- shown to everybody, priced by the culture.
 WEEDY = "weedy"
 CROWDED = "crowded"
+#: D-338: the day's night under the culture's warmth, the day's noon over
+#: it -- shown for the day, since the day is what the bed lives through.
+CHILLED = "chilled"
+HEAT = "heat"
 #: Wave 3 (D-299): what a struck bed shows past `farm.pest_seen`. The sign
 #: says what the eye sees and never names the trouble or its cure: that
 #: coupling is the agrotech text's to teach (D-057).
@@ -120,17 +131,23 @@ class Norms:
     #: How much the cultivar fears the pests, on the traits' five-point
     #: scale (D-261): the multiplier of every pressure (D-299).
     pest_risk: float
+    #: The warmth the culture lives in, degrees (`requires.temp`): the
+    #: sowing gate's band since D-261 and the bed's own since D-338.
+    temp_min: float
+    temp_max: float
 
 
 @dataclass(frozen=True)
 class Weather:
-    """The place as the bed feels it: the rainfall on the vault's scale,
-    whether a river feeds the ground, and the temperature at an hour offset
-    -- a function, because it breathes with the planetary day (D-261)."""
+    """The place as the bed feels it: whether a river feeds the ground, and
+    the temperature and the rain at an hour offset -- functions, because the
+    one breathes with the planetary day and the season (D-261, D-334) and
+    the other comes and goes with the weather (D-335, D-338). The rain is
+    the weather's own strength, nought to one."""
 
-    rain: float
     river: bool
     temperature_at: Callable[[float], float | None]
+    rain_at: Callable[[float], float]
 
 
 @dataclass(frozen=True)
@@ -184,6 +201,8 @@ def norms(constants: Constants, plant: Plant, signs: Mapping[str, Any]) -> Norms
         hardiness=float(signs.get("hardiness", plant.traits.hardiness)),
         cycle_days=float(signs.get("cycle_days", plant.cycle_days)),
         pest_risk=float(signs.get("disease_risk", plant.traits.disease_risk)),
+        temp_min=float(plant.requires.temp.min),
+        temp_max=float(plant.requires.temp.max),
     )
 
 
@@ -193,17 +212,27 @@ def dry_rate(
     """The share of the moisture that leaves per Terran day, here and now.
 
     A node without a temperature record -- old ones, a hull's hydroponics --
-    dries at the reference pace: absence of a record is not a climate.
+    dries at the reference pace: absence of a record is not a climate. The
+    rain is not in it (D-338): it pours water in rather than holding water
+    back, and the year's rainfall that once slowed the drying
+    (`site.rain_water_offset`) would count the same rain twice.
     """
     rate = constants[R.FARM_DRY_RATE] / PERCENT * norms.drink
     if temperature is not None:
         warmth = temperature - constants[R.FARM_DRY_TEMP_REF]
         rate *= max(0.0, 1 + constants[R.FARM_DRY_PER_DEGREE] / PERCENT * warmth)
-    rain = min(max(weather.rain, 0.0), PERCENT) / PERCENT
-    rate *= max(0.0, 1 - constants[R.SITE_RAIN_WATER_OFFSET] / PERCENT * rain)
     if weather.river:
         rate *= constants[R.FARM_RIVER_DRY_SHARE] / PERCENT
     return rate
+
+
+def warmth_gaps(norms: Norms, temperature: float | None) -> tuple[float, float]:
+    """How many degrees the moment stands below and above the culture's
+    warmth (D-338). A node without a temperature record has neither: absence
+    of a record is not a climate, as at the sowing gate."""
+    if temperature is None:
+        return 0.0, 0.0
+    return max(0.0, norms.temp_min - temperature), max(0.0, temperature - norms.temp_max)
 
 
 def weeds_thirst(constants: Constants, weeds: float) -> float:
@@ -298,6 +327,8 @@ def advance(
         return life
     softer = 1 - constants[R.FARM_HARDINESS_RELIEF] / PERCENT * norms.hardiness / HARDINESS_SCALE
     stress = constants[R.FARM_STRESS_PER_POINT]
+    chill = constants[R.FARM_TEMP_STRESS_PER_DEGREE]
+    pour = constants[R.FARM_RAIN_PER_HOUR]
     heal = constants[R.FARM_HEAL_PER_DAY]
     sprout = constants[R.FARM_WEED_PER_DAY] * max(fertility, 0.0) / SCALE_MAX
     drag = constants[R.FARM_WEED_DRAG] / PERCENT
@@ -321,13 +352,27 @@ def advance(
     while passed < hours:
         step = min(FARM_STEP_HOURS, hours - passed)
         days = step / day_hours
-        weeds = min(SCALE_MAX, weeds + sprout * days)
-        rate = dry_rate(constants, norms, weather, weather.temperature_at(passed))
+        temperature = weather.temperature_at(passed)
+        cold, hot = warmth_gaps(norms, temperature)
+        #: Colder than its band the bed sleeps (D-338), and the weeds that
+        #: come up with it sleep too: a frozen strip is not a weeding chore.
+        if cold <= 0:
+            weeds = min(SCALE_MAX, weeds + sprout * days)
+        rate = dry_rate(constants, norms, weather, temperature)
         moisture *= math.exp(-rate * weeds_thirst(constants, weeds) * days)
+        #: The rain (D-338): by the weather's hour, and up to the band's top
+        #: at most -- what falls past it runs off, so a downpour never soaks
+        #: a bed, and a bed a farmer watered over the top is left as it is.
+        rain = min(1.0, max(0.0, weather.rain_at(passed)))
+        if rain > 0 and moisture < norms.band_max:
+            moisture = min(norms.band_max, moisture + pour * rain * step)
 
         gap = max(0.0, norms.band_min - moisture, moisture - norms.band_max)
-        if gap > 0:
-            health -= stress * gap * softer * days
+        #: The moisture's points and the warmth's degrees are one harm, as
+        #: drought and soaking are one formula (D-296, D-338).
+        harm = stress * gap + chill * (cold + hot)
+        if harm > 0:
+            health -= harm * softer * days
         elif struck is None:
             #: A bed in its band mends -- unless a trouble is eating it (D-299):
             #: a plant does not put on health while a pest takes it, and healing
@@ -368,7 +413,7 @@ def advance(
                 illness_kind=struck,
             )
 
-        if growth < SCALE_MAX:
+        if growth < SCALE_MAX and cold <= 0:
             held = 1 - weeds / SCALE_MAX * drag
             growth = min(
                 SCALE_MAX,
@@ -400,19 +445,29 @@ def symptoms(
     fertility: float,
     fertility_needed: float,
     fed: Iterable[Mapping[str, Any]],
+    band: tuple[float, float] | None,
 ) -> list[str]:
     """What the bed shows, to everybody alike (D-057): signs, never norms.
 
     `fed` is what this stage was given: a wrong feeding shows as a burn and a
     repeated one as a bed running to leaf, until the stage is over. Weeds show
     past `farm.weed_seen`; an unthinned stand shows as crowded from the leaf
-    stage on -- to every crop, though only some pay for it (D-297).
+    stage on -- to every crop, though only some pay for it (D-297). The
+    day's band (`climate.day_band`) outside the culture's warmth shows for
+    the whole day (D-338): a night that falls under it is seen at noon too,
+    and the sign does not come and go between two looks the window has no
+    touch for (D-226).
     """
     seen: list[str] = []
     if life.moisture < norms.band_min:
         seen.append(THIRST)
     elif life.moisture > norms.band_max:
         seen.append(SOAKED)
+    if band is not None:
+        if band[0] < norms.temp_min:
+            seen.append(CHILLED)
+        if band[1] > norms.temp_max:
+            seen.append(HEAT)
     if fertility < fertility_needed:
         seen.append(PALE)
     effects = {str(row.get("effect")) for row in fed}

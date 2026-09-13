@@ -6,7 +6,7 @@
 Checked is what the system is built this way for:
 
 * moisture leaves as a share of what is there and never runs dry by itself;
-  the river, the rain and the culture's thirst set the pace;
+  the river, the heat and the culture's thirst set the pace;
 * health falls in proportion to the gap from the culture's band, softened by
   hardiness, and a bed left without water dies -- the land paying the cycle;
 * growth is paced by health, and a feeding's boost ends with its stage;
@@ -78,7 +78,7 @@ def test_moisture_leaves_as_a_share_and_never_runs_dry(
     assert 0 < later.moisture < after.moisture
 
 
-def test_the_river_the_rain_and_the_thirst_set_the_pace(
+def test_the_river_the_heat_and_the_thirst_set_the_pace(
     constants: Constants, catalog: Catalog
 ) -> None:
     norm = _norms(constants, catalog)
@@ -87,9 +87,9 @@ def test_the_river_the_rain_and_the_thirst_set_the_pace(
     assert life.dry_rate(constants, norm, _weather(river=True), None) == pytest.approx(
         dry * constants[R.FARM_RIVER_DRY_SHARE] / PERCENT
     )
-    assert life.dry_rate(constants, norm, _weather(rain=PERCENT), None) == pytest.approx(
-        dry * (1 - constants[R.SITE_RAIN_WATER_OFFSET] / PERCENT)
-    )
+    #: The rain pours water in rather than holding it back (D-338): the
+    #: pace of the drying does not know it.
+    assert life.dry_rate(constants, norm, _weather(rain=1.0), None) == pytest.approx(dry)
     assert life.dry_rate(constants, norm, _weather(), reference + 10) > dry
     assert life.dry_rate(constants, norm, _weather(), reference - 10) < dry
     #: A thirsty crop drinks faster than an undemanding one.
@@ -268,6 +268,8 @@ async def test_feeding_is_what_the_table_says(
 async def test_a_bed_without_water_dies_and_the_land_pays(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
+    #: The farmstead stands off the sphere (`farm_kit`): no rain falls there
+    #: (D-338), and this is the bed nobody waters at all.
     _, _, body = await _farmstead(session, water="none", fertility=55)
     plot = await _sown(session, constants, catalog, body, culture=FLAX)
     later = plot.sown_at + timedelta(days=30)

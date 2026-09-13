@@ -147,6 +147,7 @@ estate-build-house-stands = a house already stands on the plot, or a site is lai
 estate-build-not-yours = the plot is not yours: you build at home
 estate-build-no-floors = a house without floors is a pit
 estate-build-not-on-pyroxis = nothing is built on Pyroxis: quakes bring structures down faster than they go up. Housing here is aboard a ship
+estate-build-on-ice = nothing is built on an ice field: the ice creeps and cracks under a wall
 estate-build-too-small = a footprint under { NUMBER($smallest, maximumFractionDigits: 0) } m² is a shed, not a building: { NUMBER($area, maximumFractionDigits: 0) } asked
 estate-build-no-room = the plot is { NUMBER($plot, maximumFractionDigits: 0) } m², free { NUMBER($free, maximumFractionDigits: 0) }{ $started ->
         [true] , under construction { NUMBER($going, maximumFractionDigits: 0) }

@@ -42,6 +42,13 @@ FARM_STRESS_PER_POINT = Num("farm.stress_per_point")
 FARM_HEAL_PER_DAY = Num("farm.heal_per_day")
 #: How much hardiness 5/5 softens the stress (D-261, D-296).
 FARM_HARDINESS_RELIEF = Num("farm.hardiness_relief")
+#: Health lost per day for every degree the moment's temperature stands
+#: outside the culture's `requires.temp`; below the band the bed also
+#: stops growing (D-338).
+FARM_TEMP_STRESS_PER_DEGREE = Num("farm.temp_stress_per_degree")
+#: Points of moisture an hour of downpour gives a bed, a lighter rain its
+#: share, and never past the top of the culture's band (D-338).
+FARM_RAIN_PER_HOUR = Num("farm.rain_per_hour")
 #: The stages' lower bounds on the growth scale, and the words of health by
 #: their lower bounds: the player reads a stage and a word, never a number.
 FARM_STAGE_BOUNDS = Table("farm.stage_bounds")
