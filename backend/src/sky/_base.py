@@ -290,12 +290,20 @@ def place_any(target: Target, t: np.ndarray | float) -> tuple[Rows, Rows]:
     return place(target, t)
 
 
+def angle_of(body: Body, t: np.ndarray | float) -> np.ndarray:
+    """The planet's angle on its circle at `t`, radians, for a batch of times:
+    the one reading of where a world is, so the integrator's own shortcut
+    (`field._offset`) and `place` cannot learn to disagree."""
+    _, period, phase = body.orbit
+    return phase + 2 * np.pi * np.atleast_1d(np.asarray(t, dtype=float)) / period
+
+
 def place(body: Body, t: np.ndarray | float) -> tuple[Rows, Rows]:
     """Where the planet stands and how it moves at `t` -- for a batch of times."""
-    radius, period, phase = body.orbit
+    radius, period, _ = body.orbit
     #: Always rows, one per time: a single moment is a batch of one, so every
     #: caller indexes the same way.
-    angle = phase + 2 * np.pi * np.atleast_1d(np.asarray(t, dtype=float)) / period
+    angle = angle_of(body, t)
     speed = 2 * np.pi * radius / period
     r = np.stack([radius * np.cos(angle), radius * np.sin(angle)], axis=-1)
     v = np.stack([-speed * np.sin(angle), speed * np.cos(angle)], axis=-1)

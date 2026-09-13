@@ -131,6 +131,23 @@ forbidden_modules = [
     "src.engine.ship.crossing",
 ]
 
+# The flyby's rows (D-341) sit beside `sim`, under it: the slider and the
+# order ask them, the tick reads the leg back, and they name none of those.
+[[tool.importlinter.contracts]]
+name = "The flyby's rows sit under the ship's sky"
+type = "forbidden"
+allow_indirect_imports = true
+source_modules = ["src.engine.ship.flyby"]
+forbidden_modules = [
+    "src.engine.ship.sim",
+    "src.engine.ship.helm",
+    "src.engine.ship.hold",
+    "src.engine.ship.fate",
+    "src.engine.ship.meet",
+    "src.engine.ship.sighting",
+    "src.engine.ship.crossing",
+]
+
 [[tool.importlinter.contracts]]
 name = "The ship's fates sit under the hold and the helm"
 type = "forbidden"

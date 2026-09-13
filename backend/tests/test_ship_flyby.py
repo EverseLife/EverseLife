@@ -28,6 +28,8 @@ from ship_kit import (
     _port,
     _shipwright,
 )
+from src.api.commands import transport
+from src.api.registry import Refused
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import ship, world
@@ -75,9 +77,9 @@ async def test_the_console_quotes_a_flyby_and_the_helm_flies_it(
     samples = forecast["samples"]
     #: One point an hour, and the cheaper passage of that hour.
     assert len({one["hours"] for one in samples}) == len(samples)
-    bent = [one for one in samples if one["via"] == Planet.PYROXIS.value and one["ok"]]
+    bent = [one for one in samples if one.get("via") == Planet.PYROXIS.value and one["ok"]]
     assert bent, "в этот день ползунок предлагает пролёт мимо Пироксиса"
-    assert all(one["via"] in (None, Planet.PYROXIS.value) for one in samples)
+    assert all(one.get("via") in (None, Planet.PYROXIS.value) for one in samples)
     pick = min(bent, key=lambda one: one["hours"])
     assert len(pick["trace"]) >= 2
 
@@ -123,7 +125,9 @@ async def test_a_flyby_the_sky_does_not_have_is_refused(
     assert epoch is not None
     moment = epoch + timedelta(days=SWING_DAY)
     forecast = await ship.forecast(session, constants, catalog, vessel, Planet.AURORA, now=moment)
-    straight = next(one for one in forecast["samples"] if one["via"] is None and one["ok"])
+    #: The slider's first hour: too short for any pass to lie inside it.
+    straight = forecast["samples"][0]
+    assert "via" not in straight
     body = await _body_of(session, vessel)
     with pytest.raises(ship.NoArc) as refused:
         await ship.fly(
@@ -139,3 +143,12 @@ async def test_a_flyby_the_sky_does_not_have_is_refused(
         )
     assert "ship-no-flyby" in str(refused.value)
     assert vessel.course is None and vessel.docked_node_id is not None
+
+
+def test_the_order_names_a_planet_or_is_refused_on_the_wire() -> None:
+    """`ship.fly {via}` takes a planet's key and nothing else (D-341)."""
+    assert transport._via({}) is None
+    assert transport._via({"via": "pyroxis"}) == Planet.PYROXIS.value
+    with pytest.raises(Refused) as refused:
+        transport._via({"via": "nowhere"})
+    assert "cmd-no-such-planet" in str(refused.value)

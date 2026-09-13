@@ -349,6 +349,49 @@ def flybys(
     return offered
 
 
+def flyby_at(
+    system: System,
+    r0: tuple[float, float],
+    v0: tuple[float, float],
+    t0: float,
+    target: Body,
+    hours: float,
+    via: str,
+    *,
+    leaving: Body | None,
+    shortest: float,
+    floor_radii: float,
+) -> list[Sample]:
+    """The one flyby through `via` at `hours`, refined, with none of the
+    slider's rules about what is worth showing (D-341): what an order that
+    names it flies. A list of at most one -- empty if the sky has no such
+    pass now -- so it travels to a worker process and back as the slider's
+    flybys do."""
+    start = place(leaving, t0)[0][0] if leaving is not None else np.asarray(r0, dtype=float)
+    here = (float(start[0]), float(start[1]))
+    base = place(leaving, t0)[1][0] if leaving is not None else np.asarray(v0, dtype=float)
+    beside = (float(base[0]), float(base[1]))
+    found = search(
+        system,
+        here,
+        beside,
+        t0,
+        target,
+        (hours,),
+        leaving=leaving,
+        floor_radii=floor_radii,
+        shortest=shortest,
+    )
+    for one in found.get(hours, []):
+        if one.via != via:
+            continue
+        (shot,) = refine(
+            system, here, beside, t0, target, [one], leaving=leaving, floor_radii=floor_radii
+        )
+        return [] if shot is None else [_bent(system, here, t0, target, shot)]
+    return []
+
+
 def _refine_all(
     system: System,
     here: tuple[float, float],

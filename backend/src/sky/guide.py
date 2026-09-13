@@ -262,6 +262,14 @@ def _wait_days(
     return ahead / rate if rate > 0.0 else 0.0
 
 
+def holding(
+    system: System, target: Target, t: float, r: tuple[float, float], *, spare: str | None = None
+) -> Body | None:
+    """The world whose hold the hull is in and which is neither where it is
+    going nor `spare` -- what a departure leaves (D-316, D-341)."""
+    return _holding(system, target, t, r, spare=spare)
+
+
 def _holding(
     system: System,
     target: Target,

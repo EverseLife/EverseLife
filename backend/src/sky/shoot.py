@@ -252,6 +252,7 @@ def refine(
         theta, moment, speed_in, speed_out, radius = guess[i]
         if not (
             clear[i]
+            and t0 < moment < ends[i]
             and miss[i] < _OFFER_MISS
             and radius >= floors[i] * (1 - 1e-6)
             and speed_in > 0

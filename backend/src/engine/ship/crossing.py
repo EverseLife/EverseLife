@@ -218,7 +218,7 @@ async def fly(
         ratio=round(thrust_ratio, ROUND_RATIO),
         arrives_at=arrives.isoformat(),
         dv=round(plan.dv, ROUND_DV),
-        via=via,
+        **({"via": via} if via else {}),
     )
     return arrives
 

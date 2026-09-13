@@ -31,8 +31,9 @@ export function Course({
   /** A planet's orbit, or a hull in sight (D-289, wave 3). */
   target: Target | null;
   busy: boolean;
-  /** The order: the target, the hours, and the planet a flyby bends round. */
-  fly: (to: Target, hours: number, via: string | null) => void;
+  /** The order: the target, the hours, and the planet a flyby bends round.
+   *  Settles once the order has been answered, taken or refused. */
+  fly: (to: Target, hours: number, via: string | null) => Promise<void>;
   /** The arc of the point the slider stands on, for the chart to draw. */
   onPlan: (trace: [number, number][] | null) => void;
 }) {
@@ -43,17 +44,12 @@ export function Course({
   const [trouble, setTrouble] = useState<string | null>(null);
   const [why, setWhy] = useState<CourseAnswer["why"]>(null);
   const [pick, setPick] = useState<number | null>(null);
-  //: Reread after an order that did not take (D-341): a flyby gone by the
-  //: order's moment is refused, and the slider must show the sky that
-  //: refused it rather than offer the same pass again. Counted on the order
-  //: settling, not on a clock (D-226).
+  //: Reread after this window's own order is answered (D-341): a flyby gone
+  //: by the order's moment is refused, and the slider must show the sky that
+  //: refused it rather than offer the same pass again. Counted on the answer,
+  //: not on a clock (D-226); a taken order closes the window anyway.
   const [settled, setSettled] = useState(0);
-  const wasBusy = useRef(busy);
   const held = useRef<number | null>(null);
-  useEffect(() => {
-    if (wasBusy.current && !busy) setSettled((count) => count + 1);
-    wasBusy.current = busy;
-  }, [busy]);
 
   const planet = target !== null && "planet" in target ? target.planet : null;
   const other = target !== null && "ship" in target ? target.ship : null;
@@ -187,7 +183,11 @@ export function Course({
         {" · "}
         {t("ui-ship-dv-line", { have: vessel.dv.toFixed(0) })}{" "}
         <button
-          onClick={() => fly(target, chosen.hours, chosen.via ?? null)}
+          onClick={() =>
+            void fly(target, chosen.hours, chosen.via ?? null).then(() =>
+              setSettled((count) => count + 1),
+            )
+          }
           disabled={busy || !reachable}
           title={t(reachable ? "ui-ship-fly-hint" : "ui-ship-thrust-short")}
         >

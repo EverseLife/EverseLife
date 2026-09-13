@@ -81,9 +81,10 @@ def coast_to(
     of the two ends. A tick catching up after an idle worker flies hours in
     one go, and a planet is small enough to pass clean through in one.
 
-    `advance`'s watcher cannot break its own loop, so the span goes in
-    slices and a slice that comes back with a verdict is the last one flown
-    -- the same shape `inertia` uses.
+    The watcher only notes the verdict, and the span goes in slices so that a
+    slice that comes back with one is the last flown -- the same shape
+    `inertia` uses. (`advance` lets a watcher halt its rows since D-341; one
+    row and a slice of hours need no such thing.)
     """
     t = np.array([t0], dtype=float)
     r = np.array([r0], dtype=float)
@@ -175,9 +176,8 @@ def inertia(
         elif gone:
             found.update(kind=ESCAPE, at=float(tt[0]), body=None)
 
-    #: Flown in slices so that a found end stops the flight: the watcher
-    #: cannot break the loop, but a slice that comes back with a verdict is
-    #: the last one flown.
+    #: Flown in slices so that a found end stops the flight: a slice that
+    #: comes back with a verdict is the last one flown.
     slices = max(1, int(np.ceil(horizon / max(dt_max, 1e-6) / 8)))
     for i in range(1, slices + 1):
         until = np.array([t0 + horizon * i / slices])

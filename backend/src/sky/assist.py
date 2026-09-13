@@ -39,7 +39,7 @@ import numpy as np
 
 from src.sky._base import Body, System, place
 from src.sky.flyby import sphere
-from src.sky.guide import BURN, COAST, STILL, Helm, capture_reach, chase, steer
+from src.sky.guide import BURN, COAST, STILL, Helm, capture_reach, chase, holding, steer
 from src.sky.shoot import arrival_fix, pass_fix, periapsis
 
 DEPART = "depart"
@@ -117,9 +117,14 @@ def steer_pass(
     zone = sphere(system, route.via)
     if leg.stage == DEPART:
         home = route.home
-        clear = home is None or float(np.hypot(*(np.asarray(r) - place(home, t)[0][0]))) > sphere(
-            system, home
-        )
+        #: Clear of the world left: out of its sphere -- and out of any hold,
+        #: which is what a hull ordered from a drift beside a planet has in
+        #: place of a home -- so a departure still waiting for its window, or
+        #: still burning, is never taken for a finished one.
+        clear = (
+            home is None
+            or float(np.hypot(*(np.asarray(r) - place(home, t)[0][0]))) > sphere(system, home)
+        ) and holding(system, target, t, r, spare=route.via.key) is None
         goal = place(route.via, route.at)[0][0] + np.asarray(route.aim)
         helm = chase(
             system,
@@ -137,9 +142,16 @@ def steer_pass(
         #: what is left of it fits in one step. A weak hull leaves the sphere
         #: long before its burn ends, and a cruise that began there coasted on
         #: half a departure.
-        if not (clear and float(np.hypot(*helm.thrust)) < a_max):
+        #: Past the pass's own moment the arc to it is no arc at all. A hull
+        #: still in its world's grip then is flown the crossing's own way from
+        #: there -- the departure's rules and the capture -- rather than shot
+        #: at the target from a parking circle.
+        if route.at - t <= dt and not clear:
+            leg = Leg(stage=FINAL)
+        elif not (clear and float(np.hypot(*helm.thrust)) < a_max):
             return helm, leg, None
-        leg = Leg(stage=CRUISE)
+        else:
+            leg = Leg(stage=CRUISE)
     if leg.stage == CRUISE:
         passing = gap < zone and float(np.dot(rel, v_rel)) >= 0.0
         if passing or (t >= route.at and gap >= zone):

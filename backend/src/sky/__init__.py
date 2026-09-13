@@ -53,7 +53,6 @@ from src.sky._base import (  # noqa: F401
 )
 from src.sky.assist import Leg, Route, correct, steer_pass  # noqa: F401
 from src.sky.field import advance, pull, sample  # noqa: F401
-from src.sky.flyby import sphere  # noqa: F401
 from src.sky.forecast import (  # noqa: F401
     CRASH,
     ESCAPE,
@@ -70,6 +69,7 @@ from src.sky.guide import (  # noqa: F401
     Helm,
     brake_days,
     eject_wait,
+    holding,
     steer,
 )
 from src.sky.plan import (  # noqa: F401
@@ -78,6 +78,7 @@ from src.sky.plan import (  # noqa: F401
     approach_quote,
     circle_quote,
     escape_dv,
+    flyby_at,
     flybys,
     preview,
 )

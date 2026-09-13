@@ -22,7 +22,7 @@ from collections.abc import Callable
 
 import numpy as np
 
-from src.sky._base import Body, Rows, System, norms, place
+from src.sky._base import Body, Rows, System, angle_of, norms, place
 
 #: How much of the nearest body's orbital time scale one step may take.
 STEP_SHARE = 0.05
@@ -69,9 +69,8 @@ def _offset(
     """Each row's offset from a planet at its own time: `place` without the
     velocity and without the stacking -- the integrator asks this four times a
     step per planet, and it was most of what a step cost."""
-    radius, period, phase = body.orbit
-    angle = phase + 2 * np.pi * np.asarray(t, dtype=float) / period
-    return x - radius * np.cos(angle), y - radius * np.sin(angle)
+    angle = angle_of(body, t)
+    return x - body.orbit[0] * np.cos(angle), y - body.orbit[0] * np.sin(angle)
 
 
 def _rk4(
@@ -114,8 +113,9 @@ def advance(
 ) -> tuple[Rows, Rows]:
     """Fly every row from its own `t` to its own `until`, and return the states there.
 
-    A row past its end stands still; the loop runs until the last one is home.
-    A row whose `until` lies **before** its `t` is flown backwards in time --
+    Each row flies toward its own `until` and stands still once there; the
+    loop runs until the last one is home. A row whose `until` lies **before**
+    its `t` is flown backwards in time --
     the flyby's plan integrates out of a periapsis both ways (`sky.shoot`), and
     the same steps taken with a negative sign are the same arithmetic.
     `watch` is called after every step with the times and the states -- the

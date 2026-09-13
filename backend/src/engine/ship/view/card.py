@@ -562,10 +562,10 @@ async def forecast(
                 #: held on it: the planner's two-body line, not the flown one
                 #: (D-289) -- the flown line is settled at the order.
                 "trace": [[round(x, ROUND_TRACE), round(y, ROUND_TRACE)] for x, y in sample.trace],
-                #: The world the passage bends round, or nothing for a direct
-                #: arc (D-341): the console names it beside the price, and the
-                #: order sends it back so the pass that was quoted is flown.
-                "via": None if sample.via is None else sample.via.via,
+                #: The world the passage bends round (D-341), and no key at all
+                #: for a direct arc: the console names it beside the price, and
+                #: the order sends it back so the pass that was quoted is flown.
+                **({} if sample.via is None else {"via": sample.via.via}),
             }
         )
     #: The descent kept back at the far end, once: every sample needs its own

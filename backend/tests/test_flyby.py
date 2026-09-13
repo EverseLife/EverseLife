@@ -18,6 +18,7 @@ Pinned is what the feature stands on:
 from __future__ import annotations
 
 import math
+from typing import NamedTuple
 
 import numpy as np
 import pytest
@@ -220,6 +221,79 @@ def test_the_helm_lifts_a_pass_sinking_under_the_floor() -> None:
     assert abs(helm.thrust[0]) < 1e-6 and helm.thrust[1] > 0
 
 
+class Flown(NamedTuple):
+    """How a flyby flown minute by minute ended."""
+
+    captured: bool
+    struck: list[str]
+    at: float
+    closest: float
+    spent: float
+
+
+def _fly(
+    world: sky.System,
+    target: sky.Body,
+    route: assist.Route,
+    t0: float,
+    r: tuple[float, float],
+    v: tuple[float, float],
+    *,
+    until: float,
+    a_max: float,
+) -> Flown:
+    """The helm's stages and corrections, the five bodies' pull, the tick's
+    minute and the ground on every step -- until the mooring or `until`."""
+    leg = assist.Leg()
+    dt = 1.0 / HOURS_PER_DAY / MINUTES_PER_HOUR
+    t, spent, closest = t0, 0.0, math.inf
+    struck: list[str] = []
+
+    def watch(tt: np.ndarray, rr: sky.Rows, _vv: sky.Rows) -> None:
+        body, gone = sky.ground_of(world, tt, rr)
+        if body is not None or gone:
+            struck.append(body or "edge")
+
+    while t < until and not struck:
+        helm, leg, want = assist.steer_pass(world, target, route, leg, t, r, v, a_max=a_max, dt=dt)
+        if want is not None:
+            leg = assist.correct(world, target, route, leg, want, t, r, v)
+            helm, leg, _ = assist.steer_pass(world, target, route, leg, t, r, v, a_max=a_max, dt=dt)
+        if helm.captured:
+            return Flown(True, struck, t, closest, spent)
+        spent += math.hypot(*helm.thrust) * dt
+        rr, vv = field.advance(
+            world,
+            np.array([t]),
+            np.array([t + dt]),
+            np.array([r]),
+            np.array([v]),
+            dt_max=dt,
+            thrust=np.array(helm.thrust)[None, :],
+            watch=watch,
+        )
+        r, v, t = (float(rr[0, 0]), float(rr[0, 1])), (float(vv[0, 0]), float(vv[0, 1])), t + dt
+        closest = min(closest, math.dist(r, sky.place(route.via, t)[0][0]))
+    return Flown(False, struck, t, closest, spent)
+
+
+def _route(
+    world: sky.System, bent: sky.Sample, home: sky.Body | None, t0: float, wait: float
+) -> assist.Route:
+    assert bent.via is not None
+    via = world.body(bent.via.via)
+    return assist.Route(
+        via=via,
+        home=home,
+        at=t0 + wait + bent.via.at,
+        rp=bent.via.rp,
+        aim=bent.via.aim,
+        burn=bent.via.burn,
+        arrive=t0 + wait + bent.hours / HOURS_PER_DAY,
+        floor=FLOOR * via.radius,
+    )
+
+
 def test_the_helm_flies_a_flyby_onto_the_circle_within_the_promise() -> None:
     """The whole flyby on the sky's own terms -- the refined plan, the helm's
     four stages and its corrections, the five bodies' pull, the tick's minute
@@ -234,63 +308,56 @@ def test_the_helm_flies_a_flyby_onto_the_circle_within_the_promise() -> None:
     r, v = (float(r0[0, 0]), float(r0[0, 1])), (float(v0[0, 0]), float(v0[0, 1]))
     bent = next(one for one in _offers(world, origin, goal, t0) if one.hours == hours)
     assert bent.via is not None
-    via = world.body(bent.via.via)
     a_max = 0.5 * 5400.0
-    wait = sky.eject_wait(world, target, t0, r, v, bent.v1)
-    arrive = t0 + wait + hours / HOURS_PER_DAY
-    due = arrive + sky.brake_days(world, bent.dv_in, a_max, target)
-    route = assist.Route(
-        via=via,
-        home=home,
-        at=t0 + wait + bent.via.at,
-        rp=bent.via.rp,
-        aim=bent.via.aim,
-        burn=bent.via.burn,
-        arrive=arrive,
-        floor=FLOOR * via.radius,
-    )
-    leg = assist.Leg()
-    dt = 1.0 / HOURS_PER_DAY / MINUTES_PER_HOUR
-    t, spent, closest, captured = t0, 0.0, math.inf, False
-    struck: list[str] = []
-
-    def watch(tt: np.ndarray, rr: sky.Rows, _vv: sky.Rows) -> None:
-        body, gone = sky.ground_of(world, tt, rr)
-        if body is not None or gone:
-            struck.append(body or "edge")
-
-    while t < due + 1.0 and not struck:
-        helm, leg, want = assist.steer_pass(world, target, route, leg, t, r, v, a_max=a_max, dt=dt)
-        if want is not None:
-            leg = assist.correct(world, target, route, leg, want, t, r, v)
-            helm, leg, _ = assist.steer_pass(world, target, route, leg, t, r, v, a_max=a_max, dt=dt)
-        if helm.captured:
-            captured = True
-            break
-        spent += math.hypot(*helm.thrust) * dt
-        rr, vv = field.advance(
-            world,
-            np.array([t]),
-            np.array([t + dt]),
-            np.array([r]),
-            np.array([v]),
-            dt_max=dt,
-            thrust=np.array(helm.thrust)[None, :],
-            watch=watch,
-        )
-        r, v, t = (float(rr[0, 0]), float(rr[0, 1])), (float(vv[0, 0]), float(vv[0, 1])), t + dt
-        closest = min(closest, math.dist(r, sky.place(via, t)[0][0]))
-    assert not struck, f"корпус разбился: {struck}"
-    assert captured, "пролёт кончился на круге стоянки Акватики"
+    route = _route(world, bent, home, t0, sky.eject_wait(world, target, t0, r, v, bent.v1))
+    due = route.arrive + sky.brake_days(world, bent.dv_in, a_max, target)
+    flown = _fly(world, target, route, t0, r, v, until=due + 1.0, a_max=a_max)
+    assert not flown.struck, f"корпус разбился: {flown.struck}"
+    assert flown.captured, "пролёт кончился на круге стоянки Акватики"
     #: The promise holds: the arrival is the arc's hour plus the braking, as
     #: a crossing's (D-316) -- within the tick's own hour of it.
-    assert t <= due + 1.0 / HOURS_PER_DAY
+    assert flown.at <= due + 1.0 / HOURS_PER_DAY
     #: The pass the plan named, not one near the ground.
-    assert closest >= route.floor
-    assert closest == pytest.approx(abs(bent.via.rp), abs=0.1)
+    assert flown.closest >= route.floor
+    assert flown.closest == pytest.approx(abs(bent.via.rp), abs=0.1)
     #: The price is the plan's, give or take what finite burns cost at both
     #: ends -- the same looseness a crossing's quote has.
-    assert spent <= 1.3 * bent.dv
+    assert flown.spent <= 1.3 * bent.dv
+
+
+def test_a_flyby_from_a_drift_leaves_the_world_it_is_held_by() -> None:
+    """A hull drifting in Terra's hold, ordered round Pyroxis: no home port,
+    and still the departure lasts until the hull is out of Terra's grip with
+    its burn given -- a helm that took the drift for open space coasted into
+    Terra with the departure never burnt (review of D-341)."""
+    origin, goal, t0, _ = SWING
+    world = system()
+    terra, target = world.body(origin), world.body(goal)
+    p, vp = sky.place(terra, t0)
+    #: Seven tenths of a unit out, inside Terra's hold of 0.96, going round it.
+    gap = 0.7
+    around = math.sqrt(terra.mu / gap)
+    r = (float(p[0, 0]) + gap, float(p[0, 1]))
+    v = (float(vp[0, 0]), float(vp[0, 1]) + around)
+    assert sky.holding(world, target, t0, r, spare="pyroxis") is terra
+    offered = sky.flybys(
+        world, r, v, t0, target, HOURS, leaving=None, ceiling=CEILING, floor_radii=FLOOR
+    )
+    bent = min((one for one in offered if one.hours <= CEILING), key=lambda one: one.hours)
+    a_max = 0.5 * 5400.0
+    route = _route(world, bent, terra, t0, sky.eject_wait(world, target, t0, r, v, bent.v1))
+    #: The first minute is still the departure, not a coast toward the pass --
+    #: even with no world named as home: the hold itself keeps the departure.
+    bare = _route(world, bent, None, t0, sky.eject_wait(world, target, t0, r, v, bent.v1))
+    _, leg, want = assist.steer_pass(
+        world, target, bare, assist.Leg(), t0, r, v, a_max=a_max, dt=1.0 / 1440
+    )
+    assert leg.stage == assist.DEPART and want is None
+    due = route.arrive + sky.brake_days(world, bent.dv_in, a_max, target)
+    flown = _fly(world, target, route, t0, r, v, until=due + 1.0, a_max=a_max)
+    assert not flown.struck, f"корпус разбился: {flown.struck}"
+    assert flown.captured, "из дрейфа пролёт кончился на круге стоянки"
+    assert flown.closest >= route.floor
 
 
 def test_the_numbers_here_are_the_vaults_own(constants: Constants) -> None:

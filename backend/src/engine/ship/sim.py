@@ -18,8 +18,9 @@ end is a job in the journal.
 
 **What a tick costs.** Only hulls under an order are stepped every minute;
 a coasting hull costs a step every few hours, a moored one nothing. The
-helm asks the sky one Lambert solution a step -- under a flyby (D-341) none:
-it coasts, and asks for a correction whenever the time left has halved.
+helm asks the sky one Lambert solution a step -- under a flyby (D-341) only
+while it leaves and arrives: between, it coasts and asks for a correction
+whenever the time left has halved.
 """
 
 from __future__ import annotations
@@ -325,11 +326,7 @@ async def offers(
         #: arcs would quote hours and delta-v nobody flies.
         a_max = thrust_ratio * float(constants[R.ORBIT_THRUST_SCALE])
         return [sky.approach_quote(r, v, t, target, a_max)]
-    leaving = None
-    if ship.docked_node_id is not None:
-        moored = await session.get(Node, ship.docked_node_id)
-        if moored is not None and is_orbit(moored):
-            leaving = world.body(moored.planet.value)
+    leaving = await _leaving_of(session, world, ship)
     #: Memoised on the state, rounded as the wire rounds it, and on the
     #: sky's own minute: every console over a planet asks the same question
     #: of the same sky, and forty Lambert solutions a planet on every reread
@@ -363,6 +360,14 @@ async def offers(
             for one in bent
         ),
     ]
+
+
+async def _leaving_of(session: AsyncSession, world: sky.System, ship: Ship) -> sky.Body | None:
+    """The world whose parking circle the hull is moored on, or nothing."""
+    if ship.docked_node_id is None:
+        return None
+    moored = await session.get(Node, ship.docked_node_id)
+    return world.body(moored.planet.value) if moored is not None and is_orbit(moored) else None
 
 
 #: The slider previews remembered across commands (see `offers`).
@@ -510,6 +515,29 @@ async def depart(
             one.hours: one for one in offered if (None if one.via is None else one.via.via) == via
         }
         found_sample = samples.get(round(hours, ROUND_HOURS)) or samples.get(hours)
+        if found_sample is None and via is not None and isinstance(goal, sky.Body):
+            #: Not among the slider's points now: the pass may still exist, a
+            #: hair dearer than the arc of its hour or a shorter point since
+            #: the console read it -- and the order flies what was quoted.
+            here = await state_at(session, constants, ship, now=now)
+            if here is not None:
+                exact = await flyby.given(
+                    constants,
+                    world,
+                    goal,
+                    await _leaving_of(session, world, ship),
+                    here[0],
+                    here[1],
+                    here[2],
+                    hours=round(hours, ROUND_HOURS),
+                    via=via,
+                )
+                if exact is not None:
+                    found_sample = replace(
+                        exact,
+                        wait=sky.eject_wait(world, goal, here[2], here[0], here[1], exact.v1)
+                        * HOURS_PER_DAY,
+                    )
         if found_sample is None and via is not None:
             #: The flyby the console quoted is gone at the order's moment --
             #: the sky turned between the reading and the button. Refused
@@ -533,6 +561,14 @@ async def depart(
     plan = sample
 
     weight, klass = await _afford(session, constants, catalog, ship, plan.dv_out, why="cross")
+    #: The world a flyby's departure leaves (D-341): the one moored at, or the
+    #: one whose hold a drifting hull is in -- the helm's departure lasts while
+    #: the hull is still in its grip (`sky.steer_pass`).
+    home: str | None = None
+    if plan.via is not None:
+        left = await _leaving_of(session, world, ship)
+        held = left or sky.holding(world, goal, t, r, spare=plan.via.via)
+        home = None if held is None else held.key
 
     #: Whoever was holding on to this hull was let go of by the caller
     #: (`hold.release_holders`), from the state they shared; the hull's own
@@ -585,7 +621,7 @@ async def depart(
         "spent": 0.0,
     }
     if plan.via is not None:
-        ship.course.update(await flyby.order_of(session, ship, plan.via, now=now, wait=wait))
+        ship.course.update(flyby.order_of(plan.via, home=home, now=now, wait=wait))
     #: A fresh order has no forecast yet: the tick writes one within the
     #: minute, and the console draws nothing rather than yesterday's coast.
     ship.forecast = None
