@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Catalog, Constants, current_catalog
 from src.constants import registry as R
 from src.engine import events, gear, stock, world
-from src.engine.frost._base import WARMER, FrostError, NotWarmer, climate_of
+from src.engine.frost._base import FROST, WARMER, FrostError, NotWarmer, climate_of
 from src.engine.frost.warmth import is_warm
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState
@@ -31,15 +31,26 @@ from src.units import ROUND_STAMINA, ROUND_WARMTH, SECONDS_PER_HOUR, amount, on_
 # --- the body's reserve -------------------------------------------------------
 
 
+def reserve_of(constants: Constants, weather: str | None) -> float:
+    """The bare body's reserve in a climate, hours (D-231, D-338).
+
+    Each climate has its own: the frost's was doubled when Aurora went under
+    snow and its off-road took twice as long, and Pyroxis has no snow. Where
+    there is no climate the reserve is not spent at all, and its ceiling is
+    the frost's -- the reserve a body walks into the cold with.
+    """
+    return float(constants[R.FROST_RESERVE_MAX][weather or FROST])
+
+
 async def limit_of(
-    session: AsyncSession, constants: Constants, catalog: Catalog, body: Body
+    session: AsyncSession, constants: Constants, catalog: Catalog, body: Body, weather: str | None
 ) -> float:
-    """The reserve this body can hold, hours: the bare one times what is worn.
+    """The reserve this body can hold in a climate, hours: the bare one times what is worn.
 
     Keyed by thing class the way the exoskeleton's lift is (`inventory.exo_bonus`):
     a warmer coat is a line in the vault, never a line here.
     """
-    return constants[R.FROST_RESERVE_MAX] * await _suit_k(session, constants, catalog, body)
+    return reserve_of(constants, weather) * await _suit_k(session, constants, catalog, body)
 
 
 async def _suit_k(
@@ -163,7 +174,7 @@ async def _advance(
     moment = now or datetime.now(UTC)
     node = await session.get(Node, locked.node_id)
     if node is None:  # pragma: no cover -- a body without a node is a bug
-        return Spell(left=constants[R.FROST_RESERVE_MAX], uncovered=0.0)
+        return Spell(left=reserve_of(constants, FROST), uncovered=0.0)
     #: The climate is asked first so that a planet without one costs a single
     #: query: on Terra there is nothing to be on the road from.
     weather = await climate_of(session, node)
@@ -172,7 +183,7 @@ async def _advance(
             await is_warm(session, constants, node) and not await _on_the_road(session, locked)
         )
     if ceiling is None:
-        ceiling = await limit_of(session, constants, catalog, locked)
+        ceiling = await limit_of(session, constants, catalog, locked, weather)
 
     #: Empty means never measured, and a body that has never been cold carries
     #: a full reserve: every body printed before the frost existed is one.
@@ -194,7 +205,7 @@ async def _advance(
     if warm:
         #: Coming back is as much faster than going as the vault says, and the
         #: suit speeds both: a big coat must not take half a day to warm up.
-        rate = constants[R.FROST_WARM_RATE] * (ceiling / constants[R.FROST_RESERVE_MAX])
+        rate = constants[R.FROST_WARM_RATE] * (ceiling / reserve_of(constants, weather))
         gain = rate * hours
         #: Down: never more warmth than the hours earned. The ceiling is put
         #: on the grid too -- clamping to a ceiling off it would hand the row
@@ -276,11 +287,12 @@ async def use_warmer(
     if item.container_id != pocket.id:
         raise FrostError(key="frost-warmer-from-hands")
     node = await session.get(Node, body.node_id)
-    if node is None or await climate_of(session, node) is None:
+    weather = None if node is None else await climate_of(session, node)
+    if weather is None:
         raise FrostError(key="frost-no-cold-here")
 
     before = await settle(session, constants, catalog, body, now=moment)
-    ceiling = await limit_of(session, constants, catalog, body)
+    ceiling = await limit_of(session, constants, catalog, body, weather)
     roof = float(on_grid(ceiling, ROUND_WARMTH, ROUND_FLOOR))
     gained = on_grid(before + constants[R.FROST_WARMER_HOURS], ROUND_WARMTH, ROUND_FLOOR)
     left = min(roof, float(gained))
@@ -323,8 +335,8 @@ async def view(
     #: Counted exactly as `settle` counts it, the road included: a hand that
     #: rose while the body walked across the ice would be a lie on the screen.
     warm = await is_warm(session, constants, node) and not await _on_the_road(session, body)
-    ceiling = await limit_of(session, constants, catalog, body)
-    rate = constants[R.FROST_WARM_RATE] * (ceiling / constants[R.FROST_RESERVE_MAX])
+    ceiling = await limit_of(session, constants, catalog, body, weather)
+    rate = constants[R.FROST_WARM_RATE] * (ceiling / reserve_of(constants, weather))
     #: Empty is a body that has never been cold: a full reserve **as of now**,
     #: not as of the stamp it was printed with. The client counts down from
     #: whatever it is given, and an old stamp would have it show a body frozen

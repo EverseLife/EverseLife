@@ -43,7 +43,7 @@ async def test_the_reserve_melts_hour_by_hour(
     await session.flush()
 
     left = await frost.settle(session, constants, catalog, body)
-    assert left == pytest.approx(constants[R.FROST_RESERVE_MAX] - 2, abs=0.05)
+    assert left == pytest.approx(frost.reserve_of(constants, frost.FROST) - 2, abs=0.05)
 
 
 def test_the_body_is_kept_at_the_scales_it_is_written_with() -> None:
@@ -178,7 +178,7 @@ async def test_a_warm_node_fills_the_reserve_back(
     body.warmth_at = _ago(10)
     await session.flush()
     assert await frost.settle(session, constants, catalog, body) == pytest.approx(
-        constants[R.FROST_RESERVE_MAX], abs=0.05
+        frost.reserve_of(constants, frost.FROST), abs=0.05
     )
 
 
@@ -203,11 +203,11 @@ async def test_the_road_is_the_cold_itself(
     body = await _dweller(session, yard)
     await travel.depart(session, constants, body, door)
 
-    body.warmth = Decimal(str(constants[R.FROST_RESERVE_MAX]))
+    body.warmth = Decimal(str(frost.reserve_of(constants, frost.FROST)))
     body.warmth_at = _ago(1)
     await session.flush()
     left = await frost.settle(session, constants, catalog, body)
-    assert left == pytest.approx(constants[R.FROST_RESERVE_MAX] - 1, abs=0.05)
+    assert left == pytest.approx(frost.reserve_of(constants, frost.FROST) - 1, abs=0.05)
 
 
 async def test_the_suit_multiplies_the_reserve(
@@ -215,15 +215,33 @@ async def test_the_suit_multiplies_the_reserve(
 ) -> None:
     _, yard = await _town(session)
     body = await _dweller(session, yard)
-    bare = await frost.limit_of(session, constants, catalog, body)
+    bare = await frost.limit_of(session, constants, catalog, body, frost.FROST)
 
     pocket = await world.body_container(session, body)
     suit = await world.grant_item(session, pocket, SUIT, quality=60, origin="тест")
     await gear.equip(session, constants, catalog, body, suit)
 
-    assert await frost.limit_of(session, constants, catalog, body) == pytest.approx(
+    assert await frost.limit_of(session, constants, catalog, body, frost.FROST) == pytest.approx(
         bare * constants[R.FROST_SUIT_K][SUIT]
     )
+
+
+async def test_each_climate_keeps_its_own_reserve(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The frost's reserve and the heat's are their own (D-338): Aurora's was
+    doubled for its snow, and a body on Pyroxis is not handed it."""
+    assert frost.reserve_of(constants, frost.FROST) == pytest.approx(
+        2 * frost.reserve_of(constants, frost.HEAT)
+    ), "the vault doubled the frost's reserve for the snow's `travel.snow_multiplier`"
+    for planet, weather in ((Planet.AURORA, frost.FROST), (Planet.PYROXIS, frost.HEAT)):
+        _, yard = await _town(session, planet=planet, climate=weather)
+        body = await _dweller(session, yard)
+        shown = await frost.view(session, constants, catalog, body, yard)
+        assert shown is not None and shown["climate"] == weather
+        assert shown["max"] == pytest.approx(frost.reserve_of(constants, weather))
+    #: No climate, nothing spent: the ceiling a body walks into the cold with.
+    assert frost.reserve_of(constants, None) == frost.reserve_of(constants, frost.FROST)
 
 
 async def test_a_suit_in_a_chest_warms_nobody(
@@ -233,19 +251,21 @@ async def test_a_suit_in_a_chest_warms_nobody(
     a death, a collapse, a sale -- stops multiplying the reserve at once."""
     node, yard = await _town(session)
     body = await _dweller(session, yard)
-    bare = await frost.limit_of(session, constants, catalog, body)
+    bare = await frost.limit_of(session, constants, catalog, body, frost.FROST)
 
     pocket = await world.body_container(session, body)
     suit = await world.grant_item(session, pocket, SUIT, quality=60, origin="тест")
     await gear.equip(session, constants, catalog, body, suit)
-    assert await frost.limit_of(session, constants, catalog, body) > bare
+    assert await frost.limit_of(session, constants, catalog, body, frost.FROST) > bare
 
     #: What a collapse or a demolition does: the thing changes place, and
     #: nobody asks the slot.
     suit.container_id = (await world.node_container(session, yard)).id
     await session.flush()
 
-    assert await frost.limit_of(session, constants, catalog, body) == pytest.approx(bare)
+    assert await frost.limit_of(session, constants, catalog, body, frost.FROST) == pytest.approx(
+        bare
+    )
 
 
 async def test_a_warmer_adds_hours_and_is_gone(
@@ -276,7 +296,7 @@ async def test_a_warmer_that_would_give_nothing_is_refused(
     await _place(session, yard, HEATER)
     await _charge(session, constants, yard, constants[R.FROST_HEATER_DRAW])
     body = await _dweller(session, yard)
-    body.warmth = Decimal(str(constants[R.FROST_RESERVE_MAX]))
+    body.warmth = Decimal(str(frost.reserve_of(constants, frost.FROST)))
     body.warmth_at = _ago(1)
     await session.flush()
     pocket = await world.body_container(session, body)
@@ -307,10 +327,10 @@ async def test_the_look_carries_the_hand_and_not_the_hour(
     assert view["climate"] == frost.FROST
     assert view["warm"] is False
     assert view["per_hour"] == -1.0
-    assert view["max"] == constants[R.FROST_RESERVE_MAX]
+    assert view["max"] == frost.reserve_of(constants, frost.FROST)
     #: A body that has never been cold is a full reserve **as of now**: an old
     #: stamp would have the client count down from the day it was printed.
-    assert view["hours"] == constants[R.FROST_RESERVE_MAX]
+    assert view["hours"] == frost.reserve_of(constants, frost.FROST)
     assert datetime.fromisoformat(view["at"]) >= _ago(1)
 
     #: Once it has been settled, the stamp is the settling's own.
@@ -465,7 +485,7 @@ async def test_a_body_that_has_never_been_cold_arrives_with_a_full_reserve(
     await session.flush()
 
     left = await frost.settle(session, constants, catalog, body)
-    assert left == pytest.approx(constants[R.FROST_RESERVE_MAX] - 1, abs=0.05)
+    assert left == pytest.approx(frost.reserve_of(constants, frost.FROST) - 1, abs=0.05)
 
 
 # --- two sessions at once -----------------------------------------------------

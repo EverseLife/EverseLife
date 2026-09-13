@@ -675,9 +675,11 @@ OXYGEN_CYLINDER_STORE = Num("oxygen.cylinder_store")
 #: not a rule the world enforces.
 OXYGEN_AUTONOMY_TARGET = Num("oxygen.autonomy_target")
 
-#: The body's heat reserve, hours. Melts hour by hour in the cold, comes back
+#: The body's heat reserve, hours, by climate -- the frost's and the heat's
+#: are their own since D-338: Aurora's snow lengthens its off-road, and
+#: Pyroxis has no snow. Melts hour by hour in the climate, comes back
 #: `frost.warm_rate` hours per hour in a warm node.
-FROST_RESERVE_MAX = Num("frost.reserve_max")
+FROST_RESERVE_MAX = Table("frost.reserve_max", keys=("frost", "heat"))
 FROST_WARM_RATE = Num("frost.warm_rate")
 #: How much worn gear multiplies the reserve, by thing class -- keyed the way
 #: `inventory.exo_bonus` is: the engine keeps no list of warm clothes.

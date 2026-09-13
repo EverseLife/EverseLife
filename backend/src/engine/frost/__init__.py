@@ -74,6 +74,7 @@ from src.engine.frost.body import (  # noqa: F401
     Spell,
     drain_multiplier,
     limit_of,
+    reserve_of,
     settle,
     use_warmer,
     view,

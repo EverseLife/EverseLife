@@ -101,7 +101,8 @@ async def _burn(
     if node.id not in warm_here:
         warm_here[node.id] = await is_warm(session, constants, node)
     warm = warm_here[node.id] and not await _on_the_road(session, locked)
-    ceiling = await limit_of(session, constants, catalog, locked)
+    weather = await climate_of(session, node)
+    ceiling = await limit_of(session, constants, catalog, locked, weather)
 
     spell = await _advance(session, constants, catalog, locked, now=now, warm=warm, ceiling=ceiling)
     #: Death is the pair: no strength left, and still in the cold. Warm again
@@ -117,7 +118,7 @@ async def _burn(
         locked,
         #: The climate key itself: the journal's `cause` is a payload key
         #: (D-251), and the two climates already have their names.
-        cause="heat" if await climate_of(session, node) == HEAT else "cold",
+        cause="heat" if weather == HEAT else "cold",
         now=now,
     )
     return True
