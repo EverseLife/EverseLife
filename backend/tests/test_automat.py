@@ -472,7 +472,51 @@ async def test_machines_on_one_pool_and_one_purse_share_them_in_the_tick(
         assert await ledger.balance(session, account.id) == 0
 
 
+async def test_machines_on_one_hull_share_its_cells_in_the_tick(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Where no grid reaches, the supply is the cells standing beside the
+    machines (D-071), and the tick shares them the way it shares a pool: what
+    the first machine was promised is gone for the second, so a cell holding a
+    few hours powers those hours once, and is drained to nought and no lower."""
+    stamp = uuid.uuid4().hex[:8]
+    wild = await world.create_node(session, f"terra.wild.{stamp}", "Wilds", area_m2=200)
+    identity = await world.create_identity(session, f"Hermit-{stamp}")
+    body = await world.print_body(session, identity, wild)
+    yard = await world.node_container(session, wild)
+    assembler = await world.grant_item(session, yard, "auto_station", quality=70, origin="test")
+    smelter = await world.grant_item(session, yard, "auto_furnace", quality=70, origin="test")
+    cell = await world.grant_item(session, yard, "battery", quality=60, origin="test")
+    await world.grant_item(session, yard, IRON, amount=1000, quality=60, origin="test")
+    await world.grant_item(session, yard, "iron_ore", amount=4000, quality=60, origin="test")
+    await world.grant_item(session, yard, "coal", amount=1000, quality=60, origin="test")
+    lube = await _lube_in(session, yard, 100)
+    await _learn(session, identity, NAILS)
+    first = await automat.program(session, constants, catalog, body, assembler, NAILS)
+    second = await automat.program(session, constants, catalog, body, smelter, IRON)
+    second.counted_at = first.counted_at
+    hours, powered = 10, 3
+    moment = first.counted_at + timedelta(hours=hours)
+    rate = constants[R.AUTO_ENERGY_PER_HOUR]
+    #: Charged at the tick's own moment, so no self-discharge blurs the hours.
+    cell.charge = Decimal(str(rate * powered))
+    cell.charged_at = moment
+    await session.flush()
+
+    await automat.tick_automats(session, constants, now=moment)
+
+    await session.refresh(lube)
+    await session.refresh(cell)
+    burnt = 100 - amount_float(lube.amount)
+    assert burnt == pytest.approx(powered * constants[R.AUTO_LUBE_PER_HOUR], rel=0.01), (
+        "the cell's hours were worked once, not once per machine"
+    )
+    assert float(cell.charge) == pytest.approx(0, abs=0.01)
+
+
+@pytest.mark.parametrize("broken_first", [True, False])
 async def test_a_broken_automat_is_passed_over_and_the_floor_works_on(
+    broken_first: bool,
     session: AsyncSession,
     constants: Constants,
     catalog: Catalog,
@@ -481,7 +525,8 @@ async def test_a_broken_automat_is_passed_over_and_the_floor_works_on(
     """One machine whose advance fails -- a programme the vault has since
     broken -- must not stop the world's factories. It works in a savepoint of
     its own: what it paid out, drank and was billed goes back with it, and the
-    machine beside it works and pays as if it stood alone."""
+    machine beside it works and pays as if it stood alone. Both orders, set by
+    a wire: the bill dropped is the first on the tab or the last."""
     node, yard, identity, body, assembler = await _factory_floor(session, constants)
     smelter = await world.grant_item(session, yard, "auto_furnace", quality=70, origin="test")
     await world.grant_item(session, yard, IRON, amount=1000, quality=60, origin="test")
@@ -491,6 +536,10 @@ async def test_a_broken_automat_is_passed_over_and_the_floor_works_on(
     await _learn(session, identity, NAILS)
     sound = await automat.program(session, constants, catalog, body, assembler, NAILS)
     broken = await automat.program(session, constants, catalog, body, smelter, IRON)
+    if broken_first:
+        await automat.link(session, body, smelter, assembler)
+    else:
+        await automat.link(session, body, assembler, smelter)
     started = broken.counted_at
     hours = 10
     moment = sound.counted_at + timedelta(hours=hours)
