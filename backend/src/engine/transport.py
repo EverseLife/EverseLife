@@ -54,7 +54,6 @@ from __future__ import annotations
 import uuid
 
 from sqlalchemy import select
-from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
@@ -351,13 +350,7 @@ async def _pulled_here(session: AsyncSession, body: Body, *, refusal: str) -> It
     wagon = await harnessed(session, body)
     if wagon is None:
         raise NotHarnessed(key=refusal)
-    named = wagon.type_key
-    try:
-        await session.refresh(wagon, with_for_update=True)
-    except InvalidRequestError as gone:
-        #: Burnt with the field, fallen with the house: the name is read before
-        #: the refresh, which leaves none.
-        raise NotHere(key="thing-gone", goods=named) from gone
+    await world.lock_thing(session, wagon, gone=NotHere)
     node = await session.get(Node, body.node_id)
     if node is None:  # pragma: no cover -- a body always stands in a node
         raise TransportError(key="transport-body-off-node")
