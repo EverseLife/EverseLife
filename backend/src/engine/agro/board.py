@@ -24,7 +24,6 @@ from src.constants import registry as R
 from src.engine import events, travel, world
 from src.engine.agro._base import (
     FIELD_AUTOMAT,
-    NO_POWER,
     AgroError,
     BadPlot,
     _machine_here,
@@ -32,7 +31,7 @@ from src.engine.agro._base import (
     of_item,
     parse,
 )
-from src.engine.agro.run import PurseMoved, advance, idle
+from src.engine.agro.run import advance
 from src.models.agro import FieldAutomat, FieldAutomatPlot
 from src.models.event import EventKind
 from src.models.farm import Plot
@@ -192,11 +191,6 @@ async def _settle_old(
     try:
         async with session.begin_nested():
             await advance(session, constants, row, catalog=catalog, now=now)
-    except PurseMoved:
-        #: The purse emptied between the promise and the draw (D-135): the
-        #: hours are not worked after all, and they are gone, as in the tick.
-        await session.refresh(row)
-        await idle(session, row, NO_POWER, now)
     except Exception:  # noqa: BLE001 -- the owner's command must reach a broken machine
         log.exception("field automat %s: the old programme failed to settle", machine_id)
         #: The rolled-back savepoint expired what it touched -- the machine wore

@@ -132,12 +132,10 @@ async def promise(
     pays less at the draw sends the pass back (`run.tick_automats`). The supply
     is not -- a crafter drank the same pool between the two, or the heat of a
     cold city ate it. The machine keeps those hours: the draw takes what is
-    there and bills only that, and the pool never goes below nought. Whether a
-    consumer on an emptied pool stops at once or finishes what it began is an
-    open point of the vault (`20-systems/12-energy.md`), and this is the
-    tick's provisional answer, not a rule decided -- the field automaton's
-    decision (D-339, still on its branch) answers the same race with a debt
-    the next action waits out.
+    there and bills only that, and the pool never goes below nought. That is
+    the family's rule, the field automaton's included (the owner, 2026-09-13,
+    `20-systems/12-energy.md`) -- provisional, and for the family only: for
+    the other buildings on an emptied pool the point is still open.
     """
     grid = await energy.grid_node(session, node)
     supply = battery.hull_of(node) if grid is None else grid.id

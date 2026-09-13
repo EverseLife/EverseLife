@@ -83,20 +83,51 @@ async def advance(
     *,
     catalog: Catalog | None = None,
     now: datetime | None = None,
-    tab: energy_bill.Tab | None = None,
 ) -> int:
-    """Bring the machine up to "now": wear, the cursor walked, the one action
-    due done, and the hours paid in lubricant and energy. Returns the actions
+    """Bring one machine up to "now" on its own -- a command settling it before
+    its programme changes -- and draw its energy at once. Returns the actions
     done (nought or one).
 
-    With `tab` the energy is written down on the pass's tab for the caller to
-    draw after every machine has worked (the tick); without, it is drawn here,
-    after the action, and a purse that no longer pays raises `PurseMoved` for
-    the caller to roll the advance back. None of what stops the machine is an
-    error (D-120): no energy, no lubricant, no water, a full store -- the
-    enterprise's obligations, shown as the word it stands with.
+    The same rule as the tick's pass, for a pass of one: the advance runs in a
+    savepoint, and a purse that no longer pays at the draw sends it back to run
+    again with that purse empty -- the machine stands on the tariff and loses
+    the minute, worn and walked all the same (D-135, D-120).
     """
     moment = now or datetime.now(UTC)
+    barred: set[uuid.UUID] = set()
+    while True:
+        try:
+            async with session.begin_nested():
+                tab = energy_bill.Tab(purses=dict.fromkeys(barred, 0))
+                done = await _advance(session, constants, row, catalog=catalog, now=moment, tab=tab)
+                refused = await energy_bill.pay(session, constants, tab.bills, now=moment)
+                if refused:
+                    raise PurseMoved(refused)
+                return done
+        except PurseMoved as moved:
+            barred |= moved.owners
+            #: What the rolled-back run remembered must not answer for the next.
+            forget(session)
+
+
+async def _advance(
+    session: AsyncSession,
+    constants: Constants,
+    row: FieldAutomat,
+    *,
+    catalog: Catalog | None,
+    now: datetime,
+    tab: energy_bill.Tab,
+) -> int:
+    """Wear, the cursor walked, the one action due done, and the hours paid in
+    lubricant -- the energy written down on `tab` for the caller to draw after
+    the work. Returns the actions done (nought or one).
+
+    None of what stops the machine is an error (D-120): no energy, no
+    lubricant, no water, a full store -- the enterprise's obligations, shown as
+    the word it stands with.
+    """
+    moment = now
     #: The row is the transaction's: the tick and an owner reprogramming race
     #: for the cursor and the stamp. A no-op when the caller already holds it.
     await session.refresh(row, with_for_update=True)
@@ -158,20 +189,18 @@ async def advance(
     worked = min(hours, have / lube_rate) if lube_rate > 0 else hours
     short = NO_LUBE if amount(lube_rate * worked) < amount(lube_rate * hours) else None
     rate = constants[R.AGRO_ENERGY_PER_HOUR]
-    pass_tab = tab if tab is not None else energy_bill.Tab()
-    bill: energy_bill.Bill | None = None
     if worked > 0 and rate > 0:
         bill = await energy_bill.promise(
-            session, constants, row, node, worked, rate, now=moment, tab=pass_tab, purpose=PURPOSE
+            session, constants, row, node, worked, rate, now=moment, tab=tab, purpose=PURPOSE
         )
         if bill is None or amount(bill.hours * rate) < amount(worked * rate):
             #: A minute half powered is not a minute: the setpoints hold for all
             #: of it or the machine stands.
-            short, worked, bill = NO_POWER, 0.0, None
+            short, worked = NO_POWER, 0.0
         else:
             #: Written down at once: should the work below fail, the tick takes
             #: this promise back with the machine's savepoint.
-            pass_tab.add(bill)
+            tab.add(bill)
 
     done = 0
     if short is not None:
@@ -187,10 +216,6 @@ async def advance(
 
     if lube_rate > 0 and worked > 0:
         await stock.consume(session, lube, amount(lube_rate * worked))
-    if bill is not None and tab is None:
-        refused = await energy_bill.pay(session, constants, [bill], now=moment)
-        if refused:
-            raise PurseMoved(refused)
     await _stand(session, row, trouble)
     row.counted_at = moment
     await session.flush()
@@ -265,10 +290,6 @@ async def _idle(
     row.counted_at = now
     await session.flush()
     return 0
-
-
-#: The board's name for it: a command whose settling the purse refused.
-idle = _idle
 
 
 async def _stand(session: AsyncSession, row: FieldAutomat, trouble: str | None) -> None:
@@ -388,9 +409,11 @@ async def _pass(
                 row = await _take(session, row_id)
                 if row is None:
                     continue
-                done += await advance(session, constants, row, now=moment, tab=tab)
+                done += await _advance(session, constants, row, catalog=None, now=moment, tab=tab)
         except Exception as failure:  # noqa: BLE001 -- one machine must not stop the world's fields
             tab.keep(owed)
+            #: What the rolled-back machine remembered must not answer for the next.
+            forget(session)
             if _passing(failure):
                 #: The database's no, not the machine's fault: next minute.
                 log.warning("field automat %s: the database refused this minute", row_id)
