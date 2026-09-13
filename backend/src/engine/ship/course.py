@@ -58,10 +58,12 @@ __all__ = [
     "curve",
     "deliverable",
     "fastest",
+    "flyby_grid",
     "fuel_for_speed",
     "grid",
     "mu_of",
     "place",
+    "reach",
     "synodic_days",
 ]
 
@@ -149,6 +151,22 @@ def grid(constants: Constants) -> tuple[float, ...]:
     )
 
 
+def flyby_grid(constants: Constants, days: float) -> tuple[float, ...]:
+    """The slider's hours on past the direct arc's horizon (D-341): the same
+    geometric steps, out to `days` -- the sky's own guard on the search
+    (`sky.search_days`), a limit of the computation. Up to the horizon the
+    hours are the direct slider's own, so a direct arc and a flyby of one
+    hour meet on one point; past it the geometric steps go on unbroken, the
+    guard itself no step of theirs."""
+    longest = float(constants[R.ORBIT_LONGEST_DAYS]) * HOURS_PER_DAY
+    beyond = _grid(
+        float(constants[R.ORBIT_SLIDER_FROM_HOURS]),
+        1 + float(constants[R.ORBIT_SLIDER_STEP]) / PERCENT,
+        days * HOURS_PER_DAY,
+    )[:-1]
+    return grid(constants) + tuple(one for one in beyond if one > longest)
+
+
 def _grid(start: float, ratio: float, top: float) -> tuple[float, ...]:
     hours: list[float] = []
     h = start
@@ -169,9 +187,9 @@ def curve(
 
     One sample per point of the grid: the cheapest direct arc at that time.
     Missing samples are times no arc serves -- everything grazes the corona,
-    or the geometry gives nothing. No arc is bent round a third planet any
-    more (D-289): the planets pull the whole way, and the flyby comes out of
-    the simulation rather than out of a search.
+    or the geometry gives nothing. The corridor's curve and the map's calendar
+    stay direct: a flyby is searched and refined for the one hull's slider
+    (`sky.routes`, D-341), at a cost no map read of every pair could pay.
 
     Planetary and nothing else: what the hull can do with it is `deliverable`
     and the tanks. Memoised, because every hull over a planet asks the same
@@ -286,6 +304,12 @@ def deliverable(constants: Constants, thrust_ratio: float, hours: float) -> floa
     scale = float(constants[R.ORBIT_THRUST_SCALE])
     share = float(constants[R.ORBIT_BURN_SHARE])
     return thrust_ratio * scale * hours / HOURS_PER_DAY * share
+
+
+def reach(constants: Constants, thrust_ratio: float) -> float:
+    """What the engines deliver in a day of flight: the slope of `deliverable`,
+    the one number the slider's cut reads it by (`sky.choice`, D-341)."""
+    return deliverable(constants, thrust_ratio, HOURS_PER_DAY)
 
 
 def fuel_for_speed(constants: Constants, weight: float, dv: float, *, efficiency: float) -> float:
