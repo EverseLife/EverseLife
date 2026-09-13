@@ -256,6 +256,43 @@ auto-no-station-builds = “{ NAME($goods) }” is a build: stations are put tog
 auto-body-off-node = the body is off any node
 auto-link-self = “{ NAME($goods) }” does not feed itself: a wire needs two ends
 
+# --- field automaton (engine/agro, D-339) ------------------------------------
+
+agro-dead-works = a dead body does not work
+agro-not-a-field-automat = “{ NAME($goods) }” is not a field automaton
+agro-not-installed = “{ NAME($goods) }” lies rather than stands: a field automaton works put up
+agro-not-here = the field automaton is not here: a programme is set on the spot
+agro-not-entitled = a field automaton is programmed on one's own ground
+agro-body-off-node = the body is off any node
+agro-machine-gone = “{ NAME($goods) }” is worn out and fell apart: there is nothing to load a programme into
+agro-program-empty = the programme has no lines
+agro-program-long = the programme is longer than { $steps ->
+        [one] { $steps } line
+       *[other] { $steps } lines
+    }: the machine holds no more
+agro-bad-command = line { $line }: the machine has no such command
+# The parameter is a code word: its caption is translated here, not in the engine.
+agro-bad-parameter = line { $line }: { $parameter ->
+        [culture] no culture given, or no such culture
+        [target] the moisture setpoint is a number above nought and up to a hundred
+        [goods] feeding takes a fertilizer
+        [stage] the feeding stage is sprout, leaf, bloom or fill
+        [days] days are a number above nought
+       *[other] the line does not read
+    }
+agro-bad-days = line { $line }: days are a number above nought and at most { $most }
+agro-program-idle = the programme holds only setpoints: without “Plough”, “Sow”, “Harvest” or “Fallow” the machine has nothing to do
+agro-bad-plots = the list of plots does not read
+agro-too-many-plots = one machine serves at most { $most ->
+        [one] { $most } plot
+       *[other] { $most } plots
+    }
+agro-plot-not-yours = a machine takes only one's own plots in the node it stands in
+agro-plot-small = plot “{ $plot }” is under { $min } m²: the machine does not take it
+agro-plot-taken = plot “{ $plot }” is already on another machine
+agro-store-not-here = the storage does not stand in this yard
+agro-not-a-store = “{ NAME($goods) }” is not a storage for seeds, fertilizer and harvest
+
 # --- Precursor ruins (engine/ruins.py) ---------------------------------------
 
 ruins-no-relic-of-class = the registry has no relic of class “{ NAME($thing_class) }”

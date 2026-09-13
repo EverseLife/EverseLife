@@ -30,6 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import current, current_catalog
 from src.constants import registry as R
 from src.engine import (
+    agro,
     automat,
     bank,
     chat,
@@ -128,6 +129,13 @@ async def _automats(session: AsyncSession, now: datetime) -> dict[str, Any]:
     #: the pool and fills the yard while the owner is busy elsewhere. Any of
     #: the three runs out -- it stands.
     return {"automat_made": await automat.tick_automats(session, current(), now=now)}
+
+
+async def _fields(session: AsyncSession, now: datetime) -> dict[str, Any]:
+    #: The field automaton holds its setpoints while the owner is away (D-339):
+    #: it waters, feeds, weeds and reaps by its programme, drawing the pool
+    #: and the yard's lubricant; short of either it stands.
+    return {"field_actions": await agro.tick_fields(session, current(), now=now)}
 
 
 async def _rigs(session: AsyncSession, now: datetime) -> dict[str, Any]:
@@ -292,6 +300,7 @@ WORLD_STEPS: dict[str, tuple[Step, str]] = {
     "rigs": (_rigs, "first"),
     "plots": (_plots, "first"),
     "automats": (_automats, "first"),
+    "fields": (_fields, "first"),
     "orphans": (_orphans, "first"),
     "frost": (_frost, "first"),
     "exoskeletons": (_exoskeletons, "first"),

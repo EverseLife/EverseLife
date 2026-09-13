@@ -63,6 +63,12 @@ class EventKind(StrEnum):
     AUTOMAT_LINKED = "automat.linked"
     AUTOMAT_UNLINKED = "automat.unlinked"
 
+    # the field automaton: a programme of commands over plots (D-339)
+    AGRO_PROGRAMMED = "agro.programmed"
+    AGRO_STOPPED = "agro.stopped"
+    #: The machine stands with a new trouble: no energy, no water, a full store...
+    AGRO_STALLED = "agro.stalled"
+
     # mining (D-143)
     MINING_STARTED = "mining.started"
     MINING_SWING = "mining.swing"

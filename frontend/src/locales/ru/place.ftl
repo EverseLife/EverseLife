@@ -276,6 +276,7 @@ ui-stand-trade-factory = { " " }Здесь машины работают сам�
 ui-stand-trade-nursery = { " " }Здесь разводят животных.
 ui-stand-trade-fuel-plant = { " " }Здесь гонят корабельное топливо.
 ui-stand-trade-mint = { " " }Здесь чеканят монету города.
+ui-stand-trade-field-automat = { " " }Здесь автомат ведёт делянки по программе.
 ui-stand-gather-about = Добыча по знаку земли: работа руками прямо на месте.
 ui-stand-rig = Буровая
 ui-stand-rig-in-hands = в руках: поставить на жилу

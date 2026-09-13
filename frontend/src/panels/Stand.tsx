@@ -46,6 +46,7 @@ import { Admin } from "./Admin";
 import { Farm } from "./Farm";
 import { Forage } from "./Forage";
 import { Factory } from "./Factory";
+import { FieldAutomat } from "./FieldAutomat";
 import { Kitchen } from "./Kitchen";
 import { Library } from "./Library";
 import { Market } from "./Market";
@@ -82,6 +83,7 @@ const GROUND_BRIDGE = "ground_bridge";
 const RIG = "rig";
 const KITCHEN = "kitchen";
 const AUTOMATON = "automaton";
+const FIELD_AUTOMATON = "field_automaton";
 const NURSERY = "nursery";
 const FUEL_PLANT = "fuel_plant";
 const MINT = "mint";
@@ -297,6 +299,7 @@ function assemble(
   const SPECIAL: Record<string, () => ReactNode> = {
     [KITCHEN]: () => <Kitchen look={look} />,
     [AUTOMATON]: () => <Factory look={look} values={values} />,
+    [FIELD_AUTOMATON]: () => <FieldAutomat look={look} values={values} />,
     [NURSERY]: () => <Nursery look={look} />,
     [FUEL_PLANT]: () => <Plant look={look} />,
     [MINT]: () => <Mint look={look} values={values} />,
@@ -334,6 +337,7 @@ function assemble(
     const TRADES: Record<string, string> = {
       [KITCHEN]: "ui-stand-trade-kitchen",
       [AUTOMATON]: "ui-stand-trade-factory",
+      [FIELD_AUTOMATON]: "ui-stand-trade-field-automat",
       [NURSERY]: "ui-stand-trade-nursery",
       [FUEL_PLANT]: "ui-stand-trade-fuel-plant",
       [MINT]: "ui-stand-trade-mint",

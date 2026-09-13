@@ -22,6 +22,8 @@ event-farm-ripened = plot ripe
 # A pest (D-299): the summary names the sign, not the trouble -- which
 # bottle answers it is known to whoever read the agronomy.
 event-farm-struck = trouble on the plot
+# The field automaton (D-339): a new trouble; the detail is the node, the trouble is its window's.
+event-agro-stalled = field automaton needs attention
 event-body-died = body died
 event-body-printed = body printed
 event-mining-collapsed = cave-in at the face

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from src.db import ddl
 from src.db.base import Base
+from src.models.agro import FieldAutomat, FieldAutomatPlot
 from src.models.automat import Automat, AutomatLink
 from src.models.bank import DefectReport, Loan, LoanState, RateDecision
 from src.models.catchup import CatchUpStep
@@ -88,6 +89,8 @@ __all__ = [
     "Account",
     "Automat",
     "AutomatLink",
+    "FieldAutomat",
+    "FieldAutomatPlot",
     "FeedLine",
     "AccountKind",
     "Base",

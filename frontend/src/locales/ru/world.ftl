@@ -475,6 +475,54 @@ ui-factory-port-out = выход
 ui-factory-idle = — без программы —
 ui-factory-backlog = в работе { $backlog }
 
+## Полевой автомат (D-339): программа из команд, делянки и хранилища.
+
+ui-agro-title = Полевой автомат
+ui-agro-rule = программа, делянки и хранилища
+ui-agro-idle = программы нет — автомат стоит
+ui-agro-standing = на строке { $line }: { $command }
+ui-agro-program = Программа
+ui-agro-add = + строка
+ui-agro-up = поднять строку
+ui-agro-down = опустить строку
+ui-agro-remove = удалить строку
+ui-agro-target = уставка влаги
+ui-agro-every = каждые
+ui-agro-days = сут.
+ui-agro-do-plow = Вспахать
+ui-agro-do-sow = Посеять
+ui-agro-do-moisture = Держать влагу
+ui-agro-do-feed = Подкормить
+ui-agro-do-weed = Прополоть
+ui-agro-do-thin = Проредить
+ui-agro-do-harvest = Убрать
+ui-agro-do-fallow = Пар
+ui-agro-plots = Делянки
+ui-agro-no-plots = Здесь нет ваших делянок: их размечают в окне «Земля».
+ui-agro-plot-small = меньше { $min } м²: автомат не берёт
+ui-agro-stores = Хранилища
+ui-agro-store-seeds = Откуда семена
+ui-agro-store-fertilizer = Откуда удобрения
+ui-agro-store-harvest = Куда урожай
+ui-agro-store-none = — не выбрано —
+ui-agro-store = { $goods } · { $mass } из { $capacity } кг
+ui-agro-bunker = свой бункер · { $mass } из { $capacity } кг
+ui-agro-save = Задать программу
+ui-agro-stop = Снять программу
+ui-agro-trouble-no-plots = Автомату не отдано ни одной делянки.
+ui-agro-trouble-no-power = Встал: нет энергии — ни в пуле, ни в аккумуляторах, или хозяину нечем платить.
+ui-agro-trouble-no-lube = Встал: в таре двора нет смазки.
+ui-agro-trouble-no-water = Не поливает: в таре двора нет воды.
+ui-agro-trouble-no-seeds = Не сеет: в хранилище семян нет партии этой культуры, которой хватит на делянку.
+ui-agro-trouble-no-fertilizer = Не подкармливает: в хранилище удобрений не хватает дозы.
+ui-agro-trouble-store-full = Не убирает: хранилище урожая полно, спелая делянка ждёт.
+ui-agro-trouble-no-store = Хранилище для этого действия не выбрано или не стоит во дворе.
+ui-agro-trouble-not-plowed = Не сеет: делянка не вспахана — перед «Посеять» нужна строка «Вспахать».
+ui-agro-trouble-unfit = Не сеет: место не пускает культуру — холодно, жарко, темно или лёд.
+ui-agro-trouble-not-entitled = Встал: у хозяина больше нет права на этот узел — программу задаёт тот, кто им распоряжается.
+ui-agro-trouble-fault = Встал: программа больше не исполняется — проверьте её строки и задайте заново.
+ui-agro-trouble-other = Встал.
+
 ## Ползунок курса: от самой быстрой дуги до самой дешёвой (D-271).
 
 ui-ship-course-loading = Небо считает дуги…

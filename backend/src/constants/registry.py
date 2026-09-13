@@ -281,6 +281,19 @@ AUTO_COVERS = Book("auto.covers")
 #: The pyroxite tier is barred until its own station exists (OQ-106).
 AUTO_BARRED_INPUTS = Table("auto.barred_inputs")
 
+#: The field automaton (D-120, D-339): a programme of commands over plots.
+#: Lubricant is the family's (`auto.lube_per_hour`); the rest is its own.
+AGRO_YIELD_SHARE = Num("agro.yield_share")
+AGRO_QUALITY_CAP = Num("agro.quality_cap")
+AGRO_PLOT_MIN_AREA = Num("agro.plot_min_area")
+AGRO_PLOTS_MAX = Num("agro.plots_max")
+AGRO_PROGRAM_STEPS = Num("agro.program_steps")
+AGRO_ENERGY_PER_HOUR = Num("agro.energy_per_hour")
+AGRO_WEAR_PER_DAY = Num("agro.wear_per_day")
+AGRO_MOISTURE_BAND = Num("agro.moisture_band")
+#: The longest fallow or weeding period a programme line may name, Terran days.
+AGRO_DAYS_MAX = Num("agro.days_max")
+
 # --- Energy (D-071, D-082, D-085) -------------------------------------------
 #: Energy per unit of every burnable material, keyed by name (D-215): the old
 #: `energy.per_coal` generalized -- built by the vault from material `fuel` fields.

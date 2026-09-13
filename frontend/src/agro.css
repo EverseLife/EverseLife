@@ -1,0 +1,44 @@
+/* SPDX-License-Identifier: AGPL-3.0-only
+   Copyright (C) 2026 Nurlan Urazkulov */
+
+/* The field automaton's window (D-339): a programme as numbered lines, the
+   line the machine stands on marked with the action colour's rule, the
+   plots and the storages as plain rows under their signs. */
+
+.agro-lines {
+  margin: 0;
+  padding-left: 1.6rem;
+  display: grid;
+  gap: 0.3rem;
+}
+
+.agro-line {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  padding: 0.15rem 0.3rem;
+  border-radius: var(--r-control);
+}
+
+/* The line under the cursor: a rule on the left, not a fill (D-238). */
+.agro-line.current {
+  box-shadow: inset 2px 0 0 var(--act);
+}
+
+.agro-line input[type="number"] {
+  width: 4.5rem;
+}
+
+.agro-line-act {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 0.2rem;
+}
+
+.agro-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}

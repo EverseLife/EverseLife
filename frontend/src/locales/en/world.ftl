@@ -475,6 +475,54 @@ ui-factory-port-out = output
 ui-factory-idle = -- no programme --
 ui-factory-backlog = in work { $backlog }
 
+## The field automaton (D-339): a programme of commands, plots and storages.
+
+ui-agro-title = Field automaton
+ui-agro-rule = programme, plots and storages
+ui-agro-idle = no programme -- the automaton stands idle
+ui-agro-standing = on line { $line }: { $command }
+ui-agro-program = Programme
+ui-agro-add = + line
+ui-agro-up = move the line up
+ui-agro-down = move the line down
+ui-agro-remove = remove the line
+ui-agro-target = moisture setpoint
+ui-agro-every = every
+ui-agro-days = days
+ui-agro-do-plow = Plough
+ui-agro-do-sow = Sow
+ui-agro-do-moisture = Hold moisture
+ui-agro-do-feed = Feed
+ui-agro-do-weed = Weed
+ui-agro-do-thin = Thin
+ui-agro-do-harvest = Harvest
+ui-agro-do-fallow = Fallow
+ui-agro-plots = Plots
+ui-agro-no-plots = You have no plots here: they are marked out in the “Land” window.
+ui-agro-plot-small = under { $min } m²: the machine does not take it
+ui-agro-stores = Storages
+ui-agro-store-seeds = Seeds from
+ui-agro-store-fertilizer = Fertilizer from
+ui-agro-store-harvest = Harvest into
+ui-agro-store-none = -- none --
+ui-agro-store = { $goods } · { $mass } of { $capacity } kg
+ui-agro-bunker = own bunker · { $mass } of { $capacity } kg
+ui-agro-save = Set the programme
+ui-agro-stop = Clear the programme
+ui-agro-trouble-no-plots = No plots are given to the machine.
+ui-agro-trouble-no-power = Stopped: no energy -- neither in the pool nor in batteries, or the owner cannot pay.
+ui-agro-trouble-no-lube = Stopped: no lubricant in the yard's vessels.
+ui-agro-trouble-no-water = Not watering: no water in the yard's vessels.
+ui-agro-trouble-no-seeds = Not sowing: the seed storage holds no lot of this culture big enough for a plot.
+ui-agro-trouble-no-fertilizer = Not feeding: the fertilizer storage is short of a dose.
+ui-agro-trouble-store-full = Not harvesting: the harvest storage is full, and the ripe plot waits.
+ui-agro-trouble-no-store = The storage for this action is not chosen or not in the yard.
+ui-agro-trouble-not-plowed = Not sowing: the plot is not ploughed -- “Sow” needs a “Plough” line before it.
+ui-agro-trouble-unfit = Not sowing: the place refuses the culture -- too cold, too hot, too dark or ice.
+ui-agro-trouble-not-entitled = Stopped: the owner no longer holds the right to this node -- whoever holds it may set the programme.
+ui-agro-trouble-fault = Stopped: the programme no longer runs -- check its lines and set it again.
+ui-agro-trouble-other = Stopped.
+
 ## The course slider: from the fastest arc to the cheapest (D-271).
 
 ui-ship-course-loading = The sky is computing the arcs…

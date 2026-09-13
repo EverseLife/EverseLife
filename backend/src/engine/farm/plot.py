@@ -301,6 +301,29 @@ async def plow_reset(
     return strip
 
 
+def turn_over(constants: Constants, plot: Plot, moment: datetime) -> float:
+    """Plough a strip at once: the field automaton's plough (D-339). Returns
+    the minutes the plough still owed -- the machine's to spend (`busy_until`).
+
+    The hand's plough is a job of its own minutes; the machine's is one
+    stroke. An idle strip is credited its fallow up to the stroke, as the
+    hand's plough credits it; a strip whose hand plough was paused and left
+    (D-277) is taken up with what was ploughed kept -- the hand's work done is
+    done.
+    """
+    if plot.state is PlotState.IDLE:
+        _accrue_fallow(constants, plot, moment)
+        plot.plow_done_minutes = Decimal(0)
+    elif not plow_paused(plot):
+        raise WrongState(key="farm-not-fallow", plot=plot.name, state=plot.state.value)
+    left = max(0.0, plow_minutes(constants, plot) - float(plot.plow_done_minutes))
+    plot.state = PlotState.PLOWED
+    plot.idle_since = None
+    plot.plow_done_minutes = Decimal(0)
+    plot.plow_since = None
+    return left
+
+
 @handler(JobKind.FARM_PLOW)
 async def plow_done(session: AsyncSession, job: Job) -> None:
     #: Under the same lock the commands take (`api.commands.farm._plot`):

@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, ConstantError, Constants, current_catalog
 from src.constants import registry as R
+from src.constants.catalog import Plant
 from src.engine import events, world
 from src.engine.farm import life
 from src.engine.farm._base import (
@@ -72,6 +73,18 @@ async def care_done(session: AsyncSession, job: Job) -> None:
     return
 
 
+def water_litres(constants: Constants, plot: Plot, moisture: float, goal: float) -> float:
+    """The litres a watering from `moisture` up to `goal` takes (D-296).
+
+    `farm.water_per_m2` a metre takes the ground from dry to full, and a
+    target takes its share of that: the hand and the field automaton pour by
+    one formula (D-339).
+    """
+    return (
+        max(0.0, goal - moisture) / SCALE_MAX * constants[R.FARM_WATER_PER_M2] * float(plot.area_m2)
+    )
+
+
 async def water(
     session: AsyncSession,
     constants: Constants,
@@ -112,7 +125,7 @@ async def water(
         )
 
     area = float(plot.area_m2)
-    litres = (goal - state.moisture) / SCALE_MAX * constants[R.FARM_WATER_PER_M2] * area
+    litres = water_litres(constants, plot, state.moisture, goal)
     if not world.has_place(node, world.WATER):
         need = amount(litres)
         await _consume(
@@ -138,6 +151,39 @@ async def water(
     )
     await _hands_busy(session, body, plot, moment, minutes, event, "water")
     return plot, litres
+
+
+def feed_effect(
+    constants: Constants, plot: Plot, plant: Plant, state: life.Life, stage: str, goods: str
+) -> str:
+    """Write what a dose of `goods` does to the bed in `stage`, and return it.
+
+    The culture's table decides (D-296): the right fertilizer quickens the
+    growth to the end of the stage, anything else burns health, and a second
+    dose in one stage runs the crop to leaf. The bed does not ask whose hand
+    poured -- a field automaton's dose is the same dose (D-339). Death from a
+    burn is the caller's to settle: it knows the moment.
+    """
+    fed = dict(plot.fed or {})
+    given = list(fed.get(stage, []))
+    suits = next(
+        (row for row in plant.feeding if row.stage == stage and row.fertilizer == goods), None
+    )
+    if given:
+        effect = life.OVERFED
+        plot.overfed += 1
+    elif suits is not None:
+        effect = life.BOOST
+        plot.growth_boost = on_grid(suits.growth, ROUND_QUALITY)
+        plot.boost_stage = stage
+    else:
+        effect = life.BURN
+        burned = state.health - constants[R.FARM_FEED_WRONG_BURN]
+        plot.health = on_grid(max(SCALE_MIN, burned), ROUND_QUALITY)
+    given.append({"goods": goods, "effect": effect})
+    fed[stage] = given
+    plot.fed = fed
+    return effect
 
 
 async def feed(
@@ -193,25 +239,7 @@ async def feed(
         why=FarmError(key="farm-no-fertilizer", goods=goods, need=amount_float(dose)),
     )
 
-    fed = dict(plot.fed or {})
-    given = list(fed.get(stage, []))
-    suits = next(
-        (row for row in plant.feeding if row.stage == stage and row.fertilizer == goods), None
-    )
-    if given:
-        effect = life.OVERFED
-        plot.overfed += 1
-    elif suits is not None:
-        effect = life.BOOST
-        plot.growth_boost = on_grid(suits.growth, ROUND_QUALITY)
-        plot.boost_stage = stage
-    else:
-        effect = life.BURN
-        burned = state.health - constants[R.FARM_FEED_WRONG_BURN]
-        plot.health = on_grid(max(SCALE_MIN, burned), ROUND_QUALITY)
-    given.append({"goods": goods, "effect": effect})
-    fed[stage] = given
-    plot.fed = fed
+    effect = feed_effect(constants, plot, plant, state, stage, goods)
     await session.flush()
 
     minutes = care_minutes(constants, area)
@@ -231,6 +259,17 @@ async def feed(
         await _die(session, constants, plot, plant, moment)
     await _hands_busy(session, body, plot, moment, minutes, event, "feed")
     return plot, stage, effect
+
+
+def pull_weeds(plot: Plot, state: life.Life, moment: datetime) -> float:
+    """Clear the cover and date the weeding (D-297, D-339). Returns what was pulled.
+
+    The date is what a field automaton reads: a weeding done by hand restarts
+    its "weed every N days" as surely as its own.
+    """
+    plot.weeds = Decimal(0)
+    plot.weeded_at = moment
+    return state.weeds
 
 
 async def weed(
@@ -257,8 +296,7 @@ async def weed(
     state = await settle(session, constants, catalog, plot, now=moment, node=node)
     if state.dead:
         raise WrongState(key="farm-nothing-grows", plot=plot.name)
-    pulled = state.weeds
-    plot.weeds = Decimal(0)
+    pulled = pull_weeds(plot, state, moment)
     await session.flush()
 
     minutes = care_minutes(constants, float(plot.area_m2))
@@ -273,6 +311,23 @@ async def weed(
     )
     await _hands_busy(session, body, plot, moment, minutes, event, "weed")
     return plot
+
+
+def thin_stand(constants: Constants, plot: Plot, state: life.Life) -> str:
+    """Thin the stand, once and only up to `farm.thin_until` (D-297). Returns the stage.
+
+    Refused when already thinned or too late: the hand hears it as a refusal,
+    a field automaton as "nothing to do here" (D-339).
+    """
+    if state.thinned:
+        raise WrongState(key="farm-thinned-already", plot=plot.name)
+    stage = life.stage_of(constants, state.growth)
+    if not life.thinning_open(constants, stage):
+        raise WrongState(
+            key="farm-thin-late", plot=plot.name, until=str(constants[R.FARM_THIN_UNTIL])
+        )
+    plot.thinned = True
+    return stage
 
 
 async def thin(
@@ -300,14 +355,7 @@ async def thin(
     state = await settle(session, constants, catalog, plot, now=moment, node=node)
     if state.dead:
         raise WrongState(key="farm-nothing-grows", plot=plot.name)
-    if state.thinned:
-        raise WrongState(key="farm-thinned-already", plot=plot.name)
-    stage = life.stage_of(constants, state.growth)
-    if not life.thinning_open(constants, stage):
-        raise WrongState(
-            key="farm-thin-late", plot=plot.name, until=str(constants[R.FARM_THIN_UNTIL])
-        )
-    plot.thinned = True
+    stage = thin_stand(constants, plot, state)
     await session.flush()
 
     minutes = care_minutes(constants, float(plot.area_m2))

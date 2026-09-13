@@ -620,6 +620,39 @@ forbidden_modules = ["src.engine.automat.board"]
 allow_indirect_imports = "true"
 
 [[tool.importlinter.contracts]]
+name = "The field automaton's floor asks nobody"
+type = "forbidden"
+source_modules = ["src.engine.agro._base"]
+forbidden_modules = [
+    "src.engine.agro.hands",
+    "src.engine.agro.plan",
+    "src.engine.agro.run",
+    "src.engine.agro.board",
+]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "The field automaton's hands know no clock and no board"
+type = "forbidden"
+source_modules = ["src.engine.agro.hands"]
+forbidden_modules = ["src.engine.agro.plan", "src.engine.agro.run", "src.engine.agro.board"]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "The field automaton's plan does not reach its run or its board"
+type = "forbidden"
+source_modules = ["src.engine.agro.plan"]
+forbidden_modules = ["src.engine.agro.run", "src.engine.agro.board"]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "The field automaton's run never reads its board"
+type = "forbidden"
+source_modules = ["src.engine.agro.run"]
+forbidden_modules = ["src.engine.agro.board"]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
 name = "The sight and the sky do not name each other; only the card reads both"
 type = "forbidden"
 source_modules = ["src.engine.ship.view.sight"]
