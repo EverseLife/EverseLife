@@ -110,9 +110,16 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
     #: run still owed is approximate, knowingly: it cannot tell an old hull from
     #: one laid since that nobody has plumbed, nor a port whose tank was taken
     #: apart from one never drawn -- the rows are gone either way. What it can
-    #: tell, a port its owner has plumbed, it leaves alone (`_plumbed`).
+    #: tell, a port its owner has plumbed, it leaves alone (`_plumbed`). An
+    #: owner plumbing a port in the very seconds of that run can make the seed
+    #: fail on `uq_feed_line`; the seed rolls back whole, and run again it finds
+    #: the owner's `line.set` and passes.
     if await seed_once.claim(session, seed_once.LINES_DEFAULT_ENDED):
         drawn = await _lines_catch_up(session, constants)
+        #: Which ports this run drew is not written out: they are the `feed_line`
+        #: rows whose `created_at` is this row's `at` -- one transaction, one
+        #: `now()`. Only this run's: the lines the step drew at every deploy
+        #: before it was mended carry their own days.
         await seed_once.done(session, seed_once.LINES_DEFAULT_ENDED, ports=drawn)
 
     #: Login by email and password (D-187): identities created before it get
@@ -709,10 +716,8 @@ async def _lines_catch_up(session: AsyncSession, constants) -> int:
 async def _plumbed(session: AsyncSession) -> set[tuple[str, str]]:
     """Every port a player has ever drawn, as `(machine id, port)`: the
     `line.set` of the journal. `ship.set_lines` is the only door a player
-    draws a line through, and it always writes one. The catch-up's own lines
-    write none: they are the `feed_line` rows whose `created_at` is the step
-    row's `at` -- one transaction, one `now()`. Ids as the payload keeps them,
-    as text."""
+    draws a line through, and it always writes one; the catch-up's own lines
+    write none. Ids as the payload keeps them, as text."""
     rows = await session.execute(
         select(Event.payload["item_id"].astext, Event.payload["port"].astext).where(
             Event.kind == EventKind.LINE_SET.value
