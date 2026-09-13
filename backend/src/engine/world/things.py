@@ -44,7 +44,7 @@ from src.constants.catalog import ItemKind
 from src.db.base import remember
 from src.engine import events, goods
 from src.engine.errors import Refusal
-from src.models.craft import BatchState, CraftBatch
+from src.models.craft import BatchKind, BatchState, CraftBatch
 from src.models.event import EventKind
 from src.models.identity import Body
 from src.models.inventory import Container, ContainerKind, Item
@@ -264,6 +264,68 @@ async def is_library(session: AsyncSession, node: Node) -> bool:
     return await has_station(session, node, LIBRARY)
 
 
+class TakenApart(Refusal):
+    """A thing under the knife does not leave the hands while the work goes (D-346)."""
+
+
+#: The states of a batch that still has work ahead of it: going, or waiting
+#: its turn or its master (D-209). A cancelled batch (D-217) is over as surely
+#: as a finished one.
+LIVE = (BatchState.RUNNING, BatchState.WAITING)
+
+
+async def taken_apart(session: AsyncSession, items: Sequence[Item]) -> frozenset[uuid.UUID]:
+    """Which of these things are under the knife **right now** (D-346).
+
+    The same shape as worn (D-305): not a field on the thing but a row and a
+    place together. A recycle batch that is **going** names the thing, and the
+    thing lies in the pocket of that batch's master. The batch finds its
+    target by id wherever it lies, so without the place the rule would pin a
+    thing the world had already taken -- the pocket of a dead master spilled
+    into the yard.
+
+    Going, not merely alive. A waiting batch -- queued, frozen by the master's
+    leaving (D-209), or standing with no machine of its name left in the node
+    -- is not at the bench, and one that waits for a machine nobody will put
+    back up would otherwise hold the thing for ever: a player has no way to
+    cancel a batch. What left the hands while the work waited is not taken
+    apart at the end (`craft.batch.finish._on_the_bench`), so letting it go
+    costs the player the hours and nobody a duplicate.
+
+    The place is read off the database, not off the instances handed in: the
+    caller has just locked the row, and a move committed while it waited is
+    what counts. One query for the whole lot, through the body's batches
+    (`ix_craft_batch_body`), so a door holding many stacks asks once.
+    """
+    if not items:
+        return frozenset()
+    found = await session.execute(
+        select(Item.id)
+        .join(Container, Container.id == Item.container_id)
+        .join(CraftBatch, CraftBatch.body_id == Container.owner_id)
+        .where(
+            Item.id.in_([item.id for item in items]),
+            Container.kind == ContainerKind.BODY,
+            CraftBatch.target_item_id == Item.id,
+            CraftBatch.kind == BatchKind.RECYCLE,
+            CraftBatch.state == BatchState.RUNNING,
+        )
+    )
+    return frozenset(found.scalars().all())
+
+
+async def require_not_taken_apart(session: AsyncSession, item: Item) -> None:
+    """A thing under the knife does not leave the hands (D-346), and says so.
+
+    Words rather than a quiet end of the work: the batch is the player's
+    choice, and a door is not where it gets undone. Asked by every door that
+    carries a thing out of a pocket -- `move_stack` for the floor, a chest, a
+    hold and another pair of hands, and the doors that stand a machine up.
+    """
+    if item.id in await taken_apart(session, [item]):
+        raise TakenApart(key="thing-taken-apart", goods=item.type_key)
+
+
 async def move_stack(
     session: AsyncSession,
     item: Item,
@@ -271,6 +333,7 @@ async def move_stack(
     quantity: float,
     *,
     outdoors: bool = False,
+    falling: bool = False,
 ) -> float:
     """Move a stack or part of it into another container.
 
@@ -287,6 +350,11 @@ async def move_stack(
     False everywhere but a drop on the open ground -- in a pocket, a chest or a
     hold there is no sky to be under, and on a node with no building the floor
     does not exist and everything reads as outdoors anyway.
+
+    `falling` is the world dropping what the hands can no longer hold (D-306),
+    not a hand reaching: it takes a thing under the knife too (D-346). The
+    fall saves that thing for last, and when it has to go, the end of its
+    batch finds nothing on the bench.
     """
 
     from src.engine import gear  # noqa: PLC0415 -- lazy: gear -> world, and the move asks back
@@ -325,6 +393,12 @@ async def move_stack(
     #: place read is the one this session remembers, and an `equip` in another
     #: would slip between the question and the move.
     await gear.require_off(session, item)
+    #: Nor does a thing under the knife (D-346), by the same reasoning and on
+    #: the same locked row: the batch takes apart what lies in its master's
+    #: hands, and a thing carried off meanwhile would be taken apart in
+    #: somebody else's -- or off the counter it was sold from.
+    if not falling:
+        await require_not_taken_apart(session, item)
     qty = min(to_units(goods.at_least_one(item.type_key, quantity)), item.amount)
     if qty >= item.amount:
         item.container_id = target.id
@@ -451,12 +525,14 @@ async def stack_up(session: AsyncSession, item: Item) -> Item:
         return item
     #: A stack being repaired or taken apart stays where it is: the batch finds
     #: its target by id, and swallowing it would leave the work without a thing.
+    #: Only while the batch has work ahead of it: a cancelled one (D-217) is
+    #: over and keeps two twins apart for nothing.
     pinned = set(
         (
             await session.execute(
                 select(CraftBatch.target_item_id).where(
                     CraftBatch.target_item_id.in_([twin.id for twin in twins]),
-                    CraftBatch.state != BatchState.DONE,
+                    CraftBatch.state.in_(LIVE),
                 )
             )
         )

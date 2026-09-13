@@ -120,6 +120,13 @@ async def shed(
     Air is safe to except: nothing but air goes into a breathing cylinder, so
     the exception carries no ore.
 
+    **What is under the knife falls last** (D-346). The batch is the player's
+    choice, so everything else goes first; but it is no floor. A floor would
+    let a stack heavier than bare hands, put under the knife in a frame, hold
+    the whole pocket over the limit once the frame came off -- and the body
+    would walk away with it. When it has to fall, it falls, and its batch ends
+    with nothing on the bench.
+
     Returns the kilograms that fell.
     """
     from src.engine import oxygen  # noqa: PLC0415 -- lazy: breaks oxygen -> gear -> overload
@@ -145,10 +152,12 @@ async def shed(
     if not carried:
         return 0.0
     weights = weigh(catalog, carried, await fills_of(session, catalog, carried))
+    apart = await world.taken_apart(session, carried)
     #: Heaviest stack first: the biggest heap is the one the frame was for, and
     #: it is the one that empties the excess in the fewest pieces. By id after
-    #: the mass, so two identical stacks fall in a settled order.
-    carried.sort(key=lambda thing: (-weights[thing.id], thing.id))
+    #: the mass, so two identical stacks fall in a settled order. What is under
+    #: the knife goes after all of them (D-346).
+    carried.sort(key=lambda thing: (thing.id in apart, -weights[thing.id], thing.id))
 
     #: **What cannot fall is a floor the shedding does not go under** (D-306).
     #: Worn gear can weigh more than the bare hands together -- a heavy frame
@@ -277,7 +286,9 @@ async def _fall(
         #: that (D-313): the excess comes down by the whole of what left the
         #: hands, or one chest short of the limit would go on dropping the
         #: things behind it. Only a stack splits, and a stack holds nothing.
-        fell = await world.move_stack(session, item, yard, quantity, outdoors=not inside)
+        fell = await world.move_stack(
+            session, item, yard, quantity, outdoors=not inside, falling=True
+        )
         mass = unit * fell
         excess -= mass
         fallen += mass

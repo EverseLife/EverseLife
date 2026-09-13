@@ -167,6 +167,14 @@ async def place(
         if exists.vein_id != vein.id and float(exists.hopper) > 0:
             raise HopperNotEmpty(key="rig-hopper-not-empty", goods=item.type_key)
 
+    #: A rig put up out of the hands leaves them without `move_stack`, so the
+    #: rule of the knife is asked here (D-346), on the machine's row taken for
+    #: the transaction -- after the rig's own row, in the tick's order. A bare
+    #: lock is enough: the rule reads the place off the database, not off the
+    #: instance.
+    await session.execute(select(Item.id).where(Item.id == item.id).with_for_update())
+    await world.require_not_taken_apart(session, item)
+
     #: The machine moves from the hands into the node: it is stationary by definition.
     yard = await world.node_container(session, node_here)
     item.container_id = yard.id

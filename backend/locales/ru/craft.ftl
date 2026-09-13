@@ -25,6 +25,8 @@ craft-body-without-identity = тело без личности
 
 craft-zero-batch = партия из нуля единиц
 craft-batch-too-big = за раз делают не больше { NUMBER($most, maximumFractionDigits: 0) } единиц, а заказано { NUMBER($units, maximumFractionDigits: 0) }
+craft-recycle-too-big = за раз разбирают не больше { NUMBER($most, maximumFractionDigits: 0) } единиц, а в стопке { NUMBER($units, maximumFractionDigits: 3) }: сначала отделите часть стопки
+craft-already-in-work = вещь уже в работе, дождитесь конца партии: «{ NAME($goods) }»
 craft-counted-whole = «{ NAME($goods) }» считается штуками: партия из целых единиц
 craft-not-learned = рецепт «{ NAME($recipe) }» не скопирован в личность
 craft-not-enough = не хватает «{ NAME($goods) }»: нужно ещё { $short }

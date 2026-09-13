@@ -46,7 +46,7 @@ from src.engine.craft.quality import (
     waste_share,
 )
 from src.engine.ship import lines
-from src.engine.world import body_container, has_place, node_yard, station_names
+from src.engine.world import body_container, has_place, node_yard, station_names, taken_apart
 from src.models.identity import Body, BodyState, Knowledge, KnowledgeKind
 from src.models.inventory import Item
 from src.models.world import Node
@@ -623,6 +623,10 @@ async def _stock(
             rows = _reread(await stock.lock_items(session, rows))
 
     out: dict[str, list[Item]] = {}
+    #: Nor is a thing under the knife (D-346): a guess laying out "one hammer"
+    #: would burn the hammer a batch is taking apart, and the batch would end
+    #: with nothing to take apart. One query for every stack gathered.
+    apart = await taken_apart(session, rows)
     for name in asked:
         here = allowed[name]
         kept = [item for item in rows if item.type_key == name and item.container_id in here]
@@ -643,7 +647,9 @@ async def _stock(
         #: invention of "one backpack" would take the one on the master's back
         #: and a failed one would burn it. The third and last stack-picker in
         #: the world; the other two are `world.move_stack` and `market._stacks`.
-        out[name] = [item for item in kept if not await gear.is_worn(session, item)]
+        out[name] = [
+            item for item in kept if item.id not in apart and not await gear.is_worn(session, item)
+        ]
     return out
 
 
