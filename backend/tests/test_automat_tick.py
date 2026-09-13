@@ -8,10 +8,11 @@ only the world's pass has: the energy asked for before each machine works and
 drawn once all of them have (`automat/bill.py`), so machines on one pool, one
 purse or one hull's cells share them rather than each spending the whole; a
 node's meter (D-149) and its warmth (D-231) read once a pass and answering for
-that node alone; and
-one machine failing inside its own savepoint while the floor works on -- in
-the step itself and through the worker's job runner. The races of the same
-pass against a player are in `test_races_automat.py`.
+that node alone, a floor they stand asking no share of its supply; and one
+machine failing inside its own savepoint while the floor works on -- in the
+step itself and through the worker's job runner. The races of the same pass
+against a player are in `test_races_automat.py`, and those over a floor its
+node's stop stands in `test_races_automat_stops.py`.
 """
 
 from __future__ import annotations
@@ -28,13 +29,14 @@ from automat_kit import IRON, NAILS, _factory_floor, _learn, _lube_in, _on_auror
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import automat, energy, frost, jobs, ledger, utility, world
+from src.engine.automat import bill as energy_bill
 from src.engine.automat import run as automat_run
 from src.engine.tick import WORLD_STEPS
 from src.models.automat import Automat as AutomatRow
 from src.models.inventory import Item
 from src.models.job import Job, JobKind, JobState
 from src.models.ledger import AccountKind, PostingReason
-from src.models.world import Node
+from src.models.world import Layer, Node
 from src.units import amount_float, money
 
 
@@ -421,3 +423,56 @@ async def test_a_frozen_node_stands_every_machine_in_it_whatever_feeds_it(
     for row in rows:
         await session.refresh(row)
         assert row.counted_at == moment
+
+
+@pytest.mark.parametrize("stop", ["cut_off", "frozen"])
+async def test_a_stopped_floor_asks_no_share_of_its_citys_short_pool(
+    stop: str, session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A supply short of the pass's demand is shared out alike (`bill.promise`),
+    and a machine its node stands -- cut off (D-149), frozen (D-231) -- takes
+    nothing: its hours are not asked of the pool, or they would halve the share
+    of the machine that does work beside it, a debt or a cold floor paid for
+    with a neighbour's hours. Two floors of one city, the pool holding the
+    working machine's hours alone: it gets them all. The demand is checked
+    itself, since which of the two the pass takes first is the ids' draw."""
+    hours, rate = 8, constants[R.AUTO_ENERGY_PER_HOUR]
+    node, yard, identity, body, machine = await _factory_floor(
+        session, constants, stored_energy=hours * rate
+    )
+    city = await session.get(Node, node.parent_id)
+    assert city is not None
+    stopped = await world.create_node(
+        session, f"{node.key}.next", "Next", area_m2=200, layer=Layer.PLANET, parent=city
+    )
+    stopped_yard = await world.node_container(session, stopped)
+    other = await world.grant_item(session, stopped_yard, "auto_station", quality=70, origin="test")
+    for where in (yard, stopped_yard):
+        await world.grant_item(session, where, IRON, amount=1000, quality=60, origin="test")
+    lube = await _lube_in(session, yard, 100)
+    await _lube_in(session, stopped_yard, 100)
+    await _learn(session, identity, NAILS)
+    rows = [await automat.program(session, constants, catalog, body, machine, NAILS)]
+    body.node_id = stopped.id
+    await session.flush()
+    rows.append(await automat.program(session, constants, catalog, body, other, NAILS))
+    if stop == "cut_off":
+        stopped.owner_identity_id = identity.id
+        meter = await utility.meter_of(session, stopped)
+        assert meter is not None
+        meter.cut_off, meter.debt = True, money(1)
+    else:
+        await _on_aurora(session, node, stopped, city)
+        await world.grant_item(session, yard, "heater", quality=60, origin="test")
+    rows[1].counted_at = rows[0].counted_at
+    moment = rows[0].counted_at + timedelta(hours=hours)
+    await session.flush()
+
+    tab = energy_bill.Tab()
+    await automat_run._ask(session, constants, tab, moment)
+    assert tab.demand == pytest.approx({city.id: hours * rate}), "the stopped floor asks nothing"
+
+    await automat.tick_automats(session, constants, now=moment)
+    await session.refresh(lube)
+    burnt = hours * constants[R.AUTO_LUBE_PER_HOUR]
+    assert amount_float(lube.amount) == pytest.approx(100 - burnt), "it worked every hour"
