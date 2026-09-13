@@ -54,13 +54,13 @@ way. And the city's own node: a pool brought up to now and then drawn is
 updated twice, and takes it -- which is why a hand-over waits for the meter
 before it holds any node.
 
-Two known holes are shared with every draw from a pool and every bill. A
-credit posting takes its treasury's account `FOR KEY SHARE` through the
-entry's foreign key, which conflicts with a treasury paying out for as long as
-`ledger.post` takes debited accounts `FOR UPDATE`: a treasury paying one of the
-run's holders while the run posts into it can deadlock, in whatever order the
-bills are posted. And the hole the automats' tick leaves open (OQ-174,
-`automat/bill.py`) reaches the meter too: it draws a city's pool.
+The run holds its holders' purses while it posts into the treasuries, and a
+treasury may be paying one of those holders at the same moment. Each credit
+takes the other side's account `FOR KEY SHARE` through the entry's foreign
+key, and that passes the `FOR NO KEY UPDATE` debits queue under
+(`ledger.lock_accounts`), so the two do not wait on each other. One known hole
+is shared with every draw from a pool: the one the automats' tick leaves open
+(OQ-174, `automat/bill.py`) reaches the meter too -- it draws a city's pool.
 """
 
 from __future__ import annotations
