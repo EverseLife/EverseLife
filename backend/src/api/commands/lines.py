@@ -1,11 +1,13 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Nurlan Urazkulov
 
-"""The lines of a hull: which vessels a machine drinks from (D-288).
+"""The lines of a hull: which vessels a machine drinks from and pours into
+(D-288, D-340).
 
-Two commands, and the whole picture is read by one of them: the owner plumbs
-a port with `line.set`, the console reads every machine and vessel of the
-hull with `line.view` and draws the rest itself.
+Three commands, and the whole picture is read by one of them: the owner plumbs
+a port with `line.set` and names a vessel with `line.name`, and the console
+and the ship's scheme read every machine and vessel of the hull with
+`line.view` and draw the rest themselves.
 """
 
 from __future__ import annotations
@@ -39,7 +41,7 @@ async def _item(db: AsyncSession, asked: object) -> Item:
 @command("line.set")
 async def _line_set(state: dict, db: AsyncSession, message: dict) -> dict:
     """Plumb one port of one machine: `vessels` in the order they are drunk
-    from; an empty list puts the port back to "any aboard"."""
+    from or filled; an empty list leaves the port reaching nothing."""
     body = await _alive(state, db)
     vessel = await _ship_of(db, body, message.get("ship"))
     machine = await _item(db, message.get("machine"))
@@ -62,10 +64,23 @@ async def _line_set(state: dict, db: AsyncSession, message: dict) -> dict:
     return {"item": str(machine.id), "port": port, "vessels": count}
 
 
+@command("line.name")
+async def _line_name(state: dict, db: AsyncSession, message: dict) -> dict:
+    """Name an installed vessel of the hull (D-340); an empty name takes the
+    name off."""
+    body = await _alive(state, db)
+    hull = await _ship_of(db, body, message.get("ship"))
+    vessel = await _item(db, message.get("vessel"))
+    named = await ship.name_vessel(
+        db, current_catalog(), body, hull, vessel, str(message.get("name") or "")
+    )
+    return {"item": str(vessel.id), "named": named is not None}
+
+
 @command("line.view", readonly=True)
 async def _line_view(state: dict, db: AsyncSession, message: dict) -> dict:
-    """The hull's plumbing: machines with ports, vessels, and the lines. A read
-    -- the owner's or a crew member's, not a passer-by's."""
+    """The hull's plumbing: rooms, machines with ports, vessels, and the lines.
+    A read -- the owner's or a crew member's, not a passer-by's."""
     body = await _alive_read(state, db)
     vessel = await _ship_of(db, body, message.get("ship"))
     return await ship.lines_view(db, current(), current_catalog(), body, vessel)

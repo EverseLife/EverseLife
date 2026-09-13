@@ -2,14 +2,19 @@
 // Copyright (C) 2026 Nurlan Urazkulov
 
 /**
- * The hull's plumbing (D-288): which vessels each machine drinks from.
+ * The hull's plumbing as a short list (D-288): which vessels each machine
+ * drinks from and pours into.
  *
- * One section per port of every machine aboard that drinks a liquid -- the
- * fuel of an engine, the oxygen of the life support -- and under it every
- * installed vessel of the hull that holds that liquid or nothing yet, each
- * with the room it stands in. Nothing ticked is a port that draws from
- * nothing (D-288 as amended 2026-09-04); ticking makes the line of the
- * ticked, and the order of ticking is the order of use; «выше» moves one up.
+ * One section per port of every machine aboard that runs a liquid -- the
+ * fuel of an engine, the oxygen of the life support, the water, oxygen and
+ * hydrogen of the air machine, the oxygen of the hydroponics (D-340) -- and
+ * under it every installed vessel of the hull that holds that liquid or
+ * nothing yet, each with the room it stands in and the owner's name for it.
+ * Nothing ticked is a port that reaches nothing (D-288 as amended
+ * 2026-09-04); ticking makes the line of the ticked, and the order of
+ * ticking is the order of use or of filling; «выше» moves one up. The full
+ * picture, and the naming, is the ship's scheme (`Scheme`); this list stays
+ * for the quick edit at the console.
  *
  * The picture is the server's (`line.view`) and is reread when the world
  * says the hull changed (D-226): a line drawn, a vessel put up or poured
@@ -20,8 +25,8 @@ import { useCallback, useEffect, useState } from "react";
 import { useEdition, useNames, useSession } from "../../actions";
 import { t } from "../../locale";
 import { goodsName } from "../../names";
-import type { Feed as Plumbing, FeedMachine, FeedPort, FeedVessel } from "../../wire/lines";
-import type { Vessel } from "./model";
+import { suits, type Feed as Plumbing, type FeedMachine, type FeedPort, type FeedVessel } from "../../wire/lines";
+import { spelt, type Vessel } from "./model";
 
 export function Feed({
   vessel,
@@ -54,7 +59,7 @@ export function Feed({
     <div className="feed">
       <h3>{t("ui-ship-feed")}</h3>
       {feed.machines.length === 0 ? (
-        <p className="note">{t("ui-ship-feed-none")}</p>
+        <p className="note">{t("ui-ship-scheme-none")}</p>
       ) : (
         <>
           <p className="note">{t("ui-ship-feed-hint")}</p>
@@ -76,10 +81,12 @@ export function Feed({
   );
 }
 
-/** Whether a vessel may stand on this port: it holds the port's liquid, or nothing yet. */
-function suits(port: FeedPort, vessel: FeedVessel): boolean {
-  return vessel.holds.length === 0 || vessel.holds.some((one) => port.liquids.includes(one.goods));
-}
+/** The word for which way a port runs (D-340). */
+const WAY: Record<FeedPort["way"], string> = {
+  in: "ui-ship-scheme-way-in",
+  out: "ui-ship-scheme-way-out",
+  vent: "ui-ship-scheme-way-vent",
+};
 
 function Port({
   vessels,
@@ -116,10 +123,10 @@ function Port({
   return (
     <div className="feed-port">
       <p>
-        <b>{goodsName(names, machine.goods)}</b> · {machine.node_name} ·{" "}
+        <b>{goodsName(names, machine.goods)}</b> · {machine.node_name} · {t(WAY[port.way])} ·{" "}
         <span className="note">{port.liquids.map((one) => goodsName(names, one)).join(", ")}</span>
         {any ? (
-          <span className="note"> · {t("ui-ship-feed-nothing")}</span>
+          <span className="note"> · {t("ui-ship-scheme-no-line", { way: port.way })}</span>
         ) : (
           <>
             {" "}
@@ -144,12 +151,12 @@ function Port({
                     disabled={busy}
                     onChange={() => void toggle(one.item)}
                   />{" "}
-                  {goodsName(names, one.goods)} · {one.node_name} ·{" "}
+                  {one.name ?? goodsName(names, one.goods)} · {one.node_name} ·{" "}
                   <span className="note">
                     {one.holds.length === 0
                       ? t("ui-ship-feed-empty")
                       : one.holds
-                          .map((held) => `${goodsName(names, held.goods)} ${held.amount.toFixed(0)}`)
+                          .map((held) => `${goodsName(names, held.goods)} ${spelt(held.amount)}`)
                           .join(", ")}
                   </span>
                 </label>

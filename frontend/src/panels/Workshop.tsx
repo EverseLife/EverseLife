@@ -43,6 +43,7 @@ import { t } from "../locale";
 import { TierPick } from "../Tier";
 import { stockOf } from "../tiers";
 import { NumberField } from "../NumberField";
+import { Outlets } from "./Outlets";
 
 type Props = {
   look: Look;
@@ -383,6 +384,9 @@ export function Workshop({ look, machine }: Omit<Props, "busy" | "act">) {
                     .map(([name, qty]) => `${goodsName(names, name)} ${tally(name, qty)}`)
                     .join(", ")}
                 </p>
+                {/* Where the liquids pour and the room there -- shown, not
+                    reserved (D-340). */}
+                <Outlets output={forecast.output} units={forecast.units} outlets={forecast.outlets} />
               </>
             ) : refusal ? (
               <p className="reason">{refusal}</p>
@@ -401,6 +405,12 @@ export function Workshop({ look, machine }: Omit<Props, "busy" | "act">) {
                 {" "}
                 {t("ui-workshop-running", { goods: goodsName(names, running.output) })}
               </span>
+            )}
+            {/* The running batch's outlet as it is now: a tank filled by
+                somebody else meanwhile shows here before the finish spills
+                (D-340). */}
+            {running && (
+              <Outlets output={running.output} units={running.units} outlets={running.outlets} />
             )}
           </div>
         </>

@@ -4,10 +4,11 @@
 """The lines: which vessels a machine drinks from and pours into (D-288).
 
 A machine that eats or gives a liquid has **ports** -- what its recipe or its
-class takes and gives: fuel for an engine, oxygen for the life support -- and
-a line is one vessel standing on one port, in a chosen order. A port with no
-line at all takes any suitable vessel of the hull; the rows here are the
-owner's narrowing of that, never a requirement.
+class takes and gives: fuel for an engine, oxygen for the life support, water
+in and oxygen and hydrogen out for the electrolyser (D-340) -- and a line is
+one vessel standing on one port, in a chosen order. A port with no line at
+all reaches nothing (D-288 as amended 2026-09-04): the rows here are the whole
+of what a port reaches, never a narrowing of some default.
 
 Keyed by the machine and the vessel **items**, not by rooms: the hull is one
 building (D-288), and a line reaches across every compartment of it. A
@@ -43,12 +44,35 @@ class FeedLine(Base):
         ForeignKey("item.id", ondelete="CASCADE"), nullable=False
     )
     #: The port's name on the machine (`ship.lines.Port.name`): `fuel`,
-    #: `oxygen`. A key of the schema, never a word of the locale.
+    #: `oxygen`, `water`, `hydrogen`, `lube`. A key of the schema, never a
+    #: word of the locale.
     port: Mapped[str] = mapped_column(nullable=False)
     vessel_item_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("item.id", ondelete="CASCADE"), nullable=False
     )
     #: The order the port drinks or fills in, counted from nought.
     rank: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    created_at: Mapped[datetime] = created_column()
+
+
+class VesselName(Base):
+    """The name the owner gave a vessel on the lines (D-288, D-340):
+    «Кислород, левый борт» in place of «Бак 2».
+
+    A table of its own rather than a column on `item`: a name is plumbing, not
+    the thing's identity -- `item` rows are copied, split and folded by every
+    stack path in the world, and none of them should have to know about it.
+    Keyed by the vessel, so the name stays with the tank taken down and put
+    back, exactly as its lines do, and goes with it when it is dismantled.
+    """
+
+    __tablename__ = "vessel_name"
+
+    vessel_item_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("item.id", ondelete="CASCADE"), primary_key=True
+    )
+    #: The owner's own words: the engine makes nothing of them.
+    name: Mapped[str] = mapped_column(nullable=False)
 
     created_at: Mapped[datetime] = created_column()

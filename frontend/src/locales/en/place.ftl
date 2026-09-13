@@ -283,6 +283,7 @@ ui-stand-rig-in-hands = in hand: set it on a vein
 ui-stand-rig-about = The rig window: set it on a vein and drill deep.
 ui-stand-console-about = The bridge window: this ship's flight map, lift to orbit, course and landing.
 ui-stand-console-aground = works only aboard a ship
+ui-stand-scheme-about = The ship scheme window: which vessels the machines draw from and pour into — the lines are drawn and the vessels named here.
 ui-stand-ground-console-about = The ground console window: your ships wherever they are — flight map, lift, course, landing and turnaround.
 ui-stand-ship = Ship
 ui-stand-ship-about = The ship window: thrust against mass, oxygen, name and blueprint — the berth layout.

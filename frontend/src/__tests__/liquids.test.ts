@@ -6,7 +6,19 @@
 import { describe, expect, it } from "vitest";
 
 import type { RecipeBook, Thing } from "../api";
-import { capacityOf, carried, fill, isLiquid, isVessel, tiersOf } from "../liquids";
+import {
+  capacityOf,
+  carried,
+  fill,
+  isLiquid,
+  isVent,
+  isVessel,
+  outletNeed,
+  outletShort,
+  tiersOf,
+  ventIn,
+  ventWay,
+} from "../liquids";
 import { Words, forget, learn } from "../locale";
 import { cityWord, planetName } from "../planets";
 
@@ -131,5 +143,49 @@ describe("how much of a liquid the hands hold", () => {
 
   it("is nought where the hands carry no vessel at all", () => {
     expect(carried([{ id: "x", key: "iron_ore", goods: "iron_ore", tier: "good", amount: 5 } as unknown as Thing], "water")).toBe(0);
+  });
+});
+
+describe("vent gas (D-340)", () => {
+  const gas = {
+    ...book,
+    liquid: ["water", "hydrogen", "oxygen"],
+    vent: ["hydrogen"],
+    classes: { flare: ["flare_stack"] },
+    recipes: [
+      ...book.recipes,
+      { name: "Кислород", id: "oxygen", kind: "material", roles: false, food: false, inputs: ["water"], amounts: {}, byproduct: { hydrogen: 2 } },
+    ],
+  } as RecipeBook;
+  const stack = (goods: string) => ({ id: goods, key: goods, goods, amount: 5, tier: "common", mass: 1 }) as unknown as Thing;
+
+  it("knows a vent gas by the vault's flag, and a vessel holding only that", () => {
+    expect(isVent(gas, "hydrogen")).toBe(true);
+    expect(isVent(gas, "oxygen")).toBe(false);
+    expect(ventIn(gas, [stack("hydrogen")])).toBe("hydrogen");
+    expect(ventIn(gas, [stack("oxygen")])).toBeNull();
+    expect(ventIn(gas, [])).toBeNull();
+  });
+
+  //: The engine's `vent.sink`, read off what `look` already carries (D-225).
+  it("lets it out where there is no air, burns it in a flare on the ground, and nowhere else", () => {
+    const air = { units: 1, per_hour: 0, at: "", where: "suit", suit: true } as never;
+    const ground = { features: [] } as never;
+    const aboard = { features: ["aboard"] } as never;
+    const flare = [{ id: "f", goods: "flare_stack", condition: 100, busy: false, mine: false }];
+    expect(ventWay(gas, { air, node: aboard, bench: [] })).toBe("void");
+    expect(ventWay(gas, { node: ground, bench: flare })).toBe("flare");
+    expect(ventWay(gas, { node: ground, bench: [] })).toBeNull();
+    expect(ventWay(gas, { node: aboard, bench: flare })).toBeNull();
+  });
+
+  it("counts what a batch gives to each outlet and warns when the room falls short", () => {
+    const oxygen = { goods: "oxygen", where: "reach", room: 3 } as const;
+    const hydrogen = { goods: "hydrogen", where: "line", room: 10 } as const;
+    expect(outletNeed(gas, "oxygen", 4, oxygen)).toBe(4);
+    expect(outletNeed(gas, "oxygen", 4, hydrogen)).toBe(8);
+    expect(outletShort(gas, "oxygen", 4, oxygen)).toBe(true);
+    expect(outletShort(gas, "oxygen", 4, hydrogen)).toBe(false);
+    expect(outletShort(gas, "oxygen", 4, { goods: "hydrogen", where: "flare" })).toBe(false);
   });
 });

@@ -19,6 +19,7 @@ from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import events, stock
 from src.engine import ship as vessels
+from src.engine.oxygen import garden
 from src.engine.oxygen._base import (
     _EPS,
     ASPHYXIA,
@@ -351,16 +352,28 @@ async def _breathe(
     locked.air_at = now
 
     crew = await vessels.crew_of(session, locked)
+    #: The hold, once, where something will read it: which systems and bays
+    #: stand there and which vessels their lines reach. An empty hull with no
+    #: beds is most of a fleet under way and costs one small query, not the
+    #: whole hold. It is a **reading**; the write-off below relocks its stacks
+    #: by id under `FOR UPDATE`, and a pour locks the vessels it fills, so
+    #: nothing is decided from it.
+    hold = (
+        await lines.hold_of(session, locked)
+        if crew or await garden.has_bays(session, locked)
+        else []
+    )
+
+    #: The beds breathe first (D-340): what they gave this stretch is air the
+    #: crew may breathe in it. They breathe with nobody aboard as well -- a
+    #: culture grows whoever watches it.
+    await garden.breathe_out(session, constants, catalog, locked, hold, hours)
+
     if not crew:
         #: Nobody aboard breathes nothing, and the life support has no reason
         #: to run: an empty hull in flight arrives with its tanks as it left.
         await session.flush()
         return 0.0, 0
-
-    #: The hold, once: which systems stand there and which vessels their
-    #: lines reach. It is a **reading**; the write-off below relocks its
-    #: stacks by id under `FOR UPDATE`, so nothing is decided from it.
-    hold = await lines.hold_of(session, locked)
 
     need = hull_draw(constants, len(crew)) * hours
     drawn = 0.0

@@ -11,16 +11,78 @@
  * reads them; no name is compared here.
  */
 
-import type { RecipeBook, Thing } from "./api";
+import type { Look, Outlet, RecipeBook, Thing } from "./api";
 import { weightOf } from "./arrange";
+import { classOf } from "./classes";
 import { t } from "./locale";
 import { goodsName, type Names } from "./names";
 
 /** The value of `holds` that makes a storage a vessel (the property id, D-251). */
 const LIQUID = "liquid";
 
+/** The flare stack as a thing class (D-215, D-340): the engine finds one by it. */
+const FLARE = "flare";
+
+/** The node feature that marks a compartment aboard (D-230). */
+const ABOARD = "aboard";
+
 export function isLiquid(book: RecipeBook | null, goods: string): boolean {
   return (book?.liquid ?? []).includes(book?.synonyms?.[goods] ?? goods);
+}
+
+/** Whether the thing is a vent gas (D-340): the vault's `vent`, never a name. */
+export function isVent(book: RecipeBook | null, goods: string): boolean {
+  return (book?.vent ?? []).includes(book?.synonyms?.[goods] ?? goods);
+}
+
+/**
+ * Where a vessel of vent gas may be emptied from here, if anywhere (D-340):
+ * `void` where there is no air outside, `flare` on the ground under a sky with
+ * a flare stack standing in the node, `null` otherwise -- a hull under a sky
+ * has no flare. The engine's rule (`engine.vent.sink`), read off what `look`
+ * already carries (D-225): `air` is sent exactly where there is none to
+ * breathe, the features say aboard, the bench says what stands.
+ */
+export function ventWay(
+  book: RecipeBook | null,
+  look: Pick<Look, "air" | "node" | "bench">,
+): "void" | "flare" | null {
+  if (look.air) return "void";
+  if ((look.node?.features ?? []).includes(ABOARD)) return null;
+  return (look.bench ?? []).some((one) => classOf(book, one.goods) === FLARE) ? "flare" : null;
+}
+
+/** The vent gas a vessel holds, if that is all it holds: what "empty it" would let go. */
+export function ventIn(book: RecipeBook | null, inside: readonly Thing[]): string | null {
+  const first = inside[0];
+  if (first === undefined) return null;
+  return inside.every((one) => isVent(book, one.key ?? one.goods)) ? (first.key ?? first.goods) : null;
+}
+
+/**
+ * How much of an outlet's liquid a batch of `units` gives (D-340): the
+ * output itself one for one, a byproduct by the recipe's `byproduct`. Counted
+ * here rather than sent: the batch's size and the book already say it (D-225).
+ */
+export function outletNeed(
+  book: RecipeBook | null,
+  output: string,
+  units: number,
+  outlet: Outlet,
+): number {
+  if (outlet.goods === output) return units;
+  const recipe = (book?.recipes ?? []).find((one) => (one.id ?? one.name) === output);
+  return units * (recipe?.byproduct?.[outlet.goods] ?? 0);
+}
+
+/** Whether the outlet's room falls short of what the batch gives: the surplus will spill. */
+export function outletShort(
+  book: RecipeBook | null,
+  output: string,
+  units: number,
+  outlet: Outlet,
+): boolean {
+  return outlet.room !== undefined && outlet.room + 1e-9 < outletNeed(book, output, units, outlet);
 }
 
 export function isVessel(book: RecipeBook | null, goods: string): boolean {
