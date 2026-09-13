@@ -556,6 +556,85 @@ async def test_a_rig_burnt_under_the_place_door_is_refused_in_words(
     assert await session.scalar(select(Item.id).where(Item.id == machine_id)) is None
 
 
+async def test_a_rig_stood_up_in_a_field_the_fire_takes_waits_at_its_vein(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The place door took the machine and wrote the row pointing at the vein
+    only at the flush, where the key an insert checks holds the vein `FOR KEY
+    SHARE` -- a first placement, or a move onto another vein.
+    An eruption holds the field's veins `FOR UPDATE` and then reaches for what
+    lies there, the machine among it: the door held the machine and waited on
+    the vein, the eruption held the vein and waited on the machine. The door
+    takes the vein before the machine (the `rig` module's lock order).
+
+    Pyroxis, where a rig brought out lies in a field an eruption may shake.
+    """
+    from pyroxis_kit import _surface
+    from src.engine import plates, rig
+    from src.models.job import Job, JobKind
+    from src.models.world import Node, Vein
+
+    _, fields = await _surface(session, count=2)
+    field = fields[0]
+    vein = await world.create_vein(session, field, ORE, richness=60, remaining=100_000)
+    owner = await world.create_identity(session, f"Промышленник-{uuid.uuid4().hex[:6]}")
+    body = await world.print_body(session, owner, field)
+    #: Lying by the vein and never stood: the first placement inserts the row.
+    machine = await world.grant_item(
+        session,
+        await world.node_container(session, field),
+        "drilling_rig",
+        quality=70,
+        origin="тест",
+        installed=False,
+    )
+    field_id, body_id, machine_id, vein_id = field.id, body.id, machine.id, vein.id
+    await session.commit()
+    held = asyncio.Event()
+    waited: list[bool] = []
+    tasks: dict[str, asyncio.Future] = {}
+
+    async def stand() -> None:
+        async with factory() as db, db.begin():
+            refresh = db.refresh
+
+            async def machine_held(instance, *args, **kwargs):
+                #: The machine is the door's from here: the eruption is let in.
+                await refresh(instance, *args, **kwargs)
+                if isinstance(instance, Item) and not held.is_set():
+                    held.set()
+                    waited.append(await _until_blocked_by(factory, db, unless=tasks["fire"]))
+
+            monkeypatch.setattr(db, "refresh", machine_held)
+            own_body = await db.get(Body, body_id)
+            own_machine = await db.get(Item, machine_id)
+            own_vein = await db.get(Vein, vein_id)
+            await rig.place(db, own_body, own_machine, own_vein)
+
+    async def fire() -> None:
+        await asyncio.wait_for(held.wait(), _HUNG)
+        async with factory() as db, db.begin():
+            place = await db.get(Node, field_id)
+            job = Job(
+                kind=JobKind.PLATES_ERUPT.value,
+                run_at=datetime.now(UTC),
+                payload={"nodes": [str(place.id)]},
+            )
+            await plates.erupted(db, job)
+
+    tasks["stand"] = asyncio.ensure_future(stand())
+    tasks["fire"] = asyncio.ensure_future(fire())
+    outcome = await asyncio.gather(tasks["stand"], tasks["fire"], return_exceptions=True)
+
+    assert outcome == [None, None], outcome
+    assert waited == [True], "извержение не встало за дверью, которая держит жилу"
+    assert await session.scalar(select(Item.id).where(Item.id == machine_id)) is None, (
+        "поставленная машина сгорела после двери"
+    )
+
+
 async def test_two_rigs_on_one_vein_bank_only_what_the_ground_gave(
     session: AsyncSession,
     factory: async_sessionmaker[AsyncSession],

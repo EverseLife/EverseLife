@@ -22,6 +22,7 @@ import asyncio
 import uuid
 from collections.abc import Awaitable, Callable
 from datetime import timedelta
+from decimal import Decimal
 
 import pytest
 from sqlalchemy import select
@@ -32,13 +33,14 @@ from automat_kit import IRON, LUBRICANT, NAILS, _factory_floor, _learn, _until_b
 from lines_kit import CYLINDER, FLARE, HYDROGEN
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import agro, automat, craft, liquid, rig, stock, storage, vent, wear, world
+from src.engine import agro, automat, craft, estate, liquid, rig, stock, storage, vent, wear, world
 from src.engine.errors import Refusal
 from src.engine.plates.fire import _burn
 from src.engine.plates.fire import _consume as burn
 from src.models.agro import FieldAutomat
 from src.models.automat import Automat as AutomatRow
 from src.models.craft import CraftBatch
+from src.models.estate import Building
 from src.models.event import Event, EventKind
 from src.models.identity import Body
 from src.models.inventory import Container, Item
@@ -624,6 +626,80 @@ async def test_the_fire_does_not_take_a_sack_before_a_canister_the_tick_holds(
 
     assert made > 0, "the machine's advance died waiting on the fire"
     assert burnt > 0
+    async with factory() as db:
+        worked = await db.get(AutomatRow, row_id)
+        assert worked is not None and worked.counted_at == moment
+
+
+async def test_a_falling_house_does_not_take_a_sack_before_a_canister_the_tick_holds(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    constants: Constants,
+    catalog: Catalog,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A house falling takes what it buries the way the fire takes a field: the
+    vessels first, then the rest (`estate.upkeep._bury`).
+
+    The same factory floor under a roof one day from nothing. The fall took the
+    iron first, in one id order over the floor, and then the canister the tick
+    held, while the tick waited on the iron.
+    """
+    node, yard, identity, body, _ = await _factory_floor(session, constants)
+    house = Building(node_id=node.id, area_m2=40)
+    session.add(house)
+    await session.flush()
+    house.condition = Decimal(str(estate.decay_per_day(constants, house.kind)))
+    iron = await _made_until(
+        session,
+        lambda: world.grant_item(session, yard, IRON, amount=1000, quality=60, origin="test"),
+        lambda made: made.id.int < 1 << 127,
+    )
+    can = await _made_until(
+        session,
+        lambda: world.grant_item(session, yard, CANISTER, quality=60, origin="test"),
+        lambda made: made.id > iron.id,
+    )
+    machine = await _made_until(
+        session,
+        lambda: world.grant_item(session, yard, "auto_station", quality=70, origin="test"),
+        lambda made: made.id > iron.id,
+    )
+    inside = await storage.inside(session, can)
+    await world.grant_item(session, inside, LUBRICANT, amount=100, quality=55, origin="test")
+    await _learn(session, identity, NAILS)
+    row = await automat.program(session, constants, catalog, body, machine, NAILS)
+    row_id = row.id
+    moment = row.counted_at + timedelta(hours=1)
+    await session.commit()
+
+    held = asyncio.Event()
+    locked = liquid.lock_vessels
+
+    async def holding(db: AsyncSession, vessels):
+        rows = await locked(db, vessels)
+        if not held.is_set():
+            #: The tick holds the floor's canister; the fall comes only now.
+            held.set()
+            await _until_blocked_by(factory, db)
+        return rows
+
+    monkeypatch.setattr(liquid, "lock_vessels", holding)
+
+    async def tick() -> float:
+        async with factory() as db, db.begin():
+            return await automat.tick_automats(db, constants, now=moment)
+
+    async def fall() -> int:
+        await held.wait()
+        async with factory() as db, db.begin():
+            _, fallen = await estate.decay(db, constants)
+            return fallen
+
+    made, fallen = await asyncio.gather(tick(), fall())
+
+    assert made > 0, "the machine's advance died waiting on the fall"
+    assert fallen == 1
     async with factory() as db:
         worked = await db.get(AutomatRow, row_id)
         assert worked is not None and worked.counted_at == moment

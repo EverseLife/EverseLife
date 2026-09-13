@@ -9,10 +9,11 @@ Split out of `engine/estate.py` along its sections (review 2026-08-23, wave 3).
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import ColumnElement, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants, current, current_catalog
@@ -351,33 +352,31 @@ async def _bury(
     in a house proof against its collapse, losing neither its slot nor its use.
     """
     catalog = current_catalog()
-    #: **Locked in one statement, in id order, and reread** -- the way the fire
-    #: takes a field (`plates.fire._burn`) and the rig tick takes a machine with
-    #: its coal (`rig.advance`). Deleted one by one as the walk below reaches
-    #: them, the rows were taken in the order the heap happened to hold them,
-    #: and a tick holding the machine while it waited on the coal the fall had
-    #: already taken was a deadlock. The reread is the fire's too: a sack
-    #: carried out while the fall waited is not in the store any more, and must
-    #: not be deleted out of the hands that took it.
+    #: **Locked before a thing is deleted, and reread** -- the way the fire
+    #: takes a field (`plates.fire._burn`): the vessels first, then the rest,
+    #: each in id order. Deleted one by one as the walk below reaches them, the
+    #: rows were taken in the order the heap happened to hold them, and a rig
+    #: pass holding the machine while it waited on the coal the fall had
+    #: already taken was a deadlock; one id order over all of them holds a sack
+    #: while it waits for a canister the automats' tick holds, the tick waiting
+    #: on that sack (`automat.run`). The reread is the fire's too: a sack carried
+    #: out while the fall waited is not in the store any more, and must not be
+    #: deleted out of the hands that took it.
+    vessels = sorted(key for key in catalog.recipes.names() if storage.is_vessel(catalog, key))
+    here = Item.container_id == store.id
     things = [
         thing
         for thing in (
-            (
-                await session.execute(
-                    select(Item)
-                    .where(Item.container_id == store.id)
-                    .order_by(Item.id)
-                    .with_for_update()
-                    .execution_options(populate_existing=True)
-                )
-            )
-            .scalars()
-            .all()
+            *await _locked(session, here, Item.type_key.in_(vessels)),
+            *await _locked(session, here, Item.type_key.not_in(vessels)),
         )
-        if not filtered
-        or not thing.outdoors
-        or _equipment(catalog, thing.type_key)
-        or storage.is_storage(catalog, thing.type_key)
+        if thing.container_id == store.id
+        and (
+            not filtered
+            or not thing.outdoors
+            or _equipment(catalog, thing.type_key)
+            or storage.is_storage(catalog, thing.type_key)
+        )
     ]
     for thing in things:
         lost[thing.type_key] = lost.get(thing.type_key, 0.0) + amount_float(thing.amount)
@@ -397,25 +396,35 @@ async def _bury(
         )
         for box in inside:
             #: The same lock and the same reread, inside the chest.
-            stored = (
-                (
-                    await session.execute(
-                        select(Item)
-                        .where(Item.container_id == box.id)
-                        .order_by(Item.id)
-                        .with_for_update()
-                        .execution_options(populate_existing=True)
-                    )
-                )
-                .scalars()
-                .all()
-            )
+            stored = await _locked(session, Item.container_id == box.id)
             for held in stored:
                 lost[held.type_key] = lost.get(held.type_key, 0.0) + amount_float(held.amount)
                 await session.delete(held)
+            #: What lay in the box goes to the database before the box does, as
+            #: the fire does it (`plates.fire._consume`): flushed together, the
+            #: delete of the box went first and the key from what lay in it
+            #: refused it -- and the day's whole step with it.
+            await session.flush()
             await session.delete(box)
         await session.delete(thing)
     await session.flush()
+
+
+async def _locked(session: AsyncSession, *where: ColumnElement[bool]) -> Sequence[Item]:
+    """The things matching `where`, locked in id order and reread under the lock."""
+    return (
+        (
+            await session.execute(
+                select(Item)
+                .where(*where)
+                .order_by(Item.id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+        )
+        .scalars()
+        .all()
+    )
 
 
 async def collapse(session: AsyncSession, node: Node, house: Building) -> None:
@@ -519,6 +528,12 @@ async def decay(session: AsyncSession, constants: Constants) -> tuple[int, int]:
             fallen.append(house)
     await session.flush()
 
+    #: What this still leaves to the worker's retry: the houses fall one plot
+    #: after another in one transaction, each taking its own floor's things,
+    #: while the rig tick holds the machines and fuel of every rig yard in one
+    #: id order (`rig._hold_the_world`) and the automats take a yard at a time.
+    #: Two houses falling on one day over two such yards, reached the other
+    #: way round, are a deadlock and the day's step is replayed.
     for house in fallen:
         node = await session.get(Node, house.node_id)
         if node is None:  # pragma: no cover -- a building without a node is a defect

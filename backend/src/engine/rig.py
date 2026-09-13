@@ -40,20 +40,19 @@ The rig row, then its vein, then the machine and the fuel of its yard in one
 statement by id (`_held`), and the node last and unasked: the second write of
 the row re-checks its keys and holds the node `FOR KEY SHARE`, which is why
 the plot's holders take it `FOR NO KEY UPDATE` (`estate.hold_ground`). It is
-the others' order: an eruption takes a field's veins and then all that lies
-in it by id (`plates.clock`), a falling house the plot and then what it
-buries by id (`estate.upkeep._bury`). `tick_rigs` holds every rig of the
+the order of the fire and of a falling house: an eruption takes a field's
+veins and then what lies in it (`plates.clock`), a fall the plot and then
+what it buries (`estate.upkeep._bury`). `tick_rigs` holds every rig of the
 world in one transaction, so it takes all the veins and then all the machines
 and fuel before the first pass (`_hold_the_world`): one rig at a time, the
 order held within a rig and not across two.
 
 The doors keep it. `empty_hopper` takes the row, the vessels a liquid pours
 into (`_hold_vessels`) and settles through `advance`; `station.take` takes
-the node, the row (`hopper_left`) and then
-the machine; `place` takes the row and then the machine, never the machine
-first. A first placement has no row, so the machine is its first lock; a rig
-stood up and taken down again between that empty select and the lock trips
-the unique `rig.item_id` rather than making a second row.
+the node, the row (`hopper_left`) and then the machine; `place` the row, the
+vein (`FOR KEY SHARE`) and then the machine. A first placement has no row to
+lock; a rig stood up and taken down again between that empty select and the
+machine's lock trips the unique `rig.item_id` rather than making a second row.
 
 ## What is not here yet
 
@@ -169,11 +168,18 @@ async def place(
     #: row is the enterprise, and it travels with the machine rather than with
     #: the vein: the hopper, the stamp and the slivers go on where they
     #: stopped. Taken under the transaction here, in the tick's own order
-    #: (row, then the machine's own row just below), so two hands standing one
-    #: rig do not both re-point it.
+    #: (row, then the vein and the machine just below), so two hands standing
+    #: one rig do not both re-point it.
     exists = (
         await session.execute(select(RigRow).where(RigRow.item_id == item.id).with_for_update())
     ).scalar_one_or_none()
+    #: The vein before the machine (the lock order): writing the row points it
+    #: at the vein, and the key it checks holds the vein `FOR KEY SHARE` at the
+    #: flush -- taken there, after the machine, it crossed an eruption holding
+    #: the field's veins and reaching for everything lying in it.
+    await session.execute(
+        select(Vein.id).where(Vein.id == vein.id).with_for_update(read=True, key_share=True)
+    )
     #: Then the machine's own row, after the rig's (the lock order). The
     #: command read free whether it is in the hands or lying here, and a pick
     #: or a fire committed since shows only under this lock: written from that
