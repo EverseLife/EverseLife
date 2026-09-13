@@ -298,6 +298,21 @@ async def daily_gear_wear(session: AsyncSession, constants: Constants, catalog: 
                 actor_identity_id=identity_id,
             ):
                 gone += 1
+            elif wears_out(constants, one, per_day, environment=where) and await gear.is_worn(
+                session, one
+            ):
+                #: Tomorrow's wear finishes it, and the end of a worn thing is
+                #: not always harmless: a suit outside is the body's breath, a
+                #: frame is the load it holds up (D-306). Said the day before,
+                #: by the very measure that will write it off -- where the body
+                #: stands today -- and only of what is worn (D-343).
+                await events.record(
+                    session,
+                    EventKind.GEAR_WEARING_OUT,
+                    actor_identity_id=identity_id,
+                    item_id=str(one.id),
+                    type_key=one.type_key,
+                )
     return gone
 
 

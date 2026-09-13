@@ -65,6 +65,11 @@ async def equip(
     if item.id in await world.taken_apart(session, [item]):
         raise Unmade(key="gear-taken-apart", goods=item.type_key)
 
+    #: A suit does not give its slot away where it is the only breath (D-343).
+    #: The door takes the body's row, so the slot read below is read under it.
+    from src.engine import oxygen  # noqa: PLC0415 -- lazy: breaks oxygen -> gear (what is worn)
+
+    await oxygen.require_suit_kept(session, catalog, body, slot, putting_on=item)
     over = await _over(session, constants, catalog, body)
     previous_ = (
         await session.execute(
@@ -121,6 +126,12 @@ async def unequip(
     through. What no longer fits falls underfoot, heaviest first
     (`overload.shed`, D-306).
     """
+    #: Nor does it come off there (D-343): the step out asks for a suit, and
+    #: the rock must not be the place it is taken off. First, because the door
+    #: takes the body's row, and the slot below is read under it.
+    from src.engine import oxygen  # noqa: PLC0415 -- lazy: breaks oxygen -> gear (what is worn)
+
+    await oxygen.require_suit_kept(session, catalog, body, slot)
     line = (
         await session.execute(
             select(Equipped).where(Equipped.body_id == body.id, Equipped.slot == slot)

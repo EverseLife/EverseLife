@@ -1,9 +1,10 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Nurlan Urazkulov
 
-"""The breathing itself: the step out that demands air, the body's hours
-settled from what it carries, the hull's hours breathed off the life
-support's line -- and the deaths when either runs dry.
+"""The breathing itself: the step out that demands air, the suit that does not
+come off where it is the only breath, the body's hours settled from what it
+carries, the hull's hours breathed off the life support's line -- and the
+deaths when either runs dry.
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import events, stock
+from src.engine import events, gear, stock, travel
 from src.engine import ship as vessels
 from src.engine.oxygen import garden
 from src.engine.oxygen._base import (
@@ -37,6 +38,7 @@ from src.engine.oxygen.supply import (
     carried,
     cylinders,
     hull_draw,
+    is_suit,
     off_line,
     reserve,
     suited,
@@ -87,6 +89,12 @@ async def require_air(
     ship = await vessels.of_node(session, target)
     if ship is not None and await reserve(session, constants, catalog, ship) > _EPS:
         return
+    #: The body's row before the suit is asked for (D-343): taking the suit off
+    #: asks where the body is under the same lock (`require_suit_kept`). Without
+    #: it a step that saw the suit and an undressing that saw the body still
+    #: aboard both pass, and a bare body walks out onto the rock. A command has
+    #: taken it already (`_alive`); a door does not lean on its caller for that.
+    await _lock(session, body)
     if not await suited(session, catalog, body):
         raise NoAir(key="oxygen-no-suit", node=target.name, suit=SUIT)
     have = await carried(session, body)
@@ -95,6 +103,65 @@ async def require_air(
         raise NoAir(key="oxygen-tanks-empty", node=target.name)
     if have + _EPS < need:
         raise NoAir(key="oxygen-not-enough", node=target.name, need=need, have=have)
+
+
+async def require_suit_kept(
+    session: AsyncSession,
+    catalog: Catalog,
+    body: Body,
+    slot: str,
+    *,
+    putting_on: Item | None = None,
+) -> None:
+    """Refuse the act that leaves a body bare where only its suit breathes for it (D-343).
+
+    Taking the suit off, or putting on in its slot something that pushes it
+    off, is the one way to lose the body's connection to its air (D-234) that
+    no reading counts down: the suit is there, and then it is not. So it is a
+    door, like the step out, and it refuses before the act -- the tick would
+    otherwise find a bare body a minute later and kill it a minute after that.
+    The air itself is not guarded here: it is a quantity, the bar counts it
+    down, and a refusal at nought would be dodged by a thousandth left behind.
+
+    A suit for a suit keeps the connection and passes. Aboard is the hull's
+    air and needs no suit. On the road both ends are asked, and the refusal
+    names the road: the road is outside, and a body's node changes only when
+    it arrives -- stepping off a hull, the body still stands aboard.
+
+    **The body's row first, whatever the answer**, and what is worn read
+    under it. Every change of dress comes through here, so dressing
+    serialises with dressing and with the step (`require_air` takes the same
+    row before it asks for the suit). A command holds it already (`_alive`),
+    and the door does not lean on that. A door that decided on a reading
+    taken before the lock -- or let a change it did not mind through without
+    one -- could see a coat in the slot, wait, and then take off the suit a
+    second tab had put on meanwhile.
+    """
+    locked = await _lock(session, body)
+    if putting_on is not None and is_suit(catalog, putting_on.type_key):
+        return
+    worn = await gear.equipped(session, locked)
+    leaving = worn.get(slot)
+    if leaving is None or not is_suit(catalog, leaving.type_key):
+        return
+    if any(is_suit(catalog, thing.type_key) for held, thing in worn.items() if held != slot):
+        return
+    here = await session.get(Node, locked.node_id)
+    going = await travel.current(session, locked)
+    if going is not None:
+        there = await session.get(Node, going.to_node_id)
+        if there is not None and (await _outside(session, here) or await _outside(session, there)):
+            raise NoAir(key="oxygen-suit-stays-on-road", node=there.name, suit=leaving.type_key)
+        return
+    if here is not None and await _outside(session, here):
+        raise NoAir(key="oxygen-suit-stays-on", node=here.name, suit=leaving.type_key)
+
+
+async def _outside(session: AsyncSession, place: Node | None) -> bool:
+    """Whether a body here breathes through its suit: no air, and not aboard."""
+    if place is None or vessels.is_aboard(place):
+        return False
+    return not await free_air(session, place)
 
 
 # --- the body's own breathing --------------------------------------------------
@@ -285,12 +352,27 @@ async def _choked(
     tick that lands a second after the last unit is spent must not be
     indistinguishable from suffocation. The next stretch begins with nothing,
     and that one ends the body.
+
+    Decided by the settling alone (D-343): uncovered hours are a body with
+    nothing to breathe, whether the cylinders ran dry or nothing connects the
+    body to them. This used to ask the cylinders once more, and a bare body
+    with air in the bag was neither charged nor choked -- it breathed nothing,
+    for nothing and for ever, the opposite of what D-234 says.
     """
-    if await carried(session, body) > _EPS:
-        return False
     if body.choking_since is None:
         body.choking_since = now
         await session.flush()
+        #: Said once, when the countdown starts -- the body's own
+        #: `ship.airless` (D-343). The grace is one settling, a minute, so this
+        #: rescues nobody who is away: it is the journal's why. The countdown
+        #: itself is the bar's, and a death outside was the one death whose
+        #: cause the journal never named.
+        await events.record(
+            session,
+            EventKind.BODY_AIRLESS,
+            actor_identity_id=body.identity_id,
+            node_id=body.node_id,
+        )
         return False
 
     from src.engine import death  # noqa: PLC0415 -- lazy: breaks the cycle with death

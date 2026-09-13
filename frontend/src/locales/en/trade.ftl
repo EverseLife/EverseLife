@@ -145,6 +145,8 @@ ui-inventory-gear-rule = What is worn stands here rather than in the list of thi
 ui-inventory-unequip = take off
 # Taking a frame off lowers the carry limit, and the excess lies down underfoot (D-306).
 ui-inventory-unequip-drops = take the frame off: whatever does not fit in the hands will lie underfoot
+# Where there is nothing to breathe, the suit neither comes off nor gives way to a non-suit (D-343).
+ui-inventory-suit-stays-on = nothing to breathe here: the suit neither comes off nor gives way to anything but another suit — change clothes aboard or where there is air
 ui-inventory-group = group
 ui-inventory-sort = sort
 ui-inventory-desc = descending — click for ascending

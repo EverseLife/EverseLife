@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 // Copyright (C) 2026 Nurlan Urazkulov
 
-import type { RecipeBook } from "./api";
+import type { Air, RecipeBook, Thing } from "./api";
 
 /**
  * Thing classes on the client side (D-215).
@@ -21,6 +21,12 @@ import type { RecipeBook } from "./api";
  * A vault word written twice is a vault word that will be renamed once.
  */
 export const TERMINAL = "terminal";
+
+/**
+ * The class that connects a body to a cylinder (D-234) -- the engine's
+ * `oxygen.SUIT`, and a class for the same reason the terminal is one.
+ */
+export const SUIT = "spacesuit";
 
 /**
  * Concrete item names of a class. A word the catalog does not know as a
@@ -68,6 +74,32 @@ export function recipeKind(book: RecipeBook | null, name: string): string | null
 export function lifts(book: RecipeBook | null, name: string): boolean {
   const bonuses = book?.constants?.["inventory.exo_bonus"] as Record<string, number> | undefined;
   return Boolean(bonuses && (bonuses[name] ?? 0) > 0);
+}
+
+/**
+ * The slot whose suit stays on here (D-343), or `null`.
+ *
+ * Where there is no air and the body breathes through a worn suit, the suit
+ * neither comes off nor gives its slot to anything but another suit: the
+ * server refuses, and the window says so before the click. Read off what the
+ * look already sends -- the air reading (`where: "suit"` is outside with
+ * nothing to breathe, `suit` that one is worn) and the worn things -- so it
+ * needs no key of its own (D-225).
+ */
+export function suitSlot(
+  book: RecipeBook | null,
+  air: Air | undefined,
+  equipped: Record<string, Thing>,
+): string | null {
+  if (air?.where !== "suit" || !air.suit) return null;
+  const suits = new Set(membersOf(book, SUIT));
+  const found = Object.entries(equipped).find(([, worn]) => suits.has(worn.goods));
+  return found ? found[0] : null;
+}
+
+/** Whether putting this thing on would push the kept suit off (D-343). */
+export function pushesSuitOff(book: RecipeBook | null, kept: string | null, thing: Thing): boolean {
+  return kept !== null && thing.slot === kept && !membersOf(book, SUIT).includes(thing.goods);
 }
 
 export function isGear(book: RecipeBook | null, name: string): boolean {

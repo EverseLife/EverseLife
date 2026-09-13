@@ -45,6 +45,8 @@ class EventKind(StrEnum):
     #: Both are the body's own affair, and both make the client reread it.
     BODY_FROZE = "body.froze"
     BODY_WARMED = "body.warmed"
+    #: Nothing to breathe outside: the countdown to asphyxia has begun (D-343).
+    BODY_AIRLESS = "body.airless"
     KNOWLEDGE_LEARNED = "knowledge.learned"
 
     # property
@@ -56,6 +58,8 @@ class EventKind(StrEnum):
     # gear and carried load (D-146)
     GEAR_EQUIPPED = "gear.equipped"
     GEAR_UNEQUIPPED = "gear.unequipped"
+    #: A worn thing the next day's wear will finish: said the day before (D-343).
+    GEAR_WEARING_OUT = "gear.wearing_out"
 
     # the automat: production without the player (D-253)
     AUTOMAT_PROGRAMMED = "automat.programmed"

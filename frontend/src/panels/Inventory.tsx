@@ -34,7 +34,15 @@ import { CHEST_ANY, chestOf, grip, noDrag } from "../drag";
 import { chosen, tally } from "../amounts";
 import { labelOf, tells, weightCell } from "./inventory/rows";
 import { sections, sums } from "./inventory/sections";
-import { TERMINAL, classOf, firstOfClass, isGear, lifts } from "../classes";
+import {
+  TERMINAL,
+  classOf,
+  firstOfClass,
+  isGear,
+  lifts,
+  pushesSuitOff,
+  suitSlot,
+} from "../classes";
 import { fill, isVessel, ventIn, ventWay } from "../liquids";
 import { whoIsHere, type Person } from "../people";
 import {
@@ -115,6 +123,9 @@ export function Inventory({ look }: Props) {
   }, [session, asking?.about, look.node?.key]);
 
   const carried = look.carry;
+  //: The slot whose suit stays on (D-343): where only it breathes, neither
+  //: "take off" nor "put on" over it is offered as if it would work.
+  const kept = carried ? suitSlot(book, look.air, carried.equipped) : null;
   const chests = (look.storages ?? []).filter((chest) => chest.mine);
   //: Vessels take a pour, not a "put" (D-230): a canister goes into a chest
   //: like any thing, but what is in it goes into a tank by the hose.
@@ -196,12 +207,18 @@ export function Inventory({ look }: Props) {
                         <button
                           className="link"
                           onClick={() => act(() => session.send("gear.unequip", { slot }))}
-                          disabled={busy}
+                          disabled={busy || slot === kept}
                           /* A frame that lifts is taken off under the load it
                              was put on for (D-306): said before the click,
-                             because after it the ore is already on the floor. */
+                             because after it the ore is already on the floor.
+                             A suit where only it breathes does not come off
+                             at all (D-343). */
                           title={
-                            lifts(book, worn.goods) ? t("ui-inventory-unequip-drops") : undefined
+                            slot === kept
+                              ? t("ui-inventory-suit-stays-on")
+                              : lifts(book, worn.goods)
+                                ? t("ui-inventory-unequip-drops")
+                                : undefined
                           }
                         >
                           {t("ui-inventory-unequip")}
@@ -393,7 +410,12 @@ export function Inventory({ look }: Props) {
                             <button
                               role="menuitem"
                               onClick={() => send("gear.equip", { item: thing.id })}
-                              disabled={busy}
+                              disabled={busy || pushesSuitOff(book, kept, thing)}
+                              title={
+                                pushesSuitOff(book, kept, thing)
+                                  ? t("ui-inventory-suit-stays-on")
+                                  : undefined
+                              }
                             >
                               {t("ui-inventory-equip")}
                             </button>

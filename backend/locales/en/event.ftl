@@ -26,6 +26,12 @@ event-farm-struck = trouble on the plot
 event-agro-stalled = field automaton needs attention
 event-body-died = body died
 event-body-printed = body printed
+# Nothing to breathe outside (D-343): the countdown to asphyxia has begun --
+# the tanks are dry, or nothing connects the body to them.
+event-body-airless = body began to suffocate
+# A worn thing the next day's wear will finish (D-343). The detail after the
+# separator is the thing itself.
+event-gear-wearing_out = worn gear will not last another day
 event-mining-collapsed = cave-in at the face
 event-market-trade = trade
 event-market-order_expired = order withdrawn on expiry
