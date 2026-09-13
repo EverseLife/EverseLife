@@ -328,10 +328,23 @@ async def take(session: AsyncSession, catalog: Catalog, body: Body, item: Item) 
         raise StationError(key="station-body-off-node")
     #: The node's row first, as `place` takes it and for the same reasons.
     await estate.hold_ground(session, node)
-    #: The thing's own row after the node's -- the order `place` locks in,
-    #: because the two doors meet on the same pair. And the thing may be gone
-    #: between the look and the click: the world's ordinary answer, said in
-    #: words. The name is read first: a failed refresh leaves none.
+    #: A rig's own row next, before the thing's. The tick holds every rig row
+    #: of the world and writes the machine's wear under it (`rig.advance`), so
+    #: "rig row, then machine" is the one order the two may meet in: a
+    #: take-down that locked the machine first and waited here on a rig
+    #: mid-pass left the tick waiting on the machine, and the database killed
+    #: one of them. The node before both does not cross the tick: the tick
+    #: reaches for the node only `FOR KEY SHARE`, which the node's holder lets
+    #: through. The hopper is read now and answered below, where the refusal
+    #: belongs -- the row is this transaction's from here on, so nothing fills
+    #: it in between (D-181, D-314).
+    from src.engine import rig  # noqa: PLC0415 -- lazy: breaks station -> rig -> liquid -> station
+
+    hopper = await rig.hopper_left(session, item)
+    #: The thing's own row last -- the order `place` locks in, because the two
+    #: doors meet on the same pair. And the thing may be gone between the look
+    #: and the click: the world's ordinary answer, said in words. The name is
+    #: read first: a failed refresh leaves none.
     named = item.type_key
     try:
         await session.refresh(item, with_for_update=True)
@@ -376,9 +389,7 @@ async def take(session: AsyncSession, catalog: Catalog, body: Body, item: Item) 
     #: itself -- so twelve hours of a rig's work, 300 units and 60 kg, would
     #: ride off in the hands past the carry limit (D-146) and past the carter
     #: the hopper is there to require.
-    from src.engine import rig  # noqa: PLC0415 -- lazy: breaks station -> rig -> liquid -> station
-
-    if await rig.hopper_left(session, item) > 0:
+    if hopper > 0:
         raise NotEmpty(key="station-hopper-not-empty", goods=item.type_key)
 
     #: Taking down is a move between two budgets -- what stands pays by slots

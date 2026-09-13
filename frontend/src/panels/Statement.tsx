@@ -42,10 +42,11 @@ type Entry = {
   with: string | null;
   /**
    * What kind of side it is, when it is not a person -- `genesis`,
-   * `bank_reserve`, `works_fund`. The server sends the enum and the word for
-   * it comes out of the locale (D-251): it used to send «резерв банка» ready
-   * made, and the two members nobody had written a word for arrived as their
-   * own code in the middle of the statement.
+   * `bank_reserve`, `works_fund`, or `work_order` for the escrow a work order
+   * pays from. The server sends the code and the word for it comes out of the
+   * locale (D-251): it used to send «резерв банка» ready made, and the two
+   * members nobody had written a word for arrived as their own code in the
+   * middle of the statement.
    */
   side: string | null;
 };

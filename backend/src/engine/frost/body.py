@@ -324,7 +324,9 @@ async def use_warmer(
     gained = on_grid(before + constants[R.FROST_WARMER_HOURS], ROUND_WARMTH, ROUND_FLOOR)
     left = min(roof, float(gained))
     if left <= before:
-        raise FrostError(key="frost-reserve-full", have=before, ceiling=ceiling)
+        #: On the scorching planet the same reserve is a reserve of coolness
+        #: with a ceiling of its own, and the sentence says so (D-231, D-338).
+        raise FrostError(key="frost-reserve-full", have=before, ceiling=ceiling, weather=weather)
     #: The stack is locked before it is spent, like every other write-off in the
     #: world: the body's own lock is not a substitute for the thing's.
     await stock.lock_items(session, [item])
