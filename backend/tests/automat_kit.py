@@ -4,14 +4,15 @@
 """What the automat tests build a factory floor out of.
 
 The floor -- a city yard with a machine, a pool and a funded owner -- and the
-lubricant canister are shared by `test_automat.py`, `test_fuel_plant.py` and
-the race files, `test_races_automat.py`, `test_races_energy.py` and
-`test_races_liquid.py`; so are the races' handshake and their reading of a
-pool, which the meter's races (`test_races_meter.py`) take as well -- and the
+lubricant canister are shared by `test_automat.py`, `test_automat_tick.py`,
+`test_fuel_plant.py` and the race files, `test_races_automat.py`,
+`test_races_automat_stops.py`, `test_races_energy.py` and
+`test_races_liquid.py`; so are the races' handshake and their reading of a pool,
+which the meter's races (`test_races_meter.py`) take as well -- and the
 handshake alone, the races over a thing gone from under a reaching hand
-(`test_races_gone.py`). That is why
-they are here and not beside one of them (the family's own pattern, see
-`mining_kit.py`).
+(`test_races_gone.py`) -- and the permafrost a floor is carried onto (D-231).
+That is why they are here and not beside one of them (the family's own pattern,
+see `mining_kit.py`).
 
 Pytest does not collect this file: it holds no tests and no fixtures -- a
 real `@pytest.fixture` must not live here, because the import that puts its
@@ -24,15 +25,15 @@ import asyncio
 import uuid
 from decimal import Decimal
 
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.constants import Constants
-from src.engine import energy, ledger, storage, world
+from src.engine import energy, frost, ledger, storage, world
 from src.models.identity import Identity
 from src.models.inventory import Item
 from src.models.ledger import AccountKind, PostingReason
-from src.models.world import Layer, Node
+from src.models.world import Layer, Node, Planet
 from src.units import money
 
 NAILS = "nails"
@@ -97,6 +98,31 @@ async def _lube_in(session: AsyncSession, yard, units: float) -> Item:
 async def _learn(session: AsyncSession, identity, key: str) -> None:
     row = await session.get(Identity, identity.id)
     await world.learn(session, row, key)
+
+
+async def _on_aurora(session: AsyncSession, *nodes: Node) -> None:
+    """Carry these floors onto the permafrost (D-231), their cities and pools kept.
+
+    A climate is the planet's: it is read off the planet's sphere by the node's
+    `planet` (`frost.climate_of`), so the sphere is laid once -- its key is the
+    planet's own -- and the floors are moved onto it. Nothing heats them yet.
+    """
+    sphere = (
+        await session.execute(select(Node).where(Node.key == Planet.AURORA.value))
+    ).scalar_one_or_none()
+    if sphere is None:
+        await world.create_node(
+            session,
+            Planet.AURORA.value,
+            Planet.AURORA.value,
+            planet=Planet.AURORA,
+            area_m2=1,
+            layer=Layer.SPACE,
+            properties={frost.FROST: True},
+        )
+    for node in nodes:
+        node.planet = Planet.AURORA
+    await session.flush()
 
 
 _BLOCKED = text("SELECT count(*) FROM pg_stat_activity WHERE :holder = ANY(pg_blocking_pids(pid))")
