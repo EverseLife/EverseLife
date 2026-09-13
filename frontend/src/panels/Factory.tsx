@@ -26,9 +26,13 @@ import { Rule } from "../Rule";
 import { Refusal, useActions, useBook, useEdition, useNames, useSession } from "../actions";
 import { t } from "../locale";
 import { goodsName } from "../names";
+import { curve } from "./curve";
 
 /** The automat thing class (D-253): the window, like the engine, binds to it. */
 const AUTOMATON = "automaton";
+
+/** The reason an automat on the ground stands: no flare for its vent gas (D-340). */
+const STALL_FLARE = "flare";
 
 /** The card grid, in pixels: positions are computed, never measured. */
 const CARD_W = 216;
@@ -179,12 +183,7 @@ export function Factory({ look, values }: Props) {
     const from = layout.spots.get(wire.from);
     const to = layout.spots.get(wire.to);
     if (!from || !to) return null;
-    const x1 = from.x + CARD_W;
-    const y1 = from.y + CARD_H / 2;
-    const x2 = to.x;
-    const y2 = to.y + CARD_H / 2;
-    const bend = Math.max(24, (x2 - x1) / 2);
-    return `M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${y2}, ${x2} ${y2}`;
+    return curve(from.x + CARD_W, from.y + CARD_H / 2, to.x, to.y + CARD_H / 2);
   };
 
   const drawTo = (target: string) => {
@@ -281,6 +280,14 @@ export function Factory({ look, values }: Props) {
               </select>
               {row != null && row.backlog > 0 && (
                 <p className="note">{t("ui-factory-backlog", { backlog: row.backlog.toFixed(2) })}</p>
+              )}
+              {/* Why it stands, as of the last tick (D-340): on the ground its
+                  vent gas has nowhere safe to go; aboard the ports say why,
+                  and the ship's schematic is where they are drawn. */}
+              {row?.stall != null && (
+                <p className="trouble">
+                  {t(row.stall === STALL_FLARE ? "ui-factory-stall-flare" : "ui-factory-stall-lines")}
+                </p>
               )}
             </div>
           );

@@ -224,6 +224,16 @@ AIR = "oxygen"
 FUEL = "ship_fuel"
 
 
+#: The class of the hydroponic bay (D-234): a plot aboard, and since D-288 a
+#: machine whose sown beds breathe out into the vessels on its oxygen line.
+HYDROPONICS = "hydroponics"
+
+
+#: The class of the automats' lubricant (D-253). Aboard the air machine drinks
+#: it through a port of its own (D-340), as it drinks its water.
+LUBE = "lube"
+
+
 #: The class of the tank (D-230). Since D-288 not the only vessel an engine
 #: reaches: any vessel **installed** aboard may stand on a line -- a tank, a
 #: canister, a cylinder -- and the engines drink from the ones on theirs, and

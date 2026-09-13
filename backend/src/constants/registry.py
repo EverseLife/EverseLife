@@ -687,6 +687,7 @@ OXYGEN_CYLINDER_STORE = Num("oxygen.cylinder_store")
 #: simulation, never by the engine: three months is a promise about numbers,
 #: not a rule the world enforces.
 OXYGEN_AUTONOMY_TARGET = Num("oxygen.autonomy_target")
+OXYGEN_HYDROPONICS_RATE = Num("oxygen.hydroponics_rate")  # a growing bed's breath, D-340
 
 #: The body's heat reserve, hours, by climate -- the frost's and the heat's
 #: are their own since D-338: Aurora's snow lengthens its off-road, and

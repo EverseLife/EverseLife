@@ -11,7 +11,7 @@ import { Rule } from "../../Rule";
 import { useBook, useNames, useSession } from "../../actions";
 import { DropZone } from "../../DragMove";
 import { chestZone, grip, noDrag } from "../../drag";
-import { isVessel } from "../../liquids";
+import { isVessel, ventIn, ventWay } from "../../liquids";
 import { t } from "../../locale";
 import { goodsName } from "../../names";
 import type { Props } from "./shared";
@@ -39,6 +39,10 @@ export function Storages({ look, busy, act }: Props) {
   //: A liquid moves by the hose (D-230): a tank is filled from the canisters
   //: in the hands and emptied back into them, never taken by the handful.
   const canisters = inHands.filter((thing) => isVessel(book, thing.goods));
+  //: Where a tank of vent gas may be emptied from here (D-340): out where
+  //: there is no air, into the node's flare where there is -- or nowhere, and
+  //: then the button is not offered at all.
+  const vents = ventWay(book, look);
 
   return (
     <>
@@ -60,6 +64,16 @@ export function Storages({ look, busy, act }: Props) {
             ) : (
               <>
                 {chest.content.length === 0 && <p className="note">{t("ui-place-empty")}</p>}
+                {vents !== null && ventIn(book, chest.content) !== null && (
+                  <button
+                    className="quiet"
+                    onClick={() => act(() => session.send("liquid.vent", { vessel: chest.id }))}
+                    disabled={busy}
+                    title={t("ui-liquid-vent-hint", { way: vents })}
+                  >
+                    {t("ui-liquid-vent", { way: vents })}
+                  </button>
+                )}
                 {chest.content.map((thing) => (
                   <p key={thing.id}>
                     {goodsName(names, thing.goods)}{" "}
