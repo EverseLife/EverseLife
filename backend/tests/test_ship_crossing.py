@@ -12,6 +12,7 @@ The legs live in `test_ship_flight.py`, the sky itself in `test_ship_sky.py`.
 
 from __future__ import annotations
 
+import math
 from datetime import UTC, datetime, timedelta
 from itertools import pairwise
 
@@ -196,7 +197,7 @@ async def test_the_slider_has_two_ends_and_the_order_names_one(
     await _in_orbit(session, constants, catalog, owner, vessel)
 
     #: Read and ordered at one moment: the slider is laid from where the hull
-    #: sits on its circle (D-341), and a hull a second further on is asked anew.
+    #: sits on its circle (D-341), and the order flies what it was read at.
     moment = datetime.now(UTC)
     forecast = await ship.forecast(session, constants, catalog, vessel, Planet.AURORA, now=moment)
     samples = forecast["samples"]
@@ -302,6 +303,57 @@ async def test_engines_that_deliver_nothing_the_sky_has_are_refused_by_thrust(
     assert refused.value.key == "ship-too-fast-for-thrust"
     assert refused.value.params["hours"] > 0 and refused.value.params["need"] > 0
     assert vessel.course is None and vessel.docked_node_id is not None
+
+
+async def test_a_hull_changed_before_the_lock_is_laid_again(
+    factory: async_sessionmaker[AsyncSession],
+    constants: Constants,
+    catalog: Catalog,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The slider is laid before the hull's row is locked (D-341), and a hull
+    another session moves in between is laid again under the lock -- the order
+    never flies a slider laid from where the hull no longer is."""
+    async with factory() as session, session.begin():
+        here = await _port(session)
+        await _port(session, name="Порт Авроры", planet=Planet.AURORA)
+        far = await _orbit(session, Planet.AURORA)
+        _, owner = await _shipwright(session, here)
+        vessel = await _laid(session, constants, owner, here)
+        await _flightworthy(session, constants, catalog, vessel)
+        connector = await session.get(Node, vessel.connector_node_id)
+        await _fuel(session, connector, 5000)
+        owner.node_id = connector.id
+        await session.flush()
+        await _in_orbit(session, constants, catalog, owner, vessel)
+        ship_id, owner_id, far_id = vessel.id, owner.id, far.id
+
+    laid = slider.offers
+    froms: list[tuple[float, float]] = []
+
+    async def moved_meanwhile(session, constants, catalog, hull, goal, *, now, thrust_ratio):  # type: ignore[no-untyped-def]
+        state = await sim.state_at(session, constants, hull, now=now)
+        froms.append(state[0])
+        if len(froms) == 1:
+            #: Another session turns the hull half round its circle while the
+            #: first slider is laid.
+            async with factory() as other, other.begin():
+                row = await other.get(Ship, ship_id)
+                row.park_phase = float(row.park_phase or 0.0) + math.pi
+        return await laid(
+            session, constants, catalog, hull, goal, now=now, thrust_ratio=thrust_ratio
+        )
+
+    monkeypatch.setattr(slider, "offers", moved_meanwhile)
+    async with factory() as session, session.begin():
+        vessel = await session.get(Ship, ship_id)
+        owner = await session.get(Body, owner_id)
+        far = await session.get(Node, far_id)
+        await ship.fly(session, constants, catalog, owner, vessel, far)
+        assert len(froms) == 2, "под блокировкой ползунок разложен заново"
+        assert math.dist(*froms) > 0.1, "второй — от нового места корпуса"
+        assert vessel.course is not None
+        assert tuple(vessel.course["trace"][0]) == pytest.approx(froms[1], abs=0.1)
 
 
 async def _under_way(

@@ -155,9 +155,12 @@ def _waited(
     from where the hull is at `t` (D-316): a slider laid minutes ago from this
     hull still names the passage right, and the hour before it is the
     reader's."""
+    if not samples:
+        return []
+    waits = sky.eject_waits(world, target, t, r, v, [one.v1 for one in samples])
     return [
-        replace(one, wait=sky.eject_wait(world, target, t, r, v, one.v1) * HOURS_PER_DAY)
-        for one in samples
+        replace(one, wait=float(wait) * HOURS_PER_DAY)
+        for one, wait in zip(samples, waits, strict=True)
     ]
 
 

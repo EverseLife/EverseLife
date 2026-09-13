@@ -36,6 +36,7 @@ from src.api.registry import Refused
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import ship, world
+from src.engine.ship import course, flyby, slider
 from src.models.ship import Ship
 from src.models.world import Node, Planet
 
@@ -150,7 +151,10 @@ async def test_a_flyby_the_sky_does_not_have_is_refused(
 
 
 async def test_an_order_a_minute_after_the_console_flies_what_it_showed(
-    session: AsyncSession, constants: Constants, catalog: Catalog
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The console reads the slider, the owner presses the button a minute
     later: the hull has moved on along its circle, and the order still flies
@@ -165,6 +169,12 @@ async def test_an_order_a_minute_after_the_console_flies_what_it_showed(
     bent = next(one for one in forecast["samples"] if one.get("via") == Planet.PYROXIS.value)
     later = moment + timedelta(minutes=1)
     body = await _body_of(session, vessel)
+
+    def no_pool() -> None:
+        raise AssertionError("приказ пересчитал ползунок вместо памяти")
+
+    #: Found in memory, not laid again: the sky's pool is not asked at all.
+    monkeypatch.setattr(flyby, "_pool", no_pool)
     arrives = await ship.fly(
         session,
         constants,
@@ -205,6 +215,31 @@ async def test_an_order_off_the_slider_is_refused(
     assert refused.value.key == "ship-hours-are-a-flyby"
     assert refused.value.params["planet"] == Planet.PYROXIS.value
     assert vessel.course is None and vessel.docked_node_id is not None
+
+
+async def test_an_hour_of_the_direct_grid_with_no_arc_is_said_so(
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An order for an hour of the direct slider the sky has no arc for at all
+    is refused as that -- no arc -- and not as an hour off the slider (D-341)."""
+    vessel, far = await _moored_over_terra(session, constants, catalog)
+    epoch = await world.epoch(session)
+    assert epoch is not None
+    moment = epoch + timedelta(days=SWING_DAY)
+
+    async def no_arcs(*args: object, **kwargs: object) -> list[object]:
+        return []
+
+    #: Every arc of the hour cutting the corona, put in by hand.
+    monkeypatch.setattr(slider, "arcs", no_arcs)
+    first = course.grid(constants)[0]
+    body = await _body_of(session, vessel)
+    with pytest.raises(ship.NoArc) as refused:
+        await ship.fly(session, constants, catalog, body, vessel, far, hours=first, now=moment)
+    assert refused.value.key == "ship-no-arc"
 
 
 def test_the_order_names_a_planet_or_is_refused_on_the_wire() -> None:

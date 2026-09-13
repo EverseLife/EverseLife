@@ -36,7 +36,7 @@ from src import astro, sky
 from src.constants import Constants
 from src.constants import registry as R
 from src.engine.ship import course
-from src.sky import assist, choice, field, flyby, lambert, plan
+from src.sky import assist, choice, field, flyby, lambert, plan, shoot
 from src.units import HOURS_PER_DAY, MINUTES_PER_HOUR, TRACE_POINTS
 
 #: The vault's numbers these tests fly by, written out for the reason
@@ -323,6 +323,115 @@ def test_the_search_walks_outward_and_stops_at_the_first_empty_window(
     #: its one window past twelve finds nothing.
     assert walked["aurora"][0] > 2 and walked["aurora"][1] > 30 * HOURS_PER_DAY
     assert walked["pyroxis"][0] == 2 and walked["pyroxis"][1] < LONGEST
+
+
+def test_a_candidate_is_refined_while_its_conic_price_could_still_win(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The conics are no bound on what the sky confirms (D-341): a pass whose
+    conic price is above what it must beat is refined while the price less
+    the measured spread still beats it, and another world's pass at an hour
+    already confirmed is refined too when it might come out cheaper -- and
+    taken when it does."""
+    world = system()
+    hour = 100.0
+    certain = [_price(50.0, 100.0)]
+
+    def candidate(via: str, dv: float) -> flyby.Candidate:
+        return flyby.Candidate(
+            hours=hour,
+            via=via,
+            tau=1.0,
+            rp=1.0,
+            dv_out=dv,
+            dv_pass=0.0,
+            dv_in=0.0,
+            dv=dv,
+            v_in=(1.0, 0.0),
+            v_out=(0.0, 1.0),
+        )
+
+    #: What the sky makes of each: a pass named 120 by the conics that the sky
+    #: confirms at 90, and another named 125 that comes out at 80.
+    confirmed = {"pyroxis": 90.0, "terra": 80.0}
+    asked: list[list[str]] = []
+
+    def sky_says(*args, **kwargs):  # type: ignore[no-untyped-def]
+        batch = args[5]
+        asked.append([one.via for one in batch])
+        return [
+            shoot.Shot(
+                candidate=one,
+                at=1.0,
+                rp=1.0,
+                speed_in=1.0,
+                speed_out=1.0,
+                v1=(0.0, 0.0),
+                aim=(0.0, 0.0),
+                dv_out=confirmed[one.via],
+                dv_pass=0.0,
+                dv_in=0.0,
+                dv=confirmed[one.via],
+            )
+            for one in batch
+        ]
+
+    monkeypatch.setattr(plan, "refine", sky_says)
+    queue = {hour: [candidate("pyroxis", 120.0), candidate("terra", 125.0)]}
+    shots = plan._refine_all(
+        world,
+        (0.0, 0.0),
+        (0.0, 0.0),
+        0.0,
+        world.body("aurora"),
+        queue,
+        certain,
+        reach=math.inf,
+        leaving=None,
+        floor_radii=FLOOR,
+    )
+    assert asked == [["pyroxis"], ["terra"]], "обе цены коник выше планки, обе уточнены"
+    assert [shot.dv for shot in shots] == [80.0], "у часа — пролёт дешевле"
+    #: A pass whose conic price is out of reach even with the spread is not
+    #: refined at all.
+    asked.clear()
+    far = {hour: [candidate("pyroxis", 100.0 / plan._CONIC_SPREAD + 1.0)]}
+    none = plan._refine_all(
+        world,
+        (0.0, 0.0),
+        (0.0, 0.0),
+        0.0,
+        world.body("aurora"),
+        far,
+        certain,
+        reach=math.inf,
+        leaving=None,
+        floor_radii=FLOOR,
+    )
+    assert none == [] and asked == []
+
+
+def test_the_waits_of_a_remembered_slider_are_the_hulls_own() -> None:
+    """A slider found again in memory has its waits counted anew for the hull
+    reading it, all at once (`sky.eject_waits`) -- and each is exactly the wait
+    `sky.eject_wait` gives that departure alone (D-316, D-341)."""
+    world = system()
+    origin, goal, t0, _ = SWING
+    target = world.body(goal)
+    rng = np.random.default_rng(11)
+    for phase in (0.2, 2.5, 4.9):
+        r0, v0 = _moored(world, origin, t0, phase)
+        _, vp = sky.place(world.body(origin), t0)
+        #: Random departures, and one straight along the way the hull goes
+        #: round its world: in the window already, with nothing to wait for.
+        along = np.asarray(v0) - vp[0]
+        ahead = vp[0] + 30.0 * along / np.hypot(*along)
+        wanted = np.vstack([vp[0] + rng.normal(0.0, 40.0, size=(24, 2)), ahead])
+        waits = sky.eject_waits(world, target, t0, r0, v0, wanted)
+        for row, wait in zip(wanted, waits, strict=True):
+            one = sky.eject_wait(world, target, t0, r0, v0, (float(row[0]), float(row[1])))
+            assert wait == pytest.approx(one, abs=1e-12)
+        assert np.any(waits > 0.0) and waits[-1] == 0.0
 
 
 def test_each_hull_lays_its_own_plan() -> None:

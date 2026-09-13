@@ -26,6 +26,7 @@ from src import astro
 from src.sky._base import (
     Body,
     Drifter,
+    Rows,
     Star,
     System,
     Target,
@@ -217,6 +218,42 @@ def eject_wait(
     """
     leaving = _holding(system, target, t, r)
     return 0.0 if leaving is None else _wait_days(system, leaving, t, r, v, wanted)
+
+
+def eject_waits(
+    system: System,
+    target: Target,
+    t: float,
+    r: tuple[float, float],
+    v: tuple[float, float],
+    wanted: Rows,
+) -> np.ndarray:
+    """`eject_wait` for many departures from one place and moment at once,
+    days -- a remembered slider's waits counted anew for the hull reading it
+    (D-316, D-341). The same arithmetic as `_wait_days`, over rows."""
+    wanted = np.asarray(wanted, dtype=float).reshape(-1, 2)
+    waits = np.zeros(len(wanted))
+    leaving = _holding(system, target, t, r)
+    if leaving is None or not len(wanted):
+        return waits
+    p, vp = place_any(leaving, t)
+    v_rel = np.array(v) - vp[0]
+    going = float(np.hypot(*v_rel))
+    if going < STILL:
+        return waits
+    v_rel = v_rel / going
+    excess = wanted - vp[0]
+    out = np.hypot(excess[:, 0], excess[:, 1])
+    unit = excess / np.maximum(out, STILL)[:, None]
+    turn = np.arctan2(v_rel[0] * unit[:, 1] - v_rel[1] * unit[:, 0], unit @ v_rel)
+    rel = np.array(r) - p[0]
+    onward = float(rel[0] * v_rel[1] - rel[1] * v_rel[0]) >= 0.0
+    ahead = turn if onward else -turn
+    ahead = np.where(ahead < 0.0, ahead + 2.0 * math.pi, ahead)
+    rate = abs(circle_rate(leaving, park_of(system, leaving)))
+    if rate <= 0.0:
+        return waits
+    return np.where((out < STILL) | (np.abs(turn) <= system.eject_window), 0.0, ahead / rate)
 
 
 def _wait_days(
