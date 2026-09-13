@@ -36,6 +36,10 @@ class Ship(Base):
             "air_grown >= 0 AND air_grown < 0.001",
             name="air_grown_under_a_thousandth",
         ),
+        CheckConstraint(
+            "air_owed >= 0 AND air_owed < 0.001",
+            name="air_owed_under_a_thousandth",
+        ),
         #: Partial: the sweep asks every minute for the few marks there are,
         #: and never for the many nulls (`hold.sweep`).
         Index(
@@ -98,6 +102,16 @@ class Ship(Base):
     #: rounded, which would make every bed breathe a fifth more or less than
     #: it does. Always `0 <= air_grown < 0.001`, and a check says so.
     air_grown: Mapped[float] = mapped_column(
+        Numeric(9, 9), nullable=False, default=0, server_default="0"
+    )
+    #: What the crew breathed aboard and the line could not yet be asked for
+    #: (D-234, D-288), for the same reason from the other side: a crew's tick
+    #: is not a whole number of thousandths, and rounded to the nearest a crew
+    #: of one breathed a fifth more than `oxygen.crew_draw` (at 0.1 and a
+    #: one-minute `time.tick`). Carried to the next stretch, as `Body.air_owed`
+    #: is outside, and dropped when the line runs dry -- the crew chokes for
+    #: that stretch instead. Always `0 <= air_owed < 0.001`, and a check says so.
+    air_owed: Mapped[float] = mapped_column(
         Numeric(9, 9), nullable=False, default=0, server_default="0"
     )
 
