@@ -349,13 +349,14 @@ async def test_the_meter_run_posts_every_purse_into_its_own_city(
     assert await town.treasury_balance(session, north) == 0, "a refused bill pays nobody"
 
 
-async def test_a_short_pool_goes_to_the_meters_in_their_order(
+async def test_a_short_pool_gives_its_meters_what_it_holds_and_no_more(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """What a pool holds goes to its meters in the run's order -- the meters'
-    ids, the order they are locked in, not a rule of who deserves the energy --
-    and the last one gets what is left: a city without fuel cannot release
-    what it does not have."""
+    """A pool too short for its meters gives out what it holds and stops at
+    nought, and no meter is given more than its own draw: a city without fuel
+    cannot release what it does not have (D-149). Who of them goes short is
+    not asserted -- for buildings outside the automats' family that rule is
+    still open in the vault (`20-systems/12-energy.md`)."""
     moment = datetime.now(UTC)
     _, delegate, home = await _city(session, catalog)
     annex = await world.create_node(
@@ -373,9 +374,9 @@ async def test_a_short_pool_goes_to_the_meters_in_their_order(
 
     await utility.run_meters(session, constants, now=moment)
 
-    first, second = sorted(meters, key=lambda meter: meter.id)
-    assert float(first.last_energy) == pytest.approx(need, abs=0.01)
-    assert float(second.last_energy) == pytest.approx(need / 2, abs=0.01)
+    given = [float(meter.last_energy) for meter in meters]
+    assert sum(given) == pytest.approx(need * 1.5, abs=0.01)
+    assert all(one <= need + 0.01 for one in given)
     assert float(pool.stored) == pytest.approx(0, abs=0.01)
 
 

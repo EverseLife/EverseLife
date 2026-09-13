@@ -400,11 +400,17 @@ async def pay(
         #: Refused before a posting is written, by the balance read under the
         #: purse's lock. A balance read before that lock could promise money a
         #: purchase elsewhere had just spent, and the holder was then told the
-        #: ledger's refusal instead of this one.
+        #: ledger's refusal instead of this one. What they have is the figure
+        #: the refusal was decided by; read again only where the refusal does
+        #: not carry it -- a credit may land in between, since the lock queues
+        #: debits alone (`ledger.lock_accounts`).
+        have = refused.params.get("have")
+        if have is None:
+            have = await ledger.balance(session, account.id)
         raise NotEnoughMoney(
             key="utility-not-enough-money",
             debt=money_str(debt),
-            have=money_str(refused.params["have"]),
+            have=money_str(have),
         ) from None
     meter.debt = 0
     meter.cut_off = False
