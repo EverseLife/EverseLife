@@ -35,7 +35,6 @@ from src.constants import registry as R
 from src.engine import agro, automat, craft, liquid, rig, stock, storage, vent, wear, world
 from src.engine.errors import Refusal
 from src.engine.plates.fire import _burn
-from src.engine.plates.fire import _consume as burn
 from src.models.agro import FieldAutomat
 from src.models.automat import Automat as AutomatRow
 from src.models.craft import CraftBatch
@@ -676,7 +675,7 @@ async def test_a_cylinder_taken_while_it_is_vented_is_not_emptied(
             held.set()
             await _until_blocked_by(factory, db)
             if taken == "burnt":
-                await burn(db, [vessel])
+                await world.destroy(db, [vessel])
                 return
             me = await db.get(Body, lifter_id)
             assert me is not None

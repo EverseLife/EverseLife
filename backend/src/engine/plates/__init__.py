@@ -71,7 +71,6 @@ from src.engine.plates.clock import (  # noqa: F401
 )
 from src.engine.plates.fire import (  # noqa: F401
     _burn,
-    _consume,
 )
 from src.engine.plates.veins import (  # noqa: F401
     _close_faces,

@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants, current, current_catalog
 from src.constants import registry as R
-from src.engine import craft, events, goods, occupation, storage, travel, world
+from src.engine import craft, events, goods, occupation, stock, storage, travel, world
 from src.engine.estate._base import EstateError, Ruined
 from src.engine.estate.building import (
     _equipment,
@@ -33,7 +33,7 @@ from src.engine.jobs import enqueue, handler
 from src.models.estate import Building
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState
-from src.models.inventory import Container, ContainerKind, Item
+from src.models.inventory import Container, Item
 from src.models.job import Job, JobKind, JobState
 from src.models.works import WorkOrderKind
 from src.models.world import ABOARD, Node
@@ -41,7 +41,6 @@ from src.units import (
     SCALE_MAX,
     SCALE_MIN,
     SECONDS_PER_MINUTE,
-    amount_float,
 )
 
 
@@ -351,46 +350,47 @@ async def _bury(
     in a house proof against its collapse, losing neither its slot nor its use.
     """
     catalog = current_catalog()
-    things = [
+
+    def falls(thing: Item) -> bool:
+        return (
+            not filtered
+            or not thing.outdoors
+            or _equipment(catalog, thing.type_key)
+            or storage.is_storage(catalog, thing.type_key)
+        )
+
+    doomed = [
         thing
         for thing in (
             (await session.execute(select(Item).where(Item.container_id == store.id)))
             .scalars()
             .all()
         )
-        if not filtered
-        or not thing.outdoors
-        or _equipment(catalog, thing.type_key)
-        or storage.is_storage(catalog, thing.type_key)
+        if falls(thing)
     ]
-    for thing in things:
-        lost[thing.type_key] = lost.get(thing.type_key, 0.0) + amount_float(thing.amount)
-        #: A chest goes down with its contents: the inside is a container of
-        #: its own, and left behind it would be goods in no place at all.
-        inside = (
-            (
-                await session.execute(
-                    select(Container).where(
-                        Container.kind == ContainerKind.STORAGE,
-                        Container.owner_id == thing.id,
-                    )
-                )
-            )
-            .scalars()
-            .all()
-        )
-        for box in inside:
-            stored = (
-                (await session.execute(select(Item).where(Item.container_id == box.id)))
-                .scalars()
-                .all()
-            )
-            for held in stored:
-                lost[held.type_key] = lost.get(held.type_key, 0.0) + amount_float(held.amount)
-                await session.delete(held)
-            await session.delete(box)
-        await session.delete(thing)
-    await session.flush()
+    #: Only what goes down is taken under the lock, and asked again after it
+    #: whether it still lies here: a sack picked up off this floor in the same
+    #: second stays in the hands that reached it, rather than being deleted
+    #: out of them the moment the pick lands. What the rain spares is not
+    #: taken at all -- the machine ticks lock their own rows and then the fuel
+    #: in this same yard, and a lock on the spared heap would only cross them.
+    #: What goes down is still taken in one id order, machines, vessels and
+    #: fuel together, as the deletes took it before; against the automat
+    #: family's minute (vessels, then the machine, then its stacks) that can
+    #: cross once in a house's life, and the daily step's retry replays it.
+    #: The fire, which meets that minute every eruption, splits the vessels
+    #: out first (`plates.fire._burn`); a roof falls once.
+    things = [
+        thing
+        for thing in await stock.lock_items(session, doomed)
+        if thing.container_id == store.id and falls(thing)
+    ]
+    #: A chest goes down with its contents, a cart with its load and out of
+    #: its harness, and a chest in a chest all the way down (`world.destroy`):
+    #: left behind, the inside would be goods in no place at all, and a
+    #: harness left pointing at the cart takes the whole collapse down.
+    for kind, much in (await world.destroy(session, things)).items():
+        lost[kind] = lost.get(kind, 0.0) + much
 
 
 async def collapse(session: AsyncSession, node: Node, house: Building) -> None:

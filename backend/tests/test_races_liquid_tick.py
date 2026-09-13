@@ -15,7 +15,7 @@ taken after the stacks, against a pour taking it first. The handshake is
 only once the other side has provably walked into them.
 
 A canister the fire takes is not raced here: the fire deletes what is inside
-under the stacks' own lock (`plates.fire._consume`), so the draw after the
+under the stacks' own lock (`world.destroy`), so the draw after the
 wait finds nothing to take whether it asked or not.
 """
 

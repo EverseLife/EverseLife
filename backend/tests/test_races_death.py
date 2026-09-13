@@ -49,7 +49,6 @@ from src.api.commands.things import _ground_pick, _item_hand
 from src.api.commands.travel import _travel_cancel
 from src.constants import Catalog, Constants
 from src.engine import craft, frost, gear, oxygen, plates, travel, world
-from src.engine.plates import ways
 from src.engine.ship import fate
 from src.engine.ship.belonging import crew_of
 from src.models.event import Event, EventKind
@@ -411,10 +410,12 @@ async def test_two_ways_breaking_under_walkers_the_cold_is_settling_both_land(
 
     sweeps: list[asyncio.Future[int]] = []
     waited: list[bool] = []
-    consume = ways._consume
+    #: The rift takes each walker's pocket out through the world's door before
+    #: it kills them (`world.destroy`): the first such take holds both walkers.
+    destroy = world.destroy
 
     async def consuming(db, things):
-        gone = await consume(db, things)
+        gone = await destroy(db, things)
         if not sweeps:
 
             async def cold() -> int:
@@ -425,7 +426,7 @@ async def test_two_ways_breaking_under_walkers_the_cold_is_settling_both_land(
             waited.append(await _until_blocked_by(factory, db, unless=sweeps[0]))
         return gone
 
-    monkeypatch.setattr(ways, "_consume", consuming)
+    monkeypatch.setattr(world, "destroy", consuming)
 
     (died,) = await asyncio.gather(_redrawn(factory, constants, shaken), return_exceptions=True)
     (swept,) = await asyncio.gather(*sweeps, return_exceptions=True)
