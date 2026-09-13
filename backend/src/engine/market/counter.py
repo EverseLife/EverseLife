@@ -471,13 +471,18 @@ async def _pour_in(
     #: the one rule every pour keeps (`liquid.lock_vessels`): `_stacks` below
     #: locks by quality order, and without this first lock a `market.load`
     #: against a batch draining the same canister is a deadlock.
+    #: Loaded only out of the vessels the lock found still in the hands, off
+    #: the insides it reread: one gone has nothing to give, and none is made.
     vessels = await liquid.vessels_in(session, catalog, inventory)
-    await liquid.lock_vessels(session, vessels)
+    held = await liquid.lock_vessels(session, vessels)
     moved = 0
     for vessel in vessels:
         if moved >= room:
             break
-        inside = await storage.inside(session, vessel)
+        one = held.get(vessel.id)
+        if one is None or one.moved or one.inside is None:
+            continue
+        inside = one.inside
         moved += await _move(
             session, inside, into, type_key, room - moved, tier=tier, constants=constants
         )

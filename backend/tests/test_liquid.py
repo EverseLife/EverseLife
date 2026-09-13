@@ -442,3 +442,28 @@ async def test_a_vessel_named_twice_is_filled_once(
 
     assert poured == pytest.approx(fits, abs=1e-3)
     assert await storage.stored_mass(session, catalog, canister) <= limit + 1e-6
+
+
+async def test_an_overfilled_vessel_takes_nothing_off_the_room_beside_it(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A vessel holding more than it takes has no room, and not less than none.
+
+    Nothing pours past a brim today, but a vault that shrinks a canister leaves
+    the canisters of the world holding what they held. Summed as a negative,
+    the old canister's excess ate the room of the empty one standing beside it,
+    and the output that room was for waited or spilled.
+    """
+    node, _, _ = await _home(session)
+    yard = await world.node_container(session, node)
+    limit = storage.capacity(catalog, CANISTER)
+    assert limit is not None
+    fits = limit / catalog.recipes.mass_of(WATER)
+    brimful, empty = [
+        await world.grant_item(session, yard, CANISTER, quality=55, origin="test") for _ in range(2)
+    ]
+    await _filled(session, brimful, WATER, 2 * fits)
+
+    assert await liquid.room_for(session, catalog, yard, WATER) == pytest.approx(fits, abs=1e-3)
+    held = await liquid.lock_vessels(session, [brimful, empty])
+    assert held[brimful.id].room(catalog) == 0

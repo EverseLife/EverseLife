@@ -6,32 +6,39 @@ the programme hour by hour, the tick that brings those hours, the energy
 drawn and the wages paid out.
 
 Lock order: the automat's row, the yard's vessels (one lock, id order), the
-yard's stacks (lubricant and inputs, one query), the output's twins on the yard
-or in those vessels, and the energy **last** -- as a bench takes its stacks
-before the pool it draws (`craft/batch/work.py`). The tick holds every automat
-of the world in one transaction, so it takes no pool until every machine has
-worked, and then all of them at once in one order (`bill.pay`): a pool held
-while the next machine reached for a stack a crafter held would be that
-crafter's pool the other way round, and the two would wait on each other. A
-machine on a hull's lines (`aboard`, D-340) takes the rows of every vessel on
-its lines first, in id order, then the stacks in them -- the order a hand's pour
-takes -- and promises its energy like the rest: the hull's cells are locked by
+machine's thing (its wear), the yard's stacks (lubricant and inputs, one
+query), the output's twins on the yard or in those vessels, and the energy
+**last** -- as a bench takes its stacks before the pool it draws
+(`craft/batch/work.py`). The tick holds every automat of the world in one
+transaction, so it takes no pool until every machine has worked, and then all
+of them at once in one order (`bill.pay`): a pool held while the next machine
+reached for a stack a crafter held would be that crafter's pool the other way
+round, and the two would wait on each other. A machine on a hull's lines
+(`aboard`, D-340) takes the vessels on its lines in the same one lock as the
+vessels of its room, then the stacks in them -- the order a hand's pour takes
+-- and promises its energy like the rest: the hull's cells are locked by
 `bill.pay` alone.
 
 The vessels come before the stacks in them because a pour takes them in that
 order (`liquid.lock_vessels`): a tick holding the lubricant and reaching for its
-canister at the payout met a hand pouring out of that canister head on. So the
+canister at the payout met a hand pouring out of that canister head on. They
+come before the machine's own thing too, because the fire takes a yard's
+vessels before the rest of what lies in it (`plates.fire._burn`). So the
 payout pours only into the vessels the advance locked, and never lists the yard
-again. **Every** vessel of the yard, and not only those the recipe reaches: a
-pour into a canister of water at a nail machine waits for the tick to commit,
-and that is the price of one lock set per yard for the whole pass. A set chosen
-per recipe differs between two machines of one yard, and the second would take
-a vessel the first passed over after the first one's stacks -- a pour between
-that vessel and one of them would then be a deadlock, not a wait. The order
-holds across the pass but for one case: a vessel put down in a yard after an
-earlier machine of the pass locked that yard is locked after the rest, and a
-pour between it and one of them in that moment fails one side -- the machine's
-savepoint, whose hours wait for the next tick, or the pour.
+again.
+
+**Every** vessel of the yard, and not only those the recipe reaches, and held
+until the whole world's pass commits: a pour into a canister of water at a nail
+machine, a hand picking a canister up, a bench drawing out of one -- anywhere a
+machine of the family works -- waits for the pass. That is the price of one
+lock set per yard. A set chosen per recipe differs between two machines of one
+yard, and the second would take a vessel the first passed over after the first
+one's stacks -- a pour between that vessel and one of them would then be a
+deadlock, not a wait. The order holds across the pass but for one case: a
+vessel put down in a yard after an earlier machine of the pass locked that yard
+is locked after the rest, and a pour between it and one of them in that moment
+fails one side -- the machine's savepoint, whose hours wait for the next tick,
+or the pour.
 """
 
 from __future__ import annotations
@@ -120,6 +127,53 @@ async def advance(
         await session.delete(row)
         await session.flush()
         return 0.0
+    #: What stands the machine idle is read before anything is locked or
+    #: written, so that an idle machine takes nothing of its yard: it only
+    #: wears.
+    yard = None if node is None else await world.node_container(session, node)
+    proc = _procedure(book, row.recipe_key)
+    plumbed = (
+        None
+        if proc is None
+        else await lines.plumbing_of(session, constants, book, machine, proc.output)
+    )
+    placed = (
+        node is not None
+        and yard is not None
+        and machine.container_id == yard.id
+        and machine.installed
+    )
+    share = constants[R.AUTO_SPEED_SHARE] / PERCENT
+    unit_hours = (proc.step_hours / share) if proc is not None and share > 0 else 0.0
+    #: The vent gas (D-340): a machine whose hydrogen has nowhere safe to go
+    #: works nothing. Off the lines means on the ground: aboard every air
+    #: machine is plumbed (`lines.plumbed_for`), and a second vent-gas recipe
+    #: worked off the lines aboard would need words of its own, not "no flare".
+    gases = {} if proc is None else vent.gases_of(book, proc.output)
+    no_flare = bool(placed and plumbed is None and gases and await vent.sink(session, node) is None)
+    #: The vessels a working stretch may reach before anything else of it is
+    #: written -- the yard's, and aboard the lines' too -- every one in one
+    #: lock (`liquid.lock_vessels`): the lubricant and a liquid input are drawn
+    #: out of them and a liquid output is poured in, and a pour by hand takes a
+    #: vessel before its stacks. Before the machine's own row as well, which
+    #: its wear writes below: the fire takes a yard's vessels before the rest
+    #: of what lies in it (`plates.fire._burn`), the machine included, and a
+    #: wear written first held the machine against a fire holding the canister.
+    #: The draw, the room and the payout below all go by this answer and list
+    #: the yard no more.
+    works = placed and proc is not None and unit_hours > 0 and not no_flare
+    vessels = (
+        await liquid.lock_vessels(
+            session,
+            [
+                *await liquid.vessels_in(session, book, yard),
+                *(() if plumbed is None else plumbed.vessels),
+            ],
+        )
+        if works and yard is not None
+        else {}
+    )
+
     #: Wear runs by the clock, worked or stood: an abandoned automat falls
     #: apart. Charged before the limiters, like the rig's -- and a machine
     #: the wear just finished does not work the window as a ghost.
@@ -133,28 +187,21 @@ async def advance(
         await session.delete(row)
         await session.flush()
         return 0.0
-    if node is None or row.recipe_key is None:
+    if node is None or yard is None or row.recipe_key is None:
         #: A row without a programme is a leftover of an older shape: the row
         #: is the working state, and a machine that works nothing has none.
         await session.delete(row)
         await session.flush()
         return 0.0
-    yard = await world.node_container(session, node)
-    if machine.container_id != yard.id or not machine.installed:
+    if not placed:
         #: Carried away from its node: a machine works only where it stands.
         row.counted_at = moment
         await session.flush()
         return 0.0
-
-    try:
-        proc = procedure(book, row.recipe_key)
-    except Unmakeable:  # pragma: no cover -- the vault dropped a recipe mid-world
+    if proc is None:  # pragma: no cover -- the vault dropped a recipe mid-world
         row.counted_at = moment
         await session.flush()
         return 0.0
-
-    share = constants[R.AUTO_SPEED_SHARE] / PERCENT
-    unit_hours = (proc.step_hours / share) if share > 0 else 0.0
     if unit_hours <= 0:
         row.counted_at = moment
         await session.flush()
@@ -162,7 +209,6 @@ async def advance(
 
     #: Aboard, the air machine works through the hull's lines, not off its
     #: room (D-288, D-340): the same four limiters, other vessels.
-    plumbed = await lines.plumbing_of(session, constants, book, machine, proc.output)
     if plumbed is not None:
         return await aboard.advance_on_lines(
             session,
@@ -174,20 +220,16 @@ async def advance(
             yard,
             proc,
             plumbed,
+            vessels,
             hours=hours,
             unit_hours=unit_hours,
             now=moment,
             tab=tab,
         )
-    #: The vent gas first (D-340), before a limiter is counted: a machine
-    #: whose hydrogen has nowhere safe to go works nothing -- it is never made
-    #: and then let out into the air. The reason is kept on the row and
-    #: told once; a flare put up, and the next stretch runs and clears it.
-    #: Off the lines means on the ground: aboard every air machine is plumbed
-    #: (`lines.plumbed_for`), and a second vent-gas recipe worked off the
-    #: lines aboard would need words of its own rather than "no flare".
-    gases = vent.gases_of(book, proc.output)
-    if gases and await vent.sink(session, node) is None:
+    if no_flare:
+        #: Before a limiter is counted: the hydrogen is never made and then let
+        #: out into the air. The reason is kept on the row and told once; a
+        #: flare put up, and the next stretch runs and clears it.
         await _stand(session, row, machine, next(iter(gases)))
         row.counted_at = moment
         await session.flush()
@@ -195,13 +237,6 @@ async def advance(
     #: Working: a reason left from before -- a flare since put up, a
     #: reprogramming -- says nothing true any more.
     row.stall = None
-
-    #: The yard's vessels before anything in them, every one in one lock
-    #: (`liquid.lock_vessels`): the lubricant and a liquid input are drawn out
-    #: of them and a liquid output is poured in, and a pour by hand takes a
-    #: vessel before its stacks. The draw, the room and the payout below all
-    #: go by this answer and list the yard no more.
-    vessels = await liquid.lock_vessels(session, await liquid.vessels_in(session, book, yard))
 
     #: Everything the advance will touch, taken in ONE query and one lock
     #: order (stock.py: "one query and one lock order, never two"): the
@@ -315,6 +350,17 @@ async def advance(
     if bill is not None and tab is not None:
         tab.add(bill)
     return produced
+
+
+def _procedure(book: Catalog, recipe_key: str | None) -> Procedure | None:
+    """The machine's programme as a procedure, or None: no programme, or one
+    the vault has since dropped."""
+    if recipe_key is None:
+        return None
+    try:
+        return procedure(book, recipe_key)
+    except Unmakeable:  # pragma: no cover -- the vault dropped a recipe mid-world
+        return None
 
 
 class Member(Protocol):

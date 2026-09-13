@@ -205,7 +205,7 @@ async def _held(session: AsyncSession, thing: Item) -> None:
     one that counts.
 
     Burnt, fallen with the house, carried off between the look and the
-    click: the world's ordinary answer, said in words (D-011). The name is
+    click: the world's ordinary answer, said in words. The name is
     read first -- a failed refresh leaves none.
     """
     named = thing.type_key

@@ -168,7 +168,17 @@ async def erupted(session: AsyncSession, job: Job) -> None:
     #: `_close_faces` is seen there but its gate is taken with the yards
     #: already burnt; and a tick that killed two bodies in one pass holds the
     #: first death's heaps in a shaken yard while the second death waits at a
-    #: gate this job pre-locked (N <-> S).
+    #: gate this job pre-locked (N <-> S). And against the automat family's
+    #: minute, which takes a yard's vessels, then its machine, then its stacks:
+    #: the fire takes the vessels first too (`fire._burn`), but a yard with no
+    #: vessel at all gives it the machine and the stacks in one id order; an
+    #: eruption over several yards takes all their vessels in one id order while
+    #: the minute goes yard by yard; a field automaton takes its store chest
+    #: after the yard's stacks, which the fire takes in one order with the chest;
+    #: and a chest the fire deletes is named as a store by a field automaton's
+    #: row (`ON DELETE SET NULL`), which the minute holds from its first step --
+    #: the fire holding the yard's vessels waits on that row at its flush while
+    #: the machine waits on the vessels.
     ids = [node.id for node in shaken]
     await session.execute(
         select(Vein).where(Vein.node_id.in_(ids)).order_by(Vein.id).with_for_update()
