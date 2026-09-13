@@ -369,7 +369,10 @@ async def _finish_recycle(
     if coin.is_coin(catalog, batch.output):
         return await coin.finish_melt(session, constants, catalog, batch, where)
 
-    item = await _target(session, batch)
+    #: Under its lock and reread, before a single material comes back: a thing
+    #: the fire or a falling roof takes in this same second is not there to be
+    #: taken apart, and its planks must not come back out of nothing.
+    item = await _target(session, batch, lock=True)
     proc = procedure(catalog, batch.output)
     scale = constants[R.QUALITY_SCALE]
 

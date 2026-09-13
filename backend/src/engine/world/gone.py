@@ -59,7 +59,10 @@ async def destroy(session: AsyncSession, things: Sequence[Item]) -> dict[str, fl
     taking a sack out in the last minute -- doing precisely what the window
     before an eruption is for. Without the lock the delete would queue behind
     their update and take the sack **out of their hands** the moment it
-    landed there.
+    landed there. It is the second line: the doors that take a sack out of a
+    chest or a hold hold the chest or the vehicle first (`storage._allowed`,
+    `transport._pulled_here`), and so meet the thing's own lock above before
+    they ever reach this one.
     """
     held_things = await stock.lock_items(session, things)
     opened: set[uuid.UUID] = set()

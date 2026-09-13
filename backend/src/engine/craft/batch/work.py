@@ -519,8 +519,10 @@ async def recycle(
     )
 
 
-async def _target(session: AsyncSession, batch: CraftBatch) -> Item:
-    item = await session.get(Item, batch.target_item_id)
+async def _target(session: AsyncSession, batch: CraftBatch, *, lock: bool = False) -> Item:
+    item = await session.get(
+        Item, batch.target_item_id, with_for_update=lock, populate_existing=lock
+    )
     if item is None:
         raise CraftError(key="craft-target-gone", batch=str(batch.id))
     return item

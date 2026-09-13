@@ -374,6 +374,12 @@ async def _bury(
     #: out of them the moment the pick lands. What the rain spares is not
     #: taken at all -- the machine ticks lock their own rows and then the fuel
     #: in this same yard, and a lock on the spared heap would only cross them.
+    #: What goes down is still taken in one id order, machines, vessels and
+    #: fuel together, as the deletes took it before; against the automat
+    #: family's minute (vessels, then the machine, then its stacks) that can
+    #: cross once in a house's life, and the daily step's retry replays it.
+    #: The fire, which meets that minute every eruption, splits the vessels
+    #: out first (`plates.fire._burn`); a roof falls once.
     things = [
         thing
         for thing in await stock.lock_items(session, doomed)

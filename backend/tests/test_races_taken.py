@@ -37,7 +37,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from automat_kit import _until_blocked_by
 from src.constants import Catalog, Constants
 from src.engine import estate, gear, plates, storage, transport, world
-from src.engine.world.things import ItemGone
 from src.models.estate import Building
 from src.models.identity import Body
 from src.models.inventory import Container, Item
@@ -138,13 +137,14 @@ async def test_a_sack_unloaded_before_the_fire_is_not_burnt_in_the_hands(
     constants: Constants,
     catalog: Catalog,
 ) -> None:
-    """The fire rereads what is in a hold after the sack's lock.
+    """The fire opens a hold only after the unload that held its cart has landed.
 
-    The carter unloads and keeps the transaction open, holding the sack. The
-    fire takes the cart and walks into the sack in its hold. The unload
-    commits. Judged by the sight from before the wait, the fire deleted the
-    sack in the carter's hands; judged after it, the sack is no longer in the
-    hold, and only the cart burns.
+    The carter unloads and keeps the transaction open, holding the cart and
+    the sack. The fire walks into the cart. The unload commits. The fire,
+    reading the hold after the lock, finds the sack in the carter's hands, not
+    in the hold, and only the cart burns. The lock `world.destroy` takes on a
+    hold's own sacks is the second line behind the cart's: no door moves a
+    sack out of a hold without its vehicle's row any more.
     """
     field_id, carter_id, cart_id, sack_id = await _field_with_a_cart(
         session, constants, catalog, loaded=True
@@ -200,7 +200,7 @@ async def test_a_sack_the_fire_took_first_is_gone_in_words(
     (refused,) = await asyncio.gather(*unloads, return_exceptions=True)
 
     assert burnt > 1, "the cart and its load burnt"
-    assert isinstance(refused, (transport.NotHere, ItemGone)), refused
+    assert isinstance(refused, transport.NotHere), refused
     assert refused.key == "thing-gone", refused.key
     assert waited, "the unload did not wait for the fire"
     async with factory() as db:
