@@ -242,13 +242,17 @@ async def tick_automats(
     the step runs. Whoever cannot pay does not burn (D-135), and a machine that
     has already worked cannot be taken back alone: its goods may already feed
     the next machine of the chain. So the whole pass goes back and runs again
-    with that owner's purse taken as empty: their machines on the tariff stand
-    and their hours are gone, exactly as when the forecast itself finds the
-    purse short -- one outcome for "did not pay", whichever second the money
-    left in. Hours kept for later would be a bank an owner fills by moving the
-    money away before every draw. Their machines on cells or at a free tariff
-    ask no purse and work on. A barred owner is never billed money again, so
-    each run bars at least one owner more, and the runs end.
+    with that owner's purse taken as empty: all their machines on the tariff
+    stand and their hours are gone, as when the forecast itself finds the purse
+    short -- one outcome for "did not pay", whichever second the money left in,
+    and stricter than a forecast that would still fund some of them with what
+    is left: D-135 cuts the building off, not one machine. Hours kept for later
+    would be a bank an owner fills by moving the money away before every draw.
+    Their machines on cells or at a free tariff ask no purse and work on. A
+    barred owner is never billed money again, so each run bars at least one
+    owner more and the runs end -- while the tariff holds still: one raised
+    between a forecast that saw it free and the draw costs one run more, and
+    the run after it reads the new tariff at its forecast.
     """
     moment = now or datetime.now(UTC)
     rows = (await session.execute(select(AutomatRow).order_by(AutomatRow.id))).scalars().all()
