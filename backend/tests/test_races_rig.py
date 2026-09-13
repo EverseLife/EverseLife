@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Nurlan Urazkulov
 
-"""Two transactions at once on a drilling rig.
+"""Two transactions at once on a drilling rig (D-115).
 
 One of the race files (see `test_races.py` for the family's method): here the
 contested things are the ones the rig tick holds for the whole world at once
-(D-115) -- every rig row, the vein under each, the coal of its yard and the
+-- every rig row, the vein under each, the coal of its yard and the
 machine it wears -- against the hands that reach for the same rows: a carrier
 taking the coal, two carters emptying one hopper, an owner taking the machine
 down, a hauler picking up the machine an owner is standing up, and a second

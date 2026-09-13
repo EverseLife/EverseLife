@@ -236,8 +236,8 @@ async def place(session: AsyncSession, catalog: Catalog, body: Body, item: Item)
     #: The thing's own row next: two hands putting up one machine from the
     #: same floor must not both read it lying. And it may be gone
     #: -- picked up, burnt, fallen with the house -- between the look and the
-    #: click: that is the world's ordinary answer, said in words (D-011), not
-    #: a failed refresh. The name is read first: a failed refresh leaves none.
+    #: click: that is the world's ordinary answer, said in words, not a
+    #: failed refresh. The name is read first: a failed refresh leaves none.
     named = item.type_key
     try:
         await session.refresh(item, with_for_update=True)
