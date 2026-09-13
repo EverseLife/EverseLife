@@ -245,8 +245,9 @@ async def test_a_pool_drunk_under_the_fields_tick_is_billed_for_what_it_gave(
             async with factory() as elsewhere, elsewhere.begin():
                 here = await elsewhere.get(Node, node_id)
                 assert here is not None
-                pool = await energy.pool_of(elsewhere, constants, here, lock=True)
+                pool = await energy.pool_of(elsewhere, constants, here)
                 assert pool is not None
+                await energy.produce(elsewhere, constants, pool)
                 pool.stored = Decimal(str(half))
             drunk.append(True)
         return await drawn(*args, **kwargs)
