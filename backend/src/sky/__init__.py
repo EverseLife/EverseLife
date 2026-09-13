@@ -23,6 +23,7 @@ and the journal.
     guide     -- the helm's burn for one step, and the capture
     forecast  -- where inertia leads, and when
     lambert   -- Lambert's problem over a batch of rows
+    choice    -- which of the priced passages one hull is offered (D-341)
     flyby     -- a passage bent round a third world, searched by conics (D-341)
     shoot     -- the flyby refined and corrected in the whole sky
     assist    -- the helm through a flyby
@@ -52,6 +53,7 @@ from src.sky._base import (  # noqa: F401
     system_of,
 )
 from src.sky.assist import Leg, Route, correct, steer_pass  # noqa: F401
+from src.sky.choice import choices  # noqa: F401
 from src.sky.field import advance, pull, sample  # noqa: F401
 from src.sky.forecast import (  # noqa: F401
     CRASH,
@@ -78,7 +80,7 @@ from src.sky.plan import (  # noqa: F401
     approach_quote,
     circle_quote,
     escape_dv,
-    flyby_at,
-    flybys,
     preview,
+    routes,
+    search_days,
 )

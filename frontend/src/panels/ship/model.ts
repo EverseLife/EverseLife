@@ -271,21 +271,22 @@ export function autonomy(air: Air): number | null {
   return air.units / -air.per_hour;
 }
 
-/** One point of the slider, priced for this hull. */
+/** One point of the slider, priced for this hull. The server sends only what
+ *  the hull is offered (D-341): what its engines deliver, each point slower
+ *  and cheaper than the one before -- so the whole list is the slider, the
+ *  first sample its fast end and the last its cheap end. */
 export type Sample = {
   hours: number;
   /** The wait for the ejection window before the arc starts, hours (D-316). */
   wait: number;
   dv: number;
   fuel: number;
-  /** Whether the engines can give that delta-v in that time. */
-  ok: boolean;
   /** The arc the chart draws while the slider stands on this point (D-289):
    *  the planner's line, map units at equal time steps. */
   trace?: [number, number][];
-  /** The planet the passage bends round when this hour's cheapest passage is
-   *  a flyby (D-341), or nothing for a direct arc. Sent back with the order,
-   *  so the pass that was quoted is the one flown. */
+  /** The planet the passage bends round when this point is a flyby (D-341),
+   *  or nothing for a direct arc. Sent back with the order, so the pass that
+   *  was quoted is the one flown. */
   via?: string | null;
 };
 
@@ -341,19 +342,4 @@ export type Held = { ship: string; name: string };
  */
 export function whole(one: { hours: number; wait: number }): number {
   return one.hours + one.wait;
-}
-
-/**
- * The slider's range: from the first arc the engines deliver to the cheapest
- * one. Everything faster is refused by thrust, everything slower costs more
- * for nothing -- neither is a choice worth offering.
- */
-export function range(samples: Sample[]): [number, number] | null {
-  const first = samples.findIndex((s) => s.ok);
-  if (first < 0) return null;
-  let cheapest = first;
-  for (let i = first; i < samples.length; i++) {
-    if (samples[i].dv < samples[cheapest].dv) cheapest = i;
-  }
-  return [first, cheapest];
 }

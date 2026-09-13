@@ -13,6 +13,7 @@ The legs live in `test_ship_flight.py`, the sky itself in `test_ship_sky.py`.
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from itertools import pairwise
 
 import numpy as np
 import pytest
@@ -38,7 +39,7 @@ from src import sky
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import ship
-from src.engine.ship import sim
+from src.engine.ship import course, sim
 from src.models.event import Event, EventKind
 from src.models.identity import Body
 from src.models.ship import Ship
@@ -93,12 +94,14 @@ async def test_no_route_is_closed_by_the_class_of_the_engine(
                 one
                 for one in offered["samples"]
                 if one["hours"] == pytest.approx(arc["hours"])
-                and one["dv"] == pytest.approx(arc["dv"])
+                and one["dv"] == pytest.approx(arc["dv"], rel=1e-3)
             ),
             None,
         )
         assert same is not None, f"{end}: та же дуга есть на ползунке"
-        assert arc["wait"] == pytest.approx(same["wait"]), f"{end}: и то же ожидание"
+        #: The two are read a moment apart, and each is laid from where the
+        #: hull then sits on its circle (D-341): the wait moves by that moment.
+        assert arc["wait"] == pytest.approx(same["wait"], abs=0.02), f"{end}: и то же ожидание"
     assert await ship.fly(session, constants, catalog, owner, vessel, far) is not None
 
 
@@ -191,12 +194,17 @@ async def test_the_slider_has_two_ends_and_the_order_names_one(
     await session.flush()
     await _in_orbit(session, constants, catalog, owner, vessel)
 
-    forecast = await ship.forecast(session, constants, catalog, vessel, Planet.AURORA)
+    #: Read and ordered at one moment: the slider is laid from where the hull
+    #: sits on its circle (D-341), and a hull a second further on is asked anew.
+    moment = datetime.now(UTC)
+    forecast = await ship.forecast(session, constants, catalog, vessel, Planet.AURORA, now=moment)
     samples = forecast["samples"]
-    assert samples and any(one["ok"] for one in samples), "хоть одна дуга по силам двигателям"
-    fast = next(one for one in samples if one["ok"])
-    cheap = min(samples, key=lambda one: one["dv"])
+    assert samples, "хоть одна дуга по силам двигателям"
+    #: The slider as offered (D-341): only what the engines deliver, fastest
+    #: first, and every point cheaper than the one before it.
+    fast, cheap = samples[0], samples[-1]
     assert fast["dv"] > cheap["dv"] and fast["fuel"] > cheap["fuel"]
+    assert all(a["hours"] < b["hours"] and a["dv"] > b["dv"] for a, b in pairwise(samples))
     #: Off the slider on either side: refused before anything is burnt.
     with pytest.raises(ship.NoArc):
         await ship.fly(session, constants, catalog, owner, vessel, far, hours=0)
@@ -210,20 +218,39 @@ async def test_the_slider_has_two_ends_and_the_order_names_one(
             far,
             hours=constants[R.ORBIT_LONGEST_DAYS] * 24 + 1,
         )
-    #: A time the engines cannot make: the first sample that is not `ok`, if
-    #: there is one, is refused by thrust and not by fuel.
-    slow_engines = [one for one in samples if not one["ok"]]
+    #: A time the engines cannot make: a direct arc the slider leaves off for
+    #: its thrust, if the sky has one, is refused by thrust and not by fuel.
+    thrust = await ship.ratio(session, constants, catalog, vessel)
+    world = await sim.system(session, constants)
+    arcs = await sim.arcs(session, constants, vessel, world.body(Planet.AURORA.value), now=moment)
+    slow_engines = [
+        one for one in arcs if one.dv > course.deliverable(constants, thrust, one.hours)
+    ]
     if slow_engines:
         with pytest.raises(ship.NotEnoughThrust):
             await ship.fly(
-                session, constants, catalog, owner, vessel, far, hours=slow_engines[0]["hours"]
+                session,
+                constants,
+                catalog,
+                owner,
+                vessel,
+                far,
+                hours=slow_engines[0].hours,
+                now=moment,
             )
     #: The order is the point of the slider, and nothing is burnt at the
     #: order (D-289): the tanks pay as the engines burn, tick by tick.
-    moment = datetime.now(UTC)
     before = await ship.fuel_aboard(session, constants, catalog, vessel)
     arrives = await ship.fly(
-        session, constants, catalog, owner, vessel, far, hours=fast["hours"], now=moment
+        session,
+        constants,
+        catalog,
+        owner,
+        vessel,
+        far,
+        hours=fast["hours"],
+        via=fast.get("via"),
+        now=moment,
     )
     #: The promised hour is the slider's, plus the wait for the ejection window
     #: (D-316) and the braking at this thrust: the plan's burns are instants,
@@ -421,7 +448,7 @@ async def test_a_crossing_needs_more_fuel_than_the_climb(
 
     await _in_orbit(session, constants, catalog, owner, vessel)
     forecast = await ship.forecast(session, constants, catalog, vessel, Planet.AURORA)
-    fast = next(one for one in forecast["samples"] if one["ok"])
+    fast = next(one for one in forecast["samples"] if "via" not in one)
     #: The console's warning (D-289): the arc and the descent behind it are
     #: more than the tank holds. The engine refuses only what cannot start --
     #: the departure burn -- so the tank is drained to a drop for that.

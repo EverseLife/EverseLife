@@ -2,7 +2,8 @@
 // Copyright (C) 2026 Nurlan Urazkulov
 
 /**
- * The course: the slider between the fastest arc and the cheapest (D-271).
+ * The course: the slider between the fastest passage and the cheapest (D-271,
+ * D-341).
  *
  * One planet is one course, because a crossing goes orbit to orbit (D-245):
  * which pad the hull ends on is chosen over the planet, once it is there. What
@@ -18,7 +19,7 @@ import { useEdition, useSession } from "../../actions";
 import { refusalText, t } from "../../locale";
 import { planetName } from "../../planets";
 import { term } from "../map/orbits";
-import { range, whole, type CourseAnswer, type Sample, type Target, type Vessel } from "./model";
+import { whole, type CourseAnswer, type Sample, type Target, type Vessel } from "./model";
 
 export function Course({
   vessel,
@@ -73,11 +74,11 @@ export function Course({
         setSamples(got);
         setReserve(answer.reserve ?? 0);
         setWhy(answer.why ?? null);
-        //: Start at the cheap end: the default the engine flies unnamed --
-        //: or, rereading after a refusal, at the hours that were chosen.
-        const span = range(got);
+        //: Start at the cheap end, the last point: the default the engine
+        //: flies unnamed -- or, rereading after a refusal, at the hours that
+        //: were chosen, if the sky still offers them.
         const again = got.findIndex((one) => one.hours === held.current);
-        setPick(again >= 0 ? again : span ? span[1] : null);
+        setPick(again >= 0 ? again : got.length > 0 ? got.length - 1 : null);
       })
       .catch((error: unknown) => {
         //: The refusal in the engine's own words, not a guess about engines:
@@ -120,14 +121,15 @@ export function Course({
   if (samples === null) {
     return <p className="note">{t("ui-ship-course-loading")}</p>;
   }
-  const span = range(samples);
-  if (!span || pick === null) {
+  if (samples.length === 0 || pick === null) {
     //: Nothing to a hull comes with the engine's reason (D-289, wave 3): a
     //: hull that will be gone by the hour is not the engines' fault.
     const said = why ? refusalText("", why.code, why.args) : "";
     return <p className={said ? "reason" : "note"}>{said || t("ui-ship-no-arc-fits")}</p>;
   }
-  const [fast, cheap] = span;
+  //: The slider is every sample the server sent (D-341): fastest first, and
+  //: each one cheaper than the one before.
+  const cheap = samples.length - 1;
   const chosen = samples[pick];
   const needs = chosen.fuel + reserve;
   //: Warnings, not locks (D-289): the engine refuses only the departure
@@ -158,10 +160,10 @@ export function Course({
           and no slider between two ends that do not exist. */}
       {samples.length > 1 && (
       <p className="row">
-        <span className="note">{t("ui-ship-end-fast", { term: term(whole(samples[fast])) })}</span>
+        <span className="note">{t("ui-ship-end-fast", { term: term(whole(samples[0])) })}</span>
         <input
           type="range"
-          min={fast}
+          min={0}
           max={cheap}
           step={1}
           value={pick}

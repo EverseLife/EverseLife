@@ -136,11 +136,12 @@ def search(
 ) -> dict[float, list[Candidate]]:
     """Every hour's best flyby through each world, cheapest first.
 
-    `r0` is where the passage starts: the centre of the world a moored hull
-    leaves (its circle decides only the wait), or the drifting hull's own
-    place. Leaving a world is priced by its escape; leaving a drift, by the
-    whole difference of velocity. `shortest` is the least leg, days -- the
-    slider's own first hour.
+    `r0` is where the passage starts: the hull's own place, on the parking
+    circle of `leaving` or adrift, as the direct preview starts from it.
+    Leaving a world is priced by its escape from the circle, by the excess
+    over the world's own velocity; leaving a drift, by the whole difference
+    of velocity from `v0`. `shortest` is the least leg, days -- the slider's
+    own first hour, whatever hours this search is asked for.
     """
     days = np.asarray(hours, dtype=float) / HOURS_PER_DAY
     if not len(days) or days.max() <= shortest:

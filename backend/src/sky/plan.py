@@ -19,9 +19,10 @@ Two things, deliberately unequal in cost:
 
 A flyby is the exception, and a deliberate one (D-341): near Pyroxis the
 conics name a pass that is not there, so the slider's bent points are refined
-in the whole sky before they are offered (`flybys`, `sky.shoot`) -- flown out
+in the whole sky before they are offered (`routes`, `sky.shoot`) -- flown out
 of the periapsis both ways, which converges where a shot aimed at the world
-did not -- and the order carries the pass the refinement found.
+did not -- and the order carries the pass the refinement found. What of all
+that one hull is offered is `sky.choice`'s to say.
 
 The plan is an approximation and the simulation is the truth (D-289): a
 plan is what one pays for, the tick is what one gets.
@@ -29,6 +30,7 @@ plan is what one pays for, the tick is what one gets.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import numpy as np
@@ -48,10 +50,20 @@ from src.sky._base import (
     place_any,
     star_circle,
 )
+from src.sky.choice import choices, deliverable, front
 from src.sky.flyby import Candidate, search
 from src.sky.guide import BRAKE_SHARE, eject_wait
 from src.sky.shoot import Shot, refine
 from src.units import HOURS_PER_DAY, MINUTES_PER_HOUR, TRACE_POINTS
+
+#: The numerics' guard on the outward search for flybys (D-341), in years of
+#: the slowest world: no window reaches past two of them. The search stops by
+#: itself at the first window that adds no choice -- on the sky of 2026-09-13
+#: the chain of choices ended by 72 days and the last window searched by 145,
+#: with Aurora's year 130 -- so the guard is not a ceiling anything is offered
+#: or withheld by: it only keeps a sky that went on offering from searching
+#: without end.
+_SEARCH_YEARS = 2.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -237,7 +249,13 @@ def preview(
     return found
 
 
-def flybys(
+def search_days(system: System) -> float:
+    """How far out the flyby search may ever reach, days: the numerics' guard
+    (`_SEARCH_YEARS` of the slowest world), and not a ceiling of the game."""
+    return _SEARCH_YEARS * max((one.orbit[1] for one in system.bodies), default=0.0)
+
+
+def routes(
     system: System,
     r0: tuple[float, float],
     v0: tuple[float, float],
@@ -246,199 +264,172 @@ def flybys(
     hours: tuple[float, ...],
     *,
     leaving: Body | None,
-    ceiling: float,
+    longest: float,
+    reach: float,
+    gap: float,
     floor_radii: float,
 ) -> list[Sample]:
-    """The slider's bent points (D-341): for every hour, the cheapest flyby
-    that exists under five bodies and beats the direct arc of that hour.
+    """The slider one hull is offered to a planet (D-341): the direct arcs and
+    the flybys that exist under five bodies, cut to the choices
+    (`sky.choice`: what the engines deliver in `reach` a day, the real
+    choices, the largest group parted at `gap`).
 
-    Laid from the centre of the world a moored hull leaves -- where it sits on
-    the circle decides only its wait, which the caller adds -- or from a
-    drifting hull's own state. Hours up to `ceiling` compete with the direct
-    arc; past it the direct slider ends (D-317) and a flyby is the only
-    passage offered. The conics name the candidates (`flyby.search`), the
-    whole sky decides which of them exist (`shoot.refine`); an hour whose
-    best world does not survive the refinement is tried through the next.
+    Laid from the hull's own place and velocity at `t0` -- on the parking
+    circle of `leaving`, or adrift -- exactly as the direct preview is: the
+    plan, the wait for the ejection window and every price are this hull's
+    own. `hours` is the slider's grid (`course.flyby_grid`): the direct arc
+    is priced up to `longest` hours (D-317), a flyby on past them.
+
+    **The search walks outward.** Up to `longest` every hour's flybys compete
+    with the direct arcs. Past it the search goes a window at a time, each
+    reaching `gap` times the hours of the slowest choice found so far -- the
+    end of the chain -- and stops at the first window that adds no choice.
+    A choice is cheaper than every faster route, so a window's choices do not
+    depend on anything slower; and past an empty window nothing can join the
+    chain, being more than `gap` times longer than its end. The search is
+    exact for the chain: the groups it never reaches are not seen, and the
+    largest group is the largest of those it saw.
+
+    **Refined only what could be a choice.** The conics name the candidates
+    (`flyby.search`), the whole sky decides which exist (`shoot.refine`), and
+    a candidate is refined only if its conic price beats every route already
+    certain at its hour or faster -- a direct arc of the engines' reach or a
+    confirmed flyby -- and the direct arc of its own hour. An hour whose best
+    world does not survive the refinement is tried through the next.
     """
-    start = place(leaving, t0)[0][0] if leaving is not None else np.asarray(r0, dtype=float)
-    here = (float(start[0]), float(start[1]))
-    base = place(leaving, t0)[1][0] if leaving is not None else np.asarray(v0, dtype=float)
-    beside = (float(base[0]), float(base[1]))
-    direct = {
-        one.hours: one.dv
-        for one in preview(
+    shortest = hours[0] / HOURS_PER_DAY
+    guard = search_days(system) * HOURS_PER_DAY
+    found: list[Sample] = preview(
+        system,
+        None,
+        r0,
+        v0,
+        t0,
+        target,
+        tuple(one for one in hours if one <= longest),
+        leaving=leaving,
+    )
+    top, bound = 0.0, longest
+    while True:
+        window = tuple(one for one in hours if top < one <= min(bound, guard))
+        if not window:
+            break
+        shots = _refine_all(
             system,
-            None,
-            here,
-            beside,
+            r0,
+            v0,
             t0,
             target,
-            tuple(one for one in hours if one <= ceiling),
+            search(
+                system,
+                r0,
+                v0,
+                t0,
+                target,
+                window,
+                leaving=leaving,
+                floor_radii=floor_radii,
+                shortest=shortest,
+            ),
+            found,
+            reach=reach,
             leaving=leaving,
+            floor_radii=floor_radii,
         )
-    }
-    found = search(
-        system,
-        here,
-        beside,
-        t0,
-        target,
-        hours,
-        leaving=leaving,
-        floor_radii=floor_radii,
-        shortest=hours[0] / HOURS_PER_DAY,
-    )
-    #: Each hour's candidates that could still win, cheapest first. Past the
-    #: ceiling there is no direct arc of the same hour to beat, and what a
-    #: point must beat instead is every shorter one: a passage both longer
-    #: and dearer than one already offered is no choice (D-341).
-    #: Within the slider every hour competes with its own direct arc -- or with
-    #: nothing, where every arc of the hour cuts the corona and the flyby is
-    #: the only passage there is.
-    shots: dict[float, Shot] = {}
-    _refine_all(
-        system,
-        here,
-        beside,
-        t0,
-        target,
-        {
-            hour: [one for one in kept if one.dv < direct.get(hour, np.inf)]
-            for hour, kept in found.items()
-            if hour <= ceiling
-        },
-        direct,
-        shots,
-        leaving=leaving,
-        floor_radii=floor_radii,
-    )
-    #: Past the ceiling a candidate is refined only if it could beat what is
-    #: already certain -- the direct arcs and the flybys the sky has confirmed
-    #: within the slider; a conic's own price is no bound, since a sixth of
-    #: them name passes that do not exist.
-    known = min([*direct.values(), *(shot.dv for shot in shots.values())], default=np.inf)
-    _refine_all(
-        system,
-        here,
-        beside,
-        t0,
-        target,
-        {
-            hour: [one for one in kept if one.dv < known]
-            for hour, kept in found.items()
-            if hour > ceiling
-        },
-        direct,
-        shots,
-        leaving=leaving,
-        floor_radii=floor_radii,
-    )
-    #: The same rule on the refined prices: the conics named the candidates,
-    #: the whole sky priced them.
-    cheapest = min(
-        [*direct.values(), *(shot.dv for hour, shot in shots.items() if hour <= ceiling)],
-        default=np.inf,
-    )
-    offered: list[Sample] = []
-    for hour, shot in sorted(shots.items()):
-        if hour > ceiling:
-            if shot.dv >= cheapest:
-                continue
-            cheapest = shot.dv
-        offered.append(_bent(system, here, t0, target, shot))
-    return offered
+        found.extend(_bent(system, r0, v0, t0, target, shot) for shot in shots)
+        chain = front(found, reach=reach)
+        if top > 0.0 and not any(top < one.hours for one in chain):
+            break
+        #: The end of the chain: the slowest choice, or the direct slider's
+        #: own horizon while there is none.
+        top = window[-1]
+        bound = gap * (chain[-1].hours if chain else longest)
+    return choices(found, reach=reach, gap=gap)
 
 
-def flyby_at(
+def _refine_all(
     system: System,
     r0: tuple[float, float],
     v0: tuple[float, float],
     t0: float,
     target: Body,
-    hours: float,
-    via: str,
-    *,
-    leaving: Body | None,
-    shortest: float,
-    floor_radii: float,
-) -> list[Sample]:
-    """The one flyby through `via` at `hours`, refined, with none of the
-    slider's rules about what is worth showing (D-341): what an order that
-    names it flies. A list of at most one -- empty if the sky has no such
-    pass now -- so it travels to a worker process and back as the slider's
-    flybys do."""
-    start = place(leaving, t0)[0][0] if leaving is not None else np.asarray(r0, dtype=float)
-    here = (float(start[0]), float(start[1]))
-    base = place(leaving, t0)[1][0] if leaving is not None else np.asarray(v0, dtype=float)
-    beside = (float(base[0]), float(base[1]))
-    found = search(
-        system,
-        here,
-        beside,
-        t0,
-        target,
-        (hours,),
-        leaving=leaving,
-        floor_radii=floor_radii,
-        shortest=shortest,
-    )
-    for one in found.get(hours, []):
-        if one.via != via:
-            continue
-        (shot,) = refine(
-            system, here, beside, t0, target, [one], leaving=leaving, floor_radii=floor_radii
-        )
-        return [] if shot is None else [_bent(system, here, t0, target, shot)]
-    return []
-
-
-def _refine_all(
-    system: System,
-    here: tuple[float, float],
-    beside: tuple[float, float],
-    t0: float,
-    target: Body,
     queue: dict[float, list[Candidate]],
-    direct: dict[float, float],
-    shots: dict[float, Shot],
+    certain: list[Sample],
     *,
+    reach: float,
     leaving: Body | None,
     floor_radii: float,
-) -> None:
+) -> list[Shot]:
     """Refine each hour's candidates cheapest first, all hours in one batch a
-    round, until every hour has a flyby that exists and beats its direct arc
-    or has no candidates left. Found shots are added to `shots`."""
+    round, until every hour has a flyby that exists and could be a choice or
+    has no candidates left. What could be a choice beats the `certain` routes
+    (`routes`); each confirmed flyby joins them for the rounds after."""
+    known = list(certain)
+    shots: dict[float, Shot] = {}
     while True:
-        batch = [kept.pop(0) for hour, kept in sorted(queue.items()) if kept and hour not in shots]
+        bar = _bars(known, reach)
+        batch = []
+        for hour, kept in sorted(queue.items()):
+            if hour in shots:
+                continue
+            kept[:] = [one for one in kept if one.dv < bar(hour)]
+            if kept:
+                batch.append(kept.pop(0))
         if not batch:
-            return
-        found = refine(
-            system, here, beside, t0, target, batch, leaving=leaving, floor_radii=floor_radii
-        )
+            return [shots[hour] for hour in sorted(shots)]
+        found = refine(system, r0, v0, t0, target, batch, leaving=leaving, floor_radii=floor_radii)
         for one, shot in zip(batch, found, strict=True):
-            if shot is not None and shot.dv < direct.get(one.hours, np.inf):
+            if shot is not None and shot.dv < bar(one.hours):
                 shots[one.hours] = shot
+                known.append(_priced(one.hours, shot.dv))
+
+
+def _bars(known: list[Sample], reach: float) -> Callable[[float], float]:
+    """What a route of each hour must cost less than to be a choice: every
+    certain route the engines deliver at that hour or faster, and whatever
+    else is priced at the hour itself."""
+    delivered = sorted((one.hours, one.dv) for one in known if deliverable(one, reach))
+    own: dict[float, float] = {}
+    for one in known:
+        own[one.hours] = min(own.get(one.hours, np.inf), one.dv)
+
+    def bar(hour: float) -> float:
+        faster = (dv for hours, dv in delivered if hours <= hour)
+        return min(own.get(hour, np.inf), *faster, np.inf)
+
+    return bar
+
+
+def _priced(hours: float, dv: float) -> Sample:
+    """A price alone, as `_bars` reads a confirmed flyby before its line is drawn."""
+    return Sample(hours=hours, dv_out=0.0, dv_in=0.0, dv=dv, trace=(), revs=0)
 
 
 def _bent(
-    system: System, start: tuple[float, float], t0: float, target: Body, shot: Shot
+    system: System,
+    r0: tuple[float, float],
+    v0: tuple[float, float],
+    t0: float,
+    target: Body,
+    shot: Shot,
 ) -> Sample:
-    """A refined flyby as a point of the slider, with the line the chart draws:
-    two arcs round the star meeting at the world, the kink where the pass is."""
+    """A refined flyby as a point of the slider, with the line the chart draws
+    -- two arcs round the star meeting at the world, the kink where the pass
+    is -- and the hull's own wait for the window it leaves by (D-316)."""
     one = shot.candidate
     tof = one.hours / HOURS_PER_DAY
     via = system.body(one.via)
     corner, corner_v = place(via, t0 + shot.at)
     corner_r = (float(corner[0, 0]), float(corner[0, 1]))
     goal = place(target, t0 + tof)[0][0]
-    first = _arc(system.mu, start, corner_r, shot.at, shot.v1)
+    first = _arc(system.mu, r0, corner_r, shot.at, shot.v1)
     #: The second arc leaves the world with the excess the conics named, turned
     #: back into the star's frame: it picks the way round the refinement flew.
     out = (corner_v[0, 0] + one.v_out[0], corner_v[0, 1] + one.v_out[1])
     second = _arc(system.mu, corner_r, (float(goal[0]), float(goal[1])), tof - shot.at, out)
     head = max(2, min(TRACE_POINTS - 1, round(TRACE_POINTS * shot.at / tof)))
     trace = (
-        astro.trace(system.mu, start, first, shot.at, head)
+        astro.trace(system.mu, r0, first, shot.at, head)
         + astro.trace(system.mu, corner_r, second, tof - shot.at, TRACE_POINTS - head + 1)[1:]
     )
     return Sample(
@@ -449,6 +440,7 @@ def _bent(
         trace=trace,
         revs=0,
         v1=shot.v1,
+        wait=eject_wait(system, target, t0, r0, v0, shot.v1) * HOURS_PER_DAY,
         via=Pass(
             via=one.via,
             at=shot.at,

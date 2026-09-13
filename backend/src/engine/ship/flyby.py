@@ -5,16 +5,16 @@
 passages bent round a third world, and what an order keeps of the one it
 flies.
 
-Beside `sim`, below it: the slider (`sim.offers`) asks here for the flybys of
-the moment and the order (`sim.depart`) for the one it was given and for the
-fields a flyby adds to the course; the tick (`helm`) reads the helm's leg
-back. The arithmetic is the sky's (`sky.flybys`, `sky.steer_pass`); this
-module remembers it, runs it where it cannot stall the server, and writes it
-down.
+Beside `sim`, below it: the slider (`sim.offers`) asks here for what one hull
+is offered at the moment -- direct arcs and flybys together, cut to the
+choices -- and the order (`sim.depart`) for the fields a flyby adds to the
+course; the tick (`helm`) reads the helm's leg back. The arithmetic is the
+sky's (`sky.routes`, `sky.steer_pass`); this module remembers it, runs it
+where it cannot stall the server, and writes it down.
 
-**Where the arithmetic runs.** Refining a world's flybys is seconds of numpy
-over hundreds of rows -- Python between every call, the interpreter's lock
-held nearly throughout. In a thread beside the event loop that was measured
+**Where the arithmetic runs.** Refining one hull's flybys is seconds of
+numpy over hundreds of rows -- Python between every call, the interpreter's
+lock held nearly throughout. In a thread beside the event loop that was measured
 at a hundred and ninety milliseconds of loop latency at the 99th percentile,
 and four at once took four times as long, not one. So it runs in a process of
 its own, and two consoles missing the same memo wait on one computation.
@@ -38,7 +38,6 @@ from src.runtime import SKY_WORKERS
 from src.units import (
     HOURS_PER_DAY,
     ROUND_DV,
-    ROUND_HOURS,
     ROUND_TRACE,
     SKY_CURVE_MEMO,
     SKY_MEMO_PER_DAY,
@@ -53,102 +52,45 @@ async def offered(
     r: tuple[float, float],
     v: tuple[float, float],
     t: float,
+    *,
+    reach: float,
 ) -> list[sky.Sample]:
-    """The slider's flybys (D-341), remembered per sky minute.
+    """The slider one hull is offered to a planet (D-341): direct arcs and
+    flybys, cut to the choices for engines that give `reach` a day of flight.
 
-    From a parking circle the plan is laid from the world's centre at the
-    bucket's own moment, so every hull moored over one world shares it -- what
-    differs between them is only the wait, which `offers` adds. From a drift
-    the plan is the hull's own.
+    Laid from the hull's own place and velocity at the moment asked -- on its
+    parking circle or adrift -- so a plan is never shared between hulls, and
+    the wait for the ejection window in it is the hull's own. Remembered on
+    that state as the wire rounds it, the sky's ten-minute bucket and the
+    engines' reach: two consoles of one hull asking together wait on one
+    computation, and a hull that has moved on along its circle asks anew.
     """
-    moment, here, key = _place_of(constants, target, leaving, r, v, t)
+    key = (
+        constants.digest,
+        target.key,
+        None if leaving is None else leaving.key,
+        round(t * SKY_MEMO_PER_DAY),
+        round(r[0], ROUND_TRACE),
+        round(r[1], ROUND_TRACE),
+        round(v[0], ROUND_DV),
+        round(v[1], ROUND_DV),
+        round(reach, ROUND_DV),
+    )
     return await _remembered(
         key,
         partial(
-            sky.flybys,
+            sky.routes,
             world,
-            here,
+            r,
             v,
-            moment,
+            t,
             target,
-            course.flyby_grid(constants),
+            course.flyby_grid(constants, sky.search_days(world)),
             leaving=leaving,
-            ceiling=float(constants[R.ORBIT_LONGEST_DAYS]) * HOURS_PER_DAY,
+            longest=float(constants[R.ORBIT_LONGEST_DAYS]) * HOURS_PER_DAY,
+            reach=reach,
+            gap=float(constants[R.ORBIT_ROUTE_GAP]),
             floor_radii=float(constants[R.ORBIT_FLYBY_FLOOR_RADII]),
-        ),
-    )
-
-
-async def given(
-    constants: Constants,
-    world: sky.System,
-    target: sky.Body,
-    leaving: sky.Body | None,
-    r: tuple[float, float],
-    v: tuple[float, float],
-    t: float,
-    *,
-    hours: float,
-    via: str,
-) -> sky.Sample | None:
-    """The one flyby an order names, through `via` at `hours`, whether or not
-    the slider would show it now (D-341): the order flies what the console
-    quoted, and a pass that still exists -- only a hair dearer than the direct
-    arc or than a shorter point since -- is flown rather than refused."""
-    moment, here, key = _place_of(constants, target, leaving, r, v, t)
-    found = await _remembered(
-        (*key, "given", round(hours, ROUND_HOURS), via),
-        partial(
-            sky.flyby_at,
-            world,
-            here,
-            v,
-            moment,
-            target,
-            hours,
-            via,
-            leaving=leaving,
-            shortest=float(constants[R.ORBIT_SLIDER_FROM_HOURS]) / HOURS_PER_DAY,
-            floor_radii=float(constants[R.ORBIT_FLYBY_FLOOR_RADII]),
-        ),
-    )
-    return found[0] if found else None
-
-
-def _place_of(
-    constants: Constants,
-    target: sky.Body,
-    leaving: sky.Body | None,
-    r: tuple[float, float],
-    v: tuple[float, float],
-    t: float,
-) -> tuple[float, tuple[float, float], tuple]:
-    """The plan's moment and start, and the memo's key: the sky's ten-minute
-    bucket, and for a drift the hull's own state as the wire rounds it."""
-    bucket = round(t * SKY_MEMO_PER_DAY)
-    if leaving is not None:
-        return (
-            bucket / SKY_MEMO_PER_DAY,
-            (0.0, 0.0),
-            (
-                constants.digest,
-                target.key,
-                leaving.key,
-                bucket,
-            ),
-        )
-    return (
-        t,
-        r,
-        (
-            constants.digest,
-            target.key,
-            None,
-            bucket,
-            round(r[0], ROUND_TRACE),
-            round(r[1], ROUND_TRACE),
-            round(v[0], ROUND_DV),
-            round(v[1], ROUND_DV),
         ),
     )
 
@@ -156,7 +98,7 @@ def _place_of(
 async def _remembered(key: tuple, work: Callable[[], list[sky.Sample]]) -> list[sky.Sample]:
     """The memo's answer for `key`, computing it in the pool on a miss -- once,
     however many readers miss it together."""
-    hit = _FLYBYS.get(key)
+    hit = _OFFERED.get(key)
     if hit is not None:
         return list(hit)
     pending = _PENDING.get(key)
@@ -167,9 +109,9 @@ async def _remembered(key: tuple, work: Callable[[], list[sky.Sample]]) -> list[
             hit = await pending
         finally:
             _PENDING.pop(key, None)
-        _FLYBYS[key] = hit
-        while len(_FLYBYS) > SKY_CURVE_MEMO:
-            _FLYBYS.popitem(last=False)
+        _OFFERED[key] = hit
+        while len(_OFFERED) > SKY_CURVE_MEMO:
+            _OFFERED.popitem(last=False)
         return list(hit)
     return list(await asyncio.shield(pending))
 
@@ -182,9 +124,9 @@ def _pool() -> ProcessPoolExecutor:
     return _EXECUTOR
 
 
-#: The flybys remembered across commands, the computations under way, and the
+#: The sliders remembered across commands, the computations under way, and the
 #: pool they run in (see `_remembered`).
-_FLYBYS: OrderedDict[tuple, list[sky.Sample]] = OrderedDict()
+_OFFERED: OrderedDict[tuple, list[sky.Sample]] = OrderedDict()
 _PENDING: dict[tuple, asyncio.Future[list[sky.Sample]]] = {}
 _EXECUTOR: ProcessPoolExecutor | None = None
 

@@ -5,13 +5,16 @@
 
 The console quotes a passage bent round Pyroxis with the world named beside
 the price; the order carries the pass it was quoted; the tick flies it past
-Pyroxis onto Aurora's circle within the promise; and an order for a flyby the
-sky does not have at those hours is refused rather than flown as an arc.
+Pyroxis onto Aurora's circle within the promise; and an order for a point the
+slider does not offer -- a flyby the sky does not have at those hours, or the
+direct arc of an hour the slider offers as a flyby -- is refused rather than
+flown as something the console would not offer.
 """
 
 from __future__ import annotations
 
 from datetime import timedelta
+from itertools import pairwise
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -75,9 +78,9 @@ async def test_the_console_quotes_a_flyby_and_the_helm_flies_it(
     moment = epoch + timedelta(days=SWING_DAY)
     forecast = await ship.forecast(session, constants, catalog, vessel, Planet.AURORA, now=moment)
     samples = forecast["samples"]
-    #: One point an hour, and the cheaper passage of that hour.
-    assert len({one["hours"] for one in samples}) == len(samples)
-    bent = [one for one in samples if one.get("via") == Planet.PYROXIS.value and one["ok"]]
+    #: One point an hour, fastest first and each cheaper than the last (D-341).
+    assert all(a["hours"] < b["hours"] and a["dv"] > b["dv"] for a, b in pairwise(samples))
+    bent = [one for one in samples if one.get("via") == Planet.PYROXIS.value]
     assert bent, "в этот день ползунок предлагает пролёт мимо Пироксиса"
     assert all(one.get("via") in (None, Planet.PYROXIS.value) for one in samples)
     pick = min(bent, key=lambda one: one["hours"])
@@ -142,6 +145,28 @@ async def test_a_flyby_the_sky_does_not_have_is_refused(
             now=moment,
         )
     assert "ship-no-flyby" in str(refused.value)
+    assert vessel.course is None and vessel.docked_node_id is not None
+
+
+async def test_an_order_off_the_slider_is_refused(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The order flies a point of the slider as the sky offers it this hull
+    at the order's moment, and nothing else (D-341): the hours of a flyby
+    named without its world ask for the direct arc of that hour, which the
+    slider does not offer -- refused as off the slider, and nothing is laid."""
+    vessel, far = await _moored_over_terra(session, constants, catalog)
+    epoch = await world.epoch(session)
+    assert epoch is not None
+    moment = epoch + timedelta(days=SWING_DAY)
+    forecast = await ship.forecast(session, constants, catalog, vessel, Planet.AURORA, now=moment)
+    bent = next(one for one in forecast["samples"] if one.get("via") == Planet.PYROXIS.value)
+    body = await _body_of(session, vessel)
+    with pytest.raises(ship.NoArc) as refused:
+        await ship.fly(
+            session, constants, catalog, body, vessel, far, hours=bent["hours"], now=moment
+        )
+    assert "ship-hours-out-of-range" in str(refused.value)
     assert vessel.course is None and vessel.docked_node_id is not None
 
 

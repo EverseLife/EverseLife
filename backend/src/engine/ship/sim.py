@@ -29,7 +29,6 @@ import asyncio
 import uuid
 from collections import OrderedDict
 from collections.abc import Sequence
-from dataclasses import replace
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -303,18 +302,18 @@ async def offers(
     *,
     now: datetime,
     thrust_ratio: float,
-    flybys: bool = False,
 ) -> list[sky.Sample]:
-    """The slider from where the hull is: the preview for every point of the
-    grid (D-271, D-289) -- to a planet's circle, or to a drifter on its
-    forecast (wave 3). Empty for a hull not in the sky.
+    """The slider this hull is offered from where it is (D-271, D-289, D-341):
+    to a planet, the direct arcs and the flybys cut to the choices -- what
+    its engines deliver, only real choices, the largest group -- fastest
+    first, so the cheap end is the last; to a drifter, the one quote of the
+    approach profile (wave 3). Empty for a hull not in the sky, and for one
+    whose engines deliver nothing the sky has.
 
-    With `flybys`, and to a planet, the passages bent round a third world as
-    well (D-341), each with the hull's own wait for its window: an hour may
-    then carry two samples, the direct arc and the flyby, and the reader picks
-    -- the console the cheaper, the order the one it was given. Asked only
-    where the slider itself is read: refining flybys costs seconds a world,
-    and the console's summary of every route (`card.profile`) stays direct."""
+    Laid in a process of its own and remembered there on the hull's state
+    (`flyby.offered`): seconds a planet, and asked only where the slider
+    itself is read or an order is given. The console's summary of every
+    route (`card.profile`) stays with the direct arcs (`arcs`)."""
     found = await state_at(session, constants, ship, now=now)
     if found is None:
         return []
@@ -326,12 +325,36 @@ async def offers(
         #: arcs would quote hours and delta-v nobody flies.
         a_max = thrust_ratio * float(constants[R.ORBIT_THRUST_SCALE])
         return [sky.approach_quote(r, v, t, target, a_max)]
+    return await flyby.offered(
+        constants,
+        world,
+        target,
+        await _leaving_of(session, world, ship),
+        r,
+        v,
+        t,
+        reach=course.reach(constants, thrust_ratio),
+    )
+
+
+async def arcs(
+    session: AsyncSession, constants: Constants, ship: Ship, target: sky.Body, *, now: datetime
+) -> list[sky.Sample]:
+    """The direct arcs to a planet from where the hull is (D-271, D-289): every
+    hour of the direct grid the sky has an arc for, priced, before any cut --
+    the summary's routes and an order's reason for a refusal. Empty for a
+    hull not in the sky.
+
+    Memoised on the state, rounded as the wire rounds it, and on the sky's
+    own minute: forty Lambert solutions a planet on every reread of
+    `ship.view` were a tenth of a second each in the event loop. What is not
+    remembered is solved off the loop."""
+    found = await state_at(session, constants, ship, now=now)
+    if found is None:
+        return []
+    r, v, t = found
+    world = await system(session, constants)
     leaving = await _leaving_of(session, world, ship)
-    #: Memoised on the state, rounded as the wire rounds it, and on the
-    #: sky's own minute: every console over a planet asks the same question
-    #: of the same sky, and forty Lambert solutions a planet on every reread
-    #: of `ship.view` were a tenth of a second each in the event loop. What
-    #: is not remembered is solved off the loop.
     key = (
         constants.digest,
         target.key,
@@ -350,16 +373,7 @@ async def offers(
         _PREVIEWS[key] = hit
         while len(_PREVIEWS) > SKY_CURVE_MEMO:
             _PREVIEWS.popitem(last=False)
-    if not flybys or not isinstance(target, sky.Body):
-        return list(hit)
-    bent = await flyby.offered(constants, world, target, leaving, r, v, t)
-    return [
-        *hit,
-        *(
-            replace(one, wait=sky.eject_wait(world, target, t, r, v, one.v1) * HOURS_PER_DAY)
-            for one in bent
-        ),
-    ]
+    return list(hit)
 
 
 async def _leaving_of(session: AsyncSession, world: sky.System, ship: Ship) -> sky.Body | None:
@@ -370,7 +384,7 @@ async def _leaving_of(session: AsyncSession, world: sky.System, ship: Ship) -> s
     return world.body(moored.planet.value) if moored is not None and is_orbit(moored) else None
 
 
-#: The slider previews remembered across commands (see `offers`).
+#: The direct previews remembered across commands (see `arcs`).
 _PREVIEWS: OrderedDict[tuple, list[sky.Sample]] = OrderedDict()
 
 
@@ -458,26 +472,35 @@ async def depart(
     hours: float,
     thrust_ratio: float,
     now: datetime,
-    offered: Sequence[sky.Sample] | None = None,
+    offered: Sequence[sky.Sample],
     via: str | None = None,
 ) -> tuple[sky.Sample, float]:
     """Set the order: the chosen point of the slider, written onto the row.
     Returns the plan -- the slider's own sample -- and the fuel it will cost
     by the plan's delta-v.
 
-    A direct arc's plan is the two-body arc the slider showed, no more: a
-    shooting refinement under five bodies was tried and dropped for it (D-289,
-    wave 2), because the helm re-solves the passage from where the hull
-    actually is every tick (`_fly`) whatever line was drawn at the order. A
-    flyby's plan is the refined pass (D-341): `via` names the world, and the
-    order carries the periapsis the helm corrects toward -- an hour may hold a
-    direct arc and a flyby both, and the order flies the one it was given.
+    `offered` is the slider as the sky offers this hull at the order's moment
+    (`offers`). A direct arc's plan is the two-body arc the slider showed, no
+    more: a shooting refinement under five bodies was tried and dropped for
+    it (D-289, wave 2), because the helm re-solves the passage from where the
+    hull actually is every tick (`_fly`) whatever line was drawn at the order.
+    A flyby's plan is the refined pass (D-341): `via` names the world, and
+    the order carries the periapsis the helm corrects toward.
 
-    Refused for what is impossible **now** and for nothing else (D-289):
-    an arc the sky does not offer, one the engines cannot deliver, or
-    tanks that do not hold the departure burn. The arrival burn is the
-    console's warning, not the engine's refusal -- fuel may be made on the
-    way, and a hull short of it drifts rather than being kept at the pier.
+    **Only a point of the slider is flown** (D-341): the hours and the world
+    must be one of `offered`, or the order is refused -- never flown as a
+    route the console would not offer at this moment. A flyby that is not
+    among them is `ship-no-flyby`, whether the sky turned under it since the
+    console read it or it was never there; a direct arc the engines cannot
+    deliver in its hours is `ship-too-fast-for-thrust`; any other hour off
+    the slider -- no arc, off the grid, slower and no cheaper than a faster
+    point, or out of the group offered -- is `ship-hours-out-of-range`. The
+    console rereads the slider on the answer and shows the sky that refused.
+
+    Refused besides for what is impossible **now** and for nothing else
+    (D-289): tanks that do not hold the departure burn. The arrival burn is
+    the console's warning, not the engine's refusal -- fuel may be made on
+    the way, and a hull short of it drifts rather than being kept at the pier.
     """
     world = await system(session, constants)
     goal: sky.Target
@@ -490,17 +513,6 @@ async def depart(
         goal = found_goal
     else:
         goal = world.body(target.planet.value)
-    if offered is None:
-        offered = await offers(
-            session,
-            constants,
-            catalog,
-            ship,
-            goal,
-            now=now,
-            thrust_ratio=thrust_ratio,
-            flybys=via is not None,
-        )
     if isinstance(goal, sky.Drifter):
         #: One price to a hull and no choice among prices: the quote of the
         #: order's own moment, whatever hours the console read minutes ago
@@ -511,52 +523,19 @@ async def depart(
         if gone_by(goal, await sky_days(session, now), hours):
             raise NoArc(key="ship-target-gone-by-then", other=target.name)
     else:
-        samples = {
-            one.hours: one for one in offered if (None if one.via is None else one.via.via) == via
-        }
-        found_sample = samples.get(round(hours, ROUND_HOURS)) or samples.get(hours)
-        if found_sample is None and via is not None and isinstance(goal, sky.Body):
-            #: Not among the slider's points now: the pass may still exist, a
-            #: hair dearer than the arc of its hour or a shorter point since
-            #: the console read it -- and the order flies what was quoted.
-            here = await state_at(session, constants, ship, now=now)
-            if here is not None:
-                r_now, v_now, t_now = here
-                exact = await flyby.given(
-                    constants,
-                    world,
-                    goal,
-                    await _leaving_of(session, world, ship),
-                    r_now,
-                    v_now,
-                    t_now,
-                    hours=round(hours, ROUND_HOURS),
-                    via=via,
-                )
-                if exact is not None:
-                    found_sample = replace(
-                        exact,
-                        wait=sky.eject_wait(world, goal, t_now, r_now, v_now, exact.v1)
-                        * HOURS_PER_DAY,
-                    )
-        if found_sample is None and via is not None:
-            #: The flyby the console quoted is gone at the order's moment --
-            #: the sky turned between the reading and the button. Refused
-            #: rather than flown as something else (D-341).
-            raise NoArc(key="ship-no-flyby", hours=round(hours, ROUND_HOURS), planet=via)
-        if found_sample is None:
-            raise NoArc(key="ship-no-arc", hours=round(hours, ROUND_HOURS))
-        sample = found_sample
-        can = course.deliverable(constants, thrust_ratio, hours)
-        if sample.dv > can:
-            raise NotEnoughThrust(
-                key="ship-too-fast-for-thrust",
-                hours=round(hours, ROUND_HOURS),
-                need=round(sample.dv, ROUND_DV),
-                have=round(can, ROUND_DV),
-            )
+        sample = await _point(
+            session,
+            constants,
+            ship,
+            goal,
+            offered,
+            hours=hours,
+            via=via,
+            now=now,
+            thrust_ratio=thrust_ratio,
+        )
     found = await state_at(session, constants, ship, now=now)
-    if found is None:  # pragma: no cover -- `offers` answered, so the hull is in the sky
+    if found is None:  # pragma: no cover -- the slider answered, so the hull is in the sky
         raise NoArc(key="ship-no-arc", hours=round(hours, ROUND_HOURS))
     r, v, t = found
     plan = sample
@@ -628,6 +607,37 @@ async def depart(
     ship.forecast = None
     await session.flush()
     return plan, fuel_for_dv(constants, weight, plan.dv, klass)
+
+
+async def _point(
+    session: AsyncSession,
+    constants: Constants,
+    ship: Ship,
+    goal: sky.Body,
+    offered: Sequence[sky.Sample],
+    *,
+    hours: float,
+    via: str | None,
+    now: datetime,
+    thrust_ratio: float,
+) -> sky.Sample:
+    """The point of the slider an order names, or its refusal (`depart`)."""
+    named = round(hours, ROUND_HOURS)
+    for one in offered:
+        if one.hours in (named, hours) and (None if one.via is None else one.via.via) == via:
+            return one
+    if via is not None:
+        raise NoArc(key="ship-no-flyby", hours=named, planet=via)
+    can = course.deliverable(constants, thrust_ratio, hours)
+    for arc in await arcs(session, constants, ship, goal, now=now):
+        if arc.hours in (named, hours) and arc.dv > can:
+            raise NotEnoughThrust(
+                key="ship-too-fast-for-thrust",
+                hours=named,
+                need=round(arc.dv, ROUND_DV),
+                have=round(can, ROUND_DV),
+            )
+    raise NoArc(key="ship-hours-out-of-range", hours=named)
 
 
 def meetable(other: Ship) -> bool:

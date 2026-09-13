@@ -146,8 +146,9 @@ def refine(
     count = len(candidates)
     if not count:
         return []
-    #: The ends are joined at the worlds' centres, as the conics price them:
-    #: their own pull is in `escape`, not in the line.
+    #: The ends are joined where the passage starts -- the hull's own place,
+    #: as the conics start from it -- and at the target's centre; the two
+    #: worlds' own pull is in `escape`, not in the line.
     sky2 = dataclasses.replace(
         system,
         bodies=tuple(
