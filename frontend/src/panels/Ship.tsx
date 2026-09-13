@@ -621,7 +621,7 @@ export function Ship({
                     vessel={v}
                     target={course}
                     busy={busy || mute}
-                    fly={(to, hours) =>
+                    fly={(to, hours, via) =>
                       go(() =>
                         session.send(
                           "ship.fly",
@@ -630,6 +630,7 @@ export function Ship({
                                 ship: v.ship,
                                 port: v.routes.find((one) => one.planet === to.planet)?.node,
                                 hours,
+                                ...(via ? { via } : {}),
                               }
                             : { ship: v.ship, ship_target: to.ship, hours },
                         ),

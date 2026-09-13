@@ -31,7 +31,8 @@ export function Course({
   /** A planet's orbit, or a hull in sight (D-289, wave 3). */
   target: Target | null;
   busy: boolean;
-  fly: (to: Target, hours: number) => void;
+  /** The order: the target, the hours, and the planet a flyby bends round. */
+  fly: (to: Target, hours: number, via: string | null) => void;
   /** The arc of the point the slider stands on, for the chart to draw. */
   onPlan: (trace: [number, number][] | null) => void;
 }) {
@@ -166,10 +167,13 @@ export function Course({
           fuel: chosen.fuel.toFixed(0),
           dv: chosen.dv.toFixed(0),
         })}
+        {/* A flyby (D-341): the price is the pass's, and the chart's line
+            bends at it -- the reader is told whose pull it borrows. */}
+        {chosen.via && ` · ${t("ui-ship-via", { planet: planetName(chosen.via) })}`}
         {" · "}
         {t("ui-ship-dv-line", { have: vessel.dv.toFixed(0) })}{" "}
         <button
-          onClick={() => fly(target, chosen.hours)}
+          onClick={() => fly(target, chosen.hours, chosen.via ?? null)}
           disabled={busy || !reachable}
           title={t(reachable ? "ui-ship-fly-hint" : "ui-ship-thrust-short")}
         >

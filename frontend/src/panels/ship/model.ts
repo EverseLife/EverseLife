@@ -164,6 +164,9 @@ export type Flight = {
   /** Bound for the circle round the star (D-289, 2026-09-04): no node, no
    *  planet and no hull name it, so the flight says so itself. */
   star?: boolean;
+  /** The planet a flyby bends round (D-341); absent for a direct arc. The arc
+   *  shows the kink, and only this says whose pull made it. */
+  via?: string | null;
 };
 
 export type Vessel = {
@@ -280,6 +283,10 @@ export type Sample = {
   /** The arc the chart draws while the slider stands on this point (D-289):
    *  the planner's line, map units at equal time steps. */
   trace?: [number, number][];
+  /** The planet the passage bends round when this hour's cheapest passage is
+   *  a flyby (D-341), or nothing for a direct arc. Sent back with the order,
+   *  so the pass that was quoted is the one flown. */
+  via?: string | null;
 };
 
 /** What `ship.course` answers: the samples, and the reserve once beside them.
