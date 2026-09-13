@@ -9,17 +9,51 @@ missing or corrupted constant breaks startup**, not gameplay (D-065).
 
 from __future__ import annotations
 
+import importlib
 import json
+from collections import Counter
+from pathlib import Path
 
 import pytest
 
 from src.constants import Constants, RenameTable, load_constants
 from src.constants import registry as R
-from src.constants.spec import Bands, ConstantError, Num, Span, Table, Words
+from src.constants.spec import Bands, ConstantError, Num, Span, Spec, Table, Words
 
 
 def test_all_declared_constants_exist_in_vault(constants: Constants) -> None:
     constants.validate(R.declared())
+
+
+def test_every_section_of_the_registry_is_behind_the_door() -> None:
+    """The registry is cut into sections (`registry_*`) star-imported into
+    `registry`, and the boot checks what `declared()` finds there (D-065).
+
+    A star import drops a spec without a sound in two ways: a section the
+    door does not import, and a name two sections both declare -- the later
+    import wins and the other key leaves the startup check with nobody
+    raising, to fail at its first read in play instead. Both are refused
+    here, and so is a spec the door declares itself, outside every section.
+    Sections do not import one another: a spec one of them borrowed from
+    another would read here as declared twice, and that is meant.
+    """
+    sections = sorted(path.stem for path in Path(R.__file__).parent.glob("registry_*.py"))
+    assert sections, "the registry is cut into sections"
+    specs: dict[str, tuple[str, Spec]] = {}
+    for section in sections:
+        module = importlib.import_module(f"src.constants.{section}")
+        for name, value in vars(module).items():
+            if name.startswith("_") or not isinstance(value, Spec):
+                continue
+            assert name not in specs, f"{name} is declared in {specs[name][0]} and in {section}"
+            specs[name] = (section, value)
+    declared = R.declared()
+    seen = {id(spec) for spec in declared}
+    for name, (section, value) in specs.items():
+        assert id(value) in seen, f"{section}.{name} is not behind the door"
+    assert len(specs) == len(declared), "the door declares a spec outside every section"
+    twice = [key for key, count in Counter(spec.key for spec in declared).items() if count > 1]
+    assert not twice, f"declared under two names: {twice}"
 
 
 def test_missing_constant_breaks_check() -> None:
