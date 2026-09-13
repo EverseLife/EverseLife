@@ -218,16 +218,28 @@ ui-top-air-title = { $aboard ->
        *[false] oxygen from a tank through the spacesuit: outside it drains five times faster
     }
 
-## Warmth, and on a hot planet coolness: the same gauge, another word (D-231).
+## Warmth, and on a hot planet coolness: the same gauge, other words — overheating, a scorching node (D-231).
 
 ui-top-warmth-word = { $heat ->
         [true] coolness
        *[false] warmth
     }
-ui-top-warmth-frozen = frozen
-ui-top-warmth-frozen-title = { $word }: a frozen body burns stamina on time alone and spends more than usual on work; when it runs out, death
-ui-top-warmth-warm-title = { $word }: the node is heated, the store refills
-ui-top-warmth-cold-title = { $word }: the node is cold, the store melts away
+ui-top-warmth-frozen = { $heat ->
+        [true] overheated
+       *[false] frozen
+    }
+ui-top-warmth-frozen-title = { $heat ->
+        [true] { $word }: an overheated body burns stamina on time alone and spends more than usual on work; when it runs out, death
+       *[false] { $word }: a frozen body burns stamina on time alone and spends more than usual on work; when it runs out, death
+    }
+ui-top-warmth-warm-title = { $heat ->
+        [true] { $word }: the node is cooled, the reserve refills
+       *[false] { $word }: the node is heated, the reserve refills
+    }
+ui-top-warmth-cold-title = { $heat ->
+        [true] { $word }: the node is scorching, the reserve melts away
+       *[false] { $word }: the node is cold, the reserve melts away
+    }
 ui-top-warmth-hours = { $n } h { $warm ->
         [true] ↑
        *[false] ↓

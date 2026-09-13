@@ -470,14 +470,16 @@ function Warmth({ frost }: { frost: FrostState }) {
     return () => clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [frost.at, frost.hours, frost.per_hour, frost.max, frost.warm]);
-  //: The scale is one; the word for it is not. On a hot planet the reserve is
-  //: coolness, and the same three sentences say so.
-  const word = t("ui-top-warmth-word", { heat: String(frost.climate === "heat") });
+  //: The scale is one; the words for it are not. On a hot planet the reserve
+  //: is coolness, the body overheats rather than freezes and the node is
+  //: scorching rather than cold, so every sentence of the gauge turns on it.
+  const heat = String(frost.climate === "heat");
+  const word = t("ui-top-warmth-word", { heat });
   if (hours <= 0) {
     return (
-      <span className="vital low" title={t("ui-top-warmth-frozen-title", { word })}>
+      <span className="vital low" title={t("ui-top-warmth-frozen-title", { word, heat })}>
         <Glyph name="warmth" />
-        <b className="num">{t("ui-top-warmth-frozen")}</b>
+        <b className="num">{t("ui-top-warmth-frozen", { heat })}</b>
       </span>
     );
   }
@@ -486,8 +488,8 @@ function Warmth({ frost }: { frost: FrostState }) {
       className="vital"
       title={
         frost.warm
-          ? t("ui-top-warmth-warm-title", { word })
-          : t("ui-top-warmth-cold-title", { word })
+          ? t("ui-top-warmth-warm-title", { word, heat })
+          : t("ui-top-warmth-cold-title", { word, heat })
       }
     >
       <Glyph name="warmth" />
