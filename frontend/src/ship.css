@@ -679,6 +679,10 @@
 }
 .scheme-card .sign {
   display: block;
+  /* A card names a thing, it is not a sign over a door: the body's size, so
+     «Автоматический реактор» fits the card it names. */
+  font-size: 1rem;
+  font-weight: 600;
   margin: 0 0 var(--s1);
   overflow: hidden;
   white-space: nowrap;
@@ -705,6 +709,9 @@
   display: block;
 }
 .scheme-card.vessel {
+  display: block;
+  font: inherit;
+  color: inherit;
   border-left: 3px solid var(--line-tone, var(--base-600));
   cursor: pointer;
 }

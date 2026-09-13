@@ -260,7 +260,13 @@ export function Scheme({ look }: { look: Look }) {
                     </div>
                   );
                 })}
-                {machine.stall && <p className="scheme-stall">{stallWords(machine.stall, machine.ports, names)}</p>}
+                {machine.stall && (
+                  //: The card is narrow and the reason is the one line worth
+                  //: reading whole: the full words ride on the title.
+                  <p className="scheme-stall" title={stallWords(machine.stall, machine.ports, names)}>
+                    {stallWords(machine.stall, machine.ports, names)}
+                  </p>
+                )}
               </div>
             );
           })}
@@ -274,7 +280,7 @@ export function Scheme({ look }: { look: Look }) {
               <button
                 key={vessel.item}
                 data-vessel={vessel.item}
-                className={`scheme-card vessel tone-${toneOfVessel(feed, vessel)}${state}`}
+                className={`bare scheme-card vessel tone-${toneOfVessel(feed, vessel)}${state}`}
                 style={{ left: spot.x, top: spot.y, width: spot.w, height: spot.h }}
                 disabled={busy || !mine}
                 onClick={() => {
