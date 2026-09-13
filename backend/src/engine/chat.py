@@ -368,12 +368,24 @@ async def _group_size(session: AsyncSession, group_id: uuid.UUID) -> int:
 
 
 async def _people_in(session: AsyncSession, node: Node) -> int:
-    """How many living bodies stand in the location. Those passing by are not in the room."""
+    """How many living bodies stand in the location. Those passing by are not in the room.
+
+    One who has set out still has this node in `node_id` until the arrival
+    and is not counted: a traveller stands in no node (D-290 p. 1), and the
+    room the talk head names is the room the leak is priced by. A sleeper is
+    counted -- they lie in the room -- and so, for now, is a scout on a run:
+    a run has no transit row yet, and the engine keeps them home (the gap
+    D-327 names, not a rule).
+    """
     return int(
         await session.scalar(
             select(func.count())
             .select_from(Body)
-            .where(Body.node_id == node.id, Body.state == BodyState.ALIVE)
+            .where(
+                Body.node_id == node.id,
+                Body.state == BodyState.ALIVE,
+                ~travel.on_the_road(Body.id),
+            )
         )
         or 0
     )

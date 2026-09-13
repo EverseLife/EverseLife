@@ -65,7 +65,10 @@ ui-place-plot-about-save = Сохранить описание
 ui-place-climate-day = Сейчас день, { $now }°. Суточный ход { $low }…{ $high }°, света { $light } из 3, осадки { $rain } из 100.
 ui-place-climate-night = Сейчас ночь, { $now }°. Суточный ход { $low }…{ $high }°, днём света { $top } из 3, осадки { $rain } из 100.
 ui-place-marking-title = Делянки
-ui-place-marking-climate = Здесь { $climate }: в открытом грунте ничего не растёт, и обогрев узла этого не меняет. Еда сюда приходит кораблём.
+ui-place-marking-climate = { $climate ->
+        [heat] Здесь пекло: в открытом грунте ничего не растёт, а остудить узел нельзя. Еда сюда приходит кораблём.
+       *[frost] Здесь мерзлота: в открытом грунте ничего не растёт, и обогрев узла этого не меняет. Еда сюда приходит кораблём.
+    }
 ui-place-marking-name = имя делянки
 ui-place-marking-area = площадь, м²
 ui-place-marking-mark = Разметить

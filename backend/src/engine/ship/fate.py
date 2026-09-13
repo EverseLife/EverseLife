@@ -24,7 +24,7 @@ from src.constants import Constants
 from src.constants import registry as R
 from src.engine import events
 from src.engine.jobs import enqueue, handler
-from src.engine.ship.belonging import crew_of
+from src.engine.ship.belonging import crew_of, lock_crew
 from src.engine.ship.sim import (
     CRASHED,
     LOST,
@@ -207,7 +207,8 @@ async def _lose(
 ) -> None:
     from src.engine import death  # noqa: PLC0415 -- lazy: breaks the cycle with death
 
-    crew = await crew_of(session, ship)
+    #: The crew's rows before the first death reaches into their hands.
+    crew = await lock_crew(session, ship)
     for member in crew:
         await death.die(
             session, constants, member, cause=CRASHED if fate.kind == sky.CRASH else LOST, now=now

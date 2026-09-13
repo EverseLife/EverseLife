@@ -66,7 +66,7 @@ class NoFlare(CraftError):
 
 async def require_plumbing(
     session: AsyncSession, body: Body, plumbed: lines.Plumbing | None, *, lock: bool
-) -> None:
+) -> lines.Plumbing | None:
     """The doors a batch on the lines passes before anything is read off them.
 
     **Whose tanks.** The lines reach every vessel of the hull, so a batch on
@@ -80,10 +80,13 @@ async def require_plumbing(
     **The vessels are taken first** when the batch is started: the vessel
     rows before the stacks inside them, in id order -- the order a hand's pour
     and the automat on the same lines take them in, so the three queue rather
-    than deadlock.
+    than deadlock. What comes back is the plumbing the batch goes on with:
+    after the lock, only the vessels it found where the reading saw them
+    (`lines.Plumbing.keeping`) -- the gathering, the room and the pour after it
+    lock them again and would not see what the first wait took away.
     """
     if plumbed is None:
-        return
+        return None
     from src.engine import station  # noqa: PLC0415 -- lazy: station imports craft
 
     node = await session.get(Node, body.node_id)
@@ -97,8 +100,9 @@ async def require_plumbing(
             goods=port.liquids[0],
             way=port.way,
         )
-    if lock:
-        await liquid.lock_vessels(session, plumbed.vessels)
+    if not lock:
+        return plumbed
+    return plumbed.keeping(*liquid.standing(await liquid.lock_vessels(session, plumbed.vessels)))
 
 
 async def require_room(
