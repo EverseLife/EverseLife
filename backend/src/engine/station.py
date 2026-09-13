@@ -353,7 +353,7 @@ async def take(session: AsyncSession, catalog: Catalog, body: Body, item: Item) 
     #: The thing's own row after the node's -- the order `place` locks in,
     #: because the two doors meet on the same pair. And the thing may be gone
     #: between the look and the click: the world's ordinary answer, said in
-    #: words (D-011). The name is read first: a failed refresh leaves none.
+    #: words. The name is read first: a failed refresh leaves none.
     named = item.type_key
     try:
         await session.refresh(item, with_for_update=True)

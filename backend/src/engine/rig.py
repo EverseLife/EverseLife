@@ -159,7 +159,7 @@ async def place(
         #: it lay from being mined.
         await advance(session, current(), exists, now=moment)
         #: Burnt or fallen with the house between the click and the settling:
-        #: the row went with the machine, and nothing is left to stand (D-011).
+        #: the row went with the machine, and nothing is left to stand (D-314).
         if inspect(exists).was_deleted:
             raise NoRig(key="rig-machine-gone")
         #: The rock is read off the vein the machine stands on **now**, so ore
@@ -287,9 +287,11 @@ async def advance(
     #: The vein first, for a pass that drills: an eruption takes a field's
     #: veins before anything lying in it (`plates.clock`), and a miner takes
     #: one vein at a time. Then the machine and the fuel in **one** statement,
-    #: in id order, as the fire takes a whole field (`plates.fire._burn`): the
-    #: coal locked to be burned and the machine only when its wear was written
-    #: crossed the fire whenever the machine's id was the lower. The node comes
+    #: in id order, as a falling house buries what stood and lay under it
+    #: (`estate.collapse` deletes them in one flush, by id) and as the fire
+    #: takes a whole field (`plates.fire._burn`): the coal locked to be burned
+    #: and the machine only when its wear was written crossed the collapse
+    #: whenever the machine's id was the lower. The node comes
     #: last and unasked: writing the row a second time re-checks its keys,
     #: which is why the plot's own holders take it `FOR NO KEY UPDATE`
     #: (`estate.hold_ground`, `station`).
@@ -672,8 +674,9 @@ async def _held(
 ) -> tuple[Item | None, list[Item]]:
     """The machine and, given its yard, the fuel lying there: locked and reread.
 
-    One statement in id order, because that is how the fire takes a field
-    (`plates.fire._burn`) and two statements would be two orders. `None` for a
+    One statement in id order, because that is how a falling house buries the
+    floor and the fire takes a field (`estate.collapse`, `plates.fire._burn`),
+    and two statements would be two orders. `None` for a
     machine whose row is gone; the stacks come back in id order, as
     `stock.consume` spends them. A stack brought in after this is not the
     pass's to burn.

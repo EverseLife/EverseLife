@@ -355,29 +355,33 @@ async def test_a_rig_burnt_while_it_is_settled_by_hand_is_refused(
         assert handed is None, "руда сгоревшей машины не попала в руки"
 
 
-async def test_the_fire_and_the_tick_take_a_rigs_machine_and_its_coal_in_one_order(
+async def test_a_house_falling_on_a_rig_and_its_coal_takes_them_in_the_ticks_order(
     session: AsyncSession,
     factory: async_sessionmaker[AsyncSession],
+    constants,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The fire takes everything lying in a field in id order; the tick took
+    """The collapse buries what stood and lay indoors in one flush, and the
+    ORM deletes the rows of one table in the order of their ids; the tick took
     the coal first (to burn it) and the machine after (to wear it). With the
-    machine's id below the coal's, the fire held the machine and waited on the
-    coal while the tick held the coal and waited on the machine. The tick now
-    takes the two in one statement, in the fire's order.
-
-    They meet only when the vein does not keep them apart: the fire takes the
-    field's veins before its things, and so does a drilling pass. A vein moved
-    out by an earlier eruption (D-197) is drilled on from the old yard today
-    -- the field burning holds no vein of the rig, and the two meet on the
-    things alone."""
-    _, fields = await _surface(session, count=2)
-    field, next_door = fields
-    vein = await world.create_vein(session, field, ORE, richness=60, remaining=100_000)
-    installation, machine, fuel, _ = await _rig_on(session, field, vein)
+    machine's id below the coal's, the collapse held the machine and waited on
+    the coal while the tick held the coal and waited on the machine. The tick
+    now takes the two in one statement, in id order -- the order the fire
+    takes a field in too, though an eruption and a drilling pass meet on the
+    field's vein first and never get as far as its things."""
+    stamp = uuid.uuid4().hex[:6]
+    node = await world.create_node(session, f"terra.pit.{stamp}", "Забой", area_m2=200)
+    house = Building(node_id=node.id, area_m2=40)
+    session.add(house)
+    await session.flush()
+    house.condition = Decimal(str(estate.decay_per_day(constants, house.kind)))
+    vein = await world.create_vein(session, node, ORE, richness=60, remaining=100_000)
+    installation, machine, fuel, _ = await _rig_on(session, node, vein)
+    #: The coal lies under the roof, where a thing put down in a house lies
+    #: (D-244), so the fall takes it along with the machine.
+    assert fuel.outdoors is False
     machine.id, fuel.id = _low(), _high()
     installation.item_id = machine.id
-    vein.node_id = next_door.id
     await session.commit()
     moment = installation.counted_at + timedelta(hours=4)
 
@@ -387,11 +391,11 @@ async def test_the_fire_and_the_tick_take_a_rigs_machine_and_its_coal_in_one_ord
     consume = stock.consume
 
     async def burnt_and_held(db, *args, **kwargs):
-        #: The coal is burning and the machine is not worn yet: the fire is let in.
+        #: The coal is burning and the machine is not worn yet: the fall is let in.
         taken = await consume(db, *args, **kwargs)
         if not burning.is_set():
             burning.set()
-            waited.append(await _until_blocked_by(factory, db, unless=tasks["fire"]))
+            waited.append(await _until_blocked_by(factory, db, unless=tasks["fall"]))
         return taken
 
     monkeypatch.setattr(stock, "consume", burnt_and_held)
@@ -400,21 +404,22 @@ async def test_the_fire_and_the_tick_take_a_rigs_machine_and_its_coal_in_one_ord
         async with factory() as db, db.begin():
             return await rig.tick_rigs(db, current(), now=moment)
 
-    async def erupt() -> None:
+    async def fall() -> int:
         await asyncio.wait_for(burning.wait(), timeout=30)
         async with factory() as db, db.begin():
-            place = await db.get(Node, field.id)
-            await plates.erupted(db, _eruption(place, at=datetime.now(UTC)))
+            _, fallen = await estate.decay(db, current())
+            return fallen
 
     tasks["tick"] = asyncio.ensure_future(tick())
-    tasks["fire"] = asyncio.ensure_future(erupt())
-    outcome = await asyncio.gather(tasks["tick"], tasks["fire"], return_exceptions=True)
+    tasks["fall"] = asyncio.ensure_future(fall())
+    outcome = await asyncio.gather(tasks["tick"], tasks["fall"], return_exceptions=True)
 
     assert not _failures(outcome), outcome
-    assert waited == [True], "огонь не встал за строками, которые держит тик"
-    assert outcome[0] > 0, "тик намыл руду"
+    assert waited == [True], "обрушение не встало за строками, которые держит тик"
+    mined, fallen = outcome
+    assert mined > 0 and fallen == 1, "тик прошёл, дом упал"
     async with factory() as db:
-        assert await db.get(Item, machine.id) is None, "огонь сжёг машину после тика"
+        assert await db.get(Item, machine.id) is None, "машина ушла под крышу после тика"
         assert await db.get(Item, fuel.id) is None, "и уголь"
         row = await db.get(Rig, installation.id)
         assert row is not None and row.counted_at == moment, "проход тика записан целиком"
