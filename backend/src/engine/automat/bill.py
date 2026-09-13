@@ -3,7 +3,9 @@
 
 """The automat's energy (D-253, D-135, D-071): drawn on the spot for a command,
 and for the tick forecast per machine, written down as a bill and drawn once
-every machine has worked.
+every machine has worked. On the same tab of a pass, the two stops the tick
+reads once a node rather than once a machine: a node cut off for non-payment
+(D-149) and a frozen one (D-231).
 
 Lock order of the tick's draw (`pay`): the pools city by city, each after the
 fuel its plants burn (`energy.produce`) -- the order `energy.tick_pools` takes
@@ -34,12 +36,12 @@ from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants
-from src.engine import battery, energy, ledger, utility
+from src.engine import battery, energy, frost, ledger, utility
 from src.models.automat import Automat as AutomatRow
 from src.models.energy import EnergyPool
 from src.models.inventory import Item
 from src.models.ledger import AccountKind, LedgerAccount, PostingReason
-from src.models.world import Node
+from src.models.world import Node, Planet
 from src.units import amount
 
 log = logging.getLogger(__name__)
@@ -75,10 +77,11 @@ class Tab:
     Each supply and each purse is read once a pass, at the first machine that
     asks, and counted down by the bills from there -- a pool read and a purse
     summed per machine would cost the tick two queries a machine while it holds
-    the stacks of every factory of the world. Whether a node is cut off is read
-    once a pass the same way (`cut_off`). The readings are numbers taken
-    from the database and outlive a machine's savepoint rolling back; the bills
-    do not, and `keep` gives back what the dropped ones took.
+    the stacks of every factory of the world. Whether a node is cut off, and
+    whether it is warm, is read once a pass the same way (`cut_off`, `frozen`).
+    The readings are taken from the database and outlive a machine's savepoint
+    rolling back; the bills do not, and `keep` gives back what the dropped ones
+    took.
     """
 
     bills: list[Bill] = field(default_factory=list)
@@ -93,6 +96,13 @@ class Tab:
     #: node: two floors of one house are two readings of the one meter below
     #: them (`utility.cut_off`), not two answers.
     cut_off: dict[uuid.UUID, bool] = field(default_factory=dict)
+    #: Whether a machine's node is warm (D-231), by that node: the warmth is
+    #: the place's -- a stove in it or beside it, a pool with energy -- and one
+    #: answer serves every machine standing there.
+    warm: dict[uuid.UUID, bool] = field(default_factory=dict)
+    #: The climate of each planet a machine stands on (`frost.climate_of`): four
+    #: of them in the world, and most machines stand where there is none.
+    climates: dict[Planet, str | None] = field(default_factory=dict)
 
     def add(self, bill: Bill) -> None:
         self.bills.append(bill)
@@ -123,6 +133,40 @@ async def cut_off(session: AsyncSession, node: Node, tab: Tab | None) -> bool:
     if node.id not in tab.cut_off:
         tab.cut_off[node.id] = await utility.cut_off(session, node)
     return tab.cut_off[node.id]
+
+
+async def frozen(
+    session: AsyncSession, constants: Constants, node: Node, type_key: str, tab: Tab | None
+) -> bool:
+    """Whether the cold stops this machine in this node (D-231): read, never locked.
+
+    `frost.works_here` in its two halves, because only one of them is the
+    node's: what burns its own fuel works in any frost and asks nothing, and
+    the rest ask whether the node is warm. That question reads the node's yard,
+    its neighbours and its city's pool -- without a lock, and three or four
+    queries deep, which the command's memory (`db.base.remember`) would save
+    only until the next write, and the tick writes after every machine. So on
+    the tick's tab it is asked once a pass per node, like the meter (`cut_off`),
+    and not at all where the planet has no climate -- the ground there is warm
+    (`frost.is_warm`), and its climate is read once a pass per planet; without
+    a tab (a command) on the spot. A stove lit or a pool emptied in the middle
+    of a pass reaches the node's later machines at the next tick.
+
+    The name is the cold's, as the refusal's is (`frost.Frozen`), but the
+    scorching planet answers the same: nothing cools a node there (D-230), and
+    no machine that does not burn works in it.
+    """
+    if frost.burns_own_fuel(type_key):
+        return False
+    if tab is None:
+        return not await frost.is_warm(session, constants, node)
+    if node.id not in tab.warm:
+        if node.planet not in tab.climates:
+            tab.climates[node.planet] = await frost.climate_of(session, node)
+        tab.warm[node.id] = tab.climates[node.planet] is None or await frost.is_warm(
+            session, constants, node
+        )
+    return not tab.warm[node.id]
 
 
 async def promise(

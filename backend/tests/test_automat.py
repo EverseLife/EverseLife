@@ -27,7 +27,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from automat_kit import IRON, NAILS, _factory_floor, _learn, _lube_in
+from automat_kit import IRON, NAILS, _factory_floor, _learn, _lube_in, _on_aurora
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import automat, energy, ledger, storage, utility, world
@@ -439,6 +439,56 @@ async def test_a_node_cut_off_for_debt_stops_its_automat_until_the_bill_is_paid(
     worked = 8 * constants[R.AUTO_SPEED_SHARE] / 100
     assert made == pytest.approx(int(worked / procedure(catalog, NAILS).step_hours), abs=1), (
         "reconnected, it works the hours since, not the hours it stood"
+    )
+
+
+@pytest.mark.parametrize("through", ["command", "tick"])
+async def test_a_frozen_node_stands_its_automat_until_it_is_heated(
+    through: str, session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A frozen node stops its machines (D-231), and the automat burns no fuel of
+    its own: in an unheated node on Aurora it stands, however full the pool it
+    would draw -- the energy is not warmth. The stopped hours pass as at any
+    stop, worn through and not worked, and a stove lit later does not give them
+    back. Both doors, as for a node cut off (D-149)."""
+    node, yard, identity, body, machine = await _factory_floor(session, constants)
+    await _on_aurora(session, node, await session.get(Node, node.parent_id))
+    await world.grant_item(session, yard, IRON, amount=1000, quality=60, origin="test")
+    lube = await _lube_in(session, yard, 100)
+    await _learn(session, identity, NAILS)
+    row = await automat.program(session, constants, catalog, body, machine, NAILS)
+    machine.condition = Decimal("100")
+    await session.flush()
+    pool = await energy.pool_of(session, constants, node)
+    assert pool is not None
+    account = await ledger.account_for(session, AccountKind.IDENTITY, identity.id)
+    stored, balance = float(pool.stored), await ledger.balance(session, account.id)
+
+    async def settle(moment: datetime) -> float:
+        if through == "command":
+            return await automat.advance(session, constants, row, catalog=catalog, now=moment)
+        made = await automat.tick_automats(session, constants, now=moment)
+        for thing in (row, machine, lube, pool):
+            await session.refresh(thing)
+        return made
+
+    stood = row.counted_at + timedelta(hours=8)
+    assert await settle(stood) == 0, "a frozen node runs no machine"
+    assert row.counted_at == stood and row.recipe_key == NAILS
+    nails = select(Item).where(Item.container_id == yard.id, Item.type_key == NAILS)
+    assert not (await session.execute(nails)).scalars().all()
+    assert amount_float(lube.amount) == pytest.approx(100), "no lubricant burnt"
+    assert float(pool.stored) == pytest.approx(stored), "no energy drawn"
+    assert await ledger.balance(session, account.id) == balance, "no energy billed"
+    assert float(machine.condition) < 100, "the wear ran through the stopped hours"
+
+    #: A heater on the charged pool warms the node (D-231).
+    await world.grant_item(session, yard, "heater", quality=60, origin="test")
+    made = await settle(stood + timedelta(hours=8))
+    worked = 8 * constants[R.AUTO_SPEED_SHARE] / 100
+    assert made > 0, "a heated node runs its machine"
+    assert made == pytest.approx(int(worked / procedure(catalog, NAILS).step_hours), abs=1), (
+        "heated, it works the hours since, not the hours it stood"
     )
 
 

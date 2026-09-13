@@ -475,6 +475,10 @@ ui-factory-port-out = output
 ui-factory-idle = -- no programme --
 ui-factory-backlog = in work { $backlog }
 ui-factory-cut-off = The node is cut off for non-payment: the machines do not run until the debt is closed; they will not make up the hours lost. The bill is in the sidebar, in the “estate” tab.
+ui-factory-frozen = { $heat ->
+        [true] The node is scorching: the machines do not run here and never will — the node cannot be cooled.
+       *[false] The node is frozen through: the machines do not run until the node is heated; they will not make up the hours lost. Warmth comes from “{ NAME("heat_plant") }”, “{ NAME("heater") }” or “{ NAME("brazier") }” with fuel.
+    }
 
 ## The course slider: from the fastest arc to the cheapest (D-271).
 

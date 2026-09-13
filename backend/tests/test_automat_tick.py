@@ -7,7 +7,8 @@ Cut out of `test_automat.py`, which keeps one machine at work. Here is what
 only the world's pass has: the energy asked for before each machine works and
 drawn once all of them have (`automat/bill.py`), so machines on one pool, one
 purse or one hull's cells share them rather than each spending the whole; a
-node's meter read once a pass and answering for that node alone (D-149); and
+node's meter (D-149) and its warmth (D-231) read once a pass and answering for
+that node alone; and
 one machine failing inside its own savepoint while the floor works on -- in
 the step itself and through the worker's job runner. The races of the same
 pass against a player are in `test_races_automat.py`.
@@ -16,17 +17,17 @@ pass against a player are in `test_races_automat.py`.
 from __future__ import annotations
 
 import uuid
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from automat_kit import IRON, NAILS, _factory_floor, _learn, _lube_in
+from automat_kit import IRON, NAILS, _factory_floor, _learn, _lube_in, _on_aurora
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import automat, energy, jobs, ledger, utility, world
+from src.engine import automat, energy, frost, jobs, ledger, utility, world
 from src.engine.automat import run as automat_run
 from src.engine.tick import WORLD_STEPS
 from src.models.automat import Automat as AutomatRow
@@ -319,5 +320,104 @@ async def test_a_cut_off_node_stands_every_machine_in_it_and_none_of_its_owners_
     nails = select(Item).where(Item.container_id == other_yard.id, Item.type_key == NAILS)
     assert (await session.execute(nails)).scalars().all()
     for row in (first, second, third):
+        await session.refresh(row)
+        assert row.counted_at == moment
+
+
+async def test_a_frozen_node_stands_every_machine_in_it_whatever_feeds_it(
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The tick asks a node's warmth once a pass (D-231), and the answer is the
+    node's. One owner on Aurora: two machines on a charged city pool with no
+    stove, one in the wilderness on its own cells -- all three stand, since
+    energy is not warmth -- and one on a floor a heater warms, which works in the
+    same pass. Warmth reads the yard, the neighbours and the pool, and the
+    command's memory of it dies with every machine's write: read per machine,
+    it would cost the tick those queries a machine while it holds every
+    factory's stacks. And a Terran floor of the same owner, where most of the
+    world's machines stand, costs no warmth at all: its planet's climate is read
+    once a pass, as Aurora's is."""
+    cold, yard, identity, body, assembler = await _factory_floor(session, constants)
+    smelter = await world.grant_item(session, yard, "auto_furnace", quality=70, origin="test")
+    await world.grant_item(session, yard, IRON, amount=1000, quality=60, origin="test")
+    await world.grant_item(session, yard, "iron_ore", amount=4000, quality=60, origin="test")
+    await world.grant_item(session, yard, "coal", amount=1000, quality=60, origin="test")
+    lube = await _lube_in(session, yard, 100)
+    await _learn(session, identity, NAILS)
+    rows = [
+        await automat.program(session, constants, catalog, body, assembler, NAILS),
+        await automat.program(session, constants, catalog, body, smelter, IRON),
+    ]
+
+    wild = await world.create_node(
+        session, f"aurora.wild.{uuid.uuid4().hex[:8]}", "Wild", area_m2=200
+    )
+    wild_yard = await world.node_container(session, wild)
+    loner = await world.grant_item(session, wild_yard, "auto_station", quality=70, origin="test")
+    cell = await world.grant_item(session, wild_yard, "battery", quality=60, origin="test")
+    cell.charge, cell.charged_at = Decimal("1000"), datetime.now(UTC)
+    await world.grant_item(session, wild_yard, IRON, amount=1000, quality=60, origin="test")
+    wild_lube = await _lube_in(session, wild_yard, 100)
+    body.node_id = wild.id
+    await session.flush()
+    rows.append(await automat.program(session, constants, catalog, body, loner, NAILS))
+
+    warm, warm_yard, _, _, heated = await _factory_floor(session, constants)
+    await world.grant_item(session, warm_yard, "heater", quality=60, origin="test")
+    await world.grant_item(session, warm_yard, IRON, amount=1000, quality=60, origin="test")
+    await _lube_in(session, warm_yard, 100)
+    body.node_id = warm.id
+    await session.flush()
+    rows.append(await automat.program(session, constants, catalog, body, heated, NAILS))
+
+    terran, terran_yard, _, _, terran_machine = await _factory_floor(session, constants)
+    await world.grant_item(session, terran_yard, IRON, amount=1000, quality=60, origin="test")
+    await _lube_in(session, terran_yard, 100)
+    body.node_id = terran.id
+    await session.flush()
+    rows.append(await automat.program(session, constants, catalog, body, terran_machine, NAILS))
+
+    cities = [await session.get(Node, one.parent_id) for one in (cold, warm)]
+    await _on_aurora(session, cold, wild, warm, *cities)
+    for row in rows:
+        row.counted_at = rows[0].counted_at
+    moment = rows[0].counted_at + timedelta(hours=8)
+    await session.flush()
+
+    real_warm, real_climate = frost.is_warm, frost.climate_of
+    asked: list[uuid.UUID] = []
+    climates: list[uuid.UUID] = []
+
+    async def counted(db: AsyncSession, known: Constants, where: Node) -> bool:
+        asked.append(where.id)
+        return await real_warm(db, known, where)
+
+    async def climate(db: AsyncSession, where: Node) -> str | None:
+        climates.append(where.id)
+        return await real_climate(db, where)
+
+    monkeypatch.setattr(frost, "is_warm", counted)
+    monkeypatch.setattr(frost, "climate_of", climate)
+
+    made = await automat.tick_automats(session, constants, now=moment)
+
+    assert made > 0, "the heated floor and the Terran one worked"
+    assert sorted(asked) == sorted([cold.id, wild.id, warm.id]), "one reading a cold node"
+    #: The pool's own heat bill asks its city's climate too (`energy.produce`).
+    floors = {cold.id, wild.id, warm.id, terran.id}
+    assert len([one for one in climates if one in floors]) == 2, "one reading a planet"
+    nails = select(Item).where(Item.container_id == terran_yard.id, Item.type_key == NAILS)
+    assert (await session.execute(nails)).scalars().all(), "the Terran floor worked"
+    for thing in (lube, wild_lube, cell):
+        await session.refresh(thing)
+    assert amount_float(lube.amount) == pytest.approx(100), "neither pool machine ran"
+    assert amount_float(wild_lube.amount) == pytest.approx(100), "the cells did not run it"
+    assert float(cell.charge) == pytest.approx(1000), "no charge drawn in the cold"
+    nails = select(Item).where(Item.container_id == warm_yard.id, Item.type_key == NAILS)
+    assert (await session.execute(nails)).scalars().all()
+    for row in rows:
         await session.refresh(row)
         assert row.counted_at == moment

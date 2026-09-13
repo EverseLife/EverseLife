@@ -12,7 +12,8 @@ holds every automat of the world in one transaction, so it takes no pool until
 every machine has worked, and then all of them at once in one order (`bill.pay`):
 a pool held while the next machine reached for a stack a crafter held would be
 that crafter's pool the other way round, and the two would wait on each other.
-The node's meter (D-149) is on no place of that order: it is only read.
+The node's meter (D-149) and its warmth (D-231) are on no place of that order:
+they are only read.
 """
 
 from __future__ import annotations
@@ -66,8 +67,9 @@ async def advance(
     node's vessels, energy in the pool (or the batteries), inputs on the
     yard, and -- for a liquid output -- room in a vessel. None is an error:
     these are the enterprise's obligations, exactly as with the rig. Before
-    them the machine must stand in its node, and the node must not be cut off
-    for non-payment (D-149): a stop there works nothing and the hours are gone.
+    them the machine must stand in its node, and the node must be neither cut
+    off for non-payment (D-149) nor frozen (D-231): a stop there works nothing
+    and the hours are gone.
 
     With a `tab` (the tick, which took the row already) the energy is not
     drawn but asked for without a lock and written down as a bill, for the
@@ -126,6 +128,18 @@ async def advance(
         #: the source does not matter: a floor running on its own cells stops
         #: with the plot whose meter it hangs on. The hours pass as at any
         #: other stop, and the wear above ran through them.
+        row.counted_at = moment
+        await session.flush()
+        return 0.0
+    if await energy_bill.frozen(session, constants, node, machine.type_key, tab):
+        #: A frozen node stops its machines (D-231), a scorching one as well,
+        #: and the automat does not burn its own fuel: it stands as a bench does
+        #: (`craft._internal._pick_station`) -- whatever feeds it, since a pool
+        #: or a floor's cells with energy in them are not a stove. Asked before
+        #: the stacks are taken, so a machine the cold stands holds nothing for
+        #: the rest of the pass. The hours pass as at any other stop, the
+        #: started piece waits in the backlog, and the wear above ran through
+        #: them.
         row.counted_at = moment
         await session.flush()
         return 0.0

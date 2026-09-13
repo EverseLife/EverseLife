@@ -32,6 +32,7 @@ from automat_kit import (
     _factory_floor,
     _learn,
     _lube_in,
+    _on_aurora,
     _pool_left,
     _until_blocked_by,
 )
@@ -43,6 +44,7 @@ from src.engine.automat import run as automat_run
 from src.models.automat import Automat as AutomatRow
 from src.models.city import UtilityMeter
 from src.models.craft import CraftBatch
+from src.models.energy import EnergyPool
 from src.models.identity import Body, Identity
 from src.models.inventory import Item
 from src.models.ledger import AccountKind, PostingReason
@@ -729,4 +731,46 @@ async def test_an_owner_pays_the_debt_while_the_tick_stands_the_cut_off_machine(
         paid = await db.get(UtilityMeter, meter_id)
         stood = await db.get(AutomatRow, row_id)
         assert paid is not None and not paid.cut_off and paid.debt == 0
+        assert stood is not None and stood.counted_at == moment
+
+
+async def test_a_hand_takes_the_frozen_floors_lubricant_and_pool_while_the_tick_stands_it(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    constants: Constants,
+    catalog: Catalog,
+) -> None:
+    """The cold stands a machine (D-231) before it takes a stack, and warmth is
+    read, never locked -- the yard, the neighbours, the pool. The tick keeps its
+    transaction open for the rest of the world's factories, and a hand taking
+    the frozen floor's lubricant and then its pool, a bench's order, walks
+    straight through. A machine that took its stacks before asking would hold
+    them to the end of the step; a warmth that locked the pool would put it
+    ahead of the stacks a later machine of the pass takes."""
+    node, yard, identity, body, machine = await _factory_floor(session, constants)
+    await _on_aurora(session, node, await session.get(Node, node.parent_id))
+    await world.grant_item(session, yard, IRON, amount=1000, quality=60, origin="test")
+    lube = await _lube_in(session, yard, 100)
+    await _learn(session, identity, NAILS)
+    row = await automat.program(session, constants, catalog, body, machine, NAILS)
+    moment = row.counted_at + timedelta(hours=2)
+    ids = (row.id, lube.id, node.parent_id)
+    await session.commit()
+    row_id, lube_id, city_id = ids
+
+    async with factory() as tick, tick.begin():
+        assert await automat.tick_automats(tick, constants, now=moment) == 0
+        async with factory() as hand, hand.begin():
+            #: A tick holding either makes this fail at once, not hang.
+            await hand.execute(text("SET LOCAL lock_timeout = '2s'"))
+            taken = await hand.get(Item, lube_id, with_for_update=True)
+            assert taken is not None
+            taken.amount -= amount(1)
+            pool = select(EnergyPool).where(EnergyPool.node_id == city_id).with_for_update()
+            assert (await hand.execute(pool)).scalar_one() is not None
+
+    async with factory() as db:
+        left = await db.get(Item, lube_id)
+        stood = await db.get(AutomatRow, row_id)
+        assert left is not None and amount_float(left.amount) == pytest.approx(99)
         assert stood is not None and stood.counted_at == moment
