@@ -385,23 +385,27 @@ async def pay(
 
     account = await ledger.account_for(session, AccountKind.IDENTITY, identity.id)
     treasury = await ledger.account_for(session, AccountKind.CITY_TREASURY, pool.node_id)
-    remainder = await ledger.balance(session, account.id)
-    if remainder < meter.debt:
-        raise NotEnoughMoney(
-            key="utility-not-enough-money",
-            debt=money_str(meter.debt),
-            have=money_str(remainder),
-        )
 
     debt = meter.debt
-    await ledger.transfer(
-        session,
-        PostingReason.ENERGY_BILL,
-        debit=account.id,
-        credit=treasury.id,
-        amount=debt,
-        memo={"оплата долга": node.key},
-    )
+    try:
+        await ledger.transfer(
+            session,
+            PostingReason.ENERGY_BILL,
+            debit=account.id,
+            credit=treasury.id,
+            amount=debt,
+            memo={"оплата долга": node.key},
+        )
+    except ledger.InsufficientFunds as refused:
+        #: Refused before a posting is written, by the balance read under the
+        #: purse's lock. A balance read before that lock could promise money a
+        #: purchase elsewhere had just spent, and the holder was then told the
+        #: ledger's refusal instead of this one.
+        raise NotEnoughMoney(
+            key="utility-not-enough-money",
+            debt=money_str(debt),
+            have=money_str(refused.params["have"]),
+        ) from None
     meter.debt = 0
     meter.cut_off = False
     await session.flush()
