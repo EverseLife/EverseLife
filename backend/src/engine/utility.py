@@ -396,15 +396,18 @@ async def pay(
             amount=debt,
             memo={"оплата долга": node.key},
         )
-    except ledger.InsufficientFunds as refused:
+    except ledger.InsufficientFunds:
         #: Refused before a posting is written, by the balance read under the
         #: purse's lock. A balance read before that lock could promise money a
         #: purchase elsewhere had just spent, and the holder was then told the
-        #: ledger's refusal instead of this one.
+        #: ledger's refusal instead of this one. What they have is read again
+        #: under the lock the refused posting took and still holds -- the same
+        #: figure, without leaning on the ledger's refusal carrying it.
+        have = await ledger.balance(session, account.id)
         raise NotEnoughMoney(
             key="utility-not-enough-money",
             debt=money_str(debt),
-            have=money_str(refused.params["have"]),
+            have=money_str(have),
         ) from None
     meter.debt = 0
     meter.cut_off = False

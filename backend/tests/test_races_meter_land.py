@@ -8,7 +8,9 @@ from `test_races_meter.py`: the meter run holds every meter of the world, and
 the city taking a node back -- a holder giving a plot up (`cede`), the city
 taking back a location handed out as a plot (`reclaim`, `reclaim_all`) --
 settles the node's meter as it goes (D-149, D-282). Who comes second must read
-the meter under its lock, and neither may hold what the other reaches for.
+the meter under its lock, and neither may hold what the other reaches for;
+where the meter cannot be read at all -- the run opening it -- the last race
+here says what keeps the two apart instead.
 
 The handshake is `automat_kit._until_blocked_by`: the side holding the
 contended rows lets go only once the other side has provably walked into them.
@@ -27,12 +29,11 @@ from automat_kit import _pool_left, _until_blocked_by
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import city as town
-from src.engine import energy, ledger, utility, world
+from src.engine import energy, utility, world
 from src.engine.city import land as city_land
 from src.models.city import City, UtilityMeter
 from src.models.event import Event, EventKind
 from src.models.identity import Body
-from src.models.ledger import AccountKind
 from src.models.world import Node
 from utility_kit import _grids, _held_by, _meter, _open, _resident
 
@@ -389,10 +390,14 @@ async def test_a_plot_ceded_while_the_run_opens_its_meter_owes_nothing(
 ) -> None:
     """A plot taken since the last pass has no meter yet; the run opens one
     while its holder gives the plot up. The cede cannot see a meter the run has
-    not committed, and takes none: it waits on the plot's row, which the
-    meter's insert holds through its foreign key. What keeps the city's plot
-    clear is that a meter counts its hours from its opening, so the pass that
-    opened it bills nothing. Should the opening ever be dated back, this fails."""
+    not committed, so it cannot refuse a debt on it: it waits on the plot's
+    row, which the meter's insert holds through its foreign key, and the
+    hand-over then clears whatever the meter carries.
+
+    What keeps the holder from walking away from a bill the cede never saw is
+    that a meter counts its hours from its opening: the pass that opened it
+    draws and bills nothing. Dated back, that pass would bill the holder, and
+    the hand-over would write the debt off onto the city."""
     moment = datetime.now(UTC)
     ((_, home),) = await _grids(session, constants, catalog, 1)
     owner, body = await _resident(session, home, "Хозяин")
@@ -423,5 +428,20 @@ async def test_a_plot_ceded_while_the_run_opens_its_meter_owes_nothing(
     assert meter_id is not None, "the run opened the plot's meter"
     holder, debt, cut_off = await _held_by(factory, home_id, meter_id)
     assert holder is None and debt == 0 and not cut_off
+    opened = await _meter(factory, meter_id)
+    assert float(opened.last_energy) == 0, "the opening pass drew nothing"
     async with factory() as db:
-        assert await ledger.find_account(db, AccountKind.IDENTITY, owner_id) is None
+        billed = (
+            (
+                await db.execute(
+                    select(Event.kind).where(
+                        Event.node_id == home_id,
+                        Event.actor_identity_id == owner_id,
+                        Event.kind.in_((EventKind.UTILITY_METERED, EventKind.UTILITY_CUT_OFF)),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+    assert billed == [], "the holder was billed nothing the cede could not see"
