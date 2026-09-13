@@ -107,14 +107,15 @@ ui-workshop-outlet = { $goods }: { $where ->
         [line] into the vessels on its line
         [reach] into the vessels in hand and at the machine
        *[place] into the vessels at the machine
-    } — { $room } free of { $need }, the room is not reserved
+    } — { $room } free, the batch gives { $need }; the room is not reserved
 ui-workshop-outlet-short = { $goods }: { $where ->
         [line] into the vessels on its line
         [reach] into the vessels in hand and at the machine
        *[place] into the vessels at the machine
-    } — { $room } free of { $need }: the surplus will spill
+    } — { $room } free, the batch gives { $need }: the surplus will spill
 ui-workshop-outlet-gone = { $goods }: { $where ->
         [flare] burns in the node's flare stack
+        [overboard] into the vessels on its line, the rest overboard: there is no air outside
        *[void] goes outside, where there is no air
     }
 ui-workshop-repair-title = Repair or take apart

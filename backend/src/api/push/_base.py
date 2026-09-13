@@ -87,9 +87,7 @@ TOUCHES: dict[str, tuple[str, ...]] = {
     #: The factory floor changed under its owner (D-253): a programme, a wire
     #: or a payout -- the node view is where the panel reads it back.
     "automat": ("node",),
-    #: And the orders: a running batch shows the room its liquid finds in the
-    #: vessels it will pour into (D-340), and a pour is what moves that room.
-    "storage": ("node", "inventory", "orders"),
+    "storage": ("node", "inventory"),
     "forage": ("doings", "inventory"),
     "customs": ("body", "money"),
     "city": ("city",),
@@ -140,6 +138,11 @@ TOUCHES_BY_KIND: dict[str, tuple[str, ...]] = {
     #: A line drawn changes what the engines and the life support reach
     #: (D-288): the hull's fuel and air on the console are read afresh.
     "line.set": ("ships",),
+    #: A running batch shows the room its liquid finds in the vessels it will
+    #: pour into (D-340), and a pour or an emptying is what moves that room by
+    #: hand: the orders are read again for those two, not for every storage move.
+    "storage.poured": ("node", "inventory", "orders"),
+    "storage.vented": ("node", "inventory", "orders"),
     #: A vessel named (D-340): the console's list and the scheme say the name.
     "line.named": ("ships",),
     #: The air machine stopped on its lines, or its reason changed (D-340):

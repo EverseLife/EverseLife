@@ -44,6 +44,9 @@ LINE = "line"
 REACH = "reach"
 #: ... or only at the machine: the master is not standing at it.
 PLACE = "place"
+#: A vent gas aboard a sealed hull: into the vessels on its line, the rest
+#: overboard -- nothing to fall short of, but not "all of it out" either.
+OVERBOARD = "overboard"
 
 
 async def outlets(
@@ -60,7 +63,7 @@ async def outlets(
 
     One row per liquid: `goods`, `where` -- `line`, `reach` or `place` with the
     `room` they have now, in units of that liquid; a vent gas with a way out of
-    the place says `void` or `flare` and has no room to fall short of. Empty for
+    the place says `void`, `overboard` or `flare` and has no room to fall short of. Empty for
     a batch that gives no liquid at all.
     """
     book = catalog.recipes
@@ -85,7 +88,8 @@ async def outlets(
         way = await vent.sink(session, node)
         for name in gases:
             if way is not None:
-                rows.append({"goods": name, "where": way})
+                lined = plumbed is not None and way == vent.VOID and plumbed.vents.get(name)
+                rows.append({"goods": name, "where": OVERBOARD if lined else way})
             elif plumbed is not None:
                 room = await liquid.room_in(
                     session, catalog, plumbed.vents.get(name, []), name, lock=False

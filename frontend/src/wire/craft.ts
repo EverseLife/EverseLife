@@ -110,14 +110,15 @@ export type Plan = {
  * it: into the vessels on the port's line aboard (`line`), into those in the
  * hands and at the machine (`reach`) or only at the machine (`place`), with
  * the `room` they have now -- or, for a vent gas with a way out of the place,
- * out where there is no air (`void`) or into the node's flare (`flare`), with
+ * out where there is no air (`void`), into its line and the rest overboard
+ * from a sealed hull (`overboard`), or into the node's flare (`flare`), with
  * no room to fall short of. The room is shown, not reserved: what the batch
  * will give is the client's to count, from the batch's size and the recipe's
  * byproduct (D-225).
  */
 export type Outlet = {
   goods: string;
-  where: "line" | "reach" | "place" | "void" | "flare";
+  where: "line" | "reach" | "place" | "void" | "overboard" | "flare";
   room?: number;
 };
 

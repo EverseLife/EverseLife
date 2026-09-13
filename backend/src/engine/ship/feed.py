@@ -238,8 +238,10 @@ async def view(
                     "liquids": list(port.liquids),
                     #: Which way it runs (D-340): an inlet drinks, an outlet
                     #: fills and stands when full, a vent fills and lets the
-                    #: rest go overboard. Not derivable: the ports are the
-                    #: engine's reading of the recipe and the classes.
+                    #: rest go -- into the compartment's air, or a vent gas
+                    #: overboard from a sealed hull (`engine.vent`). Not
+                    #: derivable: the ports are the engine's reading of the
+                    #: recipe and the classes.
                     "way": port.way,
                     "lines": [
                         str(row.vessel_item_id) for row in rows if row.vessel_item_id in aboard

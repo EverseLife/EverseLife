@@ -108,7 +108,7 @@ async def test_the_forecast_aboard_names_the_lines_and_where_the_hydrogen_goes(
     plan = await craft.plan(session, constants, catalog, sealed, AIR, 2)
     assert plan.outlets == (
         {"goods": AIR, "where": "line", "room": pytest.approx(12)},
-        {"goods": HYDROGEN, "where": "void"},
+        {"goods": HYDROGEN, "where": "overboard"},
     )
     in_port = await _aboard(session, constants, catalog, sealed=False)
     plan = await craft.plan(session, constants, catalog, in_port, AIR, 2)

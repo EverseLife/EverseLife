@@ -19,10 +19,12 @@ what a line is keyed by.
 **Which way.** An inlet drinks from its vessels in line order. An outlet pours
 into them in line order, and when every one of them is full the machine
 stands with its backlog (D-253: the well does not spill). A vent pours the
-same way and lets its surplus go -- overboard, or into the compartment's air:
-the hydrogen of electrolysis, which has no use yet and must not stop the air
-being made (owner, 2026-09-13), and the breath of the hydroponic beds, which
-do not wait for a cylinder (D-340).
+same way and lets its surplus go: the breath of the hydroponic beds into the
+compartment's air -- a bed does not wait for a cylinder -- and a vent gas, the
+hydrogen of electrolysis, where `engine.vent` sends it (D-340): overboard from
+a sealed hull, where it must not stop the air being made (owner, 2026-09-13),
+and nowhere from a hull under a sky with air, where the vent line is its one
+place and holds the machine like an outlet.
 
 **Lines.** A line is one vessel standing on one port, in a chosen order. A
 port with **no line at all** reaches nothing (D-288 as amended 2026-09-04):

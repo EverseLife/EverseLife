@@ -203,10 +203,10 @@ ui-ship-scheme-way-out = outlet
 ui-ship-scheme-way-vent = vent
 ui-ship-scheme-way-in-note = Draws from the vessels in line order: when the first runs dry it draws from the next.
 ui-ship-scheme-way-out-note = Pours into the vessels in line order; when all of them are full the machine stops.
-ui-ship-scheme-way-vent-note = Pours into the vessels in line order; what does not fit goes into the compartment's air or overboard, and the machine keeps running.
+ui-ship-scheme-way-vent-note = Pours into the vessels in line order. What does not fit: the hydroponics' oxygen stays in the compartment's air, vent gas goes overboard where there is no air outside; under a sky with air vent gas has no place but the vessels, and without them the machine stops.
 ui-ship-scheme-no-line = { $way ->
         [in] no line: the port draws nothing
-        [vent] no line: all of it goes into the air or overboard
+        [vent] no line: oxygen stays in the compartment's air, vent gas goes overboard in the void, and under a sky with air the machine stops
        *[other] no line: the machine has nowhere to pour, and it stops
     }
 ui-ship-scheme-port = the “{ $goods }” port: drag it to a vessel
