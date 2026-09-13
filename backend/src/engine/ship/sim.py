@@ -27,6 +27,7 @@ import asyncio
 import uuid
 from collections import OrderedDict
 from collections.abc import Sequence
+from dataclasses import replace
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -40,7 +41,7 @@ from src.constants import Catalog, Constants, current
 from src.constants import registry as R
 from src.db.base import remember
 from src.engine import stock, travel
-from src.engine.ship import course
+from src.engine.ship import course, flyby
 from src.engine.ship._base import (
     InFlight,
     NoArc,
@@ -300,10 +301,18 @@ async def offers(
     *,
     now: datetime,
     thrust_ratio: float,
+    flybys: bool = False,
 ) -> list[sky.Sample]:
     """The slider from where the hull is: the preview for every point of the
     grid (D-271, D-289) -- to a planet's circle, or to a drifter on its
-    forecast (wave 3). Empty for a hull not in the sky."""
+    forecast (wave 3). Empty for a hull not in the sky.
+
+    With `flybys`, and to a planet, the passages bent round a third world as
+    well (D-341), each with the hull's own wait for its window: an hour may
+    then carry two samples, the direct arc and the flyby, and the reader picks
+    -- the console the cheaper, the order the one it was given. Asked only
+    where the slider itself is read: refining flybys costs seconds a world,
+    and the console's summary of every route (`card.profile`) stays direct."""
     found = await state_at(session, constants, ship, now=now)
     if found is None:
         return []
@@ -343,7 +352,16 @@ async def offers(
         _PREVIEWS[key] = hit
         while len(_PREVIEWS) > SKY_CURVE_MEMO:
             _PREVIEWS.popitem(last=False)
-    return list(hit)
+    if not flybys or not isinstance(target, sky.Body):
+        return list(hit)
+    bent = await flyby.offered(constants, world, target, leaving, r, v, t)
+    return [
+        *hit,
+        *(
+            replace(one, wait=sky.eject_wait(world, target, t, r, v, one.v1) * HOURS_PER_DAY)
+            for one in bent
+        ),
+    ]
 
 
 #: The slider previews remembered across commands (see `offers`).
@@ -435,16 +453,19 @@ async def depart(
     thrust_ratio: float,
     now: datetime,
     offered: Sequence[sky.Sample] | None = None,
+    via: str | None = None,
 ) -> tuple[sky.Sample, float]:
     """Set the order: the chosen point of the slider, written onto the row.
     Returns the plan -- the slider's own sample -- and the fuel it will cost
     by the plan's delta-v.
 
-    The plan is the two-body arc the slider showed, no more: a shooting
-    refinement under five bodies was tried and dropped (D-289, wave 2) --
-    it diverged on the cheap end of the slider and bought only a picture,
-    because the helm re-solves the passage from where the hull actually is
-    every tick (`_fly`) whatever line was drawn at the order.
+    A direct arc's plan is the two-body arc the slider showed, no more: a
+    shooting refinement under five bodies was tried and dropped for it (D-289,
+    wave 2), because the helm re-solves the passage from where the hull
+    actually is every tick (`_fly`) whatever line was drawn at the order. A
+    flyby's plan is the refined pass (D-341): `via` names the world, and the
+    order carries the periapsis the helm corrects toward -- an hour may hold a
+    direct arc and a flyby both, and the order flies the one it was given.
 
     Refused for what is impossible **now** and for nothing else (D-289):
     an arc the sky does not offer, one the engines cannot deliver, or
@@ -465,7 +486,14 @@ async def depart(
         goal = world.body(target.planet.value)
     if offered is None:
         offered = await offers(
-            session, constants, catalog, ship, goal, now=now, thrust_ratio=thrust_ratio
+            session,
+            constants,
+            catalog,
+            ship,
+            goal,
+            now=now,
+            thrust_ratio=thrust_ratio,
+            flybys=via is not None,
         )
     if isinstance(goal, sky.Drifter):
         #: One price to a hull and no choice among prices: the quote of the
@@ -477,8 +505,15 @@ async def depart(
         if gone_by(goal, await sky_days(session, now), hours):
             raise NoArc(key="ship-target-gone-by-then", other=target.name)
     else:
-        samples = {one.hours: one for one in offered}
+        samples = {
+            one.hours: one for one in offered if (None if one.via is None else one.via.via) == via
+        }
         found_sample = samples.get(round(hours, ROUND_HOURS)) or samples.get(hours)
+        if found_sample is None and via is not None:
+            #: The flyby the console quoted is gone at the order's moment --
+            #: the sky turned between the reading and the button. Refused
+            #: rather than flown as something else (D-341).
+            raise NoArc(key="ship-no-flyby", hours=round(hours, ROUND_HOURS), planet=via)
         if found_sample is None:
             raise NoArc(key="ship-no-arc", hours=round(hours, ROUND_HOURS))
         sample = found_sample
@@ -548,6 +583,8 @@ async def depart(
         #: reads what is left against the tanks (`card.profile`).
         "spent": 0.0,
     }
+    if plan.via is not None:
+        ship.course.update(await flyby.order_of(session, ship, plan.via, now=now, wait=wait))
     #: A fresh order has no forecast yet: the tick writes one within the
     #: minute, and the console draws nothing rather than yesterday's coast.
     ship.forecast = None

@@ -58,6 +58,7 @@ __all__ = [
     "curve",
     "deliverable",
     "fastest",
+    "flyby_grid",
     "fuel_for_speed",
     "grid",
     "mu_of",
@@ -147,6 +148,20 @@ def grid(constants: Constants) -> tuple[float, ...]:
         1 + float(constants[R.ORBIT_SLIDER_STEP]) / PERCENT,
         float(constants[R.ORBIT_LONGEST_DAYS]) * HOURS_PER_DAY,
     )
+
+
+def flyby_grid(constants: Constants) -> tuple[float, ...]:
+    """The slider's hours with the flyby's own stretch past the direct arc's
+    horizon (D-341): the same geometric steps, on to `orbit.flyby_longest_days`.
+    Up to the horizon the hours are the direct slider's own, so a direct arc
+    and a flyby of one hour meet on one point."""
+    longest = float(constants[R.ORBIT_LONGEST_DAYS]) * HOURS_PER_DAY
+    beyond = _grid(
+        float(constants[R.ORBIT_SLIDER_FROM_HOURS]),
+        1 + float(constants[R.ORBIT_SLIDER_STEP]) / PERCENT,
+        float(constants[R.ORBIT_FLYBY_LONGEST_DAYS]) * HOURS_PER_DAY,
+    )
+    return grid(constants) + tuple(one for one in beyond if one > longest)
 
 
 def _grid(start: float, ratio: float, top: float) -> tuple[float, ...]:

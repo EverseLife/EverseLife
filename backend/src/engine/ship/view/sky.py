@@ -353,6 +353,9 @@ async def _flight(session: AsyncSession, ship: Ship) -> dict[str, object] | None
             "arrives_at": str(order.get("due_at") or order.get("arrive_at")),
             "back": bool(order.get("back")),
             "arc": order.get("trace"),
+            #: The world a flyby bends round (D-341), or nothing: the arc drawn
+            #: shows a kink, and only this says whose pull made it.
+            "via": order.get("via"),
         }
     job = await _passage_of(session, ship)
     if job is None:

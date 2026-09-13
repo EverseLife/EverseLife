@@ -36,26 +36,42 @@ _TINY = 1e-9
 
 def pull(system: System, t: np.ndarray, r: Rows) -> Rows:
     """The acceleration of every row at its own time: the star and the planets."""
-    distance = np.maximum(norms(r), _TINY)[:, None]
-    a = -system.mu * r / distance**3
+    x, y = r[:, 0], r[:, 1]
+    square = np.maximum(x * x + y * y, _TINY * _TINY)
+    weight = system.mu / (square * np.sqrt(square))
+    ax = -weight * x
+    ay = -weight * y
     for body in system.bodies:
-        p, _ = place(body, t)
-        d = r - p
-        gap = np.maximum(norms(d), _TINY)[:, None]
-        a = a - body.mu * d / gap**3
-    return a
+        dx, dy = _offset(body, t, x, y)
+        square = np.maximum(dx * dx + dy * dy, _TINY * _TINY)
+        weight = body.mu / (square * np.sqrt(square))
+        ax -= weight * dx
+        ay -= weight * dy
+    return np.stack([ax, ay], axis=1)
 
 
 def time_scale(system: System, t: np.ndarray, r: Rows) -> np.ndarray:
     """The shortest orbital time scale a row sees, days: the star's or the
     nearest planet's, whichever pulls it round faster."""
-    distance = np.maximum(norms(r), _TINY)
-    scale = np.sqrt(distance**3 / system.mu)
+    x, y = r[:, 0], r[:, 1]
+    square = np.maximum(x * x + y * y, _TINY * _TINY)
+    scale = square * np.sqrt(square) / system.mu
     for body in system.bodies:
-        p, _ = place(body, t)
-        gap = np.maximum(norms(r - p), _TINY)
-        scale = np.minimum(scale, np.sqrt(gap**3 / body.mu))
-    return scale
+        dx, dy = _offset(body, t, x, y)
+        square = np.maximum(dx * dx + dy * dy, _TINY * _TINY)
+        scale = np.minimum(scale, square * np.sqrt(square) / body.mu)
+    return np.sqrt(scale)
+
+
+def _offset(
+    body: Body, t: np.ndarray, x: np.ndarray, y: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """Each row's offset from a planet at its own time: `place` without the
+    velocity and without the stacking -- the integrator asks this four times a
+    step per planet, and it was most of what a step cost."""
+    radius, period, phase = body.orbit
+    angle = phase + 2 * np.pi * np.asarray(t, dtype=float) / period
+    return x - radius * np.cos(angle), y - radius * np.sin(angle)
 
 
 def _rk4(
@@ -94,33 +110,42 @@ def advance(
     *,
     dt_max: float,
     thrust: Rows | None = None,
-    watch: Callable[[np.ndarray, Rows, Rows], None] | None = None,
+    watch: Callable[[np.ndarray, Rows, Rows], np.ndarray | None] | None = None,
 ) -> tuple[Rows, Rows]:
     """Fly every row from its own `t` to its own `until`, and return the states there.
 
     A row past its end stands still; the loop runs until the last one is home.
+    A row whose `until` lies **before** its `t` is flown backwards in time --
+    the flyby's plan integrates out of a periapsis both ways (`sky.shoot`), and
+    the same steps taken with a negative sign are the same arithmetic.
     `watch` is called after every step with the times and the states -- the
-    forecast looks for the ground through it, the sampler for its moments.
+    forecast looks for the ground through it, the sampler for its moments. It
+    may answer with a mask of rows to halt where they are: a row the planner
+    has already found in the corona is not worth the hundred shrinking steps
+    the star's pull would ask of it.
     """
     t = np.array(t, dtype=float)
-    until = np.asarray(until, dtype=float)
+    until = np.array(until, dtype=float)
     r = np.array(r, dtype=float)
     v = np.array(v, dtype=float)
+    sign = np.where(until < t, -1.0, 1.0)
     while True:
-        left = until - t
+        left = (until - t) * sign
         active = left > 0
         if not np.any(active):
             return r, v
         dt = np.minimum(dt_max, STEP_SHARE * time_scale(system, t, r))
         dt = np.maximum(dt, STEP_FLOOR)
-        dt = np.where(active, np.minimum(dt, np.maximum(left, 0.0)), 0.0)
+        dt = np.where(active, np.minimum(dt, np.maximum(left, 0.0)), 0.0) * sign
         r_next, v_next = _rk4(system, t, r, v, dt, thrust)
         moved = active[:, None]
         r = np.where(moved, r_next, r)
         v = np.where(moved, v_next, v)
         t = t + dt
         if watch is not None:
-            watch(t, r, v)
+            halt = watch(t, r, v)
+            if halt is not None:
+                until = np.where(halt, t, until)
 
 
 def sample(

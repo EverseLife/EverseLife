@@ -62,6 +62,7 @@ async def fly(
     target: Node | Ship,
     *,
     hours: float | None = None,
+    via: str | None = None,
     now: datetime | None = None,
 ) -> datetime:
     """Cross to another planet's orbit -- flown, not tabled (D-289) -- or go
@@ -86,6 +87,10 @@ async def fly(
     Not turned back (D-289, 2026-09-04): a crossing under the sky is
     cancelled into a coast, or replaced by another order. Returns the hour
     the console promises.
+
+    `via` names the world a flyby bends round (D-341): the point of the
+    slider the console quoted for those hours through it. Unnamed hours take
+    the cheapest passage the slider has, flyby or not, and fly whichever it is.
     """
     moment = now or datetime.now(UTC)
     await _commanded_by(session, body, ship)
@@ -135,7 +140,14 @@ async def fly(
         else:
             goal = world.body(target.planet.value)
         offered = await sim.offers(
-            session, constants, catalog, ship, goal, now=moment, thrust_ratio=thrust_ratio
+            session,
+            constants,
+            catalog,
+            ship,
+            goal,
+            now=moment,
+            thrust_ratio=thrust_ratio,
+            flybys=isinstance(goal, sky.Body),
         )
         if not offered:
             if isinstance(target, Ship):
@@ -147,8 +159,16 @@ async def fly(
                 planet_from=here.planet.value,
                 planet_to=target.planet.value,
             )
-        hours = min(offered, key=lambda one: one.dv).hours
-    limit = float(constants[R.ORBIT_LONGEST_DAYS]) * HOURS_PER_DAY
+        cheapest = min(offered, key=lambda one: one.dv)
+        hours = cheapest.hours
+        via = None if cheapest.via is None else cheapest.via.via
+    if via is not None and isinstance(target, Ship):
+        raise NoArc(key="ship-no-flyby", hours=round(hours, ROUND_HOURS), planet=via)
+    #: A flyby has a ceiling of its own past the direct arc's (D-341).
+    limit = (
+        float(constants[R.ORBIT_LONGEST_DAYS if via is None else R.ORBIT_FLYBY_LONGEST_DAYS])
+        * HOURS_PER_DAY
+    )
     if not hours > 0 or hours > limit:
         raise NoArc(key="ship-hours-out-of-range", hours=round(hours, ROUND_HOURS), limit=limit)
 
@@ -169,6 +189,7 @@ async def fly(
         thrust_ratio=thrust_ratio,
         now=moment,
         offered=offered,
+        via=via,
     )
     if here is not None and connector is not None:
         await _cast_off(session, ship, here, connector)
@@ -195,6 +216,7 @@ async def fly(
         ratio=round(thrust_ratio, ROUND_RATIO),
         arrives_at=arrives.isoformat(),
         dv=round(plan.dv, ROUND_DV),
+        via=via,
     )
     return arrives
 

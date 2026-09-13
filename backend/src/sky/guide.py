@@ -121,9 +121,6 @@ def steer(
     v_rel = np.array(v) - vp[0]
     gap = float(np.hypot(*rel))
     speed = float(np.hypot(*v_rel))
-    #: The way braking needs from this speed at this thrust: past that line
-    #: the arc is no longer chased, the speed is shed.
-    brake = speed * speed / (2.0 * a_max) if a_max > 0 else float("inf")
     if isinstance(target, Drifter):
         #: A hull, not a planet (D-289, wave 3): nothing to circle, only a
         #: point to come to rest beside -- and the approach profile is the
@@ -135,7 +132,7 @@ def steer(
         #: the way left can shed. The order's hour stays the console's word.
         return _meet(system, target, t, r, v, rel, v_rel, a_max=a_max, dt=dt)
     park = park_of(system, target)
-    if gap <= max(system.approach * park, park + BRAKE_MARGIN * brake):
+    if gap <= capture_reach(system, target, speed, a_max):
         return _capture(system, target, rel, v_rel, a_max=a_max, dt=dt)
     tof = arrive - t
     if tof <= dt:
@@ -145,12 +142,46 @@ def steer(
         own = circle_speed(target, park) if isinstance(target, Body) else float(np.hypot(*vp[0]))
         tof = max(system.late_leg, gap / max(speed, own, STILL))
     goal = place_any(target, t + tof)[0][0]
-    wanted = _lambert_velocity(system.mu, r, (float(goal[0]), float(goal[1])), tof, v)
+    return chase(system, target, (float(goal[0]), float(goal[1])), tof, t, r, v, a_max=a_max, dt=dt)
+
+
+def capture_reach(system: System, target: Body, speed: float, a_max: float) -> float:
+    """How far from a planet the arc stops being chased and the capture begins:
+    the hold's flat radius, or -- coming in fast -- the way braking needs from
+    this speed at this thrust, with the helm's margin. A flyby's helm hands
+    over to the crossing's here too (D-341), so the two arrive alike."""
+    park = park_of(system, target)
+    brake = speed * speed / (2.0 * a_max) if a_max > 0 else float("inf")
+    return max(system.approach * park, park + BRAKE_MARGIN * brake)
+
+
+def chase(
+    system: System,
+    target: Target,
+    goal: tuple[float, float],
+    tof: float,
+    t: float,
+    r: tuple[float, float],
+    v: tuple[float, float],
+    *,
+    a_max: float,
+    dt: float,
+    spare: str | None = None,
+) -> Helm:
+    """Chase the arc to `goal` in `tof` days: burn toward the Lambert velocity
+    from where the hull is, under the departure's rules (D-316).
+
+    The arc of a crossing is aimed at the target's place at the planned hour;
+    a flyby's first leg is aimed at a point beside the world lent the pull
+    (D-341), and that world, `spare`, is no hold to be kept out of -- coming
+    down toward it is the whole point of the leg.
+    """
+    wanted = _lambert_velocity(system.mu, r, goal, tof, v)
     if wanted is None:
         return Helm(thrust=(0.0, 0.0), phase=COAST, captured=False)
     #: The world that holds the hull, read once for the two questions that
     #: follow -- the tick asks them of every ordered hull every minute.
-    leaving = _holding(system, target, t, r)
+    leaving = _holding(system, target, t, r, spare=spare)
     if leaving is not None and _wait_days(system, leaving, t, r, v, wanted) > 0.0:
         #: Turned the wrong way: the circle brings the hull round for nothing,
         #: while leaving from here would cost the walk round it under thrust
@@ -231,13 +262,22 @@ def _wait_days(
     return ahead / rate if rate > 0.0 else 0.0
 
 
-def _holding(system: System, target: Target, t: float, r: tuple[float, float]) -> Body | None:
+def _holding(
+    system: System,
+    target: Target,
+    t: float,
+    r: tuple[float, float],
+    *,
+    spare: str | None = None,
+) -> Body | None:
     """The planet whose hold the hull is still in and which is not where it is
     going -- the world it is leaving, or one it is crossing over (D-316).
 
     Nothing for a hull in the deep, and nothing at the far end: coming down on
     the target's circle is the whole point of the arrival, and the same rule
-    there would forbid it.
+    there would forbid it. Nor at `spare`, the world a flyby passes (D-341):
+    its periapsis may lie inside its hold, and a hull kept out of it would be
+    flung wide of the pass it was sent for.
     """
 
     #: Each world holds out to its own circle since D-324, and the circles
@@ -266,7 +306,7 @@ def _holding(system: System, target: Target, t: float, r: tuple[float, float]) -
     found: Body | None = None
     nearest: float | None = None
     for body in system.bodies:
-        if body.key == goal:
+        if body.key in (goal, spare):
             continue
         p, _ = place_any(body, t)
         gap = float(np.hypot(r[0] - p[0, 0], r[1] - p[0, 1]))

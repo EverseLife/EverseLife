@@ -510,8 +510,23 @@ async def forecast(
     else:
         goal = bodies.body(target.value)
     offered = await sim.offers(
-        session, constants, catalog, ship, goal, now=moment, thrust_ratio=thrust_ratio
+        session,
+        constants,
+        catalog,
+        ship,
+        goal,
+        now=moment,
+        thrust_ratio=thrust_ratio,
+        flybys=isinstance(goal, sky.Body),
     )
+    #: One point a flight time, the cheapest passage of it (D-341): where a
+    #: flyby and a direct arc share an hour the reader is quoted the cheaper,
+    #: and told through which world if it bends.
+    cheapest: dict[float, sky.Sample] = {}
+    for one in offered:
+        if one.hours not in cheapest or one.dv < cheapest[one.hours].dv:
+            cheapest[one.hours] = one
+    offered = [cheapest[hours] for hours in sorted(cheapest)]
     t0 = await sky_days(session, moment)
     if isinstance(goal, sky.Drifter) and any(sim.gone_by(goal, t0, one.hours) for one in offered):
         #: The hull's line ends before the profile gets there: nothing is
@@ -547,6 +562,10 @@ async def forecast(
                 #: held on it: the planner's two-body line, not the flown one
                 #: (D-289) -- the flown line is settled at the order.
                 "trace": [[round(x, ROUND_TRACE), round(y, ROUND_TRACE)] for x, y in sample.trace],
+                #: The world the passage bends round, or nothing for a direct
+                #: arc (D-341): the console names it beside the price, and the
+                #: order sends it back so the pass that was quoted is flown.
+                "via": None if sample.via is None else sample.via.via,
             }
         )
     #: The descent kept back at the far end, once: every sample needs its own
