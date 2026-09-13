@@ -11,7 +11,10 @@ repair here. The layout itself catches up by the scenario (D-243) --
 what stays written out by hand is everything data cannot say.
 
 **Every step is idempotent**: this runs at each deploy, and running it again
-must double nothing. That is the one rule a repair here has to keep.
+must double nothing. That is the one rule a repair here has to keep. A repair
+whose result cannot be told from a player's choice the day after -- a port
+its owner emptied looks exactly like one the step has yet to draw -- cannot
+keep it by reading the world, and runs once per world instead (`seed_once`).
 """
 
 from __future__ import annotations
@@ -24,8 +27,8 @@ from decimal import Decimal
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src import seed_once, seed_world
 from src import seed_parts as parts
-from src import seed_world
 from src.constants import current, current_catalog
 from src.constants import registry as R
 from src.constants.catalog import ItemKind
@@ -100,7 +103,24 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
     #: it. Relaid here rather than by the migration, for the same reason the
     #: gangways are: what a step is worth in seconds is the vault's number.
     await _ship_steps(session, constants)
-    await _lines_catch_up(session, constants)
+    #: Once per world, never at each deploy (`seed_once`): run again, the step
+    #: plumbed back every port an owner had left empty on purpose, and drew the
+    #: hulls laid since under the rule that a port without a line reaches
+    #: nothing. On a world deployed before that was mended (2026-09-13) the one
+    #: run still owed is approximate, knowingly: it cannot tell an old hull from
+    #: one laid since that nobody has plumbed, nor a port whose tank was taken
+    #: apart from one never drawn -- the rows are gone either way. What it can
+    #: tell, a port its owner has plumbed, it leaves alone (`_plumbed`). An
+    #: owner plumbing a port in the very seconds of that run can make the seed
+    #: fail on `uq_feed_line`; the seed rolls back whole, and run again it finds
+    #: the owner's `line.set` and passes.
+    if await seed_once.claim(session, seed_once.LINES_DEFAULT_ENDED):
+        drawn = await _lines_catch_up(session, constants)
+        #: Which ports this run drew is not written out: they are the `feed_line`
+        #: rows whose `created_at` is this row's `at` -- one transaction, one
+        #: `now()`. Only this run's: the lines the step drew at every deploy
+        #: before it was mended carry their own days.
+        await seed_once.done(session, seed_once.LINES_DEFAULT_ENDED, ports=drawn)
 
     #: Login by email and password (D-187): identities created before it get
     #: the seed's test accounts. Only those without an email yet -- anything
@@ -677,6 +697,10 @@ async def _lines_catch_up(session: AsyncSession, constants) -> int:
     catalog = current_catalog()
     legacy = {lines.fuel_port(), lines.air_port()}
     drawn = 0
+    #: A port its owner ever plumbed is the owner's, drawn empty included, and
+    #: only the journal can say so: an emptied port has no rows left. Read
+    #: once, for every hull of the world.
+    plumbed = await _plumbed(session)
     for hull in (await session.execute(select(Ship))).scalars().all():
         hold = await lines.hold_of(session, hull)
         vessels = [one.id for one in lines.vessels_among(catalog, hold) if one.installed]
@@ -688,12 +712,27 @@ async def _lines_catch_up(session: AsyncSession, constants) -> int:
                     continue
                 if await lines.lines_of(session, machine.id, port.name):
                     continue
+                if (str(machine.id), port.name) in plumbed:
+                    continue
                 if vessels:
                     await lines.replace(session, machine, port.name, vessels)
                     drawn += 1
     if drawn:
         log.info("lines drawn for %s ports of old hulls", drawn)
     return drawn
+
+
+async def _plumbed(session: AsyncSession) -> set[tuple[str, str]]:
+    """Every port a player has ever drawn, as `(machine id, port)`: the
+    `line.set` of the journal. `ship.set_lines` is the only door a player
+    draws a line through, and it always writes one; the catch-up's own lines
+    write none. Ids as the payload keeps them, as text."""
+    rows = await session.execute(
+        select(Event.payload["item_id"].astext, Event.payload["port"].astext).where(
+            Event.kind == EventKind.LINE_SET.value
+        )
+    )
+    return {(machine, port) for machine, port in rows.all()}
 
 
 async def _founder_powers_catch_up(session: AsyncSession, city: City) -> None:

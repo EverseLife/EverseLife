@@ -59,6 +59,7 @@ from lines_kit import (
 )
 from ship_kit import TANK, _equip
 from src.constants import Catalog, Constants
+from src.constants import registry as R
 from src.engine import automat, craft, liquid, ship, stock, storage, world
 from src.engine.craft import plumbing
 from src.engine.ship import lines
@@ -259,6 +260,66 @@ async def test_the_reactor_aboard_works_on_its_lines_and_vents_its_hydrogen(
     assert await _held(session, lube) < 50, "смазка ушла с линии"
     assert await _stacks(session, HYDROGEN) == 0, "водород за бортом, машина работает"
     assert row.stall is None
+
+
+async def test_the_tick_works_the_reactor_aboard_and_draws_the_hull_cells_after(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """On the world's tick the energy is promised per machine and drawn once
+    every machine has worked (`bill.pay`): the reactor on its lines goes the
+    same way, its cells drained by the pass, and flat cells are "flat" by what
+    the pass has left of them, not by the charge the bills are about to take."""
+    vessel, body, reactor, row, cell, water, lube, bottle = await _reactor_bay(
+        session, constants, catalog
+    )
+    full = float(cell.charge)
+    moment = row.counted_at + timedelta(minutes=30)
+    made = await automat.tick_automats(session, constants, now=moment)
+    await session.refresh(cell)
+    await session.refresh(row)
+    assert made > 0
+    assert await _held(session, bottle) == pytest.approx(made, abs=0.002)
+    assert float(cell.charge) < full, "ячейки корпуса списаны тиком"
+    assert row.stall is None
+
+    cell.charge = Decimal(0)
+    await session.flush()
+    await automat.tick_automats(session, constants, now=moment + timedelta(minutes=10))
+    await session.refresh(row)
+    assert row.stall == "power"
+    (flat,) = await _events(session, EventKind.SHIP_MACHINE_UNPOWERED)
+    assert flat.payload["goods"] == REACTOR
+
+
+async def test_two_reactors_on_one_hull_share_the_cells_the_tick_promised(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Charge for a machine and a half: the first reactor of the pass promises
+    its whole stretch, the second what is left, and the second is "flat" by
+    the pass's own reading of the supply -- the cells as they stand still hold
+    the charge the first bill is about to take, and asked alone they would let
+    the second stand without a word."""
+    vessel, body, reactor, row, cell, water, lube, bottle = await _reactor_bay(
+        session, constants, catalog
+    )
+    bridge = await session.get(Node, vessel.connector_node_id)
+    second = await _equip(session, bridge, REACTOR)
+    other_bottle = await _empty(session, bridge)
+    await ship.set_lines(session, constants, catalog, body, vessel, second, WATER, [water])
+    await ship.set_lines(session, constants, catalog, body, vessel, second, "lube", [lube])
+    await ship.set_lines(session, constants, catalog, body, vessel, second, AIR, [other_bottle])
+    other = await automat.program(session, constants, catalog, body, second, AIR)
+    rate = constants[R.AUTO_ENERGY_PER_HOUR]
+    other.counted_at = row.counted_at
+    cell.charge = Decimal(str(rate * 0.75))
+    await session.flush()
+
+    await automat.tick_automats(session, constants, now=row.counted_at + timedelta(minutes=30))
+    await session.refresh(row)
+    await session.refresh(other)
+    assert sorted([row.stall or "", other.stall or ""]) == ["", "power"], "встала вторая"
+    (flat,) = await _events(session, EventKind.SHIP_MACHINE_UNPOWERED)
+    assert flat.payload["goods"] == REACTOR
 
 
 async def test_the_reactor_stands_and_tells_the_crew_once_per_reason(

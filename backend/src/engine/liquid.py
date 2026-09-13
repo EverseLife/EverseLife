@@ -133,10 +133,20 @@ async def locked_stacks(
     type_keys: Iterable[str],
     *,
     worst_first: bool = False,
+    barred: Iterable[str] = (),
 ) -> list[Item]:
-    """`stock.locked_stacks` over the container and the vessels in it."""
+    """`stock.locked_stacks` over the container and the vessels in it.
+
+    `barred` names what is taken only out of the vessels, never off the
+    container itself (`stock.locked_stacks`).
+    """
+    names = tuple(barred)
     return await stock.locked_stacks(
-        session, await reach(session, catalog, container), type_keys, worst_first=worst_first
+        session,
+        await reach(session, catalog, container),
+        type_keys,
+        worst_first=worst_first,
+        barred=(container.id, names) if names else None,
     )
 
 
@@ -260,19 +270,15 @@ async def room_in(
 
     Locked by default, like `room_for`, so that an answer may be acted on in
     the same transaction; a forecast passes `lock=False` and reads. A vessel
-    holding another liquid takes none of it (D-288).
+    holding another liquid takes none of it (D-288). Counted by `room_seen`
+    either way: one arithmetic for the door that refuses and the window and
+    "as much as fits" that show it.
     """
     if not is_liquid(catalog, type_key) or not vessels:
         return 0.0
     if lock:
         await _lock(session, *vessels)
-    unit = catalog.recipes.mass_of(type_key)
-    free = 0.0
-    for vessel in vessels:
-        if not await takes(session, vessel, type_key):
-            continue
-        free += max(0.0, await free_in(session, catalog, vessel))
-    return free if unit <= 0 else free / unit
+    return await room_seen(session, catalog, vessels, type_key)
 
 
 async def room_seen(

@@ -43,7 +43,7 @@ async def test_the_reserve_melts_hour_by_hour(
     await session.flush()
 
     left = await frost.settle(session, constants, catalog, body)
-    assert left == pytest.approx(constants[R.FROST_RESERVE_MAX] - 2, abs=0.05)
+    assert left == pytest.approx(frost.reserve_of(constants, frost.FROST) - 2, abs=0.05)
 
 
 def test_the_body_is_kept_at_the_scales_it_is_written_with() -> None:
@@ -108,8 +108,8 @@ async def test_the_frozen_pay_the_same_stamina_however_often_they_are_settled(
 ) -> None:
     """Past the reserve the cold is paid in stamina, and that column is narrow too.
 
-    At `frost.frozen_stamina` an hour, a second costs four thousandths -- under
-    the hundredth `Body.stamina` keeps. Charged and rounded away it is charged
+    At the frost's `frost.frozen_stamina` an hour, a second costs thousandths --
+    under the hundredth `Body.stamina` keeps. Charged and rounded away it is charged
     to nobody, and the stamp moved on regardless: a frozen player giving a
     command a second paid nothing for the hour.
     """
@@ -124,14 +124,16 @@ async def test_the_frozen_pay_the_same_stamina_however_often_they_are_settled(
         who.stamina = Decimal("100")
     await session.flush()
 
-    #: A second at a time: at fifteen an hour the toll needs a stretch under
-    #: about a second and a fifth to fall below the hundredth stamina keeps, so
+    #: A second at a time: the toll of one step must fall below the hundredth
+    #: stamina keeps, or the rounding this test is about never happens -- so
     #: the step is fine and the span is short instead.
+    per_hour = frost.frozen_toll_of(constants, frost.FROST)
+    assert per_hour / SECONDS_PER_HOUR < 10**-ROUND_STAMINA, "a second's toll must not show"
     span = 600.0
     await _settled(session, constants, catalog, often, started, every=1.0, span=span)
     await frost.settle(session, constants, catalog, once, now=started + timedelta(seconds=span))
 
-    toll = constants[R.FROST_FROZEN_STAMINA] * span / SECONDS_PER_HOUR
+    toll = per_hour * span / SECONDS_PER_HOUR
     assert float(once.stamina) == pytest.approx(100 - toll, abs=0.01)
     assert float(often.stamina) == pytest.approx(float(once.stamina), abs=0.01)
 
@@ -173,13 +175,47 @@ async def test_a_warm_node_fills_the_reserve_back(
     await session.flush()
 
     left = await frost.settle(session, constants, catalog, body)
-    assert left == pytest.approx(constants[R.FROST_WARM_RATE], abs=0.05)
+    ceiling = frost.reserve_of(constants, frost.FROST)
+    assert left == pytest.approx(ceiling / constants[R.FROST_WARM_HOURS], abs=0.05)
 
     body.warmth_at = _ago(10)
     await session.flush()
     assert await frost.settle(session, constants, catalog, body) == pytest.approx(
-        constants[R.FROST_RESERVE_MAX], abs=0.05
+        frost.reserve_of(constants, frost.FROST), abs=0.05
     )
+
+
+async def test_any_ceiling_fills_in_the_same_hours(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The warm-up is a time, not a speed (D-338): a body in a suit, with
+    three times the ceiling, is as warm after `frost.warm_hours` as a bare one
+    -- and the view's hand turns at the rate the settling fills."""
+    hours = constants[R.FROST_WARM_HOURS]
+    assert hours > 1, "an hour must leave the reserve short of its ceiling"
+    _, yard = await _town(session)
+    await _place(session, yard, HEATER)
+    await _charge(session, constants, yard, constants[R.FROST_HEATER_DRAW])
+    body = await _dweller(session, yard)
+    pocket = await world.body_container(session, body)
+    suit = await world.grant_item(session, pocket, SUIT, quality=60, origin="тест")
+    await gear.equip(session, constants, catalog, body, suit)
+    ceiling = await frost.limit_of(session, constants, catalog, body, frost.FROST)
+    assert ceiling > frost.reserve_of(constants, frost.FROST), "the suit must raise the ceiling"
+
+    body.warmth = Decimal("0")
+    body.warmth_at = _ago(1)
+    await session.flush()
+    shown = await frost.view(session, constants, catalog, body, yard)
+    assert shown is not None and shown["warm"]
+    assert shown["per_hour"] == pytest.approx(ceiling / hours)
+    left = await frost.settle(session, constants, catalog, body)
+    assert left == pytest.approx(ceiling / hours, abs=0.05)
+
+    body.warmth = Decimal("0")
+    body.warmth_at = _ago(hours)
+    await session.flush()
+    assert await frost.settle(session, constants, catalog, body) == pytest.approx(ceiling, abs=0.05)
 
 
 async def test_the_road_is_the_cold_itself(
@@ -203,11 +239,11 @@ async def test_the_road_is_the_cold_itself(
     body = await _dweller(session, yard)
     await travel.depart(session, constants, body, door)
 
-    body.warmth = Decimal(str(constants[R.FROST_RESERVE_MAX]))
+    body.warmth = Decimal(str(frost.reserve_of(constants, frost.FROST)))
     body.warmth_at = _ago(1)
     await session.flush()
     left = await frost.settle(session, constants, catalog, body)
-    assert left == pytest.approx(constants[R.FROST_RESERVE_MAX] - 1, abs=0.05)
+    assert left == pytest.approx(frost.reserve_of(constants, frost.FROST) - 1, abs=0.05)
 
 
 async def test_the_suit_multiplies_the_reserve(
@@ -215,15 +251,68 @@ async def test_the_suit_multiplies_the_reserve(
 ) -> None:
     _, yard = await _town(session)
     body = await _dweller(session, yard)
-    bare = await frost.limit_of(session, constants, catalog, body)
+    bare = await frost.limit_of(session, constants, catalog, body, frost.FROST)
 
     pocket = await world.body_container(session, body)
     suit = await world.grant_item(session, pocket, SUIT, quality=60, origin="тест")
     await gear.equip(session, constants, catalog, body, suit)
 
-    assert await frost.limit_of(session, constants, catalog, body) == pytest.approx(
+    assert await frost.limit_of(session, constants, catalog, body, frost.FROST) == pytest.approx(
         bare * constants[R.FROST_SUIT_K][SUIT]
     )
+
+
+async def test_each_climate_keeps_its_own_reserve(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The frost's reserve and the heat's are their own (D-338): each is its
+    row of the table, the view, the settling and the tick all read the one of
+    the body's climate, and a body carried from the one into the other keeps
+    no more than the other allows."""
+    table = constants[R.FROST_RESERVE_MAX]
+    cold, hot = frost.reserve_of(constants, frost.FROST), frost.reserve_of(constants, frost.HEAT)
+    assert (cold, hot) == (table[frost.FROST], table[frost.HEAT])
+    assert cold != hot, "the test needs the two climates apart"
+    towns = {}
+    for planet, weather in ((Planet.AURORA, frost.FROST), (Planet.PYROXIS, frost.HEAT)):
+        _, yard = await _town(session, planet=planet, climate=weather)
+        towns[weather] = yard
+        body = await _dweller(session, yard)
+        shown = await frost.view(session, constants, catalog, body, yard)
+        assert shown is not None and shown["climate"] == weather
+        assert shown["max"] == pytest.approx(frost.reserve_of(constants, weather))
+    #: No climate, nothing spent: the ceiling a body walks into the cold with.
+    assert frost.reserve_of(constants, None) == cold
+
+    #: The tick reads each body's climate: seven hours out, the smaller
+    #: reserve is gone and the larger is not.
+    hours = min(cold, hot) + 1
+    bodies = {}
+    for weather, yard in towns.items():
+        body = await _dweller(session, yard)
+        body.warmth = Decimal(str(frost.reserve_of(constants, weather)))
+        body.warmth_at = _ago(hours)
+        bodies[weather] = body
+    await session.flush()
+    await frost.tick_bodies(session, constants, catalog)
+    for weather, body in bodies.items():
+        expected = max(0.0, frost.reserve_of(constants, weather) - hours)
+        assert float(body.warmth) == pytest.approx(expected, abs=0.05), weather
+
+    #: Carried into the smaller climate with the larger reserve, a body keeps
+    #: what the smaller allows, from the first settling.
+    small, large = (frost.HEAT, frost.FROST) if hot < cold else (frost.FROST, frost.HEAT)
+    moved = await _dweller(session, towns[small])
+    moved.warmth = Decimal(str(frost.reserve_of(constants, large)))
+    moved.warmth_at = _ago(0)
+    await session.flush()
+    #: The view caps it the same way, before any settling: a hand counting
+    #: down from above the ceiling would stand still while the reserve melts.
+    shown = await frost.view(session, constants, catalog, moved, towns[small])
+    assert shown is not None
+    assert shown["hours"] == pytest.approx(frost.reserve_of(constants, small))
+    left = await frost.settle(session, constants, catalog, moved)
+    assert left == pytest.approx(frost.reserve_of(constants, small), abs=0.05)
 
 
 async def test_a_suit_in_a_chest_warms_nobody(
@@ -233,19 +322,21 @@ async def test_a_suit_in_a_chest_warms_nobody(
     a death, a collapse, a sale -- stops multiplying the reserve at once."""
     node, yard = await _town(session)
     body = await _dweller(session, yard)
-    bare = await frost.limit_of(session, constants, catalog, body)
+    bare = await frost.limit_of(session, constants, catalog, body, frost.FROST)
 
     pocket = await world.body_container(session, body)
     suit = await world.grant_item(session, pocket, SUIT, quality=60, origin="тест")
     await gear.equip(session, constants, catalog, body, suit)
-    assert await frost.limit_of(session, constants, catalog, body) > bare
+    assert await frost.limit_of(session, constants, catalog, body, frost.FROST) > bare
 
     #: What a collapse or a demolition does: the thing changes place, and
     #: nobody asks the slot.
     suit.container_id = (await world.node_container(session, yard)).id
     await session.flush()
 
-    assert await frost.limit_of(session, constants, catalog, body) == pytest.approx(bare)
+    assert await frost.limit_of(session, constants, catalog, body, frost.FROST) == pytest.approx(
+        bare
+    )
 
 
 async def test_a_warmer_adds_hours_and_is_gone(
@@ -276,7 +367,7 @@ async def test_a_warmer_that_would_give_nothing_is_refused(
     await _place(session, yard, HEATER)
     await _charge(session, constants, yard, constants[R.FROST_HEATER_DRAW])
     body = await _dweller(session, yard)
-    body.warmth = Decimal(str(constants[R.FROST_RESERVE_MAX]))
+    body.warmth = Decimal(str(frost.reserve_of(constants, frost.FROST)))
     body.warmth_at = _ago(1)
     await session.flush()
     pocket = await world.body_container(session, body)
@@ -307,10 +398,10 @@ async def test_the_look_carries_the_hand_and_not_the_hour(
     assert view["climate"] == frost.FROST
     assert view["warm"] is False
     assert view["per_hour"] == -1.0
-    assert view["max"] == constants[R.FROST_RESERVE_MAX]
+    assert view["max"] == frost.reserve_of(constants, frost.FROST)
     #: A body that has never been cold is a full reserve **as of now**: an old
     #: stamp would have the client count down from the day it was printed.
-    assert view["hours"] == constants[R.FROST_RESERVE_MAX]
+    assert view["hours"] == frost.reserve_of(constants, frost.FROST)
     assert datetime.fromisoformat(view["at"]) >= _ago(1)
 
     #: Once it has been settled, the stamp is the settling's own.
@@ -339,17 +430,57 @@ async def test_the_frozen_burn_stamina_and_die(
     body = await _dweller(session, yard)
     body.warmth = Decimal("0")
     body.warmth_at = _ago(1)
-    body.stamina = Decimal(str(constants[R.FROST_FROZEN_STAMINA] * 2))
+    body.stamina = Decimal(str(frost.frozen_toll_of(constants, frost.FROST) * 2))
     await session.flush()
 
     dead = await frost.tick_bodies(session, constants, catalog)
     assert dead == 0
-    assert float(body.stamina) == pytest.approx(constants[R.FROST_FROZEN_STAMINA], abs=0.5)
+    assert float(body.stamina) == pytest.approx(
+        frost.frozen_toll_of(constants, frost.FROST), abs=0.5
+    )
 
     body.warmth_at = _ago(2)
     await session.flush()
     assert await frost.tick_bodies(session, constants, catalog) == 1
     assert body.state is BodyState.DEAD
+
+
+async def test_a_frozen_body_pays_its_own_climates_toll(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The frozen toll is the climate's own (D-338), like the reserve: a body
+    past its reserve pays the toll of the cold it stands in."""
+    table = constants[R.FROST_FROZEN_STAMINA]
+    tolls = {weather: frost.frozen_toll_of(constants, weather) for weather in table}
+    assert tolls == {frost.FROST: table[frost.FROST], frost.HEAT: table[frost.HEAT]}
+    assert tolls[frost.FROST] != tolls[frost.HEAT], "the test needs the two climates apart"
+    full = constants[R.BODY_STAMINA_MAX]
+    #: Both roads to the toll: a command's settling, and the tick, which hands
+    #: `_advance` the climate of its own pass instead of letting it ask.
+    settled, ticked = {}, {}
+    for planet, weather in ((Planet.AURORA, frost.FROST), (Planet.PYROXIS, frost.HEAT)):
+        _, yard = await _town(session, planet=planet, climate=weather)
+        for bodies in (settled, ticked):
+            body = await _dweller(session, yard)
+            body.warmth = Decimal("0")
+            body.warmth_at = _ago(1)
+            body.stamina = Decimal(str(full))
+            bodies[weather] = body
+    await session.flush()
+    for body in settled.values():
+        await frost.settle(session, constants, catalog, body)
+    #: The tick settles the settled ones too, and takes nothing a second time.
+    await frost.tick_bodies(session, constants, catalog)
+    for bodies in (settled, ticked):
+        for weather, body in bodies.items():
+            paid = full - float(body.stamina)
+            assert paid == pytest.approx(tolls[weather], rel=0.05), weather
+
+    #: D-231's yardstick, which the frost's larger reserve must not undo: a
+    #: bare body in the cold does not outlast half of Aurora's day, the vault's
+    #: "night in the open" -- the frost itself knows no time of day.
+    bare = frost.reserve_of(constants, frost.FROST) + full / tolls[frost.FROST]
+    assert bare < constants[R.TIME_DAY_AURORA] / 2
 
 
 async def test_the_cold_is_paid_by_whoever_counts_it(
@@ -374,7 +505,7 @@ async def test_the_cold_is_paid_by_whoever_counts_it(
         await frost.drain_multiplier(session, constants, body) == constants[R.FROST_FROZEN_DRAIN_K]
     )
     paid = constants[R.BODY_STAMINA_MAX] - float(body.stamina)
-    assert paid == pytest.approx(constants[R.FROST_FROZEN_STAMINA], rel=0.05)
+    assert paid == pytest.approx(frost.frozen_toll_of(constants, frost.FROST), rel=0.05)
 
     #: And the tick right behind it takes nothing a second time.
     await frost.tick_bodies(session, constants, catalog)
@@ -465,7 +596,7 @@ async def test_a_body_that_has_never_been_cold_arrives_with_a_full_reserve(
     await session.flush()
 
     left = await frost.settle(session, constants, catalog, body)
-    assert left == pytest.approx(constants[R.FROST_RESERVE_MAX] - 1, abs=0.05)
+    assert left == pytest.approx(frost.reserve_of(constants, frost.FROST) - 1, abs=0.05)
 
 
 # --- two sessions at once -----------------------------------------------------
@@ -542,7 +673,7 @@ async def test_the_tick_and_the_player_do_not_spend_one_stamina_twice(
         burnt = constants[R.BODY_STAMINA_MAX] - float(again.stamina)
         #: Both write-offs are in: the cold's hour and the road, and the road at
         #: the frozen body's rate.
-        cold = constants[R.FROST_FROZEN_STAMINA]
+        cold = frost.frozen_toll_of(constants, frost.FROST)
         road = (
             travel.stamina_cost(constants, SECONDS_PER_HOUR * 7.5, transport=False)
             * constants[R.FROST_FROZEN_DRAIN_K]

@@ -667,3 +667,40 @@ async def test_fuel_plant_burns_petroleum_coke_too(
     per_coke = constants[R.ENERGY_FUEL_ENERGY]["petroleum_coke"]
     assert per_coke > constants[R.ENERGY_FUEL_ENERGY]["coal"], "кокс плотнее угля"
     assert yielded == pytest.approx(burned * per_coke, rel=0.01)
+
+
+async def test_two_plants_in_one_yard_eat_twice_off_one_pile(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """Every plant burns its own draw (D-082), and two in one yard share the pile:
+    with coal for one and a half plant-hours they burn it all within the hour,
+    and the next hour they stand."""
+    from sqlalchemy import select
+
+    _, yard, _, _ = await _city(session)
+    await _place(session, yard, "coal_plant")
+    await _place(session, yard, "coal_plant")
+    draw = constants[R.ENERGY_COAL_PLANT_FUEL_DRAW]
+    await _place(session, yard, "coal", qty=draw * 1.5)
+    container = await world.node_container(session, yard)
+    plants = (
+        await session.execute(
+            select(Item).where(Item.container_id == container.id, Item.type_key == "coal_plant")
+        )
+    ).scalars()
+    assert len(list(plants)) == 2, "a station never folds into a stack (D-214)"
+
+    moment = datetime.now(UTC)
+    pool = await energy.pool_of(session, constants, yard)
+    pool.counted_at = moment - timedelta(hours=1)
+    yielded = await energy.produce(session, constants, pool, now=moment)
+
+    per_coal = constants[R.ENERGY_FUEL_ENERGY]["coal"]
+    assert yielded == pytest.approx(draw * 1.5 * per_coal, rel=0.01)
+    coal = (
+        await session.execute(
+            select(Item).where(Item.container_id == container.id, Item.type_key == "coal")
+        )
+    ).scalars()
+    assert not list(coal)
+    assert await energy.produce(session, constants, pool, now=moment + timedelta(hours=1)) == 0

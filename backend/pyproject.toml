@@ -600,9 +600,9 @@ forbidden_modules = [
 allow_indirect_imports = "true"
 
 [[tool.importlinter.contracts]]
-name = "The bill and the lines aboard sit under the run and know nothing of the board"
+name = "The machine on the lines aboard sits under the run and knows nothing of the board"
 type = "forbidden"
-source_modules = ["src.engine.automat.bill", "src.engine.automat.aboard"]
+source_modules = ["src.engine.automat.aboard"]
 forbidden_modules = ["src.engine.automat.run", "src.engine.automat.board", "src.engine.automat.wire"]
 allow_indirect_imports = "true"
 
@@ -610,7 +610,24 @@ allow_indirect_imports = "true"
 name = "The wires know nothing of running or the board"
 type = "forbidden"
 source_modules = ["src.engine.automat.wire"]
-forbidden_modules = ["src.engine.automat.run", "src.engine.automat.board"]
+forbidden_modules = [
+    "src.engine.automat.bill",
+    "src.engine.automat.aboard",
+    "src.engine.automat.run",
+    "src.engine.automat.board",
+]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "The energy bill knows no machine at work, no wire and no board"
+type = "forbidden"
+source_modules = ["src.engine.automat.bill"]
+forbidden_modules = [
+    "src.engine.automat.wire",
+    "src.engine.automat.aboard",
+    "src.engine.automat.run",
+    "src.engine.automat.board",
+]
 allow_indirect_imports = "true"
 
 [[tool.importlinter.contracts]]

@@ -424,7 +424,11 @@ async def stack_up(session: AsyncSession, item: Item) -> Item:
     #: tell itself apart by nor the fields the table fills in.
     await session.flush()
     #: Twins are locked: the merge deletes them, and a stack being taken
-    #: from by another transaction must not vanish under its hands.
+    #: from by another transaction must not vanish under its hands. And reread
+    #: under the lock (`populate_existing`, as `stock.locked_stacks` does): a
+    #: twin already in the session may carry numbers from before the wait --
+    #: or from before a savepoint rolled back, which puts a deleted twin back
+    #: without expiring it -- and the merge adds the amount it holds.
     rows = (
         (
             await session.execute(
@@ -436,6 +440,7 @@ async def stack_up(session: AsyncSession, item: Item) -> Item:
                 )
                 .order_by(Item.id)
                 .with_for_update()
+                .execution_options(populate_existing=True)
             )
         )
         .scalars()

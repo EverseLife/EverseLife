@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import city as town
-from src.engine import energy, events, ledger, works
+from src.engine import events, fuel_plant, ledger, works
 from src.engine.estate.building import build_minutes, buildings_of, kinds
 from src.engine.estate.upkeep import missing_share, repair_minutes
 from src.engine.works_city._base import (
@@ -222,7 +222,7 @@ async def post_fuel_order(
     place = await town.of_node(session, node)
     if place is None or place.id != city.id:
         raise WorksCityError(key="works-city-station-not-in-city")
-    view = await energy.plant_view(session, constants, node)
+    view = await fuel_plant.plant_view(session, constants, node)
     if view is None:
         raise WorksCityError(key="works-city-no-station")
     if type_key not in view["fuels"]:

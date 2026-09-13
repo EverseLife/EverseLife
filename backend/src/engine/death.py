@@ -459,6 +459,11 @@ async def _charge(
     pool = await energy.pool_of(session, constants, node)
     if pool is None:
         raise CannotPay(key="death-no-grid")
+    #: The iron before the pool, which `produce` locks: every stack comes
+    #: before its pool, and a machine making nails of this iron holds it until
+    #: its tick draws this very pool (`automat.bill`).
+    yard = await world.node_container(session, node)
+    ingots = await stock.locked_stacks(session, yard.id, (IRON,))
     await energy.produce(session, constants, pool, now=moment)
 
     energy_needed = constants[R.ENERGY_BODY_PRINT]
@@ -466,8 +471,6 @@ async def _charge(
         raise CannotPay(key="death-pool-short", have=float(pool.stored), need=energy_needed)
 
     iron_needed = constants[R.DEATH_IRON_COST]
-    yard = await world.node_container(session, node)
-    ingots = await stock.locked_stacks(session, yard.id, (IRON,))
     have = sum(amount_float(ingot.amount) for ingot in ingots)
     if have < iron_needed:
         raise CannotPay(key="death-no-iron", have=have, need=iron_needed)

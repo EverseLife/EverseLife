@@ -40,8 +40,8 @@ from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import battery, events, liquid, stock, vent, wear, world
 from src.engine import ship as vessels
+from src.engine.automat import bill as energy_bill
 from src.engine.automat._base import LUBE
-from src.engine.automat.bill import draw_energy
 from src.engine.craft import Procedure
 from src.engine.ship import lines
 from src.models.automat import Automat as AutomatRow
@@ -73,11 +73,14 @@ async def advance_on_lines(
     hours: float,
     unit_hours: float,
     now: datetime,
+    tab: energy_bill.Tab | None = None,
 ) -> float:
     """Advance a plumbed automat by `hours`. Returns the units paid out.
 
     The caller holds the row, has charged the wear and knows the programme;
-    this is the stretch itself, as `run.advance` does it on the ground.
+    this is the stretch itself, as `run.advance` does it on the ground -- the
+    energy too: drawn here for a command, promised on the tick's `tab` and
+    drawn by the tick once every machine has worked (`bill.pay`).
     """
     book = catalog.recipes
     ports = {
@@ -88,7 +91,10 @@ async def advance_on_lines(
 
     #: Every stack the stretch touches in ONE query and one lock order: the
     #: plumbed liquids off their lines, anything else off the yard (the air
-    #: has nothing else, and a second recipe on lines would).
+    #: has nothing else, and a second recipe on lines would). No fuel plant's
+    #: pile is kept out here (D-342, `run.advance`): water and lubricant come
+    #: off the lines, and a second recipe on lines that burns a fuel off the
+    #: yard must bar the pile the way the ground does.
     lube_names = tuple(sorted(world.station_names(LUBE)))
     loose = [name for name in proc.per_unit if name not in plumbed.inlets]
     yard_reach = await liquid.reach(session, catalog, yard) if loose else []
@@ -164,14 +170,24 @@ async def advance_on_lines(
     stall = min(limits, key=lambda one: one[1])[0] if worked + _EPS < hours else None
 
     energy_rate = constants[R.AUTO_ENERGY_PER_HOUR]
+    bill: energy_bill.Bill | None = None
     if worked > 0 and energy_rate > 0:
-        powered = await draw_energy(session, constants, row, node, worked, energy_rate, now=now)
+        if tab is None:
+            powered = await energy_bill.draw(
+                session, constants, row.owner_identity_id, node, worked, energy_rate, now=now
+            )
+        else:
+            bill = await energy_bill.promise(
+                session, constants, row, node, worked, energy_rate, now=now, tab=tab
+            )
+            powered = 0.0 if bill is None else bill.hours
         #: Short by more than rounding, and with the cells really spent: a
         #: stack of cells rounds its charge a thousandth a cell, and a minute's
         #: draw off thirty of them comes back a little short of what was asked
         #: with charge still in them (review 2026-09-13).
         if powered + _EPS < worked and (
-            await battery.charge_in(session, constants, node, now=now) < energy_rate * _EPS
+            await _left_in_cells(session, constants, node, tab, powered * energy_rate, now=now)
+            < energy_rate * _EPS
         ):
             stall = POWER
         worked = powered
@@ -213,7 +229,34 @@ async def advance_on_lines(
     await _tell(session, row, machine, plumbed, ports, stall)
     row.counted_at = now
     await session.flush()
+    #: Written down only once the machine's whole advance has gone through,
+    #: as on the ground: a machine that fails after its forecast leaves no bill.
+    if bill is not None and tab is not None:
+        tab.add(bill)
     return produced
+
+
+async def _left_in_cells(
+    session: AsyncSession,
+    constants: Constants,
+    node: Node,
+    tab: energy_bill.Tab | None,
+    taking: float,
+    *,
+    now: datetime,
+) -> float:
+    """The charge the hull's cells keep once this machine has had its share.
+
+    For a command the draw has happened and the cells say it themselves. On
+    the tick nothing is drawn yet: what the pass's earlier bills left of the
+    supply (`bill.Tab.supplies`, read once a pass) less this machine's own
+    promise -- the cells as they stand would still hold the charge the bills
+    before it are about to take.
+    """
+    supply = None if tab is None else tab.supplies.get(battery.hull_of(node))
+    if supply is None:
+        return await battery.charge_in(session, constants, node, now=now)
+    return supply - taking
 
 
 async def _pay_out(

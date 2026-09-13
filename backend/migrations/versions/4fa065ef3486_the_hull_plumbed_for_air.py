@@ -9,7 +9,7 @@ stack could not yet hold (`ship.air_grown`, with the check that keeps it
 under one).
 
 Revision ID: 4fa065ef3486
-Revises: e1d7b8231374
+Revises: 7171e0c3a511
 Create Date: 2026-09-13 15:08:16.026658
 """
 from __future__ import annotations
@@ -20,7 +20,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = '4fa065ef3486'
-down_revision: str | None = 'e1d7b8231374'
+down_revision: str | None = '7171e0c3a511'
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
