@@ -39,7 +39,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import NamedTuple
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -427,7 +427,7 @@ async def _sweep_stopped(session: AsyncSession) -> None:
         (
             await session.execute(
                 select(FieldAutomat.id).where(
-                    func.jsonb_array_length(FieldAutomat.program) == 0,
+                    ~FieldAutomat.programmed,
                     ~select(Item.id).where(Item.id == FieldAutomat.item_id).exists(),
                 )
             )
@@ -503,7 +503,7 @@ class _Fields:
                 .join(Node, Node.id == FieldAutomat.node_id)
                 .join(Item, Item.id == FieldAutomat.item_id)
                 .where(
-                    func.jsonb_array_length(FieldAutomat.program) > 0,
+                    FieldAutomat.programmed,
                     given.exists(),
                     Item.installed.is_(True),
                 )
@@ -543,7 +543,7 @@ async def _work_fields(
         (
             await session.execute(
                 select(FieldAutomat.id)
-                .where(func.jsonb_array_length(FieldAutomat.program) > 0)
+                .where(FieldAutomat.programmed)
                 .order_by(FieldAutomat.node_id, FieldAutomat.id)
             )
         )

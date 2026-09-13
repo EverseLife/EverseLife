@@ -15,7 +15,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, select
 from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -266,7 +266,7 @@ async def view(session: AsyncSession, body: Body) -> dict[str, Any]:
                 .where(Item.type_key.in_(world.station_names(FIELD_AUTOMAT)))
                 #: A machine stopped while busy keeps its row for the minutes it
                 #: owes, and is not programmed.
-                .where(func.jsonb_array_length(FieldAutomat.program) > 0)
+                .where(FieldAutomat.programmed)
                 .order_by(FieldAutomat.created_at)
             )
         )
