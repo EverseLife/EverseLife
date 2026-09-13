@@ -39,6 +39,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from automat_kit import _until_blocked_by
+from gone_kit import _lifting
 from src.constants import Catalog, Constants
 from src.engine import gear, plates, storage, transport, world
 from src.models.identity import Body
@@ -103,27 +104,6 @@ async def _harnessing(
             held.set()
             await _until_blocked_by(factory, db)
         return pulled.type_key
-
-
-async def _lifting(
-    factory: async_sessionmaker[AsyncSession],
-    constants: Constants,
-    catalog: Catalog,
-    body_id: uuid.UUID,
-    item_id: uuid.UUID,
-    *,
-    held: asyncio.Event | None = None,
-) -> float:
-    """Pick this vehicle up. Given `held`, the side that goes first."""
-    async with factory() as db, db.begin():
-        me = await db.get(Body, body_id)
-        thing = await db.get(Item, item_id)
-        assert me is not None and thing is not None
-        taken = await storage.pick(db, constants, catalog, me, thing)
-        if held is not None:
-            held.set()
-            await _until_blocked_by(factory, db)
-        return taken
 
 
 async def test_a_barrow_lifted_before_the_harness_is_not_harnessed_in_the_hands(

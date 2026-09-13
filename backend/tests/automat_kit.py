@@ -6,11 +6,12 @@
 The floor -- a city yard with a machine, a pool and a funded owner -- and the
 lubricant canister are shared by `test_automat.py`, `test_fuel_plant.py` and
 the race files, `test_races_automat.py`, `test_races_energy.py` and
-`test_races_liquid.py`; so are the races' handshake and their reading of a
-pool, which the meter's races (`test_races_meter.py`) take as well -- and the
-handshake alone, the races over a thing gone from under a reaching hand
-(`test_races_gone.py`). That is why
-they are here and not beside one of them (the family's own pattern, see
+`test_races_liquid.py`; so are the races' handshake -- the plain one and the
+one that holds the first call of a door (`_hold_the_first`) -- and their
+reading of a pool, which the meter's races (`test_races_meter.py`) take as
+well, and the handshake alone, the races over a thing gone from under a
+reaching hand (`test_races_gone.py`, through `gone_kit.py`). That is why they
+are here and not beside one of them (the family's own pattern, see
 `mining_kit.py`).
 
 Pytest does not collect this file: it holds no tests and no fixtures -- a
@@ -24,6 +25,7 @@ import asyncio
 import uuid
 from decimal import Decimal
 
+import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -132,6 +134,29 @@ async def _until_blocked_by(
                 return False
             await asyncio.sleep(0.01)
     raise AssertionError("nobody came to wait on the held rows")
+
+
+def _hold_the_first(
+    monkeypatch: pytest.MonkeyPatch,
+    factory: async_sessionmaker[AsyncSession],
+    module: object,
+    name: str,
+) -> asyncio.Event:
+    """The first call of `module.name` holds the rows it locked until another
+    transaction waits on them. The event says they are held; the session is
+    the call's first argument, as it is for every engine door."""
+    held = asyncio.Event()
+    locked = getattr(module, name)
+
+    async def holding(*args, **kwargs):
+        rows = await locked(*args, **kwargs)
+        if not held.is_set():
+            held.set()
+            await _until_blocked_by(factory, args[0])
+        return rows
+
+    monkeypatch.setattr(module, name, holding)
+    return held
 
 
 async def _pool_left(factory: async_sessionmaker[AsyncSession], constants, node_id) -> float:
