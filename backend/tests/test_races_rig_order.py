@@ -111,7 +111,7 @@ def _fire_after_the_plan(
     monkeypatch.setattr(rig, "_coal_available", counted_and_held)
 
     async def erupt() -> None:
-        await planned.wait()
+        await asyncio.wait_for(planned.wait(), timeout=30)
         try:
             async with factory() as db, db.begin():
                 place = await db.get(Node, field.id)
@@ -173,7 +173,7 @@ async def test_a_house_falling_on_a_rig_mid_pass_does_not_cross_the_tick(
             return await rig.tick_rigs(db, current(), now=moment)
 
     async def fall() -> int:
-        await worn.wait()
+        await asyncio.wait_for(worn.wait(), timeout=30)
         async with factory() as db, db.begin():
             _, fallen = await estate.decay(db, current())
             return fallen
@@ -244,7 +244,7 @@ async def test_a_machine_stood_or_taken_down_as_its_house_falls(
             await walk(db, current_catalog(), own_body, own)
 
     async def fall() -> int:
-        await judged.wait()
+        await asyncio.wait_for(judged.wait(), timeout=30)
         async with factory() as db, db.begin():
             _, fallen = await estate.decay(db, current())
             return fallen
@@ -401,7 +401,7 @@ async def test_the_fire_and_the_tick_take_a_rigs_machine_and_its_coal_in_one_ord
             return await rig.tick_rigs(db, current(), now=moment)
 
     async def erupt() -> None:
-        await burning.wait()
+        await asyncio.wait_for(burning.wait(), timeout=30)
         async with factory() as db, db.begin():
             place = await db.get(Node, field.id)
             await plates.erupted(db, _eruption(place, at=datetime.now(UTC)))
@@ -463,7 +463,7 @@ async def test_the_tick_and_the_fire_take_a_fields_veins_in_one_order(
             return await rig.tick_rigs(db, current(), now=moment)
 
     async def erupt() -> None:
-        await burning.wait()
+        await asyncio.wait_for(burning.wait(), timeout=30)
         async with factory() as db, db.begin():
             place = await db.get(Node, field.id)
             await plates.erupted(db, _eruption(place, at=datetime.now(UTC)))
