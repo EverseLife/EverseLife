@@ -125,7 +125,7 @@ export function Probe({
             weather,
             at.lat,
             at.lon,
-            { rain01: reading.rainPercent / 100, sea: reading.heightM < 0 },
+            { rain01: reading.rainPercent / 100, sea: reading.heightM < 0, seaWet: passport.sea_wet },
             weatherDays,
           ).rain;
           const share = moistureOf(
@@ -146,7 +146,7 @@ export function Probe({
             weather,
             at.lat,
             at.lon,
-            { rain01: reading.rainPercent / 100, sea: reading.heightM < 0 },
+            { rain01: reading.rainPercent / 100, sea: reading.heightM < 0, seaWet: passport.sea_wet },
             weatherDays,
           );
           text =

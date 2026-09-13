@@ -345,6 +345,9 @@ export type RasterPassport = {
    *  degrees on the planet's own scale, and `cold` to `hot` is the planet's
    *  range, the ends of the climate layer's ramp (D-331). */
   temperature_c: { min: number; step: number; cold: number; hot: number };
+  /** The land's mean rain share, nought to one: what the sky over the sea
+   *  is stretched by (the engine's `Field.land_rain`). */
+  sea_wet: number;
   /** What a full byte of the flow raster stands for on a log scale: how
    *  much land drains through the river a cell belongs to. The map draws a
    *  river of its own width by it -- a brook a thread, the continent's

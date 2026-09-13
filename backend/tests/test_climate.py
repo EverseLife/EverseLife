@@ -231,11 +231,25 @@ async def test_the_weather_is_one_law_everywhere(
     #: Rain wants cloud: nothing rains out of a clear sky.
     assert rain <= cloud or rain == 0.0
     #: Over the sea the raster is a hole, not a measure (D-336 item 10): the
-    #: sky there reads the neutral half whatever the raster says.
+    #: sky there reads the land's mean whatever the raster says (D-338
+    #: addendum) -- the same share the passport gives the picture.
+    import numpy as np
+
+    from src import field as fields
     from src.engine import terrain
 
     field = terrain.field_of(constants, Planet.TERRA)
+    ground = field.water != fields.SEA
+    assert field.land_rain == pytest.approx(
+        float(field.rain[ground].astype(np.float64).mean()) / 255
+    )
+    assert 0.0 < field.land_rain < 1.0
+    #: A world of sea alone has no coast to draw: its sky reads the neutral half.
+    all_sea = np.full(4, fields.SEA, dtype=np.uint8)
+    assert fields._land_rain(all_sea, np.full(4, 200, dtype=np.uint8)) == fields.NEUTRAL_RAIN
+    assert terrain.sketch(constants, Planet.TERRA)["raster"]["sea_wet"] == field.land_rain
     at_sea = next((0.0, float(lon)) for lon in range(-180, 180, 5) if field.is_sea(0.0, lon))
+    assert climate.sky_wetness(constants, Planet.TERRA, *at_sea) == field.land_rain
     answers = []
     for share in (0.0, 1.0):
         monkeypatch.setattr(type(field), "rain_at", lambda self, lat, lon, share=share: share)

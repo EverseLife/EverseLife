@@ -23,6 +23,7 @@ describe("the reading under a point", () => {
     biomes: ["desert", "taiga"], forms: ["plain"], water: ["land"],
     fluid: "water",
     temperature_c: { min: -64, step: 0.5, cold: -15, hot: 35 },
+    sea_wet: 0.36,
   };
   const n = passport.rows * passport.cols;
   const rasters: Rasters = {

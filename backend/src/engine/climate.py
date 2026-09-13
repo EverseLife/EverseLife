@@ -282,13 +282,14 @@ def sky_wetness(constants: Constants, planet: Planet, lat: float, lon: float) ->
     """The ground's rain share the sky over a point is stretched by (D-336).
 
     Over the sea the rain raster is a hole, not a measure -- the march
-    records nothing falling onto the sea -- and the sky reads the neutral
-    half there (`weather.SEA_WET`, the client's `WX_SEA_WET`), or the wet
-    bias thinned every cloud to the shore and the clouds drew the coasts
-    (owner, 2026-09-13). A property of the place, not of the moment.
+    records nothing falling onto the sea -- and the sky reads the land's
+    mean there (`Field.land_rain`, the passport's `sea_wet`): the neutral
+    half drew the coasts again once `weather.wet_bias` went to a half, the
+    land about a sea drier than the half on the whole (owner, 2026-09-13).
+    A property of the place, not of the moment.
     """
     field = terrain.field_of(constants, planet)
-    return weather.SEA_WET if field.is_sea(lat, lon) else float(field.rain_at(lat, lon))
+    return field.land_rain if field.is_sea(lat, lon) else float(field.rain_at(lat, lon))
 
 
 def weather_at(

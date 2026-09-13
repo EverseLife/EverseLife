@@ -42,11 +42,6 @@ from src.constants import Constants
 from src.constants import registry as R
 from src.units import METRES_PER_KM
 
-#: What the ground's rain share is taken to be over the sea, where the rain
-#: raster holds nought: the neutral half, the fixed point of the wet bias's
-#: factor -- the client's `weatherGlsl.WX_SEA_WET`, the law's shape (D-336
-#: item 10).
-SEA_WET = 0.5
 #: The law's shape, the client's `weatherGlsl.WX_*`: how many slices a system
 #: lives, the smallest and the largest system in cells (at most one and a
 #: half, so the three cells about a point are all the systems that reach it),
@@ -275,7 +270,7 @@ def weather_of(
 ) -> tuple[float, float]:
     """How clouded the sky is and how hard it rains, nought to one each, over
     a point (degrees) at so many real days since the epoch, above ground of
-    this wetness (the ground's rain share, or SEA_WET over the sea): the
+    this wetness (the ground's rain share, or the land's mean over the sea): the
     cover stretched by it -- a wet windward slope thickens what the wind
     brings, a dry lee thins it -- and gated by the vault's numbers."""
     cover = min(

@@ -154,6 +154,7 @@ function passportOf(nside: number, border = 1): RasterPassport {
     relief_m: 3000,
     height_unit_m: 0.1,
     temperature_c: { min: -64, step: 0.5, cold: -15, hot: 35 },
+    sea_wet: 0.36,
     biomes: [],
     forms: [],
     water: ["land", "sea", "lake", "river"],
