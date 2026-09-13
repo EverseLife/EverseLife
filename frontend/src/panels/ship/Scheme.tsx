@@ -71,6 +71,10 @@ export function Scheme({ look }: { look: Look }) {
   const [naming, setNaming] = useState<string | null>(null);
   const [name, setName] = useState("");
   const field = useRef<HTMLDivElement>(null);
+  //: The latest reading, for the drag's end: a push may reread the lines
+  //: while the pointer is down, and a line set off the reading the drag
+  //: started with would drop a vessel added meanwhile.
+  const latest = useRef<Feed | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -84,11 +88,14 @@ export function Scheme({ look }: { look: Look }) {
   }, [load, edition, look.node?.key]);
 
   const picture = useMemo(() => (feed ? layout(feed) : null), [feed]);
+  useEffect(() => {
+    latest.current = feed;
+  }, [feed]);
 
-  const portOf = (which: Chosen | null): FeedPort | undefined =>
+  const portOf = (which: Chosen | null, reading: Feed | null = feed): FeedPort | undefined =>
     which === null
       ? undefined
-      : feed?.machines
+      : reading?.machines
           .find((one) => one.item === which.machine)
           ?.ports.find((one) => one.port === which.port);
 
@@ -111,7 +118,7 @@ export function Scheme({ look }: { look: Look }) {
 
   /** Put a vessel on a port's line, if the engine would pour or draw through it. */
   const join = (which: Chosen, vessel: FeedVessel) => {
-    const port = portOf(which);
+    const port = portOf(which, latest.current);
     if (!port || !suits(port, vessel)) return;
     if (!port.lines.includes(vessel.item)) void plumb(which, withVessel(port, vessel.item));
   };
@@ -142,7 +149,7 @@ export function Scheme({ look }: { look: Look }) {
         const target = document
           .elementFromPoint(event.clientX, event.clientY)
           ?.closest<HTMLElement>("[data-vessel]")?.dataset.vessel;
-        const vessel = feed?.vessels.find((one) => one.item === target);
+        const vessel = latest.current?.vessels.find((one) => one.item === target);
         if (vessel) join(drag, vessel);
       }
       setDrag(null);
@@ -410,6 +417,10 @@ function stallWords(
   if (stall === STALL_POWER) return t("ui-ship-scheme-stall-power");
   const port = ports.find((one) => one.port === stall);
   const goods = goodsName(names, port?.liquids[0] ?? stall);
+  //: No line at all is its own word: the fix is to draw one, not to fill or empty a tank.
+  if (port !== undefined && port.lines.length === 0) {
+    return t("ui-ship-scheme-stall-unlined", { goods });
+  }
   return port?.way === "in"
     ? t("ui-ship-scheme-stall-dry", { goods })
     : t("ui-ship-scheme-stall-full", { goods });

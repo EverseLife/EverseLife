@@ -140,6 +140,8 @@ class EventKind(StrEnum):
     SHIP_MACHINE_DRY = "ship.machine_dry"
     SHIP_MACHINE_FULL = "ship.machine_full"
     SHIP_MACHINE_UNPOWERED = "ship.machine_unpowered"
+    #: And a fourth: a port it needs has no line drawn at all.
+    SHIP_MACHINE_UNLINED = "ship.machine_unlined"
     #: The engines ran dry under way (D-289): the hull coasts from here, and
     #: the order is gone. Said to everybody aboard, like the air running out.
     SHIP_ADRIFT = "ship.adrift"

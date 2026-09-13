@@ -162,4 +162,5 @@ craft-port-no-line = the “{ NAME($station) }” has no line drawn on its “{ 
         [in] an inlet draws only from the vessels on its line
        *[other] an outlet pours only into the vessels on its line
     }. Lines are drawn at the ship's console
+craft-lines-not-yours = the lines of the “{ NAME($station) }” run to the owner's vessels: only whoever may dispose of the compartment works through them
 craft-outlet-full = the vessels on the “{ NAME($goods) }” line of the “{ NAME($station) }” will take { NUMBER($room, minimumFractionDigits: 0, maximumFractionDigits: 1) } u. more, and the batch will give { NUMBER($units, minimumFractionDigits: 0, maximumFractionDigits: 1) }: empty a vessel or put another one on the line

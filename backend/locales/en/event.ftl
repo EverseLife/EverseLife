@@ -50,6 +50,7 @@ event-ship-airless = the air aboard is running out
 event-ship-machine_dry = ship's machine stopped: its inlet line is dry
 event-ship-machine_full = ship's machine stopped: the vessels on its outlet are full
 event-ship-machine_unpowered = ship's machine stopped: the hull's batteries are flat
+event-ship-machine_unlined = ship's machine stopped: a port has no line
 event-road-laid = road laid
 event-deed-sold = deed sold
 event-land-reclaimed = the city took its location back

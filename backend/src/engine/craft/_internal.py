@@ -146,7 +146,7 @@ async def _prepare(
     #: The air aboard works through the hull's lines (D-340): its water from
     #: the water line, a port with no line refused by name before anything.
     plumbed = await lines.plumbing_of(session, constants, catalog, station, proc.output)
-    plumbing.require_lines(plumbed)
+    await plumbing.require_plumbing(session, body, plumbed, lock=lock)
     tools, named = await _tool_items(session, catalog, body, proc, tool_item_id)
 
     scale = constants[R.QUALITY_SCALE]
@@ -218,6 +218,7 @@ async def _prepare(
         stock=stock,
         tools=tuple(tools),
         recipe_key=recipe_key,
+        plumbed=plumbed,
     )
 
 

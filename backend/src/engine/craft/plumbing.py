@@ -20,7 +20,9 @@ Three rules follow, and all three are said before the work, not after it:
   the hours is the finish's business, and it spills with a word, as a batch
   on the ground does;
 * **the hydrogen never stands in the way.** A vent pours what fits and lets
-  the rest go overboard; no line at all is not a refusal (owner, 2026-09-13).
+  the rest go overboard; no line at all is not a refusal (owner, 2026-09-13);
+* **the tanks are the owner's.** A batch on the lines is work that reaches
+  the place, and only whoever may dispose of it runs one (D-315).
 
 Only the air is plumbed: the same electrolyser making oxidiser works room by
 room, as every other batch does (`ship.lines.plumbed_for`).
@@ -34,6 +36,8 @@ from src.constants import Catalog
 from src.engine import liquid
 from src.engine.craft._base import CraftError
 from src.engine.ship import lines
+from src.models.identity import Body
+from src.models.world import Node
 from src.units import AMOUNT_SCALE
 
 #: Amounts split into thousandths: room for exactly the batch must not read short.
@@ -48,17 +52,45 @@ class OutletFull(CraftError):
     """The vessels on the machine's outlet cannot take the whole batch."""
 
 
-def require_lines(plumbed: lines.Plumbing | None) -> None:
-    """Refuse a batch whose inlet or outlet has no line, naming the port."""
-    if plumbed is None or not plumbed.dry:
+class LinesNotYours(CraftError):
+    """The lines reach the owner's tanks, and this body may not dispose of the place."""
+
+
+async def require_plumbing(
+    session: AsyncSession, body: Body, plumbed: lines.Plumbing | None, *, lock: bool
+) -> None:
+    """The doors a batch on the lines passes before anything is read off them.
+
+    **Whose tanks.** The lines reach every vessel of the hull, so a batch on
+    them is the work that reaches the place, and the place is the owner's to
+    dispose of (D-315): a guest at the owner's electrolyser works from its own
+    hands in any other batch, and must not drain the owner's tanks and fill
+    the owner's cylinders through this one (review 2026-09-13).
+
+    **A port with no line** is refused by name.
+
+    **The vessels are taken first** when the batch is started: the vessel
+    rows before the stacks inside them, in id order -- the order a hand's pour
+    and the automat on the same lines take them in, so the three queue rather
+    than deadlock.
+    """
+    if plumbed is None:
         return
-    port = plumbed.dry[0]
-    raise PortDry(
-        key="craft-port-no-line",
-        station=plumbed.machine.type_key,
-        goods=port.liquids[0],
-        way=port.way,
-    )
+    from src.engine import station  # noqa: PLC0415 -- lazy: station imports craft
+
+    node = await session.get(Node, body.node_id)
+    if node is None or not await station.may_build(session, body, node):
+        raise LinesNotYours(key="craft-lines-not-yours", station=plumbed.machine.type_key)
+    if plumbed.dry:
+        port = plumbed.dry[0]
+        raise PortDry(
+            key="craft-port-no-line",
+            station=plumbed.machine.type_key,
+            goods=port.liquids[0],
+            way=port.way,
+        )
+    if lock:
+        await liquid.lock_vessels(session, plumbed.vessels)
 
 
 async def require_room(

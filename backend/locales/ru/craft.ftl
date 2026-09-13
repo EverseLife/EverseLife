@@ -163,4 +163,5 @@ craft-port-no-line = у станка «{ NAME($station) }» не проведе�
         [in] вход берёт только из тары на своей линии
        *[other] выход льёт только в тару на своей линии
     }. Линию проводят у консоли корабля
+craft-lines-not-yours = у станка «{ NAME($station) }» линии борта ведут к таре хозяина: работать по ним вправе тот, кто распоряжается отсеком
 craft-outlet-full = на линии «{ NAME($goods) }» станка «{ NAME($station) }» тара вместит ещё { NUMBER($room, minimumFractionDigits: 0, maximumFractionDigits: 1) } ед., а партия даст { NUMBER($units, minimumFractionDigits: 0, maximumFractionDigits: 1) }: освободите тару или поставьте на линию ещё одну

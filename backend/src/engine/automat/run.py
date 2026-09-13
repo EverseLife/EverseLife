@@ -164,10 +164,15 @@ async def advance(
     room_units = math.inf
     if is_liquid_out:
         unit_mass = book.recipes.mass_of(proc.output)
-        room = 0.0
-        for vessel in await liquid.vessels_in(session, book, yard):
-            room += await liquid.free_in(session, book, vessel)
-        room_units = (room / unit_mass) if unit_mass > 0 else math.inf
+        #: Only the vessels that take this liquid (D-288): a tank of water in
+        #: the yard is no room for spirit, and counting it poured the next
+        #: stretch's output onto the floor as a spill every tick.
+        vessels = await liquid.vessels_in(session, book, yard)
+        room_units = (
+            await liquid.room_in(session, book, vessels, proc.output, lock=False)
+            if unit_mass > 0
+            else math.inf
+        )
     room_hours = max(0.0, (room_units - backlog) * unit_hours) if is_liquid_out else hours
 
     worked = max(0.0, min(hours, lube_hours, input_hours, room_hours))
@@ -285,11 +290,14 @@ async def _pay_out(
             )
     else:
         await world.stack_up(session, fresh)
-    #: The byproduct (D-340): the hydrogen of electrolysis on the ground goes
-    #: into the vessels standing here and into the air past them. It never
-    #: holds the machine: the room above was counted for the output alone, and
-    #: the output has poured before it.
+    #: The byproduct (D-340): off the hull's lines a liquid byproduct -- the
+    #: hydrogen of electrolysis -- goes into the air. Poured into the yard's
+    #: empty vessels it would claim them for good, and the next stretch's
+    #: oxygen would find no room (review 2026-09-13). One that is not a liquid
+    #: lands on the yard with the output.
     for name, per in book.byproduct_of(proc.output).items():
+        if book.is_liquid(name):
+            continue
         extra = Item(
             container_id=yard.id,
             type_key=name,
@@ -298,9 +306,4 @@ async def _pay_out(
         )
         session.add(extra)
         await session.flush()
-        if book.is_liquid(name):
-            await liquid.fill_or_drop(
-                session, catalog, extra, await liquid.vessels_in(session, catalog, yard)
-            )
-        else:
-            await world.stack_up(session, extra)
+        await world.stack_up(session, extra)

@@ -203,10 +203,10 @@ ui-ship-scheme-way-out = outlet
 ui-ship-scheme-way-vent = vent
 ui-ship-scheme-way-in-note = Draws from the vessels in line order: when the first runs dry it draws from the next.
 ui-ship-scheme-way-out-note = Pours into the vessels in line order; when all of them are full the machine stops.
-ui-ship-scheme-way-vent-note = Pours into the vessels in line order; what does not fit goes overboard, and the machine keeps running.
+ui-ship-scheme-way-vent-note = Pours into the vessels in line order; what does not fit goes into the compartment's air or overboard, and the machine keeps running.
 ui-ship-scheme-no-line = { $way ->
         [in] no line: the port draws nothing
-        [vent] no line: all of it goes overboard
+        [vent] no line: all of it goes into the air or overboard
        *[other] no line: the machine has nowhere to pour, and it stops
     }
 ui-ship-scheme-port = the “{ $goods }” port: drag it to a vessel
@@ -219,6 +219,7 @@ ui-ship-scheme-name-clear = remove the name
 ui-ship-scheme-stall-power = stopped: the hull's batteries are flat
 ui-ship-scheme-stall-dry = stopped: the “{ $goods }” line is dry
 ui-ship-scheme-stall-full = stopped: the vessels on the “{ $goods }” line are full
+ui-ship-scheme-stall-unlined = stopped: no “{ $goods }” line
 
 ## A line about the hull, one for each: where it is and what it breathes.
 

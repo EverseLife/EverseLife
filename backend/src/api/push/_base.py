@@ -145,6 +145,7 @@ TOUCHES_BY_KIND: dict[str, tuple[str, ...]] = {
     "ship.machine_dry": ("ships",),
     "ship.machine_full": ("ships",),
     "ship.machine_unpowered": ("ships",),
+    "ship.machine_unlined": ("ships",),
     #: Two hulls meeting (D-289, wave 3): every one of these changes what the
     #: console of either hull shows.
     "ship.sighted": ("ships",),

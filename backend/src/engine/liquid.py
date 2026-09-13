@@ -220,12 +220,17 @@ async def fill_vessels(
         return 0.0
     unit = catalog.recipes.mass_of(item.type_key)
     before = amount_float(item.amount)
+    #: Under lock, like `pour`: the worker finishing a batch and the owner
+    #: filling the same canister must not both see it half empty. Every vessel
+    #: at once and in id order, never one by one in the pouring order: a line
+    #: names its vessels in the owner's order, and two machines filling the
+    #: same two tanks through lines drawn the other way round would each hold
+    #: one and wait on the other (review 2026-09-13).
+    if vessels:
+        await _lock(session, *vessels)
     for vessel in vessels:
         if item.amount <= 0:
             break
-        #: Under lock, like `pour`: the worker finishing a batch and the
-        #: owner filling the same canister must not both see it half empty.
-        await _lock(session, vessel)
         if not await takes(session, vessel, item.type_key):
             continue
         room = await free_in(session, catalog, vessel)

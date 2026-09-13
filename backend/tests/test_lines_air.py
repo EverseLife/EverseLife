@@ -38,7 +38,7 @@ from conftest import _slow
 from lines_kit import BATTERY, CANISTER, CYLINDER, WATER, _empty, _held, _hull, _room, _vessel
 from ship_kit import TANK, _equip
 from src.constants import Catalog, Constants
-from src.engine import automat, battery, craft, liquid, ship, storage, world
+from src.engine import automat, battery, craft, liquid, ship, stock, storage, world
 from src.engine.craft import plumbing
 from src.engine.ship import lines
 from src.models.automat import Automat as AutomatRow
@@ -104,7 +104,7 @@ async def test_the_air_machines_have_the_recipes_ports(
     }
     assert ports[ELECTROLYSER] == {WATER: "in", AIR: "out", HYDROGEN: "vent"}
     assert ports[REACTOR] == {WATER: "in", AIR: "out", HYDROGEN: "vent", "lube": "in"}
-    assert ports[UNIT] == {AIR: "out"}
+    assert ports[UNIT] == {AIR: "vent"}, "грядка не встаёт из-за полного баллона"
     #: The electrolyser making oxidiser is not plumbed: only the air is.
     assert lines.plumbed_for(constants, catalog, ELECTROLYSER, "oxidizer") == ()
     assert catalog.recipes.byproduct_of(AIR) == {HYDROGEN: 2.0}
@@ -227,11 +227,12 @@ async def test_a_port_without_a_line_or_an_outlet_without_room_refuses_before_an
     )
 
 
-async def test_on_the_ground_the_hydrogen_goes_where_the_oxygen_goes(
+async def test_on_the_ground_the_hydrogen_goes_into_the_air(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Not aboard there are no lines: the yield pours into the vessels in the
-    hands, the hydrogen into one that takes it, and past that into the air."""
+    """Not aboard there are no lines: the oxygen pours into a vessel in the
+    hands, and the hydrogen goes into the air -- it does not claim the spare
+    cylinder for good, and nothing is said as spilled (review 2026-09-13)."""
     stamp = uuid.uuid4().hex[:8]
     node = await world.create_node(
         session, f"terra.lab.{stamp}", "Лаборатория", area_m2=200, layer=Layer.PLANET
@@ -252,10 +253,10 @@ async def test_on_the_ground_the_hydrogen_goes_where_the_oxygen_goes(
 
     await craft.start(session, constants, catalog, body, AIR, 1)
     await _finish(session)
-    held = {one.id: await storage.content(session, one) for one in (bottle, spare)}
-    kinds = {key: {stack.type_key for stack in stacks} for key, stacks in held.items()}
-    assert {AIR} in kinds.values() and {HYDROGEN} in kinds.values(), "по баллону на газ"
-    assert await _stacks(session, HYDROGEN) == pytest.approx(2)
+    held = [await storage.content(session, one) for one in (bottle, spare)]
+    kinds = sorted(tuple(stack.type_key for stack in stacks) for stacks in held)
+    assert kinds == [(), (AIR,)], "кислород в одном баллоне, второй пуст"
+    assert await _stacks(session, HYDROGEN) == 0, "водород ушёл в воздух"
     assert await _events(session, EventKind.STORAGE_SPILLED) == []
 
 
@@ -329,16 +330,25 @@ async def test_the_reactor_stands_and_tells_the_crew_once_per_reason(
     assert row.stall is None
     assert len(await _events(session, EventKind.SHIP_MACHINE_FULL)) == 1
 
-    #: The water line runs dry.
-    await ship.set_lines(session, constants, catalog, body, vessel, reactor, WATER, [])
+    #: The water line runs dry: the tank on it is emptied.
+    for stack in await storage.content(session, water):
+        await session.delete(stack)
+    await session.flush()
     moment += timedelta(minutes=10)
     await automat.advance(session, constants, row, catalog=catalog, now=moment)
     assert row.stall == WATER
     (dry,) = await _events(session, EventKind.SHIP_MACHINE_DRY)
     assert dry.payload["goods"] == WATER
 
-    #: Back on the line, and the cells go flat.
-    await ship.set_lines(session, constants, catalog, body, vessel, reactor, WATER, [water])
+    #: The line itself taken off: not an empty tank, a missing line.
+    await ship.set_lines(session, constants, catalog, body, vessel, reactor, WATER, [])
+    moment += timedelta(minutes=10)
+    await automat.advance(session, constants, row, catalog=catalog, now=moment)
+    assert row.stall == WATER, "причина та же, порт тот же -- второй раз не сказано"
+
+    #: Water again on a line, and the cells go flat.
+    refill = await _vessel(session, (await ship.nodes_of(session, vessel))[-1], TANK, WATER, 500)
+    await ship.set_lines(session, constants, catalog, body, vessel, reactor, WATER, [refill])
     for stack in await storage.content(session, bottle):
         await session.delete(stack)
     cell.charge = Decimal(0)
@@ -441,3 +451,177 @@ async def test_a_tick_and_a_hand_pouring_into_one_tank_neither_overfill_nor_spil
         spilled = await _events(session, EventKind.STORAGE_SPILLED)
     assert held <= 6 + 0.001, "баллон не переполнен"
     assert spilled == [], "реактор не насчитал воздуха, которому некуда литься"
+
+
+async def test_a_port_with_no_line_is_said_as_such(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """An outlet with no line is not "the vessels are full": the journal says
+    what to do -- draw a line (review 2026-09-13)."""
+    vessel, body, reactor, row, cell, water, lube, bottle = await _reactor_bay(
+        session, constants, catalog
+    )
+    await ship.set_lines(session, constants, catalog, body, vessel, reactor, AIR, [])
+    await automat.advance(
+        session, constants, row, catalog=catalog, now=row.counted_at + timedelta(minutes=10)
+    )
+    assert row.stall == AIR
+    (unlined,) = await _events(session, EventKind.SHIP_MACHINE_UNLINED)
+    assert unlined.payload["goods"] == AIR
+    assert await _events(session, EventKind.SHIP_MACHINE_FULL) == []
+
+
+async def test_a_stack_of_cells_rounding_its_charge_is_no_stall(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Thirty cells in one stack round their charge a thousandth a cell: a
+    minute's draw comes back a hair short with the cells still full. That is
+    not "the batteries are flat" (review 2026-09-13)."""
+    vessel, body, reactor, row, cell, water, lube, bottle = await _reactor_bay(
+        session, constants, catalog
+    )
+    cell.amount = 30_000
+    await session.flush()
+    moment = row.counted_at
+    for _ in range(20):
+        moment += timedelta(minutes=1)
+        await automat.advance(session, constants, row, catalog=catalog, now=moment)
+    assert await _events(session, EventKind.SHIP_MACHINE_UNPOWERED) == []
+    assert row.stall is None
+
+
+async def test_a_guest_does_not_work_the_owners_lines(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The lines reach the owner's tanks: a batch on them is work that reaches
+    the place, and only whoever may dispose of it runs one (D-315). A guest at
+    the owner's electrolyser is refused before anything is read off them."""
+    vessel, body, machine, tank, first, second, vent = await _electrolysis_bay(
+        session, constants, catalog
+    )
+    stranger = await world.create_identity(session, f"Гость-{uuid.uuid4().hex[:6]}")
+    guest = await world.print_body(
+        session, stranger, await session.get(Node, vessel.connector_node_id)
+    )
+    await world.learn(session, stranger, AIR)
+    with pytest.raises(plumbing.LinesNotYours) as refused:
+        await craft.start(session, constants, catalog, guest, AIR, 1)
+    assert refused.value.key == "craft-lines-not-yours"
+    assert await _held(session, tank) == pytest.approx(200)
+
+
+async def test_an_automat_set_to_another_recipe_shows_no_air_ports(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The window shows what the engine works through (D-288): a reactor set
+    to spirit drinks off its room, and its air ports are not drawn."""
+    vessel, body, connector = await _hull(session, constants)
+    reactor = await _equip(session, connector, REACTOR)
+    await _learned(session, body, "alcohol")
+    await automat.program(session, constants, catalog, body, reactor, "alcohol")
+    seen = await ship.lines_view(session, constants, catalog, body, vessel)
+    assert all(one["goods"] != REACTOR for one in seen["machines"]), "портов воздуха не видно"
+
+
+async def test_the_beds_and_the_reactor_share_two_cylinders_drawn_the_other_way_round(
+    factory: async_sessionmaker[AsyncSession],
+    constants: Constants,
+    catalog: Catalog,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two machines filling the same two cylinders through lines in opposite
+    orders, in two transactions at once: every pour takes all its vessels in
+    id order before it reads them, so the two queue -- neither holds one and
+    waits for the other (review 2026-09-13)."""
+    from src.engine import oxygen
+    from src.models.farm import Plot, PlotState
+
+    async with factory() as session, session.begin():
+        vessel, body, reactor, row, _, _, _, _ = await _reactor_bay(session, constants, catalog)
+        rooms = await ship.nodes_of(session, vessel)
+        bay = rooms[-1]
+        low, high = sorted(
+            [await _empty(session, bay), await _empty(session, bay)], key=lambda one: one.id
+        )
+        for full in (low, high):
+            await world.grant_item(
+                session,
+                await storage.inside(session, full),
+                AIR,
+                amount=5.99,
+                quality=60,
+                origin="тест",
+            )
+        unit = await _equip(session, bay, UNIT)
+        await ship.set_lines(session, constants, catalog, body, vessel, reactor, AIR, [low, high])
+        await ship.set_lines(session, constants, catalog, body, vessel, unit, AIR, [high, low])
+        session.add(
+            Plot(
+                node_id=bay.id,
+                owner_identity_id=body.identity_id,
+                name="Грядка",
+                area_m2=Decimal(5000),
+                state=PlotState.SOWN,
+                fertility=Decimal(50),
+                culture_id="spelt",
+                growth=Decimal(40),
+                health=Decimal(80),
+                settled_at=datetime.now(UTC),
+            )
+        )
+        body.node_id = vessel.docked_node_id
+        vessel.docked_node_id = None
+        moment = row.counted_at + timedelta(minutes=30)
+        vessel.air_at = moment - timedelta(minutes=30)
+        row_id = row.id
+
+    _slow(monkeypatch, liquid, "free_in")
+
+    async def beds() -> None:
+        async with factory() as db, db.begin():
+            await oxygen.tick_ships(db, constants, catalog, now=moment)
+
+    async def tick() -> None:
+        async with factory() as db, db.begin():
+            own = await db.get(AutomatRow, row_id)
+            await automat.advance(db, constants, own, catalog=catalog, now=moment)
+
+    await asyncio.gather(beds(), tick())
+
+
+async def test_a_manual_start_and_the_reactor_on_the_same_tanks_do_not_deadlock(
+    factory: async_sessionmaker[AsyncSession],
+    constants: Constants,
+    catalog: Catalog,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A batch starting at the electrolyser and the reactor's tick share a
+    water tank and an oxygen cylinder: both take the vessel rows before the
+    stacks in them, so one waits for the other's commit (review 2026-09-13)."""
+    async with factory() as session, session.begin():
+        vessel, body, reactor, row, _, water, _, bottle = await _reactor_bay(
+            session, constants, catalog
+        )
+        machine = await _equip(
+            session, await session.get(Node, vessel.connector_node_id), ELECTROLYSER
+        )
+        await ship.set_lines(session, constants, catalog, body, vessel, machine, WATER, [water])
+        await ship.set_lines(session, constants, catalog, body, vessel, machine, AIR, [bottle])
+        ids = (body.id, row.id)
+        moment = row.counted_at + timedelta(minutes=5)
+
+    _slow(monkeypatch, liquid, "lock_vessels")
+    _slow(monkeypatch, stock, "lock_items")
+
+    async def start() -> None:
+        async with factory() as db, db.begin():
+            me = await db.get(Body, ids[0])
+            with contextlib.suppress(plumbing.OutletFull):
+                await craft.start(db, constants, catalog, me, AIR, 1)
+
+    async def tick() -> None:
+        async with factory() as db, db.begin():
+            own = await db.get(AutomatRow, ids[1])
+            await automat.advance(db, constants, own, catalog=catalog, now=moment)
+
+    await asyncio.gather(start(), tick())

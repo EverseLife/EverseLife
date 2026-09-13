@@ -764,7 +764,10 @@
   margin: var(--s1) 0;
   padding-left: var(--s5);
 }
-/* The tones, by the port's schema key -- never by a goods name. */
+/* The tones, by the port's name. `fuel` and `lube` are class-bound port
+   names; a recipe's port is named by its liquid, so `water`, `oxygen` and
+   `hydrogen` are goods keys too -- a new liquid on the lines comes without a
+   tone until one is added here (D-340, OQ-171). */
 .tone-fuel {
   --line-tone: var(--danger);
 }

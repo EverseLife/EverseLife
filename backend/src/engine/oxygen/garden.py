@@ -40,8 +40,9 @@ from src.constants import registry as R
 from src.engine import liquid, world
 from src.engine.ship import lines
 from src.engine.ship._base import AIR, HYDROPONICS
+from src.engine.ship.belonging import nodes_of
 from src.models.farm import Plot, PlotState
-from src.models.inventory import Container, Item
+from src.models.inventory import Container, ContainerKind, Item
 from src.models.ship import Ship
 from src.units import (
     ROUND_AMOUNT,
@@ -51,6 +52,24 @@ from src.units import (
     amount,
     on_grid,
 )
+
+
+async def has_bays(session: AsyncSession, ship: Ship) -> bool:
+    """Whether a hydroponic unit stands anywhere aboard -- one small query."""
+    nodes = await nodes_of(session, ship)
+    yards = select(Container.id).where(
+        Container.kind == ContainerKind.NODE, Container.owner_id.in_([node.id for node in nodes])
+    )
+    found = await session.scalar(
+        select(Item.id)
+        .where(
+            Item.container_id.in_(yards),
+            Item.installed.is_(True),
+            Item.type_key.in_(world.station_names(HYDROPONICS)),
+        )
+        .limit(1)
+    )
+    return found is not None
 
 
 async def growing_area(session: AsyncSession, node_ids: list[uuid.UUID]) -> dict[uuid.UUID, float]:

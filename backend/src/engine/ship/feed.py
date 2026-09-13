@@ -122,10 +122,12 @@ async def name_vessel(
     title = name.strip()
     if len(title) > SHIP_NAME_LIMIT:
         raise BadVesselName(key="line-name-too-long", limit=SHIP_NAME_LIMIT)
-    await session.refresh(vessel, with_for_update=True)
     hold = await lines.hold_of(session, ship)
     if vessel.id not in {one.id for one in lines.vessels_among(catalog, hold)}:
         raise NotOnLine(key="line-vessel-not-aboard", goods=vessel.type_key)
+    #: Aboard first, the row second: an order about one's own hull must not
+    #: lock a stranger's thing for the length of a transaction.
+    await session.refresh(vessel, with_for_update=True)
     row = await session.get(VesselName, vessel.id)
     if not title:
         if row is not None:
@@ -185,26 +187,41 @@ async def view(
     hold = await lines.hold_of(session, ship)
     hull = lines.vessels_among(catalog, hold)
     aboard = {one.id for one in hull}
-    machines = sorted(
+    candidates = sorted(
         (one for one in hold if one.installed and lines.ports_of(constants, catalog, one.type_key)),
         key=lambda one: one.id,
     )
     contents = await storage.contents_of(session, hull)
-    drawn = await lines.lines_for(session, [machine.id for machine in machines])
     named = await lines.names_of(session, [vessel.id for vessel in hull])
-    stalled = {
-        row.item_id: row.stall
+    programmes = {
+        row.item_id: row
         for row in (
             await session.execute(
-                select(Automat).where(
-                    Automat.item_id.in_([machine.id for machine in machines]),
-                    Automat.stall.isnot(None),
-                )
+                select(Automat).where(Automat.item_id.in_([machine.id for machine in candidates]))
             )
         )
         .scalars()
         .all()
     }
+    stalled = {item: row.stall for item, row in programmes.items() if row.stall is not None}
+    air = lines.air_recipe(catalog)
+
+    def ports_shown(machine: Item) -> tuple[lines.Port, ...]:
+        """The ports the window draws: what the engine works through (D-288).
+        An automat set to another recipe drinks off its room, not its air
+        ports, and a picture of lines it ignores would lie; one not yet set
+        shows them, so the lines may be drawn before the programme."""
+        ports = lines.ports_of(constants, catalog, machine.type_key)
+        row = programmes.get(machine.id)
+        if row is None or row.recipe_key is None or air is None:
+            return ports
+        if row.recipe_key == air.type_key:
+            return ports
+        plumbed = {port.name for port in lines.recipe_ports(catalog, air)} | {lines.LUBE_PORT}
+        return tuple(port for port in ports if port.name not in plumbed)
+
+    machines = [machine for machine in candidates if ports_shown(machine)]
+    drawn = await lines.lines_for(session, [machine.id for machine in machines])
 
     def where(thing: Item) -> dict[str, str]:
         room = room_of[thing.container_id]
@@ -213,7 +230,7 @@ async def view(
     plumbed: list[dict[str, object]] = []
     for machine in machines:
         ports: list[dict[str, object]] = []
-        for port in lines.ports_of(constants, catalog, machine.type_key):
+        for port in ports_shown(machine):
             rows = drawn.get((machine.id, port.name), [])
             ports.append(
                 {

@@ -50,6 +50,7 @@ event-ship-airless = на борту кончается воздух
 event-ship-machine_dry = машина борта встала: на линии входа пусто
 event-ship-machine_full = машина борта встала: тара на выходе полна
 event-ship-machine_unpowered = машина борта встала: аккумуляторы корпуса сели
+event-ship-machine_unlined = машина борта встала: у порта нет линии
 event-road-laid = дорога уложена
 event-deed-sold = бумага продана
 event-land-reclaimed = город забрал свою локацию

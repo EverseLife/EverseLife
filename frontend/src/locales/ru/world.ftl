@@ -203,10 +203,10 @@ ui-ship-scheme-way-out = выход
 ui-ship-scheme-way-vent = сброс
 ui-ship-scheme-way-in-note = Берёт из тары по порядку линии: опустела первая — берёт из следующей.
 ui-ship-scheme-way-out-note = Льёт в тару по порядку линии; когда полна вся — машина стоит.
-ui-ship-scheme-way-vent-note = Льёт в тару по порядку линии; что не вошло, уходит за борт, и машина из-за этого не стоит.
+ui-ship-scheme-way-vent-note = Льёт в тару по порядку линии; что не вошло, уходит в воздух отсека или за борт, и машина из-за этого не встаёт.
 ui-ship-scheme-no-line = { $way ->
         [in] линии нет — порт ничего не берёт
-        [vent] линии нет — всё уходит за борт
+        [vent] линии нет — всё уходит в воздух или за борт
        *[other] линии нет — машине некуда лить, и она стоит
     }
 ui-ship-scheme-port = порт «{ $goods }»: потяните к таре
@@ -219,6 +219,7 @@ ui-ship-scheme-name-clear = снять имя
 ui-ship-scheme-stall-power = стоит: аккумуляторы корпуса сели
 ui-ship-scheme-stall-dry = стоит: пусто на линии «{ $goods }»
 ui-ship-scheme-stall-full = стоит: полна тара на линии «{ $goods }»
+ui-ship-scheme-stall-unlined = стоит: нет линии «{ $goods }»
 
 ## Строка о корпусе, одна на каждый: где он и чем дышит.
 

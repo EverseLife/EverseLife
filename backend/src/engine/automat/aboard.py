@@ -35,7 +35,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import events, liquid, stock, wear, world
+from src.engine import battery, events, liquid, stock, wear, world
 from src.engine import ship as vessels
 from src.engine.automat._base import LUBE
 from src.engine.automat.bill import draw_energy
@@ -145,7 +145,13 @@ async def advance_on_lines(
     energy_rate = constants[R.AUTO_ENERGY_PER_HOUR]
     if worked > 0 and energy_rate > 0:
         powered = await draw_energy(session, constants, row, node, worked, energy_rate, now=now)
-        if powered + _EPS < worked:
+        #: Short by more than rounding, and with the cells really spent: a
+        #: stack of cells rounds its charge a thousandth a cell, and a minute's
+        #: draw off thirty of them comes back a little short of what was asked
+        #: with charge still in them (review 2026-09-13).
+        if powered + _EPS < worked and (
+            await battery.charge_in(session, constants, node, now=now) < energy_rate * _EPS
+        ):
             stall = POWER
         worked = powered
 
@@ -240,6 +246,10 @@ async def _tell(
     port = ports.get(stall)
     if stall == POWER:
         kind, goods = EventKind.SHIP_MACHINE_UNPOWERED, machine.type_key
+    elif port is not None and port in plumbed.dry:
+        #: No line at all is not an empty tank nor a full one: the word says
+        #: what to do -- draw one.
+        kind, goods = EventKind.SHIP_MACHINE_UNLINED, port.liquids[0]
     elif port is not None and port.pours:
         kind, goods = EventKind.SHIP_MACHINE_FULL, port.liquids[0]
     else:

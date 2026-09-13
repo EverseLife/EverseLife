@@ -350,18 +350,24 @@ async def _breathe(
         return 0.0, 0
     locked.air_at = now
 
-    #: The hold, once: which systems and bays stand there and which vessels
-    #: their lines reach. It is a **reading**; the write-off below relocks its
-    #: stacks by id under `FOR UPDATE`, and a pour locks the vessel it fills,
-    #: so nothing is decided from it.
-    hold = await lines.hold_of(session, locked)
+    crew = await vessels.crew_of(session, locked)
+    #: The hold, once, where something will read it: which systems and bays
+    #: stand there and which vessels their lines reach. An empty hull with no
+    #: beds is most of a fleet under way and costs one small query, not the
+    #: whole hold. It is a **reading**; the write-off below relocks its stacks
+    #: by id under `FOR UPDATE`, and a pour locks the vessels it fills, so
+    #: nothing is decided from it.
+    hold = (
+        await lines.hold_of(session, locked)
+        if crew or await garden.has_bays(session, locked)
+        else []
+    )
 
     #: The beds breathe first (D-340): what they gave this stretch is air the
     #: crew may breathe in it. They breathe with nobody aboard as well -- a
     #: culture grows whoever watches it.
     await garden.breathe_out(session, constants, catalog, locked, hold, hours)
 
-    crew = await vessels.crew_of(session, locked)
     if not crew:
         #: Nobody aboard breathes nothing, and the life support has no reason
         #: to run: an empty hull in flight arrives with its tanks as it left.

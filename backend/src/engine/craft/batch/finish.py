@@ -277,15 +277,18 @@ async def _shed(
 ) -> None:
     """The batch's byproduct (D-340): the hydrogen of electrolysis.
 
-    It goes where the main output goes -- aboard into the vessels on its vent
-    line, on the ground into the vessels in the hands and at the machine --
-    and what finds no room is let out without a word: it never held the
-    machine, and nobody kept it. A byproduct that is not a liquid lands with
-    the yield.
+    Aboard on the lines it goes into the vessels on its vent line, and what
+    finds no room is let out without a word: it never held the machine, and
+    nobody kept it. Off the lines it goes into the air at once: poured into
+    whatever empty vessel the hands or the bench hold, it would claim a
+    cylinder for good -- a liquid is only poured out into another vessel, and
+    hydrogen has no use yet (review 2026-09-13). A byproduct that is not a
+    liquid lands with the yield.
     """
     units = amount_float(batch.units)
-    within = await _vessels_reach(session, batch, where)
     for name, per in byproduct.items():
+        if liquid.is_liquid(catalog, name) and plumbed is None:
+            continue
         extra = Item(
             container_id=where.id,
             type_key=name,
@@ -297,18 +300,10 @@ async def _shed(
         )
         session.add(extra)
         await session.flush()
-        if not liquid.is_liquid(catalog, name):
+        if not liquid.is_liquid(catalog, name) or plumbed is None:
             await world_engine.stack_up(session, extra)
             continue
-        if plumbed is not None:
-            vessels = plumbed.vents.get(name, [])
-        else:
-            vessels = [
-                vessel
-                for container in within
-                for vessel in await liquid.vessels_in(session, catalog, container)
-            ]
-        await liquid.fill_or_drop(session, catalog, extra, vessels)
+        await liquid.fill_or_drop(session, catalog, extra, plumbed.vents.get(name, []))
 
 
 async def _vessels_reach(

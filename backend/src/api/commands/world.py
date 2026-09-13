@@ -327,5 +327,6 @@ TOLD = frozenset(
         EventKind.SHIP_MACHINE_DRY.value,
         EventKind.SHIP_MACHINE_FULL.value,
         EventKind.SHIP_MACHINE_UNPOWERED.value,
+        EventKind.SHIP_MACHINE_UNLINED.value,
     }
 )

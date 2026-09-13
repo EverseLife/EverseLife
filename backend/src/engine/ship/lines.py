@@ -18,9 +18,11 @@ what a line is keyed by.
 
 **Which way.** An inlet drinks from its vessels in line order. An outlet pours
 into them in line order, and when every one of them is full the machine
-stands with its backlog (D-253: the well does not spill). A vent is an outlet
-whose surplus goes overboard instead: the hydrogen of electrolysis, which has
-no use yet and must not stop the air being made (owner, 2026-09-13).
+stands with its backlog (D-253: the well does not spill). A vent pours the
+same way and lets its surplus go -- overboard, or into the compartment's air:
+the hydrogen of electrolysis, which has no use yet and must not stop the air
+being made (owner, 2026-09-13), and the breath of the hydroponic beds, which
+do not wait for a cylinder (D-340).
 
 **Lines.** A line is one vessel standing on one port, in a chosen order. A
 port with **no line at all** reaches nothing (D-288 as amended 2026-09-04):
@@ -104,8 +106,10 @@ def air_port() -> Port:
 
 
 def breath_port() -> Port:
-    """The hydroponics' port: what the beds breathe out (D-288)."""
-    return Port(AIR_PORT, (AIR,), OUTLET)
+    """The hydroponics' port: what the beds breathe out (D-288). A vent, not
+    an outlet: a bed does not stand for a full cylinder, and what finds no
+    room stays in the compartment's air (D-340)."""
+    return Port(AIR_PORT, (AIR,), VENT)
 
 
 def lube_port() -> Port:

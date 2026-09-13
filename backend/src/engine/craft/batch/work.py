@@ -42,7 +42,6 @@ from src.engine.craft._internal import (
 )
 from src.engine.craft.method_of_making import batch_minutes, procedure, step_hours
 from src.engine.craft.queue import _launch
-from src.engine.ship import lines
 from src.engine.world import body_container
 from src.models.craft import BatchKind, CraftBatch
 from src.models.identity import Body, BodyState
@@ -167,7 +166,7 @@ async def most(
     #: Aboard the air pours into its outlet line (D-340), and the start
     #: refuses a batch the line cannot take: the most is capped by that room
     #: too, read and not locked, like everything else here.
-    plumbed = await lines.plumbing_of(session, constants, catalog, ready.station, ready.proc.output)
+    plumbed = ready.plumbed
     room = (
         None
         if plumbed is None or ready.proc.output not in plumbed.outlets

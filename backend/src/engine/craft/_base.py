@@ -74,6 +74,7 @@ added to `data/constants.yaml`, not to code (D-065).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 from src.constants import Catalog, ConstantError, current_catalog
 from src.engine.errors import Refusal
@@ -334,3 +335,6 @@ class _Ready:
     auto: bool = False
     #: For a knowledge carrier: the canonical name of the recipe going onto it.
     recipe_key: str | None = None
+    #: How the machine is plumbed for this batch aboard (D-340), when it is:
+    #: "as much as fits" caps by the outlet's room without reading it again.
+    plumbed: Any = None
