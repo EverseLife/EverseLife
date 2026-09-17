@@ -71,7 +71,22 @@ extend-exclude = ["migrations/versions", ".claude/worktrees"]
 #: PLC0415 -- an import inside a function hides a cycle (348 of them before
 #: the review of 2026-08-23). The ones that remain are marked `noqa` with
 #: the cycle they break; a new one needs the same justification.
-select = ["E", "F", "I", "UP", "B", "SIM", "PLC0415"]
+#: TID251 alone, not the whole of `TID`: the banned name below is the point,
+#: and TID252 would ban relative imports the suite has no quarrel with.
+select = ["E", "F", "I", "UP", "B", "SIM", "PLC0415", "TID251"]
+
+#: `tests/` has no `__init__.py`, so pytest imports each of its files under a
+#: bare name (`conftest`, `automat_kit`, `test_session`), while `pythonpath =
+#: ["."]` makes the directory a namespace package as well. Naming a sibling
+#: through it reads the same file a second time and binds it under a second
+#: name: two module objects for one source, and two copies of everything it
+#: keeps at module level. That is silent -- `conftest._schema_built` split in
+#: two and rebuilt the schema mid-run for seconds a time before anyone noticed.
+#: Caught here at the commit, wherever in a file it is written; what a linter
+#: cannot see -- a name assembled while the suite runs -- is left to
+#: `tests/test_one_copy.py`, which checks the duplicate itself.
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"tests" = { msg = "name a sibling of the suite by its bare name: `from conftest import reset`" }
 
 [tool.ruff.lint.per-file-ignores]
 #: Tests import what they need where they need it; the cycle rule is for `src`.

@@ -132,6 +132,14 @@ _LOCK_TIMEOUT = text("SET LOCAL lock_timeout = '10s'")
 #: The schema is built by the first test that needs it and lives to the end of
 #: the run. Module state, and rightly so: one process is one database, and under
 #: `-n` every worker has a process and a database of its own.
+#:
+#: What module state rests on is that the module is one object, and this file
+#: is the one that can be imported twice: pytest loads it as `conftest`, and a
+#: test naming it through the namespace package above (`tests.conftest`) reads
+#: it again under a second name. That copy's flag starts at `False`, so its
+#: first `reset` builds the schema a second time -- measured at two to four
+#: seconds, in the middle of a run. Ruff refuses the prefix now (`TID251`,
+#: `pyproject.toml`) and `test_one_copy.py` refuses the duplicate itself.
 _schema_built = False
 
 
@@ -191,7 +199,19 @@ async def engine(loaded) -> AsyncIterator[AsyncEngine]:
     #: `max_connections` is a hundred by default.
     made = create_async_engine(TEST_DATABASE_URL, pool_size=5, max_overflow=5)
     try:
-        await _build(made)
+        if _schema_built:
+            #: Somebody's `reset` built it first. The files that prepare a world
+            #: on an engine of their own (`test_session.py`,
+            #: `test_alpha_access.py`) take no `engine` fixture, so whether this
+            #: one runs first is a matter of collection order -- and under
+            #: `-n --dist load`, of what the worker was handed. Building again
+            #: would be the second `drop_all` of the run, in the middle of it.
+            #: All this fixture still owes is an answer to "is there a server",
+            #: which a connection gives for nothing.
+            async with made.connect():
+                pass
+        else:
+            await _build(made)
     except Exception as exc:  # noqa: BLE001
         await made.dispose()
         pytest.skip(f"нет тестовой базы ({TEST_DATABASE_URL}): {exc}")

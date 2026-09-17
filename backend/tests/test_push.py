@@ -19,12 +19,12 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
+from conftest import TEST_DATABASE_URL
 from src.engine import world
 from src.models.event import Event
 from src.models.identity import Body, Identity
 from src.models.world import Node
-from tests.conftest import TEST_DATABASE_URL
-from tests.test_session import _input, cheap_pow, client, miner  # noqa: F401, F811 -- fixtures
+from test_session import _input, cheap_pow, client, miner  # noqa: F401, F811 -- fixtures
 
 
 async def _learn(name: str, key: str) -> int:

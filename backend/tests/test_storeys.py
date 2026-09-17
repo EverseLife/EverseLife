@@ -209,7 +209,7 @@ async def test_a_storey_stands_in_the_city_below_it(
     And the land tax is still charged once, on the plot: the floors take no
     ground, which is the whole point of height (D-125, D-221).
     """
-    from tests.test_estate import _city
+    from test_estate import _city
 
     city, _, node, _ = await _city(session, catalog)
     _, rooms = await _house(session, constants, node, footprint=40, floors=2)
@@ -228,7 +228,7 @@ async def test_a_floor_of_a_civic_house_is_not_nobody_s(
     it, or take one out.
     """
     from src.engine import station
-    from tests.test_estate import _city
+    from test_estate import _city
 
     _, _, node, _ = await _city(session, catalog)
     _, rooms = await _house(session, constants, node, footprint=40, floors=2)
