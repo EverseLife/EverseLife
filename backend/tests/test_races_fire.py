@@ -188,7 +188,14 @@ async def test_the_eruption_does_not_burn_what_was_taken_out_of_a_chest(
         async with factory() as db, db.begin():
             place = await db.get(Node, field_id)
             assert place is not None
-            await plates._burn(db, [place])
+            #: The chest burns either way -- it never leaves the field -- and
+            #: it is one thing, so the count alone says whether the sack burned
+            #: with it: eleven when the ten of ore went into the fire out of a
+            #: pocket. Named by the side that commits the robbery rather than
+            #: only by the reckoning at the end, and true in both cases: the
+            #: second carries the sack off by another road, not the chest.
+            burnt = await plates._burn(db, [place])
+            assert burnt == 1, "огонь сжёг то, что уже вынесли из сундука"
 
     async def carry(blaze: asyncio.Task[None]) -> None:
         async with factory() as db, db.begin():
