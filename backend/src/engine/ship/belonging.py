@@ -86,6 +86,23 @@ async def lock_crew(session: AsyncSession, ship: Ship) -> list[Body]:
     Reread, since the wait was for whoever held a row: a member who died
     meanwhile or stepped off the hull is not this hull's to kill.
 
+    **The hull's row first, then the crew's.** That is the world's order for
+    the pair, and it is this side that fixes it: a hull is found first and its
+    crew only through it, and the helm holds a hull's row for a whole flight
+    step before it can know the step ends in the ground (`helm._fly`,
+    `fate.strike`). So whoever else holds both conforms -- an order given from
+    the bridge, and the nameplate nailed on from aboard, take the hull's row
+    before the commander's body: in the door (`api.commands.transport._ordered`)
+    or, for the two that cannot begin with the hull, at their own lock
+    (`command._still_commanded_by`). Taken the other way round it is the same
+    pair in two orders, and the database kills one of the two: a captain
+    ordering a descent in the second the tanks ran dry got a database error
+    instead of a ship (`test_races_ship_order.py`).
+
+    The hull's row is not the outermost lock of everything, only of this pair:
+    the passage's job row comes before it (D-242, `flight._passage_of`), so a
+    turn-back holds three in the order job, hull, body.
+
     **One hull at a time.** A transaction that loses several -- the helm
     striking two in one pass, a companion lost with its hull, the life support
     over a fleet -- takes their crews hull by hull, and across hulls the id

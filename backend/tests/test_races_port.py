@@ -22,7 +22,7 @@ import asyncio
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from automat_kit import _until_blocked_by
+from conftest import _until_blocked_by
 from ship_kit import _flightworthy, _in_orbit, _laid, _port, _shipwright
 from src.constants import Catalog, Constants
 from src.engine import jobs, ship

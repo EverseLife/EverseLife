@@ -12,7 +12,7 @@ gas out of one; the fire burns a yard with vessels and sacks in it. Each of
 them read or locked the vessels some other way and either met a pour head on,
 or drew out of a canister already in somebody else's hands.
 
-The handshake is `automat_kit._until_blocked_by`: the side holding the
+The handshake is `conftest._until_blocked_by`: the side holding the
 contended rows lets go only once the other side has provably walked into them.
 """
 
@@ -29,7 +29,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from agro_kit import field, growing, liquid_in, programmed, second_now
-from automat_kit import IRON, LUBRICANT, NAILS, _factory_floor, _learn, _until_blocked_by
+from automat_kit import IRON, LUBRICANT, NAILS, _factory_floor, _learn
+from conftest import _until_blocked_by
 from lines_kit import CYLINDER, FLARE, HYDROGEN
 from src.constants import Catalog, Constants
 from src.constants import registry as R

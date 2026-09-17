@@ -5,7 +5,7 @@
 
 A lift that takes a thing into the hands and a fire that burns a yard
 (`plates._burn`), each holding the rows it took until the other side provably
-waits on one of them (`automat_kit._until_blocked_by`). Shared by the floor's
+waits on one of them (`conftest._until_blocked_by`). Shared by the floor's
 races (`test_races_gone.py`), the harness's (`test_races_harness.py`), the
 charging counter's (`test_races_energy.py`) and the fire's own
 (`test_races_fire.py`) -- the family's own pattern, see `mining_kit.py`.
@@ -20,7 +20,7 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from automat_kit import _until_blocked_by
+from conftest import _until_blocked_by
 from src.constants import Catalog, Constants
 from src.engine import plates, storage
 from src.models.identity import Body

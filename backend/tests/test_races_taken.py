@@ -20,7 +20,7 @@ exactly what the moment before it is for: taking their goods out.
   hands; the roof's delete used to queue behind the pick and take the sack out
   of them the moment it landed.
 
-The handshake is `automat_kit._until_blocked_by`: the side that went first
+The handshake is `conftest._until_blocked_by`: the side that went first
 keeps its transaction open, holding the contended row, and commits only once
 the other side has provably walked into it.
 """
@@ -34,7 +34,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from automat_kit import _until_blocked_by
+from conftest import _until_blocked_by
 from src.constants import Catalog, Constants
 from src.engine import estate, gear, plates, storage, transport, world
 from src.models.estate import Building

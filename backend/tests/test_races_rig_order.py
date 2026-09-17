@@ -18,7 +18,7 @@ machine that burnt before the lock, nor burn coal that was carried off.
 
 Each race is built to meet on the crossing every time, not when a pass happens
 to outrun a pause: one side stops holding the row the other needs and goes on
-only once the other is seen waiting on it (`automat_kit._until_blocked_by`).
+only once the other is seen waiting on it (`conftest._until_blocked_by`).
 The tick against the hands on a rig's coal, hopper and machine -- the
 taking-down door and the place door among them -- is `test_races_rig.py`'s.
 """
@@ -35,7 +35,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from automat_kit import _until_blocked_by
+from conftest import _until_blocked_by
 from pyroxis_kit import _surface
 from src.constants import current, current_catalog
 from src.constants import registry as R

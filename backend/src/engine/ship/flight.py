@@ -38,7 +38,7 @@ from src.engine.ship._base import (
     orbit_node_of,
 )
 from src.engine.ship.building import moor_to
-from src.engine.ship.command import _commanded_by, _will_take
+from src.engine.ship.command import _commanded_by, _still_commanded_by, _will_take
 from src.engine.ship.physics import (
     burn_checked,
     climb_hours,
@@ -443,6 +443,11 @@ async def recall(
     #: (`jobs._claim`), and two orders that disagree about it deadlock.
     running = await _passage_of(session, ship, lock=True)
     await session.refresh(ship, with_for_update=True)
+    #: And the captain's row last of the three: a hull's row comes before the
+    #: bodies of its crew (`belonging.lock_crew`), and the job comes before
+    #: the hull, so the turn-back cannot take its pair in the door the way the
+    #: other orders do (`api.commands.transport._ordered`).
+    body = await _still_commanded_by(session, body, ship)
     #: A crossing under the sky is not turned back (D-289, 2026-09-04): it is
     #: cancelled into a coast (`crossing.cancel`) or replaced by another
     #: order; only the tabled legs -- the climb and the descent -- come back.

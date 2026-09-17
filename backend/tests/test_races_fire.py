@@ -14,7 +14,7 @@ a sown strip two harvests reap -- stayed there.
 Both tests are the same robbery, off the ground and out of a chest standing on
 it, and neither gives anybody a head start. The carry-out goes first, holds
 what it took, and waits until the fire **provably** stands on one of those rows
-(`automat_kit._until_blocked_by`) before it commits.
+(`conftest._until_blocked_by`) before it commits.
 
 A fixed pause fails at this in both directions, and the two failures look
 nothing alike. Give the fire a head start and on a busy machine it wins the
@@ -35,7 +35,7 @@ import uuid
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from automat_kit import _until_blocked_by
+from conftest import _until_blocked_by
 from gone_kit import _lifting
 from src.constants import current, current_catalog
 from src.engine import world
