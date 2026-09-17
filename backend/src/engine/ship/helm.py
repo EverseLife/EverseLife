@@ -30,6 +30,7 @@ from src.engine import events, stock
 from src.engine.ship import fate, flyby, hold
 from src.engine.ship._base import orbit_node_of
 from src.engine.ship.physics import (
+    _FUEL_EPS,
     engine_class,
     fuel_energy,
     fuel_stacks,
@@ -216,13 +217,14 @@ async def _fly(
     a_max = (await ratio(session, constants, catalog, ship)) * float(
         constants[R.ORBIT_THRUST_SCALE]
     )
-    #: The tanks, locked once for the stretch: what they hold is the budget
-    #: of speed, and what is actually burnt is written off at the end under
-    #: the same lock (the quality bar: amounts change under the row lock).
-    stacks = await stock.lock_items(
-        session, await fuel_stacks(session, constants, catalog, ship), ordered=True
-    )
-    worth = sum(amount_float(one.amount) * fuel_energy(constants, one.type_key) for one in stacks)
+    #: The tanks, **read**: what they hold is the budget of speed the helm may
+    #: ask for over the stretch. Read and not locked -- the lock belongs to the
+    #: write-off and is taken with it, at the end (`_paid`). Taken here, it
+    #: held the heaviest arithmetic in the project under a row lock, and, worse,
+    #: had the stretch reach for a crew row with a thing of the hull's already
+    #: in hand.
+    seen = await fuel_stacks(session, constants, catalog, ship)
+    worth = sum(amount_float(one.amount) * fuel_energy(constants, one.type_key) for one in seen)
     budget = dv_aboard(constants, worth, weight, klass)
 
     r, v = _state_of(ship)
@@ -316,18 +318,67 @@ async def _fly(
         if hit is not None or left:
             outcome = "struck"
 
-    burnt = 0.0
-    if spent > _DV_EPS:
-        burnt = await spend_fuel(
-            session,
-            constants,
-            catalog,
-            ship,
-            fuel_for_dv(constants, weight, spent, klass),
-            stacks=stacks,
-        )
+    #: **The crew, and then the hull's things** -- the order of the two the
+    #: world keeps (`belonging.lock_crew`). A crew member is a pair of hands
+    #: that can reach anything aboard, and every command they act through holds
+    #: their body first and the thing after (`_alive`, D-211): a pour off a
+    #: tank, a sack off the floor. So a sweep that will write a crew row takes
+    #: the crew before it touches anything the hull holds, the way the loss of
+    #: a hull does (`fate._lose`).
+    #:
+    #: Here only the ground writes one (OQ-120, as closed by D-316), and
+    #: whether the ground came is what the arithmetic above has just worked out
+    #: -- so the strike goes first and the tanks after it, and a stretch that
+    #: ends any other way queues nobody's hands behind the tick. The tanks used
+    #: to be held from the top of the stretch, which put them the wrong side of
+    #: `fate._lose`'s crew and knotted the tick against a crew member's own
+    #: pour (`tests/test_races_ship_fuel.py`).
+    #:
+    #: **Only the ground, and only this hull's crew.** A loss reaches into the
+    #: crew of whoever flies as one with the hull as well (`fate._lose`), and
+    #: the whole tick is one transaction, so a companion's rows are taken with
+    #: an earlier hull's tanks still held. Never that companion's tanks,
+    #: though: a hull still under an order is not lost with another
+    #: (`fate._lose` passes over one with a course), and a hull that is held or
+    #: docked is not flown at all -- the sweep above skips a held row, and a
+    #: hull may only be come to rest beside if it carries no order of its own
+    #: (`sim.meetable`), so it is restamped rather than flown, and a restamp
+    #: locks no tanks. And a crew's hands reach their own hull only: what is
+    #: within reach is the pocket and the yard of the node one stands in
+    #: (`liquid.within_reach`, D-315), so nobody but this crew can be holding
+    #: a body and waiting for these tanks. The day reaching grows past one
+    #: node -- a convoy, a hose from hull to hull -- this paragraph is the one
+    #: to read again.
     stamp = now if outcome not in ("moored", "struck") else _moment_of(now, t1, t)
     _write_state(ship, r, v, at=stamp)
+
+    if outcome == "struck":
+        await fate.strike(session, constants, ship, now=stamp, t=t, r=r, body=hit, gone=left)
+        #: The tanks after the crew, and after the hull is lost: a wreck still
+        #: paid for its way down, and the ground is no matter of budget -- what
+        #: the line turns out to hold changes nothing here. D-316 has the hull
+        #: die on the tick that reaches it, not on a later one.
+        return outcome, (await _paid(session, constants, catalog, ship, weight, spent, klass))[0]
+
+    burnt, aboard, need = await _paid(session, constants, catalog, ship, weight, spent, klass)
+    if spent > _DV_EPS:
+        #: **Whether the engines are out is the tanks' word, and the tanks are
+        #: asked under the lock** -- the budget the stretch was flown on was a
+        #: reading, and a hand may have poured either way since. Poured out
+        #: from under a burning engine, the line cannot pay for the minute just
+        #: flown: the minute stands, because it happened, and the engines are
+        #: out from here -- the same drift as tanks that ran dry, which is what
+        #: they did. Poured in, the line still has more than the minute cost,
+        #: and a hull the stale reading called dry is not stranded for it: it
+        #: flew the minute on less thrust than it could have and carries on.
+        #:
+        #: Corrected rather than put off to the next minute: a stretch put off
+        #: once is put off again by the next pour, and a hull could be kept
+        #: from arriving -- or from dying -- a minute at a time.
+        if aboard + _FUEL_EPS < need:
+            outcome = "adrift" if outcome == "flying" else outcome
+        elif outcome == "adrift" and aboard > need + _FUEL_EPS:
+            outcome = "flying"
 
     if outcome == "moored" and other is not None:
         await hold.begin(session, constants, ship, other, r, v, now=stamp)
@@ -367,9 +418,6 @@ async def _fly(
                 port=orbit.key,
             )
             return outcome, burnt
-    if outcome == "struck":
-        await fate.strike(session, constants, ship, now=stamp, t=t, r=r, body=hit, gone=left)
-        return outcome, burnt
     if outcome == "adrift":
         ship.course = None
         await fate._adrift(session, constants, ship, world, now=now, t=t1, r=r, v=v)
@@ -387,6 +435,56 @@ async def _fly(
         _keep_forecast(ship, await fate.fate_of(session, constants, world, t1, r, v), now=now, t=t1)
     await session.flush()
     return outcome, burnt
+
+
+async def _paid(
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    ship: Ship,
+    weight: float,
+    dv: float,
+    klass: int | None,
+) -> tuple[float, float, float]:
+    """Write off what a stretch of `dv` burnt. Returns what was burnt, what the
+    **lock** found on the line, and what the stretch asked of it -- all three in
+    reference units (D-252), because the caller's verdict is the difference.
+
+    The tanks are locked here and nowhere earlier: this is the only place a
+    stretch changes an amount, and an amount changes under the row lock and
+    nothing else does (the quality bar). The stretch was priced off a reading
+    taken before the arithmetic, so the lock may find more or less than that
+    reading promised -- a hand poured into the line, or out of it, in between.
+    Which of the two it was, and what to do about it, is `_fly`'s to say; what
+    is written off here is what was **there**, never what the reading promised.
+
+    The two ends are exact inverses (`sim.dv_aboard`, `sim.fuel_for_dv`: both
+    linear in the same factor), so `aboard` against `need` is the same question
+    as the budget the reading gave against the budget the lock would have
+    given, to the thousandth a representation may cost (`physics._FUEL_EPS`).
+
+    The line is read a second time here, rather than the reading above being
+    locked: a vessel joined to the line meanwhile belongs to it, and a list
+    gathered before the arithmetic would lock the wrong rows. Two walks of the
+    hold a minute for a hull that burns, against a row lock held through the
+    whole of the sky's arithmetic -- which is what the one walk used to cost.
+
+    The departure asks it the other way round (`flight._burn`, through
+    `physics.burn_checked`): it has a player in front of it, so it weighs first
+    and refuses in words rather than burning a tank it cannot fly the leg out
+    of. The tick has nobody to speak to, and a stretch already flown to speak
+    about: it drinks the line to the bottom and reports.
+    """
+    if dv <= _DV_EPS:
+        #: A coasting stretch spends nothing and locks nothing: the hull that
+        #: ran dry is not queued behind a hand pouring out its empty tanks.
+        return 0.0, 0.0, 0.0
+    stacks = await stock.lock_items(
+        session, await fuel_stacks(session, constants, catalog, ship), ordered=True
+    )
+    aboard = sum(amount_float(one.amount) * fuel_energy(constants, one.type_key) for one in stacks)
+    need = fuel_for_dv(constants, weight, dv, klass)
+    return await spend_fuel(session, constants, catalog, ship, need, stacks=stacks), aboard, need
 
 
 async def _route_of(
