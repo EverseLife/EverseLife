@@ -52,4 +52,6 @@ storage-body-off-node = the body is outside the node
 storage-storage-not-here = this storage is not here
 storage-person-not-here = this person is not here
 storage-dead-receives = nothing is handed to the dead
+storage-taker-asleep = this person is asleep: things can be handed to them once they wake
+storage-taker-in-transit = this person is already on the road
 storage-self-hand = there is nothing to hand to yourself

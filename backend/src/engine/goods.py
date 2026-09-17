@@ -90,6 +90,21 @@ def whole(name: str, value: float, *, up: bool = False, catalog: Catalog | None 
     return float(math.ceil(value - _DUST) if up else math.floor(value + _DUST))
 
 
+def rest(name: str, value: float, *, catalog: Catalog | None = None) -> float:
+    """The part of a piece that `whole` floors off a counted amount.
+
+    Where a share is not a return but a chance -- what survives a death -- the
+    floor alone would be a sink nobody declared, so the caller rolls for one
+    more piece at this fraction. Nothing for a measured thing, whose fraction
+    is honest, and nothing for the arithmetic's own dust: three tenths of ten
+    ingots are three ingots, not three and a float's hair of a fourth.
+    """
+    if not counted(name, catalog):
+        return 0.0
+    over = value - whole(name, value, catalog=catalog)
+    return over if over > _DUST else 0.0
+
+
 def spent(name: str, norm: float, value: float, *, catalog: Catalog | None = None) -> float:
     """What a work spends of a counted thing: the norm whole, the waste honest.
 

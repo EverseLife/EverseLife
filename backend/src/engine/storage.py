@@ -566,19 +566,18 @@ async def hand(
     command finds the giver without a lock.
     """
 
-    _beside(giver, taker)
     if giver.id == taker.id:
         raise StorageError(key="storage-self-hand")
-    await travel.require_here(session, giver)
-    #: Asked above of the rows as they were handed in, so that a body lying
-    #: dead or standing in another city -- or a giver asleep or on the road --
-    #: is refused without either row being taken: the taker's id comes off the
-    #: wire, and a handover must not be a way to queue a stranger's every
-    #: command from across the map. Asked again of the rows the lock reread,
-    #: which is the answer that counts.
+    #: Asked first of the rows as they were handed in, so that a body lying
+    #: dead, standing in another city, asleep or on the road is refused
+    #: without either row being taken: the taker's id comes off the wire, and
+    #: a handover must not be a way to queue a stranger's every command from
+    #: across the map. Asked again of the rows the lock reread, which is the
+    #: answer that counts: the taker may have lain down or set off while the
+    #: handover waited for their row.
+    await _beside(session, giver, taker)
     await world.lock_bodies(session, (giver.id, taker.id))
-    _beside(giver, taker)
-    await travel.require_here(session, giver)
+    await _beside(session, giver, taker)
 
     #: The thing's row after both bodies' -- the body first, then what lies in
     #: its hands -- and reread with the lock: it was looked up before the
@@ -610,14 +609,36 @@ async def hand(
     return given
 
 
-def _beside(giver: Body, taker: Body) -> None:
-    """Both alive, and in the same room: shouting across the map is not handing over."""
+async def _beside(session: AsyncSession, giver: Body, taker: Body) -> None:
+    """Both alive and both here, in the same room: shouting across the map is not handing over.
+
+    Here is one word for both sides (D-345): what `travel.require_here`
+    asks of the giver's every act it asks of the taker too. The node alone
+    does not say it -- a body on the road keeps the node it left until it
+    arrives, and a sleeper lies where they lay down -- so without this a
+    parcel reached hands that had already walked out of the room, or filled
+    a sleeper's to the limit while they could not refuse it.
+    """
     if giver.state is not BodyState.ALIVE:
         raise StorageError(key="storage-dead-hands")
-    if taker.state is not BodyState.ALIVE:
-        raise StorageError(key="storage-dead-receives")
+    #: The room before the state: the taker's id comes off the wire, and a
+    #: death said across the map would tell anyone who once saw that id.
     if taker.node_id != giver.node_id:
         raise StorageError(key="storage-person-not-here")
+    if taker.state is not BodyState.ALIVE:
+        raise StorageError(key="storage-dead-receives")
+    await travel.require_here(session, giver)
+    #: The same check, said to the giver about the taker: `travel.*` refusals
+    #: speak to the body that acts. A reason the check grows later and this
+    #: does not name yet is still a refusal, said as plain absence.
+    try:
+        await travel.require_here(session, taker)
+    except travel.Asleep as asleep:
+        raise StorageError(key="storage-taker-asleep") from asleep
+    except travel.InTransit as going:
+        raise StorageError(key="storage-taker-in-transit") from going
+    except travel.TravelError as absent:
+        raise StorageError(key="storage-person-not-here") from absent
 
 
 async def _allowed(session: AsyncSession, catalog: Catalog, body: Body, chest: Item) -> Node:
