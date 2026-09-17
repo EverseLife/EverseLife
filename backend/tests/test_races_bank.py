@@ -22,9 +22,8 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from automat_kit import _hold_the_first
 from bank_kit import _borrower, _city_with_turnover, _debtor_of_two_overdue_loans, _home
-from conftest import _slow
+from conftest import _hold_the_first, _slow
 from src.constants import current, current_catalog
 from src.constants import registry as R
 from src.engine import city as town
