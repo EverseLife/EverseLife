@@ -74,10 +74,12 @@ async def destroy(session: AsyncSession, things: Sequence[Item]) -> dict[str, fl
     row: the two named above, the machine's store (`agro.hands._store`), a pour
     and a vent (`liquid.lock_vessels`). A cart's spill is queued behind the
     vehicle's row by the arrival that writes it (`transport.follow`), and a
-    dead machine's bunker is emptied only once the machine's row is committed
-    gone (`agro.run._gone`). So the first line catches all of them, and the
-    proof is the mutation: take this `with_for_update` away and the whole race
-    suite stays green.
+    dead machine's bunker is emptied under the machine's row either way
+    (`agro.run._gone`: twice because the delete is already committed, once
+    because `wear.spend` did it in this same transaction). So the first line
+    catches all of them, and the proof is the mutation: take this
+    `with_for_update` away and every race in the suite stays green **except**
+    the one case written for it, named below.
 
     Two doors do reach a box without its row -- the breath drawn out of a
     cylinder in the hands (`oxygen.breath.settle`, which holds the body's row)
@@ -87,13 +89,14 @@ async def destroy(session: AsyncSession, things: Sequence[Item]) -> dict[str, fl
     rather than carry it out: with the lock or without it the stack ends gone
     either way, which is why that crossing cannot pin this line either.
 
-    So it is pinned by a test that takes the **first** line away instead:
+    So it is pinned by a carrier of exactly the shape this line is kept for:
     `test_races_fire.py::test_the_eruption_does_not_burn_what_was_taken_out_of_a_chest`
-    runs twice, and its second case rereads the chest without locking it, which
-    leaves the fire alone with this lock and turns its removal red. When a real
-    caller does appear -- one that ends a chest or a hold without holding its
-    row, or a door that carries a sack out of one without holding it -- the
-    test to write is that pair for real, and this counterfactual case can go.
+    runs twice, and its second case carries the sack out through `move_stack`
+    alone -- the one funnel every move in the world comes through, which takes
+    the stack's row and never touches the box around it. The fire then meets
+    this lock and nothing else, and taking it away turns that case red. When a
+    real door of that shape appears it replaces the carrier, and nothing else
+    about the test changes.
     """
     held_things = await stock.lock_items(session, things)
     opened: set[uuid.UUID] = set()
