@@ -23,7 +23,7 @@ holding the body first takes the two the other way round:
 * a way breaks as its walker turns back: the walk is whatever it is once the
   rift holds the row.
 
-The handshake is `automat_kit._until_blocked_by`: the act that went first
+The handshake is `conftest._until_blocked_by`: the act that went first
 keeps its transaction open and commits only once the death provably waits on
 it. On the code these races catch the database then finds the knot and kills
 one of the two.
@@ -41,7 +41,7 @@ import pytest
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from automat_kit import _until_blocked_by
+from conftest import _until_blocked_by
 from lines_kit import _hull, _seal
 from pyroxis_kit import _dweller, _surface
 from ship_kit import _orbit

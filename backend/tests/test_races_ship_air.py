@@ -28,7 +28,7 @@ come up short.
 * the same, with a second member holding their own row meanwhile: the busy one
   is passed over and left to the next stretch, the free one is settled now.
 
-The handshake is `automat_kit._until_blocked_by`: the pour keeps its
+The handshake is `conftest._until_blocked_by`: the pour keeps its
 transaction open and commits only once the stretch provably waits on it. On
 the code the first race catches, the database finds the knot instead and kills
 one of the two.
@@ -43,7 +43,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from automat_kit import _until_blocked_by
+from conftest import _until_blocked_by
 from oxygen_kit import AIR, TANK, _hull, _in_tank, _plumb, _port, _sphere, _system
 from src.api.commands.things import _ground_pick, _liquid_pour, _station_take
 from src.constants import Catalog, Constants

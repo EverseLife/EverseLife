@@ -198,6 +198,77 @@ async def _ship_of(db: AsyncSession, body: Body, asked: str | None) -> Ship:
     return aboard
 
 
+async def _ordered(
+    state: dict, db: AsyncSession, message: dict, *, also: bool = False
+) -> tuple[Body, Ship]:
+    """The body writing to a hull's row and the hull, the hull's row taken
+    **first** and the body's after it.
+
+    Every order given from a console, and the nameplate besides -- an `UPDATE`
+    of `ship.name` takes that row as surely as `FOR UPDATE` does, and the one
+    nailing it stands aboard (`shape._mine`).
+
+    The order of the two, and the whole reason this is not `_alive` followed
+    by `_ship_of`. Whoever holds a hull's row and the rows of its crew takes
+    the hull's first (`ship.lock_crew`): the life support settling a stretch
+    its tanks cannot pay for and choking whoever is aboard for it, a hull lost
+    with everybody in it. The worker cannot do it the other way round -- a
+    hull is found first and its crew only through it, and the helm holds a
+    hull's row for a whole flight step before it can know the step ends in the
+    ground -- so the order is what conforms. Taken the other way round, a
+    captain ordering a descent in the second the tanks run dry held their own
+    row and waited for the hull's while the tick held the hull and waited for
+    their body: the database kills one of the two, and which one is its choice
+    -- half the time a player's order comes back a database error instead of a
+    ship (`test_races_ship_order.py`).
+
+    The hull is found from the body **unlocked**, and nothing is decided from
+    that reading: the body is locked and reread below, and `_commanded_by`
+    asks every question again under both rows -- a body that walked off the
+    hull while the row was waited for is refused, not flown.
+
+    A hull that is not the asker's is left alone: the order is refused for it
+    below, by the engine's own rule, and a refusal must not queue a stranger's
+    hull behind it.
+
+    `also` says the order names a second hull -- `dock`, whose partner is
+    another commander's by the nature of the thing (D-289). It is taken in the
+    same statement and in id order, which is the order `meet.dock` takes the
+    pair in: two consents given in one second meet under one lock rather than
+    making two edges. It **is** a stranger's row taken before the order is
+    refused, and that is the one exception to the line above -- the alternative
+    is our own row taken out of the pair's order, which is two captains
+    deadlocking on each other.
+
+    Two orders do not come through here, and both take the same rows in the
+    same order at the point they take them (`ship.command._still_commanded_by`):
+    `ship.fly`, whose slider may be asked under neither row (D-341), and
+    `ship.recall`, which takes the passage's job row before the hull's (D-242)
+    and so does not begin with the hull at all.
+    """
+    asked = await _ship_of(db, await _alive_read(state, db), message.get("ship"))
+    #: Read here and not by the caller, so the refusals of an order keep the
+    #: order they had: no live body first, then the hull, then the partner.
+    partner = await _other_ship(db, message) if also else None
+    if asked.owner_identity_id == state["identity_id"]:
+        wanted = {asked.id} | ({partner.id} if partner is not None else set())
+        rows = (
+            (
+                await db.execute(
+                    select(Ship)
+                    .where(Ship.id.in_(wanted))
+                    .order_by(Ship.id)
+                    .with_for_update()
+                    .execution_options(populate_existing=True)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        asked = next((one for one in rows if one.id == asked.id), asked)
+    return await _alive(state, db), asked
+
+
 @command("ship.view", readonly=True)
 async def _ship_view(state: dict, db: AsyncSession, message: dict) -> dict:
     """The ship's summary: thrust, mass, thrust-to-mass and the price of every route.
@@ -232,8 +303,11 @@ async def _seen(db: AsyncSession, body: Body, vessel: Ship) -> dict:
 @command("ship.rename")
 async def _ship_rename(state: dict, db: AsyncSession, message: dict) -> dict:
     """Name the ship. The nameplate is nailed on the spot, like a plot's (D-240)."""
-    body = await _alive(state, db)
-    vessel = await _ship_of(db, body, message.get("ship"))
+    #: Through the prologue like an order, although it is not one: a nameplate
+    #: is still a write to the hull's row, and a write takes it. Nailed from
+    #: aboard (`shape._mine`), so the body doing it is the very crew the life
+    #: support may be choking that second.
+    body, vessel = await _ordered(state, db, message)
     await ship.rename(db, body, vessel, str(message.get("name", "")))
     return {"renamed": str(vessel.id), "name": vessel.name}
 
@@ -286,8 +360,7 @@ async def _ship_ascend(state: dict, db: AsyncSession, message: dict) -> dict:
     a leg now: it takes hours by the planet's gravity, it burns fuel, and it
     can be turned back with `ship.recall`.
     """
-    body = await _alive(state, db)
-    vessel = await _ship_of(db, body, message.get("ship"))
+    body, vessel = await _ordered(state, db, message)
     job = await ship.ascend(db, current(), current_catalog(), body, vessel)
     return {"flight": str(job.id), "arrives_at": job.run_at.isoformat()}
 
@@ -301,7 +374,10 @@ async def _ship_fly(state: dict, db: AsyncSession, message: dict) -> dict:
     (D-341): the order flies the point the console quoted, and a flyby the
     sky no longer has at those hours is refused, not swapped for an arc.
     """
-    body = await _alive(state, db)
+    #: Not `_ordered`: neither row may be held through the slider (D-341),
+    #: and the slider is inside. The crossing takes the same two rows in the
+    #: same order -- the hull's, then the captain's -- where it takes them.
+    body = await _alive_read(state, db)
     vessel = await _ship_of(db, body, message.get("ship"))
     hours = message.get("hours")
     if hours is not None:
@@ -366,8 +442,7 @@ async def _ship_dock(state: dict, db: AsyncSession, message: dict) -> dict:
     wave 3). With the other commander's consent already given the two are
     joined connector to connector; without it the request is recorded and
     the other side is told. A confirmation: whether the edge is there now."""
-    body = await _alive(state, db)
-    vessel = await _ship_of(db, body, message.get("ship"))
+    body, vessel = await _ordered(state, db, message, also=True)
     joined = await ship.dock(db, current(), body, vessel, await _other_ship(db, message))
     return {"ship": str(vessel.id), "docked": joined}
 
@@ -376,8 +451,7 @@ async def _ship_dock(state: dict, db: AsyncSession, message: dict) -> dict:
 async def _ship_undock(state: dict, db: AsyncSession, message: dict) -> dict:
     """Part from the hull this one is docked to (wave 3): the edge comes off,
     the hold stays -- the two still fly as one until an order parts them."""
-    body = await _alive(state, db)
-    vessel = await _ship_of(db, body, message.get("ship"))
+    body, vessel = await _ordered(state, db, message)
     await ship.undock(db, current(), body, vessel)
     return {"ship": str(vessel.id), "docked": False}
 
@@ -385,8 +459,7 @@ async def _ship_undock(state: dict, db: AsyncSession, message: dict) -> dict:
 @command("ship.land")
 async def _ship_land(state: dict, db: AsyncSession, message: dict) -> dict:
     """Come down from orbit onto a spaceport of the planet below (D-245)."""
-    body = await _alive(state, db)
-    vessel = await _ship_of(db, body, message.get("ship"))
+    body, vessel = await _ordered(state, db, message)
     job = await ship.land(
         db, current(), current_catalog(), body, vessel, await _target(db, message)
     )
@@ -400,7 +473,11 @@ async def _ship_recall(state: dict, db: AsyncSession, message: dict) -> dict:
     Not a recomputation of the passage -- that stays settled at the casting off
     (D-201) -- but a second one, as long as the first has been under way.
     """
-    body = await _alive(state, db)
+    #: Not `_ordered`: the passage's job row is taken before the hull's
+    #: (D-242, `flight._passage_of`), so the turn-back cannot begin with the
+    #: hull. It takes the hull and then the captain itself, in the world's
+    #: order, once the job is held.
+    body = await _alive_read(state, db)
     vessel = await _ship_of(db, body, message.get("ship"))
     arrives = await ship.recall(db, current(), current_catalog(), body, vessel)
     return {"ship": str(vessel.id), "arrives_at": arrives.isoformat()}
@@ -410,8 +487,7 @@ async def _ship_recall(state: dict, db: AsyncSession, message: dict) -> dict:
 async def _ship_cancel(state: dict, db: AsyncSession, message: dict) -> dict:
     """Drop the course under way (D-289, 2026-09-04): the autopilot off, the
     hull coasts from where it is. A confirmation; the drift comes as events."""
-    body = await _alive(state, db)
-    vessel = await _ship_of(db, body, message.get("ship"))
+    body, vessel = await _ordered(state, db, message)
     await ship.cancel(db, current(), current_catalog(), body, vessel)
     return {"ship": str(vessel.id)}
 
@@ -420,8 +496,7 @@ async def _ship_cancel(state: dict, db: AsyncSession, message: dict) -> dict:
 async def _ship_orbit(state: dict, db: AsyncSession, message: dict) -> dict:
     """Put the hull onto the circle round the star through its own place
     (D-289, 2026-09-04): an order the helm flies, the tanks paying as it burns."""
-    body = await _alive(state, db)
-    vessel = await _ship_of(db, body, message.get("ship"))
+    body, vessel = await _ordered(state, db, message)
     arrives = await ship.circle_star(db, current(), current_catalog(), body, vessel)
     return {"ship": str(vessel.id), "arrives_at": arrives.isoformat()}
 

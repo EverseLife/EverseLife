@@ -9,9 +9,10 @@ seen. Here two sessions run the same operation through `asyncio.gather`;
 the invariant must hold whichever of them wins, and one of them must be
 refused instead of both succeeding on the same coin.
 
-The method is the family's: `conftest._slow` holds a transaction between its
-check and its write, or a handshake starts the second side while the first
-provably holds its lock. The family is this file -- money, orders and the
+The method is the family's, and both halves of it live in `conftest.py`:
+`conftest._slow` holds a transaction between its check and its write, or
+`conftest._until_blocked_by` starts the second side while the first provably
+holds its lock. The family is this file -- money, orders and the
 body's reserves -- and one file per contended thing beside it: `_bank` races
 the loan, the limit and the city's line; `_city`, `_citizenship` and
 `_treasury` race what a city decides, who belongs to it and what it owes;

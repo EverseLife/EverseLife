@@ -86,29 +86,45 @@ async def lock_crew(session: AsyncSession, ship: Ship, *, skip_locked: bool = Fa
     Reread, since the wait was for whoever held a row: a member who died
     meanwhile or stepped off the hull is not this hull's to kill.
 
-    **The hull's row, then its crew, then the hull's things** -- not only the
-    things in their hands. A crew member is a pair of hands that can reach
-    anything aboard, and every command they act through holds their body first
-    and the thing after (`_alive`, D-211): a pour off a tank, a sack off the
-    floor, a chest opened. So a hull's stretch that held the oxygen standing on
-    the life support's line and then waited here for a body met the pour
-    emptying that very vessel head on -- it held the body and waited for the
-    stack -- and the database untied the two by killing one, the player's own
-    command as readily as the tick (`test_races_ship_air.py`). The loss of a
-    hull keeps the order by taking the crew before anything else it touches
-    (`fate._lose`); the stretch keeps it by deciding under the hull's row
-    alone, off a reading, whether it will write a crew row at all, and taking
-    them then (`oxygen._breathe`) -- because holding the whole crew every
-    minute would queue their every act behind the tick for a stretch that
-    writes no row of theirs. Deciding off a reading can be wrong, and the
-    holder that finds out too late passes `skip_locked`: a row somebody is
-    holding is then left to them and to the next pass, which is the one thing
-    that may not be done by waiting.
+    **The hull's row first, then the crew's.** That is the world's order for
+    the pair, and it is this side that fixes it: a hull is found first and its
+    crew only through it, and the helm holds a hull's row for a whole flight
+    step before it can know the step ends in the ground (`helm._fly`,
+    `fate.strike`). So whoever else holds both conforms -- an order given from
+    the bridge, and the nameplate nailed on from aboard, take the hull's row
+    before the commander's body: in the door (`api.commands.transport._ordered`)
+    or, for the two that cannot begin with the hull, at their own lock
+    (`command._still_commanded_by`). Taken the other way round it is the same
+    pair in two orders, and the database kills one of the two: a captain
+    ordering a descent in the second the tanks ran dry got a database error
+    instead of a ship (`test_races_ship_order.py`).
 
-    **One place still owes this order**: `helm._fly` locks the hull's fuel
-    stacks for the whole step and only then learns that the step ends on the
-    ground, and `fate.strike` reaches here with those stacks in hand. The same
-    knot, not yet untied -- it has no race test either.
+    The hull's row is not the outermost lock of everything, only of this pair:
+    the passage's job row comes before it (D-242, `flight._passage_of`), so a
+    turn-back holds three in the order job, hull, body.
+
+    **And then the hull's things** -- not only the things in the crew's hands,
+    which makes the whole of it the hull's row, its crew, its things. A crew
+    member is a pair of hands that can reach anything aboard, and every command
+    they act through holds their body first and the thing after (`_alive`,
+    D-211): a pour off a tank, a sack off the floor, a chest opened. So a
+    hull's stretch that held the oxygen standing on the life support's line and
+    then waited here for a body met the pour emptying that very vessel head on
+    -- it held the body and waited for the stack -- and the database untied the
+    two by killing one, the player's own command as readily as the tick
+    (`test_races_ship_air.py`). The loss of a hull keeps this end too, by
+    taking the crew before anything else it touches (`fate._lose`), and the
+    flight step keeps it by striking before it locks the tanks rather than
+    after (`helm._fly`, `test_races_ship_fuel.py`).
+
+    The life support's stretch keeps it by deciding under the hull's row alone,
+    off a reading, whether it will write a crew row at all, and taking them
+    then (`oxygen._breathe`) -- because holding the whole crew every minute
+    would queue their every act behind the tick for a stretch that writes no
+    row of theirs. Deciding off a reading can be wrong, and the holder that
+    finds out too late passes `skip_locked`: a row somebody is holding is then
+    left to them and to the next pass, which is the one thing that may not be
+    done by waiting.
 
     **One hull at a time.** A transaction that loses several -- the helm
     striking two in one pass, a companion lost with its hull, the life support

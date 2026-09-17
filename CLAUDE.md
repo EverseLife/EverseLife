@@ -232,7 +232,8 @@ python tools/spdx.py --apply
   функция, которую зовёт только эта сторона;
   `tests/test_races.py` (1585) → `test_races.py` (деньги, заказы, резервы) +
   `test_races_ground.py` (земля) + `test_races_mining.py` (выработки) +
-  `test_reads.py` («чтение не пишет»), общий `_slow` — в `conftest.py`.
+  `test_reads.py` («чтение не пишет»), общие `_slow` и рукопожатие гонок
+  (`_until_blocked_by`, `_hold_the_first`) — в `conftest.py`.
   Большие тесты разрезаны 2026-09-01 тем же приёмом — общие **хелперы и
   константы** семьи живут в `<семья>_kit.py` рядом (pytest их не собирает;
   настоящую `@pytest.fixture` в кит не класть — импорт ради имени в
