@@ -12,7 +12,7 @@ out to them, or it lies whole in the friend's -- never both**.
 
 The method is the family's (`test_races.py`): one side holds the row, and the
 other is let go only once the database says it waits on it
-(`automat_kit._until_blocked_by`), so the order is a certainty rather than a
+(`conftest._until_blocked_by`), so the order is a certainty rather than a
 matter of luck with the scheduler.
 """
 
@@ -26,7 +26,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from automat_kit import _until_blocked_by
+from conftest import _until_blocked_by
 from src.constants import current, current_catalog
 from src.engine import craft, gear, jobs, storage, world
 from src.engine.errors import Refusal
