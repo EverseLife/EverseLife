@@ -12,7 +12,7 @@ the meter under its lock, and neither may hold what the other reaches for;
 where the meter cannot be read at all -- the run opening it -- the last race
 here says what keeps the two apart instead.
 
-The handshake is `automat_kit._until_blocked_by`: the side holding the
+The handshake is `conftest._until_blocked_by`: the side holding the
 contended rows lets go only once the other side has provably walked into them.
 """
 
@@ -25,7 +25,8 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from automat_kit import _pool_left, _until_blocked_by
+from automat_kit import _pool_left
+from conftest import _until_blocked_by
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import city as town

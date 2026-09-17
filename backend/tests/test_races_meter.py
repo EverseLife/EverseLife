@@ -11,7 +11,7 @@ bringing every pool up to now, the automats' tick drawing purses, a second
 run, and a holder paying off a debt. The city taking a node back races the
 run in `test_races_meter_land.py`; the ground both build on is `utility_kit.py`.
 
-The handshake is `automat_kit._until_blocked_by`: the side holding the
+The handshake is `conftest._until_blocked_by`: the side holding the
 contended rows lets go only once the other side has provably walked into them.
 """
 
@@ -25,7 +25,8 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from automat_kit import IRON, NAILS, _factory_floor, _learn, _lube_in, _pool_left, _until_blocked_by
+from automat_kit import IRON, NAILS, _factory_floor, _learn, _lube_in, _pool_left
+from conftest import _until_blocked_by
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import automat, energy, ledger, utility, world

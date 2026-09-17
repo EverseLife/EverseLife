@@ -10,7 +10,7 @@ through `ledger_entry.account_id`'s foreign key, so the lock `ledger.post`
 queues debits behind must let that through, or a purse paying a treasury and
 the treasury paying the purse each hold one row and wait on the other.
 
-The handshake is `automat_kit._until_blocked_by`: the side holding the
+The handshake is `conftest._until_blocked_by`: the side holding the
 contended row lets go only once the other side has provably walked into it --
 or walked past it.
 """
@@ -23,7 +23,7 @@ import uuid
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from automat_kit import _until_blocked_by
+from conftest import _until_blocked_by
 from src.engine import ledger
 from src.models.ledger import AccountKind, PostingReason
 from src.units import money

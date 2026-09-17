@@ -25,7 +25,7 @@ way round and met a pour, or each other, head on.
 **The place**: the vessels are listed before their lock, and the wait may
 carry one off or burn it. Whoever pours after the wait asks again.
 
-The handshake is `automat_kit._until_blocked_by`: the side holding the
+The handshake is `conftest._until_blocked_by`: the side holding the
 contended rows lets go only once the other side has provably walked into them.
 """
 
@@ -38,7 +38,8 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from automat_kit import LUBRICANT, _factory_floor, _learn, _lube_in, _until_blocked_by
+from automat_kit import LUBRICANT, _factory_floor, _learn, _lube_in
+from conftest import _until_blocked_by
 from market_kit import _city, _trader
 from src.constants import Catalog, Constants
 from src.engine import automat, craft, jobs, liquid, market, rig, stock, storage, world

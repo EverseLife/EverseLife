@@ -23,7 +23,7 @@ pool while it waited for that cell was a deadlock.
 
 The lift and the deletion that go first are `gone_kit`'s.
 
-The handshake is `_until_blocked_by`: the side holding the contended rows
+The handshake is `conftest._until_blocked_by`: the side holding the contended rows
 lets go only once the other side has provably walked into them.
 """
 
@@ -38,7 +38,8 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from automat_kit import IRON, NAILS, _factory_floor, _hold_the_first, _learn, _lube_in, _pool_left
+from automat_kit import IRON, NAILS, _factory_floor, _learn, _lube_in, _pool_left
+from conftest import _hold_the_first
 from gone_kit import _burning, _lifting
 from src.constants import Catalog, Constants
 from src.constants import registry as R
