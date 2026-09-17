@@ -350,6 +350,13 @@ async def _fly(
     #: gangway for refuelling a rescued hull, and that promise is what would
     #: take the condition away: it is written down as OQ-176, and this is the
     #: paragraph it points at.
+    #:
+    #: **These two rows, and no others.** The hull's own row is taken earlier
+    #: still, at the top of the tick (`tick_sky`), and how that one stands
+    #: against a command's `_alive` -- which takes the body first and the hull
+    #: after -- is a rule of its own and a fix of its own. Nothing below is
+    #: about it, and reading this paragraph as settling it would be reading it
+    #: too widely.
     stamp = now if outcome not in ("moored", "struck") else _moment_of(now, t1, t)
     _write_state(ship, r, v, at=stamp)
 
