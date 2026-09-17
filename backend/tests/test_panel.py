@@ -152,3 +152,47 @@ async def test_city_snapshot_lands_in_history(
 
     row = await metrics.history(session, f"city.{city.id}.treasury", days=3)
     assert row, "срез города обязан попасть в ту же таблицу, что и срез мира"
+
+
+async def test_the_board_does_not_count_who_has_set_out(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """People of the city are those standing in it: one who has set out is not
+    (D-290 п. 1). The body keeps the node it left in `node_id` until the arrival,
+    and counted by that alone the board showed the mayor people the city does
+    not hold -- the same slip the room's list and the talk's crowd were mended
+    of. A sleeper is counted: they lie in the city (OQ-180)."""
+    from datetime import UTC, datetime
+
+    from src.engine import travel
+
+    city, core = await _capital(session, catalog)
+    away = await world.create_node(
+        session, f"terra.away.{uuid.uuid4().hex[:6]}", "Прочь", area_m2=9
+    )
+    await travel.connect(session, core, away, base_seconds=5)
+
+    people = []
+    for name in ("Оседлый", "Спящий", "Ушедший"):
+        identity = await world.create_identity(session, f"{name}-{uuid.uuid4().hex[:6]}")
+        people.append(await world.print_body(session, identity, core))
+    stays, sleeper, leaves = people
+    assert (await panel.collect(session, constants, city))["people"]["here"] == 3
+
+    sleeper.sleeping_since = datetime.now(UTC)
+    await session.flush()
+    assert (await panel.collect(session, constants, city))["people"]["here"] == 3, (
+        "спящий лежит в городе и считается"
+    )
+
+    await travel.depart(session, constants, leaves, away)
+    assert leaves.node_id == core.id, "до прихода тело держит узел, откуда ушло"
+    assert (await panel.collect(session, constants, city))["people"]["here"] == 2, (
+        "ушедший в путь городу не числится"
+    )
+
+    await travel.turn_back(session, leaves)
+    assert (await panel.collect(session, constants, city))["people"]["here"] == 3, (
+        "повернувший назад снова в городе"
+    )
+    assert stays.node_id == core.id

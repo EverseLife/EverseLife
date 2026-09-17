@@ -86,7 +86,8 @@ async def holding(session: AsyncSession, stacks: Sequence[Item]) -> frozenset[uu
     (`storage._allowed`, `liquid._lock`), so an answer read under that lock
     holds until the write-off, and a pour waiting on it finds the vessel gone
     and pours nowhere. Read before the lock, a pour committing in between would
-    be missed. Loading a hold takes no such lock on the vehicle yet (OQ-177).
+    be missed. Loading a hold takes the vehicle's row the same way
+    (`transport._pulled_here`), so that door is no exception either.
 
     No query at all unless one of the names can hold anything.
     """

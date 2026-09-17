@@ -59,8 +59,13 @@ async def limit_of(
 ) -> float:
     """The reserve this body can hold in a climate, hours: the bare one times what is worn.
 
-    Keyed by thing class the way the exoskeleton's lift is (`inventory.exo_bonus`):
-    a warmer coat is a line in the vault, never a line here.
+    A warmer coat is a line in the vault, never a line here -- but the line is
+    keyed by the **thing**, not by its class: `resolve` reads the renames table
+    of goods (`inventory.exo_bonus` is the same). It reads as a class only
+    because the one thing in the table, the insulated suit, is named like its
+    class. A line spelled with a class name -- «Скафандр» -- would load without
+    a word and do nothing; both heat-proof suits would have to be named one by
+    one. Whether the suit should warm at all is OQ-185.
     """
     return reserve_of(constants, weather) * await _suit_k(session, constants, catalog, body)
 

@@ -559,3 +559,40 @@ def test_a_site_touches_the_plot_and_the_hands_and_the_place_sees_it() -> None:
     assert touches_of("estate.site_contributed") == ("node", "inventory")
     assert touches_of("estate.site_ready") == ("node", "inventory")
     assert "estate" in NODE_VISIBLE_PREFIXES
+
+
+def test_a_sleeper_named_in_the_note_is_skipped_and_the_name_never_travels() -> None:
+    """The talk of a room goes out as one note for the node, and a sleeper
+    standing there may not hear it (`chat.hear` refuses them). The sender names
+    them in the note; this path has no session of its own to ask with. The key
+    is plumbing: the client must never see it."""
+    from src.api import push
+    from src.api.push.pump import Hub
+
+    awake, asleep, node = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    got: dict[uuid.UUID, list[dict]] = {awake: [], asleep: []}
+
+    class _Sink(push.Sink):
+        async def send(self, message: dict) -> None:  # type: ignore[override]
+            got[self.identity_id].append(message)
+
+    hub = Hub()
+    for who in (awake, asleep):
+        hub.sinks.add(_Sink(send_raw=None, identity_id=who, node_id=node, listening=True))
+
+    asyncio.run(
+        hub._deliver_touch(
+            {
+                "touches": ["chat"],
+                "node_id": str(node),
+                "event": "chat.said",
+                "line": {"text": "слышно?"},
+                "asleep": [str(asleep)],
+            }
+        )
+    )
+
+    assert len(got[awake]) == 1, "бодрствующий слышит комнату"
+    assert got[awake][0]["line"] == {"text": "слышно?"}
+    assert "asleep" not in got[awake][0], "служебный ключ клиенту не уходит"
+    assert got[asleep] == [], "спящему реплика не доставляется"

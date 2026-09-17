@@ -394,3 +394,46 @@ async def test_world_tick_sweeps_buffer(factory, constants: Constants) -> None:
     async with factory() as session:
         left = await session.scalar(select(func.count()).select_from(ChatMessage))
         assert left == 0
+
+
+async def test_a_sleeper_is_not_told_the_line(
+    session: AsyncSession, constants: Constants, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A sleeper hears nothing, and the live line must agree with `hear`.
+
+    `chat.hear` refuses a sleeper (D-091, D-211: the body is stopped), but the
+    talk also goes out unasked, and that copy reached them all the same -- the
+    room's line by the node, the circle's by the member's name. Asleep, one was
+    the only listener in the world who both raised the price of the room
+    (`_people_in`, OQ-180) and got the goods.
+
+    The room's note names those who may not hear rather than leaving them out
+    of it: the push has no session of its own to ask the world with.
+    """
+    notes: list[dict] = []
+
+    async def kept(session, **note):
+        notes.append(note)
+
+    monkeypatch.setattr(chat.events, "announce", kept)
+    node, (speaker, sleeper) = await _room(session)
+    #: Joined while awake -- the circle is gathered in person (D-211).
+    group = await chat.gather(session, speaker, name="Кружок")
+    await chat.join(session, sleeper, group.id)
+    await chat.leave_groups(session, speaker.identity_id)
+    sleeper.sleeping_since = datetime.now(UTC)
+    await session.flush()
+
+    await chat.say(session, constants, speaker, "слышно?", kind=Utterance.SPEECH)
+    room = [one for one in notes if one.get("event") == "chat.said"]
+    assert len(room) == 1, "общий разговор уходит одной запиской на узел"
+    assert room[0]["node_id"] == node.id
+    assert room[0]["asleep"] == [str(sleeper.identity_id)], "спящий назван в записке"
+
+    #: The circle is addressed by name, and a name is dropped outright.
+    await chat.join(session, speaker, group.id)
+    notes.clear()
+    await chat.say(session, constants, speaker, "шёпот", kind=Utterance.SPEECH, quiet=True)
+    told = {one.get("identity_id") for one in notes if one.get("event") == "chat.said"}
+    assert speaker.identity_id in told, "говорящий получает свою же реплику кружка"
+    assert sleeper.identity_id not in told, "спящему реплику кружка не доставляют"

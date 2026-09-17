@@ -55,7 +55,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Constants
 from src.constants import registry as R
 from src.engine import city as town
-from src.engine import customs, utility, world
+from src.engine import customs, travel, utility, world
 from src.models.bank import Loan, LoanState
 from src.models.city import City
 from src.models.energy import EnergyPool
@@ -172,13 +172,24 @@ async def _people(session: AsyncSession, nodes: list[uuid.UUID], *, since: datet
     "Migration is the most honest review of authority" (D-140). There is no
     citizenship in the engine yet, so presence is counted, not allegiance --
     and it is called by its name rather than passed off as a census.
+
+    One who has set out is not counted: a traveller stands in no node (D-290
+    p. 1), and until the arrival their `node_id` still names the city they
+    left. Counted, they made the mayor's board show people the room does not
+    hold -- the same slip `people.here` and the talk's crowd were mended of.
+    A sleeper is counted: they lie in the city, and whether that is a person
+    of the place is a question of its own (OQ-180).
     """
     if not nodes:
         return {"here": 0, "printed": 0}
     here = await session.scalar(
         select(func.count())
         .select_from(Body)
-        .where(Body.node_id.in_(nodes), Body.state == BodyState.ALIVE)
+        .where(
+            Body.node_id.in_(nodes),
+            Body.state == BodyState.ALIVE,
+            ~travel.on_the_road(Body.id),
+        )
     )
     printed_ = await session.scalar(
         select(func.count())

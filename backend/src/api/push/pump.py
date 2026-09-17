@@ -482,7 +482,7 @@ class Hub:
         }
         if note.get("who"):
             message["who"] = note["who"]
-        plumbing = ("touches", "identity_id", "node_id", "event", "who")
+        plumbing = ("touches", "identity_id", "node_id", "event", "who", "asleep")
         for key, value in note.items():
             if key not in plumbing and value is not None:
                 message[key] = value
@@ -493,7 +493,15 @@ class Hub:
             concerned = self.by_node.get(node, set())
         else:
             concerned = set()
+        #: Who may not receive it, named by the sender: a sleeper is refused
+        #: everything in person (D-091, D-211), and `chat.hear` refuses them
+        #: too -- the live line must not arrive where the asked-for one would
+        #: not. The names ride with the note because this path has no session
+        #: to ask the world with, and they are plumbing: dropped above.
+        deaf = {_uuid(one) for one in note.get("asleep") or []}
         for sink in list(concerned):
+            if sink.identity_id in deaf:
+                continue
             await sink.send(message)
 
 

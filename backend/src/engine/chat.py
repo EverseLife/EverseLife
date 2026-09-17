@@ -170,9 +170,15 @@ async def say(
         "text": cleaned,
         "at": message.at.isoformat(),
     }
+    asleep = await _asleep_in(session, body.node_id)
     if group_id is None:
         await events.announce(
-            session, touches=("chat",), node_id=body.node_id, event="chat.said", line=line
+            session,
+            touches=("chat",),
+            node_id=body.node_id,
+            event="chat.said",
+            line=line,
+            asleep=asleep,
         )
     else:
         group = await session.get(ChatGroup, group_id)
@@ -195,13 +201,18 @@ async def say(
                     "overheard": True,
                     "source": (group.name if group else None) or "кружок",
                 },
+                asleep=asleep,
             )
     return message
 
 
 async def _members(session: AsyncSession, group_id: uuid.UUID) -> list[uuid.UUID]:
-    """Members of the circle who stand in its room: one who walked out hears
-    nothing until `leave_groups` catches up with them, as in `hear`."""
+    """Members of the circle who stand in its room **and can hear**: one who
+    walked out hears nothing until `leave_groups` catches up with them, and a
+    sleeper hears nothing at all -- `hear` refuses them (D-091, D-211), so the
+    live line must not reach them either. Asked of the delivery alone: what the
+    leak costs is priced by the room (`_people_in`), and that count is a
+    question of its own (OQ-180)."""
     group = await session.get(ChatGroup, group_id)
     if group is None:
         return []
@@ -212,9 +223,26 @@ async def _members(session: AsyncSession, group_id: uuid.UUID) -> list[uuid.UUID
             ChatMember.group_id == group_id,
             Body.node_id == group.node_id,
             Body.state == BodyState.ALIVE,
+            Body.sleeping_since.is_(None),
         )
     )
     return list((await session.execute(stmt)).scalars().all())
+
+
+async def _asleep_in(session: AsyncSession, node_id: uuid.UUID) -> list[str]:
+    """Who lies asleep in the room: the talk is not delivered to them.
+
+    The room's line goes out as one note for the node (`events.announce`), and
+    the push has no session of its own to ask with -- so the names of those who
+    cannot hear travel with the note and the pump drops their sinks. Plumbing,
+    not state: the key never reaches a client (`api.push.pump`).
+    """
+    stmt = select(Body.identity_id).where(
+        Body.node_id == node_id,
+        Body.state == BodyState.ALIVE,
+        Body.sleeping_since.is_not(None),
+    )
+    return [str(one) for one in (await session.execute(stmt)).scalars().all()]
 
 
 async def hear(
