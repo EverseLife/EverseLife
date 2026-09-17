@@ -186,10 +186,8 @@ frost-asleep = the body is asleep: wake up first
 frost-not-a-warmer = “{ NAME($goods) }” gives no warmth: “{ NAME($warmer) }” is what does
 frost-warmer-from-hands = a warmer is taken out of the hand
 frost-no-cold-here = nobody freezes here: no reason to warm up, and a warmer is single-use
-frost-reserve-full = { $weather ->
-        [heat] the coolness reserve is full as it is ({ NUMBER($have, minimumFractionDigits: 1, maximumFractionDigits: 1) } h out of { NUMBER($ceiling, minimumFractionDigits: 1, maximumFractionDigits: 1) }): nothing is stored above the ceiling
-       *[frost] the warmth reserve is full as it is ({ NUMBER($have, minimumFractionDigits: 1, maximumFractionDigits: 1) } h out of { NUMBER($ceiling, minimumFractionDigits: 1, maximumFractionDigits: 1) }): a warmer is saved for the cold
-    }
+frost-warmer-frost-only = a warmer is no rescue in the scorching heat: the suit and the ship's board are
+frost-reserve-full = the warmth reserve is full as it is ({ NUMBER($have, minimumFractionDigits: 1, maximumFractionDigits: 1) } h out of { NUMBER($ceiling, minimumFractionDigits: 1, maximumFractionDigits: 1) }): a warmer is saved for the cold
 
 # --- energy (engine/energy.py) -----------------------------------------------
 

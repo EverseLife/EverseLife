@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Catalog, Constants, current_catalog
 from src.constants import registry as R
 from src.engine import events, gear, stock, world
-from src.engine.frost._base import FROST, WARMER, FrostError, NotWarmer, climate_of
+from src.engine.frost._base import FROST, HEAT, WARMER, FrostError, NotWarmer, climate_of
 from src.engine.frost.warmth import is_warm
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState
@@ -59,13 +59,11 @@ async def limit_of(
 ) -> float:
     """The reserve this body can hold in a climate, hours: the bare one times what is worn.
 
-    A warmer coat is a line in the vault, never a line here -- but the line is
+    Warm gear is a line in the vault, never a line here -- but the line is
     keyed by the **thing**, not by its class: `resolve` reads the renames table
-    of goods (`inventory.exo_bonus` is the same). It reads as a class only
-    because the one thing in the table, the insulated suit, is named like its
-    class. A line spelled with a class name -- «Скафандр» -- would load without
-    a word and do nothing; both heat-proof suits would have to be named one by
-    one. Whether the suit should warm at all is OQ-185.
+    of goods (`inventory.exo_bonus` is the same). A line spelled with a class
+    name -- «Скафандр» -- would load without a word and do nothing, which is
+    why both suits are named one by one (D-348).
     """
     return reserve_of(constants, weather) * await _suit_k(session, constants, catalog, body)
 
@@ -73,6 +71,15 @@ async def limit_of(
 async def _suit_k(
     session: AsyncSession, constants: Constants, catalog: Catalog, body: Body
 ) -> float:
+    """What the worn thing multiplies the reserve by -- in **either** climate.
+
+    The reserve is one and it is the body's temperature (D-231, D-338): in the
+    frost it is warmth, in the heat it is coolness. So is the multiplier
+    (D-348): a thing that keeps a body from the temperature keeps it from both
+    ends of it, and the table is not asked which climate this is. One slot
+    (D-305) means one worn thing today; the product is kept all the same,
+    because nothing here decides how many slots the body will have.
+    """
     table: dict[str, float] = constants[R.FROST_SUIT_K]
     if not table:
         return 1.0
@@ -322,6 +329,12 @@ async def use_warmer(
     weather = None if node is None else await climate_of(session, node)
     if weather is None:
         raise FrostError(key="frost-no-cold-here")
+    #: A brick of warmth in the middle of the scorching heat is not a rescue
+    #: (D-348): what saves a body there is the suit and the ship's board
+    #: (D-231). Refused in words rather than allowed in silence -- the reserve
+    #: there is a reserve of coolness, and a warmer filling it read as a joke.
+    if weather == HEAT:
+        raise FrostError(key="frost-warmer-frost-only")
 
     before = await settle(session, constants, catalog, body, now=moment)
     ceiling = await limit_of(session, constants, catalog, body, weather)
@@ -329,9 +342,7 @@ async def use_warmer(
     gained = on_grid(before + constants[R.FROST_WARMER_HOURS], ROUND_WARMTH, ROUND_FLOOR)
     left = min(roof, float(gained))
     if left <= before:
-        #: On the scorching planet the same reserve is a reserve of coolness
-        #: with a ceiling of its own, and the sentence says so (D-231, D-338).
-        raise FrostError(key="frost-reserve-full", have=before, ceiling=ceiling, weather=weather)
+        raise FrostError(key="frost-reserve-full", have=before, ceiling=ceiling)
     #: The stack is locked before it is spent, like every other write-off in the
     #: world: the body's own lock is not a substitute for the thing's.
     await stock.lock_items(session, [item])

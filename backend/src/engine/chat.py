@@ -15,8 +15,13 @@ All terms are named by the vault, the engine only had to add them up:
     chance% = (chat.leak_base
                + chat.leak_per_person * (people in location - chat.leak_crowd_free)
                + chat.leak_group_size * (circle size - chat.leak_group_free))
-              * chat.leak_location_modifier[class of what stands here]
+              * crowding                     -- people * chat.leak_space_per_person
+                                                / the node's area, clamped to
+                                                [chat.leak_crowding_min, ...max]
               * chat.leak_quiet_multiplier   -- if in an undertone
+
+The place itself has no voice (D-349): neither a forge nor a library changes
+what is overheard. What changes it is how tightly the room is packed.
 
 A leaked remark is one phrase without context, with the source circle named:
 exactly what conjecture and rumour grow from.
@@ -41,9 +46,9 @@ from datetime import UTC, datetime
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.constants import Constants, current_catalog
+from src.constants import Constants
 from src.constants import registry as R
-from src.engine import events, luck, travel, world
+from src.engine import events, luck, travel
 from src.engine.errors import Refusal
 from src.models.chat import ChatGroup, ChatMember, ChatMessage, Utterance
 from src.models.identity import Body, BodyState, Identity
@@ -100,7 +105,7 @@ async def leak_chance(
         + constants[R.CHAT_LEAK_PER_PERSON] * crowd
         + constants[R.CHAT_LEAK_GROUP_SIZE] * loud
     )
-    return chance * await _place_modifier(constants, session, node)
+    return chance * _crowding(constants, node, in_room)
 
 
 async def say(
@@ -400,10 +405,15 @@ async def _people_in(session: AsyncSession, node: Node) -> int:
 
     One who has set out still has this node in `node_id` until the arrival
     and is not counted: a traveller stands in no node (D-290 p. 1), and the
-    room the talk head names is the room the leak is priced by. A sleeper is
-    counted -- they lie in the room -- and so, for now, is a scout on a run:
-    a run has no transit row yet, and the engine keeps them home (the gap
-    D-327 names, not a rule).
+    room the talk head names is the room the leak is priced by.
+
+    **A sleeper is counted** (D-349): they lie in this room, and how crowded a
+    room is is how crowded it is. It also closes a trick -- putting the
+    neighbours to sleep would otherwise empty the room and make the talk safe.
+    Not to be confused with delivery, which skips a sleeper: the count measures
+    the room, not the listeners. So, for now, is a scout on a run: a run has no
+    transit row yet, and the engine keeps them home (the gap D-327 names, not
+    a rule).
     """
     return int(
         await session.scalar(
@@ -419,29 +429,26 @@ async def _people_in(session: AsyncSession, node: Node) -> int:
     )
 
 
-#: The library thing class (D-215): the quiet place of the leak table. Its
-#: own constant, apart from the station key `world.LIBRARY` that happens to
-#: spell the same -- a class renamed in the vault must not slip past here.
-LIBRARY_CLASS = "library"
+def _crowding(constants: Constants, node: Node, in_room: int) -> float:
+    """How tightly the room is packed, as a multiplier (D-349).
 
+    What stands in a place says nothing about what is overheard in it: the
+    forge and the library lost their rows with this decision. What says it is
+    the floor per head -- `chat.leak_space_per_person` is the room one person
+    needs to be out of earshot -- and the multiplier is how far this node
+    falls short of it.
 
-async def _place_modifier(constants: Constants, session: AsyncSession, node: Node) -> float:
-    """Place sound: a noisy forge muffles, a quiet library gives away.
-
-    The vault table is keyed by thing classes (D-215, D-291) -- the place is
-    recognised by what stands in it, not by a separate type field, and a
-    second forge muffles without a code change. When both a noisy and a quiet
-    thing stand here, the smaller modifier wins: noise beats silence.
+    Clamped at both ends by the vault. The floor is there because a rumour in
+    an empty workshop is rare and not impossible; the ceiling, because heads
+    are counted twice -- once in the sum, once here -- and unclamped the pair
+    would grow faster than the crowd itself.
     """
-
-    table = constants[R.CHAT_LEAK_LOCATION_MODIFIER]
-    book = current_catalog().recipes
-    #: What stands (D-278), read without making a yard: a tavern's noise is its
-    #: counter's, and a counter lying in its crate is a crate.
-    classes = {book.class_of(kind) for kind in await world.thing_kinds(session, node)}
-    #: The `library` node property is a legacy of old worlds (D-176): the
-    #: catch-up seed places the machine, and until it has, the room is quiet.
-    if node.properties.get("library"):
-        classes.add(LIBRARY_CLASS)
-    found = [table[cls] for cls in classes if cls is not None and cls in table]
-    return min(found) if found else 1.0
+    low = constants[R.CHAT_LEAK_CROWDING_MIN]
+    high = constants[R.CHAT_LEAK_CROWDING_MAX]
+    area = float(node.area_m2 or 0)
+    #: No area is no room at all, and the limit of the formula there is the
+    #: ceiling. Every node has one, so this is a guard and not a branch of the
+    #: rule: dividing by it must not be what tells us the column went empty.
+    if area <= 0:  # pragma: no cover -- a node without an area is a bug
+        return high
+    return min(high, max(low, in_room * constants[R.CHAT_LEAK_SPACE_PER_PERSON] / area))

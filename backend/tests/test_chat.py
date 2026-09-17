@@ -34,9 +34,9 @@ from src.models.travel import TravelState
 from src.models.world import Node
 
 
-async def _room(session: AsyncSession, *, people_count: int = 2):
+async def _room(session: AsyncSession, *, people_count: int = 2, area_m2: float = 100):
     stamp = uuid.uuid4().hex[:8]
-    node = await world.create_node(session, f"terra.room.{stamp}", "Комната", area_m2=100)
+    node = await world.create_node(session, f"terra.room.{stamp}", "Комната", area_m2=area_m2)
     bodies = []
     for i in range(people_count):
         identity = await world.create_identity(session, f"Гость-{stamp}-{i}")
@@ -199,7 +199,11 @@ async def test_undertone_leaks_less(session: AsyncSession, constants: Constants)
     for body in bodies[1:4]:
         await chat.join(session, body, circle.id)
 
-    chance = await chat.leak_chance(constants, session, node, group_size=4)
+    #: The sum is what this test is about, so the crowding is flattened away
+    #: (it has tests of its own below): otherwise every term here would be read
+    #: through a multiplier that has nothing to do with the speech mode.
+    flat = constants.with_overrides({"chat.leak_crowding_min": 1, "chat.leak_crowding_max": 1})
+    chance = await chat.leak_chance(flat, session, node, group_size=4)
     expected = (
         constants[R.CHAT_LEAK_BASE]
         + constants[R.CHAT_LEAK_PER_PERSON] * (6 - constants[R.CHAT_LEAK_CROWD_FREE])
@@ -209,47 +213,53 @@ async def test_undertone_leaks_less(session: AsyncSession, constants: Constants)
     assert constants[R.CHAT_LEAK_QUIET_MULTIPLIER] < 1, "вполголоса обязан помогать"
 
 
-async def test_library_serves(session: AsyncSession, constants: Constants) -> None:
-    """A quiet library gives away -- the legacy node property of old worlds (D-176)."""
-    node, _ = await _room(session)
-    ordinary_ = await chat.leak_chance(constants, session, node, group_size=1)
-    node.properties = {"library": True}
-    await session.flush()
-    in_library = await chat.leak_chance(constants, session, node, group_size=1)
-    assert in_library > ordinary_
-
-
-async def test_place_sound_is_the_class_of_what_stands(
+async def test_the_leak_is_priced_by_crowding_and_not_by_what_stands(
     session: AsyncSession, constants: Constants
 ) -> None:
-    """A standing forge muffles, a standing library gives away, and together
-    the noise wins (D-291). The place is known by the class of what stands in
-    it (D-215), not by its name: the table has no row named after the thing."""
-    node, _ = await _room(session)
-    ordinary_ = await chat.leak_chance(constants, session, node, group_size=1)
-    yard = await world.node_container(session, node)
-    await world.grant_item(session, yard, "library", quality=50, origin="тест")
-    in_library = await chat.leak_chance(constants, session, node, group_size=1)
-    assert in_library > ordinary_
+    """The place has no voice of its own (D-349): the forge and the library
+    lost their rows, and what is overheard is decided by the floor per head.
+    The same six people in a room half as wide are overheard half again as
+    often -- the multiplier is the ratio of the areas, nothing else."""
+    space = constants[R.CHAT_LEAK_SPACE_PER_PERSON]
+    tight, _ = await _room(session, people_count=6, area_m2=6 * space)
+    wide, _ = await _room(session, people_count=6, area_m2=8 * space)
+
+    close = await chat.leak_chance(constants, session, tight, group_size=1)
+    apart = await chat.leak_chance(constants, session, wide, group_size=1)
+    assert close == pytest.approx(apart * 8 / 6), "теснее — слышнее, ровно во столько раз"
+
+    #: A forge and a library standing in the room used to pull the odds in
+    #: opposite directions. With D-349 neither says anything at all.
+    yard = await world.node_container(session, tight)
     await world.grant_item(session, yard, "forge", quality=50, origin="тест")
-    with_forge = await chat.leak_chance(constants, session, node, group_size=1)
-    assert with_forge < ordinary_, "шум сильнее тишины"
+    await world.grant_item(session, yard, "library", quality=50, origin="тест")
+    tight.properties = {"library": True}
+    await session.flush()
+    assert await chat.leak_chance(constants, session, tight, group_size=1) == pytest.approx(close)
 
 
-async def test_place_sound_binds_to_the_class_not_the_name(
+async def test_crowding_is_held_between_the_floor_and_the_ceiling(
     session: AsyncSession, constants: Constants
 ) -> None:
-    """The table row is the class, and a member whose key differs from the
-    class key is still found by it (D-215, D-291). A Forerunner heat plant
-    is `precursor_heat_plant` of class `heat_plant`: a lookup by the thing's
-    own key would find nothing and leave the room at its usual leak."""
-    loud = constants.with_overrides({"chat.leak_location_modifier": {"heat_plant": 0.5}})
-    node, _ = await _room(session)
-    ordinary_ = await chat.leak_chance(loud, session, node, group_size=1)
-    yard = await world.node_container(session, node)
-    await world.grant_item(session, yard, "precursor_heat_plant", origin="тест")
-    by_class = await chat.leak_chance(loud, session, node, group_size=1)
-    assert by_class < ordinary_, "класс найден, хотя ключа вещи в таблице нет"
+    """Both ends are clamped (D-349). Two closets of different sizes are alike
+    once past the ceiling, two halls alike once past the floor, and the closet
+    is still louder than the hall -- the band has width, it is not a constant."""
+    space = constants[R.CHAT_LEAK_SPACE_PER_PERSON]
+    closet, _ = await _room(session, people_count=6, area_m2=space)
+    smaller, _ = await _room(session, people_count=6, area_m2=2 * space)
+    hall, _ = await _room(session, people_count=6, area_m2=20 * space)
+    field, _ = await _room(session, people_count=6, area_m2=100 * space)
+
+    packed = await chat.leak_chance(constants, session, closet, group_size=1)
+    assert packed == pytest.approx(
+        await chat.leak_chance(constants, session, smaller, group_size=1)
+    ), "выше потолка теснота не растёт"
+    empty = await chat.leak_chance(constants, session, hall, group_size=1)
+    assert empty == pytest.approx(
+        await chat.leak_chance(constants, session, field, group_size=1)
+    ), "ниже пола теснота не падает"
+    assert empty < packed, "пол ниже потолка: простор всё же тише тесноты"
+    assert empty > 0, "слух в пустой мастерской редок, но не невозможен"
 
 
 async def test_leaving_disbands_circle(session: AsyncSession, constants: Constants) -> None:
@@ -338,9 +348,20 @@ async def test_a_traveller_does_not_crowd_the_leak(
 ) -> None:
     """The leak is priced by the crowd in the room (D-043), and one who has set
     out is not in it: counted by `node_id` alone, the road raised the odds of
-    a room it had left. A sleeper still counts -- they lie in the room."""
+    a room it had left. A sleeper still counts -- they lie in the room, and
+    with D-349 that is a rule and not a gap: putting the neighbours to sleep
+    must not empty a room."""
     #: Every body counts, one point each: the difference is the crowd itself.
-    crowded = constants.with_overrides({"chat.leak_crowd_free": 0, "chat.leak_per_person": 1})
+    #: The crowding multiplier is flattened for the same reason -- it counts
+    #: heads too, and the head at issue here is the one that walked out.
+    crowded = constants.with_overrides(
+        {
+            "chat.leak_crowd_free": 0,
+            "chat.leak_per_person": 1,
+            "chat.leak_crowding_min": 1,
+            "chat.leak_crowding_max": 1,
+        }
+    )
     node, (_, sleeper, leaves) = await _room(session, people_count=3)
     away = await _road_out(session, node)
     full = await chat.leak_chance(crowded, session, node, group_size=0)

@@ -182,10 +182,8 @@ frost-asleep = тело спит: сначала проснуться
 frost-not-a-warmer = «{ NAME($goods) }» не греет: для этого есть «{ NAME($warmer) }»
 frost-warmer-from-hands = грелку достают из рук
 frost-no-cold-here = здесь не мёрзнут: греться незачем, а грелка одноразовая
-frost-reserve-full = { $weather ->
-        [heat] запас прохлады и так полон ({ NUMBER($have, minimumFractionDigits: 1, maximumFractionDigits: 1) } ч из { NUMBER($ceiling, minimumFractionDigits: 1, maximumFractionDigits: 1) }): сверх потолка не запасти
-       *[frost] теплозапас и так полон ({ NUMBER($have, minimumFractionDigits: 1, maximumFractionDigits: 1) } ч из { NUMBER($ceiling, minimumFractionDigits: 1, maximumFractionDigits: 1) }): грелку берегут на холод
-    }
+frost-warmer-frost-only = на пекле грелка не спасает: тут выручают скафандр и борт корабля
+frost-reserve-full = теплозапас и так полон ({ NUMBER($have, minimumFractionDigits: 1, maximumFractionDigits: 1) } ч из { NUMBER($ceiling, minimumFractionDigits: 1, maximumFractionDigits: 1) }): грелку берегут на холод
 
 # --- энергия (engine/energy.py) ----------------------------------------------
 

@@ -114,7 +114,14 @@ CHAT_LEAK_CROWD_FREE = Num("chat.leak_crowd_free")
 CHAT_LEAK_GROUP_SIZE = Num("chat.leak_group_size")
 CHAT_LEAK_GROUP_FREE = Num("chat.leak_group_free")
 CHAT_LEAK_QUIET_MULTIPLIER = Num("chat.leak_quiet_multiplier")
-CHAT_LEAK_LOCATION_MODIFIER = Table("chat.leak_location_modifier")
+#: Crowding instead of furnishing (D-349): what stands in a room no longer
+#: changes what is overheard in it. What does is how much floor there is
+#: per head -- this much space is the quiet one person needs -- and the
+#: floor and ceiling keep the pair in its banks: heads are counted twice,
+#: once in the sum and once in the multiplier.
+CHAT_LEAK_SPACE_PER_PERSON = Num("chat.leak_space_per_person")
+CHAT_LEAK_CROWDING_MIN = Num("chat.leak_crowding_min")
+CHAT_LEAK_CROWDING_MAX = Num("chat.leak_crowding_max")
 #: The Net's delay: seconds of delay per second of the road between the two
 #: correspondents (D-222). Nought would be the instant link of D-010.
 COMM_DELAY_PER_SECOND = Num("comm.delay_per_second")

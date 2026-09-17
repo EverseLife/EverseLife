@@ -19,7 +19,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from frost_kit import HEATER, _ago, _charge, _dweller, _place, _speaks_its_climate, _town
+from frost_kit import HEATER, _ago, _charge, _dweller, _place, _town
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import frost, gear, travel, world
@@ -28,6 +28,8 @@ from src.models.world import Layer, Node, Planet
 from src.units import ROUND_STAMINA, ROUND_WARMTH, SECONDS_PER_HOUR
 
 SUIT = "insulated_suit"
+HEATPROOF = "heatproof_suit"
+PYROXITE = "pyroxite_suit"
 
 WARMER = "warmer"
 
@@ -262,6 +264,28 @@ async def test_the_suit_multiplies_the_reserve(
     )
 
 
+async def test_every_suit_holds_the_temperature_in_either_climate(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A suit keeps a body from the temperature by default, the pyroxite one
+    better than the plain heat-proof one, and the multiplier never asks which
+    climate this is (D-348): one reserve, one table, both ends of it.
+    """
+    table = constants[R.FROST_SUIT_K]
+    assert table[HEATPROOF] < table[PYROXITE], "пироксисовый держит температуру лучше"
+
+    for planet, weather in ((Planet.AURORA, frost.FROST), (Planet.PYROXIS, frost.HEAT)):
+        _, yard = await _town(session, planet=planet, climate=weather)
+        for key in (HEATPROOF, PYROXITE):
+            body = await _dweller(session, yard)
+            bare = await frost.limit_of(session, constants, catalog, body, weather)
+            pocket = await world.body_container(session, body)
+            suit = await world.grant_item(session, pocket, key, quality=60, origin="тест")
+            await gear.equip(session, constants, catalog, body, suit)
+            worn = await frost.limit_of(session, constants, catalog, body, weather)
+            assert worn == pytest.approx(bare * table[key]), f"{key} в климате {weather}"
+
+
 async def test_each_climate_keeps_its_own_reserve(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
@@ -376,7 +400,7 @@ async def test_a_warmer_that_would_give_nothing_is_refused(
     with pytest.raises(frost.FrostError) as full:
         await frost.use_warmer(session, constants, catalog, body, warmer)
     assert len(await world.contents(session, pocket)) == 1
-    assert (full.value.key, full.value.params["weather"]) == ("frost-reserve-full", frost.FROST)
+    assert full.value.key == "frost-reserve-full"
 
     _, terra = await _town(session, planet=Planet.TERRA, climate=None)
     other = await _dweller(session, terra)
@@ -388,26 +412,26 @@ async def test_a_warmer_that_would_give_nothing_is_refused(
     assert idle.value.key == "frost-no-cold-here"
 
 
-async def test_a_full_reserve_is_told_in_the_climate_s_words(
+async def test_a_warmer_is_no_rescue_in_the_heat(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """On Pyroxis the same reserve is a reserve of coolness (D-231, D-338), and
-    a refusal that called it warmth would name a reserve the planet lacks."""
-    moment = datetime.now(UTC)
-    for planet, weather in ((Planet.AURORA, frost.FROST), (Planet.PYROXIS, frost.HEAT)):
-        _, yard = await _town(session, planet=planet, climate=weather)
-        body = await _dweller(session, yard)
-        ceiling = await frost.limit_of(session, constants, catalog, body, weather)
-        body.warmth = Decimal(str(ceiling))
-        body.warmth_at = moment
-        await session.flush()
-        pocket = await world.body_container(session, body)
-        warmer = await world.grant_item(session, pocket, WARMER, quality=60, origin="тест")
+    """A brick of warmth in the middle of the scorching heat is refused in
+    words (D-348): what saves a body there is the suit and the ship's board
+    (D-231). Refused on an empty reserve too -- the door is the climate, not
+    the ceiling -- and the warmer stays whole either way.
+    """
+    _, yard = await _town(session, planet=Planet.PYROXIS, climate=frost.HEAT)
+    body = await _dweller(session, yard)
+    body.warmth = Decimal("0.5")
+    body.warmth_at = _ago(1)
+    await session.flush()
+    pocket = await world.body_container(session, body)
+    warmer = await world.grant_item(session, pocket, WARMER, quality=60, origin="тест")
 
-        with pytest.raises(frost.FrostError) as full:
-            await frost.use_warmer(session, constants, catalog, body, warmer, now=moment)
-        assert (full.value.key, full.value.params["weather"]) == ("frost-reserve-full", weather)
-        _speaks_its_climate(full.value)
+    with pytest.raises(frost.FrostError) as refused:
+        await frost.use_warmer(session, constants, catalog, body, warmer)
+    assert refused.value.key == "frost-warmer-frost-only"
+    assert len(await world.contents(session, pocket)) == 1, "отказ не съедает грелку"
 
 
 async def test_the_look_carries_the_hand_and_not_the_hour(
