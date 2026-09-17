@@ -358,20 +358,32 @@ async def _fly(
         #: The tanks after the crew, and after the hull is lost: a wreck still
         #: paid for its way down, and the ground is no matter of budget -- what
         #: the line turns out to hold changes nothing here. D-316 has the hull
-        #: die on the tick that reaches it, not on a later one.
+        #: die on the tick that reaches it, not on a later one. The one case
+        #: this swallows: a stretch the reading called dry coasts the rest of
+        #: itself ballistically, and the ground may take it there when a line
+        #: the lock would have found full would have carried it past. A
+        #: stretch's worth of thrust either way, and a hull that has hit the
+        #: ground has hit it.
         return outcome, (await _paid(session, constants, catalog, ship, weight, spent, klass))[0]
 
-    burnt, aboard, need = await _paid(session, constants, catalog, ship, weight, spent, klass)
-    if spent > _DV_EPS:
+    #: The tanks are asked whenever there is anything to ask them: a stretch
+    #: that burnt, and one the reading called dry -- the second without the
+    #: first being exactly the stale "dry" the correction below is for. A
+    #: reading of an empty line buys no thrust at all, so `spent` is nought and
+    #: nothing is written off; what the lock finds still has the last word.
+    burnt, aboard, need = await _paid(
+        session, constants, catalog, ship, weight, spent, klass, weigh=outcome == "adrift"
+    )
+    if spent > _DV_EPS or outcome == "adrift":
         #: **Whether the engines are out is the tanks' word, and the tanks are
         #: asked under the lock** -- the budget the stretch was flown on was a
         #: reading, and a hand may have poured either way since. Poured out
         #: from under a burning engine, the line cannot pay for the stretch just
         #: flown: the stretch stands, because it happened, and the engines are
         #: out from here -- the same drift as tanks that ran dry, which is what
-        #: they did. Poured in, the line still holds more than the stretch cost,
-        #: and a hull the stale reading called dry is not stranded for it: it
-        #: flew on less thrust than it could have, and carries on.
+        #: they did. Poured in, the line holds more than the stretch cost, and a
+        #: hull the stale reading called dry is not stranded for it: it flew on
+        #: less thrust than it could have, and carries on.
         #:
         #: Corrected rather than put off to the next stretch: one put off once
         #: is put off again by the next pour, and a hull could be kept from
@@ -381,6 +393,11 @@ async def _fly(
         #: order left to fly the trick on. A stretch is `now - sky_at` and not a
         #: minute, so after an idle worker that bound is hours of thrust rather
         #: than one minute's -- still one stretch, still once.
+        #:
+        #: A stretch that **ended** -- moored, held, on the star's circle --
+        #: keeps its end the way a strike does, short line or not: there is no
+        #: "from here" for a hull that has arrived, and the last stretch of a
+        #: crossing is not an order anybody can fly the trick on twice.
         if aboard + _FUEL_EPS < need:
             outcome = "adrift" if outcome == "flying" else outcome
         elif outcome == "adrift" and aboard > need + _FUEL_EPS:
@@ -451,10 +468,17 @@ async def _paid(
     weight: float,
     dv: float,
     klass: int | None,
+    *,
+    weigh: bool = False,
 ) -> tuple[float, float, float]:
     """Write off what a stretch of `dv` burnt. Returns what was burnt, what the
     **lock** found on the line, and what the stretch asked of it -- all three in
     reference units (D-252), because the caller's verdict is the difference.
+
+    `weigh` asks for the line to be locked and weighed even when the stretch
+    burnt nothing. A reading that found the line empty buys no thrust at all,
+    so the stretch spends nought -- and that is the very stretch whose "the
+    tanks are dry" may be a hand's doing rather than the tanks'.
 
     The tanks are locked here and nowhere earlier: this is the only place a
     stretch changes an amount, and an amount changes under the row lock and
@@ -481,15 +505,16 @@ async def _paid(
     of. The tick has nobody to speak to, and a stretch already flown to speak
     about: it drinks the line to the bottom and reports.
     """
-    if dv <= _DV_EPS:
-        #: A coasting stretch spends nothing and locks nothing: the hull that
-        #: ran dry is not queued behind a hand pouring out its empty tanks.
+    if dv <= _DV_EPS and not weigh:
+        #: A stretch that asked for no thrust and is not being second-guessed
+        #: has nothing to write off and nothing to weigh: the hull under an
+        #: order that is coasting this minute locks no tanks.
         return 0.0, 0.0, 0.0
     stacks = await stock.lock_items(
         session, await fuel_stacks(session, constants, catalog, ship), ordered=True
     )
     aboard = sum(amount_float(one.amount) * fuel_energy(constants, one.type_key) for one in stacks)
-    need = fuel_for_dv(constants, weight, dv, klass)
+    need = fuel_for_dv(constants, weight, dv, klass) if dv > _DV_EPS else 0.0
     return await spend_fuel(session, constants, catalog, ship, need, stacks=stacks), aboard, need
 
 

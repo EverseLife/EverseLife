@@ -339,31 +339,39 @@ async def test_the_line_emptied_between_the_reading_and_the_lock_strands_the_hul
     assert again["flown"] == 0
 
 
+@pytest.mark.parametrize("left", [LEFT, 0.0])
 async def test_the_line_filled_between_the_reading_and_the_lock_keeps_the_order(
     session: AsyncSession,
     factory: async_sessionmaker[AsyncSession],
     constants: Constants,
     catalog: Catalog,
     monkeypatch: pytest.MonkeyPatch,
+    left: float,
 ) -> None:
     """The other way round: a hand fills the line while the step flies on a
     reading that called the tanks spent.
 
-    The step read a line with almost nothing on it, so the helm got less thrust
-    than it asked for and the minute ended "the tanks are dry". Then the hand
-    poured a hundred units back in. Whether the engines are out is the tanks'
-    word, and the tanks are asked under the lock: the order stands, nobody is
-    told the hull is adrift, and the hull flew that one minute on less thrust
-    than it could have -- which is a minute of the arc, not the end of it.
+    The step read a line with next to nothing on it, so the helm got less
+    thrust than it asked for and the stretch ended "the tanks are dry". Then
+    the hand poured a hundred units back in. Whether the engines are out is the
+    tanks' word, and the tanks are asked under the lock: the order stands,
+    nobody is told the hull is adrift, and the hull flew that stretch on less
+    thrust than it could have -- which is a minute of the arc, not the end of
+    it.
 
     Without the second half of that rule, the reading's stale verdict stood:
     the course was dropped, the crew was told the tanks had failed, and the
     loss was booked -- on a hull with a full tank on its line. And it could not
     happen before this change at all, because the tanks were locked from the
     top of the stretch and the pour waited for the tick.
+
+    `left` of nothing is the same story with the reading finding the line bare,
+    and it is the sharper half: a stretch off an empty line buys no thrust at
+    all, so it burns nothing -- and a correction that only ran for stretches
+    that burnt would miss exactly the case where the stale "dry" comes from.
     """
     vessel, owner, tank, spare, at = await _under_order(session, constants, catalog)
-    await _drain_to(session, constants, catalog, owner, tank, spare, LEFT)
+    await _drain_to(session, constants, catalog, owner, tank, spare, left)
     now = at + timedelta(minutes=1)
     vessel_id, owner_id, tank_id = vessel.id, owner.id, tank.id
     await session.commit()
@@ -382,10 +390,10 @@ async def test_the_line_filled_between_the_reading_and_the_lock_keeps_the_order(
         assert afloat.sky_at == now
         body = await db.get(Body, owner_id)
         assert body is not None and body.died_at is None
-        #: The minute cost what the stale budget bought and no more -- the burn
-        #: is the stretch's, not the line's (the telemetry rounds to whole
+        #: The stretch cost what the stale budget bought and no more -- the
+        #: burn is the stretch's, not the line's (the telemetry rounds to whole
         #: kilograms, so the tank is what says it).
-        assert BACK <= await _units(db, tank_id) <= BACK + LEFT
+        assert BACK <= await _units(db, tank_id) <= BACK + left
         told = await db.scalar(select(Event.id).where(Event.kind == EventKind.SHIP_ADRIFT))
         assert told is None, "nobody was told the tanks had failed"
 
