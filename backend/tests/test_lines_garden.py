@@ -10,6 +10,8 @@ Checked:
   unit's oxygen line of a sealed hull;
 * a ripe bed, a dead one, an unsown one and a bed with no unit in its
   compartment breathe nothing; neither does a hull whose hatch opens on air;
+* what a bay gave this stretch is air the crew may breathe in it, even into
+  a cylinder that was empty when the stretch began;
 * two units in one bay do not breathe the bay twice;
 * a minute at a time adds up to the hour: the thousandths are carried, not
   rounded;
@@ -28,7 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from conftest import _slow
 from lines_kit import CYLINDER, _empty, _held, _hull, _room
-from ship_kit import _equip
+from ship_kit import LIFE, _equip
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import liquid, oxygen, ship, storage, world
@@ -36,6 +38,7 @@ from src.models.farm import Plot, PlotState
 from src.models.identity import Body
 from src.models.inventory import Item
 from src.models.ship import Ship
+from src.models.world import Node
 
 AIR = "oxygen"
 UNIT = "hydroponic_unit"
@@ -119,6 +122,35 @@ async def test_what_does_not_grow_breathes_nothing(
     await oxygen.tick_ships(session, constants, catalog, now=moment)
     assert await _held(session, bottle) == 0
     assert vessel.air_at == moment, "штамп ушёл всё равно"
+
+
+async def test_the_crew_breathes_what_the_bays_gave_this_stretch(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The beds breathe first, and the crew breathes what they gave (D-340).
+
+    The cylinder the life support drinks from is the one the bay fills, and it
+    was **empty** when the stretch began: what the bay poured into it is a
+    stack that did not exist when the hull's air was first read. A stretch
+    that went by that first reading would have the crew choking beside a
+    cylinder filled a moment earlier -- a stretch late, every stretch.
+    """
+    vessel, body, (bottle,), moment = await _bay(session, constants, catalog, area=10)
+    connector = await session.get(Node, vessel.connector_node_id)
+    assert connector is not None
+    #: The owner stays aboard this time, and the life support hangs on the
+    #: very cylinder the bay pours into.
+    body.node_id = connector.id
+    system = await _equip(session, connector, LIFE)
+    await ship.set_lines(session, constants, catalog, body, vessel, system, AIR, [bottle])
+    await session.flush()
+
+    drawn, dead = await oxygen.tick_ships(session, constants, catalog, now=moment)
+    grown = constants[R.OXYGEN_HYDROPONICS_RATE] * 10
+    draw = constants[R.OXYGEN_CREW_DRAW]
+    assert dead == 0 and body.choking_since is None, "задохнулся у только что наполненного баллона"
+    assert drawn == pytest.approx(draw, abs=0.001)
+    assert await _held(session, bottle) == pytest.approx(grown - draw, abs=0.001)
 
 
 async def test_two_units_in_one_bay_do_not_breathe_it_twice(
