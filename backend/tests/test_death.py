@@ -23,12 +23,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import city as town
-from src.engine import death, energy, ledger, ruins, travel, world
+from src.engine import death, energy, ledger, luck, ruins, travel, world
 from src.models.identity import Body, BodyState, Knowledge
 from src.models.inventory import Item
 from src.models.ledger import AccountKind, PostingReason
 from src.models.world import Layer
-from src.units import MINUTES_PER_HOUR, amount_float, money
+from src.units import MINUTES_PER_HOUR, amount, amount_float, money
 
 
 async def _world(session: AsyncSession, catalog: Catalog, *, treasury: float = 0):
@@ -224,6 +224,161 @@ async def test_part_of_worn_stays_in_place_and_damaged(
     assert amount_float(in_place[0].amount) == pytest.approx(100 * share)
     assert float(in_place[0].condition) == pytest.approx(100 * share)
     assert survived == pytest.approx(100 * share)
+
+
+async def _in_yard(session: AsyncSession, node, type_key: str) -> list[Item]:
+    yard = await world.node_container(session, node)
+    return list(
+        (
+            await session.execute(
+                select(Item).where(Item.container_id == yard.id, Item.type_key == type_key)
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+
+@pytest.mark.parametrize("kept", [False, True])
+async def test_single_product_survives_whole_or_not_at_all(
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    monkeypatch: pytest.MonkeyPatch,
+    kept: bool,
+) -> None:
+    """There is no 0.3 of a pickaxe (D-212): the share of one piece floors to
+    nothing, and the roll decides whether the piece lies whole (D-213). A
+    fractional pickaxe in the yard could not even be picked up."""
+    _, core, _ = await _world(session, catalog)
+    _, body = await _resident(session, core, "Шахтёр")
+    pocket = await world.body_container(session, body)
+    await world.grant_item(session, pocket, "iron_pickaxe", quality=60, origin="тест")
+    share = constants[R.DEATH_SALVAGE_RATIO] / 100
+    rolls: list[float] = []
+
+    async def roll(_session, _identity_id, matter, percent, *, dice):
+        assert matter == luck.DEATH_KEEP
+        rolls.append(percent)
+        return kept
+
+    monkeypatch.setattr(luck, "hit", roll)
+    survived = await death.die(session, constants, body, cause="обвал")
+
+    assert rolls == [pytest.approx(share * 100)], "кирка идёт через бросок, а не через долю"
+    in_place = await _in_yard(session, core, "iron_pickaxe")
+    if not kept:
+        assert in_place == [], "не выпало -- кирки нет вовсе, а не доля кирки"
+        assert survived == 0
+        return
+    assert len(in_place) == 1
+    assert in_place[0].amount == amount(1), "уцелевшая кирка -- целая штука"
+    assert float(in_place[0].condition) == pytest.approx(100 * share), "и повреждённая"
+    assert survived == 1
+
+
+@pytest.mark.parametrize("kept", [False, True])
+async def test_counted_stack_keeps_its_share_in_whole_pieces(
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    monkeypatch: pytest.MonkeyPatch,
+    kept: bool,
+) -> None:
+    """A counted stack survives in whole pieces (D-212), and the part of a
+    piece the floor shaves off is the chance of one more (D-213): at a share of
+    three tenths, five ingots keep one and toss for the second, three keep none
+    and toss for one. The share stays the mean, so a big stack never keeps less
+    than a small one, and ore keeps its honest fraction without a roll."""
+    tenths = Constants({**constants.raw(), R.DEATH_SALVAGE_RATIO.key: 30}, source="тест")
+    _, core, _ = await _world(session, catalog)
+    _, body = await _resident(session, core, "Шахтёр")
+    pocket = await world.body_container(session, body)
+    await world.grant_item(session, pocket, "iron_ingot", amount=10, quality=55, origin="тест")
+    await world.grant_item(session, pocket, "copper_ingot", amount=5, quality=55, origin="тест")
+    await world.grant_item(session, pocket, "tin", amount=3, quality=55, origin="тест")
+    await world.grant_item(session, pocket, "iron_ore", amount=5, quality=55, origin="тест")
+    rolls: list[float] = []
+
+    async def roll(_session, _identity_id, matter, percent, *, dice):
+        assert matter == luck.DEATH_KEEP
+        rolls.append(percent)
+        return kept
+
+    monkeypatch.setattr(luck, "hit", roll)
+    survived = await death.die(session, tenths, body, cause="обвал")
+
+    assert sorted(rolls) == [pytest.approx(50), pytest.approx(90)], (
+        "бросают медь за вторую штуку и олово за первую; три слитка из десяти -- ровно"
+    )
+    (iron,) = await _in_yard(session, core, "iron_ingot")
+    assert iron.amount == amount(3), "три десятых от десяти -- три слитка, без броска"
+    (copper,) = await _in_yard(session, core, "copper_ingot")
+    assert copper.amount == amount(2 if kept else 1), "полтора слитка -- слиток и бросок"
+    tin = await _in_yard(session, core, "tin")
+    assert [piece.amount for piece in tin] == ([amount(1)] if kept else []), (
+        "девять десятых -- одна штука с шансом девяносто, а не вся стопка"
+    )
+    (ore,) = await _in_yard(session, core, "iron_ore")
+    assert amount_float(ore.amount) == pytest.approx(1.5), "руда весовая: доля честная"
+    assert survived == pytest.approx(3 + 1.5 + (2 + 1 if kept else 1))
+
+
+@pytest.mark.parametrize("kept", [False, True])
+async def test_heap_too_small_for_its_share_is_one_indivisible(
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    monkeypatch: pytest.MonkeyPatch,
+    kept: bool,
+) -> None:
+    """A gram of ore holds no share the thousandths can keep: the heap itself is
+    the indivisible, and it takes the roll at the share, whole or not at all."""
+    tenths = Constants({**constants.raw(), R.DEATH_SALVAGE_RATIO.key: 30}, source="тест")
+    _, core, _ = await _world(session, catalog)
+    _, body = await _resident(session, core, "Шахтёр")
+    pocket = await world.body_container(session, body)
+    await world.grant_item(session, pocket, "iron_ore", amount=0.001, quality=55, origin="тест")
+    rolls: list[float] = []
+
+    async def roll(_session, _identity_id, _matter, percent, *, dice):
+        rolls.append(percent)
+        return kept
+
+    monkeypatch.setattr(luck, "hit", roll)
+    await death.die(session, tenths, body, cause="обвал")
+
+    assert rolls == [pytest.approx(30)]
+    ore = await _in_yard(session, core, "iron_ore")
+    assert [heap.amount for heap in ore] == ([amount(0.001)] if kept else [])
+
+
+async def test_no_share_keeps_nothing_and_rolls_nothing(
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """At a share of nothing there is nothing to roll for: no dice, no memory."""
+    none_ = Constants({**constants.raw(), R.DEATH_SALVAGE_RATIO.key: 0}, source="тест")
+    _, core, _ = await _world(session, catalog)
+    _, body = await _resident(session, core, "Шахтёр")
+    pocket = await world.body_container(session, body)
+    await world.grant_item(session, pocket, "iron_pickaxe", quality=60, origin="тест")
+    await world.grant_item(session, pocket, "iron_ingot", amount=5, quality=55, origin="тест")
+    rolls: list[float] = []
+
+    async def roll(_session, _identity_id, _matter, percent, *, dice):
+        rolls.append(percent)
+        return True
+
+    monkeypatch.setattr(luck, "hit", roll)
+    survived = await death.die(session, none_, body, cause="обвал")
+
+    assert rolls == []
+    assert await _in_yard(session, core, "iron_pickaxe") == []
+    assert await _in_yard(session, core, "iron_ingot") == []
+    assert survived == 0
 
 
 # --- printing ----------------------------------------------------------------

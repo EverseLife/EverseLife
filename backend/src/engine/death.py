@@ -67,7 +67,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import Catalog, Constants, current_catalog
 from src.constants import registry as R
 from src.engine import city as town
-from src.engine import craft, energy, events, justice, ledger, luck, stock, transport, world
+from src.engine import craft, energy, events, goods, justice, ledger, luck, stock, transport, world
 from src.engine.errors import Refusal
 from src.engine.jobs import enqueue, handler
 from src.models.event import EventKind
@@ -203,16 +203,33 @@ async def die(
         #: Whole means whole: a share of one goes past the arithmetic rather
         #: than through it, so that a heap big enough for the float to shave a
         #: unit off it does not lose that unit to a rule that took nothing.
-        left = thing.amount if share >= 1 else amount(amount_float(thing.amount) * share)
-        #: The indivisible survives by roll: there is no half a pickaxe, and the
-        #: rule must be one for everything worn. The roll remembers (D-213):
-        #: losing every single tool of a kit was a fair coin's right, and it
-        #: read as the world taking a personal dislike.
-        if left <= 0:
-            kept = await luck.hit(
-                session, body.identity_id, luck.DEATH_KEEP, share * PERCENT, dice=dice
-            )
-            left = thing.amount if kept else 0
+        if share >= 1:
+            left = thing.amount
+        else:
+            #: A counted thing exists in whole pieces only (D-212), so its share
+            #: is floored -- a share of one pickaxe lying in the yard could not
+            #: even be picked up. The indivisible survives by roll instead: the
+            #: part of a piece the floor shaved off is the chance of one more
+            #: piece, so a pickaxe keeps at the share's chance and five ingots
+            #: keep one and toss for the second. The share stays the mean
+            #: whatever the stack, and a big stack never keeps less than a small
+            #: one. The roll remembers (D-213): losing every single tool of a
+            #: kit was a fair coin's right, and it read as the world taking a
+            #: personal dislike.
+            salvage = amount_float(thing.amount) * share
+            left = amount(goods.whole(thing.type_key, salvage))
+            odds = goods.rest(thing.type_key, salvage)
+            piece = amount(1)
+            #: A measured heap too small for the grid to hold its share is
+            #: itself the indivisible, and it takes the roll at the share.
+            if left <= 0 and odds <= 0:
+                odds, piece = share, thing.amount
+            if odds > 0 and await luck.hit(
+                session, body.identity_id, luck.DEATH_KEEP, odds * PERCENT, dice=dice
+            ):
+                #: Never more than was worn: a stack left short of a piece by
+                #: an older rule does not grow into a whole one on the ground.
+                left = min(thing.amount, left + piece)
         if left <= 0 or yard is None:
             lost.append(thing)
             continue
