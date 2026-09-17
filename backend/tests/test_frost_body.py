@@ -433,6 +433,14 @@ async def test_a_warmer_is_no_rescue_in_the_heat(
     assert refused.value.key == "frost-warmer-frost-only"
     assert len(await world.contents(session, pocket)) == 1, "отказ не съедает грелку"
 
+    #: The climate answers before the thing in the hand does: otherwise a
+    #: stone rubbed on Pyroxis would be told to fetch a warmer -- advice the
+    #: very next call refuses.
+    stone = await world.grant_item(session, pocket, "stone", origin="тест")
+    with pytest.raises(frost.FrostError) as wrong:
+        await frost.use_warmer(session, constants, catalog, body, stone)
+    assert wrong.value.key == "frost-warmer-frost-only", "климат — внешняя дверь"
+
 
 async def test_the_look_carries_the_hand_and_not_the_hour(
     session: AsyncSession, constants: Constants, catalog: Catalog

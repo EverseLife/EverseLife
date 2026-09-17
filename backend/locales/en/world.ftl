@@ -175,8 +175,9 @@ oxygen-suit-stays-on-road = the road to “{ $node }” runs outside, with nothi
 
 # $weather is the planet's climate, a key: frost (permafrost, Aurora) or heat
 # (scorching heat, Pyroxis). One mechanic with the sign reversed: a frozen node
-# is heated, while nothing cools a node in the heat — it is cool only aboard
-# (D-230, D-231, D-233).
+# is heated, while nothing cools a node in the heat — it is cool only aboard.
+# A body in the heat is saved by a ship and by a spacesuit
+# (D-230, D-231, D-233, D-348).
 frost-node-frozen = { $weather ->
         [heat] the node “{ $node }” is scorching: “{ NAME($station) }” does not work here — the node cannot be cooled
        *[frost] the node “{ $node }” is frozen through: “{ NAME($station) }” does not work here. Warmth comes from “{ NAME($plant) }”, “{ NAME($heater) }” or “{ NAME($brazier) }” with fuel
@@ -186,7 +187,7 @@ frost-asleep = the body is asleep: wake up first
 frost-not-a-warmer = “{ NAME($goods) }” gives no warmth: “{ NAME($warmer) }” is what does
 frost-warmer-from-hands = a warmer is taken out of the hand
 frost-no-cold-here = nobody freezes here: no reason to warm up, and a warmer is single-use
-frost-warmer-frost-only = a warmer is no rescue in the scorching heat: the suit and the ship's board are
+frost-warmer-frost-only = a warmer is no rescue in the scorching heat: what saves a body there is the spacesuit and a ship
 frost-reserve-full = the warmth reserve is full as it is ({ NUMBER($have, minimumFractionDigits: 1, maximumFractionDigits: 1) } h out of { NUMBER($ceiling, minimumFractionDigits: 1, maximumFractionDigits: 1) }): a warmer is saved for the cold
 
 # --- energy (engine/energy.py) -----------------------------------------------

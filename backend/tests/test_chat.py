@@ -426,7 +426,7 @@ async def test_a_sleeper_is_not_told_the_line(
     talk also goes out unasked, and that copy reached them all the same -- the
     room's line by the node, the circle's by the member's name. Asleep, one was
     the only listener in the world who both raised the price of the room
-    (`_people_in`, OQ-180) and got the goods.
+    (`_people_in`, D-349: a sleeper is counted there) and got the goods.
 
     The room's note names those who may not hear rather than leaving them out
     of it: the push has no session of its own to ask the world with.

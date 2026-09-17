@@ -431,8 +431,13 @@ export function Inventory({ look }: Props) {
                           )}
                           {/* The warmer (D-231): a one-off handful of hours.
                               Shown by class rather than by name -- a second
-                              warmer is data, like everything else. */}
-                          {classOf(book, thing.goods) === "warmer" && (
+                              warmer is data, like everything else. Only where
+                              there is a cold to spend it on: on Terra there is
+                              none, and in the heat a warmer is no rescue
+                              (D-348) -- the world refuses both in words, and a
+                              button that can only be refused is not a choice. */}
+                          {classOf(book, thing.goods) === "warmer" &&
+                            look.frost?.climate === "frost" && (
                             <button
                               role="menuitem"
                               onClick={() => send("frost.warm", { item: thing.id })}

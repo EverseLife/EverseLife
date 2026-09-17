@@ -90,8 +90,8 @@ def normalize_constants(raw: Mapping[str, Any], renames: RenameTable) -> dict[st
     #: themselves: what a vehicle class carries and how fast ("тачка",
     #: "повозка"). The lowercase forms are admitted for them alone; a word with
     #: no class yet ("судно") stays as written and becomes reachable when its
-    #: class arrives. The chat leak table left this list with D-291: its keys
-    #: are class names now and go through the merged table like any other.
+    #: class arrives. The chat leak table was the third of them until D-291
+    #: keyed it by class, and it is gone from the vault altogether with D-349.
     lowered = {name.lower(): entry_id for name, entry_id in table.items()}
     lowercase_keyed = (
         "transport.speed_k",

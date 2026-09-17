@@ -161,7 +161,7 @@ async def test_the_board_does_not_count_who_has_set_out(
     (D-290 п. 1). The body keeps the node it left in `node_id` until the arrival,
     and counted by that alone the board showed the mayor people the city does
     not hold -- the same slip the room's list and the talk's crowd were mended
-    of. A sleeper is counted: they lie in the city (OQ-180)."""
+    of. A sleeper is counted: they lie in the city (OQ-187)."""
     from datetime import UTC, datetime
 
     from src.engine import travel

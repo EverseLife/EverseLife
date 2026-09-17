@@ -178,7 +178,9 @@ async def _people(session: AsyncSession, nodes: list[uuid.UUID], *, since: datet
     left. Counted, they made the mayor's board show people the room does not
     hold -- the same slip `people.here` and the talk's crowd were mended of.
     A sleeper is counted: they lie in the city, and whether that is a person
-    of the place is a question of its own (OQ-180).
+    of the place is a question of its own (OQ-187). Not the talk's question,
+    which D-349 settled for the room: what a crowd does to a whisper and what
+    a mayor's board calls a citizen are two different readings of one body.
     """
     if not nodes:
         return {"here": 0, "printed": 0}

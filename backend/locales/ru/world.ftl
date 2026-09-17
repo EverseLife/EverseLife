@@ -172,7 +172,8 @@ oxygen-suit-stays-on-road = дорога в «{ $node }» идёт снаруж�
 
 # $weather — климат планеты, ключ: frost (мерзлота, Аврора) или heat (пекло,
 # Пироксис). Механика одна, знак обратный: мёрзлый узел обогревают, а узел на
-# пекле не остудить ничем — прохладен только борт (D-230, D-231, D-233).
+# пекле не остудить ничем — прохладен только борт. Тело на пекле выручают
+# борт и скафандр (D-230, D-231, D-233, D-348).
 frost-node-frozen = { $weather ->
         [heat] узел «{ $node }» раскалён: «{ NAME($station) }» здесь не работает — остудить узел нельзя
        *[frost] узел «{ $node }» промёрз: «{ NAME($station) }» здесь не работает. Тепло даёт «{ NAME($plant) }», «{ NAME($heater) }» или «{ NAME($brazier) }» с топливом
@@ -182,7 +183,7 @@ frost-asleep = тело спит: сначала проснуться
 frost-not-a-warmer = «{ NAME($goods) }» не греет: для этого есть «{ NAME($warmer) }»
 frost-warmer-from-hands = грелку достают из рук
 frost-no-cold-here = здесь не мёрзнут: греться незачем, а грелка одноразовая
-frost-warmer-frost-only = на пекле грелка не спасает: тут выручают скафандр и борт корабля
+frost-warmer-frost-only = на пекле грелка не спасает: выручают скафандр и борт корабля
 frost-reserve-full = теплозапас и так полон ({ NUMBER($have, minimumFractionDigits: 1, maximumFractionDigits: 1) } ч из { NUMBER($ceiling, minimumFractionDigits: 1, maximumFractionDigits: 1) }): грелку берегут на холод
 
 # --- энергия (engine/energy.py) ----------------------------------------------

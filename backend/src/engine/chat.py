@@ -216,8 +216,8 @@ async def _members(session: AsyncSession, group_id: uuid.UUID) -> list[uuid.UUID
     walked out hears nothing until `leave_groups` catches up with them, and a
     sleeper hears nothing at all -- `hear` refuses them (D-091, D-211), so the
     live line must not reach them either. Asked of the delivery alone: what the
-    leak costs is priced by the room (`_people_in`), and that count is a
-    question of its own (OQ-180)."""
+    leak costs is priced by the room (`_people_in`), and that count is another
+    matter, settled the other way: a sleeper is counted there (D-349)."""
     group = await session.get(ChatGroup, group_id)
     if group is None:
         return []

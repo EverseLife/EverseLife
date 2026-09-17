@@ -320,21 +320,25 @@ async def use_warmer(
     #: melts in the sleep, and that is exactly the mistake the planet kills for.
     if body.sleeping_since is not None:
         raise FrostError(key="frost-asleep")
-    if catalog.recipes.resolve(item.type_key) != WARMER:
-        raise NotWarmer(key="frost-not-a-warmer", goods=item.type_key, warmer=WARMER)
-    pocket = await world.body_container(session, body)
-    if item.container_id != pocket.id:
-        raise FrostError(key="frost-warmer-from-hands")
+    #: The climate is the outer door and answers before the thing in the hand
+    #: does: `frost-not-a-warmer` sends the player for a warmer, and where no
+    #: warmer would work that advice is a wrong turn. On Terra and in the heat
+    #: the answer is the same whatever is being rubbed together.
     node = await session.get(Node, body.node_id)
     weather = None if node is None else await climate_of(session, node)
     if weather is None:
         raise FrostError(key="frost-no-cold-here")
     #: A brick of warmth in the middle of the scorching heat is not a rescue
-    #: (D-348): what saves a body there is the suit and the ship's board
-    #: (D-231). Refused in words rather than allowed in silence -- the reserve
-    #: there is a reserve of coolness, and a warmer filling it read as a joke.
+    #: (D-348): what saves a body there is the spacesuit and the ship (D-231).
+    #: Refused in words rather than allowed in silence -- the reserve there is
+    #: a reserve of coolness, and a warmer filling it read as a joke.
     if weather == HEAT:
         raise FrostError(key="frost-warmer-frost-only")
+    if catalog.recipes.resolve(item.type_key) != WARMER:
+        raise NotWarmer(key="frost-not-a-warmer", goods=item.type_key, warmer=WARMER)
+    pocket = await world.body_container(session, body)
+    if item.container_id != pocket.id:
+        raise FrostError(key="frost-warmer-from-hands")
 
     before = await settle(session, constants, catalog, body, now=moment)
     ceiling = await limit_of(session, constants, catalog, body, weather)
