@@ -346,9 +346,10 @@ async def _fly(
     #: locks no tanks. And a crew's hands reach their own hull only: what is
     #: within reach is the pocket and the yard of the node one stands in
     #: (`liquid.within_reach`, D-315), so nobody but this crew can be holding
-    #: a body and waiting for these tanks. The day reaching grows past one
-    #: node -- a convoy, a hose from hull to hull -- this paragraph is the one
-    #: to read again.
+    #: a body and waiting for these tanks. D-289 promises a line across a
+    #: gangway for refuelling a rescued hull, and that promise is what would
+    #: take the condition away: it is written down as OQ-176, and this is the
+    #: paragraph it points at.
     stamp = now if outcome not in ("moored", "struck") else _moment_of(now, t1, t)
     _write_state(ship, r, v, at=stamp)
 
@@ -365,16 +366,21 @@ async def _fly(
         #: **Whether the engines are out is the tanks' word, and the tanks are
         #: asked under the lock** -- the budget the stretch was flown on was a
         #: reading, and a hand may have poured either way since. Poured out
-        #: from under a burning engine, the line cannot pay for the minute just
-        #: flown: the minute stands, because it happened, and the engines are
+        #: from under a burning engine, the line cannot pay for the stretch just
+        #: flown: the stretch stands, because it happened, and the engines are
         #: out from here -- the same drift as tanks that ran dry, which is what
-        #: they did. Poured in, the line still has more than the minute cost,
+        #: they did. Poured in, the line still holds more than the stretch cost,
         #: and a hull the stale reading called dry is not stranded for it: it
-        #: flew the minute on less thrust than it could have and carries on.
+        #: flew on less thrust than it could have, and carries on.
         #:
-        #: Corrected rather than put off to the next minute: a stretch put off
-        #: once is put off again by the next pour, and a hull could be kept
-        #: from arriving -- or from dying -- a minute at a time.
+        #: Corrected rather than put off to the next stretch: one put off once
+        #: is put off again by the next pour, and a hull could be kept from
+        #: arriving -- or from dying -- a stretch at a time. What a hand can buy
+        #: that way is bounded by the line as the reading saw it, and it is
+        #: bought once: an unpaid stretch leaves a drifter, and a drifter has no
+        #: order left to fly the trick on. A stretch is `now - sky_at` and not a
+        #: minute, so after an idle worker that bound is hours of thrust rather
+        #: than one minute's -- still one stretch, still once.
         if aboard + _FUEL_EPS < need:
             outcome = "adrift" if outcome == "flying" else outcome
         elif outcome == "adrift" and aboard > need + _FUEL_EPS:
