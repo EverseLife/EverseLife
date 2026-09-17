@@ -138,7 +138,9 @@ async def print_body(session: AsyncSession, identity: Identity, node: Node) -> B
     return body
 
 
-async def lock_bodies(session: AsyncSession, ids: Iterable[uuid.UUID]) -> list[Body]:
+async def lock_bodies(
+    session: AsyncSession, ids: Iterable[uuid.UUID], *, skip_locked: bool = False
+) -> list[Body]:
     """Several bodies' rows, locked for the transaction and reread, in id order.
 
     A body's row is what queues everything done to it and its hands (D-211):
@@ -152,6 +154,14 @@ async def lock_bodies(session: AsyncSession, ids: Iterable[uuid.UUID]) -> list[B
     may have moved the body or ended it; and the command's memory goes with
     the wait (`forget`) for the same reason. A body that is not there is simply
     absent from the answer.
+
+    `skip_locked` is for the one holder that must not **wait** here: one that
+    already holds something the row's holder may be reaching for, and would
+    knot with them. A busy row is then absent from the answer rather than
+    waited on, and whatever the caller meant to write on it is that caller's
+    to leave to its next pass (`oxygen._breathe`). Not a way to avoid
+    contention -- a row skipped is a body **not settled**, and a caller that
+    cannot say that plainly must take the row in its proper place instead.
     """
     wanted = sorted(set(ids))
     if not wanted:
@@ -162,7 +172,7 @@ async def lock_bodies(session: AsyncSession, ids: Iterable[uuid.UUID]) -> list[B
                 select(Body)
                 .where(Body.id.in_(wanted))
                 .order_by(Body.id)
-                .with_for_update()
+                .with_for_update(skip_locked=skip_locked)
                 .execution_options(populate_existing=True)
             )
         )

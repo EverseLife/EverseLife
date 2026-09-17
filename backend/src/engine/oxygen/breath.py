@@ -9,6 +9,7 @@ support's line -- and the deaths when either runs dry.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from decimal import ROUND_FLOOR, Decimal
 
@@ -43,6 +44,7 @@ from src.engine.oxygen.supply import (
 from src.engine.ship import lines
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState
+from src.models.inventory import Item
 from src.models.ship import Ship
 from src.models.world import Node
 from src.units import (
@@ -279,6 +281,33 @@ async def _breathing(session: AsyncSession, body: Body) -> None:
         await session.flush()
 
 
+def _counting_down(crew: Sequence[Body]) -> bool:
+    """Whether anybody aboard is already on the countdown.
+
+    Their row is written whichever way the stretch ends -- the grace back, or
+    the death -- so a hull with one of them has business with its crew before
+    it touches a thing aboard (`_breathe`).
+    """
+    return any(member.choking_since is not None for member in crew)
+
+
+def _on_the_line(stacks: Sequence[Item]) -> int:
+    """Thousandths of air standing on the line, as the reading found them.
+
+    What the stretch asks of the line is compared against this and against
+    what `stock.consume` actually takes, so both are counted in the grid the
+    line is kept in -- a float sum would make "exactly enough" a coin toss.
+
+    Asked of the **first** reading of a stretch and no other. A reading taken
+    after a wait hands back rows already in the session, with the amounts they
+    were loaded with (`lines.stacks_in` does not `populate_existing`, as
+    `lines.hold_of` can be asked to), so a later one is a list of ids for
+    `stock.lock_items` to relock -- and the amounts that matter after that are
+    the ones the lock reread.
+    """
+    return sum(stack.amount for stack in stacks)
+
+
 # --- the hull's own hours ------------------------------------------------------
 
 
@@ -333,7 +362,42 @@ async def _breathe(
     *,
     now: datetime,
 ) -> tuple[float, int]:
-    """One hull's stretch: breathe it off the life support's line, count the dead."""
+    """One hull's stretch: breathe it off the life support's line, count the dead.
+
+    **The hull's row, then its crew, then the hull's things.** Everybody who
+    acts takes their own body first and the things after -- `_alive` is the
+    prologue of every command (D-211) -- so a sweep that will write a crew row
+    takes the crew before it touches anything aboard, the way the loss of a
+    hull does (`ship.fate._lose`). Taken the other way round, this stretch held
+    the oxygen standing on the line and waited for a body, while the pour
+    emptying that very vessel held the body and waited for the stack, and the
+    database untied the two by killing one of them -- the player's own command
+    as readily as the tick (`test_races_ship_air.py`). The pour is only the
+    nearest door: every command that reaches a thing aboard holds a body first.
+
+    **And only when it has business with them.** A stretch the line covers
+    writes no crew row at all, and holding the whole crew every minute would
+    queue their every act behind the tick for nothing -- the rows are held to
+    the end of the whole oxygen step (`tick._oxygen`), not just this hull's
+    stretch. What it will write is decided under the hull's row alone, before
+    the first thing aboard is touched, off a reading of the line: a draw the
+    line does not cover means the countdown or the death, and a member already
+    counting down means the grace to give back. The bays are poured out after
+    that decision and not before it -- a vessel on a bay's line is one a hand
+    can be holding too.
+
+    The reading is taken before the bays breathe, so it is short by what they
+    are about to give: a hull living off its hydroponics with nothing standing
+    on the line reads short every minute and takes its crew every minute, for
+    a stretch the bays then cover. Bearable because such a hull is a hull with
+    no buffer at all -- a stretch's draw is a thousandth or two -- and one that
+    fills up within a few stretches; counting what the bays will give would
+    cost a reading of the beds before every stretch that does not need one.
+
+    The decision can also be wrong the other way, when a hand empties the line
+    between the reading and the lock: that is the `skip_locked` below, and the
+    one case where the crew's rows are taken late and so not waited for.
+    """
     locked = (
         (
             await session.execute(
@@ -364,17 +428,6 @@ async def _breathe(
         else []
     )
 
-    #: The beds breathe first (D-340): what they gave this stretch is air the
-    #: crew may breathe in it. They breathe with nobody aboard as well -- a
-    #: culture grows whoever watches it.
-    await garden.breathe_out(session, constants, catalog, locked, hold, hours)
-
-    if not crew:
-        #: Nobody aboard breathes nothing, and the life support has no reason
-        #: to run: an empty hull in flight arrives with its tanks as it left.
-        await session.flush()
-        return 0.0, 0
-
     #: What the last stretches breathed and the line could not be asked for is
     #: asked for first, and only whole thousandths are asked -- the rest waits
     #: on the hull, under the lock `air_at` is written under. A stretch is a
@@ -386,20 +439,55 @@ async def _breathe(
     #: would refuse the tick otherwise. The same carry as a body outside
     #: (`settle`), and kept on the hull, not on the stamp, for the same reason:
     #: an open hatch moves the stamp and would forgive it.
+    #:
+    #: Counted here rather than after the bays, because the crew is taken by
+    #: this number and the crew comes before the bays: what they give this
+    #: stretch changes what the line holds, never what it owes.
     owed = Decimal(str(hull_draw(constants, len(crew)) * hours)) + Decimal(str(locked.air_owed))
     whole = on_grid(owed, ROUND_AMOUNT, ROUND_FLOOR)
     want = amount(whole)
+
+    #: The line, read: what the decision above is made of, and -- when nothing
+    #: pours into it meanwhile -- the very list the write-off locks, so the
+    #: reading is taken once and not twice.
+    stacks = (
+        await breathable_stacks(session, constants, catalog, locked, things=hold)
+        if want > 0
+        else []
+    )
+    #: `None` while the crew has not been taken: an empty list is a crew that
+    #: stepped off while its rows were waited for, and the two end differently.
+    held: list[Body] | None = None
+    if want > 0 and (_on_the_line(stacks) < want or _counting_down(crew)):
+        held = await vessels.lock_crew(session, locked)
+        #: Reread after the wait, as `lock_crew` rereads the crew: whoever
+        #: held a row may have been unbolting the system or the vessel the
+        #: line hangs on, and the hold is what says which of them still stand.
+        hold = await lines.hold_of(session, locked, fresh=True)
+        stacks = await breathable_stacks(session, constants, catalog, locked, things=hold)
+
+    #: The beds breathe (D-340): what they gave this stretch is air the crew
+    #: may breathe in it. They breathe with nobody aboard as well -- a culture
+    #: grows whoever watches it -- and they pour into vessels, so they come
+    #: after the crew's rows and not before them.
+    if await garden.breathe_out(session, constants, catalog, locked, hold, hours) > 0:
+        #: Something landed in the vessels: the reading above no longer says
+        #: what stands on the line, and a stack poured into an empty one is not
+        #: in it at all.
+        stacks = await breathable_stacks(session, constants, catalog, locked, things=hold)
+
+    if not crew:
+        #: Nobody aboard breathes nothing, and the life support has no reason
+        #: to run: an empty hull in flight arrives with its tanks as it left.
+        await session.flush()
+        return 0.0, 0
     if want <= 0:
         #: Nothing whole to ask for, so nothing is learnt about the line
         #: either: the crew's countdown stands as the last settling left it.
         locked.air_owed = on_grid(owed, ROUND_REMAINDER, ROUND_FLOOR)
         await session.flush()
         return 0.0, 0
-    stacks = await stock.lock_items(
-        session,
-        await breathable_stacks(session, constants, catalog, locked, things=hold),
-        ordered=True,
-    )
+    stacks = await stock.lock_items(session, stacks, ordered=True)
     #: What was **actually** written off is what was breathed, not what the
     #: reading promised: another hand may have poured the cylinder out between
     #: the two, and a crew credited with air it never had would live through an
@@ -415,23 +503,41 @@ async def _breathe(
     await session.flush()
 
     if not short:
-        for member in crew:
+        #: The grace back, to the rows that were taken for it. Where none were,
+        #: the reading said nobody was counting down -- and a member who walked
+        #: aboard counting down since is given it by the next stretch, which
+        #: reads them and takes their row first.
+        for member in held or ():
             await _breathing(session, member)
         return drawn, 0
+
+    if held is None:
+        #: The line covered the draw as it was read and did not as it was
+        #: locked: a hand emptied it in between, and the reading the decision
+        #: was made of was wrong. The rows are taken now all the same -- a
+        #: stretch that let the crew off would be a stretch bought by winning
+        #: that race, and it can be entered again every minute -- but
+        #: **without waiting**: waiting here, with the line's stacks in hand,
+        #: is the knot this order exists to untie. Whoever emptied the line
+        #: has committed to have emptied it, so their row is free and they are
+        #: settled like everybody else; only a row somebody is holding at this
+        #: instant is left out, and left to the next stretch, which reads the
+        #: dry line and takes the rows in their proper place.
+        held = await vessels.lock_crew(session, locked, skip_locked=True)
 
     #: The hull ran dry. One settling of grace, exactly as outside: a stretch
     #: only half covered kills nobody, and the next one begun on empty tanks
     #: does. The whole crew shares one hull, so it shares one countdown.
     #:
     #: Every member's row is written below -- the countdown or the death --
-    #: so it is taken before the first of them, in id order, and the death
-    #: then reaches into hands it already holds (`vessels.lock_crew`). Only
-    #: here: a stretch the tanks covered writes a crew row only to give the
-    #: grace back, and has no business queueing the whole crew's acts.
-    crew = await vessels.lock_crew(session, locked)
+    #: and each was taken above, in id order, before the first thing aboard;
+    #: the death then reaches into hands the stretch already holds
+    #: (`vessels.lock_crew`).
+    crew = held
     if not crew:
-        #: All of them stepped off while the rows were waited for: nobody is
-        #: left to choke, and nobody to tell.
+        #: All of them stepped off while the rows were waited for -- or, on
+        #: the way in above, were all of them busy: nobody is left to choke,
+        #: and nobody to tell.
         return drawn, 0
     dead = 0
     for member in crew:

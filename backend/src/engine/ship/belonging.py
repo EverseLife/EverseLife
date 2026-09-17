@@ -72,7 +72,7 @@ async def crew_of(session: AsyncSession, ship: Ship) -> list[Body]:
     return await _living_in(session, {node.id for node in await nodes_of(session, ship)})
 
 
-async def lock_crew(session: AsyncSession, ship: Ship) -> list[Body]:
+async def lock_crew(session: AsyncSession, ship: Ship, *, skip_locked: bool = False) -> list[Body]:
     """The crew, their rows locked for the transaction and reread, in id order.
 
     For whoever is about to kill a crew: the air run out (`oxygen._breathe`),
@@ -86,6 +86,30 @@ async def lock_crew(session: AsyncSession, ship: Ship) -> list[Body]:
     Reread, since the wait was for whoever held a row: a member who died
     meanwhile or stepped off the hull is not this hull's to kill.
 
+    **The hull's row, then its crew, then the hull's things** -- not only the
+    things in their hands. A crew member is a pair of hands that can reach
+    anything aboard, and every command they act through holds their body first
+    and the thing after (`_alive`, D-211): a pour off a tank, a sack off the
+    floor, a chest opened. So a hull's stretch that held the oxygen standing on
+    the life support's line and then waited here for a body met the pour
+    emptying that very vessel head on -- it held the body and waited for the
+    stack -- and the database untied the two by killing one, the player's own
+    command as readily as the tick (`test_races_ship_air.py`). The loss of a
+    hull keeps the order by taking the crew before anything else it touches
+    (`fate._lose`); the stretch keeps it by deciding under the hull's row
+    alone, off a reading, whether it will write a crew row at all, and taking
+    them then (`oxygen._breathe`) -- because holding the whole crew every
+    minute would queue their every act behind the tick for a stretch that
+    writes no row of theirs. Deciding off a reading can be wrong, and the
+    holder that finds out too late passes `skip_locked`: a row somebody is
+    holding is then left to them and to the next pass, which is the one thing
+    that may not be done by waiting.
+
+    **One place still owes this order**: `helm._fly` locks the hull's fuel
+    stacks for the whole step and only then learns that the step ends on the
+    ground, and `fate.strike` reaches here with those stacks in hand. The same
+    knot, not yet untied -- it has no race test either.
+
     **One hull at a time.** A transaction that loses several -- the helm
     striking two in one pass, a companion lost with its hull, the life support
     over a fleet -- takes their crews hull by hull, and across hulls the id
@@ -98,7 +122,9 @@ async def lock_crew(session: AsyncSession, ship: Ship) -> list[Body]:
     found = await _living_in(session, aboard)
     return [
         body
-        for body in await world.lock_bodies(session, [body.id for body in found])
+        for body in await world.lock_bodies(
+            session, [body.id for body in found], skip_locked=skip_locked
+        )
         if body.state is BodyState.ALIVE and body.node_id in aboard
     ]
 

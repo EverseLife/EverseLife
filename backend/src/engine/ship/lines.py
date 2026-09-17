@@ -214,13 +214,21 @@ def plumbed_for(
     return (*recipe_ports(catalog, recipe), *((lube_port(),) if automat else ()))
 
 
-async def hold_of(session: AsyncSession, ship: Ship) -> list[Item]:
+async def hold_of(session: AsyncSession, ship: Ship, *, fresh: bool = False) -> list[Item]:
     """What lies and stands in the rooms aboard -- one level, no insides.
 
     The lines want the vessels themselves and the machines beside them;
     `physics._things` walks into the vessels as well, for the mass. Read here
     without that second level, so the oxygen floor can ask for a reading of
     the hull without pulling physics in behind it.
+
+    `fresh` rereads the rows **in place** -- for a caller that read the hold,
+    then waited for a lock, and must not go on by what it read before the
+    wait (`oxygen._breathe` waits there for the crew's rows). A plain query
+    would not do it: a row already in the session is handed back with the
+    attributes it was loaded with, and whether the thing still **stands** is
+    one of them -- so a system unbolted during the wait went on breathing for
+    a crew it no longer connects (D-288, D-308).
     """
     nodes = await nodes_of(session, ship)
     if not nodes:  # pragma: no cover -- a ship always has its connector
@@ -228,7 +236,10 @@ async def hold_of(session: AsyncSession, ship: Ship) -> list[Item]:
     yards = select(Container.id).where(
         Container.kind == ContainerKind.NODE, Container.owner_id.in_([node.id for node in nodes])
     )
-    rows = await session.execute(select(Item).where(Item.container_id.in_(yards)))
+    stmt = select(Item).where(Item.container_id.in_(yards))
+    if fresh:
+        stmt = stmt.execution_options(populate_existing=True)
+    rows = await session.execute(stmt)
     return list(rows.scalars().all())
 
 
