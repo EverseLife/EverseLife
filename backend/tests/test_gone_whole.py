@@ -10,7 +10,8 @@ and each lost a different half:
 * the fire over a field (D-197) and the fall of a house (D-244) died on the
   harness -- `fk_harness_item_id_item` -- and took the whole eruption or the
   whole daily decay down with them, every day again; so did the finish of a
-  batch taking apart a barrow somebody had harnessed meanwhile;
+  batch taking apart a barrow somebody had harnessed meanwhile -- which
+  D-346 has since made unreachable, and the test at that seam now says so;
 * the fire, the rift under a walker (D-233), a death and the taking apart of
   a thing left the hold behind, and the load in it alive for ever in a place
   that no longer exists;
@@ -41,6 +42,7 @@ from src.engine import (
     travel,
     world,
 )
+from src.models.craft import BatchState, CraftBatch
 from src.models.estate import Building
 from src.models.identity import Body, BodyState
 from src.models.inventory import Container, Item
@@ -327,16 +329,21 @@ async def test_a_barrow_lost_in_a_death_goes_with_its_load(
 # --- a batch, a breakdown -------------------------------------------------------
 
 
-async def test_a_barrow_taken_apart_lets_go_of_the_harness_put_on_it_meanwhile(
+async def test_a_barrow_put_down_from_a_waiting_batch_is_not_taken_apart(
     factory: async_sessionmaker[AsyncSession], constants: Constants, catalog: Catalog
 ) -> None:
-    """Nothing pins a thing being taken apart to the hands (D-209).
+    """A thing under the knife does not leave the hands while the work goes (D-346).
 
-    The master starts on the barrow, puts it down in the yard, and a carter
-    harnesses to it while the batch runs. The finish takes the barrow out of
-    the world, and the harness lets go of it. Before, the delete died on the
-    harness, and the job failed on the same wall at every retry: the batch
-    never finished, and the bench stayed taken.
+    This seam used to read the other way: nothing pinned the target, so the
+    master put the barrow down mid-batch, a carter harnessed it, and the
+    finish took it out of the world from under them -- the delete died on the
+    harness and the job failed at every retry. D-346 shuts both halves. While
+    the batch **goes**, the drop is refused in words. While it **waits** its
+    turn it pins nothing, so the barrow may be put down and harnessed -- and
+    then the end finds nothing on the bench: the barrow stays whole under its
+    harness and the batch closes with no materials. So the finish no longer
+    meets a harness at all; that `destroy` lets one go is the fire's and the
+    falling roof's business, above.
     """
     async with factory() as session, session.begin():
         node = await _place(session)
@@ -345,24 +352,39 @@ async def test_a_barrow_taken_apart_lets_go_of_the_harness_put_on_it_meanwhile(
         await world.grant_item(
             session, await world.node_container(session, node), "workbench", origin="test"
         )
-        barrow = await world.grant_item(
-            session, await world.body_container(session, master), BARROW, origin="test"
-        )
-        work = await craft.recycle(session, constants, catalog, master, barrow)
-        await storage.drop(session, constants, catalog, master, barrow)
-        await transport.harness(session, constants, catalog, carter, barrow)
-        term, ids = work.ready_at, (carter.id, barrow.id)
-    carter_id, barrow_id = ids
+        pocket = await world.body_container(session, master)
+        going_on = await world.grant_item(session, pocket, BARROW, origin="test")
+        queued_on = await world.grant_item(session, pocket, BARROW, origin="test")
+        going = await craft.recycle(session, constants, catalog, master, going_on)
+        #: One body works one batch (D-209): the second waits its turn.
+        queued = await craft.recycle(session, constants, catalog, master, queued_on)
+        assert queued.state is BatchState.WAITING
+
+        with pytest.raises(world.TakenApart):
+            await storage.drop(session, constants, catalog, master, going_on)
+
+        await storage.drop(session, constants, catalog, master, queued_on)
+        await transport.harness(session, constants, catalog, carter, queued_on)
+        term, ids = going.ready_at, (carter.id, queued_on.id, queued.id)
+    carter_id, barrow_id, queued_id = ids
 
     finished = await jobs.run_one(factory, now=term)
-    assert finished is not None and finished.state is JobState.DONE, "the finish failed"
+    assert finished is not None and finished.state is JobState.DONE, "the first finish failed"
+    async with factory() as session:
+        waiting = await session.get(CraftBatch, queued_id)
+        assert waiting is not None and waiting.ready_at is not None, "the queue moved on"
+        later = waiting.ready_at
+
+    second = await jobs.run_one(factory, now=later)
+    assert second is not None and second.state is JobState.DONE, "the finish failed"
 
     async with factory() as session:
+        assert await session.get(Item, barrow_id) is not None, "the barrow stayed whole"
         body = await session.get(Body, carter_id)
         assert body is not None
-        assert await session.get(Item, barrow_id) is None, "the barrow was taken apart"
-        assert await transport.harnessed(session, body) is None, "a harness outlived the barrow"
-        assert await _owned_by(session, barrow_id) == [], "the hold outlived its barrow"
+        assert await transport.harnessed(session, body) is not None, "the harness holds"
+        batch = await session.get(CraftBatch, queued_id)
+        assert batch is not None and batch.state is BatchState.DONE, "the batch closed empty"
 
 
 async def test_a_broken_cart_leaves_no_hold_behind(

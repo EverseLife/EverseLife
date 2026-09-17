@@ -103,6 +103,7 @@ breed-not-enough-seeds = на питомник нужно { $need } семян �
 breed-nursery-done = этот питомник уже разобран
 breed-nursery-not-ready = питомник созреет: { $left }
 thing-gone = «{ NAME($goods) }» здесь больше нет: пока вы тянулись, этого не стало
+thing-taken-apart = вещь разбирают — из рук она не уйдёт, пока идёт работа: «{ NAME($goods) }»
 breed-parent-gone = родительский сорт исчез
 breed-not-stable = сорт ещё не постоянен: имя даётся тому, что даёт тот же результат из раза в раз
 breed-not-the-author = называет сорт тот, кто его вывел

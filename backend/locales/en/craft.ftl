@@ -25,10 +25,12 @@ craft-body-without-identity = a body without an identity
 
 craft-zero-batch = a batch of zero units
 craft-batch-too-big = no more than { NUMBER($most, maximumFractionDigits: 0) } units are made at a time, and { NUMBER($units, maximumFractionDigits: 0) } were asked for
+craft-recycle-too-big = no more than { NUMBER($most, maximumFractionDigits: 0) } units are taken apart at a time, and the stack holds { NUMBER($units, maximumFractionDigits: 3) }: split part of the stack off first
+craft-already-in-work = this is already in work, wait for the batch to end: “{ NAME($goods) }”
 craft-counted-whole = “{ NAME($goods) }” is counted in pieces: a batch of whole units
 craft-not-learned = the recipe “{ NAME($recipe) }” is not copied into the identity
 craft-not-enough = not enough “{ NAME($goods) }”: { $short } more needed
-craft-item-not-in-hands = the item is not in hand: you repair and dismantle your own, not another's
+craft-item-not-in-hands = the item is not in hand: you repair and take apart your own, not another's
 
 craft-no-place = not here: { NAME($place) }
 craft-build-on-ice = “{ NAME($goods) }” is never put up on an ice field: the ice creeps and cracks under its footing

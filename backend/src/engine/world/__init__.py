@@ -81,7 +81,9 @@ from src.engine.world.people import (  # noqa: F401
 )
 from src.engine.world.things import (  # noqa: F401
     LIBRARY,
+    LIVE,
     SAMENESS,
+    TakenApart,
     body_container,
     contents,
     grant_item,
@@ -93,7 +95,9 @@ from src.engine.world.things import (  # noqa: F401
     node_things,
     node_yard,
     nodes_with_station,
+    require_not_taken_apart,
     stack_up,
     station_names,
+    taken_apart,
     thing_kinds,
 )

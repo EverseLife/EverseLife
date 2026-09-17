@@ -123,7 +123,7 @@ async def load(
     into = await stall(session, node, body.identity_id, lock=True)
 
     want = _volume(_catalog(), type_key, quantity)
-    await _worn_stays_home(session, inventory, type_key, want)
+    await _kept_in_hands(session, inventory, type_key, want)
     if _catalog().recipes.is_liquid(split_key(type_key)[0]):
         #: A liquid is poured, not put (D-255): out of the vessels in the
         #: hands into the terminal's tank -- the cells behind the counter are
@@ -155,21 +155,21 @@ async def load(
     return amount_float(moved)
 
 
-async def _worn_stays_home(
+async def _kept_in_hands(
     session: AsyncSession, inventory: Container, type_key: str, want: int
 ) -> None:
-    """A worn thing is not laid out (D-305) -- and the counter says so.
+    """A worn thing is not laid out (D-305), nor one under the knife (D-346)
+    -- and the counter says so.
 
-    `_stacks` already keeps it out of the picking, so the pack on the back is
-    never the one that goes. That alone, though, answers a seller with one
-    worn pack by loading nought and saying nothing, and short of a word they
-    would look for their goods rather than for the strap on their shoulder.
-    So the shortfall is named where it is caused, and only where it is: with
-    enough loose ones on hand the worn one is simply not among them.
+    `_stacks` already keeps both out of the picking, so the pack on the back is
+    never the one that goes, nor the hammer on the bench. That alone, though,
+    answers a seller with one worn pack by loading nought and saying nothing,
+    and short of a word they would look for their goods rather than for the
+    strap on their shoulder. So the shortfall is named where it is caused, and
+    only where it is: with enough loose ones on hand the held one is simply not
+    among them.
     """
     kind = split_key(type_key)[0]
-    if _catalog().recipes.slot_of(kind) is None:
-        return
     rows = (
         (
             await session.execute(
@@ -179,14 +179,22 @@ async def _worn_stays_home(
         .scalars()
         .all()
     )
-    loose, worn = 0, False
+    apart = await world.taken_apart(session, rows)
+    wearable = _catalog().recipes.slot_of(kind) is not None
+    loose, worn, cut = 0, False, False
     for item in rows:
-        if await gear.is_worn(session, item):
+        if item.id in apart:
+            cut = True
+        elif wearable and await gear.is_worn(session, item):
             worn = True
         else:
             loose += item.amount
-    if worn and loose < want:
+    if loose >= want:
+        return
+    if worn:
         raise gear.Worn(key="gear-worn-take-off-first", goods=kind)
+    if cut:
+        raise world.TakenApart(key="thing-taken-apart", goods=kind)
 
 
 async def take(
@@ -341,17 +349,22 @@ async def _stacks(
         .scalars()
         .all()
     )
-    #: What is worn is not on offer (D-305). The counter picks stacks by name
-    #: and quality, not by id, so without this a seller with two packs -- one
-    #: on the back, one in the sack -- could have the wrong one taken off them.
+    #: What is worn is not on offer (D-305), nor what is under the knife
+    #: (D-346). The counter picks stacks by name and quality, not by id, so
+    #: without this a seller with two packs -- one on the back, one in the
+    #: sack -- could have the wrong one taken off them, and a hammer halfway
+    #: through its taking apart would be sold and taken apart all the same.
     #: Only out of a pocket: this also moves cell to cell when a deal settles,
-    #: and a cell behind the counter wears nothing -- asking there would be a
+    #: and a cell behind the counter holds neither -- asking there would be a
     #: query per stack for an answer known in advance.
-    fitting = (
-        [item for item in rows if not await gear.is_worn(session, item)]
-        if container.kind is ContainerKind.BODY
-        else list(rows)
-    )
+    fitting = list(rows)
+    if container.kind is ContainerKind.BODY:
+        apart = await world.taken_apart(session, fitting)
+        fitting = [
+            item
+            for item in fitting
+            if item.id not in apart and not await gear.is_worn(session, item)
+        ]
     if tier is not None:
         fitting = [item for item in fitting if tier_of(constants, _quality(item)) == tier]
     if floor > 0:

@@ -12,6 +12,7 @@ from bisect import bisect_left
 from dataclasses import replace
 from datetime import UTC, datetime
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
@@ -26,6 +27,7 @@ from src.engine.craft._base import (
     NotLearned,
     Plan,
     Procedure,
+    TooBig,
     Unmakeable,
 )
 from src.engine.craft._internal import (
@@ -43,7 +45,7 @@ from src.engine.craft._internal import (
 )
 from src.engine.craft.method_of_making import batch_minutes, procedure, step_hours
 from src.engine.craft.queue import _launch
-from src.engine.world import body_container
+from src.engine.world import LIVE, body_container, lock_thing
 from src.models.craft import BatchKind, CraftBatch
 from src.models.identity import Body, BodyState
 from src.models.inventory import Item
@@ -508,6 +510,11 @@ async def recycle(
     (20-systems/03). Quality carries over to the materials by
     `quality.recycle_carryover`: a good thing taken apart gives better raw
     material, but worse than it was.
+
+    What is named is taken apart whole, and the return and the hours are
+    counted by how much of it there is (D-346): a stack of ten handles is ten
+    handles' work, and a crumb of fibre gives back a crumb of flax, not a
+    whole unit's share of it.
     """
     from src.engine import coin  # noqa: PLC0415 -- lazy: breaks the import cycle with coin
 
@@ -553,12 +560,35 @@ async def _work_on(
     inventory = await body_container(session, body)
     #: One body does one thing (D-211), and a queued batch is not a second.
     await occupation.require_free(session, body, besides=frozenset({occupation.CRAFT}))
+    #: The thing's row is taken for the transaction before its place is asked
+    #: (D-346): a hand passing it over at this very moment would otherwise
+    #: slip between the question and the batch, and the batch would name a
+    #: thing already in somebody else's hands. Through the world's one door,
+    #: which rereads the row and says `thing-gone` in the words of this one.
+    await lock_thing(session, item, gone=CraftError)
     if item.container_id != inventory.id:
         raise CraftError(key="craft-item-not-in-hands")
     #: A repair leaves the thing where it is and is done without taking it off
     #: (D-305); taking it apart ends it, and that comes off first.
     if kind is BatchKind.RECYCLE:
         await gear.require_off(session, item)
+    #: One work on a thing at a time (D-346). A second taking apart would find
+    #: nothing at its end, and a repair queued behind a taking apart would
+    #: spend its materials on a thing that is gone. Waiting batches count too:
+    #: a queued one will come to the bench. Only this body's, though -- a batch
+    #: whose master died with the thing in the pocket lies frozen for ever,
+    #: and it does not bind the next pair of hands to pick the thing up.
+    busy = await session.scalar(
+        select(CraftBatch.id)
+        .where(
+            CraftBatch.body_id == body.id,
+            CraftBatch.target_item_id == item.id,
+            CraftBatch.state.in_(LIVE),
+        )
+        .limit(1)
+    )
+    if busy is not None:
+        raise CraftError(key="craft-already-in-work", goods=item.type_key)
 
     proc = procedure(catalog, item.type_key)
     station = await _station_item(session, body, proc)
@@ -575,14 +605,24 @@ async def _work_on(
                 await session.delete(pick.item)
         await session.flush()
 
-    minutes = batch_minutes(constants, proc, share, wear.effective(constants, station))
+    #: A repair mends one thing. Taking apart takes apart all that was named
+    #: (D-346): the return and the hours go by the amount, so a stack is not
+    #: lost for one piece's share, and a crumb does not fetch a whole one's.
+    #: A stack larger than a batch is refused in words, as making refuses it.
+    units = 1.0
+    if kind is BatchKind.RECYCLE:
+        units = amount_float(item.amount)
+        most = constants[R.CRAFT_BATCH_MAX]
+        if units > most:
+            raise TooBig(key="craft-recycle-too-big", units=units, most=most)
+    minutes = batch_minutes(constants, proc, share * units, wear.effective(constants, station))
     batch = CraftBatch(
         body_id=body.id,
         node_id=body.node_id,
         kind=kind,
         output=item.type_key,
         target_item_id=item.id,
-        units=amount(1),
+        units=amount(units),
         station=None if station is None else station.type_key,
         quality=_num(scale.min if item.quality is None else float(item.quality)),
         spread=_num(scale.min),

@@ -19,7 +19,6 @@ from src.constants import registry as R
 from src.engine import battery, events, stock, travel, world
 from src.engine.gear._base import GearError, NotGear, Unmade
 from src.engine.gear.load import capacity, load_of
-from src.models.craft import BatchKind, BatchState, CraftBatch
 from src.models.event import EventKind
 from src.models.gear import Equipped
 from src.models.identity import Body, BodyState
@@ -58,17 +57,12 @@ async def equip(
     #: A thing under the knife is not put on (D-305): recycling ends it, and
     #: the slot would empty itself when the batch finished. Repair is the
     #: opposite case and deliberately not here -- gear is mended without being
-    #: taken off, and the batch works on the row where it lies.
-    unmade = await session.scalar(
-        select(CraftBatch.id)
-        .where(
-            CraftBatch.target_item_id == item.id,
-            CraftBatch.kind == BatchKind.RECYCLE,
-            CraftBatch.state != BatchState.DONE,
-        )
-        .limit(1)
-    )
-    if unmade is not None:
+    #: taken off, and the batch works on the row where it lies. Asked by the
+    #: rule of D-346, so only a batch at work pins: one that waits, one that is
+    #: over -- cancelled as well as done -- or one whose thing the world took
+    #: away pins nothing. Put on while its batch waits, the thing is simply
+    #: not taken apart at the end.
+    if item.id in await world.taken_apart(session, [item]):
         raise Unmade(key="gear-taken-apart", goods=item.type_key)
 
     over = await _over(session, constants, catalog, body)

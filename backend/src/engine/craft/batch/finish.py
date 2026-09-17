@@ -10,12 +10,13 @@ from __future__ import annotations
 import random
 import uuid
 from datetime import datetime, timedelta
+from decimal import ROUND_FLOOR
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, ConstantError, Constants, current, current_catalog
 from src.constants import registry as R
-from src.engine import events, goods, liquid, vent
+from src.engine import events, gear, goods, liquid, vent
 from src.engine import world as world_engine
 from src.engine.craft._base import (
     CraftError,
@@ -40,8 +41,11 @@ from src.models.job import Job, JobKind
 from src.models.world import Node
 from src.units import (
     PERCENT,
+    ROUND_AMOUNT,
+    ROUND_REMAINDER,
     amount,
     amount_float,
+    on_grid,
 )
 
 
@@ -87,7 +91,7 @@ async def finish(session: AsyncSession, job: Job) -> None:
     if batch.kind is BatchKind.REPAIR:
         made = await _finish_repair(session, constants, batch)
     elif batch.kind is BatchKind.RECYCLE:
-        made = await _finish_recycle(session, constants, catalog, batch, where)
+        made = await _finish_recycle(session, constants, catalog, batch, body, where)
     else:
         made = await _finish_make(session, constants, catalog, batch, body, where, job.run_at)
 
@@ -359,6 +363,7 @@ async def _finish_recycle(
     constants: Constants,
     catalog: Catalog,
     batch: CraftBatch,
+    body: Body,
     where: Container,
 ) -> list[float]:
     """Recycling: the thing is gone, and not all materials came back."""
@@ -372,7 +377,14 @@ async def _finish_recycle(
     #: Under its lock and reread, before a single material comes back: a thing
     #: the fire or a falling roof takes in this same second is not there to be
     #: taken apart, and its planks must not come back out of nothing.
-    item = await _target(session, batch, lock=True)
+    item = await _on_the_bench(session, batch, body)
+    if item is None:
+        #: Nothing on the bench (D-346): the thing left the hands while the
+        #: batch waited -- sold, handed over, put on -- or the world took it
+        #: while the work ran, by a fall or a door that does not ask. The batch
+        #: closes with nothing, and the thing stays whole wherever it now
+        #: lies: nothing is paid for a thing that is not on the bench.
+        return []
     proc = procedure(catalog, batch.output)
     scale = constants[R.QUALITY_SCALE]
 
@@ -380,18 +392,45 @@ async def _finish_recycle(
     share = constants[R.CRAFT_RECYCLE_RETURN] / PERCENT
     quality = scale.max if item.quality is None else float(item.quality)
     back = scale.clamp(quality * carryover)
+    #: As much as was named, or as much as is left of it (D-346): the start
+    #: counted the hours by the stack, and the end pays for what it takes.
+    taken = min(batch.units, item.amount)
+    units = amount_float(taken)
 
     returned: list[float] = []
+    #: What came back into the hands, for the carry rule below (D-265).
+    arrived: list[Item] = []
+    within = await _vessels_reach(session, batch, where)
     for name, per_unit in proc.per_unit.items():
         #: What comes back comes back whole (D-212): a fifth of an ingot is not
         #: an ingot, and taking a thing apart cannot mint one out of rounding.
-        given = amount(goods.whole(name, per_unit * share, catalog=catalog))
+        #: A measured return is floored onto the amount grid for the same
+        #: reason -- `amount()` rounds to the nearest thousandth, and a stack
+        #: split into crumbs would fetch back more than its share -- after the
+        #: float's own doubt is dropped, so 0.4 of thirty is not 11.999.
+        whole = goods.whole(name, per_unit * share * units, catalog=catalog)
+        given = amount(on_grid(on_grid(whole, ROUND_REMAINDER), ROUND_AMOUNT, ROUND_FLOOR))
         if given <= 0:
             continue
         back_into = Item(container_id=where.id, type_key=name, amount=given, quality=_num(back))
         session.add(back_into)
         await world_engine.stack_up(session, back_into)
         returned.append(back)
+        #: A liquid comes back poured, as a batch's yield does (D-230): the
+        #: water of a loaf, the oil of bitumen. What fits in no vessel within
+        #: reach is spilled, and said so.
+        spilled = await liquid.settle(session, catalog, back_into, within)
+        if spilled > 0:
+            await events.record(
+                session,
+                EventKind.STORAGE_SPILLED,
+                actor_identity_id=body.identity_id,
+                node_id=batch.node_id,
+                type_key=name,
+                amount=spilled,
+            )
+        elif len(within) > 1 and not liquid.is_liquid(catalog, name):
+            arrived.append(back_into)
 
     await events.record(
         session,
@@ -399,13 +438,55 @@ async def _finish_recycle(
         item_id=str(item.id),
         type_key=item.type_key,
         cause="recycled",
+        units=units,
     )
-    #: Through the world's one door, so the thing does not leave half of
-    #: itself behind: what lay in a chest or a barrow's hold goes with it
-    #: rather than living on in a container nothing owns, and a harness on it
-    #: lets go rather than failing the finish -- nothing pins the target to
-    #: the hands while the batch runs, so a barrow put down in a yard meanwhile
-    #: may have been harnessed. Whether a full thing may be taken apart at all
-    #: is asked before the work, not here (OQ-177).
-    await world_engine.destroy(session, [item])
+    #: A stack that grew on the bench -- the thing picked back up into a pocket
+    #: holding its twin -- keeps what the batch was not about.
+    if item.amount > taken:
+        item.amount -= taken
+        await session.flush()
+    else:
+        #: Through the world's one door, so the thing does not leave half of
+        #: itself behind: what lay in a chest or a barrow's hold goes with it
+        #: rather than living on in a container nothing owns, and a harness on
+        #: it lets go rather than failing the finish. Whether a full thing may
+        #: be taken apart at all is asked before the work, not here (OQ-177).
+        await world_engine.destroy(session, [item])
+    if arrived:
+        #: Paid into the hands past the carry limit, the materials fall
+        #: underfoot (D-265), weighed after the thing itself has left them: a
+        #: stack taken apart by its amount gives back by its amount, and fifty
+        #: light things can come back as far more than a pair of hands holds.
+        from src.engine import overload  # noqa: PLC0415 -- lazy: cycle via storage, estate
+
+        await overload.settle_load(session, constants, catalog, body, arrived)
     return returned
+
+
+async def _on_the_bench(session: AsyncSession, batch: CraftBatch, body: Body) -> Item | None:
+    """The thing to take apart, if it still lies in the master's hands (D-346).
+
+    Taken under its lock and reread through the batch's own door
+    (`_target(lock=True)`), so that a row this session already holds does not
+    answer with the place it had before the wait -- and so that the end of a
+    recycling asks for the target exactly as the end of a repair does. Where
+    it lies is read under that lock: the doors refuse to carry a thing off
+    only while the work goes, and a batch that waited, a fall, or a door that
+    does not ask can leave it elsewhere. It must not be taken apart in
+    somebody else's hands or off the counter it now lies on.
+
+    Nor on the body: a thing put on while its batch waited is worn, and what
+    is worn is not taken apart (D-305). `None` -- nothing to take apart, and
+    that includes a thing gone from the world altogether.
+    """
+    try:
+        item = await _target(session, batch, lock=True)
+    except CraftError:
+        #: `_target` speaks to a repair, which has a thing to mend or nothing
+        #: to do at all; a recycling that finds nothing simply takes nothing
+        #: apart, and the batch closes empty.
+        return None
+    pocket = await body_container(session, body)
+    if item.container_id != pocket.id or await gear.is_worn(session, item):
+        return None
+    return item

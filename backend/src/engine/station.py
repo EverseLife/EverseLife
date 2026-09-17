@@ -242,6 +242,11 @@ async def place(session: AsyncSession, catalog: Catalog, body: Body, item: Item)
     lying = yard_now is not None and item.container_id == yard_now.id and not item.installed
     if item.container_id != pocket.id and not lying:
         raise StationError(key="station-not-in-hands")
+    #: Put up out of the hands, a thing leaves them without `move_stack`, so
+    #: the rule of the knife is asked here (D-346): a bench halfway through
+    #: its taking apart would stand in the house, and the work would end
+    #: with nothing on the bench.
+    await world.require_not_taken_apart(session, item)
     if not placeable(catalog, item.type_key):
         raise NotStation(key="station-not-placeable", goods=item.type_key)
     if not await may_build(session, body, node):
