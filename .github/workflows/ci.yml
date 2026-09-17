@@ -199,7 +199,11 @@ jobs:
       # never once ran its tests. `uv run --with` builds the environment in
       # uv's cache, the way `uvx` above does, and leaves no venv beside the
       # sources for .gitignore to learn about.
-      - run: uv run --no-project --with-requirements requirements.txt --with pytest --with httpx pytest -q test_app.py
+      #
+      # Every test file in the folder, not `test_app.py` by name: a second one
+      # was added the day the world page grew planets, and a named file would
+      # have left it uncollected -- green, and never run.
+      - run: uv run --no-project --with-requirements requirements.txt --with pytest --with httpx pytest -q
         env:
           LANDING_DB: ./ci-signups.db
 
