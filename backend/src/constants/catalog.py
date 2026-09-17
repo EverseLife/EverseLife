@@ -299,6 +299,23 @@ class RecipeBook(Strict):
         """Whether the thing is a vent gas (D-340): let out or flared, never kept loose."""
         return self.resolve(name) in self._vents
 
+    def store_of(self, name: str) -> float | None:
+        """The thing's capacity as a storage, kg (D-181). None -- not a storage.
+
+        A raw material has no recipe and is no storage: answered by a lookup,
+        not by the exception `recipe` raises.
+        """
+        found = self._by_name.get(self.resolve(name))
+        return found.store if found is not None else None
+
+    def has_inside(self, name: str) -> bool:
+        """Whether a thing of this kind can have anything inside it: a storage
+        has capacity (D-181), a vehicle has a hold (D-157). One question, so no
+        door forgets a half -- the carry limit weighs what is inside by it, and
+        the write-offs keep what holds something out of the work (`stock.holding`)."""
+        found = self._by_name.get(self.resolve(name))
+        return found is not None and (bool(found.store) or found.kind is ItemKind.VEHICLE)
+
     def holds_of(self, name: str) -> str | None:
         """What the thing admits as a storage: `жидкость` for a vessel, None otherwise."""
         found = self._by_name.get(self.resolve(name))

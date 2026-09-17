@@ -532,6 +532,11 @@ function barredHere(
  * engine walks its own reach in `craft.plan` and `craft.most`. The two other
  * things a floor will not give up, a relic and a station built in place, are
  * nobody's recipe input and are not subtracted here.
+ *
+ * Nor is a chest lying here with anything in it (D-344): the engine spends
+ * only an empty one, and its window, sent anyway, says what it weighs. A
+ * vessel lying here carries its fill in `content` instead, and `stockOf` reads
+ * that. A dry chest in the hands has no window, and is counted as it lies.
  */
 export function reachOf(
   look: Pick<
@@ -542,8 +547,17 @@ export function reachOf(
 ): Thing[] {
   const ours = look.floor?.mine === true;
   const barred = ours ? barredHere(look, book) : new Set<string>();
+  const full = new Set(
+    (look.storages ?? [])
+      .filter((chest) => chest.mass > 0 || chest.content.length > 0)
+      .map((chest) => chest.id),
+  );
   const loose = (things: Thing[] | undefined) =>
-    ours ? (things ?? []).filter((thing) => !barred.has(thing.goods)) : [];
+    ours
+      ? (things ?? []).filter(
+          (thing) => !barred.has(thing.goods) && !full.has(thing.id),
+        )
+      : [];
   return [
     ...look.inventory,
     ...(look.convoy?.cargo ?? []),

@@ -72,10 +72,7 @@ class Full(StorageError):
 
 def capacity(catalog: Catalog, type_key: str) -> float | None:
     """The thing's capacity as a storage, kg. `None` -- the thing is not a storage."""
-    try:
-        return catalog.recipes.recipe(type_key).store
-    except Exception:  # noqa: BLE001 -- raw material has no recipe, and that is normal
-        return None
+    return catalog.recipes.store_of(type_key)
 
 
 def is_storage(catalog: Catalog, type_key: str) -> bool:

@@ -19,7 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import current_catalog
-from src.models.inventory import Item
+from src.models.inventory import INSIDE_KINDS, Container, Item
 
 
 async def locked_stacks(
@@ -45,6 +45,11 @@ async def locked_stacks(
     fuel of a plant's pile, kept from the hand, a work and an automat (D-189,
     D-315, D-342) -- in the same query: a stack the consumer may not have is
     never locked.
+
+    **A thing holding something is not among them** (`holding`): the stacks
+    come back to be spent, and a pot spent with water in it takes the water out
+    of the world. It is dropped after the lock, not before, and stays locked --
+    the answer must not change between here and the write-off.
     """
     within = [container_id] if isinstance(container_id, uuid.UUID) else list(container_id)
     stmt = select(Item).where(Item.container_id.in_(within), Item.type_key.in_(tuple(type_keys)))
@@ -59,7 +64,44 @@ async def locked_stacks(
     #: tick counts the coal before it burns it) is reread after the lock,
     #: or the decrement would be written from the value before it.
     stmt = stmt.with_for_update().execution_options(populate_existing=True)
-    return list((await session.execute(stmt)).scalars().all())
+    rows = list((await session.execute(stmt)).scalars().all())
+    held = await holding(session, rows)
+    return [row for row in rows if row.id not in held]
+
+
+async def holding(session: AsyncSession, stacks: Sequence[Item]) -> frozenset[uuid.UUID]:
+    """Those of the stacks that have something inside them (D-344).
+
+    What a storage holds lies in a container of its own, and so does a
+    vehicle's cargo -- tied to the thing by id and not by a foreign key. A
+    write-off deletes the row alone, so a chest, a pot or a barrow spent with
+    something in it leaves that something in a place that no longer exists:
+    the water in the only pot of a battery left the world without a word. So a
+    thing holding anything is not material -- no work takes it as an input and
+    no machine does, as a full chest is not taken down (D-181). Emptied first,
+    it is spent like any other thing.
+
+    Asked of rows the caller has **locked**, where it writes them off: the
+    doors that put something into a storage take its row first
+    (`storage._allowed`, `liquid._lock`), so an answer read under that lock
+    holds until the write-off, and a pour waiting on it finds the vessel gone
+    and pours nowhere. Read before the lock, a pour committing in between would
+    be missed. Loading a hold takes no such lock on the vehicle yet (OQ-177).
+
+    No query at all unless one of the names can hold anything.
+    """
+    book = current_catalog().recipes
+    boxes = {key for key in {stack.type_key for stack in stacks} if book.has_inside(key)}
+    if not boxes:
+        return frozenset()
+    found = await session.execute(
+        select(Container.owner_id).where(
+            Container.kind.in_(INSIDE_KINDS),
+            Container.owner_id.in_([stack.id for stack in stacks if stack.type_key in boxes]),
+            select(Item.id).where(Item.container_id == Container.id).exists(),
+        )
+    )
+    return frozenset(found.scalars().all())
 
 
 async def lock_items(
@@ -98,7 +140,13 @@ async def lock_items(
 async def consume(session: AsyncSession, stacks: Sequence[Item], quantity: int) -> int:
     """Take `quantity` (in amount units) from locked stacks in order, deleting
     what runs empty. Returns what was actually taken -- less than asked when
-    the stacks run out. The caller decides whether that is a refusal."""
+    the stacks run out. The caller decides whether that is a refusal.
+
+    The row alone is deleted, never what lies inside it: a thing holding
+    something must not reach this door, and the gathering doors keep it out
+    (`locked_stacks`, `craft._stock`, both through `holding`). Skipping it here
+    instead would be worse -- the caller has already counted it, and a battery
+    would come out of a pot nobody spent."""
     #: A relic of the Forerunners is not spent (D-232). The guard stands here
     #: rather than at each caller because "consume" is the one door every
     #: write-off goes through: a recipe naming a relic class, a station burning

@@ -30,6 +30,7 @@ craft-already-in-work = вещь уже в работе, дождитесь ко
 craft-counted-whole = «{ NAME($goods) }» считается штуками: партия из целых единиц
 craft-not-learned = рецепт «{ NAME($recipe) }» не скопирован в личность
 craft-not-enough = не хватает «{ NAME($goods) }»: нужно ещё { $short }
+craft-not-enough-empty = не хватает «{ NAME($goods) }»: нужно ещё { $short }. В работу идёт только пустое: из полного сначала забирают вещи или переливают жидкость в другую тару
 craft-item-not-in-hands = вещь не в руках: чинят и разбирают своё, а не чужое
 
 craft-no-place = здесь нет: { NAME($place) }

@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants, current, current_catalog
 from src.constants import registry as R
-from src.engine import goods, liquid, travel, wear
+from src.engine import goods, liquid, stock, travel, wear
 from src.engine.craft import plumbing, power
 from src.engine.craft._base import (
     Busy,
@@ -554,9 +554,10 @@ async def _stock(
     than a copy of it.
 
     Only what **lies** is gathered: a machine, a chest or a piece of furniture
-    put up in the node works and is not spent (D-278). What the place will not
-    give up at all -- a relic, a thing built in place, fuel at a fuel plant --
-    is decided by `Reach.of`, per material.
+    put up in the node works and is not spent (D-278). Nor is a chest, a vessel
+    or a barrow with anything inside it, wherever it lies (D-344). What the
+    place will not give up at all -- a relic, a thing built in place, fuel at a
+    fuel plant -- is decided by `Reach.of`, per material.
 
     `through` narrows a liquid to the storages inside the vessels on a plumbed
     machine's line (D-340), in line order: aboard, the air machine's water is
@@ -628,6 +629,12 @@ async def _stock(
             #: And without what the wait carried off: a canister picked up
             #: meanwhile took its water into somebody's hands.
             rows = _reread(await liquid.lock_gathered(session, catalog, rows))
+        #: A thing holding something is not material (`stock.holding`, D-344):
+        #: the pot of water, the chest laid out in a guess. Asked after the
+        #: lock, so a pour committing meanwhile is seen, and asked by the
+        #: forecast too, so the number before the batch is the batch's.
+        held = await stock.holding(session, rows)
+        rows = [item for item in rows if item.id not in held]
 
     out: dict[str, list[Item]] = {}
     #: Nor is a thing under the knife (D-346): a guess laying out "one hammer"
@@ -707,6 +714,12 @@ def _pick(stock: dict[str, list[Item]], required: dict[str, float]) -> list[_Pic
             picks.append(_Pick(item=item, take=take))
             left -= take
         if left > 0:
+            #: Only an empty chest, vessel or barrow goes into the work (D-344),
+            #: so their shortage is one of empty ones: the master holding a pot
+            #: of water is told why it did not count. Two raises rather than a
+            #: key in a variable: the completeness check reads it off the call.
+            if current_catalog().recipes.has_inside(name):
+                raise NotEnough(key="craft-not-enough-empty", goods=name, short=amount_float(left))
             raise NotEnough(key="craft-not-enough", goods=name, short=amount_float(left))
     return picks
 

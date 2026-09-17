@@ -50,10 +50,7 @@ def has_store(catalog: Catalog, type_key: str) -> bool:
     carry limit is below both `storage` and `transport` in the import order
     and cannot call up to either.
     """
-    try:
-        return bool(catalog.recipes.recipe(type_key).store)
-    except Exception:  # noqa: BLE001 -- raw material has no recipe, and that is normal
-        return False
+    return bool(catalog.recipes.store_of(type_key))
 
 
 def is_vehicle_kind(catalog: Catalog, type_key: str) -> bool:
@@ -68,6 +65,5 @@ def is_vehicle_kind(catalog: Catalog, type_key: str) -> bool:
 
 
 def holds_things(catalog: Catalog, type_key: str) -> bool:
-    """Whether a thing of this kind can have anything inside it: a storage has
-    capacity, a vehicle has a hold. One question, so no door forgets a half."""
-    return has_store(catalog, type_key) or is_vehicle_kind(catalog, type_key)
+    """Whether a thing of this kind can have anything inside it (`RecipeBook.has_inside`)."""
+    return catalog.recipes.has_inside(type_key)

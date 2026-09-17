@@ -30,6 +30,7 @@ craft-already-in-work = this is already in work, wait for the batch to end: “{
 craft-counted-whole = “{ NAME($goods) }” is counted in pieces: a batch of whole units
 craft-not-learned = the recipe “{ NAME($recipe) }” is not copied into the identity
 craft-not-enough = not enough “{ NAME($goods) }”: { $short } more needed
+craft-not-enough-empty = not enough “{ NAME($goods) }”: { $short } more needed. Only an empty one goes into the work: a full one first has its things taken out or its liquid poured into another vessel
 craft-item-not-in-hands = the item is not in hand: you repair and take apart your own, not another's
 
 craft-no-place = not here: { NAME($place) }

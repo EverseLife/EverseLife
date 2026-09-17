@@ -310,7 +310,8 @@ async def start(
 
 
 #: Utensil class from `build/recipes.json`: pot and cauldron set the ceiling
-#: alongside the hearth (D-119). A utensil is a tool, not a container.
+#: alongside the hearth (D-119). A utensil is a tool; the clay pot is a vessel
+#: as well (D-254), and as an input it is spent only empty (D-344).
 UTENSILS = "cookware"
 
 

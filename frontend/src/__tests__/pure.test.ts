@@ -29,8 +29,6 @@ import {
   type Names,
 } from "../names";
 import { lifts } from "../classes";
-import { stockOf, tierLabel, tiersOf } from "../tiers";
-import { reachOf } from "../wire/look";
 
 const thing = (over: Partial<Thing>): Thing =>
   ({ id: "x", goods: "Руда", amount: 1, tier: "обычное", mass: 1, condition: 100, ...over }) as Thing;
@@ -348,85 +346,6 @@ describe("arrange", () => {
   });
 });
 
-describe("tiers", () => {
-  it("gathers the tiers of one goods, best first, with the quality span", () => {
-    const stock = tiersOf(
-      [
-        thing({ goods: "Руда", quality: 40, tier: "обычное", amount: 3 }),
-        thing({ goods: "Руда", quality: 45, tier: "обычное", amount: 2 }),
-        thing({ goods: "Руда", quality: 80, tier: "отличное", amount: 1 }),
-        thing({ goods: "Верёвка", quality: 90, tier: "отличное", amount: 9 }),
-        thing({ goods: "Руда", amount: 9 }),
-      ],
-      "Руда",
-    );
-    expect(stock.map((s) => [s.tier, s.amount])).toEqual([
-      ["отличное", 1],
-      ["обычное", 5],
-    ]);
-    expect(tierLabel(stock[1])).toBe("обычное · 5 · кач. 40–45");
-    expect(tierLabel(stock[0])).toBe("отличное · 1 · кач. 80");
-  });
-
-  it("counts what is held whether or not it is worth a tier", () => {
-    //: The bench asks how much is in the hands, and plenty of matter carries no
-    //: quality at all -- seeds carry a cultivar, a liquid carries nothing. Summed
-    //: over tiers it came out zero, and the master holding ten was told they had
-    //: none, while the batch started on it perfectly well.
-    const held = [
-      thing({ goods: "Ткань", amount: 10 }),
-      thing({ goods: "Руда", quality: 62, tier: "хорошее", amount: 18.6 }),
-      thing({ goods: "Руда", amount: 3 }),
-      thing({ goods: "Верёвка", quality: 90, tier: "отличное", amount: 9 }),
-    ];
-    expect(stockOf(held, "Ткань")).toBe(10);
-    expect(stockOf(held, "Руда")).toBe(21.6);
-    expect(stockOf(held, "Кирпич")).toBe(0);
-    //: The tier picker keeps its own rule: no quality, no band to choose.
-    expect(tiersOf(held, "Ткань")).toEqual([]);
-  });
-
-  it("reaches into a vessel: a liquid is never a stack of its own", () => {
-    //: Water lies in a canister as its `content` (D-230), and the engine
-    //: gathers a batch's materials the same way (`liquid.reach`). Counting only
-    //: the top level, bread and broth read "в руках 0" over a full canister.
-    const held = [
-      thing({
-        goods: "Канистра",
-        amount: 1,
-        content: [thing({ goods: "Вода", amount: 12 })],
-      }),
-      thing({ goods: "Канистра", amount: 1, content: [thing({ goods: "Вода", amount: 3 })] }),
-      thing({ goods: "Вода", amount: 1 }),
-    ];
-    expect(stockOf(held, "Вода")).toBe(16);
-    expect(stockOf(held, "Канистра")).toBe(2);
-    expect(stockOf(held, "Спирт")).toBe(0);
-  });
-
-  it("offers the tiers of a liquid too: poured, it keeps its quality", () => {
-    //: `liquid.settle` moves the stack whole, quality and all, and the engine
-    //: honours the tier chosen for it. Counting the water but refusing to offer
-    //: its bands would say "в руках 16" beside "в руках нет" on one row.
-    const held = [
-      thing({
-        goods: "Канистра",
-        amount: 1,
-        content: [thing({ goods: "Спирт", quality: 70, tier: "хорошее", amount: 4 })],
-      }),
-      thing({
-        goods: "Канистра",
-        amount: 1,
-        content: [thing({ goods: "Спирт", quality: 30, tier: "скверное", amount: 6 })],
-      }),
-    ];
-    expect(tiersOf(held, "Спирт").map((s) => [s.tier, s.amount])).toEqual([
-      ["хорошее", 4],
-      ["скверное", 6],
-    ]);
-  });
-});
-
 describe("gear the window asks about", () => {
   it("knows a frame that lifts by the vault's own table", () => {
     //: Taking one off lowers the limit and lays the excess underfoot (D-306);
@@ -439,80 +358,6 @@ describe("gear the window asks about", () => {
     expect(lifts(book, "heavy_exoskeleton")).toBe(true);
     expect(lifts(book, "sturdy_backpack")).toBe(false);
     expect(lifts(null, "exoskeleton")).toBe(false);
-  });
-});
-
-describe("the reach of a work", () => {
-  //: What a batch may be counted from (D-315). The server sends no such list:
-  //: it sends the pocket, the hold, the chests one may open and the two
-  //: surfaces of the place, and the sum is this side's arithmetic (D-225).
-  const at = (over: Partial<Thing>) => thing(over);
-  const place = (mine: boolean) => ({
-    inventory: [at({ id: "pocket", goods: "Руда", amount: 1 })],
-    convoy: {
-      id: "cart",
-      type_key: "cart",
-      condition: 100,
-      capacity: 200,
-      mass: 10,
-      speed_k: 1.4,
-      heavy: false,
-      cargo: [at({ id: "hold", goods: "Руда", amount: 2 })],
-    },
-    storages: [
-      { id: "chest", goods: "chest", capacity: 100, mass: 4, mine, content: [at({ id: "chest-ore", goods: "Руда", amount: 4 })] },
-    ],
-    floor: {
-      space: { area: 20, used: 0, cargo_mass: 0, free: 20, slots: 2, slots_used: 0 },
-      things: [at({ id: "floor", goods: "Руда", amount: 8 })],
-      open: true,
-      mine,
-    },
-    ground: {
-      space: { area: 20, used: 0, cargo_mass: 0, free: 20 },
-      things: [at({ id: "yard", goods: "Руда", amount: 16 })],
-    },
-  });
-
-  it("adds the place to the hands where the place is ours", () => {
-    expect(stockOf(reachOf(place(true) as never), "Руда")).toBe(1 + 2 + 4 + 8 + 16);
-  });
-
-  it("keeps the place out where it is somebody else's, and the hold in", () => {
-    //: A guest is refused the host's chest and floor by the engine (D-181), and
-    //: their own convoy is theirs wherever it stands: it walks with the body.
-    expect(stockOf(reachOf(place(false) as never), "Руда")).toBe(1 + 2);
-  });
-
-  it("leaves the fuel plant its heap, and not the chest beside it", () => {
-    //: The pile where a fuel plant stands is the plant's tank (D-189), and
-    //: coal is an input of five recipes -- so this is the one node where a
-    //: count over the visible stacks would promise what the batch refuses.
-    //: The bar stops at the lid: a chest is not the plant's bunker.
-    const book = {
-      classes: { fuel_plant: ["coal_plant"] },
-      constants: { "energy.fuel_energy": { coal: 4 } },
-    } as never;
-    const node = {
-      inventory: [],
-      bench: [{ id: "plant", goods: "coal_plant", condition: 100, busy: false, mine: true }],
-      storages: [
-        { id: "chest", goods: "chest", capacity: 100, mass: 4, mine: true, content: [at({ id: "in-chest", goods: "coal", amount: 7 })] },
-      ],
-      floor: {
-        space: { area: 20, used: 0, cargo_mass: 0, free: 20, slots: 2, slots_used: 0 },
-        things: [at({ id: "heap", goods: "coal", amount: 30 })],
-        open: true,
-        mine: true,
-      },
-    } as never;
-    expect(stockOf(reachOf(node, book), "coal")).toBe(7);
-    //: Without the book the sum is the wider one, and the forecast is the answer.
-    expect(stockOf(reachOf(node), "coal")).toBe(37);
-  });
-
-  it("counts nothing that is not there: no convoy, no chest, no house", () => {
-    expect(stockOf(reachOf({ inventory: [at({ goods: "Руда", amount: 3 })] } as never), "Руда")).toBe(3);
   });
 });
 

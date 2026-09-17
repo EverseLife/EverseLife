@@ -19,9 +19,15 @@ export type TierStock = { tier: string; amount: number; low: number; high: numbe
  * batch's materials (`liquid.reach`), so whoever asks what is at hand must
  * reach the same way -- and both questions below ask it, which is why the
  * unpacking lives here rather than in one of them.
+ *
+ * A vessel with anything in it is counted for what is in it and not for
+ * itself: the engine spends only an empty one (D-344), and a full canister
+ * summed as one more canister is a number the batch refuses.
  */
 function reach(things: Thing[]): Thing[] {
-  return things.flatMap((thing) => [thing, ...reach(thing.content ?? [])]);
+  return things.flatMap((thing) =>
+    thing.content?.length ? reach(thing.content) : [thing],
+  );
 }
 
 /**
