@@ -37,7 +37,7 @@ from src.engine.ship._base import (
     TooFar,
     is_orbit,
 )
-from src.engine.ship.command import _commanded_by, _landable, _will_take
+from src.engine.ship.command import _commanded_by, _landable, _still_commanded_by, _will_take
 from src.engine.ship.flight import _cast_off, _fit, _leaving, _passage_of
 from src.engine.ship.physics import mass, sky_days
 from src.models.event import EventKind
@@ -122,6 +122,12 @@ async def fly(
             thrust_ratio=thrust_ratio,
         )
     await session.refresh(ship, with_for_update=True)
+    #: And the captain's row after the hull's, never before it: whoever holds
+    #: both takes the hull first (`ship.lock_crew`), and the captain at the
+    #: bridge is the very crew the life support is about to choke. Taken here
+    #: rather than in the door, because the slider above must be asked with
+    #: neither row held (D-341).
+    body = await _still_commanded_by(session, body, ship)
     if ship.held_ship_id is not None:
         #: On a hold the hull's place is the other hull's: read afresh too.
         await session.get(Ship, ship.held_ship_id, populate_existing=True)

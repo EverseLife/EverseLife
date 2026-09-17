@@ -47,13 +47,13 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from automat_kit import _factory_floor, _learn, _lube_in
+from conftest import Counter
+from net_kit import _capital
 from src.constants import Catalog, Constants
 from src.engine import automat, net, storage, travel, world
 from src.engine import city as town
 from src.models.world import Node
-from tests.automat_kit import _factory_floor, _learn, _lube_in
-from tests.conftest import Counter
-from tests.net_kit import _capital
 
 NOW = datetime(2026, 9, 2, 12, 0, tzinfo=UTC)
 

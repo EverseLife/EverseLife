@@ -196,3 +196,27 @@ async def _commanded_by(session: AsyncSession, body: Body, ship: Ship) -> None:
         raise NotYours(key="ship-console-not-yours")
     if not await _has_bridge(session, ship):
         raise Deaf(key="ship-deaf", ship=ship.name)
+
+
+async def _still_commanded_by(session: AsyncSession, body: Body, ship: Ship) -> Body:
+    """The commander's row, taken **after** the hull's, and the door asked again
+    under both. Returns the row, reread.
+
+    Where an order takes the pair depends on what else it has to take first,
+    but never on which of the two comes first: a hull's row before the bodies
+    of its crew, always (`belonging.lock_crew`). Most orders take the pair in
+    the door (`api.commands.transport._ordered`); two cannot start there and
+    end up here instead -- the crossing, whose slider may be asked under
+    neither row (D-341), and the turn-back, which takes the passage's job row
+    before the hull's (D-242) and so does not begin with the hull at all.
+
+    Asked again, and that is the point of the call rather than a belt on
+    braces: the first `_commanded_by` asked its questions of a body nothing
+    was holding, and the wait was for whoever held the hull -- who may have
+    ended this body, walked it off the gangway or put it on the road.
+    """
+    found = await world.lock_bodies(session, [body.id])
+    if not found:  # pragma: no cover -- a body's row is written, never removed
+        raise ShipError(key="ship-command-dead")
+    await _commanded_by(session, found[0], ship)
+    return found[0]

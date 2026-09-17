@@ -34,3 +34,15 @@ asyncio_mode = "auto"
 
 [tool.ruff]
 line-length = 100
+
+#: The same shape as the server's suite -- `tests/` without an `__init__.py`,
+#: `pythonpath = ["."]` above it -- and so the same trap: naming a sibling
+#: through the package (`tests.brain_kit`) reads the file a second time and
+#: gives it a second copy of everything it keeps at module level. Nothing here
+#: does that today; the ban is what keeps it so. See
+#: `backend/tests/test_one_copy.py` for what it cost when it happened.
+[tool.ruff.lint]
+extend-select = ["TID251"]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"tests" = { msg = "name a sibling of the suite by its bare name: `from brain_kit import FakeGame`" }

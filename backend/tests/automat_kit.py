@@ -3,18 +3,14 @@
 
 """What the automat tests build a factory floor out of.
 
-The floor -- a city yard with a machine, a pool and a funded owner -- and the
-lubricant canister are shared by `test_automat.py`, `test_automat_tick.py`,
-`test_fuel_plant.py` and the race files, `test_races_automat.py`,
-`test_races_automat_stops.py`, `test_races_energy.py` and
-`test_races_liquid.py`; so are the races' handshake -- the plain one and the
-one that holds the first call of a door (`_hold_the_first`) -- and their
-reading of a pool, which the meter's races (`test_races_meter.py`,
-`test_races_meter_land.py`) take as well, and the handshake alone, the races
-over a thing gone from under a reaching hand (`test_races_gone.py`, through
-`gone_kit.py`) -- and the permafrost a floor is carried onto (D-231). That is
-why they are here and not beside one of them (the family's own pattern, see
-`mining_kit.py`).
+The floor -- a city yard with a machine, a pool and a funded owner -- the
+lubricant canister, the reading of a pool and the permafrost a floor is
+carried onto (D-231) are shared by the automat family and every file that
+builds a factory floor to race on it: naming them one by one dated the list
+faster than it was read, so it is not named here. That is why they are here
+and not beside one of them (the family's own pattern, see `mining_kit.py`).
+The races' handshake is not here: it belongs to the whole suite, and lives in
+`conftest.py` beside `_slow`.
 
 Pytest does not collect this file: it holds no tests and no fixtures -- a
 real `@pytest.fixture` must not live here, because the import that puts its
@@ -23,12 +19,10 @@ name in a signature reads as unused to ruff and pytest never finds it.
 
 from __future__ import annotations
 
-import asyncio
 import uuid
 from decimal import Decimal
 
-import pytest
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from src.constants import Constants
@@ -126,64 +120,6 @@ async def _on_aurora(session: AsyncSession, *nodes: Node) -> None:
     for node in nodes:
         node.planet = Planet.AURORA
     await session.flush()
-
-
-_BLOCKED = text("SELECT count(*) FROM pg_stat_activity WHERE :holder = ANY(pg_blocking_pids(pid))")
-
-
-async def _until_blocked_by(
-    factory: async_sessionmaker[AsyncSession],
-    holder: AsyncSession,
-    *,
-    unless: asyncio.Future | None = None,
-) -> bool:
-    """Return once another transaction waits on a lock `holder` holds: `True`.
-
-    A fixed pause would let a busy run release the held rows before the other
-    side reached them, and the race would pass on the very code it exists to
-    catch. Asked by the holder's own backend, so no unrelated wait in the
-    database counts; the activity view is a snapshot per transaction, so each
-    look is a transaction of its own.
-
-    `unless` is the other side's task, for a race about whether that side
-    waits at all: on the code it catches, the other side walks straight
-    through and finishes -- `False` then, and the test fails on what it did
-    rather than on a handshake that never came.
-    """
-    pid = (await holder.execute(text("SELECT pg_backend_pid()"))).scalar_one()
-    async with factory() as probe:
-        for _ in range(500):
-            blocked = (await probe.execute(_BLOCKED, {"holder": pid})).scalar_one()
-            await probe.rollback()
-            if blocked:
-                return True
-            if unless is not None and unless.done():
-                return False
-            await asyncio.sleep(0.01)
-    raise AssertionError("nobody came to wait on the held rows")
-
-
-def _hold_the_first(
-    monkeypatch: pytest.MonkeyPatch,
-    factory: async_sessionmaker[AsyncSession],
-    module: object,
-    name: str,
-) -> asyncio.Event:
-    """The first call of `module.name` holds the rows it locked until another
-    transaction waits on them. The event says they are held; the session is
-    the call's first argument, as it is for every engine door."""
-    held = asyncio.Event()
-    locked = getattr(module, name)
-
-    async def holding(*args, **kwargs):
-        rows = await locked(*args, **kwargs)
-        if not held.is_set():
-            held.set()
-            await _until_blocked_by(factory, args[0])
-        return rows
-
-    monkeypatch.setattr(module, name, holding)
-    return held
 
 
 async def _pool_left(factory: async_sessionmaker[AsyncSession], constants, node_id) -> float:

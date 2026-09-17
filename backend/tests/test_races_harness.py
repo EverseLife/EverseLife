@@ -24,7 +24,7 @@ like any cargo -- the hole the harness and the lift meet in.
   constraint, and the player read "the server failed" instead of the world's
   refusal.
 
-The handshake is `automat_kit._until_blocked_by`: the side that went first
+The handshake is `conftest._until_blocked_by`: the side that went first
 keeps its transaction open, holding the vehicle's row, and commits only once
 the other side has provably walked into it.
 """
@@ -38,7 +38,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from automat_kit import _until_blocked_by
+from conftest import _until_blocked_by
 from gone_kit import _burning, _lifting
 from src.constants import Catalog, Constants
 from src.engine import gear, storage, transport, world

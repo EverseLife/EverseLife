@@ -22,13 +22,13 @@ from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
+from conftest import TEST_DATABASE_URL, reset
 from src.api.app import create_app
 from src.constants import HOLDER, Constants
 from src.constants import registry as R
 from src.engine import pow as device
 from src.engine import world
 from src.models import Account
-from tests.conftest import TEST_DATABASE_URL, reset
 
 
 async def _prepare_world() -> dict:

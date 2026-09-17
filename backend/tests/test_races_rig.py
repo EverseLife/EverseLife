@@ -35,8 +35,7 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from automat_kit import _until_blocked_by
-from conftest import _slow
+from conftest import _slow, _until_blocked_by
 from src.constants import current, current_catalog
 from src.engine import stock, world
 from src.models.identity import Body
