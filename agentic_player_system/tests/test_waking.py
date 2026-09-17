@@ -56,7 +56,7 @@ def test_busy_until_is_the_latest_occupation_that_holds_the_turn() -> None:
         "look": {
             "travel": {"arrives_at": soon.isoformat()},
             "doings": [
-                {"kind": "field", "until": later.isoformat()},
+                {"kind": "road", "until": later.isoformat()},
                 #: Sleep holds the turn by the rule and never by the clock: a
                 #: sleeper is woken by a decision, so the wire carries no term.
                 {"kind": "sleep", "until": None},
@@ -157,7 +157,7 @@ def test_every_occupation_the_engine_defines_is_answered_for() -> None:
     """
     kinds = _engine_kinds()
     #: Sanity on the reader itself before it is trusted as a guard.
-    assert {"road", "field", "sleep", "craft"} <= kinds
+    assert {"road", "survey", "sleep", "craft"} <= kinds
     unknown = waking.HOLDS_THE_TURN - kinds
     assert not unknown, f"kinds the engine no longer defines: {sorted(unknown)}"
     unclassified = kinds - waking.HOLDS_THE_TURN - RUNS_ON_ITS_OWN

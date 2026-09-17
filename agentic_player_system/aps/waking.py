@@ -21,28 +21,35 @@ from typing import Any
 
 #: The states in which the body is not available to the agent at all.
 #: `travel.require_here` -- the door every in-person action goes through --
-#: refuses exactly these three: asleep (D-091), on the road, in the field
-#: (D-152). Nothing the agent could try would not be refused, so waking the
-#: model is tokens for nothing (D-224). `sleep` earns its place by the rule
+#: refuses exactly these two: asleep (D-091) and on the road. Nothing the agent
+#: could try would not be refused, so waking the model is tokens for nothing
+#: (D-224). The field was the third until D-319 rebuilt exploration: a scout
+#: now keeps `node_id` for the whole run and is refused only the road
+#: (`travel-scouting`), so the survey moved to the set below, where the body
+#: acts but must not walk. `sleep` earns its place by the rule
 #: and not by the clock: it carries no term, because a sleeper is woken by a
 #: decision, so it never yields a stamp and the agent does wake on its cadence
 #: to be refused. That is the engine's shape, not something a wait can mend --
 #: the prompt tells the agent to name its own `wait_seconds` when it lies down.
-AWAY = frozenset({"road", "field", "sleep"})
+AWAY = frozenset({"road", "sleep"})
 
 #: The works done standing here, which leaving would cost. A batch comes off
 #: the bench with its time left and the bench goes to whoever is here, on
 #: walking out and on lying down alike (D-209, D-211: `craft.freeze`); a repair
 #: stops the same way (D-218: `estate.pause`). A search is worse than either:
 #: `forage` deletes the row the first time the body is seen in another node,
-#: and the find and the stamina already spent on it go with it (D-210).
+#: and the find and the stamina already spent on it go with it (D-210). A
+#: survey is the same kind of loss held shut from the other side: the scout
+#: keeps standing in the node they set out from, and the road is what is
+#: refused them (`travel.depart`, `travel-scouting`), so the run is not walked
+#: away from -- it is waited out or turned back from by hand (D-319, D-327).
 #:
 #: The agent is not helpless during one of these -- everything that asks only
 #: `require_here` is open, so it may trade, talk, write and equip, and only a
 #: second occupation is refused (`occupation.require_free`). What it must not
 #: do is walk, and walking to a market or a field is the ordinary next thought.
 #: So the wait is a default that keeps the work whole, not a cage.
-ON_THE_SPOT = frozenset({"forage", "craft", "mend"})
+ON_THE_SPOT = frozenset({"forage", "survey", "craft", "mend"})
 
 #: Every kind the agent waits out. What is in neither set costs nothing to
 #: walk away from -- a plough, a bed's watering, a keel, and since D-310 a
