@@ -17,13 +17,15 @@ Checked is what the mechanic exists for:
 from __future__ import annotations
 
 import uuid
+from decimal import Decimal
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
-from src.engine import station, storage, world
+from src.engine import rest, station, storage, travel, world
 from src.models.estate import Building
+from src.models.identity import BodyState
 from src.models.world import PLOT
 from src.units import amount_float
 
@@ -294,6 +296,65 @@ async def test_full_chest_is_not_handed_over(
     )
     with pytest.raises(gear.Overloaded):
         await storage.hand(session, constants, catalog, giver, taker, chest)
+
+
+async def test_hands_asleep_or_on_the_road_take_nothing_until_back(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Here is asked of the taker as of the giver (D-345).
+
+    The node does not say it: a sleeper lies where they lay down, and a body
+    on the road keeps the node it left until it arrives. The refusal lasts
+    exactly as long as the absence -- woken, or turned back, the same hands
+    take the same parcel.
+    """
+    node, _, giver = await _yard(session)
+    taker = await world.print_body(
+        session, await world.create_identity(session, f"Neighbour-{uuid.uuid4().hex[:6]}"), node
+    )
+    parcel = await _goods(session, giver, 2)
+    far = await world.create_node(session, f"terra.far.{uuid.uuid4().hex[:8]}", "Far", area_m2=50)
+    await travel.connect(session, node, far, base_seconds=600)
+
+    taker.stamina = Decimal("40")
+    await rest.sleep(session, constants, taker)
+    with pytest.raises(storage.StorageError) as asleep:
+        await storage.hand(session, constants, catalog, giver, taker, parcel, 1)
+    assert asleep.value.key == "storage-taker-asleep"
+    await rest.wake(session, constants, taker)
+    assert await storage.hand(session, constants, catalog, giver, taker, parcel, 1) == 1
+
+    await travel.depart(session, constants, taker, far)
+    assert taker.node_id == node.id
+    with pytest.raises(storage.StorageError) as away:
+        await storage.hand(session, constants, catalog, giver, taker, parcel, 1)
+    assert away.value.key == "storage-taker-in-transit"
+    await travel.turn_back(session, taker)
+    assert await storage.hand(session, constants, catalog, giver, taker, parcel, 1) == 1
+    hands = await world.body_container(session, taker)
+    held = [thing for thing in await world.contents(session, hands) if thing.type_key == GOODS]
+    assert sum(amount_float(thing.amount) for thing in held) == 2
+
+
+async def test_a_dead_taker_is_told_dead_only_in_the_room(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The taker's id comes off the wire: across the map a body is absent, not dead."""
+    node, _, giver = await _yard(session)
+    taker = await world.print_body(
+        session, await world.create_identity(session, f"Neighbour-{uuid.uuid4().hex[:6]}"), node
+    )
+    parcel = await _goods(session, giver, 1)
+    taker.state = BodyState.DEAD
+    with pytest.raises(storage.StorageError) as here:
+        await storage.hand(session, constants, catalog, giver, taker, parcel)
+    assert here.value.key == "storage-dead-receives"
+
+    far = await world.create_node(session, f"terra.far.{uuid.uuid4().hex[:8]}", "Far", area_m2=50)
+    taker.node_id = far.id
+    with pytest.raises(storage.StorageError) as elsewhere:
+        await storage.hand(session, constants, catalog, giver, taker, parcel)
+    assert elsewhere.value.key == "storage-person-not-here"
 
 
 async def test_chest_in_a_chest_takes_its_contents_room(
