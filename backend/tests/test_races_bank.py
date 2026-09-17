@@ -22,8 +22,8 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from bank_kit import _borrower, _city_with_turnover, _home
-from conftest import _slow
+from bank_kit import _borrower, _city_with_turnover, _debtor_of_two_overdue_loans, _home
+from conftest import _hold_the_first, _slow
 from src.constants import current, current_catalog
 from src.constants import registry as R
 from src.engine import city as town
@@ -31,6 +31,12 @@ from src.engine import ledger, world
 from src.models.identity import Identity
 from src.models.ledger import AccountKind, PostingReason
 from src.units import MONEY_SCALE, money
+
+#: What the prisoner's ore is worth in the two races below. A work-off that
+#: ran out at the first loan would leave the two passes contending over a
+#: single row, and one row cannot ABBA -- so it has to cover both, and each
+#: race weighs it against the debt rather than trusting the number.
+ORE_FOR_BOTH_LOANS = money(200)
 
 
 async def test_two_loans_of_the_same_room_leave_one_refused(
@@ -244,59 +250,134 @@ async def test_collection_and_the_prison_do_not_deadlock_on_one_debtor(
     constants,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Two passes reach for the same debtor's loans, and must take them alike.
+    """The collection takes the debtor's loans first, the work-off comes to them.
 
-    The daily collection runs in the worker, the prison's work-off in a
-    player's command, and a debtor with two loans is where they meet. Locking
-    one loan at a time in two different orders is a textbook ABBA: `Loan.id` is
-    a random uuid, so any business order -- oldest first, for instance --
-    disagrees with it about half the time, and Postgres kills one side with a
-    raw deadlock. Here the two orders are made to disagree on purpose.
+    Locking one loan at a time in two different orders is a textbook ABBA:
+    `Loan.id` is a random uuid, so any business order -- oldest first, for
+    instance -- disagrees with it about half the time, and Postgres kills one
+    side with a raw deadlock. `_debtor_of_two_overdue_loans` makes the two
+    orders disagree on purpose and leaves both loans open under the
+    withholding, so the second pass has two rows to reach for and not one.
+
+    The handshake is `_until_blocked_by` and not a guessed pause: the
+    collection holds the rows it locked until the work-off provably waits on
+    them, and the helper fails the test outright if nobody ever comes to wait.
+    Rewrite the collection to take its loans one at a time and oldest first,
+    and this test dies of `DeadlockDetectedError`.
     """
     from src.engine import bank
     from src.engine.bank import loan as loan_module
     from src.models.bank import Loan
 
-    catalog = current_catalog()
-    #: The debtor's own city lends to them and pays for them (D-281, D-174):
-    #: the prisoner works off a debt of the city whose citizen they are.
-    who = await _borrower(session, funds=300, turnover=100_000)
-    city = await _home(session, who)
-    assert city is not None
-    treasury = await town.treasury(session, city)
-    genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
-    await ledger.transfer(
-        session, PostingReason.GENESIS, debit=genesis.id, credit=treasury.id, amount=money(1000)
-    )
-    await bank.reserve_account(session)
-    debts = [await bank.borrow(session, constants, catalog, who, 50) for _ in range(2)]
+    who, city, owed = await _debtor_of_two_overdue_loans(session, constants, current_catalog())
+    assert owed < ORE_FOR_BOTH_LOANS, "руды должно хватить на оба займа и на процент по ним"
 
-    #: The two orders are made to disagree: the loan with the larger id is the
-    #: older one, so "oldest first" and "by id" name different rows first.
-    long_ago = datetime.now(UTC) - timedelta(days=constants[R.DEBT_GRACE_PERIOD] + 5)
-    for number, debt in enumerate(sorted(debts, key=lambda one: one.id, reverse=True)):
-        debt.taken_at = long_ago + timedelta(hours=number)
-        debt.accrued_at = debt.taken_at
-        debt.serviced_at = debt.taken_at
-    await session.commit()
-
-    _slow(monkeypatch, loan_module, "_locked")
+    #: `accrue` is the first thing either pass does to a loan it has taken, so
+    #: by the time it is called the rows are under the lock -- all of them at
+    #: once while the order is kept, and only the first of them if it is not.
+    #: The hold replaces one name in one module, which is enough only because
+    #: `collect` and `repay` both live in `loan.py` and read it from their own
+    #: globals: move either into a sibling room of the package and the pause
+    #: goes quiet (`conftest._slow` covers a package, this does not).
+    held = _hold_the_first(monkeypatch, factory, loan_module, "accrue")
 
     async def withhold() -> int:
         async with factory() as db, db.begin():
             return await bank.collect(db, constants)
 
     async def workoff() -> int:
+        #: The collection is provably holding the debtor's loans by now. With a
+        #: deadline, because the suite has none of its own: a handshake that
+        #: never comes must fail the run and not hang it.
+        await asyncio.wait_for(held.wait(), timeout=5)
         async with factory() as db, db.begin():
             own = await town.by_id(db, city.id)
             assert own is not None
-            return await bank.prison_credit(db, constants, own, who.id, money(50))
+            return await bank.prison_credit(db, constants, own, who.id, ORE_FOR_BOTH_LOANS)
 
+    race_began = datetime.now(UTC)
     outcomes = await asyncio.gather(withhold(), workoff(), return_exceptions=True)
     assert not [one for one in outcomes if isinstance(one, Exception)], outcomes
+    withheld, credited = outcomes
+    #: Both passes did their work on the contended rows: a run where either of
+    #: these is nothing is a run in which the order of locking was never asked
+    #: anything at all.
+    assert withheld > 0, "удержание прошло мимо просроченных займов"
+    assert credited > 0, "отработка прошла мимо открытых займов"
 
     async with factory() as db:
         after = (await db.execute(select(Loan).where(Loan.identity_id == who.id))).scalars().all()
+        #: `repay` is the only thing in this race that stamps `serviced_at`:
+        #: the withholding leaves it alone on purpose, so that the insolvent do
+        #: not hang in the grace period forever. A stamp from inside the race is
+        #: therefore the work-off's own mark, and both rows carry one -- had the
+        #: work-off stopped at the first loan, the two passes would have
+        #: contended over a single row, and one row cannot ABBA.
+        assert len([one for one in after if one.serviced_at >= race_began]) == 2, (
+            "отработка дошла до обоих займов, иначе перекрёстка на двух строках не было"
+        )
+        assert sum(one.interest_paid for one in after) <= sum(
+            one.interest_accrued for one in after
+        ), "уплаченный процент не может обогнать начисленный: он покупает лимит"
+
+
+async def test_the_prison_ahead_of_collection_does_not_deadlock_on_one_debtor(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    constants,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The same two passes, the other way round -- and the other half of the guard.
+
+    Which side arrives first is not a detail here: the pass that gets the rows
+    first is the only one that can be holding one of them while it reaches for
+    another, so it is the only one whose order the deadlock can catch. With the
+    collection ahead, a work-off that went back to locking its loans one at a
+    time and oldest first would simply queue up behind it and pass. Hence this
+    test, where the work-off is ahead; written that way, it dies of
+    `DeadlockDetectedError`.
+
+    The collection is not expected to withhold anything here: the work-off
+    services both loans under it, and what the collection re-reads once the
+    rows come free is a debt serviced this second and overdue no longer. That
+    it reached for those rows at all is what `_until_blocked_by` establishes --
+    it fails the test if nobody ever comes to wait on the held rows.
+    """
+    from src.engine import bank
+    from src.engine.bank import loan as loan_module
+    from src.models.bank import Loan
+
+    who, city, owed = await _debtor_of_two_overdue_loans(session, constants, current_catalog())
+    assert owed < ORE_FOR_BOTH_LOANS, "руды должно хватить на оба займа и на процент по ним"
+
+    held = _hold_the_first(monkeypatch, factory, loan_module, "accrue")
+
+    async def workoff() -> int:
+        async with factory() as db, db.begin():
+            own = await town.by_id(db, city.id)
+            assert own is not None
+            return await bank.prison_credit(db, constants, own, who.id, ORE_FOR_BOTH_LOANS)
+
+    async def withhold() -> int:
+        #: The work-off is provably holding the debtor's loans by now, and the
+        #: wait has a deadline for the same reason as in the race above.
+        await asyncio.wait_for(held.wait(), timeout=5)
+        async with factory() as db, db.begin():
+            return await bank.collect(db, constants)
+
+    race_began = datetime.now(UTC)
+    outcomes = await asyncio.gather(workoff(), withhold(), return_exceptions=True)
+    assert not [one for one in outcomes if isinstance(one, Exception)], outcomes
+    credited = outcomes[0]
+    assert credited > 0, "отработка прошла мимо открытых займов"
+
+    async with factory() as db:
+        after = (await db.execute(select(Loan).where(Loan.identity_id == who.id))).scalars().all()
+        #: The work-off's own mark on both rows again, read as in the race
+        #: above: `serviced_at` from inside the race can only be `repay`'s.
+        assert len([one for one in after if one.serviced_at >= race_began]) == 2, (
+            "отработка дошла до обоих займов, иначе перекрёстка на двух строках не было"
+        )
         assert sum(one.interest_paid for one in after) <= sum(
             one.interest_accrued for one in after
         ), "уплаченный процент не может обогнать начисленный: он покупает лимит"
