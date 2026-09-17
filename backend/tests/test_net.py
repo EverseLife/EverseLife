@@ -24,6 +24,7 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from net_kit import _capital
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import city as town
@@ -32,7 +33,6 @@ from src.models.city import Power
 from src.models.identity import BodyState
 from src.models.net import NetChannel, NetSubscription
 from src.models.world import Layer, Planet
-from tests.net_kit import _capital
 
 NOW = datetime(2026, 8, 22, 12, 0, tzinfo=UTC)
 
