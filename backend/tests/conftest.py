@@ -316,6 +316,73 @@ def _slow(monkeypatch: pytest.MonkeyPatch, module: object, name: str, delay: flo
                 monkeypatch.setattr(namespace, attr, held)
 
 
+_BLOCKED = text("SELECT count(*) FROM pg_stat_activity WHERE :holder = ANY(pg_blocking_pids(pid))")
+
+
+async def _until_blocked_by(
+    factory: async_sessionmaker[AsyncSession],
+    holder: AsyncSession,
+    *,
+    unless: asyncio.Future | None = None,
+) -> bool:
+    """Return once another transaction waits on a lock `holder` holds: `True`.
+
+    A fixed pause would let a busy run release the held rows before the other
+    side reached them, and the race would pass on the very code it exists to
+    catch. Asked by the holder's own backend, so no unrelated wait in the
+    database counts; the activity view is a snapshot per transaction, so each
+    look is a transaction of its own.
+
+    `unless` is the other side's task, for a race about whether that side
+    waits at all: on the code it catches, the other side walks straight
+    through and finishes -- `False` then, and the test fails on what it did
+    rather than on a handshake that never came.
+
+    Shared by the race files (`test_races*.py`), which is why it lives here
+    and not beside one of them: the technique is the suite's, not one
+    domain's.
+    """
+    pid = (await holder.execute(text("SELECT pg_backend_pid()"))).scalar_one()
+    async with factory() as probe:
+        for _ in range(500):
+            blocked = (await probe.execute(_BLOCKED, {"holder": pid})).scalar_one()
+            await probe.rollback()
+            if blocked:
+                return True
+            if unless is not None and unless.done():
+                return False
+            await asyncio.sleep(0.01)
+    raise AssertionError("nobody came to wait on the held rows")
+
+
+def _hold_the_first(
+    monkeypatch: pytest.MonkeyPatch,
+    factory: async_sessionmaker[AsyncSession],
+    module: object,
+    name: str,
+) -> asyncio.Event:
+    """The first call of `module.name` holds the rows it locked until another
+    transaction waits on them. The event says they are held; the session is
+    the call's first argument, as it is for every engine door.
+
+    Shared by the race files (`test_races*.py`), which is why it lives here
+    and not beside one of them: the technique is the suite's, not one
+    domain's.
+    """
+    held = asyncio.Event()
+    locked = getattr(module, name)
+
+    async def holding(*args, **kwargs):
+        rows = await locked(*args, **kwargs)
+        if not held.is_set():
+            held.set()
+            await _until_blocked_by(factory, args[0])
+        return rows
+
+    monkeypatch.setattr(module, name, holding)
+    return held
+
+
 class Counter:
     """How many statements the database was actually asked to run.
 

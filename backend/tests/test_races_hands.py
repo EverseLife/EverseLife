@@ -26,7 +26,7 @@ unless the handover takes it.
 * and a parcel for a body standing somewhere else, whose row the handover
   must not take at all: the id comes off the wire.
 
-The handshake is `automat_kit._until_blocked_by`: the side that went first
+The handshake is `conftest._until_blocked_by`: the side that went first
 keeps its transaction open and commits only once the other side has provably
 walked into one of its rows -- or, on the code the race exists to catch, once
 the other side has walked straight through and finished.
@@ -44,8 +44,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from automat_kit import _until_blocked_by
-from conftest import _slow
+from conftest import _slow, _until_blocked_by
 from src.api.commands.things import _ground_drop, _ground_pick, _item_hand
 from src.constants import Catalog, Constants
 from src.constants import registry as R

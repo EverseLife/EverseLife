@@ -11,7 +11,7 @@ them off: whoever draws after the wait must ask again, under the vessel's own
 lock, where the vessel is. And the yard may gain a vessel while the tick holds
 it: whatever the tick pours into must be what it locked, or the new one is
 taken after the stacks, against a pour taking it first. The handshake is
-`automat_kit._until_blocked_by`: the side holding the contended rows lets go
+`conftest._until_blocked_by`: the side holding the contended rows lets go
 only once the other side has provably walked into them.
 
 A canister the fire takes is not raced here: the fire deletes what is inside
@@ -30,7 +30,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from agro_kit import field, growing, liquid_in, programmed, second_now
-from automat_kit import LUBRICANT, _factory_floor, _learn, _lube_in, _until_blocked_by
+from automat_kit import LUBRICANT, _factory_floor, _learn, _lube_in
+from conftest import _until_blocked_by
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import agro, automat, liquid, stock, storage, world

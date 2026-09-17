@@ -22,7 +22,7 @@ lock, and the races come in pairs of who goes first:
   machine standing, not unbolt it into the guest's hands past the one door
   that asks whose the place is (D-278, D-308).
 
-The handshake is `automat_kit._until_blocked_by`: the side that went first
+The handshake is `conftest._until_blocked_by`: the side that went first
 keeps its transaction open, holding the contended row, and commits only once
 the other side has provably walked into it.
 """
@@ -36,7 +36,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from automat_kit import _until_blocked_by
+from conftest import _until_blocked_by
 from gone_kit import _burning, _lifting
 from src.constants import Catalog, Constants
 from src.engine import gear, liquid, station, storage, world

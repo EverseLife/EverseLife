@@ -11,7 +11,7 @@ master at a powered machine (D-269), or the owner reprogramming a machine --
 and the owner's purse and the pool, which the tick draws only after the
 machines have worked.
 
-The handshake is `_until_blocked_by`: the side holding the contended rows
+The handshake is `conftest._until_blocked_by`: the side holding the contended rows
 lets go only once the other side has provably walked into them.
 """
 
@@ -26,15 +26,8 @@ import pytest
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from automat_kit import (
-    IRON,
-    NAILS,
-    _factory_floor,
-    _learn,
-    _lube_in,
-    _pool_left,
-    _until_blocked_by,
-)
+from automat_kit import IRON, NAILS, _factory_floor, _learn, _lube_in, _pool_left
+from conftest import _until_blocked_by
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import automat, battery, craft, energy, ledger, liquid, stock, storage, world
