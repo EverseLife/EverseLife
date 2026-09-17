@@ -126,6 +126,20 @@ FONTS = {p.name for p in FONTS_DIR.glob("*.woff2")} if FONTS_DIR.is_dir() else s
 #: The files are immutable per deploy; a new version gets a new name.
 FONT_CACHE = "public, max-age=31536000, immutable"
 
+#: The pictures of the planets' grounds, which the world page wraps round
+#: spheres (`space.js`). Baked from the game's own field by
+#: `tools/planet_pictures.py` and committed here: the landing does not call
+#: the game, and a quarter of a megabyte a planet is not something to fetch
+#: twice. Listed from the folder for the same reason the fonts are -- only a
+#: name that exists is reachable, so a path can never walk out of it.
+PLANETS_DIR = Path(__file__).parent / "planets"
+PLANETS = {p.name for p in PLANETS_DIR.glob("*.png")} if PLANETS_DIR.is_dir() else set()
+#: A day, like the social cards, and no `stale-while-revalidate`: a planet's
+#: picture changes only with a deploy, but when it does the reader must not
+#: go on being served last week's world out of a cache that thinks it may.
+#: The name carries no version to make it immutable by.
+PLANET_CACHE = "public, max-age=86400"
+
 #: The public origin: canonical URL, sitemap and the social cards all hang off it.
 SITE = "https://everse.life"
 
@@ -363,6 +377,17 @@ def font(name: str) -> Response:
         FONTS_DIR / name,
         media_type="font/woff2",
         headers={"Cache-Control": FONT_CACHE},
+    )
+
+
+@app.get("/planets/{name}")
+def planet(name: str) -> Response:
+    if name not in PLANETS:
+        return JSONResponse({"ok": False, "error": "not found"}, status_code=404)
+    return FileResponse(
+        PLANETS_DIR / name,
+        media_type="image/png",
+        headers={"Cache-Control": PLANET_CACHE},
     )
 
 
