@@ -221,9 +221,10 @@ class Body(Base):
     #: **no reserve beside it**: the oxygen is in the cylinder the body carries,
     #: not in the body, and a copy of how full it is here would be a second
     #: place to keep one number. What the pair with `choking_since` says is only
-    #: how long ago the last accounting was and whether the last one came up
-    #: short: a body that had nothing to breathe for a whole stretch is given
-    #: one more, and dies on the next.
+    #: how long ago the last accounting was and whether the last one that asked
+    #: the cylinder came up short: a body that had nothing to breathe for a
+    #: whole stretch is given one more, and dies on the next. A stretch too
+    #: short to ask for a thousandth decides neither.
     air_at: Mapped[datetime] = created_column()
     #: Air already breathed that the cylinder could not be asked for. Air is
     #: split into thousandths, and a step on an airless world can cost less

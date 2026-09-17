@@ -166,6 +166,10 @@ line-name-too-long = a vessel's name is longer than { $limit } characters: that 
 oxygen-no-suit = nothing to breathe in “{ $node }”: without a “{ NAME($suit) }” no tank will help, however many lie in the bag
 oxygen-tanks-empty = nothing to breathe in “{ $node }”: the tanks are empty, refill aboard
 oxygen-not-enough = the way to “{ $node }” needs { NUMBER($need, minimumFractionDigits: 1, maximumFractionDigits: 1) } oxygen, and the tanks hold { NUMBER($have, minimumFractionDigits: 1, maximumFractionDigits: 1) }: the crossing would end in suffocation
+# The suit neither comes off nor gives its slot to a non-suit where it is the only breath (D-343).
+oxygen-suit-stays-on = nothing to breathe in “{ $node }”: the “{ NAME($suit) }” comes off aboard or where there is air
+# On the road is outside (D-343): a body on a leg still counts where it set out from.
+oxygen-suit-stays-on-road = the road to “{ $node }” runs outside, with nothing to breathe: the “{ NAME($suit) }” comes off aboard or where there is air, not on the way
 
 # --- cold and heat (engine/frost/) -------------------------------------------
 

@@ -28,7 +28,7 @@ import {
   tierName,
   type Names,
 } from "../names";
-import { lifts } from "../classes";
+import { lifts, pushesSuitOff, suitSlot } from "../classes";
 
 const thing = (over: Partial<Thing>): Thing =>
   ({ id: "x", goods: "Руда", amount: 1, tier: "обычное", mass: 1, condition: 100, ...over }) as Thing;
@@ -358,6 +358,29 @@ describe("gear the window asks about", () => {
     expect(lifts(book, "heavy_exoskeleton")).toBe(true);
     expect(lifts(book, "sturdy_backpack")).toBe(false);
     expect(lifts(null, "exoskeleton")).toBe(false);
+  });
+
+  it("keeps the suit on where only it breathes, and only there", () => {
+    //: D-343: the air reading already says "outside, suit worn", and the worn
+    //: things say which slot -- the window needs no key of its own (D-225).
+    const book = { classes: { spacesuit: ["heatproof_suit", "pyroxite_suit"] } } as never;
+    const suit = thing({ id: "s", goods: "heatproof_suit", slot: "body" });
+    const worn = { body: suit, back: thing({ id: "p", goods: "sturdy_backpack", slot: "back" }) };
+    const outside = { where: "suit", units: 6, per_hour: -0.5, at: "", suit: true } as const;
+
+    expect(suitSlot(book, outside, worn)).toBe("body");
+    expect(suitSlot(book, { ...outside, where: "aboard" }, worn)).toBeNull();
+    expect(suitSlot(book, undefined, worn)).toBeNull();
+    //: A bare body keeps nothing on: there is nothing to keep.
+    expect(suitSlot(book, { ...outside, suit: false }, worn)).toBeNull();
+
+    const coat = thing({ id: "c", goods: "insulated_suit", slot: "body" });
+    const other = thing({ id: "o", goods: "pyroxite_suit", slot: "body" });
+    const pack = thing({ id: "b", goods: "sturdy_backpack", slot: "back" });
+    expect(pushesSuitOff(book, "body", coat)).toBe(true);
+    expect(pushesSuitOff(book, "body", other)).toBe(false);
+    expect(pushesSuitOff(book, "body", pack)).toBe(false);
+    expect(pushesSuitOff(book, null, coat)).toBe(false);
   });
 });
 

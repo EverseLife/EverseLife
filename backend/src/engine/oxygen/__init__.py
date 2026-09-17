@@ -47,13 +47,17 @@ last settled -- the way `body.warmth_at` is a stamp for the cold.
 
 The engine refuses the step onto an airless node without a suit and without a
 cylinder with something in it (D-233): death by ignorance in one click is not
-this world's way. After that the countdown is on the screen the whole time --
-the cylinder's units and the ship's tanks are both ordinary readings -- and
-what kills is the mistake somebody watched, not the door.
+this world's way. For the same reason the suit does not come off there, nor
+give its slot to anything that is not a suit (D-343): the connection is the one
+half of breathing no reading counts down. After that the countdown is on the
+screen the whole time -- the cylinder's units and the ship's tanks are both
+ordinary readings -- and what kills is the mistake somebody watched, not the
+door.
 
 One settling of grace is deliberate: a stretch the oxygen only half covered
 drains the reserve to nothing and kills nobody. It is the next stretch, begun
-with nothing at all, that ends the body. Otherwise a tick landing a second
+with nothing at all, that ends the body. The body is told when the countdown
+starts (`body.airless`), as a crew is (`ship.airless`). Otherwise a tick landing a second
 after the last unit was spent would be indistinguishable from suffocation.
 """
 
@@ -72,6 +76,7 @@ from src.engine.oxygen._base import (  # noqa: F401
 )
 from src.engine.oxygen.breath import (  # noqa: F401
     require_air,
+    require_suit_kept,
     settle,
     tick_bodies,
     tick_ships,
@@ -85,6 +90,7 @@ from src.engine.oxygen.supply import (  # noqa: F401
     carried,
     cylinders,
     hull_draw,
+    is_suit,
     reserve,
     suited,
     systems_of,

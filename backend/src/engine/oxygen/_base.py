@@ -62,7 +62,12 @@ class Breath:
     left: float
     #: Hours of the elapsed stretch nothing covered. Above zero means the body
     #: was breathing vacuum, and that is what kills.
-    uncovered: float
+    #:
+    #: `None` when the settling asked the cylinder for nothing -- no time had
+    #: passed, or not a whole thousandth of air -- and so learnt nothing about
+    #: whether it holds any. Neither covered nor short: a caller deciding life
+    #: or death decides nothing on it, exactly as the hull does (`_breathe`).
+    uncovered: float | None
 
 
 # --- the planet and the node --------------------------------------------------

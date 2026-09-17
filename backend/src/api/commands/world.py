@@ -297,6 +297,10 @@ TOLD = frozenset(
         EventKind.AGRO_STALLED.value,
         EventKind.BODY_DIED.value,
         EventKind.BODY_PRINTED.value,
+        #: The warnings a body is owed outside (D-343): the countdown to
+        #: asphyxia has begun, and a worn thing will not last another day.
+        EventKind.BODY_AIRLESS.value,
+        EventKind.GEAR_WEARING_OUT.value,
         EventKind.MINING_COLLAPSED.value,
         EventKind.TRADE_EXECUTED.value,
         EventKind.ORDER_EXPIRED.value,

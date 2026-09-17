@@ -115,6 +115,11 @@ def hull_draw(constants: Constants, crew: int) -> float:
 # --- what a body carries -------------------------------------------------------
 
 
+def is_suit(catalog: Catalog, type_key: str) -> bool:
+    """Whether a thing of this kind connects a body to a cylinder (D-234)."""
+    return catalog.recipes.resolve(type_key) in world.station_names(SUIT)
+
+
 async def suited(session: AsyncSession, catalog: Catalog, body: Body) -> bool:
     """Whether a suit is worn. Not carried -- worn: the suit is the connection.
 
@@ -122,9 +127,8 @@ async def suited(session: AsyncSession, catalog: Catalog, body: Body) -> bool:
     the counter or dropped in a hold used to go on breathing for its former
     owner, because the slot row outlives the thing leaving the hands.
     """
-    suits = world.station_names(SUIT)
     worn = (await gear.equipped(session, body)).values()
-    return any(catalog.recipes.resolve(thing.type_key) in suits for thing in worn)
+    return any(is_suit(catalog, thing.type_key) for thing in worn)
 
 
 async def cylinders(session: AsyncSession, body: Body) -> list[Item]:

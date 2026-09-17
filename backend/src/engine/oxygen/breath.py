@@ -1,9 +1,10 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Nurlan Urazkulov
 
-"""The breathing itself: the step out that demands air, the body's hours
-settled from what it carries, the hull's hours breathed off the life
-support's line -- and the deaths when either runs dry.
+"""The breathing itself: the step out that demands air, the suit that does not
+come off where it is the only breath, the body's hours settled from what it
+carries, the hull's hours breathed off the life support's line -- and the
+deaths when either runs dry.
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import events, stock
+from src.engine import events, gear, stock, travel
 from src.engine import ship as vessels
 from src.engine.oxygen import garden
 from src.engine.oxygen._base import (
@@ -37,6 +38,7 @@ from src.engine.oxygen.supply import (
     carried,
     cylinders,
     hull_draw,
+    is_suit,
     off_line,
     reserve,
     suited,
@@ -87,6 +89,12 @@ async def require_air(
     ship = await vessels.of_node(session, target)
     if ship is not None and await reserve(session, constants, catalog, ship) > _EPS:
         return
+    #: The body's row before the suit is asked for (D-343): taking the suit off
+    #: asks where the body is under the same lock (`require_suit_kept`). Without
+    #: it a step that saw the suit and an undressing that saw the body still
+    #: aboard both pass, and a bare body walks out onto the rock. A command has
+    #: taken it already (`_alive`); a door does not lean on its caller for that.
+    await _lock(session, body)
     if not await suited(session, catalog, body):
         raise NoAir(key="oxygen-no-suit", node=target.name, suit=SUIT)
     have = await carried(session, body)
@@ -95,6 +103,65 @@ async def require_air(
         raise NoAir(key="oxygen-tanks-empty", node=target.name)
     if have + _EPS < need:
         raise NoAir(key="oxygen-not-enough", node=target.name, need=need, have=have)
+
+
+async def require_suit_kept(
+    session: AsyncSession,
+    catalog: Catalog,
+    body: Body,
+    slot: str,
+    *,
+    putting_on: Item | None = None,
+) -> None:
+    """Refuse the act that leaves a body bare where only its suit breathes for it (D-343).
+
+    Taking the suit off, or putting on in its slot something that pushes it
+    off, is the one way to lose the body's connection to its air (D-234) that
+    no reading counts down: the suit is there, and then it is not. So it is a
+    door, like the step out, and it refuses before the act -- the tick would
+    otherwise find a bare body a minute later and kill it a minute after that.
+    The air itself is not guarded here: it is a quantity, the bar counts it
+    down, and a refusal at nought would be dodged by a thousandth left behind.
+
+    A suit for a suit keeps the connection and passes. Aboard is the hull's
+    air and needs no suit. On the road both ends are asked, and the refusal
+    names the road: the road is outside, and a body's node changes only when
+    it arrives -- stepping off a hull, the body still stands aboard.
+
+    **The body's row first, whatever the answer**, and what is worn read
+    under it. Every change of dress comes through here, so dressing
+    serialises with dressing and with the step (`require_air` takes the same
+    row before it asks for the suit). A command holds it already (`_alive`),
+    and the door does not lean on that. A door that decided on a reading
+    taken before the lock -- or let a change it did not mind through without
+    one -- could see a coat in the slot, wait, and then take off the suit a
+    second tab had put on meanwhile.
+    """
+    locked = await _lock(session, body)
+    if putting_on is not None and is_suit(catalog, putting_on.type_key):
+        return
+    worn = await gear.equipped(session, locked)
+    leaving = worn.get(slot)
+    if leaving is None or not is_suit(catalog, leaving.type_key):
+        return
+    if any(is_suit(catalog, thing.type_key) for held, thing in worn.items() if held != slot):
+        return
+    here = await session.get(Node, locked.node_id)
+    going = await travel.current(session, locked)
+    if going is not None:
+        there = await session.get(Node, going.to_node_id)
+        if there is not None and (await _outside(session, here) or await _outside(session, there)):
+            raise NoAir(key="oxygen-suit-stays-on-road", node=there.name, suit=leaving.type_key)
+        return
+    if here is not None and await _outside(session, here):
+        raise NoAir(key="oxygen-suit-stays-on", node=here.name, suit=leaving.type_key)
+
+
+async def _outside(session: AsyncSession, place: Node | None) -> bool:
+    """Whether a body here breathes through its suit: no air, and not aboard."""
+    if place is None or vessels.is_aboard(place):
+        return False
+    return not await free_air(session, place)
 
 
 # --- the body's own breathing --------------------------------------------------
@@ -138,15 +205,16 @@ async def settle(
     locked = await _lock(session, body)
     node = await session.get(Node, locked.node_id)
     if node is None:  # pragma: no cover -- a body without a node is a bug
-        return Breath(left=0.0, uncovered=0.0)
+        return Breath(left=0.0, uncovered=None)
 
     hours = (moment - locked.air_at).total_seconds() / SECONDS_PER_HOUR
     #: "Up to now" does not work backwards: a tick step carries the nominal
     #: moment of its tick and can arrive behind a command that settled a second
     #: ago. Writing the older stamp back would hand those seconds to the next
-    #: settling to charge again -- the same rule the cold keeps.
+    #: settling to charge again -- the same rule the cold keeps. A stretch of
+    #: no length asked nothing, and says nothing about the cylinder.
     if hours <= 0:
-        return Breath(left=await carried(session, locked), uncovered=0.0)
+        return Breath(left=await carried(session, locked), uncovered=None)
 
     if await free_air(session, node) or vessels.is_aboard(node):
         #: Nothing was owed for the stretch, so it is over and done with.
@@ -164,21 +232,37 @@ async def settle(
         await session.flush()
         return Breath(left=0.0, uncovered=hours)
 
-    stacks = await stock.lock_items(session, await cylinders(session, locked))
     #: What the last stretch breathed and could not be charged for is asked
     #: for first. Down to the thousandth air is split into, never up:
     #: `amount()` rounds to the nearest and would take one the stretch had not
     #: earned. Flooring alone would be worse than the disease -- an error that
     #: cancelled would become one that always took -- which is why the shaving
-    #: is kept rather than dropped.
-    owed = need + float(locked.air_owed)
-    want = float(on_grid(owed, ROUND_AMOUNT, ROUND_FLOOR))
-    took = amount_float(await stock.consume(session, stacks, amount(want)))
-    #: Exactly enough must not read as short: amounts are split into
-    #: thousandths, and the last digit of an hour's draw is rounding, not a
-    #: gasp. The same tolerance the fuel check uses before a passage.
-    missing = owed - took
-    if missing > _EPS:
+    #: is kept rather than dropped. In decimals, as on the hull, so the rest is
+    #: below a thousandth exactly and not by a float's grace: the column's
+    #: check would refuse the tick otherwise.
+    owed = Decimal(str(need)) + Decimal(str(locked.air_owed))
+    whole = on_grid(owed, ROUND_AMOUNT, ROUND_FLOOR)
+    want = amount(whole)
+    if want <= 0:
+        #: Not a whole thousandth to ask for, so nothing is learnt about the
+        #: cylinder either: full or dry, it answers the same to a question
+        #: nobody put. The breath waits on the body, and the stretch is
+        #: neither covered nor short: read as covered, the tick would give the
+        #: grace back to an empty bottle. The same rule the hull keeps
+        #: (`_breathe`).
+        locked.air_owed = on_grid(owed, ROUND_REMAINDER, ROUND_FLOOR)
+        locked.air_at = moment
+        await session.flush()
+        return Breath(left=await carried(session, locked), uncovered=None)
+    stacks = await stock.lock_items(session, await cylinders(session, locked))
+    took = await stock.consume(session, stacks, want)
+    #: Asked and given are both whole thousandths, so short means short and
+    #: never a rounding, exactly as on the hull: nothing below the grid was
+    #: asked, and the last digit of an hour needs no forgiving. The tolerance
+    #: that used to stand here was a thousandth wide, and a dry bottle owing
+    #: exactly one read as covered.
+    short = took < want
+    if short:
         #: A real shortage. The body choked for it and is not billed twice:
         #: nothing is carried on top of choking.
         locked.air_owed = Decimal(0)
@@ -187,14 +271,16 @@ async def settle(
         #: body, not on the stamp: this stretch may have ended aboard, and
         #: arriving in air moves the stamp to now -- which would forgive the
         #: debt every time a body stepped back up its own gangway.
-        locked.air_owed = on_grid(max(0.0, missing), ROUND_REMAINDER, ROUND_FLOOR)
+        locked.air_owed = on_grid(owed - whole, ROUND_REMAINDER, ROUND_FLOOR)
     locked.air_at = moment
     await session.flush()
     #: Asked again rather than summed off the stacks in hand: a stack spent to
     #: nothing is **deleted** by `consume`, and its object keeps the amount it
     #: had -- the sum would count air that no longer exists.
     left = await carried(session, locked)
-    return Breath(left=left, uncovered=missing / draw if missing > _EPS and draw > 0 else 0.0)
+    #: What nothing covered: all that was owed, less what the cylinder gave.
+    missing = float(owed) - amount_float(took)
+    return Breath(left=left, uncovered=missing / draw if short else 0.0)
 
 
 async def tick_bodies(
@@ -239,6 +325,12 @@ async def tick_bodies(
         if node is None or vessels.is_aboard(node):  # pragma: no cover -- the hull's business
             continue
         breath = await settle(session, constants, catalog, found, now=moment)
+        if breath.uncovered is None:
+            #: The stretch asked the cylinder for nothing, so it neither gives
+            #: the grace back nor takes it. Every step settles the breathing,
+            #: and the tick can land seconds after one -- or, carrying the
+            #: nominal moment of its tick, before it.
+            continue
         if breath.uncovered <= 0:
             #: Breathing again gives the grace back. Without this a body that
             #: once ran dry and then refilled would carry the mark to its death
@@ -260,12 +352,27 @@ async def _choked(
     tick that lands a second after the last unit is spent must not be
     indistinguishable from suffocation. The next stretch begins with nothing,
     and that one ends the body.
+
+    Decided by the settling alone (D-343): uncovered hours are a body with
+    nothing to breathe, whether the cylinders ran dry or nothing connects the
+    body to them. This used to ask the cylinders once more, and a bare body
+    with air in the bag was neither charged nor choked -- it breathed nothing,
+    for nothing and for ever, the opposite of what D-234 says.
     """
-    if await carried(session, body) > _EPS:
-        return False
     if body.choking_since is None:
         body.choking_since = now
         await session.flush()
+        #: Said once, when the countdown starts -- the body's own
+        #: `ship.airless` (D-343). The grace is one settling, a minute, so this
+        #: rescues nobody who is away: it is the journal's why. The countdown
+        #: itself is the bar's, and a death outside was the one death whose
+        #: cause the journal never named.
+        await events.record(
+            session,
+            EventKind.BODY_AIRLESS,
+            actor_identity_id=body.identity_id,
+            node_id=body.node_id,
+        )
         return False
 
     from src.engine import death  # noqa: PLC0415 -- lazy: breaks the cycle with death
