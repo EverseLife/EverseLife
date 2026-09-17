@@ -6,9 +6,9 @@
 A lift that takes a thing into the hands and a fire that burns a yard
 (`plates._burn`), each holding the rows it took until the other side provably
 waits on one of them (`automat_kit._until_blocked_by`). Shared by the floor's
-races (`test_races_gone.py`), the harness's (`test_races_harness.py`) and the
-charging counter's (`test_races_energy.py`) -- the family's own pattern, see
-`mining_kit.py`.
+races (`test_races_gone.py`), the harness's (`test_races_harness.py`), the
+charging counter's (`test_races_energy.py`) and the fire's own
+(`test_races_fire.py`) -- the family's own pattern, see `mining_kit.py`.
 
 Pytest does not collect this file: it holds no tests and no fixtures.
 """

@@ -14,10 +14,17 @@ a sown strip two harvests reap -- stayed there.
 Both tests are the same robbery, off the ground and out of a chest standing on
 it, and neither gives anybody a head start. The carry-out goes first, holds
 what it took, and waits until the fire **provably** stands on one of those rows
-(`automat_kit._until_blocked_by`) before it commits. A fixed pause would let a
-busy machine release the rows before the fire reached them, and the race would
-pass on the very code it exists to catch -- which is what a 50 ms head start
-here had already been caught doing (two full `-n 2` runs of four, 2026-09-13).
+(`automat_kit._until_blocked_by`) before it commits.
+
+A fixed pause fails at this in both directions, and the two failures look
+nothing alike. Give the fire a head start and on a busy machine it wins the
+start outright: it commits the chest's deletion, the carry-out finds nothing
+to open and the test falls over on a setup assert, having never run the race
+-- two full `-n 2` runs of four did exactly that on 2026-09-13. Hold the rows
+for a fixed pause instead and the other failure is silent: a busy machine
+releases them before the fire arrives, the fire finds an empty box and passes
+on the very code the test exists to catch. The handshake closes both, because
+it is the fire's own waiting that releases the carry-out.
 """
 
 from __future__ import annotations
