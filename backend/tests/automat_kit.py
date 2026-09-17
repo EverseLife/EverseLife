@@ -12,9 +12,10 @@ one that holds the first call of a door (`_hold_the_first`) -- and their
 reading of a pool, which the meter's races (`test_races_meter.py`,
 `test_races_meter_land.py`) take as well, and the handshake alone, the races
 over a thing gone from under a reaching hand (`test_races_gone.py`, through
-`gone_kit.py`) -- and the permafrost a floor is carried onto (D-231). That is
-why they are here and not beside one of them (the family's own pattern, see
-`mining_kit.py`).
+`gone_kit.py`), a death crossing a tick (`test_races_death.py`) and two bank
+passes meeting on one debtor's loans (`test_races_bank.py`) -- and the
+permafrost a floor is carried onto (D-231). That is why they are here and not
+beside one of them (the family's own pattern, see `mining_kit.py`).
 
 Pytest does not collect this file: it holds no tests and no fixtures -- a
 real `@pytest.fixture` must not live here, because the import that puts its
