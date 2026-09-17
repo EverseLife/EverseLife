@@ -12,27 +12,34 @@ ground so that such an arrival is visible in telemetry.
 
 The file grew past what one file should hold, and it was three subjects all
 along -- the ground, the matter on it and the people who come to it -- so it is
-three now, and this one is the door:
+three now, with a fourth room for the matter the world takes back, and this one
+is the door:
 
 * `land` -- what the world is made of: a node with its area and its place on
   the map, the orbit it hangs on, the vein under it, and the title to it;
 * `things` -- matter and where it lies: the pocket and the yard, what is in
   them, and the folding of stacks that keeps two heaps of one ore one heap;
+* `gone` -- matter the world takes: a thing leaves with what is inside it and
+  out of the harness that pulled it;
 * `people` -- how a person gets in: identity, body, the door they come out of
   and what they know.
 
 The stack runs one way and only one way: `people` borrows from `land` (the
-refusal `LandError`) and from `things` (the printer's lookup), and neither of
-those knows a person exists. `land` and `things` do not know each other at
-all -- a node is born with its yard from the model, not from a lookup. So the
-only edge out of this package to `engine.city` is `people`'s, and it is the
-edge that already existed.
+refusal `LandError`) and from `things` (the printer's lookup), `gone` borrows
+from no room here, and neither `land` nor `things` knows that a person or an ending
+exists. `land` and `things` do not know each other at all -- a node is born
+with its yard from the model, not from a lookup. So the only edge out of this
+package to `engine.city` is `people`'s, and it is the edge that already
+existed.
 
 The door publishes the whole public surface the old module had: everything
 outside still writes `world.create_node`, `world.node_container`,
 `from src.engine.world import body_container`, and none of it had to change.
 """
 
+from src.engine.world.gone import (  # noqa: F401
+    destroy,
+)
 from src.engine.world.land import (  # noqa: F401
     DEFERRED,
     LAKE,
@@ -64,6 +71,7 @@ from src.engine.world.people import (  # noqa: F401
     doors,
     is_door,
     learn,
+    lock_bodies,
     population,
     print_body,
     printer_nodes,
@@ -81,6 +89,7 @@ from src.engine.world.things import (  # noqa: F401
     grant_item,
     has_station,
     is_library,
+    lock_thing,
     move_stack,
     node_container,
     node_things,

@@ -23,7 +23,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, ForeignKey, Index, Uuid, text
+from sqlalchemy import Computed, DateTime, ForeignKey, Index, Uuid, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -41,6 +41,13 @@ class FieldAutomat(Base):
         Index("ix_field_automat_seeds", "seeds_item_id"),
         Index("ix_field_automat_fertilizer", "fertilizer_item_id"),
         Index("ix_field_automat_harvest", "harvest_item_id"),
+        #: A machine stopped while busy keeps its row, and every minute sweeps
+        #: those whose thing is gone (`agro.run._sweep_stopped`): a few rows
+        #: among many, read without the rest. The programmed machines have no
+        #: index of their own: the minute reads nearly all of them and rewrites
+        #: every one, so their pages are never all-visible for an index-only
+        #: walk, and the planner rightly scans and sorts.
+        Index("ix_field_automat_stopped", "item_id", postgresql_where=text("NOT programmed")),
     )
 
     id: Mapped[uuid.UUID] = uuid_pk()
@@ -58,6 +65,19 @@ class FieldAutomat(Base):
     #: `{"do": ..., <parameter>: ...}`, validated by `engine.agro.parse`.
     program: Mapped[list[dict[str, Any]]] = mapped_column(
         JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
+    #: Whether there is a programme at all, kept by the database from `program`
+    #: for the tick's filters (`agro.run`). Python reads `program`: this one is
+    #: written only at the flush, and the attribute -- filled by the insert,
+    #: never loaded after -- raises rather than go to the database. A column
+    #: and not a filter on the expression: an expression has no statistics --
+    #: the planner took a third of the machines for programmed and a
+    #: two-hundredth for stopped -- and `jsonb_array_length(program) = $1`, as
+    #: asyncpg prepares it, matches no partial index in a generic plan.
+    programmed: Mapped[bool] = mapped_column(
+        Computed("jsonb_array_length(program) > 0", persisted=True),
+        deferred=True,
+        deferred_raiseload=True,
     )
     #: The line the machine stands on, and since when: a fallow counts its
     #: days from here, and a setpoint is passed at once.

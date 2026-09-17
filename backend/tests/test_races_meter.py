@@ -7,8 +7,9 @@ One of the race files (see `test_races.py` for the family's method): here the
 contended things are the ones the meter run holds for every household of the
 world at once -- the meters, the city pools they draw and the holders' purses
 (D-135, D-149) -- against a master drawing a pool for work, the pool tick
-bringing every pool up to now, a holder paying off a debt, and the city
-taking a node back.
+bringing every pool up to now, the automats' tick drawing purses, a second
+run, and a holder paying off a debt. The city taking a node back races the
+run in `test_races_meter_land.py`; the ground both build on is `utility_kit.py`.
 
 The handshake is `automat_kit._until_blocked_by`: the side holding the
 contended rows lets go only once the other side has provably walked into them.
@@ -21,77 +22,23 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from automat_kit import _pool_left, _until_blocked_by
+from automat_kit import IRON, NAILS, _factory_floor, _learn, _lube_in, _pool_left, _until_blocked_by
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import city as town
-from src.engine import energy, ledger, utility, world
-from src.engine.city import land as city_land
-from src.models.city import City, UtilityMeter
-from src.models.event import Event, EventKind
+from src.engine import automat, energy, ledger, utility, world
+from src.models.automat import Automat as AutomatRow
+from src.models.city import UtilityMeter
 from src.models.identity import Body, Identity
-from src.models.ledger import AccountKind, PostingReason
+from src.models.ledger import AccountKind, LedgerEntry, PostingReason
 from src.models.world import Node
-from src.units import money
-from utility_kit import _city, _pool, _resident
+from src.units import money, money_str
+from utility_kit import _grids, _meter, _open, _purse, _resident
 
 #: What a master draws at the bench in the race below.
 WORK = 50.0
-
-
-async def _grids(session: AsyncSession, constants: Constants, catalog: Catalog, count: int):
-    """Cities with a charged pool each and a plot in each, in their grid node's order.
-
-    Each treasury's account is opened here: opened by the first bill instead,
-    two transactions would meet on its insert, and the race would be about
-    that row rather than the order under test.
-    """
-    made = []
-    for number in range(count):
-        _, delegate, home = await _city(session, catalog, name=f"Столица {number}")
-        await _pool(session, constants, home, 100_000)
-        await ledger.account_for(session, AccountKind.CITY_TREASURY, delegate.id)
-        made.append((delegate, home))
-    return sorted(made, key=lambda one: one[0].id)
-
-
-async def _open(
-    session: AsyncSession, constants: Constants, homes: list[Node], since: datetime
-) -> list[UtilityMeter]:
-    """Open the meters one by one in this order, each counted from `since`.
-
-    Written in this order and with ids sorting in it too: a table read with no
-    `order_by` comes back in the order its rows were written, and a run that
-    walks its meters by id alone goes the same way -- so either is the order
-    the races below set against the pools'.
-    """
-    meters = []
-    for meter_id, home in zip(sorted(uuid.uuid4() for _ in homes), homes, strict=True):
-        meter = UtilityMeter(id=meter_id, node_id=home.id, counted_at=since)
-        session.add(meter)
-        await session.flush()
-        meters.append(meter)
-    #: Nothing else in these worlds carries a meter, so no other meter slips
-    #: into the run's order.
-    assert await utility.ensure_meters(session, constants) == 0
-    return meters
-
-
-async def _purse(factory: async_sessionmaker[AsyncSession], identity_id) -> int:
-    async with factory() as db:
-        account = await ledger.find_account(db, AccountKind.IDENTITY, identity_id)
-        assert account is not None
-        return await ledger.balance(db, account.id)
-
-
-async def _meter(factory: async_sessionmaker[AsyncSession], meter_id) -> UtilityMeter:
-    async with factory() as db:
-        meter = await db.get(UtilityMeter, meter_id)
-        assert meter is not None
-        return meter
 
 
 async def test_a_bench_holding_a_later_pool_does_not_deadlock_the_meter_run_on_its_purse(
@@ -385,303 +332,264 @@ async def test_a_debt_paid_during_the_meter_run_is_not_billed_twice(
     assert isinstance(paid, utility.NotEnoughMoney)
 
 
-async def _held_by(factory: async_sessionmaker[AsyncSession], node_id, meter_id):
-    """Who holds the node, and what its meter owes: `(holder, debt, cut_off)`."""
-    async with factory() as db:
-        node = await db.get(Node, node_id)
-        meter = await db.get(UtilityMeter, meter_id)
-        assert node is not None and meter is not None
-        return node.owner_identity_id, meter.debt, meter.cut_off
-
-
-def _nobody_billed_for_civic(state) -> None:
-    holder, debt, cut_off = state
-    if holder is None:
-        #: A node the city holds has nobody to bill (D-149): a debt left on it
-        #: is never paid and its cut-off never lifted.
-        assert debt == 0 and not cut_off, "a debt on a node nobody can be billed for"
-
-
-@pytest.mark.parametrize("how", ["cede", "reclaim", "centre"])
-async def test_land_handed_back_during_the_meter_run_is_not_left_in_debt(
+async def test_two_meter_runs_bill_a_period_once(
     session: AsyncSession,
     factory: async_sessionmaker[AsyncSession],
     constants: Constants,
     catalog: Catalog,
-    monkeypatch: pytest.MonkeyPatch,
-    how: str,
 ) -> None:
-    """Handing a node back to the city settles its meter (`city/land.py`), and
-    the meter run adds its bill to the same meter: whoever comes second must
-    read it under its lock.
-
-    A holder without a coin, whose house the run is about to bill into debt.
-    The house goes back to the city while the run is already drawing the pools
-    -- given up by the holder (`cede`), or taken back as a location that was
-    never a plot (`reclaim`), the city's own node among them (`centre`). When
-    the hand-over read the meter unlocked, it found no debt, committed there
-    and then, and the run -- billing the holder it had read -- wrote the debt
-    onto a node the city now held. Now the hand-over waits for the run's
-    meter: after it, `cede` refuses the debtor, and `reclaim` clears what the
-    run wrote.
-
-    And it waits holding nothing the run reaches for. A meter row updated twice
-    in one transaction takes its node `FOR KEY SHARE`, and so does the city's
-    pool, brought up to now and then drawn: a hand-over holding the node while
-    it waited for the meter deadlocked with the run.
-    """
-    #: A minute on from the pool's last count, so the run brings it up to now
-    #: and writes it twice.
-    moment = datetime.now(UTC) + timedelta(minutes=1)
-    hours = constants[R.ENERGY_METER_PERIOD]
-    ((centre, home),) = await _grids(session, constants, catalog, 1)
-    owner, body = await _resident(session, home, "Хозяин")
-    if how == "centre":
-        centre.owner_city_id = home.owner_city_id
-        home.owner_city_id = None
-        home = centre
-    home.owner_identity_id = owner.id
-    if how != "cede":
-        #: Not a plot: the city's own location, handed out by mistake (D-282).
-        home.properties = {}
-    (meter,) = await _open(session, constants, [home], since=moment - timedelta(hours=hours))
-    ids = (body.id, home.id, home.owner_city_id, meter.id)
-    await session.commit()
-    body_id, home_id, city_id, meter_id = ids
-
-    async def hand_back():
-        async with factory() as db, db.begin():
-            house = await db.get(Node, home_id)
-            assert house is not None
-            if how == "cede":
-                return await town.cede(db, await db.get(Body, body_id), house)
-            city = await db.get(City, city_id)
-            assert city is not None
-            return await town.reclaim(db, house, city)
-
-    waited: list[bool] = []
-    handovers: list[asyncio.Future] = []
-    runs: list[AsyncSession] = []
-    produced = energy.produce
-
-    async def handing_back_midway(db, *args, **kwargs):
-        result = await produced(db, *args, **kwargs)
-        if runs and db is runs[0] and not handovers:
-            handovers.append(asyncio.ensure_future(hand_back()))
-            waited.append(await _until_blocked_by(factory, db, unless=handovers[0]))
-        return result
-
-    monkeypatch.setattr(energy, "produce", handing_back_midway)
-
-    async with factory() as db, db.begin():
-        runs.append(db)
-        assert await utility.run_meters(db, constants, now=moment) == 1
-    (handed,) = await asyncio.gather(*handovers, return_exceptions=True)
-
-    state = await _held_by(factory, home_id, meter_id)
-    _nobody_billed_for_civic(state)
-    assert waited == [True], "the hand-over waited for the run's meter"
-    if how == "cede":
-        assert isinstance(handed, town.CityError) and handed.key == "city-land-debt"
-        assert state[0] is not None and state[1] > 0, "the debtor keeps the plot and the debt"
-    else:
-        assert handed is True
-        assert state[0] is None
-
-
-async def test_a_debt_the_run_writes_during_a_cede_is_not_written_off(
-    session: AsyncSession,
-    factory: async_sessionmaker[AsyncSession],
-    constants: Constants,
-    catalog: Catalog,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """`cede` refuses a debtor (D-149), so it must read the debt under the
-    meter's lock and keep it to the hand-over.
-
-    A holder without a coin gives the plot up, and the run comes to bill the
-    house between the refusal's check and the hand-over -- which clears
-    whatever debt a node brings back to the city. When the check read the
-    meter unlocked, it found none, the run wrote the holder's debt and
-    committed, and the hand-over wrote it off: the holder walked away from a
-    bill nobody will ever pay. Now the run waits for the hand-over, and bills
-    the city's plot in energy after it.
-    """
+    """Two passes of the meter job at once -- two lanes of the worker, two
+    periods due. The second waits for the first on the meters and reads the
+    stamps it moved. Read free, the second counted the hours from the stamp it
+    had read before the first moved it, and the holder paid for one day twice."""
     moment = datetime.now(UTC)
     hours = constants[R.ENERGY_METER_PERIOD]
     ((_, home),) = await _grids(session, constants, catalog, 1)
-    owner, body = await _resident(session, home, "Хозяин")
+    owner, _ = await _resident(session, home, "Хозяин", funds=1000)
     home.owner_identity_id = owner.id
     (meter,) = await _open(session, constants, [home], since=moment - timedelta(hours=hours))
-    ids = (body.id, home.id, meter.id)
+    account = await ledger.account_for(session, AccountKind.IDENTITY, owner.id)
+    ids = (account.id, meter.id)
     await session.commit()
-    body_id, home_id, meter_id = ids
+    purse_id, meter_id = ids
 
-    async def run() -> int:
+    held = asyncio.Event()
+
+    async def holding() -> int:
+        try:
+            async with factory() as db, db.begin():
+                listed = await utility.run_meters(db, constants, now=moment)
+                held.set()
+                await _until_blocked_by(factory, db)
+                return listed
+        finally:
+            held.set()
+
+    async def coming() -> int:
+        await held.wait()
         async with factory() as db, db.begin():
             return await utility.run_meters(db, constants, now=moment)
 
-    waited: list[bool] = []
-    runs: list[asyncio.Future[int]] = []
-    handed = city_land._into_the_citys_hands
+    assert await asyncio.gather(holding(), coming()) == [1, 1]
 
-    async def billed_first(db, *args, **kwargs):
-        if not runs:
-            runs.append(asyncio.ensure_future(run()))
-            waited.append(await _until_blocked_by(factory, db, unless=runs[0]))
-        return await handed(db, *args, **kwargs)
-
-    monkeypatch.setattr(city_land, "_into_the_citys_hands", billed_first)
-
-    async with factory() as db, db.begin():
-        house = await db.get(Node, home_id)
-        assert house is not None
-        await town.cede(db, await db.get(Body, body_id), house)
-    (listed,) = await asyncio.gather(*runs)
-
-    async with factory() as db:
-        written = (
-            (
-                await db.execute(
-                    select(Event).where(
-                        Event.kind == EventKind.UTILITY_CUT_OFF, Event.node_id == home_id
-                    )
-                )
-            )
-            .scalars()
-            .all()
-        )
-    assert not written, "the holder's debt was written off by the hand-over"
-    assert waited == [True], "the run waited for the cede's meter"
-    assert listed == 1
-    holder, debt, cut_off = await _held_by(factory, home_id, meter_id)
-    assert holder is None and debt == 0 and not cut_off
     assert (await _meter(factory, meter_id)).counted_at == moment
+    async with factory() as db:
+        debits = await db.scalar(
+            select(func.count())
+            .select_from(LedgerEntry)
+            .where(LedgerEntry.account_id == purse_id, LedgerEntry.amount < 0)
+        )
+    assert debits == 1, "one period, one bill"
 
 
-async def test_locations_taken_back_together_take_their_meters_in_the_runs_order(
+async def test_a_holder_of_two_houses_paying_mid_run_does_not_deadlock_it(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    constants: Constants,
+    catalog: Catalog,
+) -> None:
+    """The run bills a holder's two houses: the first from their purse, the
+    second's debt the holder is paying off at that moment -- holding its meter
+    and reaching for the same purse. Meters taken as the walk came to them,
+    the run held the purse from the first bill while it reached for the second
+    meter, and Postgres killed one of the two. The run takes every meter before
+    its first bill, so it waits holding no purse, and both go through."""
+    moment = datetime.now(UTC)
+    hours = constants[R.ENERGY_METER_PERIOD]
+    ((centre, first),) = await _grids(session, constants, catalog, 1)
+    second = await world.create_node(
+        session, f"{first.key}.second", "Второй дом", area_m2=100, parent=centre
+    )
+    second.owner_city_id = first.owner_city_id
+    owner, _ = await _resident(session, first, "Домовладелец", funds=1000)
+    first.owner_identity_id = second.owner_identity_id = owner.id
+    early, late = await _open(
+        session, constants, [first, second], since=moment - timedelta(hours=hours)
+    )
+    debt = money(1)
+    late.debt, late.cut_off = debt, True
+    ids = (second.id, owner.id, early.id, late.id)
+    await session.commit()
+    second_id, owner_id, early_id, late_id = ids
+
+    holding = asyncio.Event()
+
+    async def pay() -> int:
+        try:
+            async with factory() as db, db.begin():
+                #: The payment's own first lock, taken here so the run comes
+                #: to wait on it before the payment reaches for the purse.
+                await db.execute(
+                    select(UtilityMeter.id).where(UtilityMeter.id == late_id).with_for_update()
+                )
+                holding.set()
+                await _until_blocked_by(factory, db)
+                me = await db.get(Identity, owner_id)
+                house = await db.get(Node, second_id)
+                assert me is not None and house is not None
+                return await utility.pay(db, constants, me, house)
+        finally:
+            holding.set()
+
+    async def run() -> int:
+        await holding.wait()
+        async with factory() as db, db.begin():
+            return await utility.run_meters(db, constants, now=moment)
+
+    paid, listed = await asyncio.gather(pay(), run())
+
+    assert paid == debt
+    assert listed == 2
+    for meter_id in (early_id, late_id):
+        settled = await _meter(factory, meter_id)
+        assert settled.counted_at == moment
+        assert settled.debt == 0 and not settled.cut_off, "paid, then billed from the purse"
+
+
+async def test_the_automats_tick_and_the_meter_run_take_purses_in_one_order(
     session: AsyncSession,
     factory: async_sessionmaker[AsyncSession],
     constants: Constants,
     catalog: Catalog,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The deploy's catch-up takes back every city location handed out as a
-    plot in one transaction (`reclaim_all`), and a meter run takes every meter
-    in id order: the catch-up must take the meters it needs in that order too,
-    all of them before the first location.
+    """Two holders of houses on one grid run machines in cities of their own.
+    The automats' tick draws its pools and then the owners' purses in account
+    order (`automat.bill.pay`); the run's meters put the later account's house
+    first.
 
-    Two locations whose meters sort the other way round from the order the
-    city lists its land. The catch-up has taken the first one back -- holding
-    its meter -- when the run starts. When each location took its own meter as
-    it came, the run took the second one's meter and waited for the first's,
-    and the catch-up then reached for the second's. Now the catch-up holds both
-    before it starts; the run waits, and bills the city after it.
-    """
+    When the run posted each bill in its meters' order, it held the later purse
+    reaching for the earlier one the tick held, the tick reached for the later
+    one, and Postgres killed one of the two. Now the run posts in the tick's
+    order: it waits for the earlier purse holding no purse at all."""
     moment = datetime.now(UTC)
     hours = constants[R.ENERGY_METER_PERIOD]
     ((centre, home),) = await _grids(session, constants, catalog, 1)
-    owner, _ = await _resident(session, home, "Захвативший")
-    market = await world.create_node(
-        session, f"{home.key}.market", "Рынок", area_m2=100, parent=centre
+    other = await world.create_node(
+        session, f"{home.key}.other", "Соседний дом", area_m2=100, parent=centre
     )
-    market.owner_city_id = home.owner_city_id
-    for location in (home, market):
-        location.owner_identity_id = owner.id
-        location.properties = {}
-    await session.flush()
-    city = await session.get(City, home.owner_city_id)
-    assert city is not None
-    listed = [one for one in await town.territory(session, city) if one in (home, market)]
-    #: The first location the territory lists gets the meter that sorts last.
+    other.owner_city_id = home.owner_city_id
+
+    holders = []
+    for plot in (home, other):
+        node, yard, identity, body, machine = await _factory_floor(session, constants)
+        await world.grant_item(session, yard, IRON, amount=1000, quality=60, origin="test")
+        await _lube_in(session, yard, 1000)
+        await _learn(session, identity, NAILS)
+        row = await automat.program(session, constants, catalog, body, machine, NAILS)
+        works = await energy.pool_of(session, constants, node)
+        assert works is not None
+        await ledger.account_for(session, AccountKind.CITY_TREASURY, works.node_id)
+        plot.owner_identity_id = identity.id
+        account = await ledger.account_for(session, AccountKind.IDENTITY, identity.id)
+        holders.append((account.id, plot, identity.id, row))
+    (early_purse, early_plot, _, _), (late_purse, late_plot, _, _) = sorted(
+        holders, key=lambda holder: holder[0]
+    )
     meters = await _open(
-        session, constants, list(reversed(listed)), since=moment - timedelta(hours=hours)
+        session, constants, [late_plot, early_plot], since=moment - timedelta(hours=hours)
     )
-    ids = ([one.id for one in listed], [meter.id for meter in meters])
+    worked_to = max(row.counted_at for *_, row in holders) + timedelta(hours=2)
+    ids = ([meter.id for meter in meters], [row.id for *_, row in holders])
     await session.commit()
-    node_ids, meter_ids = ids
+    meter_ids, row_ids = ids
+
+    ticks: list[AsyncSession] = []
+    held = asyncio.Event()
+    posted = ledger.transfer
+
+    async def holding(db, *args, **kwargs):
+        result = await posted(db, *args, **kwargs)
+        if ticks and db is ticks[0] and not held.is_set():
+            #: The tick holds the earlier purse now; the later one comes next.
+            held.set()
+            await _until_blocked_by(factory, db)
+        return result
+
+    monkeypatch.setattr(ledger, "transfer", holding)
+
+    async def tick() -> float:
+        try:
+            async with factory() as db, db.begin():
+                ticks.append(db)
+                return await automat.tick_automats(db, constants, now=worked_to)
+        finally:
+            held.set()
 
     async def run() -> int:
+        await held.wait()
         async with factory() as db, db.begin():
             return await utility.run_meters(db, constants, now=moment)
 
-    waited: list[bool] = []
-    runs: list[asyncio.Future[int]] = []
-    taken_back = city_land.reclaim
+    made, listed = await asyncio.gather(tick(), run())
 
-    async def run_after_the_first(db, *args, **kwargs):
-        result = await taken_back(db, *args, **kwargs)
-        if result and not runs:
-            runs.append(asyncio.ensure_future(run()))
-            waited.append(await _until_blocked_by(factory, db, unless=runs[0]))
-        return result
-
-    monkeypatch.setattr(city_land, "reclaim", run_after_the_first)
-
-    async with factory() as db, db.begin():
-        taken = await town.reclaim_all(db)
-    (walked,) = await asyncio.gather(*runs)
-
-    assert [node.id for _, node in taken] == node_ids
-    assert waited == [True], "the run waited for the catch-up's meters"
-    assert walked == 2
-    for node_id, meter_id in zip(node_ids, meter_ids[::-1], strict=True):
-        holder, debt, cut_off = await _held_by(factory, node_id, meter_id)
-        assert holder is None and debt == 0 and not cut_off
+    assert made > 0
+    assert listed == 2
+    for meter_id in meter_ids:
         assert (await _meter(factory, meter_id)).counted_at == moment
+    async with factory() as db:
+        for row_id in row_ids:
+            row = await db.get(AutomatRow, row_id)
+            assert row is not None and row.counted_at == worked_to
+        for purse_id in (early_purse, late_purse):
+            debits = await db.scalar(
+                select(func.count())
+                .select_from(LedgerEntry)
+                .where(LedgerEntry.account_id == purse_id, LedgerEntry.amount < 0)
+            )
+            assert debits == 2, "the machine and the house, each once"
 
 
-async def test_a_plot_ceded_as_the_run_starts_is_billed_to_the_city(
+async def test_a_purse_spent_as_the_debt_is_paid_is_refused_as_not_enough_money(
     session: AsyncSession,
     factory: async_sessionmaker[AsyncSession],
     constants: Constants,
     catalog: Catalog,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The run bills whoever holds a node once it has the meters, not whoever
-    held it when the run first read the node.
-
-    The run opens the missing meters first, and reads every held node to do
-    it. A holder without a coin gives the plot up just then -- before the run
-    takes the meters, so nothing waits. The run's session still has the node
-    as it read it. When the run billed that row, it wrote the holder's debt
-    onto a plot the city held; now it reads the nodes again after the meters'
-    lock and bills the treasury in energy.
-    """
-    moment = datetime.now(UTC)
-    hours = constants[R.ENERGY_METER_PERIOD]
-    ((grid, home),) = await _grids(session, constants, catalog, 1)
-    owner, body = await _resident(session, home, "Хозяин")
+    """Paying a debt off asks the purse under the purse's lock, inside the
+    posting. The holder's purse is emptied by another command between the
+    payment's look and its posting: when the payment read the balance before
+    the lock, it found enough, and the holder was told the ledger's own
+    refusal. Now they are told the utility's, with what the purse really has."""
+    ((_, home),) = await _grids(session, constants, catalog, 1)
+    owner, _ = await _resident(session, home, "Должник", funds=10)
     home.owner_identity_id = owner.id
-    (meter,) = await _open(session, constants, [home], since=moment - timedelta(hours=hours))
-    ids = (body.id, home.id, grid.id, meter.id)
+    (meter,) = await _open(session, constants, [home], since=datetime.now(UTC))
+    meter.debt, meter.cut_off = money(5), True
+    account = await ledger.account_for(session, AccountKind.IDENTITY, owner.id)
+    ids = (owner.id, home.id, meter.id, account.id)
     await session.commit()
-    body_id, home_id, grid_id, meter_id = ids
+    owner_id, home_id, meter_id, purse_id = ids
 
-    opened = utility.ensure_meters
-    #: Held on purpose, as a local further up the run would hold it: the
-    #: session keeps its rows weakly, and the run must not rely on nobody
-    #: holding the row it read.
-    stale: list[Node | None] = []
+    posted = ledger.transfer
+    payments: list[AsyncSession] = []
 
-    async def ceded_after(db, *args, **kwargs):
-        result = await opened(db, *args, **kwargs)
-        stale.append(await db.get(Node, home_id))
-        async with factory() as elsewhere, elsewhere.begin():
-            house = await elsewhere.get(Node, home_id)
-            assert house is not None
-            await town.cede(elsewhere, await elsewhere.get(Body, body_id), house)
-        return result
+    async def spent_first(db, *args, **kwargs):
+        if payments and db is payments[0] and kwargs.get("debit") == purse_id:
+            async with factory() as elsewhere, elsewhere.begin():
+                shop = await ledger.account_for(elsewhere, AccountKind.IDENTITY, uuid.uuid4())
+                await posted(
+                    elsewhere,
+                    PostingReason.TRANSFER,
+                    debit=purse_id,
+                    credit=shop.id,
+                    amount=money(8),
+                    memo={},
+                )
+        return await posted(db, *args, **kwargs)
 
-    monkeypatch.setattr(utility, "ensure_meters", ceded_after)
+    monkeypatch.setattr(ledger, "transfer", spent_first)
 
-    async with factory() as db, db.begin():
-        assert await utility.run_meters(db, constants, now=moment) == 1
+    with pytest.raises(utility.NotEnoughMoney) as refused:
+        async with factory() as db, db.begin():
+            payments.append(db)
+            me = await db.get(Identity, owner_id)
+            house = await db.get(Node, home_id)
+            assert me is not None and house is not None
+            await utility.pay(db, constants, me, house)
 
-    assert stale and stale[0] is not None
-    holder, debt, cut_off = await _held_by(factory, home_id, meter_id)
-    assert holder is None
-    assert debt == 0 and not cut_off, "the former holder's debt on the city's plot"
-    assert (await _meter(factory, meter_id)).counted_at == moment
-    drawn = 100_000 - await _pool_left(factory, constants, grid_id)
-    assert drawn == pytest.approx(utility.draw_for(constants, home, hours), abs=0.01)
+    assert refused.value.params["have"] == money_str(money(2))
+    settled = await _meter(factory, meter_id)
+    assert settled.debt == money(5) and settled.cut_off
+    assert await _purse(factory, owner_id) == money(2)

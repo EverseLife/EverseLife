@@ -228,7 +228,12 @@ def burns_own_fuel(type_key: str) -> bool:
 async def works_here(
     session: AsyncSession, constants: Constants, node: Node, type_key: str
 ) -> bool:
-    """Whether this machine works in this node. In the frost only what burns does."""
+    """Whether this machine works in this node. In the frost only what burns does.
+
+    The automats' tick asks the same rule in its two halves, to read the node's
+    half once a pass (`automat.bill.frozen`): a condition added here goes there
+    too.
+    """
     if burns_own_fuel(type_key):
         return True
     return await is_warm(session, constants, node)
@@ -237,13 +242,18 @@ async def works_here(
 async def require_working(
     session: AsyncSession, constants: Constants, node: Node, type_key: str
 ) -> None:
-    """Refuse work at a machine standing in a frozen node."""
+    """Refuse work at a machine standing in a frozen -- or a scorching -- node."""
     if await works_here(session, constants, node, type_key):
         return
     raise Frozen(
         key="frost-node-frozen",
         node=node.name,
         station=type_key,
+        #: One refusal for both climates, told in the climate's own words: a
+        #: node on Pyroxis is not frozen, and nothing there cools it (D-230,
+        #: D-231, D-233).
+        #: Never None here: a planet without a climate is warm everywhere.
+        weather=await climate_of(session, node),
         plant=PLANT,
         heater=HEATER,
         brazier=BRAZIER,

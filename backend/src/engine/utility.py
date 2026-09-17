@@ -54,13 +54,13 @@ way. And the city's own node: a pool brought up to now and then drawn is
 updated twice, and takes it -- which is why a hand-over waits for the meter
 before it holds any node.
 
-Two known holes are shared with every draw from a pool and every bill. A
-credit posting takes its treasury's account `FOR KEY SHARE` through the
-entry's foreign key, which conflicts with a treasury paying out for as long as
-`ledger.post` takes debited accounts `FOR UPDATE`: a treasury paying one of the
-run's holders while the run posts into it can deadlock, in whatever order the
-bills are posted. And the hole the automats' tick leaves open (OQ-174,
-`automat/bill.py`) reaches the meter too: it draws a city's pool.
+The run holds its holders' purses while it posts into the treasuries, and a
+treasury may be paying one of those holders at the same moment. Each credit
+takes the other side's account `FOR KEY SHARE` through the entry's foreign
+key, and that passes the `FOR NO KEY UPDATE` debits queue under
+(`ledger.lock_accounts`), so the two do not wait on each other. One known hole
+is shared with every draw from a pool: the one the automats' tick leaves open
+(OQ-174, `automat/bill.py`) reaches the meter too -- it draws a city's pool.
 """
 
 from __future__ import annotations
@@ -385,23 +385,33 @@ async def pay(
 
     account = await ledger.account_for(session, AccountKind.IDENTITY, identity.id)
     treasury = await ledger.account_for(session, AccountKind.CITY_TREASURY, pool.node_id)
-    remainder = await ledger.balance(session, account.id)
-    if remainder < meter.debt:
-        raise NotEnoughMoney(
-            key="utility-not-enough-money",
-            debt=money_str(meter.debt),
-            have=money_str(remainder),
-        )
 
     debt = meter.debt
-    await ledger.transfer(
-        session,
-        PostingReason.ENERGY_BILL,
-        debit=account.id,
-        credit=treasury.id,
-        amount=debt,
-        memo={"оплата долга": node.key},
-    )
+    try:
+        await ledger.transfer(
+            session,
+            PostingReason.ENERGY_BILL,
+            debit=account.id,
+            credit=treasury.id,
+            amount=debt,
+            memo={"оплата долга": node.key},
+        )
+    except ledger.InsufficientFunds as refused:
+        #: Refused before a posting is written, by the balance read under the
+        #: purse's lock. A balance read before that lock could promise money a
+        #: purchase elsewhere had just spent, and the holder was then told the
+        #: ledger's refusal instead of this one. What they have is the figure
+        #: the refusal was decided by; read again only where the refusal does
+        #: not carry it -- a credit may land in between, since the lock queues
+        #: debits alone (`ledger.lock_accounts`).
+        have = refused.params.get("have")
+        if have is None:
+            have = await ledger.balance(session, account.id)
+        raise NotEnoughMoney(
+            key="utility-not-enough-money",
+            debt=money_str(debt),
+            have=money_str(have),
+        ) from None
     meter.debt = 0
     meter.cut_off = False
     await session.flush()

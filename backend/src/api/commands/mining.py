@@ -153,6 +153,11 @@ async def _rig_at_hand(db: AsyncSession, body: Body, item_id: str) -> Item:
     a demolition, fallen with its owner. Standing it back up is the whole point
     of the row surviving, and that door would have been shut. The same reading
     `station.place` makes of a machine on the floor.
+
+    A free look, and it is not the last word: `rig.place` asks the same under
+    the machine's lock, where a pick committed since this read shows. This one
+    keeps a stranger's id out of the engine, which would otherwise lock that
+    thing's row and name its kind in a refusal.
     """
     item = await db.get(Item, uuid.UUID(item_id))
     if item is None:

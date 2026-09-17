@@ -103,10 +103,10 @@ def _derived_keys() -> set[str]:
     from src.api.commands.world import TOLD, TOLD_OF_THE_PLACE
     from src.constants import current
     from src.constants import registry as R
-    from src.engine import occupation
+    from src.engine import finance, occupation
     from src.engine.city import founding
     from src.herald import chronicle
-    from src.models.ledger import AccountKind, PostingReason
+    from src.models.ledger import PostingReason
 
     return (
         {f"doing-{kind}" for kind in occupation.KINDS}
@@ -117,11 +117,13 @@ def _derived_keys() -> set[str]:
         #: showing the player `plates.erupted`.
         | {i18n.event_key(kind) for kind in TOLD | TOLD_OF_THE_PLACE}
         #: The statement reads by these two: on what ground the money moved,
-        #: and who stood on the other side. Both are enums the client is
-        #: handed raw, and a member without a word is shown as its own code --
-        #: which is how `works_fund` reached the screen before this wave.
+        #: and who stood on the other side. Both are codes the client is
+        #: handed raw -- the ground an enum, the side an account kind or the
+        #: work order an escrow belongs to (`finance.SIDES`) -- and a code
+        #: without a word is shown as itself, which is how `works_fund`
+        #: reached the screen before this wave.
         | {f"ledger-ground-{reason.value}" for reason in PostingReason}
-        | {f"ledger-side-{kind.value}" for kind in AccountKind}
+        | {f"ledger-side-{side}" for side in finance.SIDES}
         #: What the chronicle puts where a name should be when the row it
         #: pointed at is gone. Named through a constant rather than spelled at
         #: the call site, so the scan cannot see them -- read from the module's

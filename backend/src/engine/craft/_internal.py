@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants, current, current_catalog
 from src.constants import registry as R
-from src.engine import goods, stock, travel, wear
+from src.engine import goods, liquid, travel, wear
 from src.engine.craft import plumbing, power
 from src.engine.craft._base import (
     Busy,
@@ -132,7 +132,7 @@ async def _prepare(
     #: The air aboard works through the hull's lines (D-340): its water from
     #: the water line, a port with no line refused by name before anything.
     plumbed = await lines.plumbing_of(session, constants, catalog, station, proc.output)
-    await plumbing.require_plumbing(session, body, plumbed, lock=lock)
+    plumbed = await plumbing.require_plumbing(session, body, plumbed, lock=lock)
     tools, named = await _tool_items(session, catalog, body, proc, tool_item_id)
 
     scale = constants[R.QUALITY_SCALE]
@@ -620,7 +620,14 @@ async def _stock(
         #: make the batch wait on the tick over a stack it never wanted.
         rows = [item for item in rows if item.container_id in allowed[item.type_key]]
         if lock:
-            rows = _reread(await stock.lock_items(session, rows))
+            #: The vessels first -- those spent whole and those a liquid is
+            #: drawn out of -- then the rest, the order the automats' tick
+            #: takes a yard in (`liquid.lock_gathered`). A battery takes a clay
+            #: pot, and in one id order with the acid the master held the acid
+            #: and waited for a pot the tick held while it waited for the acid.
+            #: And without what the wait carried off: a canister picked up
+            #: meanwhile took its water into somebody's hands.
+            rows = _reread(await liquid.lock_gathered(session, catalog, rows))
 
     out: dict[str, list[Item]] = {}
     #: Nor is a thing under the knife (D-346): a guess laying out "one hammer"

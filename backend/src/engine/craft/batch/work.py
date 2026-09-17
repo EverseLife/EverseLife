@@ -13,7 +13,6 @@ from dataclasses import replace
 from datetime import UTC, datetime
 
 from sqlalchemy import select
-from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
@@ -46,7 +45,7 @@ from src.engine.craft._internal import (
 )
 from src.engine.craft.method_of_making import batch_minutes, procedure, step_hours
 from src.engine.craft.queue import _launch
-from src.engine.world import LIVE, body_container
+from src.engine.world import LIVE, body_container, lock_thing
 from src.models.craft import BatchKind, CraftBatch
 from src.models.identity import Body, BodyState
 from src.models.inventory import Item
@@ -527,8 +526,10 @@ async def recycle(
     )
 
 
-async def _target(session: AsyncSession, batch: CraftBatch) -> Item:
-    item = await session.get(Item, batch.target_item_id)
+async def _target(session: AsyncSession, batch: CraftBatch, *, lock: bool = False) -> Item:
+    item = await session.get(
+        Item, batch.target_item_id, with_for_update=lock, populate_existing=lock
+    )
     if item is None:
         raise CraftError(key="craft-target-gone", batch=str(batch.id))
     return item
@@ -562,13 +563,9 @@ async def _work_on(
     #: The thing's row is taken for the transaction before its place is asked
     #: (D-346): a hand passing it over at this very moment would otherwise
     #: slip between the question and the batch, and the batch would name a
-    #: thing already in somebody else's hands. And it may be gone by now,
-    #: which is said in words like any reach for a thing that went (`move_stack`).
-    named = item.type_key
-    try:
-        await session.refresh(item, with_for_update=True)
-    except InvalidRequestError as gone:
-        raise CraftError(key="thing-gone", goods=named) from gone
+    #: thing already in somebody else's hands. Through the world's one door,
+    #: which rereads the row and says `thing-gone` in the words of this one.
+    await lock_thing(session, item, gone=CraftError)
     if item.container_id != inventory.id:
         raise CraftError(key="craft-item-not-in-hands")
     #: A repair leaves the thing where it is and is done without taking it off

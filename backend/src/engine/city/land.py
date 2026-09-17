@@ -222,6 +222,11 @@ async def cede(session: AsyncSession, body, node: Node) -> City:
     await travel.require_here(session, body)
     if body.node_id != node.id:
         raise CityError(key="city-land-cede-on-foot")
+    #: The cheap look first, on the row as read: somebody else's plot is
+    #: refused without taking its meter, which would keep the refusal waiting
+    #: out a whole meter run. Asked again below, under the locks.
+    if node.owner_identity_id != body.identity_id:
+        raise NotYours(key="city-land-not-yours")
     #: The meter, then the node, each read afresh under its lock: a meter run
     #: adding its bill to the debt, or a holder changing, between these checks
     #: and the hand-over would hand the city a debt it can never collect, or a

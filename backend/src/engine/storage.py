@@ -38,12 +38,11 @@ import uuid
 from collections.abc import Sequence
 
 from sqlalchemy import select
-from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import access, estate, events, fuel_plant, gear, station, travel, world
+from src.engine import access, estate, events, fuel_plant, gear, station, transport, travel, world
 from src.engine.errors import Refusal
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState
@@ -251,6 +250,12 @@ async def take(
     await _allowed(session, catalog, body, chest)
 
     contents = await inside(session, chest)
+    if item.container_id != contents.id:
+        raise StorageError(key="storage-not-in-storage")
+    #: And again after the thing's lock (`world.lock_thing`): the chest's row
+    #: first, then the thing's -- the order `_allowed` and the carry limit have
+    #: always taken them in.
+    await world.lock_thing(session, item, gone=StorageError)
     if item.container_id != contents.id:
         raise StorageError(key="storage-not-in-storage")
 
@@ -462,8 +467,27 @@ async def pick(
     yard = await world.node_container(session, node)
     if item.container_id != yard.id:
         raise StorageError(key="storage-not-on-ground")
-
     await _require_inside(session, node, body)
+    #: And again after the thing's lock (`world.lock_thing`): what the hand saw
+    #: lying may be in another pair of hands by the time the wait is over. Two
+    #: hands reaching for one sack on the floor both saw it there, and the
+    #: second, judging by that sight after the wait, took it **out of the first
+    #: one's hands** -- `world.move_stack` rereads the row but moves it from
+    #: wherever it now is.
+    await world.lock_thing(session, item, gone=StorageError)
+    if item.container_id != yard.id:
+        raise StorageError(key="storage-not-on-ground")
+    #: A vehicle somebody is in the shafts of is pulled, not carried (D-157):
+    #: the harness comes off first, the carter's own hands included. An empty
+    #: barrow fits in the hands, so the carry limit alone let it be pocketed
+    #: with the harness still on -- and the carter's next leg pulled it out of
+    #: those hands (`transport.follow`). Asked under the vehicle's lock, which
+    #: `transport.harness` inserts under.
+    if (
+        transport.is_vehicle(catalog, item.type_key)
+        and await transport.pulled(session, item) is not None
+    ):
+        raise StorageError(key="storage-harnessed", goods=item.type_key)
 
     #: A relic of the Forerunners is not picked up, ever (D-232): it was found
     #: here, and the world holds no second copy of it. The refusal is here
@@ -530,19 +554,38 @@ async def hand(
 
     The receiver's hands are not bottomless: the load limit is theirs to obey
     (D-146), so a full pair of hands refuses the parcel instead of swallowing it.
+
+    **Both bodies' rows are taken here**, in id order (`world.lock_bodies`),
+    before anything in either pair of hands is read. The taker's row is what
+    every other door into those hands already queues on -- their own pick-up
+    (`_alive`), a batch paying out and a fallen limit (`overload._fall`) --
+    and without it two parcels, or a parcel and a pick-up, weighed the same
+    room and both filled it. The order is what lets two people hand each
+    other things at once: taken giver first, each would hold the row the
+    other waits for. So the caller must hold **neither** row before this: the
+    command finds the giver without a lock.
     """
 
-    if giver.state is not BodyState.ALIVE:
-        raise StorageError(key="storage-dead-hands")
-    if taker.state is not BodyState.ALIVE:
-        raise StorageError(key="storage-dead-receives")
+    _beside(giver, taker)
     if giver.id == taker.id:
         raise StorageError(key="storage-self-hand")
     await travel.require_here(session, giver)
-    #: Both in the same room: shouting across the map is not handing over.
-    if taker.node_id != giver.node_id:
-        raise StorageError(key="storage-person-not-here")
+    #: Asked above of the rows as they were handed in, so that a body lying
+    #: dead or standing in another city -- or a giver asleep or on the road --
+    #: is refused without either row being taken: the taker's id comes off the
+    #: wire, and a handover must not be a way to queue a stranger's every
+    #: command from across the map. Asked again of the rows the lock reread,
+    #: which is the answer that counts.
+    await world.lock_bodies(session, (giver.id, taker.id))
+    _beside(giver, taker)
+    await travel.require_here(session, giver)
 
+    #: The thing's row after both bodies' -- the body first, then what lies in
+    #: its hands -- and reread with the lock: it was looked up before the
+    #: giver's row was held, and the giver may have put it down meanwhile.
+    #: `world.move_stack` moves a row from wherever it now is, so a stale
+    #: answer here would hand over a sack from the floor.
+    await world.lock_thing(session, item, gone=StorageError)
     pocket = await world.body_container(session, giver)
     if item.container_id != pocket.id:
         raise StorageError(key="storage-not-in-hands-to-hand")
@@ -567,6 +610,16 @@ async def hand(
     return given
 
 
+def _beside(giver: Body, taker: Body) -> None:
+    """Both alive, and in the same room: shouting across the map is not handing over."""
+    if giver.state is not BodyState.ALIVE:
+        raise StorageError(key="storage-dead-hands")
+    if taker.state is not BodyState.ALIVE:
+        raise StorageError(key="storage-dead-receives")
+    if taker.node_id != giver.node_id:
+        raise StorageError(key="storage-person-not-here")
+
+
 async def _allowed(session: AsyncSession, catalog: Catalog, body: Body, chest: Item) -> Node:
     """The common door of both actions: alive, here, entitled, and this is a storage."""
 
@@ -579,27 +632,22 @@ async def _allowed(session: AsyncSession, catalog: Catalog, body: Body, chest: I
     node = await session.get(Node, body.node_id)
     if node is None:  # pragma: no cover -- a body without a node is a bug
         raise StorageError(key="storage-body-off-node")
-
-    #: The chest's row is taken for the transaction before a word is read off
-    #: it, and refreshed with the lock rather than merely locked: a chest
-    #: weighs its contents now (D-313), so both doors read them -- one for the
-    #: room left, the other for the weight of carrying the box away -- and a
-    #: fill that slips in between a reading and a move is how the carry limit
-    #: gets walked round (D-146). `gear.check_carry_thing` takes the same row
-    #: at the lifting door, so filling and lifting queue on it. Locking
-    #: without refreshing would be worse than not locking: the second in the
-    #: queue would wait its turn and then decide on the state it read before
-    #: waiting -- and pour a quarter of a ton into a chest already walking
-    #: away in somebody's hands.
-    named = chest.type_key
-    try:
-        await session.refresh(chest, with_for_update=True)
-    except InvalidRequestError as gone:
-        #: Burnt, fallen with the house, carried off between the look and the
-        #: click: the world's ordinary answer, said in words (D-011).
-        raise StorageError(key="thing-gone", goods=named) from gone
-
     yard = await world.node_container(session, node)
+    if chest.container_id != yard.id:
+        raise StorageError(key="storage-storage-not-here")
+
+    #: The chest's row is taken for the transaction before a word that counts
+    #: is read off it (`world.lock_thing`), and refreshed with the lock rather
+    #: than merely locked: a chest weighs its contents now (D-313), so both
+    #: doors read them -- one for the room left, the other for the weight of
+    #: carrying the box away -- and a fill that slips in between a reading and
+    #: a move is how the carry limit gets walked round (D-146).
+    #: `gear.check_carry_thing` takes the same row at the lifting door, so
+    #: filling and lifting queue on it. Locking without refreshing would be
+    #: worse than not locking: the second in the queue would wait its turn and
+    #: then decide on the state it read before waiting -- and pour a quarter of
+    #: a ton into a chest already walking away in somebody's hands.
+    await world.lock_thing(session, chest, gone=StorageError)
     if chest.container_id != yard.id:
         raise StorageError(key="storage-storage-not-here")
     if not await station.may_build(session, body, node):

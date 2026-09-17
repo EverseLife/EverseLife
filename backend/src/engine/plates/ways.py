@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import random
 import uuid
+from collections.abc import Sequence
 from datetime import datetime
 
 from sqlalchemy import or_, select
@@ -21,8 +22,7 @@ from src.constants import Constants
 from src.constants import registry as R
 from src.engine import death, net, travel, world
 from src.engine.plates._base import ANVIL, _adjacency, _connected, _exempt, _surface
-from src.engine.plates.fire import _consume
-from src.models.identity import Body, BodyState
+from src.models.identity import BodyState
 from src.models.inventory import Item
 from src.models.travel import Travel, TravelState
 from src.models.world import Edge, Node, Planet, Surface
@@ -55,7 +55,7 @@ async def _redraw(
     if anchor is None:  # pragma: no cover -- the planet always has its plateau
         return 0, 0, 0
 
-    torn = dead = 0
+    broken: list[Edge] = []
     for node in shaken:
         for other in sorted(ways.get(node.id, set()), key=str):
             if dice.random() > constants[R.PYROXIS_EDGE_REDRAW_SHARE]:
@@ -65,11 +65,18 @@ async def _redraw(
             edge = await _edge_between(session, node.id, other, lock=True)
             if edge is None:  # pragma: no cover -- read from the same graph
                 continue
-            dead += await _kill_on(session, constants, edge, now=now)
-            await session.delete(edge)
+            broken.append(edge)
             ways[node.id].discard(other)
             ways.get(other, set()).discard(node.id)
-            torn += 1
+    #: The walkers of every broken way at once, not way by way: the ways are
+    #: chosen by the graph alone, which no death changes, and killed together
+    #: their bodies are taken in one order (`_kill_on`). Gone before the
+    #: bridges below, which may lay a way where one has just broken.
+    dead = await _kill_on(session, constants, broken, now=now)
+    for edge in broken:
+        await session.delete(edge)
+    await session.flush()
+    torn = len(broken)
     laid = 0
     for node in shaken:
         if await _bridge(session, constants, dice, node, ways):
@@ -146,27 +153,34 @@ async def _edge_between(
 
 
 async def _kill_on(
-    session: AsyncSession, constants: Constants, edge: Edge, *, now: datetime
+    session: AsyncSession, constants: Constants, edges: Sequence[Edge], *, now: datetime
 ) -> int:
-    """Whoever is on this way when it goes. Returns how many died.
+    """Whoever is on these ways when they go. Returns how many died.
 
     The pocket goes with them and does not fall to the ground: a sanctioned
     sink of matter, named in the decision itself (D-233, P1). One walked far
     from the ship and chose this risk.
+
+    **Every walker's row at once, in id order** (`world.lock_bodies`), before
+    the first pocket. The world's sweeps take the bodies on a planet one after
+    another in id order in one transaction (`frost.tick_bodies`,
+    `oxygen.tick_bodies`), and taken walk by walk -- in whatever order the
+    walks were set out -- the rift held the higher id and waited for the
+    lower one while such a sweep held the lower and waited for the higher.
     """
-    going = (
-        (
-            await session.execute(
-                select(Travel).where(Travel.edge_id == edge.id, Travel.state == TravelState.GOING)
-            )
-        )
-        .scalars()
-        .all()
+    if not edges:
+        return 0
+    walking = select(Travel.body_id).where(
+        Travel.edge_id.in_([edge.id for edge in edges]), Travel.state == TravelState.GOING
     )
+    bodies = await world.lock_bodies(session, (await session.execute(walking)).scalars())
+    #: Asked again of the rows the lock waited for: a walker who turned back
+    #: meanwhile (`travel.turn_back`, under their own row) stands where the
+    #: walk began, off the way that breaks, and the heat may have ended one.
+    still = set((await session.execute(walking)).scalars())
     died = 0
-    for transit in going:
-        body = await session.get(Body, transit.body_id, with_for_update=True)
-        if body is None or body.state is not BodyState.ALIVE:  # pragma: no cover
+    for body in bodies:
+        if body.state is not BodyState.ALIVE or body.id not in still:
             continue
         pocket = await world.body_container(session, body)
         #: Taken under the lock like the things in the fields, and for symmetry
@@ -186,7 +200,7 @@ async def _kill_on(
             .scalars()
             .all()
         )
-        await _consume(session, [thing for thing in held if thing.container_id == pocket.id])
+        await world.destroy(session, [thing for thing in held if thing.container_id == pocket.id])
         await death.die(session, constants, body, cause="rift", now=now)
         died += 1
     return died

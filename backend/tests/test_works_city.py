@@ -29,6 +29,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from conftest import _slow
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import bank, energy, fuel_plant, ledger, works, works_city, world
@@ -36,98 +37,12 @@ from src.engine import city as town
 from src.engine.estate.building import build_minutes, kinds
 from src.engine.estate.upkeep import finish_repair, repair, repair_bill, repair_minutes
 from src.models.estate import Building
-from src.models.ledger import AccountKind, PostingReason
+from src.models.ledger import AccountKind
 from src.models.market import Order, OrderSide, Trade
 from src.models.works import WorkOrderKind, WorkOrderState
-from src.models.world import Layer, Node
+from src.models.world import Node
 from src.units import MONEY_SCALE, money
-
-
-async def _city_with_ruler(session: AsyncSession, catalog: Catalog, *, funds: float = 0):
-    """A city, its core with the administration, and a ruler standing in it."""
-    stamp = uuid.uuid4().hex[:8]
-    planet = await world.create_node(
-        session, f"terra.{stamp}", "Терра", area_m2=1, layer=Layer.SPACE
-    )
-    delegate = await world.create_node(
-        session,
-        f"terra.city.{stamp}",
-        f"Город-{stamp}",
-        area_m2=1,
-        layer=Layer.PLANET,
-        parent=planet,
-    )
-    core = await world.create_node(
-        session, f"terra.city.{stamp}.core", "Ядро", area_m2=100, parent=delegate
-    )
-    city = await town.found(session, catalog, delegate, f"Город-{stamp}")
-    core.owner_city_id = city.id
-    await session.flush()
-    yard = await world.node_container(session, core)
-    await world.grant_item(session, yard, town.HALL, quality=65, origin="тест")
-
-    ruler = await world.create_identity(session, f"Мэр-{stamp}")
-    ruler_body = await world.print_body(session, ruler, core)
-    await town.install_founder(session, city, ruler)
-
-    if funds:
-        treasury = await town.treasury(session, city)
-        genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
-        await ledger.transfer(
-            session,
-            PostingReason.GENESIS,
-            debit=genesis.id,
-            credit=treasury.id,
-            amount=money(funds),
-        )
-    return city, core, ruler, ruler_body
-
-
-async def _civic_plot(
-    session: AsyncSession, constants: Constants, city, core, *, condition: float
-) -> Node:
-    """A city plot next door with one worn house on it."""
-    plot = await world.create_node(
-        session,
-        f"{core.key}.plot{uuid.uuid4().hex[:4]}",
-        "Городской двор",
-        area_m2=100,
-        parent=core,
-    )
-    plot.owner_city_id = city.id
-    session.add(
-        Building(
-            node_id=plot.id,
-            area_m2=20,
-            footprint_m2=20,
-            floors=1,
-            kind=kinds(constants)[0],
-            condition=condition,
-        )
-    )
-    await session.flush()
-    return plot
-
-
-async def _worker_at(session: AsyncSession, node: Node, *, materials: dict | None = None):
-    identity = await world.create_identity(session, f"Работник-{uuid.uuid4().hex[:6]}")
-    body = await world.print_body(session, identity, node)
-    if materials:
-        pocket = await world.body_container(session, body)
-        for name, qty in materials.items():
-            await world.grant_item(session, pocket, name, amount=qty, origin="тест")
-    return identity, body
-
-
-async def _feed_fund(session: AsyncSession, amount: int) -> None:
-    genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
-    await ledger.transfer(
-        session,
-        PostingReason.WORKS_PRINT,
-        debit=genesis.id,
-        credit=(await works.fund_account(session)).id,
-        amount=amount,
-    )
+from works_kit import _city_with_ruler, _civic_plot, _feed_fund, _worker_at
 
 
 async def _balance(session: AsyncSession, identity) -> int:
@@ -417,6 +332,55 @@ async def test_two_pours_cannot_collect_one_unit_twice(
         account = await ledger.account_for(db, AccountKind.IDENTITY, worker_id)
         paid = await ledger.balance(db, account.id)
         assert paid <= order_tariff, "за десять единиц не платят дважды"
+
+
+async def test_two_city_orders_at_once_cannot_exceed_the_daily_cap(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    constants: Constants,
+    catalog: Catalog,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The cap is one counter over all the worker's payouts, and two stations
+    filled at once must not each read it before the other pays. The worker's
+    account serialises them (`_pay_share`) -- without that lock both read
+    nothing paid today and the fund pays its share twice.
+    """
+    from src.models.works import WorkOrder
+
+    stations = [(await _city_with_fuel_order(session, constants, catalog))[0] for _ in range(2)]
+    orders = (
+        (
+            await session.execute(
+                select(WorkOrder).where(WorkOrder.kind == WorkOrderKind.FUEL_DELIVERY)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert len(orders) == 2
+    city_part, fund_part = int(orders[0].payload["city_part"]), int(orders[0].payload["fund_part"])
+    assert all(int(one.payload["fund_part"]) == fund_part for one in orders)
+    #: The cap admits exactly one fund share: the second must clip to nothing.
+    capped = constants.with_overrides({"works.player_daily_cap": fund_part / MONEY_SCALE})
+    assert money(capped[R.WORKS_PLAYER_DAILY_CAP]) == fund_part
+    worker, _ = await _worker_at(session, stations[0])
+    #: Opened up front: the race is the cap read, not two inserts of one account.
+    await ledger.account_for(session, AccountKind.IDENTITY, worker.id)
+    station_ids, worker_id = [station.id for station in stations], worker.id
+    fuel_key = orders[0].payload["type_key"]
+    await session.commit()
+
+    _slow(monkeypatch, works, "paid_today")
+
+    async def pour_all(station_id) -> int:
+        async with factory() as db, db.begin():
+            place = await db.get(Node, station_id)
+            assert place is not None
+            return await works_city.pay_fuel_delivery(db, capped, place, fuel_key, 10.0, worker_id)
+
+    payments = await asyncio.gather(*(pour_all(one) for one in station_ids))
+    assert sum(payments) == 2 * city_part + fund_part, "the cap is per worker, not per order"
 
 
 async def _city_with_fuel_order(

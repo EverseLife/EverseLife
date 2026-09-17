@@ -45,9 +45,14 @@ async def test_a_loan_and_an_exit_do_not_cross(
 ) -> None:
     """Whichever is second sees the first, and never both.
 
-    Only the bank's own reading is held back: `borrow` looks the citizenship up
-    through the city package, `leave` calls its neighbour by name -- so the
-    pause widens the window on one side, which is the whole of the race.
+    Both readings of the citizenship are held -- `borrow`'s through the city's
+    door and `leave`'s by name inside the package, since `_slow` holds a
+    package's function wherever it is bound -- and the window stays open all
+    the same: after the pause `leave` asks one question before it deletes,
+    whether anything is owed, while `borrow` still has the limit, the treasury
+    and the ledger to go through before its loan exists. Without the row lock
+    the exit reads no debt and the loan is written over a citizenship already
+    gone.
     """
 
     who = await world.create_identity(session, f"Уходящий-{uuid.uuid4().hex[:6]}")

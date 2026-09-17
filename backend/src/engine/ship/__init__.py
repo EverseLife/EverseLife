@@ -168,6 +168,7 @@ from src.engine.ship.belonging import (  # noqa: F401
     aboard_of,
     crew_of,
     is_aboard,
+    lock_crew,
     nodes_of,
     of_node,
     ships_of,

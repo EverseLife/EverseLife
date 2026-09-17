@@ -12,6 +12,17 @@ before the pool, like every stack a draw needs; the races here are the
 automats' tick holding such stacks from its advance -- the plant's pile it
 poured its coke into, the iron by a printer -- against each of the others.
 
+A cell charged from the pool (`battery.charge_battery`) is such a stack too --
+a battery is an input to a feed circuit and an exoskeleton -- so the charge
+takes the cell before the pool, and asks where it lies of its row once that
+lock is had. A cell lifted off the floor while the charge waited on it is in
+the lifter's hands, and one deleted meanwhile is nowhere; neither is charged,
+nor billed to the charger. And an automat eating the cell holds it from its
+advance and takes the pool only at the end of its pass: a charge holding the
+pool while it waited for that cell was a deadlock.
+
+The lift and the deletion that go first are `gone_kit`'s.
+
 The handshake is `_until_blocked_by`: the side holding the contended rows
 lets go only once the other side has provably walked into them.
 """
@@ -20,26 +31,38 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from automat_kit import IRON, NAILS, _factory_floor, _learn, _lube_in, _pool_left, _until_blocked_by
+from automat_kit import IRON, NAILS, _factory_floor, _hold_the_first, _learn, _lube_in, _pool_left
+from gone_kit import _burning, _lifting
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import automat, craft, death, energy, ledger, liquid, storage, world
+from src.engine import (
+    automat,
+    battery,
+    craft,
+    death,
+    energy,
+    ledger,
+    liquid,
+    storage,
+    world,
+)
 from src.engine.craft import procedure
 from src.models.automat import Automat as AutomatRow
 from src.models.craft import CraftBatch
 from src.models.energy import EnergyPool
 from src.models.identity import Body, Identity
-from src.models.inventory import Item
+from src.models.inventory import Container, Item
 from src.models.job import Job, JobKind
 from src.models.ledger import AccountKind, PostingReason
-from src.models.world import Node
-from src.units import amount_float, money
+from src.models.world import Layer, Node
+from src.units import PERCENT, amount_float, money
 
 FURNACE = "blast_furnace"
 SILICON = "silicon"
@@ -47,29 +70,11 @@ SAND = "quartz_sand"
 COKE = "petroleum_coke"
 PLANT = "coal_plant"
 OIL = "crude_oil"
-
-
-def _hold_the_first(
-    monkeypatch: pytest.MonkeyPatch,
-    factory: async_sessionmaker[AsyncSession],
-    module: object,
-    name: str,
-) -> asyncio.Event:
-    """The first call of `module.name` holds the rows it locked until another
-    transaction waits on them. The event says they are held; the session is
-    the call's first argument, as it is for every engine door."""
-    held = asyncio.Event()
-    locked = getattr(module, name)
-
-    async def holding(*args, **kwargs):
-        rows = await locked(*args, **kwargs)
-        if not held.is_set():
-            held.set()
-            await _until_blocked_by(factory, args[0])
-        return rows
-
-    monkeypatch.setattr(module, name, holding)
-    return held
+#: A thing the assembler makes with a battery inside (D-253).
+CIRCUIT = "feed_circuit"
+#: Energy the pool holds for a charge: more than a cell takes, so the cell's
+#: room decides the pour and the bill.
+POOL_ENERGY = 1000
 
 
 async def _coker_by_the_plant(session: AsyncSession, constants: Constants, catalog: Catalog):
@@ -283,3 +288,220 @@ async def test_a_body_print_does_not_deadlock_the_tick_on_the_printers_iron(
         assert sum(amount_float(stack.amount) for stack in iron) == pytest.approx(
             1000 - constants[R.DEATH_IRON_COST] - per_nail * made, abs=0.01
         )
+
+
+async def _cell_on_the_floor(session: AsyncSession, constants: Constants):
+    """A city yard on the grid, an empty cell lying on its floor (D-278), a
+    funded charger and a lifter beside it.
+
+    The tariff is the vault's: a charge that goes through is paid for, so a
+    charge into the wrong hands shows on the charger's purse. Returns the
+    node, the charger, the lifter and the cell.
+    """
+    stamp = uuid.uuid4().hex[:8]
+    city = await world.create_node(
+        session, f"terra.cells.{stamp}", "City", area_m2=1, layer=Layer.PLANET
+    )
+    node = await world.create_node(
+        session, f"terra.cells.{stamp}.yard", "Yard", area_m2=200, layer=Layer.PLANET, parent=city
+    )
+    pool = await energy.pool_of(session, constants, node)
+    assert pool is not None
+    assert pool.tariff > 0, "a charge into the wrong hands must show on a purse"
+    pool.stored = Decimal(POOL_ENERGY)
+    pool.counted_at = datetime.now(UTC)
+    charger = await world.print_body(
+        session, await world.create_identity(session, f"Charger-{stamp}"), node
+    )
+    lifter = await world.print_body(
+        session, await world.create_identity(session, f"Lifter-{stamp}"), node
+    )
+    purse = await ledger.account_for(session, AccountKind.IDENTITY, charger.identity_id)
+    genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
+    await ledger.transfer(
+        session,
+        PostingReason.GENESIS,
+        debit=genesis.id,
+        credit=purse.id,
+        amount=money(1000),
+        memo={},
+    )
+    cell = await world.grant_item(
+        session,
+        await world.node_container(session, node),
+        battery.BATTERY,
+        quality=60,
+        origin="test",
+        installed=False,
+    )
+    await session.flush()
+    return node, charger, lifter, cell
+
+
+async def _charging(
+    factory: async_sessionmaker[AsyncSession],
+    constants: Constants,
+    charger_id: uuid.UUID,
+    cell_id: uuid.UUID,
+    held: asyncio.Event,
+) -> float:
+    """The charge that comes second: it sees the cell where it lay before the
+    side holding its row lets go."""
+    await held.wait()
+    async with factory() as db, db.begin():
+        me = await db.get(Body, charger_id)
+        cell = await db.get(Item, cell_id)
+        assert me is not None and cell is not None
+        return await battery.charge_battery(db, constants, me, cell)
+
+
+async def _purse_of(factory: async_sessionmaker[AsyncSession], identity_id: uuid.UUID) -> int:
+    async with factory() as db:
+        account = await ledger.account_for(db, AccountKind.IDENTITY, identity_id)
+        return await ledger.balance(db, account.id)
+
+
+async def test_a_cell_lifted_off_the_floor_is_not_charged_in_the_lifters_hands(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    constants: Constants,
+    catalog: Catalog,
+) -> None:
+    """A charge asks where the cell lies of its row after the lock, not before.
+
+    The lifter picks the cell up off the floor and keeps the transaction open,
+    holding its row. The charger sees the cell still lying in the yard --
+    within reach of the counter, which charges a cell in the hands or in the
+    yard -- and walks into the row. The lift commits. Judged by the sight from
+    before the wait, the charge went on into a cell now in the lifter's hands:
+    the city's energy poured into another body's pocket, and the charger billed
+    for it. Judged after the wait, the cell is no longer here.
+    """
+    node, charger, lifter, cell = await _cell_on_the_floor(session, constants)
+    node_id, charger_id, lifter_id, cell_id = node.id, charger.id, lifter.id, cell.id
+    identity_id = charger.identity_id
+    await session.commit()
+    purse = await _purse_of(factory, identity_id)
+
+    held = asyncio.Event()
+
+    lifted, charged = await asyncio.gather(
+        _lifting(factory, constants, catalog, lifter_id, cell_id, held=held),
+        _charging(factory, constants, charger_id, cell_id, held),
+        return_exceptions=True,
+    )
+
+    assert lifted == pytest.approx(1), lifted
+    assert isinstance(charged, battery.BatteryError), charged
+    assert charged.key == "battery-not-here", charged.key
+    async with factory() as db:
+        thing = await db.get(Item, cell_id)
+        me = await db.get(Body, lifter_id)
+        assert thing is not None and me is not None
+        assert thing.container_id == (await world.body_container(db, me)).id
+        assert not thing.charge, thing.charge
+    assert await _pool_left(factory, constants, node_id) == pytest.approx(POOL_ENERGY)
+    assert await _purse_of(factory, identity_id) == purse
+
+
+async def test_a_cell_deleted_while_the_charge_waited_is_refused_by_key(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    constants: Constants,
+) -> None:
+    """A charge into a cell taken out of the world while it reached is refused by key.
+
+    The yard is burnt (`plates._burn`) -- the cell with it -- and the rows are
+    held. The fire of Pyroxis never reaches a city's counter; it stands in for
+    the ways a cell does leave the world there, a falling house (D-244) or an
+    automat eating it. The charger, having seen the cell lying there, walks
+    into its row. The deletion commits. The lock then finds no row, and what
+    came back was a failed refresh -- the server's failure -- rather than a
+    refusal by key (D-251): the cell is gone, and nothing is drawn or billed
+    for it.
+    """
+    node, charger, _, cell = await _cell_on_the_floor(session, constants)
+    node_id, charger_id, cell_id = node.id, charger.id, cell.id
+    identity_id = charger.identity_id
+    await session.commit()
+    purse = await _purse_of(factory, identity_id)
+
+    held = asyncio.Event()
+
+    burnt, charged = await asyncio.gather(
+        _burning(factory, node_id, held),
+        _charging(factory, constants, charger_id, cell_id, held),
+        return_exceptions=True,
+    )
+
+    assert not isinstance(burnt, BaseException), burnt
+    assert isinstance(charged, battery.BatteryError), charged
+    assert charged.key == "thing-gone", charged.key
+    async with factory() as db:
+        assert await db.get(Item, cell_id) is None
+    assert await _pool_left(factory, constants, node_id) == pytest.approx(POOL_ENERGY)
+    assert await _purse_of(factory, identity_id) == purse
+
+
+async def test_a_charge_does_not_deadlock_the_tick_eating_the_cell(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    constants: Constants,
+    catalog: Catalog,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An assembler makes a feed circuit of the cell lying by it, and its owner
+    charges that very cell at the counter.
+
+    The tick takes the cell with the rest of the inputs, works the piece, and
+    takes the pool at the end of its pass (`automat.bill`). When the charge
+    took the pool first and the cell after, it held the pool waiting for the
+    tick's cell while the tick waited for the pool, and Postgres killed one of
+    the two. Now the charge waits for the cell holding no pool: the tick eats
+    the cell, draws, commits -- and the charge finds the cell gone.
+    """
+    node, yard, identity, body, assembler = await _factory_floor(session, constants)
+    proc = procedure(catalog, CIRCUIT)
+    #: What the race needs of the vault, asserted rather than assumed: one
+    #: whole cell goes into one circuit, so the piece eats the row outright.
+    assert proc.per_unit.get(battery.BATTERY) == pytest.approx(1), proc.per_unit
+    cell = await world.grant_item(
+        session, yard, battery.BATTERY, quality=60, origin="test", installed=False
+    )
+    #: The other inputs for more than one piece: the cell alone caps the work at one.
+    for name, per in proc.per_unit.items():
+        if name != battery.BATTERY:
+            await world.grant_item(session, yard, name, amount=3 * per, quality=60, origin="test")
+    await _lube_in(session, yard, 1000)
+    await _learn(session, identity, CIRCUIT)
+    row = await automat.program(session, constants, catalog, body, assembler, CIRCUIT)
+    pool = await energy.pool_of(session, constants, node)
+    assert pool is not None
+    pool.counted_at = row.counted_at
+    #: Twice the hours one piece takes (`run.advance`): time for one, inputs for one.
+    unit_hours = proc.step_hours / (constants[R.AUTO_SPEED_SHARE] / PERCENT)
+    moment = row.counted_at + timedelta(hours=2 * unit_hours)
+    body_id, cell_id, yard_id = body.id, cell.id, yard.id
+    await session.commit()
+
+    held = _hold_the_first(monkeypatch, factory, liquid, "locked_stacks")
+
+    async def tick() -> float:
+        async with factory() as db, db.begin():
+            return await automat.tick_automats(db, constants, now=moment)
+
+    made, charged = await asyncio.gather(
+        tick(), _charging(factory, constants, body_id, cell_id, held), return_exceptions=True
+    )
+
+    assert made == pytest.approx(1), made
+    assert isinstance(charged, battery.BatteryError), charged
+    assert charged.key == "thing-gone", charged.key
+    async with factory() as db:
+        assert await db.get(Item, cell_id) is None
+        circuits = [
+            thing
+            for thing in await world.contents(db, await db.get_one(Container, yard_id))
+            if thing.type_key == CIRCUIT
+        ]
+        assert sum(amount_float(thing.amount) for thing in circuits) == pytest.approx(1)

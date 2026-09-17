@@ -9,10 +9,11 @@ it is the number of times the server waits for an answer. A ceiling is the only
 thing that keeps a helper from quietly turning one query into twenty: nothing
 else fails when it does.
 
-Three subjects now: the whole command, the Net's unread count, and the walk
-`look` makes over a city to find its core. The last two are the same defect in
-two places -- a question asked once per thing where one query answers about all
-of them -- and the second was found while measuring the first.
+Four subjects now: the whole command, the Net's unread count, the walk `look`
+makes over a city to find its core, and an automat's liquid payout against the
+vessels in its yard. The last three are the same defect in three places -- a
+question asked once per thing where one query answers about all of them -- and
+the second was found while measuring the first.
 
 Two kinds of ceiling here, and the second is the point of the first:
 
@@ -47,9 +48,10 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
+from src.engine import automat, net, storage, travel, world
 from src.engine import city as town
-from src.engine import net, travel, world
 from src.models.world import Node
+from tests.automat_kit import _factory_floor, _learn, _lube_in
 from tests.conftest import Counter
 from tests.net_kit import _capital
 
@@ -80,6 +82,11 @@ PER_CHANNEL_BUDGET = 0
 #: they are different questions, and a day when the Net earns a query of slack
 #: is not a day the city walk earns ten.
 PER_NODE_BUDGET = 0
+
+#: The same, for one more vessel standing in an automat's yard. The payout
+#: locks and reads the vessels together, and a tank that takes nothing costs
+#: it nothing more.
+PER_VESSEL_BUDGET = 0
 
 
 @pytest.fixture(autouse=True)
@@ -317,6 +324,63 @@ async def test_finding_the_core_does_not_grow_with_the_city(
 
     assert fat - thin <= PER_NODE_BUDGET * 10, (
         f"поиск ядра стоит {thin} запросов на городе из двух узлов и {fat} на городе из двенадцати"
+    )
+
+
+async def _payout_cost(
+    session: AsyncSession, constants: Constants, catalog: Catalog, *, tanks: int
+) -> int:
+    """Round trips of one liquid payout, on a reactor floor with `tanks` canisters of kerosene.
+
+    The kerosene is neither the output nor an input nor the lubricant, so the
+    extra canisters change nothing the machine does: only how many vessels it
+    walks past. The empty canister the spirit goes into is the last by id, so
+    a pour that walks the vessels in order walks past every tank first.
+    """
+    _, yard, identity, body, reactor = await _factory_floor(
+        session, constants, machine_kind="auto_reactor"
+    )
+    await world.grant_item(session, yard, "sugar", amount=4, quality=60, origin="test")
+    await _lube_in(session, yard, 10)
+    cans = [
+        await world.grant_item(session, yard, "canister", quality=60, origin="test")
+        for _ in range(tanks + 2)
+    ]
+    water, *kerosene, _ = sorted(cans, key=lambda can: can.id)
+    for can, name, units in ((water, "water", 50.0), *((one, "kerosene", 5.0) for one in kerosene)):
+        inside = await storage.inside(session, can)
+        await world.grant_item(session, inside, name, amount=units, quality=60, origin="test")
+    await _learn(session, identity, "alcohol")
+    row = await automat.program(session, constants, catalog, body, reactor, "alcohol")
+    await session.flush()
+    meter = Counter(session)
+    try:
+        before = meter.count
+        made = await automat.advance(
+            session, constants, row, catalog=catalog, now=row.counted_at + timedelta(hours=10)
+        )
+    finally:
+        meter.stop()
+    #: Counting queries would pass on a machine that made nothing, too.
+    assert made == pytest.approx(4)
+    return meter.count - before
+
+
+async def test_a_liquid_payout_does_not_grow_with_the_vessels_in_the_yard(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """One tank beside the machine and ten cost the same to pay a liquid out into.
+
+    The advance weighed every vessel in the yard for its forecast, two queries
+    each, and the payout then locked and reread them one at a time, five or so
+    each -- per machine, per tick, in a yard that may stand dozens of tanks.
+    The vessels are locked and read together now, once for the forecast and
+    once for the pour.
+    """
+    few = await _payout_cost(session, constants, catalog, tanks=1)
+    many = await _payout_cost(session, constants, catalog, tanks=10)
+    assert many - few <= PER_VESSEL_BUDGET * 9, (
+        f"a liquid payout costs {few} queries beside one tank and {many} beside ten"
     )
 
 

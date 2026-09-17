@@ -13,7 +13,7 @@ for, did not exist for a single day.
 
 | State | What it means |
 |---|---|
-| **standing** | an item `kind: vehicle` lies in the node, like a machine. Never taken in hand |
+| **standing** | an item `kind: vehicle` lies in the node. Lifted only light and out of harness |
 | **harnessed** | the body pulls it along all transits. One at a time, and only what is nearby |
 | **loaded** | cargo rides **in the hold** up to `transport.capacity` kilograms, not in hands |
 
@@ -172,6 +172,17 @@ async def harnessed(session: AsyncSession, body: Body) -> Item | None:
     return await session.get(Item, line.item_id)
 
 
+async def pulled(session: AsyncSession, vehicle: Item) -> Harness | None:
+    """The harness this vehicle is pulled by, if anybody is in the shafts.
+
+    Asked of a vehicle whose row the asker holds: `harness` inserts under
+    that lock, so only then is "nobody" an answer that stays true.
+    """
+    return (
+        await session.execute(select(Harness).where(Harness.item_id == vehicle.id))
+    ).scalar_one_or_none()
+
+
 async def harness(
     session: AsyncSession, constants: Constants, catalog: Catalog, body: Body, item: Item
 ) -> Item:
@@ -192,13 +203,30 @@ async def harness(
     yard = await world.node_container(session, node)
     if item.container_id != yard.id:
         raise NotHere(key="transport-not-here")
+    #: And again after the vehicle's lock, both questions -- where it stands
+    #: and who pulls it. The vehicle's row is what a door lifting it off the
+    #: ground takes before reading where it lies (`storage.pick`), and what a
+    #: second harness queues on: judged by the sight from before the wait, a
+    #: harness landed on a barrow already in somebody's hands, for the
+    #: carter's first leg to pull out of them (`follow`), and a second carter
+    #: at the same cart died on `uq_harness_item` instead of being told the
+    #: cart was taken. The cheap question above stays: the id is the
+    #: client's, and a vehicle plainly not here is refused without taking its
+    #: row.
+    #:
+    #: The body's side -- one harness per body, not on the road, not dead --
+    #: is held by the caller's lock on the body row (`_alive`), taken before
+    #: this one. A caller from a job must take the body first too.
+    #:
+    #: Broke on its last leg, burnt with the yard: the world's ordinary
+    #: answer, a refusal by key (D-251), raised as `NotHere`.
+    await world.lock_thing(session, item, gone=NotHere)
+    if item.container_id != yard.id:
+        raise NotHere(key="transport-not-here")
 
     if await harnessed(session, body) is not None:
         raise AlreadyHarnessed(key="transport-already-harnessed")
-    foreign_ = (
-        await session.execute(select(Harness).where(Harness.item_id == item.id))
-    ).scalar_one_or_none()
-    if foreign_ is not None:
+    if await pulled(session, item) is not None:
         raise AlreadyHarnessed(key="transport-vehicle-taken")
 
     session.add(Harness(body_id=body.id, item_id=item.id))
@@ -303,6 +331,37 @@ async def fill(
     return min(1.0, await cargo_mass(session, catalog, vehicle) / limit)
 
 
+async def _pulled_here(session: AsyncSession, body: Body, *, key: str) -> Item:
+    """The body's own convoy, under the vehicle's lock and reread after it.
+
+    What loads and unloads the hold. A hold hangs off the vehicle by id, not
+    by a key (D-313), so nothing in the database stops a hold from being made
+    for a cart that is being burnt: a fire takes the cart's row and then what
+    lies in its hold (`world.destroy`), and a load judged by the sight from
+    before the fire's commit made the cart a hold after its walk -- goods in a
+    hold nothing owns -- or queued its move behind the fire's delete of the
+    same hold and deadlocked on it. Taken here, the vehicle's row puts the two
+    in a queue: a load first is burnt with the cart, a fire first leaves no
+    cart to load, and that is said in words (D-251).
+
+    Asked again after the lock: where the vehicle stands. The body's own row
+    holds the harness in place (the caller's `_alive`), but not the vehicle.
+
+    `key` is the refusal for a body with nothing harnessed, and it is passed
+    as `key=` so that `test_i18n` sees the call site name its message.
+    """
+    wagon = await harnessed(session, body)
+    if wagon is None:
+        raise NotHarnessed(key=key)
+    await world.lock_thing(session, wagon, gone=NotHere)
+    node = await session.get(Node, body.node_id)
+    if node is None:  # pragma: no cover -- a body always stands in a node
+        raise TransportError(key="transport-body-off-node")
+    if wagon.container_id != (await world.node_container(session, node)).id:
+        raise NotHere(key="transport-not-here")
+    return wagon
+
+
 async def load(
     session: AsyncSession,
     constants: Constants,
@@ -317,9 +376,7 @@ async def load(
         raise TransportError(key="transport-load-dead")
     await travel.require_here(session, body)
 
-    wagon = await harnessed(session, body)
-    if wagon is None:
-        raise NotHarnessed(key="transport-load-not-harnessed")
+    wagon = await _pulled_here(session, body, key="transport-load-not-harnessed")
     pocket = await world.body_container(session, body)
     if item.container_id != pocket.id:
         raise TransportError(key="transport-not-in-hands")
@@ -371,9 +428,7 @@ async def unload(
         raise TransportError(key="transport-unload-dead")
     await travel.require_here(session, body)
 
-    wagon = await harnessed(session, body)
-    if wagon is None:
-        raise NotHarnessed(key="transport-unload-not-harnessed")
+    wagon = await _pulled_here(session, body, key="transport-unload-not-harnessed")
     hold = await cargo(session, wagon)
     if item.container_id != hold.id:
         raise TransportError(key="transport-not-in-hold")
@@ -459,6 +514,12 @@ async def wear_leg(
 
     rolled = await spill(session, vehicle, node)
     await drop_missing(session, vehicle.id)
+    #: And the hold itself, emptied: it is the wagon's own container, and a
+    #: row owned by a thing that no longer exists is an orphan even empty.
+    hold = await hold_of(session, vehicle)
+    if hold is not None:
+        await session.delete(hold)
+        await session.flush()
     await wear.spend(
         session,
         constants,

@@ -25,11 +25,14 @@ the work done and bills only what the pool gave; a purse emptied meanwhile is
 not forgiven -- the pass runs again with it empty, and that owner's machines
 on the tariff stand and lose those hours.
 
-Lock order, per machine: the machine's row, the yard's stacks (lubricant and
-water, one query), the plot (skipped if held), the storage named for the
-action and its stacks. At the end of the pass the pools, then the cells, then
-the purses (`bill.pay`). The tick walks the machines by their node, so two
-passes over two yards take the yards the same way round.
+Lock order, per machine: the machine's row, the yard's vessels (one lock, id
+order), the machine's thing (its wear), the yard's stacks (lubricant and water,
+one query), the plot (skipped if held), the storage named for the action and
+its stacks. The yard's vessels stay locked to the end of the family's pass, and
+a hand pouring between any two of them waits for it (`automat.run`). At the end of the
+pass the pools, then the cells, then the purses (`bill.pay`). The tick walks
+the machines by their node, so two passes over two yards take the yards the
+same way round.
 """
 
 from __future__ import annotations
@@ -39,7 +42,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import NamedTuple
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -146,6 +149,32 @@ async def _advance(
         return 0
     if not row.program:
         return await _stopped(session, row, moment)
+    #: What stands the machine idle is read before anything is locked or
+    #: written, so that an idle machine takes nothing of its yard: it only
+    #: wears.
+    yard = None if node is None else await world.node_container(session, node)
+    placed = (
+        node is not None
+        and yard is not None
+        and machine.container_id == yard.id
+        and machine.installed
+    )
+    owner = row.owner_identity_id
+    entitled = placed and owner is not None and await station.may_build_as(session, owner, node)
+    beds = await beds_of(session, constants, book, row, moment) if entitled else []
+    #: The yard's vessels before anything else of a working machine is
+    #: written, every one in one lock, as the automats of the same pass take
+    #: the yard (`automat.run`): a hand pouring out of the canister the water
+    #: is drawn from locks the canister first, and the fire takes a yard's
+    #: vessels before the rest of it, this machine included, whose row the wear
+    #: below writes. The stacks are drawn only out of those the wait left
+    #: standing here: the water of a canister picked up meanwhile is in the
+    #: owner's hands.
+    vessels = (
+        await liquid.lock_vessels(session, await liquid.vessels_in(session, book, yard))
+        if beds and yard is not None
+        else {}
+    )
     #: Wear by the clock, worked or stood (D-120), by the Terran day like the
     #: rig it is modelled on and like its own fallow and weeding (D-008).
     if await wear.spend(
@@ -157,22 +186,18 @@ async def _advance(
     ):
         await _gone(session, row, node)
         return 0
-    yard = None if node is None else await world.node_container(session, node)
-    if node is None or yard is None or machine.container_id != yard.id or not machine.installed:
+    if not placed or node is None or yard is None:
         #: Taken down or carried off: a machine works only where it stands. The
         #: word it had stays for its window, but it does not stand for that
         #: word now, and the journal is not told it again.
         return await _idle(session, constants, row, row.trouble, moment, stood=False)
-    #: The owner's right to the node, asked every time: land sold from under
-    #: the machine stops it -- the seller neither pays for it nor takes from
-    #: chests that are the buyer's now, and the buyer may set it anew.
-    owner = row.owner_identity_id
-    if owner is None or not await station.may_build_as(session, owner, node):
-        #: Told once, not every day: whoever the land went from has nothing to
-        #: answer it with, and the machine's new holder sets it anew.
+    if not entitled:
+        #: The owner's right to the node, asked every time: land sold from
+        #: under the machine stops it -- the seller neither pays for it nor
+        #: takes from chests that are the buyer's now, and the buyer may set it
+        #: anew. Told once, not every day: whoever the land went from has
+        #: nothing to answer it with, and the machine's new holder sets it anew.
         return await _idle(session, constants, row, NOT_ENTITLED, moment, again=False)
-
-    beds = await beds_of(session, constants, book, row, moment)
     if not beds:
         #: Nothing given to it: it idles, and idling draws nothing.
         return await _idle(session, constants, row, NO_PLOTS, moment)
@@ -185,7 +210,7 @@ async def _advance(
     if not world.has_place(node, world.WATER):
         wanted.add(farm.WATER)
     by_name: dict[str, list[Item]] = {}
-    for stack in await liquid.locked_stacks(session, book, yard, tuple(wanted)):
+    for stack in await liquid.locked_stacks(session, book, yard, tuple(wanted), held=vessels):
         by_name.setdefault(stack.type_key, []).append(stack)
 
     #: A machine with a programme and plots is on the whole time: holding a
@@ -427,7 +452,7 @@ async def _sweep_stopped(session: AsyncSession) -> None:
         (
             await session.execute(
                 select(FieldAutomat.id).where(
-                    func.jsonb_array_length(FieldAutomat.program) == 0,
+                    ~FieldAutomat.programmed,
                     ~select(Item.id).where(Item.id == FieldAutomat.item_id).exists(),
                 )
             )
@@ -503,7 +528,7 @@ class _Fields:
                 .join(Node, Node.id == FieldAutomat.node_id)
                 .join(Item, Item.id == FieldAutomat.item_id)
                 .where(
-                    func.jsonb_array_length(FieldAutomat.program) > 0,
+                    FieldAutomat.programmed,
                     given.exists(),
                     Item.installed.is_(True),
                 )
@@ -543,7 +568,7 @@ async def _work_fields(
         (
             await session.execute(
                 select(FieldAutomat.id)
-                .where(func.jsonb_array_length(FieldAutomat.program) > 0)
+                .where(FieldAutomat.programmed)
                 .order_by(FieldAutomat.node_id, FieldAutomat.id)
             )
         )

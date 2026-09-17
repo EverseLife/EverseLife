@@ -102,7 +102,7 @@ breed-one-batch = нужны две партии семян: сорт сам с 
 breed-not-enough-seeds = на питомник нужно { $need } семян каждого сорта
 breed-nursery-done = этот питомник уже разобран
 breed-nursery-not-ready = питомник созреет: { $left }
-thing-gone = «{ NAME($goods) }» здесь больше нет: пока вы тянулись, это унесли
+thing-gone = «{ NAME($goods) }» здесь больше нет: пока вы тянулись, этого не стало
 thing-taken-apart = вещь разбирают — из рук она не уйдёт, пока идёт работа: «{ NAME($goods) }»
 breed-parent-gone = родительский сорт исчез
 breed-not-stable = сорт ещё не постоянен: имя даётся тому, что даёт тот же результат из раза в раз
@@ -164,15 +164,24 @@ oxygen-no-suit = в «{ $node }» нечем дышать: без «{ NAME($suit
 oxygen-tanks-empty = в «{ $node }» нечем дышать: в баллонах пусто, заправьтесь на борту
 oxygen-not-enough = на дорогу в «{ $node }» нужно { NUMBER($need, minimumFractionDigits: 1, maximumFractionDigits: 1) } кислорода, а в баллонах { NUMBER($have, minimumFractionDigits: 1, maximumFractionDigits: 1) }: переход кончится удушьем
 
-# --- холод (engine/frost.py) -------------------------------------------------
+# --- холод и пекло (engine/frost/) -------------------------------------------
 
-frost-node-frozen = «{ $node }» промёрз: «{ NAME($station) }» здесь не работает. Тепло даёт «{ NAME($plant) }», «{ NAME($heater) }» или «{ NAME($brazier) }» с топливом
+# $weather — климат планеты, ключ: frost (мерзлота, Аврора) или heat (пекло,
+# Пироксис). Механика одна, знак обратный: мёрзлый узел обогревают, а узел на
+# пекле не остудить ничем — прохладен только борт (D-230, D-231, D-233).
+frost-node-frozen = { $weather ->
+        [heat] узел «{ $node }» раскалён: «{ NAME($station) }» здесь не работает — остудить узел нельзя
+       *[frost] узел «{ $node }» промёрз: «{ NAME($station) }» здесь не работает. Тепло даёт «{ NAME($plant) }», «{ NAME($heater) }» или «{ NAME($brazier) }» с топливом
+    }
 frost-dead-warms = мёртвое тело не греется
 frost-asleep = тело спит: сначала проснуться
 frost-not-a-warmer = «{ NAME($goods) }» не греет: для этого есть «{ NAME($warmer) }»
 frost-warmer-from-hands = грелку достают из рук
 frost-no-cold-here = здесь не мёрзнут: греться незачем, а грелка одноразовая
-frost-reserve-full = теплозапас и так полон ({ NUMBER($have, minimumFractionDigits: 1, maximumFractionDigits: 1) } ч из { NUMBER($ceiling, minimumFractionDigits: 1, maximumFractionDigits: 1) }): грелку берегут на холод
+frost-reserve-full = { $weather ->
+        [heat] запас прохлады и так полон ({ NUMBER($have, minimumFractionDigits: 1, maximumFractionDigits: 1) } ч из { NUMBER($ceiling, minimumFractionDigits: 1, maximumFractionDigits: 1) }): сверх потолка не запасти
+       *[frost] теплозапас и так полон ({ NUMBER($have, minimumFractionDigits: 1, maximumFractionDigits: 1) } ч из { NUMBER($ceiling, minimumFractionDigits: 1, maximumFractionDigits: 1) }): грелку берегут на холод
+    }
 
 # --- энергия (engine/energy.py) ----------------------------------------------
 

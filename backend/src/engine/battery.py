@@ -204,17 +204,38 @@ async def charge_battery(
         raise BatteryError(key="battery-body-off-node")
     pocket = await world.body_container(session, body)
     yard = await world.node_container(session, node)
+    #: Asked first of the row the command was handed -- the id is the client's
+    #: -- so that a cell plainly out of reach is refused without taking its row.
+    #: The grid as well, and read without a write: off the grid a charge is
+    #: refused at once, not after queueing on a cell the hull's machines hold.
     if item.container_id not in (pocket.id, yard.id):
         raise BatteryError(key="battery-not-here")
-    pool = await _grid().pool_of(session, constants, node)
-    if pool is None:
+    if await _grid().grid_node(session, node) is None:
         raise _grid().NoGrid(key="battery-no-grid")
-    await _grid().produce(session, constants, pool, now=moment)
 
     #: The cell's row before its charge is read and rewritten: a worn
     #: exoskeleton drinks from this very cell every tick (D-268), and a charge
     #: written over a drain the tick just committed would undo the drain.
-    await session.refresh(item, with_for_update=True)
+    #:
+    #: And where it lies is asked again of the row as it now stands: a cell
+    #: lifted off the floor into another pair of hands while this waited was
+    #: charged there anyway, and this payer billed for it. Gone meanwhile --
+    #: eaten by an automat as an input (D-253), fallen with the house (D-244)
+    #: -- it is a refusal by key like any other (D-251), not a failed refresh.
+    #:
+    #: Before the pool, like any stack before its pool (`energy.produce`): a
+    #: battery is an input too (an exoskeleton, a feed circuit), and an
+    #: automats' pass holding it as one takes the pool at the end of its work
+    #: (`automat.bill`) -- a charge holding the pool while it waited for the
+    #: cell was the other half of a deadlock.
+    await world.lock_thing(session, item, gone=BatteryError)
+    if item.container_id not in (pocket.id, yard.id):
+        raise BatteryError(key="battery-not-here")
+    pool = await _grid().pool_of(session, constants, node)
+    if pool is None:  # pragma: no cover -- the grid was just seen
+        raise _grid().NoGrid(key="battery-no-grid")
+    await _grid().produce(session, constants, pool, now=moment)
+
     have = await settle_charge(session, constants, item, now=moment)
     place = max(0.0, capacity(constants) - have)
     wants = place if amount_wanted is None else min(float(amount_wanted), place)

@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants, current, current_catalog
 from src.constants import registry as R
-from src.engine import craft, events, goods, occupation, storage, travel, world
+from src.engine import craft, events, goods, occupation, stock, storage, travel, world
 from src.engine.estate._base import EstateError, Ruined
 from src.engine.estate.building import (
     _equipment,
@@ -33,7 +33,7 @@ from src.engine.jobs import enqueue, handler
 from src.models.estate import Building
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState
-from src.models.inventory import Container, ContainerKind, Item
+from src.models.inventory import Container, Item
 from src.models.job import Job, JobKind, JobState
 from src.models.works import WorkOrderKind
 from src.models.world import ABOARD, Node
@@ -41,7 +41,6 @@ from src.units import (
     SCALE_MAX,
     SCALE_MIN,
     SECONDS_PER_MINUTE,
-    amount_float,
 )
 
 
@@ -351,46 +350,53 @@ async def _bury(
     in a house proof against its collapse, losing neither its slot nor its use.
     """
     catalog = current_catalog()
-    things = [
+
+    def falls(thing: Item) -> bool:
+        return (
+            not filtered
+            or not thing.outdoors
+            or _equipment(catalog, thing.type_key)
+            or storage.is_storage(catalog, thing.type_key)
+        )
+
+    doomed = [
         thing
         for thing in (
             (await session.execute(select(Item).where(Item.container_id == store.id)))
             .scalars()
             .all()
         )
-        if not filtered
-        or not thing.outdoors
-        or _equipment(catalog, thing.type_key)
-        or storage.is_storage(catalog, thing.type_key)
+        if falls(thing)
     ]
-    for thing in things:
-        lost[thing.type_key] = lost.get(thing.type_key, 0.0) + amount_float(thing.amount)
-        #: A chest goes down with its contents: the inside is a container of
-        #: its own, and left behind it would be goods in no place at all.
-        inside = (
-            (
-                await session.execute(
-                    select(Container).where(
-                        Container.kind == ContainerKind.STORAGE,
-                        Container.owner_id == thing.id,
-                    )
-                )
-            )
-            .scalars()
-            .all()
+    #: Only what goes down is taken under the lock, and asked again after it
+    #: whether it still lies here: a sack picked up off this floor in the same
+    #: second stays in the hands that reached it, rather than being deleted
+    #: out of them the moment the pick lands. What the rain spares is not
+    #: taken at all -- the machine ticks lock their own rows and then the fuel
+    #: in this same yard, and a lock on the spared heap would only cross them.
+    #: What goes down is taken the way the fire takes a field
+    #: (`plates.fire._burn`): the vessels first, then the rest, each in id
+    #: order. One id order over all of them held a sack while it waited for a
+    #: canister the automats' tick holds, the tick waiting on that sack
+    #: (`automat.run`); and no order at all -- the deletes one by one, as the
+    #: heap gave them -- crossed a rig pass, which takes a machine with its
+    #: coal by id (`rig._held`).
+    vessels = [thing for thing in doomed if storage.is_vessel(catalog, thing.type_key)]
+    rest = [thing for thing in doomed if not storage.is_vessel(catalog, thing.type_key)]
+    things = [
+        thing
+        for thing in (
+            *await stock.lock_items(session, vessels),
+            *await stock.lock_items(session, rest),
         )
-        for box in inside:
-            stored = (
-                (await session.execute(select(Item).where(Item.container_id == box.id)))
-                .scalars()
-                .all()
-            )
-            for held in stored:
-                lost[held.type_key] = lost.get(held.type_key, 0.0) + amount_float(held.amount)
-                await session.delete(held)
-            await session.delete(box)
-        await session.delete(thing)
-    await session.flush()
+        if thing.container_id == store.id and falls(thing)
+    ]
+    #: A chest goes down with its contents, a cart with its load and out of
+    #: its harness, and a chest in a chest all the way down (`world.destroy`):
+    #: left behind, the inside would be goods in no place at all, and a
+    #: harness left pointing at the cart takes the whole collapse down.
+    for kind, much in (await world.destroy(session, things)).items():
+        lost[kind] = lost.get(kind, 0.0) + much
 
 
 async def collapse(session: AsyncSession, node: Node, house: Building) -> None:
@@ -420,7 +426,9 @@ async def collapse(session: AsyncSession, node: Node, house: Building) -> None:
     #: The plot's row first, and for the same reason building takes it
     #: (`estate.hold_ground`, D-246): what the floors are is read off what
     #: stands here, and a build finishing in another session in this same second
-    #: would leave a four-storey house with no stair to any of its floors.
+    #: would leave a four-storey house with no stair to any of its floors. And
+    #: before any of the things it buries: the doors that stand and take down
+    #: machines take the node before the thing too (`station`).
     await hold_ground(session, node)
 
     await session.delete(house)
@@ -492,6 +500,12 @@ async def decay(session: AsyncSession, constants: Constants) -> tuple[int, int]:
             fallen.append(house)
     await session.flush()
 
+    #: What this still leaves to the worker's retry: the houses fall one plot
+    #: after another in one transaction, each taking its own floor's things,
+    #: while the rig tick holds the machines and fuel of every rig yard in one
+    #: id order (`rig._hold_the_world`) and the automats take a yard at a time.
+    #: Two houses falling on one day over two such yards, reached the other
+    #: way round, are a deadlock and the day's step is replayed.
     for house in fallen:
         node = await session.get(Node, house.node_id)
         if node is None:  # pragma: no cover -- a building without a node is a defect

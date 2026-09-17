@@ -375,23 +375,46 @@ async def _breathe(
         await session.flush()
         return 0.0, 0
 
-    need = hull_draw(constants, len(crew)) * hours
-    drawn = 0.0
-    if need > _EPS:
-        stacks = await stock.lock_items(
-            session,
-            await breathable_stacks(session, constants, catalog, locked, things=hold),
-            ordered=True,
-        )
-        #: What was **actually** written off is what was breathed, not what
-        #: the reading promised: another hand may have poured the cylinder out
-        #: between the two, and a crew credited with air it never had would
-        #: live through an hour it did not live through.
-        drawn = amount_float(await stock.consume(session, stacks, amount(need)))
-    short = max(0.0, need - drawn)
+    #: What the last stretches breathed and the line could not be asked for is
+    #: asked for first, and only whole thousandths are asked -- the rest waits
+    #: on the hull, under the lock `air_at` is written under. A stretch is a
+    #: `time.tick`, and its breath is not a whole number of thousandths:
+    #: rounded to the nearest, at a one-minute tick and `oxygen.crew_draw` of
+    #: 0.1 a crew of one breathed a fifth more than the rate and a crew of two
+    #: a tenth less (measured 2026-09-13). In decimals, so the rest is below a
+    #: thousandth exactly and not by a float's grace -- the column's check
+    #: would refuse the tick otherwise. The same carry as a body outside
+    #: (`settle`), and kept on the hull, not on the stamp, for the same reason:
+    #: an open hatch moves the stamp and would forgive it.
+    owed = Decimal(str(hull_draw(constants, len(crew)) * hours)) + Decimal(str(locked.air_owed))
+    whole = on_grid(owed, ROUND_AMOUNT, ROUND_FLOOR)
+    want = amount(whole)
+    if want <= 0:
+        #: Nothing whole to ask for, so nothing is learnt about the line
+        #: either: the crew's countdown stands as the last settling left it.
+        locked.air_owed = on_grid(owed, ROUND_REMAINDER, ROUND_FLOOR)
+        await session.flush()
+        return 0.0, 0
+    stacks = await stock.lock_items(
+        session,
+        await breathable_stacks(session, constants, catalog, locked, things=hold),
+        ordered=True,
+    )
+    #: What was **actually** written off is what was breathed, not what the
+    #: reading promised: another hand may have poured the cylinder out between
+    #: the two, and a crew credited with air it never had would live through an
+    #: hour it did not live through.
+    took = await stock.consume(session, stacks, want)
+    drawn = amount_float(took)
+    #: Asked and given are both whole thousandths, so short means short and
+    #: never a rounding: the last digit of an hour no longer needs forgiving,
+    #: because nothing below the grid was asked. A short crew chokes for it
+    #: and is not billed twice -- nothing is carried on top of choking.
+    short = took < want
+    locked.air_owed = Decimal(0) if short else on_grid(owed - whole, ROUND_REMAINDER, ROUND_FLOOR)
     await session.flush()
 
-    if short <= _EPS:
+    if not short:
         for member in crew:
             await _breathing(session, member)
         return drawn, 0
@@ -399,6 +422,17 @@ async def _breathe(
     #: The hull ran dry. One settling of grace, exactly as outside: a stretch
     #: only half covered kills nobody, and the next one begun on empty tanks
     #: does. The whole crew shares one hull, so it shares one countdown.
+    #:
+    #: Every member's row is written below -- the countdown or the death --
+    #: so it is taken before the first of them, in id order, and the death
+    #: then reaches into hands it already holds (`vessels.lock_crew`). Only
+    #: here: a stretch the tanks covered writes a crew row only to give the
+    #: grace back, and has no business queueing the whole crew's acts.
+    crew = await vessels.lock_crew(session, locked)
+    if not crew:
+        #: All of them stepped off while the rows were waited for: nobody is
+        #: left to choke, and nobody to tell.
+        return drawn, 0
     dead = 0
     for member in crew:
         if member.choking_since is None:

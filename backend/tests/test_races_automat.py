@@ -37,7 +37,7 @@ from automat_kit import (
 )
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import automat, battery, craft, energy, ledger, stock, world
+from src.engine import automat, battery, craft, energy, ledger, liquid, stock, storage, world
 from src.engine.automat import bill as energy_bill
 from src.engine.automat import run as automat_run
 from src.models.automat import Automat as AutomatRow
@@ -544,6 +544,84 @@ async def test_the_off_grid_tick_and_the_automats_tick_take_hulls_cells_in_one_o
         for row_id in row_ids:
             worked = await db.get(AutomatRow, row_id)
             assert worked is not None and worked.counted_at == moment
+
+
+async def test_a_master_taking_a_pot_as_an_input_does_not_deadlock_the_tick(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    constants: Constants,
+    catalog: Catalog,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A work locks the vessels among its inputs before the rest of them.
+
+    A battery takes lead, sulfuric acid and a clay pot, and a pot is a vessel.
+    An automat on the same floor makes copper solution out of that acid. The
+    tick locks the yard's vessels before any stack (`liquid.lock_vessels`),
+    while a master starting a battery at the bench locked the lead, the acid
+    and the pots in one id order -- the pots last here. The master held the
+    acid and waited for a pot the tick held, and the tick waited for the acid.
+    """
+    _, yard, identity, body, machine = await _factory_floor(session, constants)
+    await world.grant_item(session, yard, "workbench", quality=60, origin="test")
+    for name in ("lead", "copper_ingot"):
+        await world.grant_item(session, yard, name, amount=20, quality=60, origin="test")
+    acid = await world.grant_item(
+        session, yard, "sulfuric_acid", amount=20, quality=60, origin="test"
+    )
+    water = await world.grant_item(session, yard, "canister", quality=60, origin="test")
+    inside = await storage.inside(session, water)
+    await world.grant_item(session, inside, "water", amount=100, quality=60, origin="test")
+    #: Every pot after the acid in id order, so the master's one lock reaches
+    #: the pots holding the acid.
+    pots = 0
+    while pots < 3:
+        pot = await world.grant_item(session, yard, "clay_pot", quality=60, origin="test")
+        if pot.id > acid.id:
+            pots += 1
+        else:
+            await session.delete(pot)
+            await session.flush()
+    await _lube_in(session, yard, 100)
+    for key in ("battery", "copper_solution"):
+        await _learn(session, identity, key)
+    row = await automat.program(session, constants, catalog, body, machine, "copper_solution")
+    moment = row.counted_at + timedelta(hours=1)
+    body_id, row_id = body.id, row.id
+    await session.commit()
+
+    held = asyncio.Event()
+    locked = liquid.lock_vessels
+
+    async def holding(db: AsyncSession, vessels):
+        rows = await locked(db, vessels)
+        if not held.is_set():
+            #: The tick holds the yard's pots; the master starts only now.
+            held.set()
+            await _until_blocked_by(factory, db)
+        return rows
+
+    monkeypatch.setattr(liquid, "lock_vessels", holding)
+
+    async def master() -> CraftBatch:
+        await held.wait()
+        async with factory() as db, db.begin():
+            me = await db.get(Body, body_id)
+            assert me is not None
+            return await craft.start(db, constants, catalog, me, "battery", 1)
+
+    async def tick() -> float:
+        async with factory() as db, db.begin():
+            return await automat.tick_automats(db, constants, now=moment)
+
+    batch, made = await asyncio.gather(master(), tick())
+
+    assert batch.output == "battery"
+    assert made > 0
+    async with factory() as db:
+        worked = await db.get(AutomatRow, row_id)
+        assert worked is not None
+        assert worked.counted_at == moment, "the machine's advance died waiting on the master"
 
 
 async def test_a_stack_taken_after_a_machine_rolled_back_is_not_counted_twice(

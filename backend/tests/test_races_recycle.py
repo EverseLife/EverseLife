@@ -65,6 +65,19 @@ async def _bench(factory: async_sessionmaker[AsyncSession]):
         return master.id, friend.id, hammer.id
 
 
+async def _master_at_work(db: AsyncSession, master_id) -> Body:
+    """The master's row taken for the transaction, as `_alive` takes it."""
+    master = (
+        await db.execute(
+            select(Body)
+            .where(Body.id == master_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one()
+    return master
+
+
 async def _hand(factory: async_sessionmaker[AsyncSession], master_id, friend_id, hammer_id):
     async with factory() as db, db.begin():
         giver = await db.get(Body, master_id)
@@ -180,9 +193,15 @@ async def test_a_hand_and_the_start_of_taking_apart_never_both_have_the_thing(
         if first == "hand":
             await held.wait()
         async with factory() as db, db.begin():
-            master = await db.get(Body, master_id)
+            #: The body's row first, as the command's door takes it
+            #: (`api.commands.common._alive`) and as a handover takes both
+            #: (`world.lock_bodies`). The batch's own row points at the body,
+            #: and the insert rechecks that key -- so a start that took the
+            #: thing first and the body second would wait on the row the
+            #: handover holds while holding the row the handover wants.
+            master = await _master_at_work(db, master_id)
             thing = await db.get(Item, hammer_id)
-            assert master is not None and thing is not None
+            assert thing is not None
             work = await craft.recycle(db, current(), current_catalog(), master, thing)
             return work.ready_at
 

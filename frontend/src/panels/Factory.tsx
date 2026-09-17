@@ -203,6 +203,16 @@ export function Factory({ look, values }: Props) {
         {t("ui-factory-title")}
         <Rule>{t("ui-factory-rule")}</Rule>
       </h2>
+      {/* The machines stand silently (D-253), and this is the one stop the owner
+          cannot see on the floor itself: the meter is the node's (D-149). */}
+      {look.node?.cut_off && <p className="trouble">{t("ui-factory-cut-off")}</p>}
+      {/* The cold stops them the same way (D-231): no automat burns its own
+          fuel. `look.frost` is the body's, and the body stands on this floor. */}
+      {look.frost && !look.frost.warm && (
+        <p className="trouble">
+          {t("ui-factory-frozen", { heat: String(look.frost.climate === "heat") })}
+        </p>
+      )}
       <p className="note">{armed !== null ? t("ui-factory-wire-armed") : t("ui-factory-hint")}</p>
 
       <div className="factory" style={{ width: layout.width, height: layout.height }}>

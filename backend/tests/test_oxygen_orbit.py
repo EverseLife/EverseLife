@@ -17,6 +17,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from oxygen_kit import _cylinder, _ground, _hull, _port, _sphere, _suited
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import oxygen, ship, travel, world
@@ -24,7 +25,6 @@ from src.models.identity import BodyState
 from src.models.job import Job, JobKind, JobState
 from src.models.world import Layer, Node, Planet, Surface
 from src.units import ROUND_AMOUNT
-from test_oxygen import _cylinder, _ground, _hull, _port, _sphere, _suited
 
 
 async def _orbit(session: AsyncSession, sphere: Node) -> Node:

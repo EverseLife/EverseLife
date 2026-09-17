@@ -167,15 +167,25 @@ oxygen-no-suit = nothing to breathe in “{ $node }”: without a “{ NAME($sui
 oxygen-tanks-empty = nothing to breathe in “{ $node }”: the tanks are empty, refill aboard
 oxygen-not-enough = the way to “{ $node }” needs { NUMBER($need, minimumFractionDigits: 1, maximumFractionDigits: 1) } oxygen, and the tanks hold { NUMBER($have, minimumFractionDigits: 1, maximumFractionDigits: 1) }: the crossing would end in suffocation
 
-# --- cold (engine/frost.py) --------------------------------------------------
+# --- cold and heat (engine/frost/) -------------------------------------------
 
-frost-node-frozen = “{ $node }” is frozen through: “{ NAME($station) }” does not work here. Warmth comes from “{ NAME($plant) }”, “{ NAME($heater) }” or “{ NAME($brazier) }” with fuel
+# $weather is the planet's climate, a key: frost (permafrost, Aurora) or heat
+# (scorching heat, Pyroxis). One mechanic with the sign reversed: a frozen node
+# is heated, while nothing cools a node in the heat — it is cool only aboard
+# (D-230, D-231, D-233).
+frost-node-frozen = { $weather ->
+        [heat] the node “{ $node }” is scorching: “{ NAME($station) }” does not work here — the node cannot be cooled
+       *[frost] the node “{ $node }” is frozen through: “{ NAME($station) }” does not work here. Warmth comes from “{ NAME($plant) }”, “{ NAME($heater) }” or “{ NAME($brazier) }” with fuel
+    }
 frost-dead-warms = a dead body does not warm itself
 frost-asleep = the body is asleep: wake up first
 frost-not-a-warmer = “{ NAME($goods) }” gives no warmth: “{ NAME($warmer) }” is what does
 frost-warmer-from-hands = a warmer is taken out of the hand
 frost-no-cold-here = nobody freezes here: no reason to warm up, and a warmer is single-use
-frost-reserve-full = the heat reserve is full as it is ({ NUMBER($have, minimumFractionDigits: 1, maximumFractionDigits: 1) } h out of { NUMBER($ceiling, minimumFractionDigits: 1, maximumFractionDigits: 1) }): a warmer is saved for the cold
+frost-reserve-full = { $weather ->
+        [heat] the coolness reserve is full as it is ({ NUMBER($have, minimumFractionDigits: 1, maximumFractionDigits: 1) } h out of { NUMBER($ceiling, minimumFractionDigits: 1, maximumFractionDigits: 1) }): nothing is stored above the ceiling
+       *[frost] the warmth reserve is full as it is ({ NUMBER($have, minimumFractionDigits: 1, maximumFractionDigits: 1) } h out of { NUMBER($ceiling, minimumFractionDigits: 1, maximumFractionDigits: 1) }): a warmer is saved for the cold
+    }
 
 # --- energy (engine/energy.py) -----------------------------------------------
 

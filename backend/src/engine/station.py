@@ -37,7 +37,6 @@ from __future__ import annotations
 import uuid
 
 from sqlalchemy import select
-from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, current
@@ -226,17 +225,19 @@ async def place(session: AsyncSession, catalog: Catalog, body: Body, item: Item)
     node = await session.get(Node, body.node_id)
     if node is None:  # pragma: no cover
         raise StationError(key="station-body-off-node")
+    #: The node's row before the thing's (`estate.hold_ground`): both doors
+    #: spend its floor -- what stands pays by slots and what lies by area
+    #: (D-192, D-278) -- and a falling house takes the same pair in that order,
+    #: the node and then what it buries. A door holding the thing while it
+    #: waited on the node crossed it.
+    await estate.hold_ground(session, node)
     pocket = await world.body_container(session, body)
-    #: The thing's own row is taken first: two hands putting up one machine
-    #: from the same floor must not both read it lying. And it may be gone
+    #: The thing's own row next: two hands putting up one machine from the
+    #: same floor must not both read it lying. And it may be gone
     #: -- picked up, burnt, fallen with the house -- between the look and the
-    #: click: that is the world's ordinary answer, said in words (D-011), not
-    #: a failed refresh. The name is read first: a failed refresh leaves none.
-    named = item.type_key
-    try:
-        await session.refresh(item, with_for_update=True)
-    except InvalidRequestError as gone:
-        raise StationError(key="thing-gone", goods=named) from gone
+    #: click: that is the world's ordinary answer, a refusal by key (D-251), not
+    #: a failed refresh.
+    await world.lock_thing(session, item, gone=StationError)
     yard_now = await world.node_yard(session, node)
     lying = yard_now is not None and item.container_id == yard_now.id and not item.installed
     if item.container_id != pocket.id and not lying:
@@ -258,10 +259,8 @@ async def place(session: AsyncSession, catalog: Catalog, body: Body, item: Item)
         await require_printer_room(session, body, node, lock=True)
 
     #: The building is capacity: `build.slots_per_area` m2 per thing. No
-    #: building -- no room; the yard stays a yard. The plot row is taken for
-    #: the transaction first: two hands putting up into the last place must
-    #: not both count it free (CLAUDE.md, the remainder rule).
-    await session.execute(select(Node.id).where(Node.id == node.id).with_for_update())
+    #: building -- no room; the yard stays a yard. Counted under the node's
+    #: row, taken at the door.
     constants = current()
     #: The floor's own places, not the node's: a relic standing in the yard
     #: (D-232, D-244) is not in the way of a machine put up indoors, and the
@@ -327,16 +326,26 @@ async def take(session: AsyncSession, catalog: Catalog, body: Body, item: Item) 
     node = await session.get(Node, body.node_id)
     if node is None:  # pragma: no cover
         raise StationError(key="station-body-off-node")
-    #: The thing's own row first, and the plot's after it -- the order
-    #: `place` locks in, because the two doors meet on the same pair. And the
-    #: thing may be gone between the look and the click: the world's ordinary
-    #: answer, said in words (D-011). The name is read first: a failed refresh
-    #: leaves none.
-    named = item.type_key
-    try:
-        await session.refresh(item, with_for_update=True)
-    except InvalidRequestError as gone:
-        raise StationError(key="thing-gone", goods=named) from gone
+    #: The node's row first, as `place` takes it and for the same reasons.
+    await estate.hold_ground(session, node)
+    #: A rig's own row next, before the thing's. The tick holds every rig row
+    #: of the world and writes the machine's wear under it (`rig.advance`), so
+    #: "rig row, then machine" is the one order the two may meet in: a
+    #: take-down that locked the machine first and waited here on a rig
+    #: mid-pass left the tick waiting on the machine, and the database killed
+    #: one of them. The node before both does not cross the tick: the tick
+    #: reaches for the node only `FOR KEY SHARE`, which the node's holder lets
+    #: through. The hopper is read now and answered below, where the refusal
+    #: belongs -- the row is this transaction's from here on, so nothing fills
+    #: it in between (D-181, D-314).
+    from src.engine import rig  # noqa: PLC0415 -- lazy: breaks station -> rig -> liquid -> station
+
+    hopper = await rig.hopper_left(session, item)
+    #: The thing's own row last -- the order `place` locks in, because the two
+    #: doors meet on the same pair. And the thing may be gone between the look
+    #: and the click: a refusal by key like any other (D-251), not a failed
+    #: refresh.
+    await world.lock_thing(session, item, gone=StationError)
     yard = await world.node_container(session, node)
     if item.container_id != yard.id:
         raise StationError(key="station-not-in-node")
@@ -376,16 +385,12 @@ async def take(session: AsyncSession, catalog: Catalog, body: Body, item: Item) 
     #: itself -- so twelve hours of a rig's work, 300 units and 60 kg, would
     #: ride off in the hands past the carry limit (D-146) and past the carter
     #: the hopper is there to require.
-    from src.engine import rig  # noqa: PLC0415 -- lazy: breaks station -> rig -> liquid -> station
-
-    if await rig.hopper_left(session, item) > 0:
+    if hopper > 0:
         raise NotEmpty(key="station-hopper-not-empty", goods=item.type_key)
 
-    #: The plot's row for the transaction: what stands pays by slots and what
-    #: lies pays by area (D-192, D-278), so taking down is a move between two
-    #: budgets, and two hands taking down onto the last free metre must not
-    #: both count it free (CLAUDE.md, the remainder rule).
-    await session.execute(select(Node.id).where(Node.id == node.id).with_for_update())
+    #: Taking down is a move between two budgets -- what stands pays by slots
+    #: and what lies pays by area (D-192, D-278) -- and both are counted under
+    #: the node's row, taken at the door.
     constants = current()
     #: The surface is the node's, the one a person would name and `storage.drop`
     #: asks for: a machine stands in a building, so it comes to lie on its

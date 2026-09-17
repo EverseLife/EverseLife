@@ -403,7 +403,11 @@ async def _withdraw(session: AsyncSession, order: WorkOrder, *, now: datetime) -
 
 
 async def paid_today(session: AsyncSession, identity_id: uuid.UUID, *, now: datetime) -> int:
-    """What the fund paid this identity over the last day -- the cap's counter."""
+    """What the fund paid this identity over the last day -- the cap's counter.
+
+    The fund's ground alone: a city order pays the city's part under
+    `works_city_payout`, and that money is the city's, not the fund's.
+    """
     account = await ledger.find_account(session, AccountKind.IDENTITY, identity_id)
     if account is None:
         return 0
@@ -468,9 +472,7 @@ async def pay_road_order(
     #: pay in full. The recipient's account row serialises the payouts; the
     #: lock order stays one-way everywhere -- order, then identity, then escrow.
     recipient = await ledger.account_for(session, AccountKind.IDENTITY, identity_id)
-    await session.execute(
-        select(LedgerAccount.id).where(LedgerAccount.id == recipient.id).with_for_update()
-    )
+    await ledger.lock_accounts(session, [recipient.id])
     escrow = await ledger.account_for(session, AccountKind.ESCROW, order.id)
     held = await ledger.balance(session, escrow.id)
     cap = money(constants[R.WORKS_PLAYER_DAILY_CAP])
@@ -484,7 +486,7 @@ async def pay_road_order(
             debit=escrow.id,
             credit=recipient.id,
             amount=payment,
-            memo={"госзаказ": str(order.id), "ребро": str(edge.id)},
+            memo={"work_order": str(order.id), "edge": str(edge.id)},
         )
     leftover = held - payment
     if leftover > 0:

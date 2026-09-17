@@ -138,6 +138,15 @@ async def die(
     place: nothing is scattered, nothing burns, and the kit lies on the floor of
     the node, whole, for whoever comes to the face next. The share below is the
     one difference; everything else about dying is the same death.
+
+    **The body's row is the caller's to take first** -- and, killing several,
+    the rows of them all at once in id order (`world.lock_bodies`). This takes
+    the pocket and writes the body last, so a caller without the row held the
+    stack in the hands while it waited for the body, against the body's own
+    act holding the row and reaching into those hands. The sweeps and the face
+    hold it already (`frost._burn`, `oxygen.settle`, `mining.swing`); a crew
+    is taken by `ship.lock_crew`, the walkers of a breaking way by
+    `plates._kill_on`.
     """
     moment = now or datetime.now(UTC)
     if body.state is not BodyState.ALIVE:
@@ -159,7 +168,7 @@ async def die(
     #:
     #: What was already mined stays lying at the face: it was out of the rock
     #: and in the node before the body fell, so it stays in the node like
-    #: everything else the place kept (D-011). A session left open would hold
+    #: everything else the place kept (D-012). A session left open would hold
     #: its haul where nobody could ever reach it again.
 
     from src.engine import mining  # noqa: PLC0415 -- lazy: mining imports death (the face kills)
@@ -189,6 +198,7 @@ async def die(
 
     yard = await world.node_container(session, node) if node is not None else None
     survived = 0.0
+    lost: list[Item] = []
     for thing in things:
         #: Whole means whole: a share of one goes past the arithmetic rather
         #: than through it, so that a heap big enough for the float to shave a
@@ -204,7 +214,7 @@ async def die(
             )
             left = thing.amount if kept else 0
         if left <= 0 or yard is None:
-            await session.delete(thing)
+            lost.append(thing)
             continue
         thing.amount = left
         thing.container_id = yard.id
@@ -219,6 +229,10 @@ async def die(
         #: are one heap (D-214). The tally is of what survived, not of stacks.
         await world.stack_up(session, thing)
         survived += amount_float(left)
+    #: What is lost goes whole (`world.destroy`): a chest with what lay in it,
+    #: a barrow with its load and out of any harness. A row deleted alone left
+    #: the inside alive in a place that no longer exists.
+    await world.destroy(session, lost)
 
     #: An ongoing transit breaks off: a dead body arrives nowhere.
 

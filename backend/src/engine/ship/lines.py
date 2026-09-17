@@ -42,8 +42,9 @@ the sub-nodes of one delegate node, and a line from the engine room to a tank
 in the hold is the ordinary case.
 
 Nothing here is locked: this module says **where** a port may draw and pour,
-and the spender locks what it takes (`stock.lock_items`) and the pourer the
-vessel it fills (`liquid.fill_vessels`). The floor of the ship package -- it
+and whoever works through a port locks every vessel on it before a stack in them
+(`liquid.lock_vessels`) and keeps to the vessels that lock found in place
+(`Plumbing.keeping`). The floor of the ship package -- it
 asks `belonging` and the catalog and nothing above itself: `physics` burns
 through it, `oxygen` breathes through it, `craft` and `automat` work through
 it and `feed`, the orders, writes through it.
@@ -52,7 +53,7 @@ it and `feed`, the orders, writes through it.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 
 from sqlalchemy import delete, select
@@ -429,6 +430,33 @@ class Plumbing:
     #: Every vessel any of the ports reaches, each once, in id order: what a
     #: machine working on its lines locks before it reads a stack in them.
     vessels: tuple[Item, ...] = ()
+
+    def keeping(self, vessels: Collection[uuid.UUID], insides: Collection[uuid.UUID]) -> Plumbing:
+        """The same plumbing with only these vessels on its lines, and only
+        these storages inside them: what the lock on the vessels found still
+        standing where this reading saw them (`liquid.lock_vessels`). A port
+        whose every vessel went reaches nothing for the rest of the transaction,
+        as the next reading will find it (D-288 as amended 2026-09-04); the dry
+        ports stay as read -- the inlets keep storages rather than vessels, and
+        cannot say which port a vessel stood on."""
+        return Plumbing(
+            ship=self.ship,
+            machine=self.machine,
+            inlets={
+                name: tuple(box for box in boxes if box in insides)
+                for name, boxes in self.inlets.items()
+            },
+            outlets={
+                name: [one for one in found if one.id in vessels]
+                for name, found in self.outlets.items()
+            },
+            vents={
+                name: [one for one in found if one.id in vessels]
+                for name, found in self.vents.items()
+            },
+            dry=self.dry,
+            vessels=tuple(one for one in self.vessels if one.id in vessels),
+        )
 
 
 async def plumbing_of(

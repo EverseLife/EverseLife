@@ -176,6 +176,9 @@ utility-not-enough-money = долг { $debt } ₭, а на счету { $have } 
 # Сторона проводки, у которой нет имени человека. Вид счёта приходит с
 # провода как есть (`genesis`, `bank_reserve`), словом становится здесь —
 # иначе игрок читает в выписке `works_fund`, как и читал до этой волны.
+# Один вид счёта сервер делит надвое: в `escrow` лежат либо деньги
+# покупателя под заявкой или бронью, либо оплата госзаказа, и она приходит
+# отдельным видом `work_order` — за оплатой госзаказа сделки нет.
 
 ledger-side-city_treasury = { $named ->
         [true] казна: { $name }
@@ -185,6 +188,7 @@ ledger-side-genesis = эмиссия
 ledger-side-bank_reserve = резерв банка
 ledger-side-works_fund = фонд работ
 ledger-side-escrow = залог сделки
+ledger-side-work_order = госзаказ
 ledger-side-identity = человек
 
 # Основание проводки: тот же перечень, что и `PostingReason`. До этой волны
@@ -210,5 +214,6 @@ ledger-ground-bank_margin = маржа города
 ledger-ground-transfer = перевод
 ledger-ground-works_recycle = возврат в фонд работ
 ledger-ground-works_print = печать в фонд работ
-ledger-ground-works_payout = оплата госзаказа
+ledger-ground-works_payout = оплата госзаказа из фонда работ
+ledger-ground-works_city_payout = оплата госзаказа из казны города
 ledger-ground-emission = эмиссия по подписям столицы

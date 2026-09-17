@@ -374,6 +374,9 @@ async def _finish_recycle(
     if coin.is_coin(catalog, batch.output):
         return await coin.finish_melt(session, constants, catalog, batch, where)
 
+    #: Under its lock and reread, before a single material comes back: a thing
+    #: the fire or a falling roof takes in this same second is not there to be
+    #: taken apart, and its planks must not come back out of nothing.
     item = await _on_the_bench(session, batch, body)
     if item is None:
         #: Nothing on the bench (D-346): the thing left the hands while the
@@ -441,9 +444,14 @@ async def _finish_recycle(
     #: holding its twin -- keeps what the batch was not about.
     if item.amount > taken:
         item.amount -= taken
+        await session.flush()
     else:
-        await session.delete(item)
-    await session.flush()
+        #: Through the world's one door, so the thing does not leave half of
+        #: itself behind: what lay in a chest or a barrow's hold goes with it
+        #: rather than living on in a container nothing owns, and a harness on
+        #: it lets go rather than failing the finish. Whether a full thing may
+        #: be taken apart at all is asked before the work, not here (OQ-177).
+        await world_engine.destroy(session, [item])
     if arrived:
         #: Paid into the hands past the carry limit, the materials fall
         #: underfoot (D-265), weighed after the thing itself has left them: a
@@ -458,20 +466,25 @@ async def _finish_recycle(
 async def _on_the_bench(session: AsyncSession, batch: CraftBatch, body: Body) -> Item | None:
     """The thing to take apart, if it still lies in the master's hands (D-346).
 
-    Taken `FOR UPDATE`, as `_wear_tools` takes a tool, and asked where it lies
-    under that lock -- reread, so a row this session already holds does not
-    answer with the place it had before the wait. The doors refuse to carry a
-    thing off only while the work goes; a batch that waited, a fall, or a door
-    that does not ask can leave it elsewhere, and it must not be taken apart
-    in somebody else's hands or off the counter it now lies on.
+    Taken under its lock and reread through the batch's own door
+    (`_target(lock=True)`), so that a row this session already holds does not
+    answer with the place it had before the wait -- and so that the end of a
+    recycling asks for the target exactly as the end of a repair does. Where
+    it lies is read under that lock: the doors refuse to carry a thing off
+    only while the work goes, and a batch that waited, a fall, or a door that
+    does not ask can leave it elsewhere. It must not be taken apart in
+    somebody else's hands or off the counter it now lies on.
 
     Nor on the body: a thing put on while its batch waited is worn, and what
-    is worn is not taken apart (D-305). `None` -- nothing to take apart.
+    is worn is not taken apart (D-305). `None` -- nothing to take apart, and
+    that includes a thing gone from the world altogether.
     """
-    item = await session.get(
-        Item, batch.target_item_id, with_for_update=True, populate_existing=True
-    )
-    if item is None:
+    try:
+        item = await _target(session, batch, lock=True)
+    except CraftError:
+        #: `_target` speaks to a repair, which has a thing to mend or nothing
+        #: to do at all; a recycling that finds nothing simply takes nothing
+        #: apart, and the batch closes empty.
         return None
     pocket = await body_container(session, body)
     if item.container_id != pocket.id or await gear.is_worn(session, item):

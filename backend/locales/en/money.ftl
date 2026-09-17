@@ -177,7 +177,10 @@ utility-not-enough-money = the debt is { $debt } ₭ and the account holds { $ha
 # The side of a posting that has no person's name. The kind of account arrives
 # over the wire as it is (`genesis`, `bank_reserve`) and becomes a word here --
 # otherwise the player reads `works_fund` in the statement, as they did before
-# this wave.
+# this wave. One kind of account the server splits in two: an escrow holds
+# either a buyer's money under an order or a reservation, or a work order's
+# pay, and the latter arrives as a kind of its own, `work_order` -- no deal
+# stands behind a work order payout.
 
 ledger-side-city_treasury = { $named ->
         [true] treasury: { $name }
@@ -187,6 +190,7 @@ ledger-side-genesis = issue
 ledger-side-bank_reserve = bank reserve
 ledger-side-works_fund = works fund
 ledger-side-escrow = trade escrow
+ledger-side-work_order = work order
 ledger-side-identity = person
 
 # The ground of a posting: the same list as `PostingReason`. Before this wave
@@ -212,5 +216,6 @@ ledger-ground-bank_margin = city margin
 ledger-ground-transfer = transfer
 ledger-ground-works_recycle = returned to the works fund
 ledger-ground-works_print = printed into the works fund
-ledger-ground-works_payout = work order payout
+ledger-ground-works_payout = work order payout from the works fund
+ledger-ground-works_city_payout = work order payout from the city treasury
 ledger-ground-emission = the capital's emission by signatures
