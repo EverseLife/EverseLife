@@ -107,6 +107,20 @@ if "$py" -c "import fontTools" > /dev/null 2>&1; then
     fi
 fi
 
+# The landing's planets are baked from the vault's field and the client's
+# colours (tools/planet_pictures.py, D-347), and nothing downstream notices
+# when they fall behind: the page goes on serving last month's world with
+# every test green. The check is a handful of digests -- a second, no drawing.
+#
+# It speaks and does not stop, for the reason spelled out under the migration
+# forecast below: what makes the pictures stale is a rebuild of the vault's
+# field, and whoever commits next is almost never the one who rebuilt it.
+# Stopping them would put a megabyte of rebaked planets into a branch about
+# something else, or -- likelier -- teach everybody `--no-verify`. The cure is
+# one command, printed by the check itself, and it belongs to whoever moved
+# the field.
+"$py" tools/planet_pictures.py --check || true
+
 # Every language says what the default one says -- the engine's words and the
 # window's own, by the same script (D-251). A new string written in Russian
 # alone is the one i18n regression that shows nothing at all: Fluent falls back

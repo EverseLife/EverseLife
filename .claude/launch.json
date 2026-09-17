@@ -18,7 +18,7 @@
       "runtimeExecutable": "powershell",
       "runtimeArgs": [
         "-Command",
-        "$env:LANDING_DB = Join-Path $env:TEMP 'everselife-landing-signups.db'; if (-not $env:PORT) { $env:PORT = '8123' }; & '../backend/.venv/Scripts/python.exe' -m uvicorn app:app --port $env:PORT"
+        "$env:LANDING_DB = Join-Path $env:TEMP 'everselife-landing-signups.db'; if (-not $env:PORT) { $env:PORT = '8123' }; & 'C:/Users/nurla/PycharmProjects/everselife/backend/.venv/Scripts/python.exe' -m uvicorn app:app --port $env:PORT"
       ],
       "cwd": "landing",
       "port": 8123,

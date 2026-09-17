@@ -17,6 +17,10 @@ COPY site.css site.js space.js favicon.svg og.png og-en.png ./
 # Only the faces the browser gets, and their licences. `fonts/src/` is the
 # material `subset_fonts.py` cuts them from -- 210 KB the image never serves.
 COPY fonts/*.woff2 fonts/*.txt ./fonts/
+# The planets' grounds, baked from the game's field by `tools/planet_pictures.py`
+# and committed: the world page wraps them round spheres, and without them it
+# would show four dark balls.
+COPY planets/*.png ./planets/
 
 # Signups live in SQLite on a volume: the container is disposable, the database is not.
 ENV LANDING_DB=/data/signups.db

@@ -1,0 +1,28 @@
+{
+  "field": {
+    "aquatica": [
+      "30538ce8b20039baf42aa74d369d4c39ee50c32f1d738622194fc6978ddb3341",
+      "61d995aa014abb4952f2ed97e0dc9cbb34d316ad762c011f19f3f504844e7418"
+    ],
+    "aurora": [
+      "7066617b6791059bb26fd15cb3a4968cab13f745b4a819b11e66af4a635332ae",
+      "50b2490dcb29a3a784c0d076b153e5b3df59085eed3dcaae497afcd51fc99706"
+    ],
+    "pyroxis": [
+      "861fa164d8554d34c949b3087d96ee20d327538272d3d3d714ba0a2d9a0ea0ce",
+      "62ba9059663d655a7f1e2f117e1b2f2b4a4de2de0819360aa4bdac396e80e334"
+    ],
+    "terra": [
+      "f4a662fd472aff6e9ad54ad13255bba736b40fc91c55ceba19c44c664b46294d",
+      "711058f589817cf17ca6eebb2e8951d3ef8b1c63ce5c8b93dc91faa62fe0e28e"
+    ]
+  },
+  "watched": {
+    "frontend/src/map.css": "62bd6ec07b6b5373d22c922ceb7a6e3477bb00552ecbce197391fb1f298d5bf6",
+    "frontend/src/panels/map/season.ts": "279ec3af3d2123463294e0cb7ec96c21b5d44cac23fc3c92b3709ae1f3bfc633",
+    "frontend/src/panels/map/shade.ts": "1b44a6cfd297ea3e6e1a60e11d8a9ca2636a02365d504aa5c772bf2656447020",
+    "frontend/src/theme.css": "79df17fb3d7cdad68e9b3445f2f760b705bc149e5519493f72f75a09a6b9b78e",
+    "tools/planet_pictures.py": "a0cb8a21cf0c1dc8ca0277998ee893e3b37857f0270b841da7f1846a431540f4"
+  },
+  "width": 1024
+}
