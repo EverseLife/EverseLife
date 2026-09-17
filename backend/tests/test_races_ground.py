@@ -4,15 +4,18 @@
 """Two transactions at once on the same ground.
 
 One of the race files (see `test_races.py` for the family's method): here the
-contested thing is the place itself -- a field the eruption burns while
-somebody carries a sack out of it, a ruin room two scouts open at once, a
+contested thing is the place itself -- a ruin room two scouts open at once, a
 node's properties two writers stamp together, a sown strip two harvests reap
-at once. The invariant must hold whichever side wins, and neither side may
-die of a deadlock.
+or two fertilizings feed, a location the city takes back under a buyer. Two
+sessions growing one base variety are here as well: the row they contend for
+is the variety's rather than the ground's, but it is the ground that grows it.
+The invariant must hold whichever side wins, and neither side may die of a
+deadlock.
 
 A working face is a place too, and its races had grown to half this file --
 past the length the quality bar allows one. They live in
-`test_races_face.py` now.
+`test_races_face.py` now. The fire went the same way and for the same reason:
+what an eruption burns out from under a carry-out is in `test_races_fire.py`.
 """
 
 from __future__ import annotations
@@ -38,185 +41,9 @@ from src.models.inventory import Item
 from src.models.world import Node
 from src.units import money
 
-ORE = "iron_ore"
-
-
 #: Any mark and any counter in a node's properties: the race is about the map, not the key.
 MARK = "flagged"
 COUNTER = "counted"
-
-
-async def test_the_eruption_does_not_burn_what_was_carried_out(
-    session: AsyncSession,
-    factory: async_sessionmaker[AsyncSession],
-    constants,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The window before an eruption is the whole licence for the burning
-    (D-197, P6), and somebody using it must not be robbed by the fire anyway.
-
-    The carry-out goes **first** and holds its row: the fire waits for the row
-    to be taken, so it meets a sack already moving.
-
-    With the lock the fire waits at that row, rereads it after the commit and
-    finds the sack in a pocket -- not in the node -- so there is nothing here
-    to burn. Without it the fire reads the sack where it still was, queues its
-    delete behind the same row, and takes it **out of the player's hands** the
-    moment the carry-out lands: the one place it was safe.
-    """
-    from src.engine import plates, storage
-    from src.models.world import Layer, Planet
-
-    #: **A handshake, not a pause.** The window this test needs is the one
-    #: between taking the row and committing, and `_slow` on `pick` does not
-    #: open it: the pause lands after `pick` returns, while the checks that
-    #: run *before* `move_stack` reaches the row -- presence, the node, the
-    #: door, the relic, the carry limit -- take longer than any head start the
-    #: fire can be given by guesswork. The fire then took the row first, burnt
-    #: the sack and the carry-out found nothing to move. So the fire waits for
-    #: the row to be taken instead of waiting a number of milliseconds.
-    took_the_row = asyncio.Event()
-    carrying = world.move_stack
-
-    async def held(*args, **kwargs):
-        moved = await carrying(*args, **kwargs)
-        took_the_row.set()
-        await asyncio.sleep(0.2)
-        return moved
-
-    monkeypatch.setattr(world, "move_stack", held)
-    stamp = uuid.uuid4().hex[:8]
-    sphere = await world.create_node(
-        session,
-        "pyroxis",
-        "Пироксис",
-        planet=Planet.PYROXIS,
-        area_m2=1,
-        layer=Layer.SPACE,
-    )
-    field = await world.create_node(
-        session,
-        f"pyroxis.{stamp}.field",
-        "Чёрное поле",
-        planet=Planet.PYROXIS,
-        area_m2=5000,
-        layer=Layer.PLANET,
-        parent=sphere,
-    )
-    who = await world.create_identity(session, f"Вахтовик-{stamp}")
-    body = await world.print_body(session, who, field)
-    sack = await world.grant_item(
-        session,
-        await world.node_container(session, field),
-        ORE,
-        amount=10,
-        quality=60,
-        origin="тест",
-    )
-    field_id, body_id, sack_id = field.id, body.id, sack.id
-    await session.commit()
-
-    async def erupt() -> None:
-        #: The carry-out is inside its transaction and holding the row -- not
-        #: probably, but by construction.
-        await took_the_row.wait()
-        async with factory() as db, db.begin():
-            place = await db.get(Node, field_id)
-            assert place is not None
-            burnt = await plates._burn(db, [place])
-            assert burnt == 0, "огонь сжёг то, что уже уносили"
-
-    async def carry() -> None:
-        async with factory() as db, db.begin():
-            mine = await db.get(Body, body_id)
-            thing = await db.get(Item, sack_id)
-            assert mine is not None and thing is not None
-            await storage.pick(db, current(), current_catalog(), mine, thing)
-
-    outcome = await asyncio.gather(erupt(), carry(), return_exceptions=True)
-    assert not [one for one in outcome if isinstance(one, BaseException)], outcome
-
-    async with factory() as db:
-        left = await db.get(Item, sack_id)
-        assert left is not None, "вынесенное сгорело в руках"
-        pocket = await world.body_container(db, await db.get(Body, body_id))
-        assert left.container_id == pocket.id, "вынесенное сгорело в руках"
-
-
-async def test_the_eruption_does_not_burn_what_was_taken_out_of_a_chest(
-    session: AsyncSession,
-    factory: async_sessionmaker[AsyncSession],
-    constants,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The same robbery as above, through the door of a chest.
-
-    A chest burns with what is in it, or its goods would outlive the place they
-    lay in. But its inside is a second container, and a lock on the things
-    lying on the ground says nothing about it: `storage.take` locks the thing,
-    not the chest. Without the lock **inside** the box the delete queues behind
-    that take and lands the moment it commits -- out of the player's hands.
-
-    On the wild ground of Pyroxis anybody may open anybody's chest
-    (`station.may_build` gives the wild to everyone), so this is not a corner:
-    it is the ordinary way a sack leaves a field before an eruption.
-    """
-    from src.engine import plates, storage
-    from src.models.world import Layer, Planet
-
-    _slow(monkeypatch, storage, "take")
-    stamp = uuid.uuid4().hex[:8]
-    sphere = await world.create_node(
-        session, "pyroxis", "Пироксис", planet=Planet.PYROXIS, area_m2=1, layer=Layer.SPACE
-    )
-    field = await world.create_node(
-        session,
-        f"pyroxis.{stamp}.field",
-        "Чёрное поле",
-        planet=Planet.PYROXIS,
-        area_m2=5000,
-        layer=Layer.PLANET,
-        parent=sphere,
-    )
-    who = await world.create_identity(session, f"Вахтовик-{stamp}")
-    body = await world.print_body(session, who, field)
-    chest = await world.grant_item(
-        session,
-        await world.node_container(session, field),
-        "chest",
-        quality=60,
-        origin="тест",
-    )
-    box = await storage.inside(session, chest)
-    sack = await world.grant_item(session, box, ORE, amount=10, quality=60, origin="тест")
-    field_id, body_id, chest_id, sack_id = field.id, body.id, chest.id, sack.id
-    await session.commit()
-
-    async def erupt() -> None:
-        await asyncio.sleep(0.05)
-        async with factory() as db, db.begin():
-            place = await db.get(Node, field_id)
-            assert place is not None
-            await plates._burn(db, [place])
-
-    async def carry() -> None:
-        async with factory() as db, db.begin():
-            mine = await db.get(Body, body_id)
-            crate = await db.get(Item, chest_id)
-            thing = await db.get(Item, sack_id)
-            assert mine is not None and crate is not None and thing is not None
-            await storage.take(db, current(), current_catalog(), mine, crate, thing)
-
-    outcome = await asyncio.gather(erupt(), carry(), return_exceptions=True)
-    assert not [one for one in outcome if isinstance(one, BaseException)], outcome
-
-    async with factory() as db:
-        left = await db.get(Item, sack_id)
-        assert left is not None, "вынесенное из сундука сгорело в руках"
-        pocket = await world.body_container(db, await db.get(Body, body_id))
-        assert left.container_id == pocket.id, "вынесенное из сундука сгорело в руках"
-        #: And the chest itself is gone with the field: what stayed in it burned.
-        assert await db.get(Item, chest_id) is None
 
 
 async def test_two_scouts_do_not_open_one_room_twice(
@@ -489,7 +316,7 @@ async def test_two_sessions_grow_one_landrace(
             return grown.id
 
     async def second() -> uuid.UUID:
-        await planted.wait()
+        await asyncio.wait_for(planted.wait(), timeout=5)
         async with factory() as db, db.begin():
             grown = await breed.landrace(db, catalog, "spelt")
             return grown.id
@@ -537,7 +364,7 @@ async def test_two_sessions_grow_one_wild_ancestor(
             return grown.id
 
     async def second() -> uuid.UUID:
-        await planted.wait()
+        await asyncio.wait_for(planted.wait(), timeout=5)
         async with factory() as db, db.begin():
             grown = await breed.wild_ancestor(db, constants, catalog, "spelt")
             return grown.id
