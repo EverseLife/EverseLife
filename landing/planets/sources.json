@@ -18,7 +18,7 @@
     ]
   },
   "watched": {
-    "frontend/src/map.css": "62bd6ec07b6b5373d22c922ceb7a6e3477bb00552ecbce197391fb1f298d5bf6",
+    "frontend/src/map.css": "cb42a076d7df657425851817ce81ea7c521406d1e3b8d57d2cc817d3eb61cd7f",
     "frontend/src/panels/map/season.ts": "279ec3af3d2123463294e0cb7ec96c21b5d44cac23fc3c92b3709ae1f3bfc633",
     "frontend/src/panels/map/shade.ts": "1b44a6cfd297ea3e6e1a60e11d8a9ca2636a02365d504aa5c772bf2656447020",
     "frontend/src/theme.css": "79df17fb3d7cdad68e9b3445f2f760b705bc149e5519493f72f75a09a6b9b78e",
