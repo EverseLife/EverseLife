@@ -27,7 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants
 from src.constants import registry as R
-from src.engine import stock, wear, world
+from src.engine import mining, stock, wear, world
 from src.engine.rig._base import _coal_available, _fuel_names, hopper_capacity
 from src.models.inventory import Container, ContainerKind, Item
 from src.models.rig import Rig as RigRow
@@ -324,8 +324,4 @@ async def _bury_row(session: AsyncSession, rig: RigRow) -> float:
 
 def _deplete(constants: Constants, vein: Vein, moment: datetime, extracted_before: int) -> None:
     """The vein depletes in the same tiers as from a pickaxe: one rule for all."""
-    from src.engine.mining import (  # noqa: PLC0415 -- lazy: breaks the import cycle with mining
-        deplete as by_general_rule,
-    )
-
-    by_general_rule(constants, vein, moment, extracted_before)
+    mining.deplete(constants, vein, moment, extracted_before)

@@ -50,8 +50,9 @@ async def _forecaster(session: AsyncSession, name: str) -> uuid.UUID:
     on first need, and `harness` does not make one -- so a body pulling nothing
     is exactly the world in which a read can furnish a hold from a glance. The
     reach of a work walks the hold at every forecast (D-315) and the window
-    lists its cargo at every `look`: with no such body in this file the whole
-    family went unswept, and the leak was found by a reviewer rather than here.
+    lists its cargo at every `look`: with no such body among these reads the
+    whole family went unswept, and the leak was found by a reviewer rather than
+    here.
     """
     stamp = uuid.uuid4().hex[:8]
     node = await world.create_node(session, f"terra.{name}.{stamp}", "Мастерская", area_m2=100)

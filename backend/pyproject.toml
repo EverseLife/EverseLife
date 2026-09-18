@@ -300,10 +300,9 @@ allow_indirect_imports = "true"
 # The face, cut out of a 931-line `mining.py` that held the formulas, the
 # shift commands and the collapse at once. Same shape as the market contracts,
 # and `forbidden` for the same reason: mining sits inside engine cycles it did
-# not create -- `death` reaches back into it lazily, `rig` borrows its
-# depletion rule lazily -- so a layers contract would fail on chains that have
-# nothing to do with this cut. The stack it pins directly:
-# face -> collapse -> _base.
+# not create -- `death` reaches back into it lazily -- so a layers contract
+# would fail on chains that have nothing to do with this cut. The stack it
+# pins directly: face -> collapse -> _base.
 [[tool.importlinter.contracts]]
 name = "The mining vocabulary asks nobody"
 type = "forbidden"
@@ -791,10 +790,10 @@ allow_indirect_imports = "true"
 # The carry limit, cut on 2026-09-13 out of an 865-line `gear.py` that held the
 # refusals, the worn rule, the load and the dressing at once. Same `forbidden`
 # shape as the cuts above and for the same reason: gear sits inside engine
-# cycles it did not create -- `world` asks it back lazily, `rig` borrows it
-# lazily, and its own settle reaches `overload` lazily -- so a layers contract
-# would fail on chains that have nothing to do with this cut. The stack it pins
-# directly: slot -> load -> worn -> _base.
+# cycles it did not create -- `world` asks it back lazily, and its own settle
+# reaches `overload` lazily -- so a layers contract would fail on chains that
+# have nothing to do with this cut. The stack it pins directly:
+# slot -> load -> worn -> _base.
 [[tool.importlinter.contracts]]
 name = "The carry limit's floor asks nobody"
 type = "forbidden"
@@ -819,10 +818,9 @@ allow_indirect_imports = "true"
 # The drilling rig, cut on 2026-09-19 out of an 800-line `rig.py` that held the
 # standing-up, the emptying, the tick and the scene at once. Same `forbidden`
 # shape as the cuts above and for the same reason: rig sits inside engine
-# cycles it did not create -- `station` asks it back lazily for the hopper, and
-# it borrows `mining`'s depletion and `gear`'s carry limit lazily -- so a layers
-# contract would fail on chains that have nothing to do with this cut. The
-# stack it pins directly: hands -> run -> _base, and board -> _base.
+# cycles it did not create -- `station` asks it back lazily for the hopper --
+# so a layers contract would fail on chains that have nothing to do with this
+# cut. The stack it pins directly: hands -> run -> _base, and board -> _base.
 [[tool.importlinter.contracts]]
 name = "The rig's floor asks nobody"
 type = "forbidden"

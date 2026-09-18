@@ -6,9 +6,10 @@ in person (`empty_hopper`, a liquid poured into the vessels held before the
 pass, `_hold_vessels`), and what the taking-down door asks of the hopper
 before it lets a machine go (`hopper_left`).
 
-Every door here settles the rig through the pass (`run.advance`) before it
-writes, and keeps the package's lock order (the door's docstring): the rig
-row first, the machine after it.
+The emptying, and a placement of a machine that already has a row, settle
+the rig through the pass (`run.advance`) before they write; every door here
+keeps the package's lock order (the door's docstring): the rig row first, the
+machine after it.
 """
 
 from __future__ import annotations
@@ -21,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants, current, current_catalog
 from src.constants import registry as R
-from src.engine import events, liquid, station, travel, wear, world
+from src.engine import events, gear, liquid, station, travel, wear, world
 from src.engine.rig._base import RIG, HopperNotEmpty, NoRig, NoRoom, NotYours, RigError
 from src.engine.rig.run import advance
 from src.models.event import EventKind
@@ -237,8 +238,6 @@ async def empty_hopper(
     #: it goes into vessels, and a full canister already weighs its fill
     #: (D-230) -- there the carry limit judges the vessel.
     if not liquid.is_liquid(catalog, resource):
-        from src.engine import gear  # noqa: PLC0415 -- lazy: breaks the import cycle with gear
-
         room = await gear.room_for(session, constants, catalog, body, resource)
         #: Only a bound that actually bites goes to the grid: a thing the
         #: catalog gives no mass has no bound at all, and infinity is not a

@@ -71,9 +71,12 @@ along -- so it is three rooms on a floor now, and this one is the door:
 Each room asks only those below it (pinned by import-linter):
 `_base` <- `run` <- `hands`, and `_base` <- `board`. The door publishes what
 the world outside the package asks for, and the private names the race tests
-hold (`_coal_available`, `_held`): a pause set on the door with `_slow` reaches
-every room that took the name, and a test that patches one side of a race
-by hand names the room that calls it (`run`).
+hold or name (`_coal_available`, `_held`, `_hold_the_world`, `_hold_vessels`).
+A pause set on the door with `_slow` reaches every room that took the name; a
+test that patches one side of a race by hand patches where its caller reads
+the name -- the door for a call from outside (`place`, which the command
+calls through the door), the room for a call from inside (`advance` and
+`_coal_available`, which the pass reads off `run`).
 
 ## What is not here yet
 
