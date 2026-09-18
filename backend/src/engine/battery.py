@@ -174,6 +174,19 @@ def _leaked_through(
     return min(earned, moment)
 
 
+def _require_standing(item: Item, yard: Container) -> None:
+    """A cell is charged where it stands, and only there (D-352).
+
+    Two refusals, because the two cases need two different moves from the
+    player: a cell in the hands is set down and put up, a cell on the floor
+    is only put up.
+    """
+    if item.container_id != yard.id:
+        raise BatteryError(key="battery-charge-in-hands", goods=item.type_key)
+    if not item.installed:
+        raise BatteryError(key="battery-charge-lying", goods=item.type_key)
+
+
 async def charge_battery(
     session: AsyncSession,
     constants: Constants,
@@ -188,8 +201,11 @@ async def charge_battery(
     In person: charge is taken in the city and by hand. The taker pays -- into
     the city treasury: there is no free energy, and zero is a tariff too (D-085).
 
-    Both the one in hand and the one standing here as a machine are charged
-    (D-179): a battery is property of the place no less than a load.
+    Only a battery that **stands** here -- put up as a machine or as
+    furniture -- is charged (D-352). Not one in the hands and not one lying in
+    the yard: a cell is plugged in where it stands (D-179), and D-278 already
+    said a battery on the floor powers nothing. Whose the cell is, is not
+    asked: the payer pays, and topping up somebody else's cell is a gift.
     """
     moment = now or datetime.now(UTC)
     if body.state is not BodyState.ALIVE:
@@ -210,8 +226,12 @@ async def charge_battery(
     #: refused at once, not after queueing on a cell the hull's machines hold.
     if item.container_id not in (pocket.id, yard.id):
         raise BatteryError(key="battery-not-here")
+    #: No grid before "put it up": off the grid a standing cell is no more
+    #: chargeable than one in the hands, and sending the player to put it up
+    #: first would be sending them to a move that changes nothing.
     if await _grid().grid_node(session, node) is None:
         raise _grid().NoGrid(key="battery-no-grid")
+    _require_standing(item, yard)
 
     #: The cell's row before its charge is read and rewritten: a worn
     #: exoskeleton drinks from this very cell every tick (D-268), and a charge
@@ -231,6 +251,9 @@ async def charge_battery(
     await world.lock_thing(session, item, gone=BatteryError)
     if item.container_id not in (pocket.id, yard.id):
         raise BatteryError(key="battery-not-here")
+    #: Again on the locked row: taken down or lifted into the hands while
+    #: this waited, it is no longer plugged in (D-352).
+    _require_standing(item, yard)
     pool = await _grid().pool_of(session, constants, node)
     if pool is None:  # pragma: no cover -- the grid was just seen
         raise _grid().NoGrid(key="battery-no-grid")

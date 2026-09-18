@@ -106,8 +106,14 @@ async def test_printing_energy_and_charging_do_not_lose_each_other(
     pool.stored = Decimal("1000")
     pool.tariff = Decimal(0)
     pool.counted_at = datetime.now(UTC)
-    pocket = await world.body_container(session, body)
-    cell = await world.grant_item(session, pocket, energy.BATTERY, quality=60, origin="тест")
+    #: Standing (D-352): only a cell that is put up is charged.
+    cell = await world.grant_item(
+        session,
+        await world.node_container(session, yard),
+        energy.BATTERY,
+        quality=60,
+        origin="тест",
+    )
     body_id, cell_id, yard_id = body.id, cell.id, yard.id
     await session.commit()
 

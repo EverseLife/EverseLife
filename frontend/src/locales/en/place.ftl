@@ -351,6 +351,7 @@ ui-holdings-in-hands = in hand
 ui-holdings-here = standing here
 ui-holdings-charge = Charge
 ui-holdings-charge-hint = fill to the top at the tariff
+ui-holdings-charge-put-up = charged only when put up
 ui-holdings-charge-asking = the grid is still being polled
 ui-holdings-charge-no-grid = there is no grid here
 ui-holdings-title = Holdings and bills

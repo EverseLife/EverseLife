@@ -59,8 +59,16 @@ export function Holdings({ look, busy, act }: Props) {
   //: would otherwise settle the pool of the city just left.
   const asked = useRef(0);
   //: A battery is a machine (D-179): it is either in the hands or stands
-  //: here. Both are charged the same, and there is no reason to keep two windows for that.
-  const batteries: { id: string; goods: string; charge: number; where: string }[] = [
+  //: here, and both are listed -- the charge one carries is worth seeing.
+  //: Only the standing one is charged (D-352): a cell is plugged in where it
+  //: stands, so the one in the hands shows its charge and no button.
+  const batteries: {
+    id: string;
+    goods: string;
+    charge: number;
+    where: string;
+    standing: boolean;
+  }[] = [
     ...look.inventory
       .filter((held: Thing) => held.charge != null)
       .map((thing) => ({
@@ -68,6 +76,7 @@ export function Holdings({ look, busy, act }: Props) {
         goods: thing.goods,
         charge: thing.charge!,
         where: t("ui-holdings-in-hands"),
+        standing: false,
       })),
     ...(look.bench ?? [])
       .filter((machine) => machine.charge != null)
@@ -76,6 +85,7 @@ export function Holdings({ look, busy, act }: Props) {
         goods: machine.goods,
         charge: machine.charge!,
         where: t("ui-holdings-here"),
+        standing: true,
       })),
   ];
 
@@ -206,19 +216,23 @@ export function Holdings({ look, busy, act }: Props) {
                 </td>
                 <td className="num">{battery.charge.toFixed(0)}</td>
                 <td>
-                  <button
-                    onClick={() => go(() => session.send("energy.charge", { item: battery.id }))}
-                    disabled={busy || !grid || Boolean(look.travel)}
-                    title={
-                      grid
-                        ? t("ui-holdings-charge-hint")
-                        : grid === undefined
-                          ? t("ui-holdings-charge-asking")
-                          : t("ui-holdings-charge-no-grid")
-                    }
-                  >
-                    {t("ui-holdings-charge")}
-                  </button>
+                  {battery.standing ? (
+                    <button
+                      onClick={() => go(() => session.send("energy.charge", { item: battery.id }))}
+                      disabled={busy || !grid || Boolean(look.travel)}
+                      title={
+                        grid
+                          ? t("ui-holdings-charge-hint")
+                          : grid === undefined
+                            ? t("ui-holdings-charge-asking")
+                            : t("ui-holdings-charge-no-grid")
+                      }
+                    >
+                      {t("ui-holdings-charge")}
+                    </button>
+                  ) : (
+                    <span className="note">{t("ui-holdings-charge-put-up")}</span>
+                  )}
                 </td>
               </tr>
             ))}
