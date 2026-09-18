@@ -152,13 +152,14 @@ describe("the weather", () => {
     expect(WEATHER_GLSL).toContain("void wxSky(vec3 p, out float cover, out float grain)");
     expect(WEATHER_GLSL).toContain("float wxShear(float lat)");
     expect(WEATHER_GLSL).toContain("* u_wx_gain");
-    expect(FRAGMENT).toContain("float cover = clamp(wxCover(here) * (1.0 + u_wx_bias * (2.0 * wet_here - 1.0)), 0.0, 1.0);");
+    expect(FRAGMENT).toContain("float wet_pull = 1.0 + u_wx_bias * (2.0 * wet_here - 1.0);");
+    expect(FRAGMENT).toContain("float cover = clamp(wxCover(here) * wet_pull, 0.0, 1.0);");
     expect(FRAGMENT).toContain("float wet_sky = h_sky < 0.0 ? u_wx_sea_wet : textureLod(u_rain, uv_sky, lod_sky).r;");
     expect(FRAGMENT).toContain("float wet_here = h < 0.0 ? u_wx_sea_wet : rain01;");
     expect(FRAGMENT).toContain("uniform float u_wx_sea_wet;");
     expect(FRAGMENT).not.toContain("WX_SEA_WET");
     expect(FRAGMENT).toContain("wxSky(sky, raw_sky, fine);");
-    expect(FRAGMENT).toContain("smoothstep(CLOUD_NEAR_MPX, CLOUD_FAR_MPX, u_units / UNITS_PER_METRE) * u_clouds");
+    expect(FRAGMENT).toContain("smoothstep(CLOUD_NEAR_MPX, CLOUD_FAR_MPX, u_screen_units / UNITS_PER_METRE) * u_clouds");
     expect(FRAGMENT).toContain("tone *= 1.0 - CLOUD_SHADE * cloud_over * far_sky * smoothstep(0.0, TWILIGHT, high) * u_sunlit;");
     //: The clouds are lit past the ground's terminator by their own height
     //: and never by the ground's cast shadow (D-336), on their own shell.

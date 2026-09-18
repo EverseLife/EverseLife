@@ -68,6 +68,7 @@ import {
   grainTable,
 } from "../panels/map/grain";
 import { FRAGMENT } from "../panels/map/fragment";
+import { LAYERS_GLSL } from "../panels/map/layersGlsl";
 
 describe("parseColor", () => {
   it("reads what the browser computes: rgb, rgba, color(srgb)", () => {
@@ -402,11 +403,15 @@ describe("the year's winder", () => {
 
 describe("the layers of the map", () => {
   it("blends the layer's colour by weights off one uniform, never by a branch", () => {
-    //: The stalls of 2026-09-11 were branches on uniforms; the layer is a
-    //: set of weights, one of them one, and the fragment is a sum.
+    //: The stalls of 2026-09-11 were branches on uniforms with texture
+    //: reads under them (the grain's rock, the wander's biome and form);
+    //: the layer is a set of weights, one of them one, and the fragment is
+    //: a sum. What only the weather and moisture layers read -- the
+    //: weather's law, arithmetic and no texture -- is skipped on the rest
+    //: (2026-09-18), and pinned in `groundPaint.test.ts`.
     expect(LAYERS).toEqual(["terrain", "relief", "biomes", "temperature", "rain", "moisture", "weather"]);
     expect(FRAGMENT).toContain("uniform int u_layer;");
-    expect(FRAGMENT).not.toContain("if (u_layer");
+    expect(LAYERS_GLSL).not.toContain("if (");
     //: The climate's ramp runs between the planet's own ends, from the
     //: passport: one ramp for all four planets was a red Pyroxis and a
     //: blue Aurora.

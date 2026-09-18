@@ -97,6 +97,11 @@ uniform sampler2D u_wet;
 uniform vec2 u_size;
 uniform vec2 u_origin;
 uniform float u_units;
+//: Map units to a pixel of the **screen** -- the frame's own scale, where
+//: u_units is the canvas's: the two part when the ground is drawn coarser
+//: than the screen (sharpness.ts), and what the frame shows by its scale
+//: must not change with how finely it is drawn.
+uniform float u_screen_units;
 uniform float u_radius;
 uniform vec2 u_eye;
 uniform vec2 u_atlas;
@@ -413,12 +418,15 @@ void main() {
   float edge = max(fwidth(rho), 1e-6);
   float metres = u_radius / UNITS_PER_METRE;
   //: The clouds show on the far frames alone, by the frame's own scale
-  //: (u_units), not the pixel's ground: toward the limb of the ball a
+  //: (u_screen_units), not the pixel's ground: toward the limb of the ball a
   //: pixel covers more ground, and gated by that the clouds showed at the
   //: edges of the globe and hid in its middle (owner, 2026-09-12). With
   //: them the drawing runs to the rim of their shell, CLOUD_KM over the
-  //: ground (D-336 item 7); without, to the ground's own edge.
-  float far_sky = smoothstep(CLOUD_NEAR_MPX, CLOUD_FAR_MPX, u_units / UNITS_PER_METRE) * u_clouds;
+  //: ground (D-336 item 7); without, to the ground's own edge. The screen's
+  //: scale and not the canvas's: a ground drawn coarser in motion would
+  //: otherwise bring clouds under the finger and take them away when it
+  //: stood still (review, 2026-09-18).
+  float far_sky = smoothstep(CLOUD_NEAR_MPX, CLOUD_FAR_MPX, u_screen_units / UNITS_PER_METRE) * u_clouds;
   float shell = 1.0 + CLOUD_KM * 1000.0 / metres;
   if (rho > (far_sky > 0.0 ? shell : 1.0) + edge) discard;
   float rc = min(rho, 1.0);

@@ -12,24 +12,35 @@
  * the eye's point and a map unit land on the canvas, and the shader gets
  * those two numbers. Nothing is measured twice, and a frame the camera
  * moves without React -- the chase, the wheel -- moves the ground with it
- * because the camera's `onFrame` calls `draw` here as it sets the viewBox.
+ * because the camera's `onFrame` asks for a paint here as it sets the viewBox.
  *
  * Rasters are asked once per planet and kept for the page like the sketch;
- * the textures are built once per planet per context. The palette is read
- * off the theme when it changes and handed to the shader once (`sync`),
- * not every frame: a frame uploads the five numbers that move.
+ * the textures are built once per planet per context (`groundProgram.ts`).
+ * The palette is read off the theme when it changes and handed to the
+ * shader once (`sync`), not every frame: a frame uploads the numbers that
+ * move.
  *
  * From the city frame in the ground also carries its grain (wave 8): the
  * same shader, one more texture -- the rock's hardness -- and a strength
  * the frame's width sets, nought on the wider frames where a texture of
  * forty metres would be a screen of noise.
  *
- * The map is told how this is going (`onState`): until the textures are up
- * the SVG ground keeps drawing the land, and if the GPU refuses -- no
- * context, a shader the driver will not take, a context lost and not
- * given back -- the SVG ground stays for good. A lost context is a fact of
- * browsers (a dozen canvases and the oldest goes): it is listened for, and
- * a restored one is rebuilt.
+ * **How often and how finely it paints** (2026-09-18, the phones). A paint
+ * is the whole canvas through the whole fragment, so the ground paints at
+ * most once a frame however many ask: `draw` books the paint for the next
+ * frame and every other ask before it lands is the same paint -- a pinch
+ * moves two fingers and was two full paints a frame. `drawNow` paints at
+ * once, for a caller already inside a frame whose svg moves in it (the
+ * camera's chase). And how finely is `sharpness.ts`: a paint in motion is
+ * drawn as fine as the GPU has been keeping up with, the still ground at
+ * the full scale.
+ *
+ * The map is told how this is going (`onState`): until the program is
+ * linked and the textures are up the SVG ground keeps drawing the land,
+ * and if the GPU refuses -- no context, a shader the driver will not take,
+ * a context lost and not given back -- the SVG ground stays for good. A
+ * lost context is a fact of browsers (a dozen canvases and the oldest
+ * goes): it is listened for, and a restored one is rebuilt.
  */
 
 import {
@@ -43,28 +54,18 @@ import {
   useMemo,
 } from "react";
 
-import type { RasterPassport } from "../../api";
 import { useBook } from "../../actions";
 import { useTerrain } from "./Ground";
-import { retile, widen } from "./atlas";
 import { weatherMoment, type WeatherLaw } from "./weather";
 import { UNITS_PER_METRE, type Eye, type Geo } from "./globe";
-import { rastersOf, type Rasters } from "./rasters";
+import { rastersOf } from "./rasters";
 import {
-  PALETTE_SLOTS,
-  deepOf,
   EDGE_M,
   edgeStrength,
-  formCodes,
-  byteChain,
-  mipChain,
-  topChain,
   paletteOf,
-  sunDirection,
   sunVector,
   LAYERS,
   dryLaw,
-  type DryLaw,
   type Layer,
   type Palette,
 } from "./shade";
@@ -74,361 +75,53 @@ import {
 } from "./season";
 import {
   GRAIN_M,
-  grainTable,
   grainStrength,
   latticeAt,
 } from "./grain";
-import { FRAGMENT, VERTEX } from "./fragment";
+import {
+  drop,
+  linkDone,
+  prepareOff,
+  setUp,
+  sync,
+  tearDown,
+  upload,
+  type Program,
+} from "./groundProgram";
+import {
+  JUDGE_MS,
+  SETTLE_MS,
+  SHARP_START,
+  judged,
+  ratioOf,
+  type Sharpness,
+} from "./sharpness";
 
-export type GroundGLHandle = { draw: () => void };
+export type GroundGLHandle = {
+  /** The ground is due a paint: at the next frame, once however often asked. */
+  draw: () => void;
+  /** Paint at once: for a caller inside a frame already, whose svg moves
+   *  in this very frame -- booked, the ground would trail it by one. */
+  drawNow: () => void;
+};
 /** How the GPU ground is doing: on its way, drawing, or given up. */
 export type GroundGLState = "loading" | "ready" | "failed";
 
-type Textures = {
-  height: WebGLTexture;
-  /** The top of the ground: the height's max chain, read by the cast
-   *  shadow a stretch at a time (`topChain`), and the tallest ground of
-   *  the planet, metres, past which the march has nothing to find. */
-  top: WebGLTexture;
-  topM: number;
-  biome: WebGLTexture;
-  form: WebGLTexture;
-  /** The hardness of the ground, a byte read back as nought to one: the
-   *  grain takes its edge off it (wave 8). */
-  rock: WebGLTexture;
-  /** The lakes as a quantity rather than as a class, so their shore is cut
-   *  between the cells as the sea's is by the height. */
-  lake: WebGLTexture;
-  /** And the rivers the same way, for the same reason (owner, 2026-09-11):
-   *  as a class a river is a chain of whole cells with right angles. */
-  stream: WebGLTexture;
-  /** The climate's two, for the climate layers (D-331). */
-  temperature: WebGLTexture;
-  rain: WebGLTexture;
-  /** Metres to the nearest fresh water, for the moisture layer: the
-   *  engine's own "beside water" (D-331 addendum). */
-  river: WebGLTexture;
-  passport: RasterPassport;
-  /** The deepest sea of the raster, metres: the water's shade runs to it. */
-  deep: number;
-};
-
-type Program = {
-  gl: WebGL2RenderingContext;
-  program: WebGLProgram;
-  at: (name: string) => WebGLUniformLocation | null;
-  textures: Map<string, Textures>;
-  /** What the shader was last handed of the things that do not move
-   *  between frames: the planet's textures, the palette, the mountain line. */
-  synced: {
-    planet: string;
-    palette: Palette;
-    highFrom: number;
-    law: DryLaw;
-    grains: Record<string, unknown> | null;
-  } | null;
-};
-
-function compile(gl: WebGL2RenderingContext, kind: number, source: string): WebGLShader {
-  const shader = gl.createShader(kind);
-  if (!shader) throw new Error("no shader");
-  gl.shaderSource(shader, source);
-  gl.compileShader(shader);
-  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-    const why = gl.getShaderInfoLog(shader);
-    gl.deleteShader(shader);
-    throw new Error(`shader: ${why}`);
-  }
-  return shader;
-}
-
-function setUp(canvas: HTMLCanvasElement): Program | null {
-  const gl = canvas.getContext("webgl2", { premultipliedAlpha: true, antialias: false });
-  if (!gl) return null;
-  const program = gl.createProgram();
-  if (!program) return null;
-  gl.attachShader(program, compile(gl, gl.VERTEX_SHADER, VERTEX));
-  gl.attachShader(program, compile(gl, gl.FRAGMENT_SHADER, FRAGMENT));
-  gl.linkProgram(program);
-  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-    throw new Error(`program: ${gl.getProgramInfoLog(program)}`);
-  }
-  gl.useProgram(program);
-  const quad = gl.createBuffer();
-  gl.bindBuffer(gl.ARRAY_BUFFER, quad);
-  gl.bufferData(
-    gl.ARRAY_BUFFER,
-    new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]),
-    gl.STATIC_DRAW,
-  );
-  const pos = gl.getAttribLocation(program, "a_pos");
-  gl.enableVertexAttribArray(pos);
-  gl.vertexAttribPointer(pos, 2, gl.FLOAT, false, 0, 0);
-  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-  gl.enable(gl.BLEND);
-  gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-  const places = new Map<string, WebGLUniformLocation | null>();
-  const at = (name: string) => {
-    if (!places.has(name)) places.set(name, gl.getUniformLocation(program, name));
-    return places.get(name) ?? null;
-  };
-  //: What never changes: the light and the sampler units.
-  gl.uniform3fv(at("u_light"), sunDirection());
-  gl.uniform1i(at("u_height"), 0);
-  gl.uniform1i(at("u_biome"), 1);
-  gl.uniform1i(at("u_form"), 2);
-  gl.uniform1i(at("u_rock"), 3);
-  gl.uniform1i(at("u_wet"), 4);
-  gl.uniform1i(at("u_stream"), 5);
-  gl.uniform1i(at("u_temp"), 6);
-  gl.uniform1i(at("u_rain"), 7);
-  gl.uniform1i(at("u_river"), 8);
-  gl.uniform1i(at("u_top"), 9);
-  return { gl, program, at, textures: new Map(), synced: null };
-}
-
-/** A planet's textures given back to the context. */
-function drop(gl: WebGL2RenderingContext, t: Textures): void {
-  gl.deleteTexture(t.height);
-  gl.deleteTexture(t.top);
-  gl.deleteTexture(t.biome);
-  gl.deleteTexture(t.form);
-  gl.deleteTexture(t.rock);
-  gl.deleteTexture(t.stream);
-  gl.deleteTexture(t.lake);
-  gl.deleteTexture(t.temperature);
-  gl.deleteTexture(t.rain);
-  gl.deleteTexture(t.river);
-}
-
-/** Give the context back: its textures at once, and the context itself
- *  once the canvas has really left the page -- a browser that counts
- *  contexts must not lose an older one for this. React in development
- *  runs an effect's cleanup and setup again on the same canvas, and a
- *  context lost then would come back lost to the setup: so the context is
- *  let go only when the canvas is no longer in the document. */
-
-function tearDown(program: Program | null, canvas: HTMLCanvasElement): void {
-  if (!program) return;
-  const { gl } = program;
-  for (const t of program.textures.values()) drop(gl, t);
-  program.textures.clear();
-  program.synced = null;
-  setTimeout(() => {
-    if (!canvas.isConnected) gl.getExtension("WEBGL_lose_context")?.loseContext();
-  }, 0);
-}
-
-/** The rasters as textures: the height a half-float red with its own mip
- *  chain and linear filtering; the classes unsigned bytes, read nearest --
- *  a class, not a mean of two (plan §9.3); the rock a byte read back as a
- *  number between nought and one, and that one blends -- hardness is a
- *  measure, and a mean of two hardnesses is a hardness. */
-//: The rasters are an atlas of twelve square faces, not a cylinder of
-//: latitude and longitude: nothing wraps round its right edge any more, and
-//: a sample that walks off a face lands on the face that is really there,
-//: because the projection put it there. Both axes clamp.
-function upload(gl: WebGL2RenderingContext, served: RasterPassport, came: Rasters): Textures {
-  //: The picture's own layout: the faces as they came, each tile grown to
-  //: a power of two and the room round the face filled from over the edge
-  //: (`atlas.widen`), so the coarse levels of every chain stay within
-  //: their own face and no seam shows. The passport kept with the textures
-  //: is this one; what the vector layer reads is untouched.
-  const wide = widen(served);
-  const passport = wide.passport;
-  //: The nine that go to the GPU and no others: `water`, `province` and
-  //: `flow` are the vector layer's and are not laid out again.
-  const laid = <T extends Float32Array | Uint8Array>(raster: T): T =>
-    wide.map ? retile(wide.map, raster) : raster;
-  const rasters = {
-    height: laid(came.height),
-    biome: laid(came.biome),
-    form: laid(came.form),
-    rock: laid(came.rock),
-    lake: laid(came.lake),
-    stream: laid(came.stream),
-    temperature: laid(came.temperature),
-    rain: laid(came.rain),
-    river: laid(came.river),
-  };
-  const { rows, cols } = passport;
-  const height = gl.createTexture();
-  if (!height) throw new Error("no texture");
-  gl.bindTexture(gl.TEXTURE_2D, height);
-  const heights = rasters.height;
-  const chain = mipChain(heights, cols, rows, passport.nside + 2 * passport.border);
-  chain.forEach((level, index) => {
-    gl.texImage2D(gl.TEXTURE_2D, index, gl.R16F, level.cols, level.rows, 0, gl.RED, gl.FLOAT, level.data);
-  });
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAX_LEVEL, chain.length - 1);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-  const tile = passport.nside + 2 * passport.border;
-  //: The same height once more, its coarse levels the top of the ground
-  //: rather than its mean: what the cast shadow reads a stretch by.
-  const top = gl.createTexture();
-  if (!top) throw new Error("no texture");
-  gl.bindTexture(gl.TEXTURE_2D, top);
-  const tops = topChain(heights, cols, rows, tile);
-  tops.forEach((level, index) => {
-    gl.texImage2D(gl.TEXTURE_2D, index, gl.R16F, level.cols, level.rows, 0, gl.RED, gl.FLOAT, level.data);
-  });
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAX_LEVEL, tops.length - 1);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-  //: Every raster gets the chain the height has had from the first day.
-  //: Without one a pixel covering ten texels reads one of them and shimmers
-  //: as the hand moves: a one-texel river blinking in and out on the globe,
-  //: a coast fizzing along its length, a biome speckling at the far frames.
-  //: How a level is made differs by what the byte means (`byteChain`) --
-  //: a share is averaged, a class is picked, because the mean of two codes
-  //: is a third code that means something else.
-  const classes = (bytes: Uint8Array): WebGLTexture => {
-    const texture = gl.createTexture();
-    if (!texture) throw new Error("no texture");
-    gl.bindTexture(gl.TEXTURE_2D, texture);
-    const chain = byteChain(bytes, cols, rows, "pick", tile);
-    chain.forEach((level, index) => {
-      gl.texImage2D(
-        gl.TEXTURE_2D, index, gl.R8UI, level.cols, level.rows, 0,
-        gl.RED_INTEGER, gl.UNSIGNED_BYTE, level.data,
-      );
-    });
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAX_LEVEL, chain.length - 1);
-    //: An integer texture filters NEAREST and only NEAREST -- between the
-    //: levels as within one. The level itself is chosen by the lod the
-    //: shader asks for, and that is the whole of the cure here.
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST_MIPMAP_NEAREST);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    return texture;
-  };
-  const measure = (bytes: Uint8Array, how: "mean" | "cut"): WebGLTexture => {
-    const texture = gl.createTexture();
-    if (!texture) throw new Error("no texture");
-    gl.bindTexture(gl.TEXTURE_2D, texture);
-    //: A chain whose coarse levels mean the share of the texel that is the
-    //: thing: the rock's grain and the lake's share average honestly, the
-    //: river's ribbon is cut at its bank first and then averaged (`cut`).
-    //: The near frames read the finest level and cut it; the far frames
-    //: read the share at the frame's own level, and a river narrower than
-    //: a pixel stays a line (owner, 2026-09-12: the rivers break). The two
-    //: were read at the finest level alone before, and the far frames
-    //: sampled one cell of the ten under a pixel.
-    const chain = byteChain(bytes, cols, rows, how, tile);
-    chain.forEach((level, index) => {
-      gl.texImage2D(
-        gl.TEXTURE_2D, index, gl.R8, level.cols, level.rows, 0,
-        gl.RED, gl.UNSIGNED_BYTE, level.data,
-      );
-    });
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAX_LEVEL, chain.length - 1);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    return texture;
-  };
-  //: The tallest ground: the last level of the max chain is the max of
-  //: all, over the few texels the faces come down to.
-  const topM = Math.max(...tops[tops.length - 1].data);
-  return {
-    height,
-    top,
-    topM,
-    biome: classes(rasters.biome),
-    form: classes(rasters.form),
-    rock: measure(rasters.rock, "mean"),
-    lake: measure(rasters.lake, "mean"),
-    stream: measure(rasters.stream, "cut"),
-    temperature: measure(rasters.temperature, "mean"),
-    rain: measure(rasters.rain, "mean"),
-    river: measure(rasters.river, "mean"),
-    passport,
-    deep: deepOf(heights),
-  };
-}
-
-/** Hand the shader what does not move between frames, when it changed:
- *  the planet's textures and their passport, the palette, the mountain line. */
-function sync(
-  program: Program,
-  planet: string,
-  palette: Palette,
-  highFrom: number,
-  law: DryLaw,
-  grains: Record<string, unknown> | null,
-): boolean {
-  const textures = program.textures.get(planet);
-  if (!textures) return false;
-  const was = program.synced;
-  if (
-    was &&
-    was.planet === planet &&
-    was.palette === palette &&
-    was.highFrom === highFrom &&
-    was.law === law &&
-    was.grains === grains
-  )
-    return true;
-  const { gl, at } = program;
-  const { passport } = textures;
-  gl.uniform2f(at("u_atlas"), passport.cols, passport.rows);
-  gl.uniform1f(at("u_nside"), passport.nside);
-  gl.uniform1f(at("u_border"), passport.border);
-  gl.uniform1f(at("u_across"), passport.across);
-  gl.uniform1f(at("u_step"), passport.step_m);
-  gl.uniform1f(at("u_relief"), passport.relief_m);
-  gl.uniform1f(at("u_deep"), textures.deep);
-  gl.uniform1f(at("u_high_from"), highFrom);
-  gl.uniform3fv(at("u_biomes[0]"), palette.biomes.subarray(0, PALETTE_SLOTS * 3));
-  //: The grain of each biome, by the passport's own order of them: the
-  //: vault's word for the biome, the picture's numbers for the word.
-  gl.uniform4fv(at("u_grains[0]"), grainTable(grains, passport.biomes));
-  gl.uniform3fv(at("u_sea_deep"), palette.seaDeep);
-  gl.uniform3fv(at("u_lake"), palette.lake);
-  gl.uniform3fv(at("u_high"), palette.high);
-  const codes = formCodes(passport);
-  gl.uniform4ui(at("u_stone_forms"), ...codes.stone);
-  gl.uniform2ui(at("u_sand_forms"), ...codes.sand);
-  gl.uniform3ui(at("u_ice_forms"), ...codes.ice);
-  gl.uniform1i(at("u_shore"), codes.shore);
-  const bind = (unit: number, texture: WebGLTexture) => {
-    gl.activeTexture(gl.TEXTURE0 + unit);
-    gl.bindTexture(gl.TEXTURE_2D, texture);
-  };
-  bind(0, textures.height);
-  bind(1, textures.biome);
-  bind(2, textures.form);
-  bind(3, textures.rock);
-  bind(4, textures.lake);
-  bind(5, textures.stream);
-  bind(6, textures.temperature);
-  bind(7, textures.rain);
-  bind(8, textures.river);
-  bind(9, textures.top);
-  gl.uniform1f(at("u_top_m"), textures.topM);
-  gl.uniform1f(at("u_temp_min"), passport.temperature_c.min);
-  gl.uniform1f(at("u_temp_step"), passport.temperature_c.step);
-  gl.uniform1f(at("u_temp_cold"), passport.temperature_c.cold);
-  gl.uniform1f(at("u_temp_hot"), passport.temperature_c.hot);
-  //: What the sky over the sea is stretched by: the land's mean rain share,
-  //: the engine's own number (owner, 2026-09-13).
-  gl.uniform1f(at("u_wx_sea_wet"), passport.sea_wet);
-  //: The drying law for the moisture layer (D-331 addendum): off the book,
-  //: with the reach in metres, read against the river raster.
-  gl.uniform3f(at("u_dry"), law.share, law.perDegree, law.ref);
-  gl.uniform1f(at("u_reach_m"), law.reachM);
-  program.synced = { planet, palette, highFrom, law, grains };
-  return true;
-}
-
 const RAD = Math.PI / 180;
+
+//: What the page has learned of its GPU's pace (`sharpness.ts`). One GPU
+//: draws every ground the page shows -- the entry globe's and the map's --
+//: so one pace, carried from the door to the map.
+let pace: Sharpness = SHARP_START;
+
+/** The start of the frame under way, as its own callbacks are told it: the
+ *  document's timeline stands still through a frame's work. A paint's
+ *  verdict is counted from here, so what the frame spent before the paint
+ *  counts against it, as it does against the frame. */
+function frameStart(): number {
+  const now = document.timeline?.currentTime;
+  return typeof now === "number" ? now : performance.now();
+}
 
 export const GroundGL = forwardRef<
   GroundGLHandle,
@@ -465,12 +158,33 @@ export const GroundGL = forwardRef<
   const programRef = useRef<Program | null>(null);
   const terrain = useTerrain(planet);
   const passport = terrain?.raster ?? null;
-  //: Which planet's textures are up, and which life of the context: a lost
-  //: and restored context is a new life, and everything is rebuilt for it.
+  //: Which planet's textures are up, which program is linked, and which
+  //: life of the context: a lost and restored context is a new life, and
+  //: everything is rebuilt for it.
   const [ready, setReady] = useState<string | null>(null);
+  const [linked, setLinked] = useState<Program | null>(null);
+  const [broken, setBroken] = useState(false);
   const [life, setLife] = useState(0);
   const tell = useRef(onState);
   tell.current = onState;
+  //: The paint booked for the next frame, and the watch that follows the
+  //: paints: the verdicts on those made in motion, each the fence it left in
+  //: the GPU's queue and the start of the frame it was made in; and whether
+  //: the last paint fell short of the full scale, with when -- the still
+  //: paint it is owed.
+  const booked = useRef(0);
+  const watching = useRef(0);
+  const pending = useRef<{ fence: WebGLSync; at: number }[]>([]);
+  const owed = useRef({ short: false, at: 0 });
+  //: Everything the watch holds of a context, let go with it: a fence of a
+  //: lost context asked of the restored one is an error that reads as a
+  //: late paint, and a still paint owed to it would be asked for every
+  //: frame of a page that never gets it back.
+  const forget = useCallback((gl: WebGL2RenderingContext | null) => {
+    for (const { fence } of pending.current) if (gl && !gl.isContextLost()) gl.deleteSync(fence);
+    pending.current = [];
+    owed.current = { short: false, at: 0 };
+  }, []);
 
   //: The theme: re-read when the scheme or the `data-light` choice changes.
   const [theme, setTheme] = useState(0);
@@ -497,77 +211,108 @@ export const GroundGL = forwardRef<
     );
   }, [theme, planet, passport]);
 
-  //: The context: once per life of the canvas, given back on unmount.
+  //: The context: once per life of the canvas, given back on unmount. The
+  //: program's link is waited for a frame at a time, never on the page's
+  //: thread (`groundProgram.linkDone`).
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    try {
-      programRef.current = setUp(canvas);
-      if (!programRef.current) tell.current("failed");
-    } catch (why) {
+    let waiting = 0;
+    const failed = (why: unknown) => {
       console.warn("ground shader:", why);
       programRef.current = null;
-      tell.current("failed");
+      setBroken(true);
+    };
+    try {
+      const program = setUp(canvas);
+      programRef.current = program;
+      if (!program) setBroken(true);
+      else {
+        const poll = () => {
+          waiting = 0;
+          if (programRef.current !== program) return;
+          try {
+            if (linkDone(program)) setLinked(program);
+            else waiting = requestAnimationFrame(poll);
+          } catch (why) {
+            failed(why);
+          }
+        };
+        poll();
+      }
+    } catch (why) {
+      failed(why);
     }
     const lost = (event: Event) => {
       //: Saying so keeps the browser willing to give it back.
       event.preventDefault();
       programRef.current = null;
+      forget(null);
       setReady(null);
-      tell.current("loading");
+      setLinked(null);
     };
     const restored = () => setLife((n) => n + 1);
     canvas.addEventListener("webglcontextlost", lost);
     canvas.addEventListener("webglcontextrestored", restored);
     return () => {
+      cancelAnimationFrame(waiting);
       canvas.removeEventListener("webglcontextlost", lost);
       canvas.removeEventListener("webglcontextrestored", restored);
+      forget(programRef.current?.gl ?? null);
       tearDown(programRef.current, canvas);
       programRef.current = null;
     };
-  }, [life]);
-  //: The textures: once per planet per life of the context.
+  }, [life, forget]);
+  //: The textures: once per planet per life of the context. They go up
+  //: while the program links -- they are the context's, not the program's --
+  //: and the rasters are made ready off the page's thread on the way.
   useEffect(() => {
     const program = programRef.current;
     if (!program || !passport) return;
     if (program.textures.has(planet)) {
       setReady(planet);
-      tell.current("ready");
       return;
     }
     let live = true;
-    tell.current("loading");
-    rastersOf(planet).then(
-      (rasters) => {
-        const now = programRef.current;
-        if (!live || !now) return;
-        try {
-          //: One planet's textures at a time: the last planet's textures are given
-          //: back before the next is uploaded. Wide as the atlas is now, four
-          //: planets kept would be two hundred megabytes on a phone's GPU.
-          for (const [other, held] of now.textures) {
-            if (other !== planet) {
-              drop(now.gl, held);
-              now.textures.delete(other);
+    rastersOf(planet)
+      .then((rasters) => prepareOff(passport, rasters))
+      .then(
+        (prepared) => {
+          const now = programRef.current;
+          if (!live || !now) return;
+          try {
+            //: One planet's textures at a time: the last planet's textures are given
+            //: back before the next is uploaded. Wide as the atlas is now, four
+            //: planets kept would be two hundred megabytes on a phone's GPU.
+            for (const [other, held] of now.textures) {
+              if (other !== planet) {
+                drop(now.gl, held);
+                now.textures.delete(other);
+              }
             }
+            now.textures.set(planet, upload(now.gl, prepared));
+            setReady(planet);
+          } catch (why) {
+            console.warn(`rasters of ${planet}:`, why);
+            setBroken(true);
           }
-          now.textures.set(planet, upload(now.gl, passport, rasters));
-          setReady(planet);
-          tell.current("ready");
-        } catch (why) {
+        },
+        (why) => {
           console.warn(`rasters of ${planet}:`, why);
-          tell.current("failed");
-        }
-      },
-      (why) => {
-        console.warn(`rasters of ${planet}:`, why);
-        if (live) tell.current("failed");
-      },
-    );
+          if (live) setBroken(true);
+        },
+      );
     return () => {
       live = false;
     };
   }, [planet, passport, life]);
+  //: Drawing only once both are there: told ready over an unlinked program,
+  //: the map would put the svg's land away over an empty canvas. One word
+  //: for the map, said in one place.
+  const drawing = !broken && ready === planet && linked !== null;
+  useEffect(() => {
+    tell.current(broken ? "failed" : drawing ? "ready" : "loading");
+  }, [broken, drawing]);
 
   //: The mountain line of the sketch: the hypsometric lightening starts
   //: where the SVG ground greys and the biome turns alpine, not at a line
@@ -586,15 +331,24 @@ export const GroundGL = forwardRef<
   const state = useRef({ eye, radius, palette, planet, highFrom, sun, season, weather, weatherDays, clouds, layer, law, grains });
   state.current = { eye, radius, palette, planet, highFrom, sun, season, weather, weatherDays, clouds, layer, law, grains };
 
-  const draw = useCallback(() => {
+  const tick = useRef<(t: number) => void>(() => {});
+  const watch = useCallback(() => {
+    if (!watching.current) watching.current = requestAnimationFrame((t) => tick.current(t));
+  }, []);
+
+  /** One paint of the whole canvas: in motion as fine as the pace allows,
+   *  still at the full scale. `frame` is the start of the frame it is made
+   *  in, which its verdict is counted from. Whether it painted at all. */
+  const paint = useCallback((moving: boolean, frame: number): boolean => {
     const program = programRef.current;
     const canvas = canvasRef.current;
     const svgEl = svg.current;
     const { eye, radius, palette, planet, highFrom, sun, season, weather, weatherDays, clouds, layer, law, grains } = state.current;
-    if (!program || !canvas || !svgEl || !palette) return;
-    if (!sync(program, planet, palette, highFrom, law, grains)) return;
+    if (!program || !canvas || !svgEl || !palette) return false;
+    if (!sync(program, planet, palette, highFrom, law, grains)) return false;
     const { gl, at } = program;
     const dpr = window.devicePixelRatio || 1;
+    const ratio = ratioOf(dpr, pace, moving);
     //: The canvas is laid over the svg's box and nowhere else. It paints the
     //: ground by the svg's own screen matrix, so wherever it reaches it
     //: draws correct land -- and where it reached past the svg it drew land
@@ -625,21 +379,27 @@ export const GroundGL = forwardRef<
       if (canvas.style.width !== place[2]) canvas.style.width = place[2];
       if (canvas.style.height !== place[3]) canvas.style.height = place[3];
     }
-    const width = Math.max(1, Math.round(over.width * dpr));
-    const height = Math.max(1, Math.round(over.height * dpr));
+    //: The canvas's own pixels, by the scale of this paint: the stylesheet
+    //: stretches them over the svg's box, so a coarser paint is the same
+    //: ground at fewer pixels, and changing the scale moves nothing.
+    const width = Math.max(1, Math.round(over.width * ratio));
+    const height = Math.max(1, Math.round(over.height * ratio));
     if (canvas.width !== width || canvas.height !== height) {
       canvas.width = width;
       canvas.height = height;
       gl.viewport(0, 0, width, height);
     }
     const ctm = svgEl.getScreenCTM();
-    if (!ctm || !(ctm.a > 0)) return;
+    if (!ctm || !(ctm.a > 0)) return false;
     gl.clear(gl.COLOR_BUFFER_BIT);
     gl.uniform2f(at("u_size"), width, height);
     //: The canvas stands exactly over the svg, so the svg's box is its own.
-    gl.uniform2f(at("u_origin"), (ctm.e - over.left) * dpr, (ctm.f - over.top) * dpr);
-    const units = 1 / (ctm.a * dpr);
+    gl.uniform2f(at("u_origin"), (ctm.e - over.left) * ratio, (ctm.f - over.top) * ratio);
+    const units = 1 / (ctm.a * ratio);
     gl.uniform1f(at("u_units"), units);
+    //: And a pixel of the screen, which the frame's scale is read by --
+    //: the same number at every scale of the canvas.
+    gl.uniform1f(at("u_screen_units"), 1 / (ctm.a * dpr));
     gl.uniform1f(at("u_radius"), radius);
     gl.uniform2f(at("u_eye"), eye.lat * RAD, eye.lon * RAD);
     //: The sun, for the light and the night (owner, 2026-09-12): the
@@ -683,8 +443,72 @@ export const GroundGL = forwardRef<
     gl.uniform3fv(at("u_grain_at"), atLattice(GRAIN_M));
     gl.uniform3fv(at("u_edge_at"), atLattice(EDGE_M));
     gl.drawArrays(gl.TRIANGLES, 0, 6);
-  }, [svg]);
-  useImperativeHandle(ref, () => ({ draw }), [draw]);
+    //: A paint in motion leaves a fence behind it, and is judged a frame
+    //: later by whether the GPU has passed it (`sharpness.judged`). The
+    //: still paint is not judged: it is allowed to take its time, once.
+    if (moving) {
+      const fence = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+      if (fence) {
+        //: Sent now, not at the end of the task, or the time until the
+        //: verdict would be spent partly waiting to be sent.
+        gl.flush();
+        pending.current.push({ fence, at: frame });
+      }
+    }
+    owed.current = { short: ratio < ratioOf(dpr, pace, false), at: frame };
+    if (pending.current.length || owed.current.short) watch();
+    return true;
+  }, [svg, watch]);
+
+  //: The watch, once a frame while there is something to judge or a still
+  //: paint owed, and not at all otherwise.
+  tick.current = (t: number) => {
+    watching.current = 0;
+    const program = programRef.current;
+    const queue = pending.current;
+    while (queue.length && t - queue[0].at >= JUDGE_MS) {
+      const { fence } = queue.shift()!;
+      //: A lost context has no fences to ask about, and its paints were
+      //: never slow: they are forgotten, not judged.
+      if (!program || program.gl.isContextLost()) continue;
+      const { gl } = program;
+      pace = judged(pace, gl.getSyncParameter(fence, gl.SYNC_STATUS) === gl.SIGNALED);
+      gl.deleteSync(fence);
+    }
+    const debt = owed.current;
+    //: The still paint, once nothing has asked for one for a while. One
+    //: that cannot be made now -- no textures yet, no screen matrix -- is
+    //: let go: the next paint that can be made will owe it again.
+    if (debt.short && !booked.current && t - debt.at >= SETTLE_MS && !paint(false, t)) {
+      owed.current = { short: false, at: t };
+    }
+    if (queue.length || owed.current.short) watch();
+  };
+
+  const draw = useCallback(() => {
+    if (booked.current) return;
+    booked.current = requestAnimationFrame((t) => {
+      booked.current = 0;
+      paint(true, t);
+    });
+  }, [paint]);
+  const drawNow = useCallback(() => {
+    if (booked.current) cancelAnimationFrame(booked.current);
+    booked.current = 0;
+    paint(true, frameStart());
+  }, [paint]);
+  useImperativeHandle(ref, () => ({ draw, drawNow }), [draw, drawNow]);
+  //: Nothing booked or watched outlives the ground; the fences go with the
+  //: context (`forget`, in the context's own cleanup).
+  useEffect(
+    () => () => {
+      cancelAnimationFrame(booked.current);
+      cancelAnimationFrame(watching.current);
+      booked.current = 0;
+      watching.current = 0;
+    },
+    [],
+  );
 
   //: What React knows of -- the eye, the planet, the palette, the rasters'
   //: arrival, the layer, the sun's place -- redraws; the camera's frames
@@ -699,18 +523,20 @@ export const GroundGL = forwardRef<
   const weatherKey = [(weatherDays / weather.changeDays).toFixed(3), clouds].join(",");
   useEffect(() => {
     draw();
-  }, [draw, eye, radius, palette, ready, planet, highFrom, layer, sunKey, seasonKey, weather, weatherKey, law, grains]);
+  }, [draw, eye, radius, palette, drawing, planet, highFrom, layer, sunKey, seasonKey, weather, weatherKey, law, grains]);
   //: The box: a resize of the pane is a resize of the canvas. Watched on the
   //: **svg**, because the canvas's own box is written by the draw above --
   //: watching it would be watching one's own hand, and the canvas would keep
-  //: whatever size it was made with while the pane grew around it.
+  //: whatever size it was made with while the pane grew around it. Painted
+  //: at once: the observer is told inside the frame that resized, and a
+  //: paint booked from there would leave the old box on the screen a frame.
   useEffect(() => {
     const over = svg.current;
     if (!over) return;
-    const watcher = new ResizeObserver(() => draw());
+    const watcher = new ResizeObserver(() => drawNow());
     watcher.observe(over);
     return () => watcher.disconnect();
-  }, [draw, svg]);
+  }, [drawNow, svg]);
 
   return (
     <>

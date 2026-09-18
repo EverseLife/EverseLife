@@ -18,8 +18,9 @@
  * `CLOUDS_FIELD_GLSL` reads the weather over the pixel's own ground -- the
  * weather layer's and the probe's point -- and over the point toward the
  * sun for the cloud's shadow: it needs `here`, `h`, `rain01`, `high`,
- * `sunward` and `metres`, and leaves `cover`, `cloud`, `rain_now` and
- * `cloud_over` for the ground's tone and the layers.
+ * `sunward`, `metres`, `far_sky` and `u_layer`, and leaves `cloud`,
+ * `rain_now` and `cloud_over` for the ground's tone and the layers --
+ * nought wherever nothing drawn reads them.
  * `CLOUDS_OVER_GLSL` lays the shell's clouds over the finished colour
  * `col`, after the night and the layers. They read `TWILIGHT` and
  * `NIGHT_TINT` off the fragment and the weather's uniforms.
@@ -37,6 +38,7 @@ import {
   CLOUD_SHADE,
   CLOUD_SUN_MIN,
   CLOUD_TONE,
+  LAYERS,
   WX_HAZE,
 } from "./shade";
 
@@ -117,16 +119,33 @@ export const CLOUDS_FIELD_GLSL = `
   //: factor: a wet windward slope thickens what the wind brings, a dry lee
   //: thins it, and neither makes weather of a clear sky.
   //: The sea's rain share is the land's mean, as over the shell above.
+  //:
+  //: Each reading is taken only where the pixel shows it: the law walks
+  //: nine systems of the lattice, the costliest thing the fragment does
+  //: after the cast shadow, and it was read twice over every pixel of
+  //: every frame to be multiplied by nought on most of them -- the cloud
+  //: and the rain belong to the moisture and the weather layers alone, the
+  //: cloud's shadow to the far frames' sky by day. Both gates stand on
+  //: uniforms and on the sun's height, and the law holds no texture read,
+  //: so the branch is a plain one on every GPU.
   float wet_here = h < 0.0 ? u_wx_sea_wet : rain01;
-  float cover = clamp(wxCover(here) * (1.0 + u_wx_bias * (2.0 * wet_here - 1.0)), 0.0, 1.0);
-  float cloud = smoothstep(u_wx_gates.x, u_wx_gates.y, cover);
-  float rain_now = smoothstep(u_wx_gates.z, u_wx_gates.w, cover);
-  float cloud_alt = max(asin(clamp(high, 0.0, 1.0)), CLOUD_SUN_MIN);
-  float cloud_turn = (CLOUD_KM * 1000.0 / tan(cloud_alt)) / metres;
-  vec3 q_cloud = here * cos(cloud_turn) + sunward * sin(cloud_turn);
-  //: The cloud toward the sun is read over this pixel's ground -- its rain
-  //: share -- as the shadow is a tint, not a reading: one point, one law.
-  float cloud_over = smoothstep(u_wx_gates.x, u_wx_gates.y, clamp(wxCover(q_cloud) * (1.0 + u_wx_bias * (2.0 * wet_here - 1.0)), 0.0, 1.0));
+  float wet_pull = 1.0 + u_wx_bias * (2.0 * wet_here - 1.0);
+  float cloud = 0.0;
+  float rain_now = 0.0;
+  if (u_layer == ${LAYERS.indexOf("moisture")} || u_layer == ${LAYERS.indexOf("weather")}) {
+    float cover = clamp(wxCover(here) * wet_pull, 0.0, 1.0);
+    cloud = smoothstep(u_wx_gates.x, u_wx_gates.y, cover);
+    rain_now = smoothstep(u_wx_gates.z, u_wx_gates.w, cover);
+  }
+  float cloud_over = 0.0;
+  if (far_sky > 0.0 && high > 0.0 && u_sunlit > 0.0) {
+    float cloud_alt = max(asin(clamp(high, 0.0, 1.0)), CLOUD_SUN_MIN);
+    float cloud_turn = (CLOUD_KM * 1000.0 / tan(cloud_alt)) / metres;
+    vec3 q_cloud = here * cos(cloud_turn) + sunward * sin(cloud_turn);
+    //: The cloud toward the sun is read over this pixel's ground -- its rain
+    //: share -- as the shadow is a tint, not a reading: one point, one law.
+    cloud_over = smoothstep(u_wx_gates.x, u_wx_gates.y, clamp(wxCover(q_cloud) * wet_pull, 0.0, 1.0));
+  }
 `;
 
 export const CLOUDS_OVER_GLSL = `

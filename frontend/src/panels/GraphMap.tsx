@@ -328,9 +328,10 @@ export function GraphMap({
   //: had -- a hook here would redraw forty nodes for a value read once.
   if (!camera.current) {
     camera.current = createCamera({
-      onFrame: (f) => {
+      onFrame: (f, inFrame) => {
         svgRef.current?.setAttribute("viewBox", viewBoxOf(f, tallRef.current));
-        shadedRef.current?.draw();
+        if (inFrame) shadedRef.current?.drawNow();
+        else shadedRef.current?.draw();
         //: The slider rides with the frame, off React like the viewBox.
         if (zoomRef.current) {
           zoomRef.current.value = String(

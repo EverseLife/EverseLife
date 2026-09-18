@@ -114,7 +114,11 @@ export const Planet = forwardRef<
   const gl = useRef<GroundGLHandle | null>(null);
   //: The map's camera redraws the ground at every frame it paints, off
   //: React, through this handle.
-  useImperativeHandle(ref, () => ({ draw: () => gl.current?.draw() }), []);
+  useImperativeHandle(
+    ref,
+    () => ({ draw: () => gl.current?.draw(), drawNow: () => gl.current?.drawNow() }),
+    [],
+  );
   //: Without a camera a viewBox React writes is the frame: the entry
   //: screen's zoom and its paper are React's. With one, the camera has
   //: drawn that frame already, and a render that writes it again would be

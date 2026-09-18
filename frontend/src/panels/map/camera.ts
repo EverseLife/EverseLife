@@ -102,8 +102,13 @@ export function viewBoxOf(frame: Frame, tall = H): string {
 }
 
 type Wiring = {
-  /** Show the frame: the component paints it onto the svg. */
-  onFrame: (frame: Frame) => void;
+  /** Show the frame: the component paints it onto the svg. `inFrame` says
+   *  the camera is showing it from inside a frame -- its own animation
+   *  frame (the chase, the descent) or the field's resize -- so whatever is
+   *  painted with it may be painted at once; any other showing comes from a
+   *  hand or a render between frames, and a paint for it is booked for the
+   *  next frame -- once, however many fingers moved (`GroundGL`). */
+  onFrame: (frame: Frame, inFrame: boolean) => void;
   /** How close the frame starts: 1 covers the whole `W`x`H` field. A phone
    *  starts closer -- its field is 375px wide, and the whole world across it
    *  puts a node's name at five pixels. */
@@ -153,7 +158,7 @@ export function createCamera({
   let chasedAt = 0;
   let following = false;
 
-  const show = () => onFrame(frame);
+  const show = (inFrame = false) => onFrame(frame, inFrame);
 
   const step = (t: number) => {
     //: The frame it was scheduled for has fired: the invariant "chasing means
@@ -179,7 +184,7 @@ export function createCamera({
         frame = { ...frame, ...chase(frame, target, dt) };
       }
     }
-    show();
+    show(true);
     if (aim || aimScale !== null) chasing = raf(step);
   };
 
@@ -200,8 +205,10 @@ export function createCamera({
   const cut = (middle: Point) => {
     drop();
     frame = { ...frame, ...frameOn(middle, frame.scale, tall()) };
-    show();
+    //: A descent under way shows the new place with its own next step:
+    //: shown here as well, the ground would be painted twice in that frame.
     if (aimScale !== null) book();
+    else show();
   };
 
   /** Aim the frame at a place. Cut where a chase would sweep the frame
@@ -290,7 +297,10 @@ export function createCamera({
     reshape(fromTall: number, toTall: number) {
       if (fromTall === toTall) return;
       frame = { ...frame, y: frame.y + (fromTall - toTall) / (2 * frame.scale) };
-      show();
+      //: Shown as from a frame: the field's observer is told inside the
+      //: frame that resized, and a paint booked from there would leave the
+      //: ground a frame behind the svg's new shape.
+      show(true);
     },
 
     /** A zoom to the cursor: the point under it stays under it. The hand's,
