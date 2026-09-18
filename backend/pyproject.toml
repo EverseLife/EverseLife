@@ -815,3 +815,38 @@ type = "forbidden"
 source_modules = ["src.engine.gear.load"]
 forbidden_modules = ["src.engine.gear.slot"]
 allow_indirect_imports = "true"
+
+# The drilling rig, cut on 2026-09-19 out of an 800-line `rig.py` that held the
+# standing-up, the emptying, the tick and the scene at once. Same `forbidden`
+# shape as the cuts above and for the same reason: rig sits inside engine
+# cycles it did not create -- `station` asks it back lazily for the hopper, and
+# it borrows `mining`'s depletion and `gear`'s carry limit lazily -- so a layers
+# contract would fail on chains that have nothing to do with this cut. The
+# stack it pins directly: hands -> run -> _base, and board -> _base.
+[[tool.importlinter.contracts]]
+name = "The rig's floor asks nobody"
+type = "forbidden"
+source_modules = ["src.engine.rig._base"]
+forbidden_modules = ["src.engine.rig.run", "src.engine.rig.hands", "src.engine.rig.board"]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "The rig's clock never reaches for the hands at it or the scene"
+type = "forbidden"
+source_modules = ["src.engine.rig.run"]
+forbidden_modules = ["src.engine.rig.hands", "src.engine.rig.board"]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "The hands at a rig settle it through the clock and never read the scene"
+type = "forbidden"
+source_modules = ["src.engine.rig.hands"]
+forbidden_modules = ["src.engine.rig.board"]
+allow_indirect_imports = "true"
+
+[[tool.importlinter.contracts]]
+name = "The rig's scene only reads: no pass, no hands"
+type = "forbidden"
+source_modules = ["src.engine.rig.board"]
+forbidden_modules = ["src.engine.rig.run", "src.engine.rig.hands"]
+allow_indirect_imports = "true"

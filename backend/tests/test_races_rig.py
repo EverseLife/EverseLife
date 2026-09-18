@@ -308,10 +308,11 @@ async def test_a_rig_is_not_taken_down_out_from_under_the_tick(
     the other interleaving, which is the next test's.
     """
     from src.engine import rig
+    from src.engine.rig import run as rig_run
 
     body_id, machine_id, _, moment = await _rig_before_its_pass(session)
     held = asyncio.Event()
-    advance = rig.advance
+    advance = rig_run.advance
 
     async def holding(db: AsyncSession, *args, **kwargs) -> float:
         if not held.is_set():
@@ -319,7 +320,9 @@ async def test_a_rig_is_not_taken_down_out_from_under_the_tick(
             await _until_blocked_by(factory, db)
         return await advance(db, *args, **kwargs)
 
-    monkeypatch.setattr(rig, "advance", holding)
+    #: In the room the tick calls it from: `tick_rigs` reads `advance` off its
+    #: own module, and a name set on the door alone is never reached.
+    monkeypatch.setattr(rig_run, "advance", holding)
 
     async def tick() -> float:
         async with factory() as db, db.begin():
