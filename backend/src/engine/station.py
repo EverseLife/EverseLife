@@ -303,18 +303,31 @@ async def _awaited(session: AsyncSession, node: Node, item: Item) -> bool:
 
     Asked by the batch's machine **name**, the way the batch itself asks when
     it resumes (`craft.queue._run`): any standing machine of that name in the
-    node will do for it, so a second forge beside this one frees this one.
-    Unfinished is both running and waiting -- a running batch holds its own
-    machine by `busy`, but it may sit at the other forge, and then this one
-    is the spare its queued neighbour will need.
+    node will do for it, so a second forge beside this one frees this one --
+    busy or not, since a queued batch waits its turn anyway. Unfinished is
+    both running and waiting: a running batch is already guarded on its own
+    machine by `busy`, and counted here too so that the rule reads the same
+    whichever state the batch happens to be in.
+
+    Read, not locked: the start that queues a batch takes the machine's row
+    (`craft._hold_station`), which this door already holds, so one of the two
+    waits for the other and the second sees the first.
     """
     names = (
         await session.execute(
             select(CraftBatch.station)
+            .join(Body, Body.id == CraftBatch.body_id)
             .where(
                 CraftBatch.node_id == node.id,
                 CraftBatch.state.in_((BatchState.RUNNING, BatchState.WAITING)),
                 CraftBatch.station.is_not(None),
+                #: A live master's (D-351). Death freezes the batch (D-209),
+                #: and a printed body is a new body that never takes it up
+                #: again (`craft.queue.wake` goes by the body): counted, one
+                #: death at work pinned the last machine of its name for ever,
+                #: and with it the whole house (`estate-blocker-equipment`) --
+                #: the very dead end D-308 turned down.
+                Body.state == BodyState.ALIVE,
             )
             .distinct()
         )

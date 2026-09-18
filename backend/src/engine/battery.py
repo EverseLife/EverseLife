@@ -177,9 +177,9 @@ def _leaked_through(
 def _require_standing(item: Item, yard: Container) -> None:
     """A cell is charged where it stands, and only there (D-352).
 
-    Two refusals, because the two cases need two different moves from the
-    player: a cell in the hands is set down and put up, a cell on the floor
-    is only put up.
+    Two refusals, because the two cases start from two different places: a
+    cell in the hands is put up straight from them (`station.place`), a cell
+    on the floor is put up from where it lies.
     """
     if item.container_id != yard.id:
         raise BatteryError(key="battery-charge-in-hands", goods=item.type_key)
@@ -233,15 +233,18 @@ async def charge_battery(
         raise _grid().NoGrid(key="battery-no-grid")
     _require_standing(item, yard)
 
-    #: The cell's row before its charge is read and rewritten: a worn
-    #: exoskeleton drinks from this very cell every tick (D-268), and a charge
-    #: written over a drain the tick just committed would undo the drain.
+    #: The cell's row before its charge is read and rewritten: whatever else
+    #: writes a standing cell's charge -- the cells a hull's machines draw
+    #: from (D-288), an automat eating it as an input (D-253) -- must not have
+    #: its write undone by this one. (A cell in the hands is no longer charged
+    #: at all, D-352, so the exoskeleton's tick is its only writer.)
     #:
-    #: And where it lies is asked again of the row as it now stands: a cell
-    #: lifted off the floor into another pair of hands while this waited was
-    #: charged there anyway, and this payer billed for it. Gone meanwhile --
-    #: eaten by an automat as an input (D-253), fallen with the house (D-244)
-    #: -- it is a refusal by key like any other (D-251), not a failed refresh.
+    #: And where it is, and whether it stands, is asked again of the row as it
+    #: now stands: a cell taken down while this waited lies, one carried off is
+    #: in another pair of hands, and either was charged anyway, with this
+    #: payer billed for it. Gone meanwhile -- eaten by an automat, fallen with
+    #: the house (D-244) -- it is a refusal by key like any other (D-251), not
+    #: a failed refresh.
     #:
     #: Before the pool, like any stack before its pool (`energy.produce`): a
     #: battery is an input too (an exoskeleton, a feed circuit), and an

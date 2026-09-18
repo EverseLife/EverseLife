@@ -131,7 +131,7 @@ station-printer-by-the-city = inside a city a bioprinter is put up by the author
 craft-one-printer-at-a-time = inside a city bioprinters go up one at a time, not in a batch
 station-take-not-yours = the node is not yours: another's equipment is not taken down
 station-busy = someone is working at the station: wait for the batch to end
-station-batch-waits = a batch here is waiting: the last “{ NAME($goods) }” is not taken down until it is done
+station-batch-waits = a batch here is waiting for the station “{ NAME($goods) }”, and there is no other like it: it is not taken down until the batch is done
 station-not-empty = there are things in “{ NAME($chest) }”: empty it first, take it down after
 # By the full chest's rule (D-181, D-314): taking a thing down weighs nothing.
 station-hopper-not-empty = the hopper of the rig “{ NAME($goods) }” is not empty: haul the hopper out first, take the machine down after

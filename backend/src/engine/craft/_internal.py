@@ -46,7 +46,14 @@ from src.engine.craft.quality import (
     waste_share,
 )
 from src.engine.ship import lines
-from src.engine.world import body_container, has_place, node_yard, station_names, taken_apart
+from src.engine.world import (
+    body_container,
+    has_place,
+    lock_thing,
+    node_yard,
+    station_names,
+    taken_apart,
+)
 from src.models.identity import Body, BodyState, Knowledge, KnowledgeKind
 from src.models.inventory import Item
 from src.models.world import Node
@@ -473,6 +480,27 @@ async def _release(session: AsyncSession, station_item_id) -> None:
     station.busy_body_id = None
     station.busy_until = None
     await session.flush()
+
+
+async def _hold_station(session: AsyncSession, station: Item | None) -> None:
+    """The machine's row, taken before a batch is written at it (D-351).
+
+    The door that takes a machine down asks, under this very row, whether a
+    batch here still needs it (`station._awaited`). A batch queued behind the
+    master's running one holds no machine of its own (D-209), so without this
+    row the two passed each other: the take-down saw no batch yet, the start
+    saw the machine still standing, and both committed -- the batch waiting
+    for ever on materials already written off (OQ-181). Taken here, one of
+    them waits for the other, and whichever comes second sees what the first
+    did. After the stacks and the pool, where `_occupy` has always written it.
+    """
+    if station is None:
+        return
+    await lock_thing(session, station, gone=CraftError)
+    #: Taken down while this waited: nothing to queue at. The master asks
+    #: again and gets whatever machine of the name still stands.
+    if not station.installed:
+        raise NoStation(key="craft-no-station", station=station.type_key)
 
 
 async def _tool_items(
