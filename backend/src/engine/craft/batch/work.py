@@ -31,7 +31,6 @@ from src.engine.craft._base import (
     Unmakeable,
 )
 from src.engine.craft._internal import (
-    _hold_station,
     _knows,
     _material_quality,
     _num,
@@ -276,7 +275,6 @@ async def start(
         else:
             await session.delete(pick.item)
     await session.flush()
-    await _hold_station(session, ready.station)
 
     batch = CraftBatch(
         body_id=body.id,
@@ -299,6 +297,7 @@ async def start(
         session,
         batch,
         body,
+        station=ready.station,
         now=moment,
         event={
             "output": forecast.output,
@@ -457,11 +456,11 @@ async def cook(
         roles_filled=_num(len(products) / len(weights)),
         remaining_seconds=_seconds(minutes),
     )
-    await _hold_station(session, station)
     return await _launch(
         session,
         batch,
         body,
+        station=station,
         now=moment,
         event={
             "work": "cook",
@@ -633,11 +632,11 @@ async def _work_on(
         spent=spent,
         remaining_seconds=_seconds(minutes),
     )
-    await _hold_station(session, station)
     return await _launch(
         session,
         batch,
         body,
+        station=station,
         now=moment,
         event={
             "work": kind.value,

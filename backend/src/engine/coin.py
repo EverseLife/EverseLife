@@ -234,6 +234,7 @@ async def mint(
         session,
         batch,
         body,
+        station=station,
         now=moment,
         event={
             "work": "mint",
@@ -316,6 +317,7 @@ async def melt(
         session,
         batch,
         body,
+        station=station,
         now=moment,
         event={
             "work": "melt",
