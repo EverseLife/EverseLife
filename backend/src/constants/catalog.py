@@ -490,8 +490,8 @@ class FacetWhere(Strict):
 
 
 class Facet(Strict):
-    """A face of a biome (landscape plan wave 7, §6): a couple of hundred
-    metres of ground with a name, a place in the three axes, a share of its
+    """A face of a biome (landscape plan wave 7, §6): a patch of ground some
+    tens of metres across with a name, a place in the three axes, a share of its
     biome, its own marks and multipliers to the biome's numbers."""
 
     id: str

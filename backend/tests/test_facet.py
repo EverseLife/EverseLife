@@ -15,16 +15,26 @@ What is pinned:
 * the numbers of a place are the biome's bent by the face: the marks, the
   vein's chance, the day's swing and the reach one scouts by;
 * a province leans on the faces it favours (wave 8) without shutting the
-  others out: the Ore Ridge is known by its screes, not by its label alone.
+  others out: the Ore Ridge is known by its screes, not by its label alone;
+* the grain is the scout's, not the planet's (addendum to D-321,
+  2026-09-18): the first rings of finds round a place wear several faces,
+  and the promise of 2026-09-09 holds at both ends -- three hundred metres
+  apart read differently, twenty metres apart usually alike; the mosaic is
+  never finer than the field's cell.
 """
 
 from __future__ import annotations
 
+import math
+import random
+
 import pytest
 
+from src import globe, seed_world
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import biome, facet, terrain
+from src.field import build_dir
 from src.models.world import Planet
 
 #: The vault's own softness, as `facet.at` reads it.
@@ -259,3 +269,122 @@ def test_a_favoured_face_turns_up_oftener_inside_its_province(
         leaned_hits += leaned is not None and leaned.id in wanted
     assert points > 50, "the sweep found ground where a favoured face may stand"
     assert leaned_hits > plain_hits
+
+
+def _faces_round(
+    constants: Constants,
+    catalog: Catalog,
+    centre: globe.Geo,
+    distances: tuple[float, ...],
+    rays: int,
+) -> dict[str, int]:
+    """The faces on rings about a point, where the ground is the point's own
+    biome: what a scout setting out from there would find, run after run."""
+    radius = globe.radius_m(constants, Planet.TERRA)
+    here = biome.classify(constants, Planet.TERRA, *centre)
+    seen: dict[str, int] = {}
+    for metres in distances:
+        for ray in range(rays):
+            #: Each ring turned by its own distance, so the rays of two rings
+            #: do not line up into spokes that read one strip of ground.
+            angle = math.tau * ray / rays + metres
+            point = globe.offset(radius, centre, metres * math.sin(angle), metres * math.cos(angle))
+            if biome.classify(constants, Planet.TERRA, *point) != here:
+                continue
+            face = facet.at(constants, catalog, Planet.TERRA, *point, here=here)
+            assert face is not None
+            seen[face.id] = seen.get(face.id, 0) + 1
+    return seen
+
+
+def test_the_first_rings_round_the_capital_are_not_one_face(
+    constants: Constants, catalog: Catalog
+) -> None:
+    """The defect the owner saw (2026-09-18): every find round the capital's
+    core was the same shore wood. A scout on the coast aims five to twenty
+    metres out (`biome.reach_m`), and the first finds lie within a hundred
+    metres of the core. With a mosaic of two hundred metres they lay in five
+    cells of it, and the draw of all five fell on the same face: 46 of these
+    47 coastal points wore `shore_wood`. With a mosaic the size of the
+    field's cell: six faces, the commonest 12 points of 47."""
+    scenario = seed_world.load_scenario(build_dir(constants))
+    core = next(node for node in scenario.nodes if node.key == "terra.capital.core")
+    assert core.place is not None
+    centre = (core.place["lat"], core.place["lon"])
+    seen = _faces_round(constants, catalog, centre, (10, 20, 35, 50, 75, 100), 8)
+    total = sum(seen.values())
+    assert total >= 40, "the core stands on land wide enough to scout"
+    assert len(seen) >= 4, f"the capital's rings wear only {sorted(seen)}"
+    assert max(seen.values()) / total < 0.5, f"one face takes the capital's rings: {seen}"
+
+
+def test_a_scouts_neighbourhood_is_not_one_face(constants: Constants, catalog: Catalog) -> None:
+    """The same measure anywhere on the land: rings of twenty, fifty and a
+    hundred metres -- one to five runs of a scout -- about points of Terra.
+    With the mosaic at two hundred metres seven neighbourhoods of these forty
+    wore a single face; at the field's cell, one."""
+    dice = random.Random(3)
+    single = counted = tries = 0
+    #: Bounded, so a build with too little land fails here instead of
+    #: spinning for ever.
+    while counted < 40 and tries < 2000:
+        tries += 1
+        centre = (dice.uniform(-60, 60), dice.uniform(-180, 180))
+        if biome.classify(constants, Planet.TERRA, *centre) is None:
+            continue
+        seen = _faces_round(constants, catalog, centre, (20, 50, 100), 4)
+        if sum(seen.values()) < 6:
+            continue
+        counted += 1
+        single += len(seen) == 1
+    assert counted == 40, "the sweep found forty neighbourhoods of land"
+    assert single / counted < 0.1, f"{single} of {counted} neighbourhoods are one face"
+
+
+def _share_alike(constants: Constants, catalog: Catalog, metres: float, pairs: int) -> float:
+    """How many pairs of points `metres` apart in one biome wear one face."""
+    radius = globe.radius_m(constants, Planet.TERRA)
+    dice = random.Random(7)
+    alike = counted = tries = 0
+    while counted < pairs and tries < 50 * pairs:
+        tries += 1
+        one = (dice.uniform(-60, 60), dice.uniform(-180, 180))
+        here = biome.classify(constants, Planet.TERRA, *one)
+        if here is None:
+            continue
+        angle = dice.uniform(0, math.tau)
+        other = globe.offset(radius, one, metres * math.sin(angle), metres * math.cos(angle))
+        if biome.classify(constants, Planet.TERRA, *other) != here:
+            continue
+        first = facet.at(constants, catalog, Planet.TERRA, *one, here=here)
+        second = facet.at(constants, catalog, Planet.TERRA, *other, here=here)
+        assert first is not None and second is not None
+        counted += 1
+        alike += first.id == second.id
+    assert counted == pairs, f"the sweep found {counted} pairs of {pairs}"
+    return alike / counted
+
+
+def test_the_grain_keeps_the_promise_at_both_ends(constants: Constants, catalog: Catalog) -> None:
+    """The owner's promise of 2026-09-09 (landscape plan §6): two finds three
+    hundred metres apart read differently, two twenty metres apart usually do
+    not. The coarse end is what a mosaic too wide breaks -- the capital's
+    rings; the fine end is what a mosaic below the field's cell would break,
+    a fresh throw of the dice at every find instead of a patch of ground.
+    Measured with a mosaic the size of the field's cell: 28 % alike at
+    three hundred metres, 68 % at twenty (with two hundred metres: 24 % and
+    83 %; with thirty-five: 23 % and 52 %; with twenty-five: 27 % and 44 %).
+    The bar at three hundred metres is the promise written down rather than
+    a guard: nothing between twenty-five metres and two hundred breaks it."""
+    assert _share_alike(constants, catalog, 300, 200) < 0.4
+    assert _share_alike(constants, catalog, 20, 200) > 0.6
+
+
+def test_the_mosaic_is_no_finer_than_the_field(constants: Constants) -> None:
+    """The rule under the fine end, pinned by the keys rather than by what
+    they happen to measure today: slope, wet and high are read off the
+    field's cell, and a mosaic finer than it would throw a new face at
+    points the readings cannot tell apart. The vault's build refuses the
+    same (`tools/build.py`); two keys agree only while both are kept."""
+    step = terrain.field_of(constants, Planet.TERRA).step_m
+    assert facet.axes(constants)["wave_m"] >= step * 0.99

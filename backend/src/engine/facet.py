@@ -4,8 +4,8 @@
 """Which face of its biome a point wears (landscape plan wave 7, §6).
 
 Standing in a forest one is always in a forest -- but in the thicket, on the
-edge, on a burn or in a windfall. That grain is the **facet**: a couple of
-hundred metres across, a name of its own, and its own numbers. It never
+edge, on a burn or in a windfall. That grain is the **facet**: a patch some
+tens of metres across, a name of its own, and its own numbers. It never
 changes the biome; it chooses the biome's face and bends the biome's figures:
 what grows and lies about (`marks`), how often a vein turns up (`vein_k`), how
 far one may scout from here (`reach_k`) and how wide the day's swing is
@@ -16,7 +16,7 @@ The choice is the vault's, not this module's: the rows are `data/facets.yaml`
 its biome it takes. Four readings of the point decide, and there is nothing
 else in it -- no history, no season, no player:
 
-* `noise` -- fine noise whose first octave is `wave_m` across, the mosaic;
+* `noise` -- one flat draw per cell of a mosaic `wave_m` across;
 * `slope` -- how steep it is here, 0 flat, 1 a wall (`slope_full` is the one);
 * `wet` -- how near the water is, 1 at its edge, 0 past `wet_km`;
 * `high` -- where the point stands inside its own patch (`patch_km`), 0 the
@@ -24,8 +24,17 @@ else in it -- no history, no season, no player:
 
 So the same point is the same facet on every server and for ever, as the
 biome is (D-237): the field is a file and the noise is a function of the seed.
-Honest about the grain: two finds three hundred metres apart read differently,
-two twenty metres apart usually do not (the owner, 2026-09-09).
+
+The grain is measured against the scout, not the planet. A find lands five
+to a hundred metres from the last (`biome.reach_m`), so the first dozens of
+finds round a city lie within a hundred metres of it; a mosaic of two
+hundred put them on a handful of draws, and round Terra's capital every one
+of those fell on the same shore wood (the owner, 2026-09-18). The mosaic is
+the size of the field's cell now -- a lattice of its own, not the field's
+grid: the first rings of a scout wear several faces, and the promise of
+2026-09-09 holds at both ends -- two finds three hundred metres apart read
+differently, two twenty metres apart usually alike. `test_facet.py` pins
+both ends.
 """
 
 from __future__ import annotations
