@@ -271,32 +271,79 @@ def swing_c(constants: Constants, here: str, facet: Facet | None) -> float:
     return biome.swing_c(constants, here) * (facet.swing_k if facet else 1.0)
 
 
-def room_floor(constants: Constants) -> float:
-    """The shortest aim the ground itself allows, metres: a find of the least
-    area may not overlap one of the greatest (D-321 item 4), so a node whose
-    far reach fell under this could aim at nothing at all -- every target
-    inside the band would be refused for want of room, every one beyond it as
-    too far, and the scout would stand there for good.
-
-    All of it is the vault's: the area a find takes and the share of the free
-    radius it fills (`explore.node_area`, `explore.fill_share`).
+def room_m(constants: Constants) -> float:
+    """How much free ground a find needs past every node's circle, metres:
+    its least radius over the share of the free radius it fills
+    (`aim.area_for`, D-321 item 4). Below it the aim is refused for want of
+    room, so it is where every ring of reach really begins past a land.
     """
     span = constants[R.EXPLORE_NODE_AREA]
-    fill = float(constants[R.EXPLORE_FILL_SHARE])
-    return globe.radius_of_area(span.min) / fill + globe.radius_of_area(span.max)
+    return globe.radius_of_area(span.min) / float(constants[R.EXPLORE_FILL_SHARE])
+
+
+def room_floor(constants: Constants) -> float:
+    """The shortest far reach the ground itself allows, metres past the edge
+    of one's own land (`band_m`). A find needs free ground round it -- its
+    least radius over the share of the free radius it fills, past every
+    node's circle and the origin's too (D-321 item 4, `aim.area_for`) -- and
+    the ring from there out to the far reach must be a cell of the lattice
+    wide, or no cell's centre falls inside it: the aim is pressed to a cell
+    (`map.lattice_m`, D-321 item 3), and a narrower ring left the scout
+    standing there for good with a band that was lawful only on paper.
+
+    All of it is the vault's: the area a find takes, the share of the free
+    radius it fills and the lattice (`explore.node_area`,
+    `explore.fill_share`, `map.lattice_m`).
+    """
+    return room_m(constants) + float(constants[R.MAP_LATTICE_M])
 
 
 def reach_m(constants: Constants, here: str, facet: Facet | None) -> tuple[float, float]:
     """How near and how far one may scout from a place: the biome's band,
     times the facet's -- one sees further from a bald knoll than from a
-    thicket, and the vault says by how much.
+    thicket, and the vault says by how much. The far end is metres past the
+    edge of the land one stands on, not past its centre (`band_m`).
 
-    A face may narrow the band but never close it: ten of the vault's faces
-    (the reeds at 0.4, the thickets at 0.6) would shorten a twenty-metre
-    reach below the room a node needs, and the find would be a dead end. The
-    floor is the placement rule's own (`room_floor`), not a number of this
-    module's.
+    A face may narrow the band but never close it: the reeds at 0.4 would
+    shorten a twenty-metre reach below the room a find needs, and the find
+    would be a dead end. The floor is the placement rule's own
+    (`room_floor`), not a number of this module's.
     """
     near, far = biome.reach_m(constants, here)
     k = facet.reach_k if facet else 1.0
     return near * k, max(far * k, room_floor(constants))
+
+
+def centre_floor(constants: Constants) -> float:
+    """The shortest far reach from any node's centre, metres: the room a find
+    needs past the land of the widest find. The band was held to it while it
+    was counted from the centre, and it lifted nineteen narrowing faces to
+    it; it stays under the band counted from the edge, because the owner
+    asked for a longer reach and not a shorter one (2026-09-18) -- no node
+    scouts less far than it did before.
+
+    All of it is the vault's: the area a find takes and the share of the free
+    radius it fills (`explore.node_area`, `explore.fill_share`).
+    """
+    return room_m(constants) + globe.radius_of_area(constants[R.EXPLORE_NODE_AREA].max)
+
+
+def band_m(constants: Constants, catalog: Catalog, node: Node, here: str) -> tuple[float, float]:
+    """How near and how far from a node's centre a scout may aim: the near
+    end as the biome and the face say it, the far end counted past the edge
+    of the node's own land, and never short of `centre_floor`.
+
+    Counted from the centre until 2026-09-18, and then a wide node swallowed
+    its own reach: six hundred square metres make a circle of fourteen
+    metres' radius, a find must stand clear of that circle, and a coastal
+    reach of twenty metres left a ring under a metre wide that held no cell
+    of the lattice -- the scout of a large node had nowhere to aim at all
+    (the owner, 2026-09-18). The scout walks out of the land first and
+    scouts the wild beyond it, so the land is added to the far end; the near
+    end needs no such help, because the room rule already keeps a find clear
+    of the origin's circle (`aim.area_for`). A way to a node already
+    standing ends at that node's edge in turn, and the aim adds its radius
+    too (`aim.check`).
+    """
+    near, far = reach_m(constants, here, of_node(constants, catalog, node))
+    return near, max(globe.radius_of_area(float(node.area_m2)) + far, centre_floor(constants))

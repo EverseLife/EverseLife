@@ -350,10 +350,13 @@ async def personal(
     nodes = [node for node in every if node.id in view.seen and node.id not in inside]
     shown = {node.id for node in nodes}
     here_biome = biome.of_node(constants, standing) if standing is not None else None
-    #: The very band the aim refuses by (`explore.aim`), the facet's multiplier
-    #: and all: a ring drawn wider than the aim allows is a promise broken.
+    #: The very band the aim refuses a find by (`explore.aim`), the facet's
+    #: multiplier and the land underfoot and all, measured from the node's
+    #: centre as the client draws it: a ring drawn wider than the aim allows
+    #: is a promise broken, and one drawn from the centre without the land
+    #: left a wide node nothing green to tap (owner, 2026-09-18).
     reach = (
-        facet.reach_m(constants, here_biome, facet.of_node(constants, catalog, standing))
+        facet.band_m(constants, catalog, standing, here_biome)
         if here_biome and standing is not None
         else None
     )

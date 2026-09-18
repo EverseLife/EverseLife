@@ -128,7 +128,11 @@ async def survey(
         raise Harnessed(key="explore-harnessed")
     aim = await aiming.check(session, constants, current_catalog(), origin, target, body=body)
     if aim.existing is not None and await travel.edge_between(session, origin, aim.existing):
-        raise AlreadyJoined(key="explore-already-joined", node=aim.existing.name)
+        #: The node's word, not its name: a find has none, and the sentence
+        #: would end on a hole (`peek` says it with the same word).
+        raise AlreadyJoined(
+            key="explore-already-joined", node=aiming.word_of(constants, aim.existing)
+        )
     #: The border is settled **before** setting out, exactly as a leg settles
     #: it (D-123, `travel.depart`): a duty that cannot be paid must refuse the
     #: run in words, not turn up when the scout is already outside the walls.
@@ -619,10 +623,16 @@ def _beside(
     constants: Constants, catalog: Catalog, node: Node, point: globe.Geo, number: int
 ) -> globe.Geo:
     """Where the number-th part of a scheme stands: a fan round the find, one
-    reach out, so the parts are neighbours and not a heap."""
+    reach out, so the parts are neighbours and not a heap: the middle of the
+    ring a part may lawfully take, from where the find's own land and the
+    room a part needs end (`facet.room_m`) out to the find's far reach
+    (`facet.band_m`). The middle of the band from the centre put a wide
+    find's parts inside itself, and a narrow one's short of the room -- the
+    room rule refused them and the scheme was laid without them."""
     here = str((node.properties or {}).get(biome.BIOME) or "")
-    near, far = facet.reach_m(constants, here, facet.of_node(constants, catalog, node))
-    step = globe.midpoint(near, far)
+    near, far = facet.band_m(constants, catalog, node, here)
+    clear = aiming.radius_of(float(node.area_m2)) + facet.room_m(constants)
+    step = globe.midpoint(max(near, clear), far)
     radius = globe.radius_m(constants, node.planet)
     angle = globe.GOLDEN_ANGLE * (number + 1)
     return globe.offset(radius, point, step * math.cos(angle), step * math.sin(angle))

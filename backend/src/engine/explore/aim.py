@@ -9,7 +9,10 @@ way:
 
 * **reach** -- the biome of the node the scout stands in says how near and how
   far one may aim (`biome.reach_m`): on the plain close and often, in the
-  mountains farther and seldom;
+  mountains farther and seldom. The far end is counted past the edge of the
+  land one stands on (`facet.band_m`), and an aim at a node already standing
+  is a way to it, which reaches to that node's edge in turn -- and is
+  refused in the words of a way, not of a scout's run;
 * **direction** -- the aim is dry ground, and the straight way to it crosses no
   water: from the shore one does not aim at the sea, and a river is crossed
   where a ford is found, not by pointing across it;
@@ -255,23 +258,40 @@ async def check(
     cell = cell_of(constants, planet, target)
     point = point_of(constants, planet, cell)
     metres = globe.distance_m(radius, origin_point, point)
-    near, far = facet.reach_m(constants, here, facet.of_node(constants, catalog, origin))
-    if metres < near:
-        raise TooNear(key="explore-too-near", metres=round(metres), near=round(near))
-    if metres > far:
-        raise TooFar(key="explore-too-far", metres=round(metres), far=round(far))
-    if not terrain.is_land(constants, planet, *point):
-        raise NotLand(key="explore-not-land")
-    if crosses_water(constants, planet, origin_point, point, ford=_is_ford(origin)):
-        raise IntoWater(key="explore-into-water")
 
     placed = await _surface(session, constants, planet, point)
     #: Whatever stands in the cell is the cell's node -- a find with the cell's
     #: key or a seeded place the layout pinned there (D-237): the second scout
-    #: joins it rather than laying a twin beside it.
+    #: joins it rather than laying a twin beside it. Asked before the reach,
+    #: because an aim at a standing node is a way to it and not a find: its
+    #: reach ends at that node's edge, and its refusals speak of the way.
     existing = next(
         (node for node, where in placed if cell_of(constants, planet, where) == cell), None
     )
+    near, far = facet.band_m(constants, catalog, origin, here)
+    if existing is None:
+        if metres < near:
+            raise TooNear(key="explore-too-near", metres=round(metres), near=round(near))
+        if metres > far:
+            raise TooFar(key="explore-too-far", metres=round(metres), far=round(far))
+        if not terrain.is_land(constants, planet, *point):
+            raise NotLand(key="explore-not-land")
+        if crosses_water(constants, planet, origin_point, point, ford=_is_ford(origin)):
+            raise IntoWater(key="explore-into-water")
+    else:
+        #: A way is walked from the edge of one land to the edge of the other,
+        #: so the far node's land is added to the reach as the origin's is
+        #: (`facet.band_m`): a way to a wide node was refused while its own
+        #: gate stood within a scout's reach. The node stands on its ground
+        #: already, so there is no land to ask about -- only the way.
+        far += radius_of(float(existing.area_m2))
+        named = word_of(constants, existing)
+        if metres < near:
+            raise TooNear(key="path-too-near", node=named, metres=round(metres), near=round(near))
+        if metres > far:
+            raise TooFar(key="path-too-far", node=named, metres=round(metres), far=round(far))
+        if crosses_water(constants, planet, origin_point, point, ford=_is_ford(origin)):
+            raise IntoWater(key="path-into-water", node=named)
     if (
         existing is not None
         and body is not None
@@ -309,6 +329,8 @@ async def check(
         if ends[0] is None or ends[1] is None:  # pragma: no cover -- an end with no place
             continue
         if segments_cross(a, b, ends[0], ends[1]):
+            if existing is not None:
+                raise CrossesWay(key="path-crosses-way", node=word_of(constants, existing))
             raise CrossesWay(key="explore-crosses-way")
     #: And against every node standing beside it, on the same plane: a way
     #: through somebody's land would be a way through their door (owner,
@@ -326,6 +348,12 @@ async def check(
         if math.hypot(*flat[node.id]) < radius_of(node.area_m2):
             continue
         if _gap(a, b, flat[node.id]) < radius_of(node.area_m2):
+            if existing is not None:
+                raise ThroughNode(
+                    key="path-through-node",
+                    node=word_of(constants, node),
+                    target=word_of(constants, existing),
+                )
             raise ThroughNode(key="explore-through-node", node=word_of(constants, node))
     return Aim(
         origin_id=origin.id,

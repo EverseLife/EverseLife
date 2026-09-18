@@ -25,3 +25,13 @@ explore-not-out = no scouting is under way: there is nothing to turn back from
 explore-already-joined = there is a way there already: { $node }
 explore-scout-gone = the scout is not where the run began: the run is lost
 explore-run-dangling = job { $job }: the scout or the node it left from is gone
+
+## A way to a known node (D-321 addendum of 2026-09-12): the same run, but the
+## aim is a standing node, and the refusal speaks of the way, not of scouting.
+## A way reaches from the edge of one's own land to the edge of the other's
+## (addendum of 2026-09-18).
+path-too-near = too close for a way: “{ $node }” is { $metres } m away, and from here a way can be laid no nearer than { $near } m
+path-too-far = too far for a way: “{ $node }” is { $metres } m away, and to a node this wide a way from here is laid no farther than { $far } m
+path-into-water = a way to “{ $node }” would lie across water: ways are not laid over water, a river is crossed at a ford
+path-crosses-way = a way to “{ $node }” would cross one already laid: ways meet only at nodes and do not cross each other
+path-through-node = a way to “{ $target }” would pass through the node “{ $node }”: a way does not pass through other nodes

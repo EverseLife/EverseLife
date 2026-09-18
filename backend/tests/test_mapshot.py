@@ -13,13 +13,14 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
+import pytest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ship_kit import _laid, _port, _shipwright
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import biome, mapshot, memory, travel, world
+from src.engine import biome, facet, mapshot, memory, travel, world
 from src.models.identity import Body
 from src.models.snapshot import MapSnapshot
 from src.models.world import ABOARD, Layer, Node, Planet, Surface
@@ -210,8 +211,10 @@ async def test_a_ship_at_the_pier_marks_the_port_and_a_parking_marks_nothing(
 async def test_the_map_tells_the_reach_of_the_node_one_stands_in(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """The scout's field is drawn by the biome's reach of the node under the
-    body (D-321 item 4), sent with that node alone (D-225)."""
+    """The scout's field is drawn by the very band the aim judges a find by
+    (`facet.band_m`: the biome's reach, the face's multiplier and the land
+    underfoot, D-321 item 4 and the addendum of 2026-09-18), sent with the
+    node under the body alone (D-225)."""
     from src.engine import mapshot
     from src.seed import seed
 
@@ -222,6 +225,10 @@ async def test_the_map_tells_the_reach_of_the_node_one_stands_in(
     rows = {row["key"]: row for row in got["nodes"]}
     here = rows[core.key]
     assert 0 < here["reach"]["min"] < here["reach"]["max"]
+    #: The ring and the judge are one band: a ring drawn by another rule is
+    #: green the aim refuses, or red it would allow.
+    band = facet.band_m(constants, catalog, core, biome.of_node(constants, core) or "")
+    assert (here["reach"]["min"], here["reach"]["max"]) == pytest.approx(band)
     assert all("reach" not in row for key, row in rows.items() if key != core.key)
 
 
