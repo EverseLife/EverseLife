@@ -51,6 +51,7 @@ alloy costs more than the iron itself.
 
 from __future__ import annotations
 
+import math
 from datetime import UTC, datetime
 from decimal import Decimal
 
@@ -84,6 +85,18 @@ def is_coin(catalog: Catalog, type_key: str) -> bool:
     except ConstantError:
         #: Raw material with no recipe is certainly not money either.
         return False
+
+
+def _whole(count: float) -> None:
+    """Coins are counted in whole pieces (D-212), minted and melted alike.
+
+    Half a coin exists nowhere: a melt of half of one would leave half a coin
+    in the stack. A count off the wire that is no number at all (`NaN`,
+    `Infinity` -- `json` lets both through) is refused in the same words
+    rather than failing on the arithmetic below.
+    """
+    if not math.isfinite(count) or count <= 0 or count != int(count):
+        raise CoinError(key="coin-whole-only")
 
 
 def fineness_of(constants: Constants) -> float:
@@ -161,8 +174,7 @@ async def mint(
     if not await craft._knows(session, body, recipe.type_key):  # noqa: SLF001
         raise craft.NotLearned(key="craft-not-learned", recipe=recipe.type_key)
 
-    if count <= 0 or count != int(count):
-        raise CoinError(key="coin-whole-only")
+    _whole(count)
     if count > constants[R.CRAFT_BATCH_MAX]:
         raise craft.TooBig(
             key="craft-batch-too-big", units=count, most=constants[R.CRAFT_BATCH_MAX]
@@ -268,11 +280,23 @@ async def melt(
     if not is_coin(catalog, item.type_key):
         raise NotCoin(key="coin-not-melted", goods=item.type_key)
 
+    _whole(count)
+    qty = amount(count)
+    #: The stack is money, and money is written off only under its row's lock
+    #: (CLAUDE.md): the stack is taken and reread before its place and its
+    #: remainder are asked. The command hands in a row read without a lock,
+    #: and a hand dropping part of the stack meanwhile would otherwise be
+    #: written over -- the melt subtracting from the count before the drop,
+    #: and the dropped coins existing twice. The body's row a command holds
+    #: queues most doors into these hands, but not every one -- the orphan
+    #: sweep returns a melt's coins without it (`craft.queue._abandon`) --
+    #: and it is the caller's guard, not this door's. Taken before the
+    #: machine, in the order `craft._work_on` takes a thing it takes apart.
+    await world.lock_thing(session, item, gone=CoinError)
     pocket = await body_container(session, body)
     if item.container_id != pocket.id:
         raise CoinError(key="coin-not-in-hands")
-    qty = amount(count)
-    if qty <= 0 or qty > item.amount:
+    if qty > item.amount:
         raise CoinError(key="coin-not-enough", have=amount_float(item.amount))
 
     machine = catalog.recipes.recipe(item.type_key).station
