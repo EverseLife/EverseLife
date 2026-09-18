@@ -500,16 +500,6 @@ export function formCodes(passport: RasterPassport): {
   };
 }
 
-/** The heights as the texture wants them: metres as floats, from the
- *  raster's signed sixteen-bit steps of `unit` metres (the passport's
- *  `height_unit_m`, a decimetre). */
-export function heightsOf(bytes: ArrayBuffer, unit: number): Float32Array {
-  const steps = new Int16Array(bytes);
-  const out = new Float32Array(steps.length);
-  for (let i = 0; i < steps.length; i++) out[i] = steps[i] * unit;
-  return out;
-}
-
 /** How deep the sea goes on this planet, metres, off the raster itself: the
  *  shade of the water runs from the shore to this, and it is the field's
  *  number, not one copied from the pipeline. At least a metre. */

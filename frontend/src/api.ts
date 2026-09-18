@@ -74,14 +74,27 @@ export const terrainTile = (planet: string, row: number, col: number) =>
 export async function terrainRaster(
   planet: string,
   kind: RasterKind,
-  { nside, version }: { nside?: number; version?: string } = {},
+  {
+    nside,
+    version,
+    coding,
+  }: {
+    nside?: number;
+    version?: string;
+    /** The height in a coding that squeezes smaller (`map/planar.ts`). */
+    coding?: string;
+  } = {},
 ): Promise<ArrayBuffer> {
   const query = new URLSearchParams();
   if (nside !== undefined) query.set("nside", String(nside));
   if (version) query.set("v", version);
   const text = query.toString();
   const at = text ? `?${text}` : "";
-  const path = `/public/terrain/${encodeURIComponent(planet)}/raster/${kind}${at}`;
+  //: The coding is part of the raster's name, not a word beside it: a
+  //: server without codings answers the name with a 404, not with the plain
+  //: bytes under the coded address (review, 2026-09-18).
+  const name = coding ? `${kind}.${coding}` : kind;
+  const path = `/public/terrain/${encodeURIComponent(planet)}/raster/${name}${at}`;
   const answer = await fetch(HTTP + path);
   if (!answer.ok) throw new Error(`${path}: ${answer.status}`);
   return answer.arrayBuffer();

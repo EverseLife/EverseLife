@@ -19,7 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src import i18n
-from src.api import cached
+from src.api import cached, planar
 from src.constants import HOLDER, current, current_renames
 from src.constants import current_catalog as catalog
 from src.constants import registry as R
@@ -244,6 +244,15 @@ async def terrain_raster(
     rasters after it: the new bytes under the old passport, for that page
     alone and the seconds of the deploy; its next visit reads both anew.
 
+    The height comes in the planar coding when it is asked for by that name,
+    `height.planar` (`api.planar`): 0.46 of the bytes squeezed on Terra,
+    0.53 on Pyroxis. The coding is in the name and not beside it: a server
+    that has none answers the name with a 404, which the client forgets and
+    lives with, where a word it ignored would have been answered with the
+    plain heights under the coded address -- read as remainders, and kept a
+    year. Asked for plainly, it is the plain heights, as before. No other
+    raster has a coding.
+
     Before the tile route on purpose: `raster` is not a row number.
     """
     try:
@@ -251,7 +260,13 @@ async def terrain_raster(
     except ValueError as wrong:
         raise Refusal(key="cmd-no-such-planet", planet=planet) from wrong
     constants = current()
-    got = rasters.raster_bytes(constants, which, kind, nside)
+    base, _, coding = kind.partition(".")
+    if not coding:
+        got = rasters.raster_bytes(constants, which, base, nside)
+    elif coding == planar.PLANAR and base == "height":
+        got = cached.height_planar(constants, which, nside)
+    else:
+        got = None
     if got is None:
         raise HTTPException(status_code=404, detail="no such raster")
     lasting = v is not None and v == cached.version(constants, which)

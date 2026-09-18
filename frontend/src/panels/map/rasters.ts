@@ -12,7 +12,7 @@ import { useEffect, useState } from "react";
 import * as api from "../../api";
 import type { RasterKind, RasterPassport, Terrain } from "../../api";
 import { GROUND_RASTERS, previewPassport, type GroundRasters } from "./groundPrep";
-import { heightsOf } from "./shade";
+import { PLANAR, unplanar } from "./planar";
 
 /** The planet's terrain passport, asked for once for the life of the page
  *  and shared by the ground (`Ground.tsx`) and the rasters, which read the
@@ -66,6 +66,22 @@ const RASTERS = new Map<string, Promise<Rasters>>();
 const HELD = new Map<string, Rasters>();
 const WAITING = new Map<string, Set<() => void>>();
 
+/** How a raster is asked to come: the height in the planar coding, about
+ *  half the bytes squeezed (`planar.ts`, 2026-09-18); the rest plain. */
+function codingOf(kind: RasterKind): string | undefined {
+  return kind === "height" ? PLANAR : undefined;
+}
+
+/** The heights in metres out of their coded bytes, by the passport they
+ *  were asked under: its unit, its rows and columns -- and refused where
+ *  the bytes are not that many rows of that many. */
+function heightsFrom(coded: ArrayBuffer, passport: RasterPassport): Float32Array {
+  if (coded.byteLength !== 2 * passport.rows * passport.cols) {
+    throw new Error(`heights: ${coded.byteLength} bytes for ${passport.rows} x ${passport.cols}`);
+  }
+  return unplanar(coded, passport.cols, passport.height_unit_m);
+}
+
 /** The rasters of a planet, asked for once for the life of the page; a
  *  failed ask is forgotten, so the next asks again.
  *
@@ -87,9 +103,11 @@ export function rastersOf(planet: string): Promise<Rasters> {
       //: put every height ten times over with nothing failing.
       if (!passport) throw new Error(`no raster passport for ${planet}`);
       return Promise.all(
-        kinds.map((kind) => api.terrainRaster(planet, kind, { version: passport.version })),
+        kinds.map((kind) =>
+          api.terrainRaster(planet, kind, { version: passport.version, coding: codingOf(kind) }),
+        ),
       ).then(([height, biome, form, water, rock, province, flow, lake, stream, temperature, rain, river]) => ({
-        height: heightsOf(height, passport.height_unit_m),
+        height: heightsFrom(height, passport),
         biome: new Uint8Array(biome),
         form: new Uint8Array(form),
         water: new Uint8Array(water),
@@ -133,10 +151,14 @@ export function previewOf(planet: string, passport: RasterPassport): Promise<Gro
   if (!asked) {
     asked = Promise.all(
       GROUND_RASTERS.map((kind) =>
-        api.terrainRaster(planet, kind, { nside: small.nside, version: passport.version }),
+        api.terrainRaster(planet, kind, {
+          nside: small.nside,
+          version: passport.version,
+          coding: codingOf(kind),
+        }),
       ),
     ).then(([height, biome, form, rock, lake, stream, temperature, rain, river]) => ({
-      height: heightsOf(height, small.height_unit_m),
+      height: heightsFrom(height, small),
       biome: new Uint8Array(biome),
       form: new Uint8Array(form),
       rock: new Uint8Array(rock),

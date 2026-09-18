@@ -25,7 +25,6 @@ import {
   edgeStrength,
   FLUID_TONES,
   formCodes,
-  heightsOf,
   mipChain,
   paletteOf,
   parseColor,
@@ -160,13 +159,11 @@ describe("mipChain", () => {
     expect(Array.from(wide[1].data)).toEqual([1, 5]);
     expect(wide[2].data[0]).toBe(3);
   });
-  it("reads the wire's signed metres as floats", () => {
-    const bytes = new Int16Array([-2000, 0, 3000]).buffer;
-    expect(Array.from(heightsOf(bytes, 1))).toEqual([-2000, 0, 3000]);
-    expect(deepOf(heightsOf(bytes, 1))).toBe(2000);
-    //: The raster counts decimetres (`height_unit_m` of the passport), and
-    //: the metres come out of the unit.
-    expect(Array.from(heightsOf(bytes, 0.1))).toEqual([-200, 0, 300]);
+  it("finds the deepest sea of the heights, a metre at least", () => {
+    //: The wire's heights come as metres out of the planar coding
+    //: (`planar.test.ts`, which pins the unit); the deep is read off those.
+    expect(deepOf(Float32Array.from([-2000, 0, 3000]))).toBe(2000);
+    expect(deepOf(Float32Array.from([-200, 0, 300]))).toBe(200);
     expect(deepOf(Float32Array.from([0, 5]))).toBe(1);
   });
 });

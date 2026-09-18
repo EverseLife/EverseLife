@@ -165,6 +165,33 @@ def test_the_picture_is_kept_by_its_version_and_the_sketch_asked_every_time(clie
     assert other and other != version
 
 
+def test_the_height_is_sent_coded_when_asked_by_name(client) -> None:
+    """The planar coding (2026-09-18, `api.planar`): the heights in about half
+    the bytes, for the client that asks by name; the plain ones for any
+    other."""
+    from src.api import planar
+
+    passport = client.get("/public/terrain/terra").json()["raster"]
+    version = passport["version"]
+    small = passport["preview_nside"]
+    for nside, cols in (
+        (passport["nside"], passport["cols"]),
+        (small, passport["across"] * (small + 2 * passport["border"])),
+    ):
+        query = f"?nside={nside}&v={version}"
+        plain = client.get(f"/public/terrain/terra/raster/height{query}")
+        coded = client.get(f"/public/terrain/terra/raster/height.planar{query}")
+        assert coded.status_code == 200
+        assert planar.decode(coded.content, cols) == plain.content
+        #: Another body, another name; kept by the version like the plain one.
+        assert coded.headers["etag"] != plain.headers["etag"]
+        assert "immutable" in coded.headers["cache-control"]
+    #: A coding no raster but the height has, and a coding nobody has: a
+    #: 404, as a server without codings answers the coded name.
+    assert client.get("/public/terrain/terra/raster/biome.planar").status_code == 404
+    assert client.get("/public/terrain/terra/raster/height.zip").status_code == 404
+
+
 def test_the_picture_has_a_quick_copy_and_no_other(client) -> None:
     """The preview (2026-09-18): the same rasters a sixteenth the size, at the
     fineness the passport names -- and at no fineness it does not."""

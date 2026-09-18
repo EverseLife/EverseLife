@@ -40,6 +40,8 @@ from dataclasses import dataclass
 
 from fastapi import Request, Response
 
+from src import healpix
+from src.api import planar
 from src.constants import Constants
 from src.engine import rasters, terrain
 from src.models.world import Planet
@@ -95,9 +97,12 @@ _PACKED: dict[int, Packed] = {}
 
 
 def version(constants: Constants, planet: Planet) -> str:
-    """The name of a planet's whole picture: every raster it serves, at every
-    fineness, in one hash. The rasters are asked for by it and change with
-    it, together, as one set."""
+    """The name of a planet's whole picture: every body it serves, at every
+    fineness -- the plain rasters and the heights in their coding -- in one
+    hash. The rasters are asked for by it and change with it, together, as
+    one set; and a body a browser keeps a year under it is always the body
+    this name was made of. A coding that changes its bytes changes the name
+    with them, so no browser reads new heights by an old decoder's rule."""
     got = _VERSIONS.get(planet)
     if got is None or got[0] is not constants:
         whole = hashlib.sha256()
@@ -105,6 +110,9 @@ def version(constants: Constants, planet: Planet) -> str:
             raw = rasters.raster_bytes(constants, planet, kind, nside)
             if raw is not None:
                 whole.update(packed(raw).tag.encode())
+            coded = height_planar(constants, planet, nside) if kind == "height" else None
+            if coded is not None:
+                whole.update(packed(coded).tag.encode())
         got = (constants, whole.hexdigest()[:TAG_HEX])
         _VERSIONS[planet] = got
     return got[1]
@@ -112,6 +120,26 @@ def version(constants: Constants, planet: Planet) -> str:
 
 #: The picture's version by planet, with the constants it was named under.
 _VERSIONS: dict[Planet, tuple[Constants, str]] = {}
+
+
+def height_planar(constants: Constants, planet: Planet, nside: int | None) -> bytes | None:
+    """The height raster in the planar coding (`api.planar`), at a fineness
+    it is served at; made once per raster, which the engine keeps."""
+    raw = rasters.raster_bytes(constants, planet, "height", nside)
+    if raw is None:
+        return None
+    got = _PLANAR.get(id(raw))
+    if got is None or got[0] is not raw:
+        field = terrain.field_of(constants, planet)
+        fineness = terrain.raster_nside(field) if nside is None else nside
+        _rows, cols = healpix.tile_shape(fineness)
+        got = (raw, planar.encode(raw, cols))
+        _PLANAR[id(raw)] = got
+    return got[1]
+
+
+#: The coded heights by the id of the plain ones, which each entry holds.
+_PLANAR: dict[int, tuple[bytes, bytes]] = {}
 
 
 def sketch_bytes(constants: Constants, planet: Planet) -> bytes:
@@ -143,6 +171,12 @@ def warm(constants: Constants) -> None:
     for planet in Planet:
         #: The sketch names the version, and the version packs every raster.
         packed(sketch_bytes(constants, planet))
+        #: And the heights in the coding the client asks them in.
+        field = terrain.field_of(constants, planet)
+        for nside in terrain.picture_nsides(field):
+            coded = height_planar(constants, planet, nside)
+            if coded is not None:
+                packed(coded)
 
 
 def answer(request: Request, got: Packed, media_type: str, lasting: bool = False) -> Response:
