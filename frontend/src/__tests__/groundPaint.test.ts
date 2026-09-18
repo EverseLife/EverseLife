@@ -14,7 +14,7 @@ import type { RasterPassport } from "../api";
 import { retile, widen } from "../panels/map/atlas";
 import { createCamera } from "../panels/map/camera";
 import { FRAGMENT } from "../panels/map/fragment";
-import { GROUND_RASTERS, buffersOf, groundOf, prepare } from "../panels/map/groundPrep";
+import { GROUND_RASTERS, buffersOf, groundOf, prepare, previewPassport } from "../panels/map/groundPrep";
 import type { Rasters } from "../panels/map/rasters";
 import { LAYERS, byteChain, deepOf, mipChain, topChain } from "../panels/map/shade";
 import { WEATHER_GLSL } from "../panels/map/weatherGlsl";
@@ -328,5 +328,62 @@ describe("the rasters made ready for the GPU", () => {
     prepare(served, nine);
     expect(rasters.height.length).toBe(size);
     expect(rasters.river.length).toBe(size);
+  });
+});
+
+describe("the picture's quick copy", () => {
+  //: Terra's passport as the server writes it (2026-09-18): the picture at
+  //: nside 254, the copy at 62.
+  const terra = {
+    grid: "healpix",
+    nside: 254,
+    cells: 12 * 254 * 254,
+    preview_nside: 62,
+    preview_kinds: [...GROUND_RASTERS],
+    rows: 3 * 256,
+    cols: 4 * 256,
+    across: 4,
+    down: 3,
+    border: 1,
+    step_m: 50.13237001973947,
+    height_unit_m: 0.1,
+  } as RasterPassport;
+
+  it("is laid out by its own fineness, as the picture is by its", () => {
+    const small = previewPassport(terra)!;
+    expect(small.nside).toBe(62);
+    //: A face of 64 with its borders: a quarter of the picture's side, a
+    //: sixteenth of its texels.
+    expect(small.cols).toBe(4 * 64);
+    expect(small.rows).toBe(3 * 64);
+    expect(small.cols * small.rows * 16).toBe(terra.cols * terra.rows);
+    expect(small.cells).toBe(12 * 62 * 62);
+    //: A cell spans the planet over the fineness, so four times the metres.
+    expect(small.step_m).toBeCloseTo((terra.step_m * 254) / 62, 9);
+    //: What the bytes mean is the picture's.
+    expect(small.height_unit_m).toBe(terra.height_unit_m);
+    expect(small.border).toBe(terra.border);
+    //: A copy of a copy is not asked for.
+    expect(small.preview_nside).toBeUndefined();
+    expect(previewPassport(small)).toBeNull();
+    //: And the client lays it out wide as it does the picture: a face and
+    //: its room a power of two, whole cells of border (`atlas.widen`).
+    const wide = widen(small).passport;
+    expect(Number.isInteger(wide.border)).toBe(true);
+    expect(wide.cols % wide.across).toBe(0);
+  });
+
+  it("is none where the server keeps none", () => {
+    expect(previewPassport({ ...terra, preview_nside: undefined })).toBeNull();
+    expect(previewPassport({ ...terra, preview_nside: 254 })).toBeNull();
+  });
+
+  it("is none where the copy lacks a raster the shader reads", () => {
+    //: The server says which rasters it cuts the copy for; a shader that
+    //: came to read one more takes no copy, rather than nine rasters and a
+    //: refusal for the tenth.
+    expect(previewPassport({ ...terra, preview_kinds: undefined })).toBeNull();
+    expect(previewPassport({ ...terra, preview_kinds: GROUND_RASTERS.slice(1) })).toBeNull();
+    expect(previewPassport({ ...terra, preview_kinds: [...GROUND_RASTERS, "water"] })).not.toBeNull();
   });
 });

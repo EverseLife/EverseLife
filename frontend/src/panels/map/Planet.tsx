@@ -45,9 +45,18 @@ import { Ground } from "./Ground";
 import { GroundGL, type GroundGLHandle, type GroundGLState } from "./GroundGL";
 import { Lines } from "./Lines";
 import { Provinces } from "./Provinces";
+import { rastersOf } from "./rasters";
 import { supportsShadedGround, type Layer } from "./shade";
 import type { Overlays } from "./Switcher";
 import type { ClimateView } from "./useClimateView";
+
+/** How long the planet may stand as its bare disk waiting for the GPU's
+ *  ground, milliseconds, before the SVG ground draws the land after all:
+ *  the passport and the quick copy of the picture are a third of a megabyte,
+ *  seconds on the slowest line a player plays on, and past this the GPU's
+ *  ground is taken to be stuck rather than slow. It still takes the SVG's
+ *  place the moment it comes. */
+const GPU_WAIT_MS = 8000;
 
 /** The ball a surface scene looks at. */
 export type Ball = { planet: string; eye: Eye; radius: number };
@@ -104,13 +113,41 @@ export const Planet = forwardRef<
   ref,
 ) {
   const book = useBook();
-  //: The GPU ground is doing its best or has given up: the SVG ground
-  //: draws the land until the textures are up, and for good once the GPU
-  //: has failed -- a player must not see an empty disk where the globe was.
+  //: The GPU ground is doing its best or has given up. On its way, the
+  //: planet is its disk alone (2026-09-18): the SVG ground that stood in
+  //: there was another planet than the one that then appeared. For good
+  //: once the GPU has failed, the SVG ground draws the land -- and after
+  //: `GPU_WAIT_MS` without the GPU's, too: a request that never answers, a
+  //: context lost and not given back, must not leave an empty disk where
+  //: the globe was.
   const shadeable = useMemo(supportsShadedGround, []);
   const [shading, setShading] = useState<GroundGLState>("loading");
   const shaded = shadeable && shading !== "failed";
   const ready = shaded && shading === "ready";
+  const waitingOn = shaded && !ready && ball ? ball.planet : null;
+  const [late, setLate] = useState<string | null>(null);
+  //: A timer of the window's, once, on how long it has waited -- not a
+  //: clock on data (D-226): nothing is asked of the server by it.
+  useEffect(() => {
+    if (!waitingOn) return;
+    const timer = setTimeout(() => setLate(waitingOn), GPU_WAIT_MS);
+    return () => clearTimeout(timer);
+  }, [waitingOn]);
+  //: Come at last, it is waited for again the next time -- a lost context,
+  //: a planet shown again.
+  useEffect(() => {
+    if (ready) setLate(null);
+  }, [ready]);
+  const patient = late === null || late !== ball?.planet;
+  //: Without the GPU's ground the rasters are asked for here, at once: the
+  //: probe and the legend read them over the SVG ground too, and nobody
+  //: else asks for them now (`rasters.useRasters`). No copy first -- there
+  //: is nothing to draw from it.
+  const planetShown = ball?.planet ?? null;
+  useEffect(() => {
+    if (shaded || !planetShown) return;
+    rastersOf(planetShown).catch((why) => console.warn(`rasters of ${planetShown}:`, why));
+  }, [shaded, planetShown]);
   const gl = useRef<GroundGLHandle | null>(null);
   //: The map's camera redraws the ground at every frame it paints, off
   //: React, through this handle.
@@ -154,7 +191,10 @@ export const Planet = forwardRef<
             book={book}
             clock={clock}
             at={view.year.atMs}
-            mode={ready ? "under" : "svg"}
+            //: The whole SVG ground only where the GPU's will not come, or
+            //: is long in coming; on the way to it, the disk alone
+            //: (`Ground`, `wait`).
+            mode={ready ? "under" : shaded && patient ? "wait" : "svg"}
             detailed={frame.detailed}
             coarse={frame.approach}
             unit={frame.approach ? undefined : frame.unit}

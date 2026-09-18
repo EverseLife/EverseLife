@@ -391,6 +391,12 @@ polyline.edge {
   --tone: color-mix(in srgb, var(--pc) 22%, var(--base-900));
   fill: var(--tone);
 }
+/* The disk while the GPU's ground is on its way (`Ground`, `wait`): a
+   planet not yet seen -- its own tint, faint, and nothing drawn on it that
+   the real ground would then contradict. */
+.ground .pending {
+  --tone: color-mix(in srgb, var(--pc) 10%, var(--base-900));
+}
 .ground .water {
   --tone: color-mix(in srgb, var(--pc) 62%, var(--base-700));
   fill: var(--tone);

@@ -67,9 +67,21 @@ export const terrain = (planet: string) =>
 export const terrainTile = (planet: string, row: number, col: number) =>
   read<Tile>(`/public/terrain/${encodeURIComponent(planet)}/${row}/${col}`);
 /** A raster of a planet's picture (landscape plan wave 5): bytes the shader
- *  reads as a texture, described by the sketch's `raster` passport. */
-export async function terrainRaster(planet: string, kind: RasterKind): Promise<ArrayBuffer> {
-  const path = `/public/terrain/${encodeURIComponent(planet)}/raster/${kind}`;
+ *  reads as a texture, described by the sketch's `raster` passport -- at the
+ *  picture's own fineness, or at `nside` when that is the passport's
+ *  `preview_nside` (the quick copy, 2026-09-18); asked for by the passport's
+ *  `version`, which the browser then keeps it under for a year. */
+export async function terrainRaster(
+  planet: string,
+  kind: RasterKind,
+  { nside, version }: { nside?: number; version?: string } = {},
+): Promise<ArrayBuffer> {
+  const query = new URLSearchParams();
+  if (nside !== undefined) query.set("nside", String(nside));
+  if (version) query.set("v", version);
+  const text = query.toString();
+  const at = text ? `?${text}` : "";
+  const path = `/public/terrain/${encodeURIComponent(planet)}/raster/${kind}${at}`;
   const answer = await fetch(HTTP + path);
   if (!answer.ok) throw new Error(`${path}: ${answer.status}`);
   return answer.arrayBuffer();

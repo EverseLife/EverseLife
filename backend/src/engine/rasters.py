@@ -61,16 +61,21 @@ ACROSS, DOWN, BORDER = healpix.ACROSS, healpix.DOWN, healpix.BORDER
 HEIGHT_UNIT_M = fields.HEIGHT_UNIT_M
 
 
-def raster_bytes(constants: Constants, planet: Planet, kind: str) -> bytes | None:
-    """One raster as bytes, the atlas row by row, little-endian; None for a
-    kind that is not one."""
-    if kind not in terrain.RASTER_KINDS:
-        return None
+def raster_bytes(
+    constants: Constants, planet: Planet, kind: str, nside: int | None = None
+) -> bytes | None:
+    """One raster as bytes, the atlas row by row, little-endian, at the
+    picture's own fineness or at another it is served at
+    (`terrain.picture_nsides`: the preview's, for the shader's rasters
+    alone); None for a kind that is not one, or not kept at that fineness."""
     field = terrain.field_of(constants, planet)
-    key = (id(field), kind)
+    fineness = terrain.raster_nside(field) if nside is None else nside
+    if kind not in terrain.kinds_at(field, fineness):
+        return None
+    key = (id(field), kind, fineness)
     got = _BYTES.get(key)
     if got is None:
-        got = _encode(constants, planet, field, kind)
+        got = _encode(constants, planet, field, kind, fineness)
         _BYTES[key] = got
     return got
 
@@ -91,13 +96,38 @@ def _thin(field, values: np.ndarray, nside: int, average: bool) -> np.ndarray:
     if nside == field.nside:
         return values
     if average:
+        home, count = _homes(field, nside)
+        total = np.bincount(home, weights=values.astype(np.float64), minlength=count.size)
+        return total / np.maximum(count, 1)
+    return values[_middles(field, nside)]
+
+
+def _homes(field, nside: int) -> tuple[np.ndarray, np.ndarray]:
+    """Which coarse cell each of the field's cells falls in, and how many
+    fall in each: the projection of a million middles, asked once per
+    fineness rather than once per raster -- a dozen rasters at two
+    finenesses asked it two dozen times over, and it was most of the
+    seconds the picture's cutting took at startup (2026-09-18)."""
+    key = (id(field), nside)
+    got = _HOMES.get(key)
+    if got is None:
         lat, lon = field.centres
         home = healpix.ang2pix(nside, lat, lon)
-        many = healpix.npix(nside)
-        total = np.bincount(home, weights=values.astype(np.float64), minlength=many)
-        return total / np.maximum(np.bincount(home, minlength=many), 1)
-    lat, lon = healpix.centres(nside)
-    return values[healpix.ang2pix(field.nside, lat, lon)]
+        got = (home, np.bincount(home, minlength=healpix.npix(nside)))
+        _HOMES[key] = got
+    return got
+
+
+def _middles(field, nside: int) -> np.ndarray:
+    """The field's cell under the middle of each coarse cell, once per
+    fineness for the same reason (`_homes`)."""
+    key = (id(field), nside)
+    got = _MIDDLES.get(key)
+    if got is None:
+        lat, lon = healpix.centres(nside)
+        got = healpix.ang2pix(field.nside, lat, lon)
+        _MIDDLES[key] = got
+    return got
 
 
 def _shore(field, height: np.ndarray, nside: int) -> np.ndarray:
@@ -143,9 +173,7 @@ def _laid_height(field, nside: int) -> np.ndarray:
     return _shore(field, thinned, nside)[_skirt_of(field, nside)]
 
 
-def _encode(constants: Constants, planet: Planet, field, kind: str) -> bytes:
-    nside = terrain.raster_nside(field)
-
+def _encode(constants: Constants, planet: Planet, field, kind: str, nside: int) -> bytes:
     def laid(values: np.ndarray, average: bool = False) -> np.ndarray:
         return _laid(field, values, nside, average)
 
@@ -231,14 +259,29 @@ def _bytes(values: np.ndarray) -> bytes:
     return np.ascontiguousarray(values).astype(np.uint8).tobytes()
 
 
-#: Rasters by field and kind, and the atlas layout by field and fineness;
+#: Rasters by field, kind and fineness, and the atlas layout by fineness;
 #: the fields live for the process (`field.of`), so their ids are stable keys.
-_BYTES: dict[tuple[int, str], bytes] = {}
+_BYTES: dict[tuple[int, str, int], bytes] = {}
 _SKIRTS: dict[int, np.ndarray] = {}
+#: The thinning's two projections by field and fineness (`_homes`,
+#: `_middles`): scaffolding like the layout, let go once the cutting is done.
+_HOMES: dict[tuple[int, int], tuple[np.ndarray, np.ndarray]] = {}
+_MIDDLES: dict[tuple[int, int], np.ndarray] = {}
+
+
+def served(constants: Constants, planet: Planet) -> list[tuple[int, str]]:
+    """Every raster of a planet's picture that is served: the fineness and
+    the kind, the picture's own first."""
+    field = terrain.field_of(constants, planet)
+    return [
+        (nside, kind)
+        for nside in terrain.picture_nsides(field)
+        for kind in terrain.kinds_at(field, nside)
+    ]
 
 
 def warm(constants: Constants) -> None:
-    """Cut every planet's rasters now.
+    """Cut every planet's rasters now, at every fineness they are served at.
 
     They are a constant of the vault and are made once; the question is only
     where the making is paid for. Made on demand it is most of a second of
@@ -248,7 +291,10 @@ def warm(constants: Constants) -> None:
     fields themselves (`field.preload`), and this belongs beside it.
     """
     for planet in Planet:
-        for kind in terrain.RASTER_KINDS:
-            raster_bytes(constants, planet, kind)
-    #: The layout was scaffolding for the cutting and nobody reads it again.
+        for nside, kind in served(constants, planet):
+            raster_bytes(constants, planet, kind, nside)
+    #: The layout and the projections were scaffolding for the cutting and
+    #: nobody reads them again.
     _SKIRTS.clear()
+    _HOMES.clear()
+    _MIDDLES.clear()

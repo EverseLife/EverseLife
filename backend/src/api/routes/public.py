@@ -14,11 +14,12 @@ from dataclasses import asdict
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, Header, HTTPException, Response
+from fastapi import APIRouter, Header, HTTPException, Request, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src import i18n
+from src.api import cached
 from src.constants import HOLDER, current, current_renames
 from src.constants import current_catalog as catalog
 from src.constants import registry as R
@@ -198,25 +199,50 @@ async def world_map(
 
 
 @router.get("/terrain/{planet}")
-async def terrain_of(planet: str) -> dict[str, Any]:
+async def terrain_of(planet: str, request: Request) -> Response:
     """A planet's relief: the height grid, the water lines, the rivers (D-319).
 
     Everybody's from the world's first day, and the same for everybody: the
     shape of a planet is arithmetic over the vault, not intelligence, and it is
     what a farmer walks a river by. No session: nothing here is anybody's.
+
+    Sent squeezed once and named by its bytes, and asked about at every
+    visit (`api.cached`): it names the version the rasters are asked for by,
+    so the two are always one set.
     """
     try:
         which = Planet(planet)
     except ValueError as wrong:
         raise Refusal(key="cmd-no-such-planet", planet=planet) from wrong
-    return terrain.sketch(current(), which)
+    return cached.answer(
+        request, cached.packed(cached.sketch_bytes(current(), which)), "application/json"
+    )
 
 
 @router.get("/terrain/{planet}/raster/{kind}")
-async def terrain_raster(planet: str, kind: str) -> Response:
+async def terrain_raster(
+    planet: str,
+    kind: str,
+    request: Request,
+    nside: int | None = None,
+    v: str | None = None,
+) -> Response:
     """A raster of a planet's picture (landscape plan wave 5): the height,
     the biome or the landform, as the sketch's `raster` passport describes
     them. Bytes, not JSON: a texture the shader reads whole.
+
+    At the picture's own fineness, or at the preview's when `nside` names it
+    (the passport's `preview_nside`, 2026-09-18): the client draws the real
+    planet from that sixteenth of the bytes first. Any other fineness is not
+    kept, and is not cut for whoever asks.
+
+    Asked for by the picture's version (`v`, the passport's `version`), it
+    is kept by the browser a year; asked for without it, or by one that is
+    no longer the picture's, it is the current bytes and asked about again
+    at every use -- never an old picture kept under a new name. What is left
+    is a page that read its passport before a deploy and asks for the
+    rasters after it: the new bytes under the old passport, for that page
+    alone and the seconds of the deploy; its next visit reads both anew.
 
     Before the tile route on purpose: `raster` is not a row number.
     """
@@ -224,17 +250,12 @@ async def terrain_raster(planet: str, kind: str) -> Response:
         which = Planet(planet)
     except ValueError as wrong:
         raise Refusal(key="cmd-no-such-planet", planet=planet) from wrong
-    got = rasters.raster_bytes(current(), which, kind)
+    constants = current()
+    got = rasters.raster_bytes(constants, which, kind, nside)
     if got is None:
         raise HTTPException(status_code=404, detail="no such raster")
-    return Response(
-        content=got,
-        media_type="application/octet-stream",
-        headers={
-            "Cache-Control": f"public, max-age={TILE_MAX_AGE_S}",
-            "ETag": f'"{HOLDER.current().digest}"',
-        },
-    )
+    lasting = v is not None and v == cached.version(constants, which)
+    return cached.answer(request, cached.packed(got), "application/octet-stream", lasting)
 
 
 @router.get("/terrain/{planet}/{row}/{col}")

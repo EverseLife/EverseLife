@@ -63,6 +63,34 @@ export type Prepared = {
   deep: number;
 };
 
+/**
+ * The passport of the picture's quick copy (2026-09-18): the picture's own
+ * but for the fineness and what follows from it -- the layout of the atlas
+ * and the metres a cell spans, which grow as the fineness falls, as they do
+ * on the server (`healpix.cell_side_m`: a side is the planet's over
+ * `nside`). Null where the server keeps no copy, none coarser, or one
+ * short of a raster the shader reads (`preview_kinds`): the server says
+ * which it cuts, and a list the two sides keep apart is not trusted to
+ * agree.
+ */
+export function previewPassport(passport: RasterPassport): RasterPassport | null {
+  const nside = passport.preview_nside;
+  if (!nside || nside >= passport.nside) return null;
+  const kinds = passport.preview_kinds ?? [];
+  if (!GROUND_RASTERS.every((kind) => kinds.includes(kind))) return null;
+  const side = nside + 2 * passport.border;
+  return {
+    ...passport,
+    nside,
+    cells: passport.across * passport.down * nside * nside,
+    rows: passport.down * side,
+    cols: passport.across * side,
+    step_m: (passport.step_m * passport.nside) / nside,
+    preview_nside: undefined,
+    preview_kinds: undefined,
+  };
+}
+
 /** The rasters as they came from the server, made ready for the GPU. */
 export function prepare(served: RasterPassport, came: GroundRasters): Prepared {
   //: The picture's own layout: the faces as they came, each tile grown to

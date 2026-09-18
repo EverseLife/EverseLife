@@ -289,6 +289,64 @@ def raster_nside(field: fields.Field) -> int:
     return best
 
 
+#: How many times coarser the preview's face is than the picture's, a side:
+#: two rungs of the chain.
+PREVIEW_STEP = healpix.BOTH * healpix.BOTH
+
+
+def preview_nside(field: fields.Field) -> int:
+    """How fine the picture's first, quick copy is (2026-09-18).
+
+    The picture is megabytes, and until the last of them came the map drew
+    its old vector ground -- another planet than the one the player then
+    met, for seconds on a slow line. So the client first asks for the same
+    rasters at this fineness, draws the real planet from them, and swaps in
+    the whole picture when it comes.
+
+    Two rungs below the picture's own: a face a quarter of its side, borders
+    counted, so still a power of two and still halving evenly all the way
+    down (`raster_nside`) -- a sixteenth of the bytes. Terra's is 62 against
+    254, a cell of two hundred metres: the planet whole, soft up close for
+    the second the rest takes. Never below the fineness of a single cell.
+    """
+    side = (raster_nside(field) + healpix.BOTH * healpix.BORDER) // PREVIEW_STEP
+    return max(1, side - healpix.BOTH * healpix.BORDER)
+
+
+def picture_nsides(field: fields.Field) -> tuple[int, ...]:
+    """The finenesses the picture is served at: its own, and the preview's.
+    No other -- every one is cut and kept for the process (`rasters.warm`),
+    so the route does not cut a new one for whoever names a number."""
+    return tuple(dict.fromkeys((raster_nside(field), preview_nside(field))))
+
+
+#: The rasters the preview is cut for: the ones the shader draws the ground
+#: by. `water`, `province` and `flow` are the vector layer's, which draws
+#: over the ground only once the whole picture is there, and a copy of them
+#: would be startup and memory for nobody.
+PREVIEW_KINDS = (
+    "height",
+    "biome",
+    "form",
+    "rock",
+    "lake",
+    "stream",
+    "temperature",
+    "rain",
+    "river",
+)
+
+
+def kinds_at(field: fields.Field, nside: int) -> tuple[str, ...]:
+    """The rasters kept at a fineness: all of them at the picture's own,
+    the shader's at the preview's, none at any other."""
+    if nside == raster_nside(field):
+        return RASTER_KINDS
+    if nside in picture_nsides(field):
+        return PREVIEW_KINDS
+    return ()
+
+
 def _temperature_passport(constants: Constants, planet: Planet) -> dict:
     span = constants[R.TERRAIN_TEMP_RANGE][planet.value]
     floor, step = fields.temperature_scale(span["min"], span["max"])
@@ -318,6 +376,16 @@ def raster_passport(constants: Constants, planet: Planet, field: fields.Field) -
         "grid": "healpix",
         "nside": nside,
         "cells": healpix.npix(nside),
+        #: The quick copy the client draws first (`preview_nside`), asked
+        #: for by this number: the rest of its layout follows from it as the
+        #: picture's own does from `nside`, and only the server knows which
+        #: fineness it keeps cut.
+        "preview_nside": preview_nside(field),
+        #: And the rasters it is cut for (`PREVIEW_KINDS`): the shader's.
+        #: Said rather than assumed, so a raster the shader comes to read and
+        #: this list lacks means no copy for the client, not nine requests
+        #: and a tenth that is refused.
+        "preview_kinds": list(PREVIEW_KINDS),
         #: The texture: the twelve faces `across` by `down`, each with a
         #: `border` of cells taken from the face over the edge so that the
         #: blending between cells stays continuous across a seam. The texel

@@ -17,17 +17,16 @@
  *   laptop's D3D11, 2026-09-18). Asking for the link's status waits for it
  *   on the page's thread, so it is asked only once the browser says the
  *   link is done (`KHR_parallel_shader_compile`) and the page is live all
- *   the while; the svg ground draws the land meanwhile. A browser without
- *   the extension waits as it always did;
+ *   the while; the map shows the planet's disk alone meanwhile (`Ground`,
+ *   `wait`). A browser without the extension waits as it always did;
  * - **the rasters made ready** -- `groundPrep.ts`, in a worker where there
  *   is one. The page only hands the finished levels to the GPU.
  */
 
 import type { RasterPassport } from "../../api";
 import { FRAGMENT, VERTEX } from "./fragment";
-import { groundOf, prepare, type Level, type Prepared } from "./groundPrep";
+import { groundOf, prepare, type GroundRasters, type Level, type Prepared } from "./groundPrep";
 import type { Answer, Job } from "./groundPrep.worker";
-import type { Rasters } from "./rasters";
 import {
   PALETTE_SLOTS,
   formCodes,
@@ -64,6 +63,9 @@ export type Textures = {
   passport: RasterPassport;
   /** The deepest sea of the raster, metres: the water's shade runs to it. */
   deep: number;
+  /** Whether these are the whole picture, or its quick copy standing in
+   *  until the whole comes (`rasters.previewOf`, 2026-09-18). */
+  whole: boolean;
 };
 
 export type Program = {
@@ -81,9 +83,11 @@ export type Program = {
   at: (name: string) => WebGLUniformLocation | null;
   textures: Map<string, Textures>;
   /** What the shader was last handed of the things that do not move
-   *  between frames: the planet's textures, the palette, the mountain line. */
+   *  between frames: the planet's textures -- by the set itself, so the
+   *  whole picture put in the quick copy's place is bound anew -- the
+   *  palette, the mountain line. */
   synced: {
-    planet: string;
+    textures: Textures;
     palette: Palette;
     highFrom: number;
     law: DryLaw;
@@ -243,7 +247,7 @@ function helperOf(): Worker | null {
  * back handed over. A worker that fails is let go and the page does the
  * work itself, as it did before there was one.
  */
-export function prepareOff(passport: RasterPassport, rasters: Rasters): Promise<Prepared> {
+export function prepareOff(passport: RasterPassport, rasters: GroundRasters): Promise<Prepared> {
   const came = groundOf(rasters);
   const worker = helperOf();
   if (!worker) return Promise.resolve(prepare(passport, came));
@@ -290,7 +294,7 @@ export function prepareOff(passport: RasterPassport, rasters: Rasters): Promise<
 //: latitude and longitude: nothing wraps round its right edge any more, and
 //: a sample that walks off a face lands on the face that is really there,
 //: because the projection put it there. Both axes clamp.
-export function upload(gl: WebGL2RenderingContext, ready: Prepared): Textures {
+export function upload(gl: WebGL2RenderingContext, ready: Prepared, whole: boolean): Textures {
   const heights = (chain: Level<Float32Array>[]): WebGLTexture => {
     const texture = gl.createTexture();
     if (!texture) throw new Error("no texture");
@@ -368,6 +372,7 @@ export function upload(gl: WebGL2RenderingContext, ready: Prepared): Textures {
     river: measure(ready.river),
     passport: ready.passport,
     deep: ready.deep,
+    whole,
   };
 }
 
@@ -386,7 +391,7 @@ export function sync(
   const was = program.synced;
   if (
     was &&
-    was.planet === planet &&
+    was.textures === textures &&
     was.palette === palette &&
     was.highFrom === highFrom &&
     was.law === law &&
@@ -441,6 +446,6 @@ export function sync(
   //: with the reach in metres, read against the river raster.
   gl.uniform3f(at("u_dry"), law.share, law.perDegree, law.ref);
   gl.uniform1f(at("u_reach_m"), law.reachM);
-  program.synced = { planet, palette, highFrom, law, grains };
+  program.synced = { textures, palette, highFrom, law, grains };
   return true;
 }

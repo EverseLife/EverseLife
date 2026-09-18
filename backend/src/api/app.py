@@ -29,7 +29,7 @@ from src import (
     field,
     herald,  # noqa: F401 -- registers the chronicle handler
 )
-from src.api import push, session
+from src.api import cached, push, session
 from src.api.routes import public
 from src.constants import HOLDER, Catalog, bootstrap, current_catalog
 from src.engine import rasters, tick  # noqa: F401 -- registers job handlers
@@ -63,6 +63,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     #: request for them: they are a constant of the vault, and a second of
     #: arithmetic on the loop stops every other session (`rasters.warm`).
     rasters.warm(constants)
+    #: And squeezed and named here, for the same reason (`api.cached`).
+    cached.warm(constants)
 
     log.info(
         "constants loaded: %s (fingerprint %s), %s recipes",

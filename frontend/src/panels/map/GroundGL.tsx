@@ -58,7 +58,8 @@ import { useBook } from "../../actions";
 import { useTerrain } from "./Ground";
 import { weatherMoment, type WeatherLaw } from "./weather";
 import { UNITS_PER_METRE, type Eye, type Geo } from "./globe";
-import { rastersOf } from "./rasters";
+import { heldRasters, previewOf, rastersOf } from "./rasters";
+import { previewPassport, type Prepared } from "./groundPrep";
 import {
   EDGE_M,
   edgeStrength,
@@ -161,7 +162,9 @@ export const GroundGL = forwardRef<
   //: Which planet's textures are up, which program is linked, and which
   //: life of the context: a lost and restored context is a new life, and
   //: everything is rebuilt for it.
-  const [ready, setReady] = useState<string | null>(null);
+  //: `ready` a new object at every set of textures, so the whole picture
+  //: put in the quick copy's place is drawn.
+  const [ready, setReady] = useState<{ planet: string; whole: boolean } | null>(null);
   const [linked, setLinked] = useState<Program | null>(null);
   const [broken, setBroken] = useState(false);
   const [life, setLife] = useState(0);
@@ -266,42 +269,79 @@ export const GroundGL = forwardRef<
   //: The textures: once per planet per life of the context. They go up
   //: while the program links -- they are the context's, not the program's --
   //: and the rasters are made ready off the page's thread on the way.
+  //:
+  //: In two steps (2026-09-18): the picture's quick copy first, a sixteenth
+  //: of the bytes (`rasters.previewOf`) -- the real planet a moment after
+  //: the passport, soft up close -- and the whole picture in its place when
+  //: it comes. Until the first of them the map shows no ground of its own
+  //: (`Planet`): the old vector ground stood there for seconds, another
+  //: planet than the one that then appeared.
   useEffect(() => {
     const program = programRef.current;
     if (!program || !passport) return;
-    if (program.textures.has(planet)) {
-      setReady(planet);
+    const held = program.textures.get(planet);
+    if (held?.whole) {
+      setReady({ planet, whole: true });
       return;
     }
     let live = true;
-    rastersOf(planet)
-      .then((rasters) => prepareOff(passport, rasters))
-      .then(
-        (prepared) => {
-          const now = programRef.current;
-          if (!live || !now) return;
-          try {
-            //: One planet's textures at a time: the last planet's textures are given
-            //: back before the next is uploaded. Wide as the atlas is now, four
-            //: planets kept would be two hundred megabytes on a phone's GPU.
-            for (const [other, held] of now.textures) {
-              if (other !== planet) {
-                drop(now.gl, held);
-                now.textures.delete(other);
-              }
-            }
-            now.textures.set(planet, upload(now.gl, prepared));
-            setReady(planet);
-          } catch (why) {
-            console.warn(`rasters of ${planet}:`, why);
-            setBroken(true);
-          }
-        },
-        (why) => {
-          console.warn(`rasters of ${planet}:`, why);
-          if (live) setBroken(true);
-        },
-      );
+    /** Up with a set of textures, in the place of whatever this planet had;
+     *  never the copy in the place of the whole. Whether they went up. */
+    const put = (prepared: Prepared, whole: boolean): boolean => {
+      const now = programRef.current;
+      if (!live || !now) return false;
+      const was = now.textures.get(planet);
+      if (was?.whole && !whole) return false;
+      //: One planet's textures at a time: the last planet's textures are given
+      //: back before the next is uploaded. Wide as the atlas is now, four
+      //: planets kept would be two hundred megabytes on a phone's GPU.
+      for (const [other, them] of now.textures) {
+        if (other !== planet) {
+          drop(now.gl, them);
+          now.textures.delete(other);
+        }
+      }
+      now.textures.set(planet, upload(now.gl, prepared, whole));
+      if (was) drop(now.gl, was);
+      setReady({ planet, whole });
+      return true;
+    };
+    //: The copy is only worth its round trip while nothing is up and the
+    //: whole picture has not come already -- back on a planet shown before,
+    //: its rasters are in the page and only the worker's pass is left.
+    const small = held || heldRasters(planet) ? null : previewPassport(passport);
+    //: A chain whose ground has gone -- another planet, the map closed --
+    //: stops where it stands: the worker is one and works in turn, and a
+    //: whole picture made ready for nobody holds up the next planet's copy.
+    const gone = new Error("the ground has gone");
+    const still = <T,>(value: T): T => {
+      if (!live) throw gone;
+      return value;
+    };
+    const quick: Promise<unknown> = small
+      ? previewOf(planet, passport).then(
+          (rasters) => {
+            if (!live) return;
+            prepareOff(small, rasters)
+              .then((prepared) => put(prepared, false))
+              .catch((why) => console.warn(`preview of ${planet}:`, why));
+          },
+          (why) => console.warn(`preview of ${planet}:`, why),
+        )
+      : Promise.resolve();
+    //: The whole picture is asked for once the copy's bytes are in, or the
+    //: copy has failed -- not beside it: the two would share the line, and
+    //: the copy would come no sooner than the rest.
+    quick
+      .then(() => rastersOf(still(planet)))
+      .then((rasters) => prepareOff(passport, still(rasters)))
+      .then((prepared) => put(prepared, true))
+      .catch((why) => {
+        if (why === gone) return;
+        console.warn(`rasters of ${planet}:`, why);
+        //: A copy already drawn is kept: it is the real planet, only soft.
+        if (live && !programRef.current?.textures.has(planet)) setBroken(true);
+      });
     return () => {
       live = false;
     };
@@ -309,7 +349,7 @@ export const GroundGL = forwardRef<
   //: Drawing only once both are there: told ready over an unlinked program,
   //: the map would put the svg's land away over an empty canvas. One word
   //: for the map, said in one place.
-  const drawing = !broken && ready === planet && linked !== null;
+  const drawing = !broken && ready?.planet === planet && linked !== null;
   useEffect(() => {
     tell.current(broken ? "failed" : drawing ? "ready" : "loading");
   }, [broken, drawing]);
@@ -523,7 +563,7 @@ export const GroundGL = forwardRef<
   const weatherKey = [(weatherDays / weather.changeDays).toFixed(3), clouds].join(",");
   useEffect(() => {
     draw();
-  }, [draw, eye, radius, palette, drawing, planet, highFrom, layer, sunKey, seasonKey, weather, weatherKey, law, grains]);
+  }, [draw, eye, radius, palette, drawing, ready, planet, highFrom, layer, sunKey, seasonKey, weather, weatherKey, law, grains]);
   //: The box: a resize of the pane is a resize of the canvas. Watched on the
   //: **svg**, because the canvas's own box is written by the draw above --
   //: watching it would be watching one's own hand, and the canvas would keep

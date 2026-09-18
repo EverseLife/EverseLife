@@ -194,6 +194,15 @@ PUBLIC_MAP_MAX_AGE_S = 300
 #: -- a constant of the seed, but a world reborn with another seed must not
 #: draw the old ground for days.
 TILE_MAX_AGE_S = 3600
+#: How long a browser keeps a raster of the planet's picture asked for by
+#: its version, seconds: a year, and never asked again (`immutable`). The
+#: version is in the address (`?v=`, the sketch's `raster.version`), so a
+#: new vault's picture is another address and nothing old is ever shown for
+#: it; the sketch that names the version is asked every visit and answered
+#: `304` with no body while nothing changed (`api.cached`). Kept apart by
+#: their own ages, the two drifted: an old passport over new rasters reads
+#: the codes by another table.
+PICTURE_KEEP_S = 365 * 24 * 3600
 #: From what size an answer of the API leaves gzipped (landscape plan wave
 #: 5): the picture's rasters are megabytes that squeeze to a third, and
 #: anything smaller than a few packets is not worth the round of deflate.

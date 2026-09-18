@@ -470,6 +470,51 @@ def test_the_rasters_are_the_field_thinned_and_named(constants: Constants) -> No
     )
 
 
+def test_the_picture_has_a_quick_copy_two_rungs_down(constants: Constants) -> None:
+    """The preview (2026-09-18): the same rasters two rungs of the chain
+    coarser, so the client draws the real planet before the megabytes come."""
+    from src.engine import rasters
+
+    for planet in Planet:
+        field = terrain.field_of(constants, planet)
+        full, small = terrain.raster_nside(field), terrain.preview_nside(field)
+        passport = terrain.raster_passport(constants, planet, field)
+        assert passport["preview_nside"] == small
+        #: The passport says which rasters the copy is cut for: the client
+        #: takes no copy that lacks one its shader reads.
+        assert passport["preview_kinds"] == list(terrain.PREVIEW_KINDS)
+        assert terrain.picture_nsides(field) == (full, small)
+        border = 2 * healpix.BORDER
+        #: A face a quarter of the picture's side, borders counted: a power
+        #: of two, so its chain halves evenly to the last texel as the
+        #: picture's does -- and a sixteenth of the bytes.
+        side = small + border
+        assert side & (side - 1) == 0, f"{planet}: грань превью {side} — не степень двойки"
+        assert side * terrain.PREVIEW_STEP == full + border
+        height = rasters.raster_bytes(constants, planet, "height", small)
+        assert height is not None
+        assert len(height) * terrain.PREVIEW_STEP**2 == len(
+            rasters.raster_bytes(constants, planet, "height") or b""
+        )
+    #: Terra's: 62 against 254.
+    terra = terrain.field_of(constants, Planet.TERRA)
+    assert terrain.preview_nside(terra) == 62
+    #: The copy keeps the picture's contract: the sea under nought by its own
+    #: cell's class, the land at or over it.
+    small = terrain.preview_nside(terra)
+    height = np.frombuffer(rasters.raster_bytes(constants, Planet.TERRA, "height", small), "<i2")
+    form = np.frombuffer(rasters.raster_bytes(constants, Planet.TERRA, "form", small), np.uint8)
+    sea = form == list(terra.forms).index("sea")
+    assert sea.any() and (height[sea] < 0).all() and (height[~sea] >= 0).all()
+    #: The copy is the shader's alone: the vector layer's rasters have none.
+    assert set(terrain.PREVIEW_KINDS) < set(terrain.RASTER_KINDS)
+    for kind in set(terrain.RASTER_KINDS) - set(terrain.PREVIEW_KINDS):
+        assert rasters.raster_bytes(constants, Planet.TERRA, kind, small) is None
+    #: And no other fineness is cut for whoever asks.
+    for wrong in (small + 1, terrain.raster_nside(terra) * 2, 1):
+        assert rasters.raster_bytes(constants, Planet.TERRA, "height", wrong) is None
+
+
 def _centres_of(nside: int, cells: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """The middles of some cells of a grid this fine."""
     lat, lon = healpix.centres(nside)

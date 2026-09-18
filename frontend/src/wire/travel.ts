@@ -316,6 +316,18 @@ export type RasterPassport = {
   grid: "healpix";
   nside: number;
   cells: number;
+  /** The fineness of the picture's quick copy (2026-09-18): the same rasters
+   *  two rungs coarser, a sixteenth of the bytes, asked for by this number
+   *  and drawn while the whole picture comes (`rasters.previewOf`). Absent
+   *  from a server that keeps none. */
+  preview_nside?: number;
+  /** The rasters the quick copy is cut for: the shader's. A copy that
+   *  lacks one the shader reads is no copy to the client. */
+  preview_kinds?: string[];
+  /** The name of the whole picture's bytes, both finenesses (2026-09-18):
+   *  the rasters are asked for by it and kept by the browser a year under
+   *  it, so they are always the set this passport describes. */
+  version?: string;
   /** The texture: the twelve faces `across` by `down`, each with a `border`
    *  of cells taken from the face over the edge so the blending between
    *  cells stays continuous across a seam. The texel of cell (face, x, y)

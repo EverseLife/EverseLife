@@ -112,13 +112,12 @@ export function useTiles(
 }
 
 export function useTerrain(planet: string | null): Terrain | null {
-  const [terrain, setTerrain] = useState<Terrain | null>(null);
+  const [held, setHeld] = useState<{ planet: string; terrain: Terrain } | null>(null);
   useEffect(() => {
     let live = true;
-    setTerrain(null);
     if (!planet) return;
     reliefOf(planet).then(
-      (got) => live && setTerrain(got),
+      (got) => live && setHeld({ planet, terrain: got }),
       //: A bare globe is what the player sees; the reason goes to the console.
       (why) => console.warn(`terrain of ${planet}:`, why),
     );
@@ -126,7 +125,11 @@ export function useTerrain(planet: string | null): Terrain | null {
       live = false;
     };
   }, [planet]);
-  return terrain;
+  //: Only this planet's: the render that switches planets comes before the
+  //: effect above, and the last planet's passport handed out there asked
+  //: for the new planet's rasters by the old one's layout (review,
+  //: 2026-09-18) -- the rasters keep to the same rule (`useRasters`).
+  return held && held.planet === planet ? held.terrain : null;
 }
 
 /** The subsolar point of a planet as of this render, from the clock: the
@@ -209,13 +212,19 @@ export function Ground({
   /** What this SVG ground is beside the GPU's (landscape plan wave 5):
    *  `svg` -- the whole ground, the path without WebGL2; `under` -- the GPU
    *  draws the land, the sea and the night (2026-09-12), and this draws
-   *  nothing but keeps the tiles under the frame for the scout's aim.
+   *  nothing but keeps the tiles under the frame for the scout's aim;
+   *  `wait` -- the GPU's ground is on its way, and this draws the disk
+   *  alone, a planet not yet seen (2026-09-18). The whole ground used to
+   *  stand in there, and it is another planet than the GPU's -- flat tones
+   *  of the climate, no relief, no water -- shown for the seconds the
+   *  rasters took and then swapped for the real one (owner: "что это вообще
+   *  такое").
    *
-   *  There was a third, `warmth`: the climate's three tones laid over the
+   *  There was a fourth, `warmth`: the climate's three tones laid over the
    *  GPU's colour, switched on from the map (plan §9.5). The owner took the
    *  button away 2026-09-11, and with it the only way in -- so the mode went
    *  too rather than stay as a branch nothing can reach. */
-  mode?: "svg" | "under";
+  mode?: "svg" | "under" | "wait";
 }) {
   const terrain = useTerrain(planet);
   /** The land's tones: the climate's two lines, off the vault's zonal table
@@ -225,7 +234,7 @@ export function Ground({
   const sun = sunOf(planet, clock, book, at);
   const unit = chosen ?? (coarse ? COARSE_STRIDE : fine ? FINE_UNIT : 1);
   const tiles = useTiles(planet, terrain, eye, radius, unit, within);
-  const drawn = mode !== "under";
+  const drawn = mode === "svg";
   const paths = useMemo(
     () =>
       terrain && bands && detailed && drawn
@@ -238,8 +247,8 @@ export function Ground({
   //: 2026-09-12: a flat dark region with an edge is not a shadow); this
   //: path stands only where the SVG ground does.
   const night = useMemo(
-    () => (sun && mode !== "under" ? nightPath(eye, radius, sun) : null),
-    [eye, radius, sun, mode],
+    () => (sun && drawn ? nightPath(eye, radius, sun) : null),
+    [eye, radius, sun, drawn],
   );
   //: The clip's id is this instance's own: a second ground on the page --
   //: the entry screen's beside the map's -- must not share it.
@@ -264,6 +273,7 @@ export function Ground({
         <path d={disk} />
       </clipPath>
       {mode === "svg" && <path className="sea" d={disk} />}
+      {mode === "wait" && <path className="pending" d={disk} />}
       <g clipPath={`url(#${clip})`}>
       {under && under !== "sea" && (
         <path className={under === "high" || under === "water" ? under : `land ${under}`} d={disk} />
