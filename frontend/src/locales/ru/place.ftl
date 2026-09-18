@@ -351,6 +351,7 @@ ui-holdings-in-hands = в руках
 ui-holdings-here = стоит здесь
 ui-holdings-charge = Зарядить
 ui-holdings-charge-hint = залить доверху по тарифу
+ui-holdings-charge-put-up = заряжают, только когда стоит
 ui-holdings-charge-asking = сеть ещё опрашивается
 ui-holdings-charge-no-grid = здесь нет сети
 ui-holdings-title = Владения и счета

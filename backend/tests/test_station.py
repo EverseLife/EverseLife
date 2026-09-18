@@ -24,8 +24,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants
 from src.engine import craft, estate, station, world
-from src.models.craft import BatchState
+from src.models.craft import BatchState, CraftBatch
 from src.models.estate import Building
+from src.models.identity import BodyState
 from src.models.inventory import Item
 
 BENCH = "workbench"
@@ -263,6 +264,86 @@ async def test_non_machine_not_placed_in_node(session: AsyncSession, catalog: Ca
     sack = await world.grant_item(session, pocket, "wood", amount=1, quality=60, origin="тест")
     with pytest.raises(station.NotStation):
         await station.place(session, catalog, body, sack)
+
+
+async def test_the_last_machine_a_waiting_batch_needs_is_not_taken_down(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A batch frozen while its master is away holds no machine (D-209): it
+    takes a free one of its name on return, so `busy` cannot see it. Taking
+    the last such machine down left it waiting for ever on materials already
+    written off (OQ-181). With a second one beside it, one of the two may go;
+    the last one stays until the batch is done (D-351)."""
+    node = await _workshop(session, machine_count=2)
+    _, master = await _master(session, node, "Мастер")
+    batch = await craft.start(session, constants, catalog, master, MAKE, 1)
+    await craft.freeze(session, master)
+    await session.flush()
+    waiting = await session.get(CraftBatch, batch.id)
+    assert waiting is not None
+    assert waiting.state is BatchState.WAITING
+    assert waiting.station_item_id is None, "ждущая партия станка не держит"
+
+    yard = await world.node_container(session, node)
+    benches = [thing for thing in await world.contents(session, yard) if thing.type_key == BENCH]
+    assert len(benches) == 2
+    await station.take(session, catalog, master, benches[0])
+    with pytest.raises(station.Busy) as waits:
+        await station.take(session, catalog, master, benches[1])
+    assert waits.value.key == "station-batch-waits"
+
+
+async def test_a_batch_elsewhere_or_done_does_not_hold_a_machine(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The rule reaches only an unfinished batch of **this** node that needs a
+    machine of **this** name (D-351): a batch done or cancelled, one in
+    another node, and one waiting for another kind of machine each leave the
+    last bench free to come down."""
+    node = await _workshop(session)
+    _, master = await _master(session, node, "Мастер")
+    elsewhere = await _workshop(session)
+    _, stranger = await _master(session, elsewhere, "Чужой")
+    await craft.start(session, constants, catalog, stranger, MAKE, 1)
+    await craft.freeze(session, stranger)
+
+    batch = await craft.start(session, constants, catalog, master, MAKE, 1)
+    await craft.freeze(session, master)
+    await session.flush()
+    for state in (BatchState.DONE, BatchState.CANCELLED):
+        batch.state = state
+        await session.flush()
+        bench = await _bench(session, node)
+        assert not await station._awaited(session, node, bench), state
+    batch.state = BatchState.WAITING
+    batch.station = "forge"
+    await session.flush()
+    bench = await _bench(session, node)
+    assert not await station._awaited(session, node, bench), "другое имя станка"
+    await station.take(session, catalog, master, bench)
+
+
+async def test_a_dead_masters_batch_does_not_pin_the_machine(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """Death freezes the batch, and the printed body never takes it up again
+    (D-209): a new body is a new body. Counted, one death at work would pin the
+    last machine of its name for ever, and the house with it (D-308, D-351)."""
+    node = await _workshop(session)
+    _, master = await _master(session, node, "Мастер")
+    await craft.start(session, constants, catalog, master, MAKE, 1)
+    await craft.freeze(session, master)
+    master.state = BodyState.DEAD
+    await session.flush()
+    _, heir = await _master(session, node, "Наследник")
+    bench = await _bench(session, node)
+    await station.take(session, catalog, heir, bench)
+    assert not bench.installed
+
+
+async def _bench(session: AsyncSession, node) -> Item:
+    yard = await world.node_container(session, node)
+    return next(thing for thing in await world.contents(session, yard) if thing.type_key == BENCH)
 
 
 async def test_busy_machine_not_carried_away(

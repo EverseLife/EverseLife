@@ -192,6 +192,11 @@ async def erupted(session: AsyncSession, job: Job) -> None:
     #: convoy's leg landing out of a burning yard moves a cart the fire holds
     #: (`transport.follow`) -- after the fire's commit the move finds no row
     #: and the arrival fails whole, and its retry lands the carter on foot.
+    #: And a batch starting at a machine of a shaken yard takes the stacks it
+    #: draws on -- the yard's among them (D-315) -- and only then the machine
+    #: (`craft.queue._hold_station`, D-351), while the fire takes the machine
+    #: and the yard's stacks in one id order (M <-> S). `_occupy` crossed it
+    #: the same way before; since D-351 a queued batch does too.
     ids = [node.id for node in shaken]
     await session.execute(
         select(Vein).where(Vein.node_id.in_(ids)).order_by(Vein.id).with_for_update()
