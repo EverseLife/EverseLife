@@ -28,6 +28,7 @@ What is checked is the whole of the rule:
 from __future__ import annotations
 
 import asyncio
+import math
 import uuid
 
 import pytest
@@ -37,10 +38,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import city as town
-from src.engine import estate, farm, forage, storage, utility, world
+from src.engine import estate, farm, forage, places, storage, utility, world
 from src.models.estate import Building
 from src.models.identity import Body
 from src.models.world import Edge, Layer, Node
+from src.runtime import MAP_MIN_GAP
 
 
 async def _plot(session: AsyncSession, *, area: float = 200) -> Node:
@@ -131,6 +133,22 @@ async def test_a_tall_house_opens_a_floor_per_storey_in_a_row(
     assert await _stairs(session, node, rooms[-1]) is None, (
         "с земли на верхний этаж лестницы нет — идут пролётами"
     )
+
+
+async def test_no_floor_stands_on_the_ground_floor(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """The map draws the plot at the origin of its floors' plan: no floor sits there.
+
+    The second floor used to: it covered the plot on the map, and from
+    upstairs the way down could not be picked (owner, 2026-09-19).
+    """
+    node = await _plot(session)
+    _, rooms = await _house(session, constants, node, footprint=50, floors=4)
+    for room in rooms:
+        spot = places.place_of(room)
+        assert spot is not None
+        assert math.hypot(*spot) >= MAP_MIN_GAP, f"{room.name} стоит на первом этаже"
 
 
 async def test_the_metres_add_up_to_the_house(session: AsyncSession, constants: Constants) -> None:

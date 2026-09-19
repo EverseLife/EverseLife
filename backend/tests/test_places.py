@@ -12,7 +12,8 @@ is checked here is the whole of the rule:
 * a place given once is never recomputed, however the map grows around it;
 * a crowd round one anchor spreads over rings instead of piling up;
 * the seed's pin is taken as given, and a seat is searched only for the rest;
-* the sky keeps no places, and the inside keeps flat ones.
+* the sky keeps no places, and the inside keeps flat ones -- round the
+  house's ground floor, which holds the origin of its plan.
 """
 
 from __future__ import annotations
@@ -26,8 +27,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src import globe
 from src.constants import Constants
 from src.constants import registry as R
-from src.engine import places, world
-from src.models.world import Layer, Node, Planet
+from src.engine import places, props, world
+from src.models.world import STOREY, Layer, Node, Planet
 from src.runtime import MAP_MIN_GAP, MAP_STEP
 
 
@@ -185,16 +186,83 @@ async def test_the_sky_keeps_no_places(session: AsyncSession) -> None:
     assert places.wire(terra) is None
 
 
+def _apart(one: tuple[float, float] | None, other: tuple[float, float] | None) -> float:
+    assert one is not None and other is not None
+    return math.hypot(one[0] - other[0], one[1] - other[1])
+
+
 async def test_the_inside_is_flat(session: AsyncSession) -> None:
-    """Floors and rooms keep their flat plan: no north, no degrees, the old step."""
+    """Floors and rooms keep their flat plan: no north, no degrees, the old step.
+
+    A hull's rooms: the ship is a point of the sky, there is no floor under
+    them, and the first room takes the origin of the plan.
+    """
     terra = await _node(session, "Терра", layer=Layer.SPACE)
-    house = await _node(session, "Дом", parent=terra)
-    ground = await _node(session, "Первый этаж", layer=Layer.LOCATION, parent=house)
-    upper = await _node(session, "Второй этаж", layer=Layer.LOCATION, parent=house, anchor=ground)
-    assert places.geo_of(ground) is None
-    assert places.place_of(ground) == places.ORIGIN
-    here, there = places.place_of(ground), places.place_of(upper)
-    assert here is not None and there is not None
-    assert math.hypot(here[0] - there[0], here[1] - there[1]) == pytest.approx(MAP_STEP)
+    hull = await _node(session, "Корпус", layer=Layer.SPACE, parent=terra)
+    first = await _node(session, "Рубка", layer=Layer.LOCATION, parent=hull)
+    second = await _node(session, "Трюм", layer=Layer.LOCATION, parent=hull, anchor=first)
+    assert places.geo_of(first) is None
+    assert places.place_of(first) == places.ORIGIN
+    there = places.place_of(second)
+    assert _apart(places.place_of(first), there) == pytest.approx(MAP_STEP)
     assert MAP_STEP >= MAP_MIN_GAP
-    assert places.wire(upper) == {"x": there[0], "y": there[1]}
+    assert there is not None
+    assert places.wire(second) == {"x": there[0], "y": there[1]}
+
+
+async def test_a_house_keeps_the_origin_for_its_ground_floor(session: AsyncSession) -> None:
+    """The plot is the ground floor (D-247), drawn at the origin of its floors' plan.
+
+    So the floors above are seated round it, never on it: the second floor
+    used to take the origin -- the first node of its group, laid next to a plot
+    with no flat place -- and on the map it covered the floor below, which
+    could then not be picked from upstairs (owner, 2026-09-19).
+    """
+    terra = await _node(session, "Терра", layer=Layer.SPACE)
+    plot = await _node(session, "Участок", parent=terra)
+    second = await _node(session, "2-й этаж", layer=Layer.LOCATION, parent=plot, anchor=plot)
+    third = await _node(session, "3-й этаж", layer=Layer.LOCATION, parent=plot, anchor=second)
+    assert _apart(places.place_of(second), places.ORIGIN) == pytest.approx(MAP_STEP)
+    assert _apart(places.place_of(third), places.place_of(second)) == pytest.approx(MAP_STEP)
+    assert _apart(places.place_of(third), places.ORIGIN) >= MAP_MIN_GAP
+
+
+async def test_a_floor_laid_on_its_ground_floor_is_seated_off_it(session: AsyncSession) -> None:
+    """The repair: a floor at the origin moves once, and nothing else does."""
+    terra = await _node(session, "Терра", layer=Layer.SPACE)
+    plot = await _node(session, "Участок", parent=terra)
+    second = await _node(session, "2-й этаж", layer=Layer.LOCATION, parent=plot, anchor=plot)
+    third = await _node(session, "3-й этаж", layer=Layer.LOCATION, parent=plot, anchor=second)
+    hull = await _node(session, "Корпус", layer=Layer.SPACE, parent=terra)
+    cabin = await _node(session, "Рубка", layer=Layer.LOCATION, parent=hull)
+    #: The house as the old rule laid it: the second floor on the origin, the
+    #: third a step from it.
+    for floor, storey, spot in ((second, 2, (0.0, 0.0)), (third, 3, (MAP_STEP, 0.0))):
+        await props.stamp(
+            session,
+            floor,
+            {
+                STOREY: storey,
+                places.PLACE: {places.PLACE_X: spot[0], places.PLACE_Y: spot[1]},
+            },
+        )
+    kept = places.place_of(third)
+    #: A house of two storeys: nothing above, so wherever a new floor would go.
+    low = await _node(session, "Участок", parent=terra)
+    only = await _node(session, "2-й этаж", layer=Layer.LOCATION, parent=low, anchor=low)
+    await props.stamp(
+        session, only, {STOREY: 2, places.PLACE: {places.PLACE_X: 0.0, places.PLACE_Y: 0.0}}
+    )
+
+    assert await places.floors_off_the_ground(session) == 2
+    moved = places.place_of(second)
+    #: A step from both its neighbours: the stairs down and up stay short.
+    assert _apart(moved, places.ORIGIN) == pytest.approx(MAP_STEP)
+    assert _apart(moved, kept) == pytest.approx(MAP_STEP)
+    assert places.place_of(third) == kept
+    assert _apart(places.place_of(only), places.ORIGIN) == pytest.approx(MAP_STEP)
+    #: A hull's first room stands on the origin by right: there is no floor under it.
+    assert places.place_of(cabin) == places.ORIGIN
+    #: And a second run finds nothing to move.
+    assert await places.floors_off_the_ground(session) == 0
+    assert places.place_of(second) == moved

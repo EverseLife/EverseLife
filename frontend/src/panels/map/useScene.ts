@@ -22,7 +22,61 @@ import { useMemo } from "react";
 
 import type { MapNode, WorldMap } from "../../api";
 import type { Band } from "./bands";
-import { delegateAmong, settlementsOf, type LayerId, type Link } from "./model";
+import {
+  delegateAmong,
+  settlementsOf,
+  type LayerId,
+  type Link,
+  type Point,
+} from "./model";
+
+/**
+ * Where a house's ground floor stands on its floors' plan: the origin, the
+ * seat the engine keeps free for it (`places._flat_neighbourhood`).
+ */
+export const GROUND_FLOOR_AT: Point = { x: 0, y: 0 };
+
+/**
+ * The ground floor of the inside shown, if the inside is a house's (D-247).
+ *
+ * The first floor of a house is the plot itself -- the door, the yard, the way
+ * in -- and only the floors above it are nodes of the `location` layer. Drawn
+ * by the layer alone, the inside lost it the moment one went upstairs: from
+ * the second floor the first was not on the map at all, and the stair down
+ * led nowhere one could pick (owner, 2026-09-19). A hull's rooms hang under
+ * the ship, which is no floor one walks to: its inside has none. Asked by
+ * `aboard`, not by the layer -- a hull moored at a pier comes to its crew
+ * wearing the pier's layer (`ship.view.sight`), and read as a ground floor it
+ * would be drawn at the origin, over the first room, which stands there.
+ */
+export function groundFloorOf(
+  byKey: Record<string, MapNode>,
+  band: Band,
+  base: string,
+): string | null {
+  if (band !== "inside") return null;
+  const node = byKey[base];
+  if (!node || node.aboard) return null;
+  return node.layer === "planet" || node.layer === "city" ? base : null;
+}
+
+/**
+ * The nodes that open into a layer of their own: those others hang under.
+ *
+ * Not the ground floor of the inside shown: one is already in it. As a group
+ * it was offered only for a step straight into it (`GraphMap.reachable`),
+ * so from the third floor up the plot stood on the map with no way down to
+ * it -- the stair from the second floor is not an exit of the third.
+ */
+export function groupsOf(
+  nodes: readonly MapNode[],
+  ground: string | null,
+): Set<string> {
+  const out = new Set<string>();
+  for (const node of nodes) if (node.parent) out.add(node.parent);
+  if (ground !== null) out.delete(ground);
+  return out;
+}
 
 /**
  * The nodes a scene draws: those of its layers, an inside only its own
@@ -44,6 +98,10 @@ import { delegateAmong, settlementsOf, type LayerId, type Link } from "./model";
  * stands among them: since D-330 it is the node its bioprinter is on. Only a
  * group that is **not** a city is left out there -- the Forerunners' ruins,
  * whose node is still an empty mark over its own rooms.
+ *
+ * A house's inside draws its ground floor too (`groundFloorOf`), at the
+ * origin of the plan: on the sphere it stands in degrees, and on the plan it
+ * has no place of its own but the one the engine keeps for it.
  */
 export function visibleOf(
   nodes: readonly MapNode[],
@@ -51,6 +109,7 @@ export function visibleOf(
   locationBase: string,
   sphereShown: string | null,
   here = "",
+  ground: string | null = null,
 ): MapNode[] {
   const open = layers.includes("city");
   //: A city is a node with others hanging under it (`model.settlementsOf`).
@@ -60,7 +119,8 @@ export function visibleOf(
   //: closed it drew **no** city -- only the node underfoot -- and with them
   //: open it drew an extra abstract city node over the city's own streets.
   const settlements = settlementsOf(nodes);
-  return nodes.filter((node) => {
+  const shown = nodes.filter((node) => {
+    if (node.key === ground) return true;
     //: The node underfoot always, and **before** the layer. With the cities
     //: closed only `planet` is drawn, and a member of a city wears the `city`
     //: layer (`geo.withCityScene`), so somebody standing in a city was
@@ -84,6 +144,44 @@ export function visibleOf(
     const settlement = settlements.has(node.key);
     return open ? !settlement || Boolean(node.city) : settlement;
   });
+  return ground === null
+    ? shown
+    : shown.map((node) =>
+        node.key === ground ? { ...node, place: GROUND_FLOOR_AT } : node,
+      );
+}
+
+/**
+ * Whether the scene draws the cities open, as their own nodes -- on the
+ * surface, once the eye is near enough (`near`).
+ *
+ * Inside a building no city is drawn at all, and the answer there is yes:
+ * nothing inside is a closed city. Read as closed, a house's ground floor --
+ * a group, its floors hang under it -- wore a closed city's halo, and the
+ * floor underfoot the mark a closed map gives the node one stands in, sized
+ * in pixels for the globe and several floors wide on the plan, over the floor
+ * below it (owner, 2026-09-19). The sky keeps its planets closed: a click
+ * opens their surface.
+ */
+export function citiesDrawnOpen(band: Band, near: boolean): boolean {
+  return band === "inside" || (band === "surface" && near);
+}
+
+/**
+ * The node's delegate in a scene showing these layers: itself, its city, or
+ * its hull -- and a house's ground floor stands for itself in its inside
+ * (`groundFloorOf`). A node of the surface climbs to no `location` node, so
+ * without that the stair down joined nothing drawn, and the body on the
+ * ground floor wore no mark.
+ */
+export function delegateIn(
+  byKey: Record<string, MapNode>,
+  layers: readonly string[],
+  ground: string | null,
+): (key: string) => string | null {
+  const settlements = settlementsOf(Object.values(byKey));
+  return (key) =>
+    key === ground ? ground : delegateAmong(byKey, key, layers, settlements);
 }
 
 /** The edges a scene draws, between the delegates of their ends: the
@@ -157,17 +255,12 @@ export function useScene({
         ? "city"
         : "planet";
 
+  const ground = groundFloorOf(byKey, band, locationBase);
+
   /** The node's delegate in this scene: itself, its city, or its hull. */
   const reprScene = useMemo(
-    () =>
-      (key: string): string | null =>
-        delegateAmong(
-          byKey,
-          key,
-          layerKey.split("|"),
-          settlementsOf(Object.values(byKey)),
-        ),
-    [byKey, layerKey],
+    () => delegateIn(byKey, layerKey.split("|"), ground),
+    [byKey, layerKey, ground],
   );
 
   const visible = useMemo(
@@ -178,8 +271,9 @@ export function useScene({
         locationBase,
         sphereShown,
         here,
+        ground,
       ),
-    [map, layerKey, locationBase, sphereShown, here],
+    [map, layerKey, locationBase, sphereShown, here, ground],
   );
 
   const shownEdges = useMemo(
@@ -192,15 +286,22 @@ export function useScene({
     [map, visible, reprScene],
   );
 
+  const groups = useMemo(
+    () => groupsOf(map?.nodes ?? [], ground),
+    [map, ground],
+  );
+
   return {
     orbiting,
     inside,
-    citiesOpen: open,
+    citiesOpen: citiesDrawnOpen(band, citiesOpen),
     currentLayer,
     reprScene,
     /** Where you stand, as this scene draws it. Null when you are not on it at all. */
     myRepr: reprScene(here),
     visible,
     shownEdges,
+    /** The nodes that open into a layer of their own (`groupsOf`). */
+    groups,
   };
 }

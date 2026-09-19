@@ -300,6 +300,7 @@ export function GraphMap({
     myRepr,
     visible,
     shownEdges,
+    groups,
   } = scene;
 
 
@@ -511,11 +512,6 @@ export function GraphMap({
     return out;
   }, [look.exits, reprScene, here]);
 
-  const groups = useMemo(() => {
-    const out = new Set<string>();
-    for (const node of map?.nodes ?? []) if (node.parent) out.add(node.parent);
-    return out;
-  }, [map]);
   const outlines = useCityOutlines(map, radius, sphereShown, book?.constants);
   /** How many nodes hang under each: a closed city is drawn as large as it
    *  is, so a town and the capital are told apart from afar. */

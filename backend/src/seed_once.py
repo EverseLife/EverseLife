@@ -41,9 +41,16 @@ TAKEN_LAND_IS_PLOTS = "taken_land_is_plots"
 #: first city a later decision lets stand anywhere but the ground.
 SPHERE_CITY_TAKEN_DOWN = "sphere_city_taken_down"
 
+#: The second floors seated on their own ground floor before the origin of a
+#: house's plan was kept for the plot (D-247, addendum 2026-09-19):
+#: `places.floors_off_the_ground`. Idempotent by reading the world, and once
+#: all the same: moving a place is the exception to D-237, and a world should
+#: take it once rather than ask at every deploy whether it still has to.
+FLOORS_OFF_THE_GROUND = "floors_off_the_ground"
+
 #: Every one-off step there is. A new one is added here, so a fresh world is
 #: born past it.
-ONCE = (LINES_DEFAULT_ENDED, TAKEN_LAND_IS_PLOTS, SPHERE_CITY_TAKEN_DOWN)
+ONCE = (LINES_DEFAULT_ENDED, TAKEN_LAND_IS_PLOTS, SPHERE_CITY_TAKEN_DOWN, FLOORS_OFF_THE_GROUND)
 
 
 async def claim(session: AsyncSession, step: str) -> bool:

@@ -7,7 +7,10 @@ A place is a property of the node, like its area:
 
 * **assigned once**, when the node is created, and never recomputed. The world
   is eternal and has no wipes (D-007) -- a map that redrew itself would be the
-  one thing in it that does;
+  one thing in it that does. Two exceptions, both written down: a ship's owner
+  arranges the rooms aboard (`move`, D-240), and a house's second floor laid
+  on its own ground floor is seated off it once (`floors_off_the_ground`, the
+  addendum to D-247);
 * **next to the node it was laid from**. The anchor is passed by whoever
   creates the node -- a room knows the corridor it opened off, a ship's node
   knows the one it was laid from, the seed knows what it lays beside what --
@@ -23,7 +26,11 @@ Two kinds of place, for the two levels the graph has (D-319):
 * **the inside is flat.** Floors of a house and rooms aboard a hull (the
   `location` level) stand at `x, y` in map units of their own group, as they
   always did: they have no north, and the client draws them in the window of
-  the inside, not on the globe.
+  the inside, not on the globe. A house's ground floor is the plot itself
+  (D-247), a node of the surface with no flat place of its own; on its
+  floors' plan it stands at the origin, and the origin is kept for it
+  (`_ground_floor_below`). A hull's rooms have no such floor under them: the
+  ship is a point of the sky, and its first room takes the origin.
 
 The client draws what it is given and computes nothing. That is the whole
 point: one map for every player, the same one tomorrow, and the globe turns
@@ -44,13 +51,14 @@ import math
 
 from sqlalchemy import Float, cast, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
-from src import globe
+from src import globe, plane
 from src.constants import Constants, current
 from src.constants import registry as R
 from src.engine import props
 from src.engine.errors import Refusal
-from src.models.world import Layer, Node
+from src.models.world import STOREY, Layer, Node
 from src.runtime import (
     MAP_HASH_SPAN,
     MAP_HASH_STEP,
@@ -223,14 +231,36 @@ async def _hold(session: AsyncSession, node: Node) -> None:
 # --- the inside: flat --------------------------------------------------------
 
 
+async def _ground_floor_below(session: AsyncSession, node: Node) -> bool:
+    """Whether the node's group hangs under a ground floor -- a place on the surface.
+
+    The floors of a house hang under the plot, and the plot is their ground
+    floor (D-247): the client draws it at the origin of their plan
+    (`GROUND_FLOOR_AT` in `useScene.ts`), because on the sphere it stands in
+    degrees and on the plan it has no seat of its own. The rooms of a hull
+    hang under the ship, which is a point of the sky and no floor one walks to.
+    """
+    if node.parent_id is None:
+        return False
+    parent = await session.get(Node, node.parent_id)
+    return parent is not None and parent.layer is Layer.PLANET
+
+
 async def _flat_neighbourhood(session: AsyncSession, node: Node) -> list[tuple[float, float]]:
-    """The flat places already taken in this node's group: the rooms of one house."""
+    """The flat places already taken in this node's group: the rooms of one house.
+
+    And the origin, where the group has a ground floor under it: that is its
+    seat. Left free, the second floor took it -- it is the first node of the
+    group, and it was laid next to a plot with no flat place -- and the client,
+    drawing the ground floor at the origin, drew the two floors one on top of
+    the other (owner, 2026-09-19).
+    """
     rows = await session.execute(
         select(Node.id, Node.properties).where(
             Node.layer == node.layer, Node.parent_id == node.parent_id
         )
     )
-    taken = []
+    taken = [ORIGIN] if await _ground_floor_below(session, node) else []
     for other_id, properties in rows:
         if other_id == node.id:
             continue
@@ -243,12 +273,16 @@ async def _flat_neighbourhood(session: AsyncSession, node: Node) -> list[tuple[f
 async def _flat_centre(
     session: AsyncSession, node: Node, anchor: Node | None
 ) -> tuple[float, float]:
-    """What the new room is laid next to: the room it opened off, on the same floor plan."""
+    """What the new room is laid next to: the room it opened off, on the same floor plan.
+
+    A floor laid next to the ground floor -- its group's own parent -- is laid
+    next to the origin, which is where the ground floor stands on the plan.
+    """
     cursor = anchor
     while cursor is not None:
         if cursor.layer is node.layer:
             return place_of(cursor) or ORIGIN
-        if cursor.parent_id is None:
+        if cursor.id == node.parent_id or cursor.parent_id is None:
             break
         cursor = await session.get(Node, cursor.parent_id)
     return ORIGIN
@@ -420,7 +454,10 @@ async def pin(session: AsyncSession, node: Node, point: globe.Geo) -> None:
 
 
 async def move(session: AsyncSession, node: Node, spot: tuple[float, float]) -> None:
-    """Put an existing room at this flat place -- the one way a place ever changes.
+    """Put an existing room at this flat place -- the one way a place ever changes in play.
+
+    Out of play there is one repair besides (`floors_off_the_ground`), run by
+    the seed's catch-up and by nobody's hand.
 
     **Ground never moves** (D-237): the capital stands where it stands, for
     everybody and tomorrow, and that is the whole worth of the rule. The single
@@ -441,6 +478,68 @@ async def move(session: AsyncSession, node: Node, spot: tuple[float, float]) -> 
         raise PlaceIsFixed(key="place-is-fixed", node=node.name)
     await _hold(session, node)
     await props.stamp(session, node, {PLACE: {PLACE_X: spot[0], PLACE_Y: spot[1]}})
+
+
+async def floors_off_the_ground(session: AsyncSession) -> int:
+    """Seat again every floor laid on its own ground floor. Returns how many moved.
+
+    A repair (2026-09-19, the addendum to D-247), run once per world by the
+    seed's catch-up (`seed_once.FLOORS_OFF_THE_GROUND`). Until the origin was
+    kept for the ground floor (`_flat_neighbourhood`), a house's second floor
+    took it, and the client draws the plot itself there: on the map the two
+    floors were one circle, and from the second the first could not be picked
+    at all. Nobody chose that spot -- it is the ground floor's by the rule this
+    repair puts back.
+
+    The floor goes a step from both its neighbours when it can: the ground
+    floor at the origin, and the floor above, which was seated a step from it
+    and so a step from the origin too -- the two stairs stay short. Where both
+    such spots are taken, a step off the origin wherever a new floor would go.
+    The floors above it stay where they are. Idempotent: a floor is never
+    seated within the gap of the origin, so a second run finds nothing.
+    """
+    ground = aliased(Node)
+    floors = (
+        (
+            await session.execute(
+                select(Node)
+                .join(ground, ground.id == Node.parent_id)
+                .where(Node.layer == Layer.LOCATION, ground.layer == Layer.PLANET)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    storeys = {(floor.parent_id, (floor.properties or {}).get(STOREY)): floor for floor in floors}
+    moved = 0
+    for floor in floors:
+        spot = place_of(floor)
+        if spot is None or _flat_free(spot, [ORIGIN]):
+            continue
+        #: The plot's row first, as `estate.open_storeys` takes it before the
+        #: floors it opens: a house going up on this plot waits, and no new
+        #: floor is seated in the group while this one looks for a seat.
+        await session.execute(
+            select(Node.id).where(Node.id == floor.parent_id).with_for_update(key_share=True)
+        )
+        await _hold(session, floor)
+        taken = await _flat_neighbourhood(session, floor)
+        storey = (floor.properties or {}).get(STOREY)
+        above = storeys.get((floor.parent_id, storey + 1)) if isinstance(storey, int) else None
+        seat = _beside_both(ORIGIN, place_of(above) if above else None, taken) or _flat_seat(
+            ORIGIN, taken, _direction(floor.key)
+        )
+        await props.stamp(session, floor, {PLACE: {PLACE_X: seat[0], PLACE_Y: seat[1]}})
+        moved += 1
+    return moved
+
+
+def _beside_both(
+    one: tuple[float, float], other: tuple[float, float] | None, taken: list[tuple[float, float]]
+) -> tuple[float, float] | None:
+    """A free spot a step from both points -- a corner of the triangle on them -- or None."""
+    both = None if other is None else plane.corners(one, other, MAP_STEP)
+    return next((spot for spot in both or () if _flat_free(spot, taken)), None)
 
 
 def distance_m(constants: Constants, one: Node, other: Node) -> float | None:

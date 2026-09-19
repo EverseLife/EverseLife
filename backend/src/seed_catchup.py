@@ -345,6 +345,15 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
     #: in the house stays on the ground floor: the engine may add rooms, it may
     #: not decide for the owner what belongs upstairs.
     await _storeys(session, constants)
+    #: And a second floor off its ground floor: until 2026-09-19 it was seated
+    #: on the very spot the map draws the plot at, and from upstairs the way
+    #: down could not be picked (`places.floors_off_the_ground`). Once per
+    #: world (`seed_once`), after the floors above are open.
+    if await seed_once.claim(session, seed_once.FLOORS_OFF_THE_GROUND):
+        lifted = await places.floors_off_the_ground(session)
+        await seed_once.done(session, seed_once.FLOORS_OFF_THE_GROUND, floors=lifted)
+        if lifted:
+            log.info("floors seated off their ground floor: %s", lifted)
 
     #: Deeds retroactively: land taken before the title reform is documented
     #: too (D-116). Only where there is no deed yet: a repeated run does not
