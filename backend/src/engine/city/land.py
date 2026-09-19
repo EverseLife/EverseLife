@@ -138,7 +138,9 @@ async def annex_by_way(
     #: `owner_city_id` off the object -- the second crew would then judge by
     #: what it saw before the first one's write.
     ends = [
-        await session.get(Node, node_id, with_for_update=True, populate_existing=True)
+        await session.get(
+            Node, node_id, with_for_update={"key_share": True}, populate_existing=True
+        )
         for node_id in sorted((edge.node_a_id, edge.node_b_id))
     ]
     if any(end is None for end in ends):  # pragma: no cover -- an edge's ends outlive it

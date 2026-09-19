@@ -26,7 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from city_line_kit import _events, _head, _node, _town
 from estate_kit import _buyer
 from src import globe, seed_once
-from src.constants import Catalog, Constants
+from src.constants import Catalog, Constants, current
 from src.engine import city as town
 from src.engine import estate, facet, mapshot, places, sight, tick, travel, world
 from src.engine.city import land as city_land
@@ -433,10 +433,14 @@ async def test_a_ruin_within_the_line_is_the_city_s_and_never_a_plot(
     """A Forerunner ruin inside the line or at the end of a highway is the
     city's land and not ground to divide (D-356, D-232): neither sold nor
     handed out -- its root, its hall and the rooms under the root alike."""
-    from src.engine.death import PRECURSOR
+    from src.engine import ruins
 
-    city, _, gate, *_ = await _town(session, constants, catalog)
-    ruin = await _node(session, constants, "ruin", 10, 10, properties={PRECURSOR: True})
+    city, home, gate, *_ = await _town(session, constants, catalog)
+    head, head_body = await _head(session, city, home)
+    #: As `ruins.lost_city` lays one: the root wears `precursors` and the
+    #: ruin's own `city` mark; its pier, hall and rooms hang on it.
+    lost = {ruins.PRECURSOR: True, ruins.KIND: "город"}
+    ruin = await _node(session, constants, "ruin", 10, 10, properties=lost)
     room = await _node(session, constants, "room", -10, 10, parent=ruin)
     await town.cover(session, constants, city)
     for node in (ruin, room):
@@ -444,11 +448,31 @@ async def test_a_ruin_within_the_line_is_the_city_s_and_never_a_plot(
         assert PLOT not in node.properties, node.key
         refusal = await estate.sale_refusal(session, constants, node)
         assert refusal is not None and refusal.key == "estate-land-ruin", node.key
+    with pytest.raises(town.CityError) as refused:
+        await town.allot(session, head, city, ruin, head, body=head_body)
+    assert refused.value.key == "city-land-ruin"
 
-    hall = await _node(session, constants, "hall", 90, 0, properties={PRECURSOR: True})
-    way = await travel.connect(session, gate, hall, base_seconds=60, surface=Surface.PAVED)
-    await city_land.annex_by_way(session, constants, way)
-    assert hall.owner_city_id == city.id and PLOT not in hall.properties
+    far = await _node(session, constants, "far", 90, 0, properties=lost)
+    hall = await _node(
+        session, constants, "hall", 95, 0, parent=far, properties={ruins.PRECURSOR: True}
+    )
+    for node in (far, hall):
+        way = await travel.connect(session, gate, node, base_seconds=60, surface=Surface.PAVED)
+        await city_land.annex_by_way(session, constants, way)
+        assert node.owner_city_id == city.id and PLOT not in node.properties, node.key
+
+
+async def test_the_capital_s_own_locations_are_no_ruins(session: AsyncSession) -> None:
+    """The capital's core wears `precursors` for the Forerunners' Printer, and
+    every location of the capital hangs on it: the market is the city's own
+    location (D-282), not a ruin, and says so."""
+    from src.seed import seed
+
+    await seed(session)
+    market = await session.scalar(select(Node).where(Node.key == "terra.capital.market"))
+    assert not await town.of_the_forerunners(session, market)
+    refusal = await estate.sale_refusal(session, current(), market)
+    assert refusal is not None and refusal.key == "estate-land-not-a-plot"
 
 
 async def test_the_one_off_step_marks_no_land_of_a_city_on_the_sphere(
@@ -468,6 +492,13 @@ async def test_the_one_off_step_marks_no_land_of_a_city_on_the_sphere(
         parent=sphere,
     )  # fmt: skip
     find.owner_city_id = hurt.id
+    #: And a find the capital's highway took, hanging on the same sphere: the
+    #: step saw no highway land there while the sphere was read as a city.
+    paved = await world.create_node(
+        session, f"terra.paved.{uuid.uuid4().hex[:8]}", "", area_m2=100, layer=Layer.PLANET,
+        parent=sphere,
+    )  # fmt: skip
+    paved.owner_city_id = capital.owner_city_id
     await session.execute(
         delete(CatchUpStep).where(CatchUpStep.step == seed_once.TAKEN_LAND_IS_PLOTS)
     )
@@ -476,3 +507,38 @@ async def test_the_one_off_step_marks_no_land_of_a_city_on_the_sphere(
     await seed(session)
     await session.refresh(find)
     assert PLOT not in (find.properties or {}), "земля города на сфере — не участок"
+    await session.refresh(paved)
+    assert paved.properties.get(PLOT) is True, "земля столицы за трактом — участок"
+
+
+async def test_a_highway_finished_asks_the_line_last(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The paving crew's job takes the far end, collects its pay, and only
+    then asks the line (`road.finished`): the ground the new highway's line
+    now reaches is the city's when the job is done, not a tick later."""
+    from src.constants import registry as R
+    from src.engine import road
+    from src.models.world import Surface as Tier
+
+    city, _, gate, *_ = await _town(session, constants, catalog)
+    far = await _node(session, constants, "far", 70, 0)
+    between = await _node(session, constants, "between", 45, 0)
+    await town.cover(session, constants, city)
+    assert between.owner_city_id is None, "до тракта черта сюда не доставала"
+
+    way = await travel.connect(session, gate, far, base_seconds=60, surface=Tier.ROAD)
+    crew = await world.create_identity(session, f"Мостильщик-{uuid.uuid4().hex[:6]}")
+    body = await world.print_body(session, crew, gate)
+    await world.grant_item(
+        session,
+        await world.body_container(session, body),
+        "road_paving",
+        amount=constants[R.ROAD_SURFACE_PER_EDGE],
+        origin="сценарий теста",
+    )
+    job = await road.lay(session, constants, catalog, body, way)
+    await road.finished(session, job)
+
+    assert far.owner_city_id == city.id and COVERED not in far.properties
+    assert between.owner_city_id == city.id, "черту спросили в конце работ"

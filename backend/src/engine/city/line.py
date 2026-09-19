@@ -208,17 +208,35 @@ async def _held_covered(session: AsyncSession, city: City) -> list[Node]:
     )
 
 
+def _lost_city(node: Node) -> bool:
+    """Whether the node is the root of a Forerunner city: `precursors` and the
+    ruin's own `city` mark together (`ruins.lost_city`). `precursors` alone
+    is not enough -- the capital's core wears it for its Printer (D-028), and
+    every location of the capital hangs on the core."""
+    return (
+        node.layer is Layer.PLANET
+        and ruins.is_precursor(node)
+        and ruins.KIND in (node.properties or {})
+    )
+
+
 async def of_the_forerunners(session: AsyncSession, node: Node) -> bool:
-    """Whether the node is a Forerunner ruin's: its root, its pier and hall
-    (marked `precursors`), or a room opened under the root (D-232).
+    """Whether the node is a Forerunner ruin's: the root of a lost city, or
+    anything hanging on it -- its pier and hall, the rooms opened under it
+    (D-232).
 
     Within a city's line or at the end of its highway such a node is the
     city's land -- its laws hold there -- and never a plot (D-356): a ruin is
     a find of the Forerunners' and not ground to divide, so it is neither
     sold nor handed out, and it gets no gate (D-282). The rooms carry no
     mark of their own (`ruins.open_room`), so the root above answers for them.
+    Asked of the capital's market, the answer is no: its parent is the core,
+    and the core is a city's node, not a ruin's.
     """
-    return ruins.is_precursor(node) or await ruins.city_of(session, node) is not None
+    if _lost_city(node):
+        return True
+    root = await ruins.city_of(session, node)
+    return root is not None and _lost_city(root)
 
 
 def _within(line: outline.Outline | None, node: Node) -> bool:

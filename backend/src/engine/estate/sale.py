@@ -132,9 +132,10 @@ async def buy(
     #: the treasury. And a line letting a covered plot go in the same second
     #: (`city.cover`) passes over a row held here.
     #: `FOR NO KEY UPDATE`: nothing here changes the node's key, and a row
-    #: written that points at the node (an event, a deed, a container) takes
-    #: `KEY SHARE` on it -- which the plain `FOR UPDATE` would keep waiting
-    #: for the whole purchase (`estate.hold_ground` holds ground the same way).
+    #: written that points at the node by a foreign key -- a body stepping
+    #: onto it, a deed, a bed -- takes `KEY SHARE` on it, which the plain
+    #: `FOR UPDATE` would keep waiting for the whole purchase
+    #: (`estate.hold_ground` holds ground the same way).
     await session.execute(
         select(Node)
         .where(Node.id == node.id)

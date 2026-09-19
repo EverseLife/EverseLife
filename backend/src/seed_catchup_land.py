@@ -17,7 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.engine import city as town
-from src.engine import death
+from src.engine import ruins
 from src.models.city import City
 from src.models.world import ABOARD, PLOT, Layer, Node
 
@@ -57,9 +57,15 @@ async def taken_land_is_plots(session: AsyncSession) -> list[str]:
         .subquery()
     )
     homes = select(grounded.c.node_id)
-    #: A Forerunner ruin a highway took -- its root, pier and hall, and the
-    #: rooms under the root -- is the city's land and not a plot (D-356).
-    ruins = select(Node.id).where(Node.properties.has_key(death.PRECURSOR))
+    #: A Forerunner ruin a highway took -- the root of a lost city and all
+    #: that hangs on it -- is the city's land and not a plot (D-356): the
+    #: root known by `precursors` and the ruin's own `city` mark together,
+    #: as `city.line.of_the_forerunners` knows it.
+    roots = select(Node.id).where(
+        Node.layer == Layer.PLANET,
+        Node.properties.has_key(ruins.PRECURSOR),
+        Node.properties.has_key(ruins.KIND),
+    )
     nodes = (
         (
             await session.execute(
@@ -68,8 +74,8 @@ async def taken_land_is_plots(session: AsyncSession) -> list[str]:
                     Node.layer == Layer.PLANET,
                     Node.id.not_in(homes),
                     Node.parent_id.not_in(homes),
-                    Node.parent_id.not_in(ruins),
-                    ~Node.properties.has_key(death.PRECURSOR),
+                    Node.id.not_in(roots),
+                    Node.parent_id.not_in(roots),
                     ~Node.properties.has_key(ABOARD),
                     ~Node.properties.has_key(PLOT),
                 )
