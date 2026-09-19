@@ -20,9 +20,9 @@ from src.engine import events, goods, travel
 from src.engine import world as world_engine
 from src.engine.craft._base import Busy, CraftError, CutOff, NoStation
 from src.engine.craft._internal import (
+    _free_at,
+    _machines,
     _num,
-    _occupy,
-    _pick_station,
     _release,
 )
 from src.engine.craft.wearing import _hours_run, _wear_tools
@@ -81,7 +81,8 @@ async def _hold_station(session: AsyncSession, station: Item | None) -> None:
     saw the machine still standing, and both committed -- the batch waiting
     for ever on materials already written off (OQ-181). Taken here, one of
     them waits for the other, and whichever comes second sees what the first
-    did. After the stacks and the pool, where `_occupy` has always written it.
+    did. After the stacks and the pool, where the batch's run takes it too
+    (`_take_station`).
     """
     if station is None:
         return
@@ -90,6 +91,61 @@ async def _hold_station(session: AsyncSession, station: Item | None) -> None:
     #: again and gets whatever machine of the name still stands.
     if not station.installed:
         raise NoStation(key="craft-no-station", station=station.type_key)
+
+
+async def _take_station(session: AsyncSession, body: Body, name: str, until: datetime) -> Item:
+    """The best free machine of this name in the node, taken for this master's
+    run until `until` -- one machine, one worker (D-150).
+
+    Chosen and taken in one statement, of the row as it stands. The choice
+    alone (`_pick_station`) is a read: two masters taking up their waiting
+    work at once -- a work ended beside them wakes the node, another comes
+    back to the bench -- both read the one bench free and both wrote
+    themselves onto it, the second over the first, and two batches ran at a
+    machine recorded as one master's. A long transaction did the same on its
+    own: the tick's orphan sweep wakes the node orphan after orphan (D-217)
+    and went on trusting a bench it had read free after another master took
+    it. Here the database answers "free" for the row it locks, and the object
+    is read again with it.
+
+    A machine another transaction holds right now is passed over, not waited
+    for. Waiting closed circles: two batches ending at once, each finish
+    holding its own machine and waking the node, and each wake reading the
+    other's machine free -- its stamp past, as it always is at a finish -- and
+    queueing on it; a master's command holding their body and queueing on a
+    machine the fire held while it wanted that body; a machine held here while
+    the fire, which takes machines by id, held the next one. The price is a
+    wake that crosses the holder and misses the machine: a start whose batch
+    queues behind its master's running one, a take-down refused, a master
+    walking away (`freeze` frees the machine and wakes nobody), and a finish or
+    the sweep freeing it while this master's own command holds their row --
+    `wake_node` skips a held body as this skips a held machine, so each misses
+    the other. The batch then waits at a free machine for the next wake or the
+    master's hand, as `wake_node` already lets a body whose row is held wait.
+    `NO KEY`, because a key-share lock -- another row's foreign key checked
+    against this one -- is no hold on the machine and must not hide it.
+    """
+    moment = datetime.now(UTC)
+    machine = (
+        await session.execute(
+            (await _machines(session, body, name))
+            .where(_free_at(moment))
+            .limit(1)
+            .with_for_update(key_share=True, skip_locked=True)
+            #: Read again, not only locked: the hold below is written through
+            #: the object, and a memory of this very master on the machine --
+            #: read before they walked away and it came free -- would make the
+            #: `busy_body_id` below no change at all. The flush would leave the
+            #: column out, and the machine would stand held by nobody.
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one_or_none()
+    if machine is None:
+        raise Busy(key="craft-station-busy", station=name, whose="other")
+    machine.busy_body_id = body.id
+    machine.busy_until = until
+    await session.flush()
+    return machine
 
 
 async def _launch(
@@ -147,22 +203,22 @@ async def _run(session: AsyncSession, batch: CraftBatch, body: Body, now: dateti
     #: a body on Aurora could neither wake up nor finish its road.
     from src.engine import frost  # noqa: PLC0415 -- lazy: breaks the import cycle with frost
 
+    left = float(batch.remaining_seconds or 0)
+    ready_at = now + timedelta(seconds=left)
     station: Item | None = None
     if batch.station is not None:
         try:
-            station = await _pick_station(session, body, batch.station)
+            station = await _take_station(session, body, batch.station, ready_at)
         except (NoStation, Busy, CutOff, frost.Frozen):
             return False
 
-    left = float(batch.remaining_seconds or 0)
     batch.state = BatchState.RUNNING
     batch.runs += 1
     batch.run_started_at = now
-    batch.ready_at = now + timedelta(seconds=left)
+    batch.ready_at = ready_at
     batch.remaining_seconds = None
     batch.station_item_id = None if station is None else station.id
     await session.flush()
-    await _occupy(session, station, body, batch.ready_at)
 
     #: A batch is an ordinary journal job: it survives a process restart and
     #: runs exactly once (01-tech-notes, pattern 1). Each run has its own job:
