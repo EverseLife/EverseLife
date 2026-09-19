@@ -204,10 +204,11 @@ export type MapNode = {
   facet?: string;
   /** Shown dark: remembered or public, not in sight (D-319). */
   faded?: boolean;
-  /** The city on whose land the node stands, by the key of the city's own
-   *  node (D-332) -- sent only where `parent` does not say: a plot under
-   *  its city is the city's by its parent, a find taken in by a highway
-   *  still hangs under the planet. The city's outline is drawn round it. */
+  /** The city whose outline this node draws, by the key of the city's own
+   *  node (D-332, D-356) -- sent only where `parent` does not say: a plot
+   *  under its city is the city's by its parent, a find taken in by a
+   *  highway still hangs under the planet. A find the outline merely covers
+   *  is the city's land and carries none: it does not draw the line. */
   territory?: string;
   /** The name of the city this node is the centre of. Sent on a **city's**
    *  row alone, and it is the row of the node with the city's bioprinter

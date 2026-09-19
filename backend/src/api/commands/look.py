@@ -417,13 +417,12 @@ async def _look(state: dict, db: AsyncSession, message: dict) -> dict:
             "sites": sites,
         }
     #: An empty civic plot is for sale: the city sets the price by distance to
-    #: the bioprinter (D-089). The player must see it before buying. Buildings
-    #: and city veins are not for sale -- they have no price at all, and no key.
-    if (
-        node.owner_identity_id is None
-        and node.owner_city_id is not None
-        and await estate.is_vacant(db, constants, node)
-    ):
+    #: the bioprinter (D-089). The player must see it before buying. Buildings,
+    #: city veins and the city's own locations are not for sale -- they have no
+    #: price at all, and no key. The very question the purchase asks (D-356):
+    #: asked here in a shape of its own, it priced the outskirts of the capital
+    #: and the land a highway took, and the button under the price refused.
+    if await estate.sale_refusal(db, constants, node, buyer=identity.id) is None:
         plot_city = await town.by_id(db, node.owner_city_id)
         if plot_city is not None:
             with contextlib.suppress(estate.NotForSale):

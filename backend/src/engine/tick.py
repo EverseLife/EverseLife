@@ -52,6 +52,7 @@ from src.engine import (
     wear,
     works,
 )
+from src.engine import city as town
 from src.engine.jobs import enqueue, handler
 from src.models.event import EventKind
 from src.models.job import Job, JobKind
@@ -192,6 +193,16 @@ async def _distances(session: AsyncSession, now: datetime) -> dict[str, Any]:
     return {"cities_measured": await estate.measure_cities(session)}
 
 
+async def _lines(session: AsyncSession, now: datetime) -> dict[str, Any]:
+    #: Where a city ends is where its line runs (D-356), and the land inside
+    #: is the city's. Every way the frame changes asks the line itself -- a
+    #: highway, a ring, a purchase, a scout -- and passes over any node another
+    #: transaction holds that second; this takes up what they passed over, and
+    #: whatever a later way of changing a frame forgets to ask.
+    taken, let_go = await town.cover_all(session, current())
+    return {"land_covered": taken, "land_uncovered": let_go}
+
+
 async def _sky(session: AsyncSession, now: datetime) -> dict[str, Any]:
     #: The sky is flown, not tabled (D-289): every hull under an order is
     #: stepped to now -- the helm, the burn, the pull of five bodies -- and a
@@ -301,6 +312,7 @@ WORLD_STEPS: dict[str, tuple[Step, str]] = {
     "oxygen": (_oxygen, "first"),
     "sky": (_sky, "first"),
     "distances": (_distances, "first"),
+    "lines": (_lines, "first"),
 }
 DAILY_STEPS: dict[str, tuple[Step, str]] = {
     "wear": (_wear, "first"),

@@ -586,3 +586,56 @@ async def test_two_deploys_take_the_same_location_back_once(
         assert len(told) == 1, "об одной потере говорят один раз"
         node = await db.get(Node, node_id)
         assert node.owner_identity_id is None
+
+
+async def test_two_buyers_at_one_plot_pay_once(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two people buy one empty plot in the same second (D-356 item 5).
+
+    The purchase asked whether the plot was free and took the row only in
+    `hand_over`, after both had paid: both found it free, both paid the
+    treasury, and the second hand-over rewrote the first one's deed to the
+    second. With the row locked before the question, the second waits, reads
+    the first one's title, and is refused before its money moves. The pause
+    sits on the question, so the race is certain on the code without the lock.
+    """
+    from estate_kit import _buyer, _city
+    from src.engine import estate
+    from src.models.estate import Deed
+    from src.models.ledger import AccountKind
+
+    _slow(monkeypatch, estate, "sale_refusal")
+    city, _, near, _ = await _city(session, current_catalog())
+    buyers = [await _buyer(session, near, city=city) for _ in range(2)]
+    purses = {
+        identity.id: (await ledger.account_for(session, AccountKind.IDENTITY, identity.id)).id
+        for identity, _ in buyers
+    }
+    node_id = near.id
+    body_ids = [body.id for _, body in buyers]
+    await session.commit()
+
+    async def purchase(body_id: uuid.UUID) -> object:
+        async with factory() as db, db.begin():
+            body = await db.get(Body, body_id)
+            node = await db.get(Node, node_id)
+            return await estate.buy(db, current(), current_catalog(), body, node)
+
+    outcome = await asyncio.gather(*(purchase(one) for one in body_ids), return_exceptions=True)
+    unexpected = [
+        one
+        for one in outcome
+        if isinstance(one, BaseException) and not isinstance(one, estate.NotForSale)
+    ]
+    assert not unexpected, outcome
+    assert sum(isinstance(one, estate.NotForSale) for one in outcome) == 1, outcome
+
+    async with factory() as db:
+        deed = (await db.execute(select(Deed).where(Deed.node_id == node_id))).scalar_one()
+        node = await db.get(Node, node_id)
+        assert deed.owner_identity_id == node.owner_identity_id, "бумага у того, чья земля"
+        loser = next(one for one in purses if one != node.owner_identity_id)
+        assert await ledger.balance(db, purses[loser]) == money(1_000), "второй не заплатил"

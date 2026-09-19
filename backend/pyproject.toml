@@ -249,6 +249,24 @@ source_modules = ["src.engine.city.citizen", "src.engine.city.land"]
 forbidden_modules = ["src.engine.city.founding"]
 allow_indirect_imports = "true"
 
+# The line (D-356): which nodes the city's outline covers is a question of
+# geometry over the frame, and it is asked from below -- land takes a find by
+# a tract and asks the line again, founding lays a ring and asks it, the tick
+# asks it of every city. So it asks nobody above it.
+[[tool.importlinter.contracts]]
+name = "The city's line asks nobody above it"
+type = "forbidden"
+source_modules = ["src.engine.city.line"]
+forbidden_modules = [
+    "src.engine.city.hall",
+    "src.engine.city.office",
+    "src.engine.city.law",
+    "src.engine.city.citizen",
+    "src.engine.city.land",
+    "src.engine.city.founding",
+]
+allow_indirect_imports = "true"
+
 # The market, cut out of a 1636-line `market.py` that held the vocabulary, the
 # terminal cells, the matching, the entrances and the book reading at once.
 # Same shape as the city contracts, and `forbidden` for the same reason: the

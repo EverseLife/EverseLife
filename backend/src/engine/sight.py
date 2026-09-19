@@ -46,7 +46,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src import globe
 from src.constants import Constants
 from src.engine import horizon, places
-from src.models.world import Edge, Layer, Node, Surface
+from src.models.world import ABOARD, Edge, Layer, Node, Surface
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,13 +112,23 @@ def _standpoint(standing: Node, by_id: dict[uuid.UUID, Node]) -> globe.Geo | Non
 
 def _public(nodes: Sequence[Node], edges: Sequence[Edge], cities: set[uuid.UUID]) -> set[uuid.UUID]:
     """The cities, what stands inside their walls, and the highways (D-097):
-    the polities' nodes, every surface node hanging on one of them, and every
-    surface node a laid road or a paved way touches -- a road is work (D-107),
-    and work in the open is seen from afar."""
+    the polities' nodes, every surface node hanging on one of them or held by
+    one, and every surface node a laid road or a paved way touches -- a road
+    is work (D-107), and work in the open is seen from afar.
+
+    Held by one, and not only hanging on one (D-356): the land a highway took
+    and the land a city's line covers are the city's, inside its walls as
+    much as a plot of its rings. The first draws the city's line as well:
+    left to sight and memory, a highway worn down to a trail took its end out
+    of the public, and the city's outline depended on who was looking. The
+    second draws nothing, and is public because it is the city's -- a find
+    within the line is a place of the city, not a scout's secret."""
     by_id = {node.id: node for node in nodes}
     inside = set(cities)
     for node in nodes:
-        if node.layer is Layer.PLANET and node.parent_id in cities:
+        if node.layer is not Layer.PLANET or (node.properties or {}).get(ABOARD):
+            continue
+        if node.parent_id in cities or node.owner_city_id is not None:
             inside.add(node.id)
     for edge in edges:
         if edge.surface in (Surface.ROAD, Surface.PAVED):

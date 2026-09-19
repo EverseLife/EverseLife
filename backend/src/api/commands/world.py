@@ -277,6 +277,10 @@ TOLD_OF_THE_PLACE = frozenset(
         EventKind.PLATES_ERUPTED.value,
         EventKind.PLATES_WARNED.value,
         EventKind.LAND_ANNEXED.value,
+        #: The city's border came to cover the ground, or drew back from it
+        #: (D-356): nobody did it, and whoever stands there is told.
+        EventKind.LAND_COVERED.value,
+        EventKind.LAND_UNCOVERED.value,
     }
 )
 

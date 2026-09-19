@@ -11,10 +11,11 @@
  * own. What the discs do not join, an isthmus does.
  *
  * The blot is a field over the city's own flat plane -- metres about its
- * middle -- summing every node's disc as a metaball, `(r / d)^4`; where the
- * field is one lies the edge. The fourth power, not the square: it falls
- * off fast, so the edge lies close to the discs' own -- the land of the
- * nodes, not a swell round it -- and two neighbours still join.
+ * middle -- summing every node's disc as a metaball, `(r / d)^p`; where the
+ * field is one lies the edge. The fourth power, not the square (the vault's
+ * `city.outline_power`): it falls off fast, so the edge lies close to the
+ * discs' own -- the land of the nodes, not a swell round it -- and two
+ * neighbours still join.
  *
  * The isthmuses are laid along the **shortest tree that joins every node**
  * (Prim): that is the least a city can be bridged by and still be one, and
@@ -29,9 +30,20 @@
  * ring of nodes joined by ways was bridged open at its widest gap and the
  * ground the ring encloses lay outside the city. With the streets in the
  * field the ring closes, the middle is a hole, and a hole is dropped -- the
- * city has none. Whose land a node is comes from the wire (`territory`,
+ * city has none. Which nodes draw a city comes from the wire (`territory`,
  * failing that `parent`): the engine takes a find into the city by the
  * highway paved to it, and the picture only follows.
+ *
+ * **The line is the law** (D-356): whatever lies within it is the city's,
+ * and the engine reads the very same field (`backend/src/outline.py`) to
+ * decide it -- a find inside the line is the city's, and the window over it
+ * sells it. So the numbers are the vault's (`city.outline_*`, off
+ * `/public/constants`), not this file's, and the nodes are laid out in key
+ * order on both sides: among equal gaps the tree otherwise follows the order
+ * of the map's rows. A plot the line merely covers carries no `territory`
+ * and draws nothing -- were it a disc, the city would creep by its own
+ * finds. The two copies are pinned by one fixture (`territory.test.ts` here,
+ * `tests/test_outline.py` on the server).
  *
  * The field is rastered, its contour traced (marching squares), the trace
  * smoothed (Chaikin) and given back in degrees, so the globe projects it
@@ -42,44 +54,69 @@ import type { MapEdge, MapNode } from "../../api";
 import type { Geo } from "./globe";
 
 const RAD = Math.PI / 180;
-/** A node's land when the wire says nothing: the smallest node's (D-321). */
-const FALLBACK_AREA_M2 = 60;
+/** How many times the traced edge is rounded. The picture's alone: the
+ *  engine reads the raster, not the rounded line (`outline.py`). */
+const SMOOTHING = 2;
+
 /**
- * The least a node's land reaches, as a share of the city's typical spacing
- * between nodes: two discs of this radius at that spacing just merge in
- * the field (they do at 0.42 of the spacing; half of it leaves room for the raster), so the gaps of one spread
- * close and an outlying field stays its own. A node whose own land reaches
- * farther keeps its own reach: in a city whose nodes stand metres apart
- * the land itself does the joining, and the outline hugs the nodes
- * (owner, 2026-09-06) instead of standing a bridge's width off them.
- */
-const REACH_SHARE = 0.5;
-/** The least a lone node's land reaches, metres. */
-const LONE_REACH_M = 6;
-/** The raster: cells across the city's spacing, and the cap on cells a side. */
-const CELLS_PER_STEP = 8;
-const MAX_CELLS = 160;
-/**
- * How wide an isthmus is, in cells of the raster -- never less, whatever the
- * nodes' own land says. A neck thinner than the grid falls between two
- * samples: the field is over one along it and nowhere measured, so the trace
- * steps over the bridge and the far node drops off the blot again, which is
- * the whole thing this is for. At one and a half the band of "inside" is
- * three cells across, and the nearest sample to the axis is never farther
- * than 0.71 of one, so no slope of a bridge can slip between two columns.
+ * The field's numbers, the vault's (`city.outline_*`, D-356).
  *
- * The cost of that floor: where the grid is coarse -- a city spread over
- * kilometres, where the cell is the span over `MAX_CELLS` -- the neck is as
- * wide as the grid says rather than as wide as the nodes' own land. So
- * `MAX_CELLS` is not only how long this takes: it is also the shape of what
- * the player sees, and it is not to be turned as a performance knob alone.
+ * - `power` -- how fast a disc's field falls off with distance.
+ * - `reachShare` -- the least a node's land reaches, as a share of the
+ *   city's typical spacing between nodes: two discs of this radius at that
+ *   spacing just merge in the field (at the fourth power they do at 0.42 of
+ *   the spacing; half of it leaves room for the raster), so the gaps of one spread close and an
+ *   outlying field stays its own. A node whose own land reaches farther
+ *   keeps its own reach: in a city whose nodes stand metres apart the land
+ *   itself does the joining, and the outline hugs the nodes (owner,
+ *   2026-09-06) instead of standing a bridge's width off them.
+ * - `loneReachM` -- the least a lone node's land reaches, metres.
+ * - `cellsPerStep`, `maxCells` -- the raster: cells across the city's
+ *   spacing, and the cap on cells a side.
+ * - `bridgeCells` -- how wide an isthmus is, in cells of the raster, never
+ *   less whatever the nodes' own land says. A neck thinner than the grid
+ *   falls between two samples: the field is over one along it and nowhere
+ *   measured, so the trace steps over the bridge and the far node drops off
+ *   the blot again. At one and a half the band of "inside" is three cells
+ *   across, and the nearest sample to the axis is never farther than 0.71 of
+ *   one, so no slope of a bridge can slip between two columns. The cost of
+ *   that floor: where the grid is coarse -- a city spread over kilometres,
+ *   where the cell is the span over `maxCells` -- the neck is as wide as the
+ *   grid says rather than as wide as the nodes' own land. So `maxCells` is
+ *   not only how long this takes: it is also the shape of the city's land.
  */
-const BRIDGE_CELLS = 1.5;
+export type OutlineLaw = {
+  power: number;
+  reachShare: number;
+  loneReachM: number;
+  cellsPerStep: number;
+  maxCells: number;
+  bridgeCells: number;
+};
+
+/** The field's numbers off the vault's constants, or null while they are
+ *  not there: no outline is drawn rather than one the engine does not keep. */
+export function outlineLaw(constants: Record<string, unknown> | null | undefined): OutlineLaw | null {
+  const read = (key: string): number | null => {
+    const value = Number(constants?.[key]);
+    return Number.isFinite(value) && value > 0 ? value : null;
+  };
+  const power = read("city.outline_power");
+  const reachShare = read("city.outline_reach_share");
+  const loneReachM = read("city.outline_lone_reach_m");
+  const cellsPerStep = read("city.outline_cells_per_step");
+  const maxCells = read("city.outline_max_cells");
+  const bridgeCells = read("city.outline_bridge_cells");
+  if (power === null || reachShare === null || loneReachM === null) return null;
+  if (cellsPerStep === null || maxCells === null || bridgeCells === null) return null;
+  return { power, reachShare, loneReachM, cellsPerStep, maxCells, bridgeCells };
+}
+
 /** What the swell of the isthmuses takes off the raster, in cells: the
  *  bridge's own width at both edges of the picture. */
-const MARGIN_CELLS = 4 * BRIDGE_CELLS;
-/** How many times the traced edge is rounded. */
-const SMOOTHING = 2;
+function marginCells(law: OutlineLaw): number {
+  return 4 * law.bridgeCells;
+}
 
 type Disc = { x: number; y: number; r: number };
 /** An isthmus: a capsule of the same field, laid between two nodes. */
@@ -94,6 +131,7 @@ export type Way = readonly [string, string];
 export function cityOutlines(
   nodes: readonly MapNode[],
   radiusM: number,
+  law: OutlineLaw,
   ways: readonly MapEdge[] = [],
 ): Map<string, Geo[][]> {
   const members = new Map<string, MapNode[]>();
@@ -127,7 +165,7 @@ export function cityOutlines(
     const streets: Way[] = ways
       .filter((way) => keys.has(way.a) && keys.has(way.b))
       .map((way) => [way.a, way.b]);
-    const loops = outlineOf(whole, radiusM, streets);
+    const loops = outlineOf(whole, radiusM, law, streets);
     if (loops.length) out.set(city, loops);
   }
   return out;
@@ -139,6 +177,7 @@ export function cityOutlines(
 export function outlineOf(
   members: readonly MapNode[],
   radiusM: number,
+  law: OutlineLaw,
   ways: readonly Way[] = [],
 ): Geo[][] {
   //: Members and places are picked in one pass, not two: a member with no
@@ -146,10 +185,14 @@ export function outlineOf(
   //: and the last of them onto nothing at all -- a disc at `undefined`, a
   //: field of `Infinity` everywhere, and the city silently without an
   //: outline. `cityOutlines` never hands one over, but this is exported.
-  const placed = members.filter(
-    (node): node is MapNode & { place: { lat: number; lon: number } } =>
-      Boolean(node.place && "lat" in node.place),
-  );
+  //: In key order, as the engine lays them (the module's note). A row with
+  //: no land is not of the ground, and the engine has no such member.
+  const placed = members
+    .filter(
+      (node): node is MapNode & { place: { lat: number; lon: number }; area: number } =>
+        Boolean(node.place && "lat" in node.place) && typeof node.area === "number",
+    )
+    .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
   const places = placed.map((node) => node.place);
   if (!places.length) return [];
   const lat0 = places.reduce((s, p) => s + p.lat, 0) / places.length;
@@ -165,11 +208,11 @@ export function outlineOf(
     lon: lon0 + q.x / (stretch * perDeg),
   });
   const centres = places.map(toLocal);
-  const spacing = typicalSpacing(centres);
-  const least = centres.length > 1 ? spacing * REACH_SHARE : LONE_REACH_M;
+  const spacing = typicalSpacing(centres, law);
+  const least = centres.length > 1 ? spacing * law.reachShare : law.loneReachM;
   const discs: Disc[] = placed.map((node, i) => ({
     ...centres[i],
-    r: Math.max(least, Math.sqrt(Math.max(1, node.area ?? FALLBACK_AREA_M2) / Math.PI)),
+    r: Math.max(least, Math.sqrt(Math.max(1, node.area) / Math.PI)),
   }));
   const index = new Map(placed.map((node, i) => [node.key, i]));
   const streets: Pair[] = [];
@@ -178,15 +221,15 @@ export function outlineOf(
     const j = index.get(b);
     if (i !== undefined && j !== undefined && i !== j) streets.push([i, j]);
   }
-  return traceField(discs, spacing, least, streets).map((loop) => loop.map(toGeo));
+  return traceField(discs, spacing, least, law, streets).map((loop) => loop.map(toGeo));
 }
 
 /** Two of the discs, by index. */
 type Pair = [number, number];
 
 /** The median distance from a node to its nearest neighbour. */
-function typicalSpacing(points: readonly { x: number; y: number }[]): number {
-  if (points.length < 2) return LONE_REACH_M;
+function typicalSpacing(points: readonly { x: number; y: number }[], law: OutlineLaw): number {
+  if (points.length < 2) return law.loneReachM;
   const nearest = points.map((p, i) => {
     let best = Infinity;
     points.forEach((q, j) => {
@@ -215,18 +258,22 @@ function fieldAt(
   discs: readonly Disc[],
   bridges: readonly Bridge[],
   bridgeR: number,
+  power: number,
   x: number,
   y: number,
 ): number {
+  //: `(r / d)^p` as `(r^2 / d^2)^(p/2)`: the square of the distance is what
+  //: is measured, and the engine writes the term the same way (`outline.py`).
+  const half = power / 2;
   let sum = 0;
   for (const d of discs) {
     const dd = (x - d.x) ** 2 + (y - d.y) ** 2;
-    sum += dd > 0 ? (d.r * d.r * d.r * d.r) / (dd * dd) : Infinity;
+    sum += dd > 0 ? ((d.r * d.r) / dd) ** half : Infinity;
   }
-  const wide = bridgeR ** 4;
+  const wide = bridgeR * bridgeR;
   for (const bridge of bridges) {
     const dd = offSegment(bridge, x, y);
-    sum += dd > 0 ? wide / (dd * dd) : Infinity;
+    sum += dd > 0 ? (wide / dd) ** half : Infinity;
   }
   return sum;
 }
@@ -297,6 +344,7 @@ function traceField(
   discs: readonly Disc[],
   spacing: number,
   least: number,
+  law: OutlineLaw,
   streets: readonly Pair[] = [],
 ): { x: number; y: number }[][] {
   //: The blot cannot reach past twice a disc's radius from its centre: the
@@ -306,22 +354,23 @@ function traceField(
   const spanY = Math.max(...discs.map((d) => d.y)) - Math.min(...discs.map((d) => d.y));
   //: The margin the blot may need round the nodes is either the discs' own
   //: reach or an isthmus's swell, and the second is measured in cells -- so
-  //: the cell that keeps the raster within `MAX_CELLS` a side is the one
-  //: that leaves room for that swell as well. `MARGIN_CELLS` is what the
-  //: bridges take: `BRIDGE_CELLS` each side of the axis, doubled for the two
+  //: the cell that keeps the raster within `maxCells` a side is the one
+  //: that leaves room for that swell as well. `marginCells` is what the
+  //: bridges take: `bridgeCells` each side of the axis, doubled for the two
   //: sides of the picture.
+  const margin = marginCells(law);
   const cell = Math.max(
-    spacing / CELLS_PER_STEP,
-    (spanX + 2 * reach) / MAX_CELLS,
-    (spanY + 2 * reach) / MAX_CELLS,
-    spanX / (MAX_CELLS - MARGIN_CELLS),
-    spanY / (MAX_CELLS - MARGIN_CELLS),
+    spacing / law.cellsPerStep,
+    (spanX + 2 * reach) / law.maxCells,
+    (spanY + 2 * reach) / law.maxCells,
+    spanX / (law.maxCells - margin),
+    spanY / (law.maxCells - margin),
   );
   const bridges = capsules(discs, spanOf(discs), streets);
   //: As wide as the smallest node's land, and never narrower than the grid
-  //: can see (`BRIDGE_CELLS`). The margin grows with it: an isthmus swells a
+  //: can see (`bridgeCells`). The margin grows with it: an isthmus swells a
   //: little past its own axis, as a disc does past its centre.
-  const bridgeR = bridges.length ? Math.max(least, cell * BRIDGE_CELLS) : 0;
+  const bridgeR = bridges.length ? Math.max(least, cell * law.bridgeCells) : 0;
   const edge = Math.max(reach, bridgeR * 2);
   const x0 = Math.min(...discs.map((d) => d.x)) - edge;
   const x1 = x0 + spanX + 2 * edge;
@@ -332,7 +381,7 @@ function traceField(
   const values = new Float64Array(nx * ny);
   for (let j = 0; j < ny; j++) {
     for (let i = 0; i < nx; i++) {
-      values[j * nx + i] = fieldAt(discs, bridges, bridgeR, x0 + i * cell, y0 + j * cell);
+      values[j * nx + i] = fieldAt(discs, bridges, bridgeR, law.power, x0 + i * cell, y0 + j * cell);
     }
   }
   const segments = marchingSquares(values, nx, ny, 1, (i, j) => ({ x: x0 + i * cell, y: y0 + j * cell }));
@@ -383,8 +432,10 @@ function outerLoops(
 
 type Seg = [{ x: number; y: number }, { x: number; y: number }];
 
-/** Marching squares over a raster: the segments of the level line. */
-function marchingSquares(
+/** Marching squares over a raster: the segments of the level line.
+ *  Exported for the saddle's test: how a saddle is split is the one thing
+ *  the engine must read alike (`outline._reached`, D-356). */
+export function marchingSquares(
   values: Float64Array,
   nx: number,
   ny: number,
@@ -408,10 +459,14 @@ function marchingSquares(
       }
       if (edges.length === 2) out.push([edges[0], edges[1]]);
       else if (edges.length === 4) {
-        //: A saddle: split by the middle's own value.
+        //: A saddle: split by the middle's own value. The middle goes with
+        //: the corners on its own side of the level, so the segments cut off
+        //: the other two: a middle like corner 0 joins corners 0 and 2, and the
+        //: cuts go round corners 1 (edges 0-1) and 3 (edges 2-3). The engine
+        //: joins the outside the same way (`outline._reached`).
         const mid = (v[0] + v[1] + v[2] + v[3]) / 4 >= level;
-        if (mid === inside[0]) out.push([edges[0], edges[3]], [edges[1], edges[2]]);
-        else out.push([edges[0], edges[1]], [edges[2], edges[3]]);
+        if (mid === inside[0]) out.push([edges[0], edges[1]], [edges[2], edges[3]]);
+        else out.push([edges[0], edges[3]], [edges[1], edges[2]]);
       }
     }
   }

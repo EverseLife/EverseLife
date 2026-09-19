@@ -56,7 +56,7 @@ from src.models.event import Event, EventKind
 from src.models.identity import Account, Identity
 from src.models.inventory import Container, ContainerKind, Item
 from src.models.ship import Ship
-from src.models.world import PLOT, Edge, Layer, Node, Planet, built_up
+from src.models.world import ABOARD, PLOT, Edge, Layer, Node, Planet, built_up
 from src.seed_surfaces import surfaces
 
 log = logging.getLogger("everselife.seed")
@@ -82,9 +82,17 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
     """
     constants = current()
 
-    capital = await session.get(Node, core.parent_id)
-    if capital is None:  # pragma: no cover -- a core without a city is a bug
+    above = await session.get(Node, core.parent_id)
+    if above is None:  # pragma: no cover -- a core hangs on something
         return
+    #: Where the capital stands. Since D-330 a city stands on its own printer,
+    #: so the core **is** the capital's node and hangs on the planet's sphere;
+    #: a world laid before D-330 keeps the empty surface node above the core
+    #: as the city's. Read as "the core's parent" alone, a world laid after
+    #: D-330 had its sphere taken for the capital at the first deploy: a city
+    #: founded on the sphere, flagged the capital, and every find of the
+    #: planet written to it as its built-up area.
+    capital = above if above.layer is Layer.PLANET else core
 
     #: The rest of the system: a world laid out before the space layer had
     #: Terra alone in the sky, and a lone dot is not a system. The other three
@@ -307,6 +315,13 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
     #: house across it. It comes back here.
     await _return_city_locations(session)
 
+    #: Land a highway took before D-356 is a plot (D-332 left it a location of
+    #: the city's own, so the window priced it and the purchase refused it).
+    #: Once per world (`seed_once`): from then on `annex_by_way` marks it.
+    if await seed_once.claim(session, seed_once.TAKEN_LAND_IS_PLOTS):
+        marked = await _taken_land_is_plots(session)
+        await seed_once.done(session, seed_once.TAKEN_LAND_IS_PLOTS, plots=marked)
+
     #: Floors above the ground as nodes of their own (D-247). A house raised
     #: before that rule holds all its storeys in one node, so its upper floors
     #: are open here and the stairs cut to them. Everything that stood and lay
@@ -407,6 +422,39 @@ async def _return_city_locations(session: AsyncSession) -> None:
         log.info("city location returned to %s: %s", city.name, node.key)
     if taken:
         await session.flush()
+
+
+async def _taken_land_is_plots(session: AsyncSession) -> list[str]:
+    """Mark as plots the finds a highway took before D-356.
+
+    A city's own locations are its node and what hangs on it (D-282); a node
+    the city holds that hangs anywhere else -- on the planet, under a ruin --
+    came to it by a highway (D-332), and since D-356 such land is sold and
+    handed out like a ring's. Returns the keys it marked.
+    """
+    homes = select(City.node_id)
+    nodes = (
+        (
+            await session.execute(
+                select(Node).where(
+                    Node.owner_city_id.is_not(None),
+                    Node.layer == Layer.PLANET,
+                    Node.id.not_in(homes),
+                    Node.parent_id.not_in(homes),
+                    ~Node.properties.has_key(ABOARD),
+                    ~Node.properties.has_key(PLOT),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for node in nodes:
+        node.properties = {**(node.properties or {}), PLOT: True}
+        log.info("land a highway took is a plot now: %s", node.key)
+    if nodes:
+        await session.flush()
+    return [node.key for node in nodes]
 
 
 async def _aurora_under_snow(session: AsyncSession, constants) -> None:

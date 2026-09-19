@@ -14,12 +14,13 @@ import uuid
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.constants import Catalog, Constants
+from src.constants import Catalog, Constants, current
 from src.constants import registry as R
 from src.engine import biome, energy, estate, events, ground, places, travel, utility, world
 from src.engine.city._base import CityError, NoCity, NotYours
 from src.engine.city.hall import require_at_hall
 from src.engine.city.law import shown
+from src.engine.city.line import cover
 from src.engine.city.lookup import by_id, of_node, territory
 from src.engine.city.office import offices, require
 from src.engine.city.treasury import treasury_balance
@@ -31,7 +32,18 @@ from src.models.city import (
 from src.models.estate import Deed
 from src.models.event import EventKind
 from src.models.identity import BodyState, Identity
-from src.models.world import ABOARD, Edge, Layer, Node, NodePass, Surface, is_plot, storey_of
+from src.models.world import (
+    ABOARD,
+    COVERED,
+    PLOT,
+    Edge,
+    Layer,
+    Node,
+    NodePass,
+    Surface,
+    is_plot,
+    storey_of,
+)
 from src.units import ENERGY_PER_TARIFF_UNIT, money, money_str
 
 #: The plot's ring, a record of its birth (D-089): the first ring is the
@@ -88,10 +100,18 @@ async def annex_by_way(
     here. Judged from both ends, since a crew paves standing at either; the
     end that has a city is the near one.
 
+    What the city takes is a **plot** (D-356): it sells and hands out the
+    land its highways take, as it does its rings'. An end the city held only
+    because its line covered it (`cover`) becomes the highway's as well: it
+    draws the line from then on, and the line drawing back no longer lets it
+    go. Either way the frame changed, and the line is asked again (`cover`,
+    the last thing here to take a lock, as it is in every caller).
+
     What changes nothing: a way whose ends both stand on somebody's land
     already -- a node between two cities is the first one's, and a city does
-    not take another's land by paving to it -- and a way with no city at
-    either end, which is a road in the wild. Only ground is taken: a hull's
+    not take another's land by paving to it; between two nodes of one city's
+    frame the way was the city's street already, whatever its surface -- and a
+    way with no city at either end, which is a road in the wild. Only ground is taken: a hull's
     rooms hang under a pier by the gangway and are not land (D-201). The
     land stays the city's when the highway sags back to a road (`road.decay`):
     the surface is the crew's upkeep, the land is the city's title.
@@ -119,6 +139,7 @@ async def annex_by_way(
     if any(end is None for end in ends):  # pragma: no cover -- an edge's ends outlive it
         return None
     cities = [await of_node(session, end) for end in ends]
+    taken: tuple[City, Node] | None = None
     for near, far, own, theirs in (
         (ends[0], ends[1], cities[0], cities[1]),
         (ends[1], ends[0], cities[1], cities[0]),
@@ -128,6 +149,9 @@ async def annex_by_way(
         if far.layer is not Layer.PLANET or (far.properties or {}).get(ABOARD):
             return None
         far.owner_city_id = own.id
+        #: A plot, not a location of the city's own (D-356): the city sells and
+        #: hands out the land its highways take, as it does its rings'.
+        far.properties = {**(far.properties or {}), PLOT: True}
         await session.flush()
         await events.record(
             session,
@@ -140,8 +164,34 @@ async def annex_by_way(
             node=biome.word_of(constants, far),
             city=own.name,
         )
-        return own, far
-    return None
+        taken = own, far
+        break
+    #: Whose way this is now: the city that took the far end, or the one both
+    #: ends already stood on.
+    city = taken[0] if taken is not None else None
+    if city is None and cities[0] is not None and cities[1] is not None:
+        city = cities[0] if cities[0].id == cities[1].id else None
+    if city is None:
+        return None
+    #: An end the city holds because its line covered it is the city's by the
+    #: highway now, like any find a highway took (D-332, D-356) -- held by
+    #: somebody or not: a holder may hand it back (`cede`), and the highway
+    #: must still keep it. It draws the line from here on, and the line
+    #: drawing back past it no longer lets it go. Nothing changes hands, so
+    #: nobody is told.
+    promoted = [
+        end for end in ends if end.owner_city_id == city.id and (end.properties or {}).get(COVERED)
+    ]
+    for end in promoted:
+        end.properties = {
+            key: value for key, value in (end.properties or {}).items() if key != COVERED
+        }
+    if taken is None and not promoted:
+        return None
+    await session.flush()
+    #: The frame changed: a disc more, a street more. The line is asked again.
+    await cover(session, constants, city)
+    return taken
 
 
 async def allot(
@@ -166,6 +216,18 @@ async def allot(
     """
     await require_at_hall(session, body, city)
     await require(session, by.id, city, Power.LAND)
+    #: The row for the transaction before anything is asked of it, read
+    #: afresh, as the purchase takes it (`estate.buy`): a buyer paying for the
+    #: plot in the same second, or the city's line letting a covered plot go
+    #: (`cover`), would otherwise be overwritten by the hand-over -- the buyer's
+    #: money in the treasury and the plot in somebody else's name, or a wild
+    #: node with a private title that no city gave (D-198).
+    await session.execute(
+        select(Node)
+        .where(Node.id == node.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
     if node.owner_city_id != city.id:
         raise CityError(key="city-land-not-civic")
     #: A plot, and not simply a node the city owns: the core with the printer,
@@ -177,6 +239,12 @@ async def allot(
         raise CityError(key="city-land-not-a-plot", node=node.name)
     if node.owner_identity_id is not None:
         raise CityError(key="city-land-taken")
+    #: Only empty land is handed out, as only empty land is sold (D-356): a
+    #: find a highway took or the line covered may carry a vein, a machine or
+    #: work somebody began while the ground was wild. The receiver's own is
+    #: no obstacle -- a settler may be given the ground under his own beds.
+    if not await estate.is_vacant(session, current(), node, own=to.id):
+        raise CityError(key="city-land-not-vacant")
 
     #: The floors of a house go with the plot (D-247).
     await world.hand_over(session, node, to.id)
@@ -193,6 +261,10 @@ async def allot(
         city_id=str(city.id),
         allotted_by=by.name,
     )
+    #: A covered plot with a holder draws the line now (D-356): its disc joins
+    #: the frame, and the line is asked again.
+    if (node.properties or {}).get(COVERED):
+        await cover(session, current(), city)
     return node
 
 
@@ -269,6 +341,11 @@ async def cede(session: AsyncSession, body, node: Node) -> City:
         node_id=node.id,
         city_id=str(city.id),
     )
+    #: A covered plot handed back is the line's again, not the frame's (D-356):
+    #: its disc leaves, and if the line no longer reaches it, neither does the
+    #: city.
+    if (node.properties or {}).get(COVERED):
+        await cover(session, current(), city)
     return city
 
 

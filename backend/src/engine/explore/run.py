@@ -59,6 +59,7 @@ from src.engine import (
     travel,
     world,
 )
+from src.engine import city as town
 from src.engine.explore import aim as aiming
 from src.engine.explore._base import (
     Aim,
@@ -238,6 +239,10 @@ async def returned(session: AsyncSession, job: Job) -> None:
             biome=biome.of_node(constants, aim.existing),
             known=True,
         )
+        #: A way between two nodes of one city is its street, and a street
+        #: closes the line (D-332): the land it rings is the city's (D-356).
+        #: Last: the line is the last thing a transaction takes locks for.
+        await town.cover_way(session, constants, origin, aim.existing)
         return
     node, scheme = await materialise(
         session, constants, current_catalog(), aim, origin, who=body.identity_id
@@ -256,6 +261,9 @@ async def returned(session: AsyncSession, job: Job) -> None:
         complex=scheme,
         known=False,
     )
+    #: A find inside a city's line is the city's from its first minute (D-356):
+    #: the lines that reach its point are asked -- last, as always.
+    await town.cover_near(session, constants, planet, point)
 
 
 async def _stand_on(

@@ -28,9 +28,15 @@ from src.models.catchup import CatchUpStep
 #: 2026-09-04): `seed_catchup._lines_catch_up`.
 LINES_DEFAULT_ENDED = "lines_default_ended"
 
+#: The land highways took before D-356 made it a plot:
+#: `seed_catchup._taken_land_is_plots`. Once, because after it the rule is the
+#: engine's own (`city.land.annex_by_way`), and a run at every deploy would
+#: turn any later location of a city that hangs off its node into a plot.
+TAKEN_LAND_IS_PLOTS = "taken_land_is_plots"
+
 #: Every one-off step there is. A new one is added here, so a fresh world is
 #: born past it.
-ONCE = (LINES_DEFAULT_ENDED,)
+ONCE = (LINES_DEFAULT_ENDED, TAKEN_LAND_IS_PLOTS)
 
 
 async def claim(session: AsyncSession, step: str) -> bool:
