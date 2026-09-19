@@ -394,7 +394,7 @@ async def take(session: AsyncSession, catalog: Catalog, body: Body, item: Item) 
     #: through. The hopper is read now and answered below, where the refusal
     #: belongs -- the row is this transaction's from here on, so nothing fills
     #: it in between (D-181, D-314).
-    from src.engine import rig  # noqa: PLC0415 -- lazy: breaks station -> rig -> liquid -> station
+    from src.engine import rig  # noqa: PLC0415 -- lazy: breaks station -> rig.hands -> station
 
     hopper = await rig.hopper_left(session, item)
     #: The thing's own row last -- the order `place` locks in, because the two
