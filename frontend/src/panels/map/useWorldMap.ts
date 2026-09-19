@@ -4,8 +4,8 @@
 /**
  * The map as the body sees it: the graph answered from where one stands
  * (D-240, D-319), the ships close enough to see laid over it (D-201), and its
- * nodes by key. Out of `GraphMap.tsx`, which is past the eight-hundred-line
- * bar already.
+ * nodes by key. Split out of `GraphMap.tsx` on 2026-09-19, when the map stood
+ * past the eight-hundred-line bar.
  */
 
 import { useEffect, useMemo, useState } from "react";

@@ -8,21 +8,19 @@ import { describe, expect, it } from "vitest";
 import type { Exit, MapNode, Transit } from "../api";
 import { reachableFrom, sizesOf, walkTargetsOf } from "../panels/map/useNodeBehaviour";
 
-const node = (over: Partial<MapNode>): MapNode =>
-  ({
-    key: "x",
-    name: "Node",
-    layer: "planet",
-    parent: null,
-    exit: false,
-    port: false,
-    planet: "terra",
-    orbit: null,
-    deferred: false,
-    aboard: false,
-    flight: null,
-    ...over,
-  }) as MapNode;
+const node = (over: Partial<MapNode>): MapNode => ({
+  key: "x",
+  name: "Node",
+  layer: "planet",
+  parent: null,
+  port: false,
+  planet: "terra",
+  orbit: null,
+  deferred: false,
+  aboard: false,
+  flight: null,
+  ...over,
+});
 
 const exit = (key: string, seconds: number): Exit => ({
   key,
@@ -48,6 +46,11 @@ describe("where a step towards a node goes", () => {
     expect(steps).toEqual({
       city: { key: "market", seconds: 40 },
       field: { key: "field", seconds: 60 },
+    });
+    //: Two as quick keep the first: a tie does not flip the step between
+    //: two renders of the same exits.
+    expect(walkTargetsOf([exit("gate", 40), exit("market", 40)], reprScene, "home")).toEqual({
+      city: { key: "gate", seconds: 40 },
     });
   });
 
@@ -95,6 +98,17 @@ describe("whether a step leads to a node", () => {
   it("leads anywhere of one's own surface but where one stands", () => {
     expect(judge()(byKey.field)).toBe(true);
     expect(judge()(byKey.home)).toBe(false);
+  });
+
+  it("asks where the scene draws the body, not the node it stands in", () => {
+    //: Standing in the market of a closed city, the node that wears the body
+    //: is the city (`useWalker.standingAt`), and the city is no step away
+    //: whatever the steps say.
+    const walkTargets = { city: { key: "gate", seconds: 30 } };
+    expect(judge({ here: "market", standingAt: "city", walkTargets })(byKey.city)).toBe(false);
+    //: Out on a scout's run the body stands nowhere (D-327): nothing is
+    //: ruled out for being underfoot, not even the node the run set out from.
+    expect(judge({ standingAt: null })(byKey.home)).toBe(true);
   });
 
   it("leads nowhere while walking", () => {

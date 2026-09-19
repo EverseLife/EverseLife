@@ -11,8 +11,8 @@
  * keeps what it did until the next step. Standing on no node of this layer at
  * all -- somebody else's city -- the frame opens on its first node, because a
  * camera aimed at nothing shows nothing. The rules of following on a globe
- * are `follow.ts`; this is when they are asked. Out of `GraphMap.tsx`, which
- * is past the eight-hundred-line bar already.
+ * are `follow.ts`; this is when they are asked. Split out of `GraphMap.tsx`
+ * on 2026-09-19, when the map stood past the eight-hundred-line bar.
  */
 
 import { useEffect, useMemo, useRef, type RefObject } from "react";
@@ -24,6 +24,7 @@ import { firstOnGlobe, needsTurn } from "./follow";
 import { journeyOf, sceneKey, type Point } from "./model";
 import { STAR } from "./orbits";
 import type { useGlobe } from "./useGlobe";
+import type { useScene } from "./useScene";
 
 /**
  * Re-aims the frame and follows the journey; returns the turn the walker
@@ -33,15 +34,12 @@ import type { useGlobe } from "./useGlobe";
 export function useAim({
   cam,
   globe,
+  scene: { visible, orbiting, inside, myRepr },
   ground,
   skyPlaces,
-  visible,
   byKey,
   here,
-  myRepr,
   band,
-  orbiting,
-  inside,
   locationBase,
   sphereShown,
   drawn,
@@ -50,19 +48,16 @@ export function useAim({
 }: {
   cam: Camera;
   globe: ReturnType<typeof useGlobe>;
+  /** What the band draws and where the body stands in it (`useScene`). */
+  scene: Pick<ReturnType<typeof useScene>, "visible" | "orbiting" | "inside" | "myRepr">;
   /** Where the scene's nodes are laid on the layers one walks. */
   ground: Map<string, Point>;
   /** Where the sky's bodies are, as of now (`useSky`). */
   skyPlaces: RefObject<Map<string, Point>>;
-  visible: MapNode[];
   byKey: Record<string, MapNode>;
   /** Where the body stands. */
   here: string;
-  /** Where you stand, as the scene draws it. */
-  myRepr: string | null;
   band: Band;
-  orbiting: boolean;
-  inside: boolean;
   /** The node whose inside is shown. */
   locationBase: string;
   /** Whose surface is shown. */

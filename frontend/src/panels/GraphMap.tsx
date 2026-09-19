@@ -61,7 +61,7 @@ import { useBands, useHandOver, type Sphere } from "./map/useBands";
 import { SkyBackdrop, SkyClock } from "./map/Sky";
 import { Switcher, Zoom, scaleOf } from "./map/Switcher";
 import { useAim } from "./map/useAim";
-import { useCamera } from "./map/useCamera";
+import { useCamera, useFieldHeight } from "./map/useCamera";
 import { useNodeBehaviour } from "./map/useNodeBehaviour";
 import { useScene } from "./map/useScene";
 import { useScout } from "./map/useScout";
@@ -77,7 +77,6 @@ import {
   tilted,
 } from "./map/bands";
 import {
-  H,
   delegate,
   drawnAt,
   offworld,
@@ -201,18 +200,14 @@ export function GraphMap({
     [book, sphereShown],
   );
   //: The frame's own shape, measured off the svg itself (`map/useCamera`).
-  //: Kept in a ref as well as in state: the camera lives outside React and
-  //: asks on every frame it paints.
-  const [tall, setTall] = useState(H);
-  const tallRef = useRef(tall);
-  tallRef.current = tall;
+  const field = useFieldHeight();
 
   const { band, bandRef, enter, surface, surfaceRef, zoomed, tell } = useBands({
     book,
     initialLayer: initialLayer ?? "planet",
     hasSubnodes,
     radius: sphereRadius,
-    tall,
+    tall: field.tall,
   });
   const epoch = look.clock?.epoch ?? null;
   //: The scene the band draws -- which nodes, which edges, who stands for
@@ -242,8 +237,7 @@ export function GraphMap({
   //: The camera and the field it paints (`map/useCamera`): made once, off
   //: React, and told of the field's height once the scene is settled.
   const { svgRef, zoomRef, shadedRef, spheres, cam } = useCamera({
-    tallRef,
-    setTall,
+    field,
     bandRef,
     surfaceRef,
     tell,
@@ -377,15 +371,12 @@ export function GraphMap({
   const turn = useAim({
     cam,
     globe,
+    scene,
     ground,
     skyPlaces: sky.places,
-    visible,
     byKey,
     here,
-    myRepr,
     band,
-    orbiting,
-    inside,
     locationBase,
     sphereShown,
     drawn: Boolean(map),

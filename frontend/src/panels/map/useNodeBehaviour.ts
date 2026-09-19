@@ -5,8 +5,8 @@
  * What a node of the scene does under the hand: which exit a step towards it
  * takes, how large a closed city is drawn, and whether a step leads to it at
  * all -- the map's judgement, drawn by `Nodes` and spoken by the inspector and
- * the menu. Out of `GraphMap.tsx`, which is past the eight-hundred-line bar
- * already; pure, so what it promises can be pinned.
+ * the menu. Split out of `GraphMap.tsx` on 2026-09-19, when the map stood past
+ * the eight-hundred-line bar; pure, so what it promises can be pinned.
  */
 
 import { useMemo } from "react";

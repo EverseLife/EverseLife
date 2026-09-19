@@ -4,8 +4,8 @@
 /**
  * The camera (`camera.ts`) and the field it paints: made once, outside React,
  * painted straight onto the svg's `viewBox`; told when the field changes its
- * height, and stopped with the map. Out of `GraphMap.tsx`, which is past the
- * eight-hundred-line bar already.
+ * height, and stopped with the map. Split out of `GraphMap.tsx` on
+ * 2026-09-19, when the map stood past the eight-hundred-line bar.
  *
  * The frame's own shape is measured off the svg itself. The viewBox used to
  * keep a fixed 880 by 540 whatever box it was drawn in, and the browser
@@ -20,13 +20,13 @@
  * the viewBox's own proportions.
  */
 
-import { useEffect, useRef, type RefObject } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 
 import { PHONE } from "../../narrow";
 import { boundsOf, type Band } from "./bands";
 import { createCamera, viewBoxOf, type Camera } from "./camera";
 import type { GroundGLHandle } from "./GroundGL";
-import { frameHeight } from "./model";
+import { H, frameHeight } from "./model";
 import { notchOf } from "./Switcher";
 import { factsOf, type Facts, type Sphere, type Surface } from "./useBands";
 
@@ -38,18 +38,34 @@ import { factsOf, type Facts, type Sphere, type Surface } from "./useBands";
  */
 const PHONE_SCALE = 2;
 
+/** The frame's height in map units at scale 1 (`model.frameHeight`), as the
+ *  camera last measured it: state for the bands, which fit the globe and the
+ *  floor to it, and a ref for the camera, which lives outside React and asks
+ *  on every frame it paints. Both are written here and by the measure in
+ *  `useCamera`, and nowhere else. */
+export type FieldHeight = {
+  tall: number;
+  tallRef: RefObject<number>;
+  setTall: (tall: number) => void;
+};
+
+/** The field's height, before the camera: the bands need it first. */
+export function useFieldHeight(): FieldHeight {
+  const [tall, setTall] = useState(H);
+  const tallRef = useRef(tall);
+  tallRef.current = tall;
+  return { tall, tallRef, setTall };
+}
+
 export function useCamera({
-  tallRef,
-  setTall,
+  field: { tallRef, setTall },
   bandRef,
   surfaceRef,
   tell,
   anyVisible,
 }: {
-  /** The frame's height in map units at scale 1, as last measured. A ref:
-   *  the camera lives outside React and asks on every frame it paints. */
-  tallRef: RefObject<number>;
-  setTall: (tall: number) => void;
+  /** The field's height (`useFieldHeight`). */
+  field: FieldHeight;
   bandRef: RefObject<Band>;
   surfaceRef: RefObject<Surface>;
   /** What the frame decided (`useBands`). */
@@ -132,8 +148,8 @@ export function useCamera({
     const watch = new ResizeObserver(measure);
     watch.observe(field);
     return () => watch.disconnect();
-    //: The ref and the setter are the map's own for its whole life: listed,
-    //: they are no reason to measure again.
+    //: The ref and the setter are `useFieldHeight`'s, the same for the map's
+    //: whole life: listed, they are no reason to measure again.
   }, [anyVisible, cam, tallRef, setTall]);
   //: Nothing of the camera outlives the map.
   useEffect(() => () => cam.stop(), [cam]);
