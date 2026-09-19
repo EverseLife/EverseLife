@@ -168,5 +168,6 @@ from src.engine.craft.queue import (  # noqa: F401
     waiting,
     wake,
     wake_node,
+    woken,
 )
 from src.engine.craft.wearing import _wear_station  # noqa: F401

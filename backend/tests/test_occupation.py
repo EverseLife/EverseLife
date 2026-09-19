@@ -24,16 +24,33 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from explore_kit import _camp, _pin, _reach, _step
 from src import i18n
+from src.api.commands.craft import _craft_resume
+from src.api.commands.views import _batches
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import craft, estate, farm, forage, occupation, rest, road, travel, world
-from src.models.craft import BatchState
+from src.engine import (
+    craft,
+    estate,
+    explore,
+    farm,
+    forage,
+    jobs,
+    occupation,
+    places,
+    rest,
+    road,
+    travel,
+    world,
+)
+from src.models.craft import BatchState, CraftBatch
 from src.models.farm import PlotState
+from src.models.identity import Body, Identity
 from src.models.job import JobState
-from src.models.world import Surface
+from src.models.world import Planet, Surface
 
 INGOT = "iron_ingot"
 NAILS = "nails"
@@ -248,6 +265,92 @@ async def test_the_queue_of_batches_survives(
     assert first.state is BatchState.RUNNING
     assert second.state is BatchState.WAITING
     assert [batch.id for batch in await craft.waiting(session, body)] == [second.id]
+
+
+async def test_a_waiting_work_is_not_taken_up_behind_another_occupation(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A waiting batch is no occupation, so its master may start a search
+    beside it -- and taking it up is starting it again (D-211): no wake gives
+    it the free forge while the search goes, and the hand that asks is told
+    what the body is at."""
+    node, identity, body = await _yard(session)
+    await _forge(session, node)
+    await world.learn(session, identity, NAILS)
+    await _give(session, body, INGOT, 10)
+    batch = await craft.start(session, constants, catalog, body, NAILS, 2)
+    assert await craft.freeze(session, body) is batch
+    body.stamina = body.stamina.__class__("50")
+    await forage.start(session, constants, body)
+
+    assert await craft.wake(session, body) is None
+    await session.refresh(batch)
+    assert batch.state is BatchState.WAITING, "the forge is free, the hands are not"
+    #: And the window says so, rather than that no forge is free.
+    (seen,) = await _batches(session, identity.id)
+    assert seen["waiting"] == "busy"
+    with pytest.raises(occupation.Busy) as refusal:
+        await _craft_resume({"identity_id": identity.id}, session, {})
+    assert refusal.value.inner["what"][0].key == "doing-forage-searching"
+
+    #: The search over, the same hand takes the work up.
+    await forage.stop(session, body)
+    answer = await _craft_resume({"identity_id": identity.id}, session, {})
+    assert answer["batch"] == str(batch.id)
+
+
+async def test_a_scout_back_on_a_known_place_takes_up_the_work_waiting_there(
+    factory: async_sessionmaker[AsyncSession], constants: Constants, catalog: Catalog
+) -> None:
+    """The run ends with the scout standing on the find (D-327), and a work of
+    theirs waiting there goes on (D-209). The run is over, but its job is the
+    one being run -- still pending to whoever asks what the body is at -- and
+    must not be counted against it."""
+    async with factory() as session, session.begin():
+        sphere, camp, scout = await _camp(session, constants)
+        here = places.geo_of(camp)
+        assert here is not None
+        _, far = _reach(constants, catalog, camp)
+        aim = _step(constants, Planet.TERRA, here, far * 0.8, bearing=0.0)
+        point = explore.point_of(
+            constants, Planet.TERRA, explore.cell_of(constants, Planet.TERRA, aim)
+        )
+        shop = await world.create_node(
+            session,
+            f"terra.shop.{uuid.uuid4().hex[:6]}",
+            "Shop",
+            planet=Planet.TERRA,
+            area_m2=60,
+            parent=sphere,
+            properties=_pin(point),
+        )
+        await _forge(session, shop)
+        who = await session.get(Identity, scout.identity_id)
+        assert who is not None
+        await world.learn(session, who, NAILS)
+        await _give(session, scout, INGOT, 10)
+        #: The work was begun at the shop and left there; the scout sets out
+        #: from the camp. Moved by hand: the road between is not the point.
+        scout.node_id = shop.id
+        await session.flush()
+        batch = await craft.start(session, constants, catalog, scout, NAILS, 2)
+        assert await craft.freeze(session, scout) is batch
+        scout.node_id = camp.id
+        await session.flush()
+        run = await explore.survey(session, constants, scout, point)
+        #: Out in the field the work reads as left behind, though the engine
+        #: keeps the scout in the camp until the run ends (D-327).
+        (seen,) = await _batches(session, scout.identity_id)
+        assert seen["waiting"] == "away"
+        term, scout_id, shop_id, batch_id = run.run_at, scout.id, shop.id, batch.id
+
+    await jobs.run_due(factory, limit=10, now=term)
+
+    async with factory() as session:
+        back = await session.get(Body, scout_id)
+        assert back is not None and back.node_id == shop_id, "the run found the shop"
+        taken = await session.get(CraftBatch, batch_id)
+        assert taken is not None and taken.state is BatchState.RUNNING
 
 
 async def test_the_queue_is_seen_through_orders(

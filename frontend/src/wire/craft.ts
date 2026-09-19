@@ -132,11 +132,12 @@ export type Batch = {
   station?: string;
   /**
    * Under way, or waiting (D-209): behind another work of yours (`queued`),
-   * frozen in another node (`away`), or here but with no free machine
-   * (`no_station`).
+   * frozen in another node or out in the field (`away`), here while your
+   * hands are at another occupation (`busy`, D-211), or here but with no free
+   * machine (`no_station`).
    */
   state: "running" | "waiting";
-  waiting?: "queued" | "away" | "no_station";
+  waiting?: "queued" | "away" | "busy" | "no_station";
   /** Where the work is: a frozen batch is waited for in its node. */
   node?: string;
   /** The current run's ends: the deadline bar shows a share, and a share needs a beginning. */

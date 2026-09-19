@@ -23,6 +23,7 @@ from src.engine import (
     craft,
     food,
     library,
+    occupation,
 )
 
 
@@ -147,6 +148,10 @@ async def _craft_invent(state: dict, db: AsyncSession, message: dict) -> dict:
 async def _craft_resume(state: dict, db: AsyncSession, message: dict) -> dict:
     """Go on with a waiting work by hand: the master is here and a machine is free (D-209)."""
     body = await _alive(state, db)
+    #: Taking a work up is starting it again (D-211), and `wake` gives no bench
+    #: to a master at another occupation: the hand hears what that is, rather
+    #: than that there is nothing to take up.
+    await occupation.require_free(db, body, besides=frozenset({occupation.CRAFT}))
     batch = await craft.wake(db, body)
     if batch is None:
         raise Refused(key="cmd-nothing-to-resume")

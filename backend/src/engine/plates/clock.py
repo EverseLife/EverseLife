@@ -192,6 +192,11 @@ async def erupted(session: AsyncSession, job: Job) -> None:
     #: convoy's leg landing out of a burning yard moves a cart the fire holds
     #: (`transport.follow`) -- after the fire's commit the move finds no row
     #: and the arrival fails whole, and its retry lands the carter on foot.
+    #: The second chance of a node's waiting masters (`craft.queue.woken`)
+    #: takes their bodies and then a machine each, in the order of their own
+    #: resume under `_alive`: whatever that resume crosses in the fire -- the
+    #: machine with its yard, the bodies after -- it crosses too. The bodies
+    #: it takes as the fire does, all at once in id order.
     #: And a batch starting at a machine of a shaken yard takes the stacks it
     #: draws on -- the yard's among them (D-315) -- and only then the machine
     #: (`craft.queue._hold_station`, D-351), while the fire takes the machine

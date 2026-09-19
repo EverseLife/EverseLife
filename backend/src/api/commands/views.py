@@ -32,6 +32,7 @@ from src.engine import (
     library,
     market,
     mining,
+    occupation,
     sheet,
     station,
     storage,
@@ -640,20 +641,37 @@ async def _batches(db: AsyncSession, identity_id: uuid.UUID) -> list[dict[str, A
             places[node.id] = node.name
 
     body = await _body(db, identity_id)
+    #: What else the hands are at, asked once and only for a work that could
+    #: go here: most looks show no such work.
+    busy: occupation.Doing | None = None
+    asked = False
     out: list[dict[str, Any]] = []
     for batch in rows:
         running = batch.state is BatchState.RUNNING
         #: Why a waiting batch is not moving -- the client says it in words:
-        #: behind another work of yours, frozen while you are away (on the
-        #: road, in the field, elsewhere), or no free machine here.
+        #: frozen while you are away (on the road, in the field, elsewhere),
+        #: behind another work of yours, waiting for your hands to be free of
+        #: another occupation (D-211), or no free machine here.
         if running:
             why = None
         elif body is None or not await craft.present(db, body, batch.node_id):
             why = "away"
         elif any(other.state is BatchState.RUNNING for other in rows):
+            #: A work of yours running rules out any other occupation: each
+            #: refuses to start beside the other (D-211).
             why = "queued"
         else:
-            why = "no_station"
+            if not asked:
+                busy = await occupation.current(db, body, besides=frozenset({occupation.CRAFT}))
+                asked = True
+            if busy is None:
+                why = "no_station"
+            #: A scout is in the field, whatever node the engine keeps them in
+            #: until the run ends (D-327): away from the bench.
+            elif busy.kind == occupation.SURVEY:
+                why = "away"
+            else:
+                why = "busy"
         out.append(
             {
                 "id": str(batch.id),
