@@ -315,7 +315,9 @@ async def _stand_on(
     await session.flush()
     if edge is not None:
         await road.tread(session, constants, edge.id, node_id=node.id)
-    await craft.wake(session, body, now=at)
+    #: The run is over, but its job is the one being run, still pending to
+    #: whoever asks what the body is at (`occupation`).
+    await craft.wake(session, body, now=at, besides=frozenset({occupation.SURVEY}))
 
 
 async def leg_of(session: AsyncSession, constants: Constants, body: Body) -> dict | None:

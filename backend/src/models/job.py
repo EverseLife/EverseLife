@@ -45,6 +45,11 @@ class JobKind(StrEnum):
     #: behind it, and a failed step retries alone.
     TICK_STEP = "world.step"
     CRAFT_BATCH = "craft.batch"
+    #: A machine came free in a node where somebody waits for one, and the
+    #: freeing transaction could not reach them (their row was held) or did not
+    #: try (a master walking away): the node's waiting masters get a second
+    #: chance after it commits (D-209, D-217, `craft.queue.woken`).
+    CRAFT_WAKE = "craft.wake"
     TRAVEL_LEG = "travel.leg"
     #: A scout is out (D-321): the cell becomes a node when the job fires.
     EXPLORE_SURVEY = "explore.survey"

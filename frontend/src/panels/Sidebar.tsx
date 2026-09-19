@@ -498,13 +498,17 @@ function Doings({ look, busy, act }: Props) {
         ? t("ui-side-batch-repair", { goods: goodsName(names, job.output) })
         : t("ui-side-batch-melt", { goods: goodsName(names, job.output) });
   //: A waiting batch says why in words (D-209): the reason decides what the
-  //: player does next -- wait, walk back, or free a machine.
+  //: player does next -- wait, walk back, finish another doing, or free a
+  //: machine. The other doing is named the way a greyed button names it
+  //: (D-211, `busyWith`).
   const why = (job: Batch) =>
     job.waiting === "queued"
       ? t("ui-side-batch-queued")
       : job.waiting === "away"
         ? t("ui-side-batch-away", { node: job.node ?? "?" })
-        : t("ui-side-batch-no-station");
+        : job.waiting === "busy"
+          ? (busyWith(look, [CRAFT], false) ?? t("ui-side-batch-no-station"))
+          : t("ui-side-batch-no-station");
   const left = (job: Batch) =>
     job.left_seconds == null
       ? ""

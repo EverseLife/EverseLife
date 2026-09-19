@@ -40,8 +40,12 @@ export const LAND_WORKS = [BUILD, DEMOLISH, PAVING];
  * `besides` names the kinds that do not count for this button -- the occupation
  * asking about itself: a second batch is a place in the queue rather than a
  * second work, and sleep is refused by nothing but another occupation.
+ *
+ * `timed` false leaves the deadline out, for a line that already carries a
+ * clock of its own -- a waiting batch's work left -- beside a doing whose
+ * deadline stands on its own bar in the same list.
  */
-export function busyWith(look: Look, besides: string[] = []): string | null {
+export function busyWith(look: Look, besides: string[] = [], timed = true): string | null {
   const doing = (look.doings ?? []).find((d) => !besides.includes(d.kind));
   if (!doing) return null;
   //: The deadline is said as a distance -- "через 12 мин" -- not as a stamp:
@@ -50,7 +54,7 @@ export function busyWith(look: Look, besides: string[] = []): string | null {
   //: `doing.what` arrives already rendered, in the language of whoever is
   //: reading: the engine names the occupation and its own `i18n` writes it out
   //: (`api/commands/look`). Only the wrapper around it is ours.
-  return doing.until
+  return timed && doing.until
     ? t("ui-busy-what-until", { what: doing.what, when: when(doing.until) })
     : t("ui-busy-what", { what: doing.what });
 }
