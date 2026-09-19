@@ -61,7 +61,8 @@ async def begin(
     from this stamp -- when the hold is swept rather than released -- is
     the pair's line, not one half a unit off it.
     """
-    found = await state_at(session, constants, other, now=now)
+    #: Flown, not read: the pair's stamp is written from it (D-354).
+    found = await state_at(session, constants, other, now=now, exact=True)
     if found is not None:
         r, v = found[0], found[1]
     _write_state(ship, r, v, at=now)
@@ -112,7 +113,7 @@ async def release_holders(
         .all()
     )
     for holder in holders:
-        found = await state_at(session, constants, holder, now=now)
+        found = await state_at(session, constants, holder, now=now, exact=True)
         holder.held_ship_id = None
         if found is None:  # pragma: no cover -- a hold is a state
             continue

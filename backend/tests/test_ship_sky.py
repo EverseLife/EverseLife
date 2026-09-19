@@ -14,6 +14,7 @@ hull burn once.
 from __future__ import annotations
 
 import asyncio
+import math
 from datetime import UTC, datetime, timedelta
 
 import numpy as np
@@ -469,3 +470,135 @@ async def test_a_hull_under_an_order_is_lost_past_the_edge_of_the_system(
     assert vessel.forecast["kind"] == sky.ESCAPE, "не падение, а уход"
     assert vessel.forecast["body"] is None, "и называть нечего"
     assert (await session.get(Body, owner.id)).died_at is not None, "экипаж погиб"
+
+
+async def _coasting_over_terra(
+    session: AsyncSession, constants: Constants, catalog: Catalog, *, pyroxis: bool = False
+) -> tuple[Ship, sky.System, sky.Body]:
+    """A hull off the mooring and coasting where the parking circle put it:
+    what every hull at a planet becomes once the orbital node is gone."""
+    home = await _port(session, name="Космодром столицы")
+    if pyroxis:
+        await _orbit(session, Planet.PYROXIS)
+    _, owner = await _shipwright(session, home)
+    vessel = await _laid(session, constants, owner, home)
+    await _flightworthy(session, constants, catalog, vessel)
+    connector = await session.get(Node, vessel.connector_node_id)
+    await _fuel(session, connector, 3000)
+    owner.node_id = connector.id
+    await session.flush()
+    await _in_orbit(session, constants, catalog, owner, vessel)
+    found = await sim.state_at(session, constants, vessel, now=vessel.sky_at)
+    assert found is not None
+    vessel.docked_node_id = None
+    vessel.park_phase = None
+    sim._write_state(vessel, found[0], found[1], at=vessel.sky_at)
+    await session.flush()
+    world = await sim.system(session, constants)
+    return vessel, world, world.body(Planet.TERRA.value)
+
+
+async def test_a_drifter_on_a_planets_circle_keeps_to_it_through_the_restamps(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A hull coasting on Terra's circle with nothing burning stays on it
+    (D-354): twelve days of restamps under the whole sky, the forecast
+    stable all the way, no loss booked.
+
+    Before the tide (`sky.field.pull`) this hull was a fifth to nine tenths
+    off its circle within these days, and in the ground in four to twelve of
+    them by where Pyroxis stood, while every forecast along the way said
+    "stable": Pyroxis pulled it and not Terra, and the restamps flew exactly
+    that. Between two restamps the reading is Kepler's, and it reads what
+    the next restamp flies.
+    """
+    #: Pyroxis in the sky: the world that pulled the hull off Terra's circle.
+    #: Without it the test world is Terra alone and there is nothing to pull.
+    vessel, world, terra = await _coasting_over_terra(session, constants, catalog, pyroxis=True)
+    start = vessel.sky_at
+    park = sky.park_of(world, terra)
+
+    async def gap(r: tuple[float, float], at: datetime) -> float:
+        p, _ = sky.place(terra, await ship.sky_days(session, at))
+        return float(np.hypot(r[0] - p[0, 0], r[1] - p[0, 1]))
+
+    stale = timedelta(hours=float(constants[R.ORBIT_RESTAMP_HOURS]))
+    moment = start
+    for _ in range(12 * 4):
+        read = await sim.state_at(session, constants, vessel, now=moment + stale)
+        moment += stale
+        await helm.tick_sky(session, constants, catalog, now=moment)
+        await session.refresh(vessel)
+        assert vessel.sky_at == moment, "дрейфующий корпус не переставлен тиком"
+        flown = (float(vessel.sky_x), float(vessel.sky_y))
+        assert await gap(flown, moment) == pytest.approx(park, rel=0.01)
+        assert read is not None
+        assert float(np.hypot(read[0][0] - flown[0], read[0][1] - flown[1])) < 0.01 * park
+    assert vessel.lost_at is None and vessel.forecast["kind"] == sky.STABLE
+    assert not await _loss_jobs(session)
+
+
+async def test_a_hull_on_a_close_circle_is_read_by_kepler_between_restamps(
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Between two restamps a hull on Terra's circle is placed by Kepler, one
+    at a time and in the sighting's batch alike -- no integrator step is
+    taken (D-354). A restamp still flies it."""
+    vessel, _, _ = await _coasting_over_terra(session, constants, catalog)
+    later = vessel.sky_at + timedelta(hours=3)
+    flown = await sim.state_at(session, constants, vessel, now=later, exact=True)
+
+    def no_steps(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("прочтено интегратором, а не Кеплером")
+
+    monkeypatch.setattr(sim.sky, "advance", no_steps)
+    read = await sim.state_at(session, constants, vessel, now=later)
+    table = await sim.states_at(session, constants, [vessel], now=later)
+    assert read is not None and flown is not None
+    assert read[0] == pytest.approx(table[vessel.id][0])
+    #: And what it reads is what the integrator would have flown.
+    world = await sim.system(session, constants)
+    assert math.hypot(read[0][0] - flown[0][0], read[0][1] - flown[0][1]) < (
+        0.01 * world.dock_radius
+    )
+
+
+async def test_a_restamp_that_meets_the_ground_loses_the_hull(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A coast that comes down between two restamps is lost where it came
+    down (D-354), not flown through the planet and found on its far side;
+    and one whose coast has turned into a fall has its hour booked at the
+    restamp that sees it, though the forecast it carried said "stable"."""
+    vessel, world, terra = await _coasting_over_terra(session, constants, catalog)
+    #: At rest beside Terra a unit and a half out: it falls, and meets the
+    #: ground in about ten hours -- after the first restamp, before the second.
+    start = vessel.sky_at
+    t = await ship.sky_days(session, start)
+    p, vp = sky.place(terra, t)
+    sim._write_state(
+        vessel,
+        (float(p[0, 0]) + 1.5, float(p[0, 1])),
+        (float(vp[0, 0]), float(vp[0, 1])),
+        at=start,
+    )
+    #: A stale word from before: the coast used to be a stable one.
+    vessel.forecast = {"kind": sky.STABLE, "since": start.isoformat()}
+    await session.flush()
+    stale = timedelta(hours=float(constants[R.ORBIT_RESTAMP_HOURS]))
+
+    await helm.tick_sky(session, constants, catalog, now=start + stale)
+    await session.refresh(vessel)
+    assert vessel.lost_at is None
+    assert vessel.forecast["kind"] == sky.CRASH and vessel.forecast["body"] == "terra"
+    assert len(await _loss_jobs(session)) == 1, "падение записано заданием"
+
+    report = await helm.tick_sky(session, constants, catalog, now=start + 2 * stale)
+    await session.refresh(vessel)
+    assert report["struck"] == 1
+    assert vessel.lost_at is not None and start + stale < vessel.lost_at < start + 2 * stale
+    lost = await _events(session, EventKind.SHIP_LOST)
+    assert len(lost) == 1 and lost[0].payload["body"] == "terra"

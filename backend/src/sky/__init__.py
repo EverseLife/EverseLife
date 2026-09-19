@@ -4,10 +4,13 @@
 """The sky, simulated (D-289).
 
 Five bodies pull a hull all the way: the star and the four planets on the
-circles the seed laid. A hull in space is a state -- a place, a speed, the
-moment they were true -- flown by an integrator; a hull moored to a planet's
-orbital node runs on an analytic parking circle and is not integrated at
-all. The autopilot plans a passage with a Lambert arc and flies it by
+circles the seed laid -- and inside a planet's inner sphere the other three
+pull it as a tide, the way they would pull the planet with it (D-354). A
+hull in space is a state -- a place, a speed, the moment they were true --
+flown by an integrator; a hull moored to a planet's orbital node runs on an
+analytic parking circle, and a hull that burns nothing on a closed orbit
+close round a planet is read by Kepler between the restamps that fly it
+(D-354). The autopilot plans a passage with a Lambert arc and flies it by
 re-solving the arc every step from where the hull actually is; the tanks pay
 as the engines burn, and when they run dry the hull coasts -- for as long as
 it takes somebody to bring it fuel, or until the coast ends on a body or out
@@ -19,6 +22,7 @@ and the journal.
 
     _base     -- the system of bodies and the parking circle
     field     -- the pull and the Runge-Kutta integrator, batched
+    bound     -- a hull on a closed orbit round a planet, flown by Kepler
     plan      -- the slider's preview: two-body arcs, priced at both ends
     guide     -- the helm's burn for one step, and the capture
     forecast  -- where inertia leads, and when
@@ -31,6 +35,9 @@ and the journal.
 
 from src.sky._base import (  # noqa: F401
     DV_EPS,
+    GROUND_MARGIN,
+    INNER_SHARE,
+    STABLE_SHARE,
     STAR,
     TIME_EPS,
     Body,
@@ -44,6 +51,7 @@ from src.sky._base import (  # noqa: F401
     circle_of,
     circle_rate,
     circle_speed,
+    hill_of,
     park_of,
     parking,
     place,
@@ -53,6 +61,7 @@ from src.sky._base import (  # noqa: F401
     system_of,
 )
 from src.sky.assist import Leg, Route, correct, steer_pass  # noqa: F401
+from src.sky.bound import Bound, bound_states, bound_to, kepler_reads  # noqa: F401
 from src.sky.choice import choices  # noqa: F401
 from src.sky.field import advance, pull, sample  # noqa: F401
 from src.sky.forecast import (  # noqa: F401

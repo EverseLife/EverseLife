@@ -14,15 +14,45 @@ rows is near Terra would make the slider unusable.
 The step is bounded by the orbital time scale of the nearest body:
 `sqrt(d^3 / mu)` is the period over two pi, and a twentieth of it keeps
 Runge-Kutta honest on a circle (the test pins the energy drift).
+
+## Near a planet the other worlds pull as a tide
+
+The planets ride the circles the seed laid and do not feel one another; a
+hull feels all five bodies. Far out that is the whole truth -- the star
+stands still and the planets are where they are. Near a planet it is not:
+Pyroxis pulls a hull circling Terra and does not pull Terra, and that nearly
+steady outside push swings the circle into an ellipse that meets the ground
+in four to twelve days by where Pyroxis stands, and in more than two weeks
+at a few of its places (measured 2026-09-18, D-354). In the world the planet
+would fall toward Pyroxis together with the hull, and only the difference of
+the two pulls -- the tide -- would be left between them.
+
+So inside a planet's inner sphere every other world's pull on the hull is
+taken less its pull on that planet, exactly what the planet would feel if it
+were free; from the sphere's edge to the Hill radius the correction fades
+smoothly, and beyond it the hull feels the full pulls again, which is what
+an interplanetary arc must feel. The star needs no such care: it is the
+still centre the circles are laid round, and the circles obey it.
 """
 
 from __future__ import annotations
 
+import functools
 from collections.abc import Callable
 
 import numpy as np
 
-from src.sky._base import Body, Rows, System, angle_of, norms, place
+from src.sky._base import (
+    INNER_SHARE,
+    Body,
+    Rows,
+    System,
+    angle_of,
+    hill_of,
+    norms,
+    place,
+    turned,
+)
 
 #: How much of the nearest body's orbital time scale one step may take.
 STEP_SHARE = 0.05
@@ -35,19 +65,65 @@ _TINY = 1e-9
 
 
 def pull(system: System, t: np.ndarray, r: Rows) -> Rows:
-    """The acceleration of every row at its own time: the star and the planets."""
-    x, y = r[:, 0], r[:, 1]
-    square = np.maximum(x * x + y * y, _TINY * _TINY)
-    weight = system.mu / (square * np.sqrt(square))
-    ax = -weight * x
-    ay = -weight * y
-    for body in system.bodies:
-        dx, dy = _offset(body, t, x, y)
-        square = np.maximum(dx * dx + dy * dy, _TINY * _TINY)
-        weight = body.mu / (square * np.sqrt(square))
-        ax -= weight * dx
-        ay -= weight * dy
-    return np.stack([ax, ay], axis=1)
+    """The acceleration of every row at its own time: the star and the planets,
+    the other worlds as a tide inside a planet's inner sphere.
+
+    The planets are taken all at once, `(bodies, rows)`, and the plane as
+    complex numbers: the integrator asks this four times a step, and on the
+    small batches it flies the count of array operations is what a step
+    costs. Measured against the pull before the tide: one row near a planet
+    costs the same, forty rows near one about two fifths more, and a row in
+    the deep a third less.
+    """
+    z = r[:, 0] + 1j * r[:, 1]
+    square = np.maximum(z.real * z.real + z.imag * z.imag, _TINY * _TINY)
+    accel = -system.mu / (square * np.sqrt(square)) * z
+    if not system.bodies:
+        return np.stack([accel.real, accel.imag], axis=1)
+    mu, hill, radius, phase, period = _columns(system)
+    when = np.broadcast_to(np.asarray(t, dtype=float), z.shape)
+    centre = radius * np.exp(1j * turned(phase, period, when))
+    off = z - centre
+    square = np.maximum(off.real * off.real + off.imag * off.imag, _TINY * _TINY)
+    accel -= np.sum(mu / (square * np.sqrt(square)) * off, axis=0)
+    #: The tide: each other world's pull on the host planet given back, as
+    #: much as the row is in that planet's inner sphere. The Hill spheres of
+    #: two worlds never overlap (their circles lie far wider apart than their
+    #: Hill radii), so a row has one host at most; a row in none gets nought.
+    inside = square < hill * hill
+    if len(system.bodies) < 2 or not inside.any():
+        return np.stack([accel.real, accel.imag], axis=1)
+    rows = np.arange(z.shape[0])
+    host = np.argmax(inside, axis=0)
+    outer = hill[host, 0]
+    u = np.clip((outer - np.sqrt(square[host, rows])) / ((1.0 - INNER_SHARE) * outer), 0.0, 1.0)
+    share = np.where(inside[host, rows], u * u * (3.0 - 2.0 * u), 0.0)
+    apart = centre[host, rows] - centre
+    gap = np.maximum(apart.real * apart.real + apart.imag * apart.imag, _TINY * _TINY)
+    weight = mu / (gap * np.sqrt(gap))
+    #: A world does not pull itself: the host's own entry is nought.
+    weight[host, rows] = 0.0
+    accel += share * np.sum(weight * apart, axis=0)
+    return np.stack([accel.real, accel.imag], axis=1)
+
+
+@functools.lru_cache(maxsize=8)
+def _columns(system: System) -> tuple[np.ndarray, ...]:
+    """Each planet's pull, Hill radius, circle's radius, phase and year as a
+    column, `(bodies, 1)`: read once per system rather than four times a step."""
+    columns = tuple(
+        np.array([[value] for value in values], dtype=float)
+        for values in (
+            [body.mu for body in system.bodies],
+            [hill_of(system, body) for body in system.bodies],
+            [body.orbit[0] for body in system.bodies],
+            [body.orbit[2] for body in system.bodies],
+            [body.orbit[1] for body in system.bodies],
+        )
+    )
+    for column in columns:
+        column.setflags(write=False)
+    return columns
 
 
 def time_scale(system: System, t: np.ndarray, r: Rows) -> np.ndarray:

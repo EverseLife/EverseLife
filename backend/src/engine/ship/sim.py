@@ -14,7 +14,10 @@ the helm re-solves the passage from where the hull actually is and burns
 what the thrust allows, the tanks paying as the engines go. Adrift -- dry,
 with no order -- it coasts: the state is propagated on reading and its stamp
 moved along every `orbit.restamp_hours`, and the forecast's hour for its
-end is a job in the journal.
+end is a job in the journal. A coast on a closed orbit close round a
+planet is read by Kepler round it between restamps (D-354); every stamp is
+written from the whole sky, so what the star's tide does to an orbit over
+weeks is the integrator's to say.
 
 **What a tick costs.** Only hulls under an order are stepped every minute;
 a coasting hull costs a step every few hours, a moored one nothing. The
@@ -99,13 +102,24 @@ def _stamp(moment: datetime) -> str:
 
 
 async def state_at(
-    session: AsyncSession, constants: Constants, ship: Ship, *, now: datetime
+    session: AsyncSession,
+    constants: Constants,
+    ship: Ship,
+    *,
+    now: datetime,
+    exact: bool = False,
 ) -> tuple[tuple[float, float], tuple[float, float], float] | None:
     """The hull's place and speed at `now`, and the sky day of it -- or nothing
     for a hull that is not in the sky at all (at a spaceport, on a climb).
 
     A read: the circle is arithmetic, the coast is propagated from the
-    stamp, and neither is written back here.
+    stamp, and neither is written back here. A coast on a closed orbit close
+    round a planet is read by Kepler round it (`sky.kepler_reads`, D-354):
+    between two restamps the tides Kepler leaves out move it by under a
+    hundredth of the distance two hulls meet at -- and further, in step with
+    the stamp's age, if the tick falls behind. `exact` is for whoever writes
+    a stamp from the state -- the restamp, an order, a hold, a loss: it flies
+    the whole sky, so no stamp is ever a Kepler reading.
     """
     if ship.sky_at is None or ship.lost_at is not None:
         return None
@@ -115,7 +129,7 @@ async def state_at(
     if ship.held_ship_id is not None:
         other = await session.get(Ship, ship.held_ship_id)
         if other is not None and other.lost_at is None and other.held_ship_id is None:
-            return await state_at(session, constants, other, now=now)
+            return await state_at(session, constants, other, now=now, exact=exact)
     world = await system(session, constants)
     t = await sky_days(session, now)
     if ship.docked_node_id is not None:
@@ -138,6 +152,10 @@ async def state_at(
     t0 = await sky_days(session, ship.sky_at)
     if t <= t0:
         return r0, v0, t0
+    held = None if exact else sky.bound_to(world, t0, r0, v0)
+    if held is not None and sky.kepler_reads(world, held, _window(constants)):
+        r, v = sky.bound_states([held], t)
+        return _row(r), _row(v), t
     step = float(constants[R.ORBIT_PLAN_STEP_MINUTES]) / MINUTES_PER_HOUR / HOURS_PER_DAY
     r, v = sky.advance(
         world, np.array([t0]), np.array([t]), np.array([r0]), np.array([v0]), dt_max=step
@@ -181,8 +199,9 @@ async def states_at(
     session: AsyncSession, constants: Constants, ships: Sequence[Ship], *, now: datetime
 ) -> dict[uuid.UUID, tuple[tuple[float, float], tuple[float, float]]]:
     """Where every one of `ships` is at `now`, in one pass: the moored on
-    their circles, the coasting flown from their stamps as one batch of the
-    integrator, the held at their references. What the sighting and the
+    their circles, the bound on their orbits, the rest of the coasting flown
+    from their stamps as one batch of the integrator, the held at their
+    references. What the sighting and the
     console's list of others read -- one propagation per hull per tick, not
     one per pair.
     """
@@ -199,19 +218,40 @@ async def states_at(
                 found[one.id] = (state[0], state[1])
             continue
         coasting.append(one)
-    if coasting:
+    #: On a closed orbit round a planet by Kepler, the rest through the
+    #: integrator as one batch (D-354) -- the same split `state_at` makes.
+    free: list[tuple[Ship, float]] = []
+    held: list[tuple[Ship, sky.Bound]] = []
+    for one in coasting:
+        start = await sky_days(session, one.sky_at)
+        r0, v0 = _state_of(one)
+        orbit = sky.bound_to(world, start, r0, v0) if t > start else None
+        if orbit is None or not sky.kepler_reads(world, orbit, _window(constants)):
+            free.append((one, start))
+        else:
+            held.append((one, orbit))
+    if held:
+        rr, vv = sky.bound_states([orbit for _, orbit in held], t)
+        for (one, _), r, v in zip(held, rr, vv, strict=True):
+            found[one.id] = ((float(r[0]), float(r[1])), (float(v[0]), float(v[1])))
+    if free:
         step = float(constants[R.ORBIT_PLAN_STEP_MINUTES]) / MINUTES_PER_HOUR / HOURS_PER_DAY
-        starts = np.array([await sky_days(session, one.sky_at) for one in coasting])
-        r0 = np.array([_state_of(one)[0] for one in coasting], dtype=float)
-        v0 = np.array([_state_of(one)[1] for one in coasting], dtype=float)
+        starts = np.array([start for _, start in free])
+        r0s = np.array([_state_of(one)[0] for one, _ in free], dtype=float)
+        v0s = np.array([_state_of(one)[1] for one, _ in free], dtype=float)
         #: Never backwards: a stamp ahead of the clock is read as it stands.
-        rr, vv = sky.advance(world, starts, np.maximum(starts, t), r0, v0, dt_max=step)
-        for one, r, v in zip(coasting, rr, vv, strict=True):
+        rr, vv = sky.advance(world, starts, np.maximum(starts, t), r0s, v0s, dt_max=step)
+        for (one, _), r, v in zip(free, rr, vv, strict=True):
             found[one.id] = ((float(r[0]), float(r[1])), (float(v[0]), float(v[1])))
     for one in ships:
         if one.held_ship_id is not None and one.held_ship_id in found:
             found[one.id] = found[one.held_ship_id]
     return found
+
+
+def _window(constants: Constants) -> float:
+    """How long a stamp is read before the tick flies it on, sky days."""
+    return float(constants[R.ORBIT_RESTAMP_HOURS]) / HOURS_PER_DAY
 
 
 def _state_of(ship: Ship) -> tuple[tuple[float, float], tuple[float, float]]:
@@ -335,7 +375,8 @@ async def circle(
     and written onto the row. The helm flies it (`guide._circle`) and the
     tanks pay as it burns; refused only for a burn the tanks cannot pay for
     whole. Whatever order the hull was under is dropped for this one."""
-    found = await state_at(session, constants, ship, now=now)
+    #: Flown, not read: the order is written from this state (D-354).
+    found = await state_at(session, constants, ship, now=now, exact=True)
     if found is None:  # pragma: no cover -- the caller asks for a hull in the sky
         raise NoArc(key="ship-no-arc", hours=0)
     r, v, _ = found
@@ -402,7 +443,8 @@ async def depart(
     #: the deep has none.
     goal = None if isinstance(target, Ship) else world.body(target.planet.value)
     hours = plan.hours
-    found = await state_at(session, constants, ship, now=now)
+    #: Flown, not read: the order is written from this state (D-354).
+    found = await state_at(session, constants, ship, now=now, exact=True)
     if found is None:  # pragma: no cover -- the slider answered, so the hull is in the sky
         raise NoArc(key="ship-no-arc", hours=round(hours, ROUND_HOURS))
     r, v, t = found

@@ -50,7 +50,6 @@ from src.engine.ship.sim import (
     fuel_for_dv,
     meetable,
     moor,
-    state_at,
     states_at,
     system,
 )
@@ -125,7 +124,9 @@ async def tick_sky(
             held += done == "held"
             circled += done == "circled"
         elif moment - ship.sky_at >= stale:
-            await _restamp(session, constants, world, ship, now=moment)
+            if await _restamp(session, constants, world, ship, now=moment):
+                struck += 1
+                continue
         else:
             continue
         if done != "struck":
@@ -154,7 +155,8 @@ async def tick_sky(
         "adrift": adrift + released,
         "held": held,
         "circled": circled,
-        #: Hulls the ground took while they were under an order (OQ-120).
+        #: Hulls the ground took under an order (OQ-120) or on a coast
+        #: between two restamps (D-354).
         "struck": struck,
         "fuel": round(fuel, ROUND_MASS),
     }
@@ -701,13 +703,38 @@ def _moment_of(now: datetime, t1: float, t: float) -> datetime:
 
 async def _restamp(
     session: AsyncSession, constants: Constants, world: sky.System, ship: Ship, *, now: datetime
-) -> None:
-    """Move a coasting hull's stamp along, so a reading never propagates weeks."""
-    found = await state_at(session, constants, ship, now=now)
-    if found is None:  # pragma: no cover -- the tick selected a hull in the sky
-        return
-    r, v, t = found
+) -> bool:
+    """Move a coasting hull's stamp along, so a reading never propagates weeks.
+    Flown under the whole sky, not read by Kepler: the stamp is the truth the
+    readings until the next restamp are drawn from (D-354). Returns whether
+    the coast ended on the way."""
+    t0 = await sky_days(session, ship.sky_at)
+    t1 = await sky_days(session, now)
+    r0, v0 = _state_of(ship)
+    step = float(constants[R.ORBIT_PLAN_STEP_MINUTES]) / MINUTES_PER_HOUR / HOURS_PER_DAY
+    #: Watched like any stretch (OQ-120): a coast that meets the ground
+    #: between two restamps is a hull lost there, not one flown through the
+    #: planet and found on its far side.
+    #: Off the loop, as the forecast is (`fate.fate_of`): hours of steps
+    #: near a planet, with the ground asked at every one of them.
+    r, v, t, hit, left = await asyncio.to_thread(
+        sky.coast_to, world, t0, max(t0, t1), r0, v0, dt_max=step
+    )
+    if hit is not None or left:
+        stamp = _moment_of(now, t1, t)
+        _write_state(ship, r, v, at=stamp)
+        await fate.strike(session, constants, ship, now=stamp, t=t, r=r, body=hit, gone=left)
+        return True
+    was = (ship.forecast or {}).get("kind")
     _write_state(ship, r, v, at=now)
     #: And the coast ahead, from the new stamp: what the console and the map
-    #: read as the drifter's line and verdict.
-    _keep_forecast(ship, await fate.fate_of(session, constants, world, t, r, v), now=now, t=t)
+    #: read as the drifter's line and verdict. A coast that was stable and is
+    #: not any more -- a wide ellipse the star's tide has pumped toward the
+    #: ground -- has its hour booked here; one already booked keeps the job
+    #: it has, which books itself again at its hour if the hour moved
+    #: (`fate.lost`).
+    verdict = await fate.fate_of(session, constants, world, t1, r, v)
+    if verdict.kind != sky.STABLE and was in (None, sky.STABLE):
+        await fate.book_loss(session, constants, ship, world, now=now, t=t1, r=r, v=v, fate=verdict)
+    _keep_forecast(ship, verdict, now=now, t=t1)
+    return False
