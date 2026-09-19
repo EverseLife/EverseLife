@@ -33,7 +33,7 @@ from src.models.city import City
 from src.models.identity import Body
 from src.models.ship import Ship
 from src.models.snapshot import MapSnapshot
-from src.models.world import Edge, Layer, Node
+from src.models.world import Edge, Layer, Node, only_covered
 
 
 class CityMark(NamedTuple):
@@ -143,8 +143,8 @@ def node_row(
         #: (`model.drawnAt`).
         if mark.core is not None and mark.core != node.key:
             row["core"] = mark.core
-    #: The city on whose land the node stands, by the key of the city's own
-    #: node (D-332) -- sent only where the client could not tell (D-225): a
+    #: The city whose line the node draws, by the key of the city's own node
+    #: (D-332, D-356) -- sent only where the client could not tell (D-225): a
     #: plot hanging under its city is the city's by its `parent` already; a
     #: find taken in by a highway still hangs under the planet, and its city
     #: is on no row but this. The outline of the city is drawn round it.
@@ -161,14 +161,21 @@ def homes_of(marks: dict[uuid.UUID, CityMark]) -> dict[uuid.UUID, uuid.UUID]:
 def territory_key(
     node: Node, homes: dict[uuid.UUID, uuid.UUID], by_key: dict[uuid.UUID, str]
 ) -> str | None:
-    """The key of the node the owning city stands on, for a node a city owns.
+    """The key of the node the owning city stands on, for a node that draws
+    the city's line.
 
     Nothing for the city's own node: the delegate owns itself from founding
     (`founding.establish`, the seed), and a row naming its own key as its
     territory would say what the key beside it says (D-225) -- and the
     client, taking the word, would count the city's node twice.
+
+    Nothing for a covered plot nobody holds either (D-356): it is the city's
+    because the line covers it, and it does not draw the line (`city.cover`).
+    Named here, the client would lay a disc of its land into the field, and
+    the city would creep outward by its own finds. The map does not need the
+    word: the node lies within the line it draws.
     """
-    if node.owner_city_id is None:
+    if node.owner_city_id is None or only_covered(node):
         return None
     home = homes.get(node.owner_city_id)
     return None if home is None or home == node.id else by_key.get(home)

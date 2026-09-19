@@ -52,6 +52,7 @@ from src.db.base import forget
 from src.engine import (
     automat,
     events,
+    facet,
     farm,
     liquid,
     station,
@@ -420,9 +421,10 @@ async def _stand(
         EventKind.AGRO_STALLED,
         actor_identity_id=row.owner_identity_id,
         node_id=row.node_id,
-        node=None if node is None else node.name,
         machine=str(row.item_id),
         trouble=trouble,
+        #: A field on a find names no place by its name: it has none (D-321).
+        **({} if node is None else facet.told_of(constants, node)),
     )
 
 

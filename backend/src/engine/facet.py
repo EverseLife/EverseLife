@@ -253,6 +253,35 @@ def of_node_id(node: Node) -> str | None:
     return str(written) if written else None
 
 
+def told_of(constants: Constants, node: Node) -> dict[str, str]:
+    """How a line of the journal names a node: `{"node": <its name>}`, or --
+    a nameless find (D-321) -- the keys of its ground, `facet` and `biome`,
+    each where the node has one.
+
+    Not `biome.word_of`: that is the vault's word, in the vault's language,
+    and a journal line is not a sentence the server finishes for one
+    listener. It is read later, in the return digest, in whatever language
+    the reader has chosen -- and an English reader got the line in English
+    and the place after it in Russian. So the line keeps the keys and the
+    window names the find off `/public/renames` (D-251), by the rule it
+    names it by on the map (`nodeWord`): the face first, the biome failing
+    it -- six finds on one shore are a beach, a spit and a shelf, not six
+    shores. A name goes as it is: a player's is the same in every language,
+    and the names the vault seeds are in one language for now -- a debt of
+    their own, not this line's.
+
+    Nothing at all for a nameless node with no ground under it: `word_of`
+    falls back to the key there, and a key in a line is a broken line.
+    Here rather than beside `word_of`: the face is this module's, and this
+    module reads the biome, not the other way round.
+    """
+    if node.name:
+        return {"node": node.name}
+    here = biome.of_node(constants, node)
+    face = of_node_id(node)
+    return {**({biome.BIOME: here} if here else {}), **({FACET: face} if face else {})}
+
+
 def marks(constants: Constants, here: str, facet: Facet | None) -> dict[str, float]:
     """The shares of woods, stones and meadow of a place: the facet's own
     where it has them, the biome's otherwise (per cent)."""

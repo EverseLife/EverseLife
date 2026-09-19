@@ -48,10 +48,10 @@ import { Inspector } from "./map/Inspector";
 import { NodeMenu } from "./map/NodeMenu";
 import { Edges, Nodes, Outlines, Stubs } from "./map/Nodes";
 import { ScoutLayer, ScoutPanel, ScoutRun } from "./map/ScoutLayer";
-import { cityOutlines } from "./map/territory";
+import { useCityOutlines } from "./map/useCityOutlines";
 import { useHand } from "./map/hand";
 import { flatten, oneEach, withCityScene } from "./map/geo";
-import { placeAt, projectAll, UNITS_PER_METRE } from "./map/globe";
+import { placeAt, projectAll } from "./map/globe";
 import { firstOnGlobe, needsTurn } from "./map/follow";
 import { useClimateView } from "./map/useClimateView";
 import { YearClock } from "./map/Year";
@@ -516,24 +516,7 @@ export function GraphMap({
     for (const node of map?.nodes ?? []) if (node.parent) out.add(node.parent);
     return out;
   }, [map]);
-  /** The outlines of the cities, in degrees: once per map, projected as
-   *  the globe turns. */
-  //: The shown planet's cities and no others. The public map carries every
-  //: planet's surface, and an outline is projected by the eye and radius of
-  //: the one under it -- so Aurora's towns, drawn by Terra's globe, landed
-  //: as blots on Terra. The nodes are already filtered this way (`visible`);
-  //: their outlines were not.
-  const outlines = useMemo(
-    () =>
-      radius && sphereShown
-        ? cityOutlines(
-            (map?.nodes ?? []).filter((node) => node.planet === sphereShown),
-            radius / UNITS_PER_METRE,
-            map?.edges ?? [],
-          )
-        : new Map(),
-    [map, radius, sphereShown],
-  );
+  const outlines = useCityOutlines(map, radius, sphereShown, book?.constants);
   /** How many nodes hang under each: a closed city is drawn as large as it
    *  is, so a town and the capital are told apart from afar. */
   const sizes = useMemo(() => {

@@ -506,7 +506,10 @@ async def test_a_highway_from_the_city_takes_the_far_node_into_it(
     """
     city, core = await _capital(session, catalog)
     stamp = uuid.uuid4().hex[:8]
-    find = await world.create_node(session, f"terra.find.{stamp}", "", area_m2=100)
+    #: A find as a run leaves it: no name, its kind written on it (D-321).
+    find = await world.create_node(
+        session, f"terra.find.{stamp}", "", area_m2=100, properties={biome.BIOME: biome.FOREST}
+    )
     assert await lookup.of_node(session, find) is None
     #: Somebody already standing on the find, who paved nothing.
     bystander = await world.create_identity(session, f"Стоящий-{stamp}")
@@ -542,7 +545,10 @@ async def test_a_highway_from_the_city_takes_the_far_node_into_it(
         )
     ).scalar_one()
     assert laid.actor_identity_id == crew.id
-    assert told[0].payload["node"] == biome.word_of(constants, find)
+    #: The find is named by the key of its kind, for the reader's window to
+    #: say in the reader's language -- not by the vault's Russian word.
+    assert told[0].payload["biome"] == biome.FOREST
+    assert "node" not in told[0].payload
     #: The digest: by actor to the crew, by place to the bystander.
     for reader in (crew, bystander):
         digest = await _world_summary({"identity_id": reader.id}, session, {})
@@ -550,7 +556,7 @@ async def test_a_highway_from_the_city_takes_the_far_node_into_it(
             line for line in digest["happened"] if line["kind"] == EventKind.LAND_ANNEXED.value
         ]
         assert len(lines) == 1, reader.name
-        assert lines[0]["payload"]["node"] == biome.word_of(constants, find)
+        assert lines[0]["payload"]["biome"] == biome.FOREST
 
     #: Paved from the far end: the crew stands on the find, the city is at
     #: the other end, and the find is taken in all the same.

@@ -99,6 +99,13 @@ async def seed(session: AsyncSession) -> Node:
         #: branches leave here measured, so a deploy that changes the map does
         #: not hand the first player a world the tick has yet to walk.
         await estate.measure_cities(session)
+        #: Whatever the cities' lines cover is theirs (D-356): the tick would
+        #: take it within a minute, and the deploy does not leave that minute
+        #: to the first player to stand on the oil field. Last, because the
+        #: deploy runs beside a live world and the line is the last thing a
+        #: transaction takes locks for (`city.cover`); what it takes is
+        #: measured by the next tick.
+        await town.cover_all(session, current())
         return existing
 
     constants = current()
@@ -211,7 +218,10 @@ async def seed(session: AsyncSession) -> Node:
     #: distance to the printer is a cache the tick fills, and the tick is not
     #: due the second the world is made. Last, because every road laid above
     #: empties what was measured (`estate.forget_distances`); the catch-up
-    #: branch above measures for the same reason.
+    #: branch above measures for the same reason. The lines first: what they
+    #: cover is city land, and city land is what gets measured (D-356). A world
+    #: being born has nobody else in it, so here the line need not go last.
+    await town.cover_all(session, constants)
     await estate.measure_cities(session)
 
     await tick.ensure_scheduled(session)

@@ -153,6 +153,14 @@ from src.engine.city.law import (  # noqa: F401
     set_charter,
     set_law,
 )
+from src.engine.city.line import (  # noqa: F401
+    cover,
+    cover_all,
+    cover_near,
+    cover_way,
+    frame_of,
+    of_the_forerunners,
+)
 from src.engine.city.lookup import (  # noqa: F401
     by_id,
     by_name,

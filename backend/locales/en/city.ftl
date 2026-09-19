@@ -20,6 +20,11 @@
 city-land-not-civic = this is not a city plot
 city-land-not-a-plot = “{ $node }” is not a plot to hand out but the city's own location: a city gives out plots, not itself
 city-land-taken = the plot is already someone's
+# A Forerunner ruin within a city's border is the city's land, not a plot (D-356).
+city-land-ruin = “{ $node }” is a Forerunner ruin, not a plot: the city does not hand it out
+# Only empty land is handed out (D-356): a find a paved way took or the border
+# covered may carry someone else's work, begun while the ground was wild.
+city-land-not-vacant = the plot is not empty: the city hands out only land with no building, equipment or vein on it, and with no work on it begun by anyone but the one it is given to
 city-land-dead = a dead body disposes of no plots
 city-land-cede-on-foot = a plot is handed over on foot: walk up to it
 city-land-not-yours = the plot is not yours: what you give the city is your own
@@ -202,7 +207,8 @@ estate-land-buy-on-foot = a plot is bought on foot: walk up to it
 estate-land-taken = the plot is already someone's
 estate-land-not-civic = this is not city land: outside a city it is neither sold nor claimed, yet anyone may work and build there
 estate-land-not-a-plot = “{ $node }” is not a plot for sale but the city's own location: a city sells plots, not itself
-estate-land-not-vacant = the node is not empty: the price list sells neither buildings nor the city's veins
+estate-land-ruin = “{ $node }” is a Forerunner ruin, not a plot: the city does not sell it
+estate-land-not-vacant = the plot is not empty: the city sells only land with no building, equipment, vein, or anyone else's work on it
 estate-land-city-missing = the node is attached to a city that does not exist
 estate-land-permit = “{ $city }” does not sell land to everyone: code-law “{ LAW($law) }” is “{ CHOICE($permit) }”. Join the citizens
 estate-land-too-dear = the plot costs { $price } ₭, and the account holds { $have } ₭

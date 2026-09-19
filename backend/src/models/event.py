@@ -225,6 +225,11 @@ class EventKind(StrEnum):
     #: A node taken into a city by the highway paved to it from the city's
     #: land (D-332): the city grows where it paves.
     LAND_ANNEXED = "land.annexed"
+    #: A nobody's node found inside a city's outline, and so the city's (D-356):
+    #: the land within the line is the city's, whoever paved to it or not.
+    LAND_COVERED = "land.covered"
+    #: The line drew back past a covered node nobody held: it is wild again.
+    LAND_UNCOVERED = "land.uncovered"
     #: A deed for a plot: issued, listed, sold (D-116).
     DEED_ISSUED = "deed.issued"
     DEED_OFFERED = "deed.offered"

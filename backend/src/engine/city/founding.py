@@ -42,6 +42,7 @@ from src.engine.city._base import (
 )
 from src.engine.city.citizen import AlreadyCitizen, _enrol_founder, citizenship
 from src.engine.city.land import _retire_deed, lay_ring
+from src.engine.city.line import cover
 from src.engine.city.lookup import by_name, by_node
 from src.engine.city.office import _office
 from src.engine.errors import Says
@@ -409,6 +410,9 @@ async def establish(
         name=title,
         founded_by_player=True,
     )
+    #: The city has a line from its first minute, and what it covers is the
+    #: city's (D-356): a find beside the founding node is inside the walls.
+    await cover(session, constants, city)
     return city
 
 
