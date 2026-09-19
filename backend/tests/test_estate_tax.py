@@ -145,35 +145,42 @@ async def test_the_day_of_tax_reaches_the_treasury(
     assert await town.treasury_balance(session, city) == in_treasury + owed
 
 
-async def test_the_planet_s_own_land_is_nobody_s_and_pays_nothing(
+async def test_land_beyond_every_city_pays_nothing_and_a_city_s_pays_wherever_it_hangs(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Land tax is charged on the built-up area, not on the planet (D-089, D-198).
+    """Land tax is charged on a city's land, not on the planet (D-089, D-198, D-356).
 
-    A scout's find beyond the walls is a node of the planet: the mine, the
+    A scout's find beyond every city is a node of the planet: the mine, the
     grove, the wild plot. Out there is no authority to tax it and no centre to
-    count the distance from. Checked with the plot made civic by hand, because
-    the rule must hold by itself and not because nothing out there happens to
-    carry a city today.
+    count the distance from -- checked with a holder written on by hand,
+    because the rule must hold by itself and not because nobody out there
+    happens to hold anything today.
+
+    A find a city holds -- taken by a highway (D-332) or lying within its line
+    (D-356) -- hangs on the planet all the same, and it is the city's land:
+    bought, it pays like a plot of the rings. Read by the built-up area alone,
+    it was land with a holder that no levy could reach.
     """
     city, _, near, _ = await _city(session, catalog)
     identity, _ = await _taxed_house(session, constants, catalog, where=near, city=city)
 
+    stamp = uuid.uuid4().hex[:8]
     wild = await world.create_node(
-        session,
-        f"terra.wild.{uuid.uuid4().hex[:8]}",
-        "Дикий участок",
-        area_m2=100,
-        layer=Layer.PLANET,
+        session, f"terra.wild.{stamp}", "Дикий участок", area_m2=100, layer=Layer.PLANET
     )
     wild.owner_identity_id = identity.id
-    wild.owner_city_id = city.id
+    taken = await world.create_node(
+        session, f"terra.taken.{stamp}", "За трактом", area_m2=100, layer=Layer.PLANET
+    )
+    taken.owner_identity_id = identity.id
+    taken.owner_city_id = city.id
     session.add(Building(node_id=wild.id, area_m2=40, footprint_m2=40))
     await session.flush()
 
     assert await estate.land_tax_of(session, constants, catalog, wild) == 0
+    assert await estate.land_tax_of(session, constants, catalog, taken) > 0
     levied = await estate.levy_land_tax(session, constants, catalog)
-    assert levied["plots"] == 1, "земля планеты в счёт дня не идёт"
+    assert levied["plots"] == 2, "дом в кольце и земля за трактом, но не дикая земля"
 
 
 async def test_a_ship_is_not_land_and_pays_no_land_tax(

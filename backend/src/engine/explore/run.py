@@ -59,6 +59,7 @@ from src.engine import (
     travel,
     world,
 )
+from src.engine import city as town
 from src.engine.explore import aim as aiming
 from src.engine.explore._base import (
     Aim,
@@ -233,11 +234,14 @@ async def returned(session: AsyncSession, job: Job) -> None:
             EventKind.EXPLORE_FOUND,
             actor_identity_id=body.identity_id,
             node_id=aim.existing.id,
-            node=aiming.word_of(constants, aim.existing),
             cell=aim.existing.key,
-            biome=biome.of_node(constants, aim.existing),
             known=True,
+            **_told(constants, aim.existing),
         )
+        #: A way between two nodes of one city is its street, and a street
+        #: closes the line (D-332): the land it rings is the city's (D-356).
+        #: Last: the line is the last thing a transaction takes locks for.
+        await town.cover_way(session, constants, origin, aim.existing)
         return
     node, scheme = await materialise(
         session, constants, current_catalog(), aim, origin, who=body.identity_id
@@ -250,12 +254,24 @@ async def returned(session: AsyncSession, job: Job) -> None:
         EventKind.EXPLORE_FOUND,
         actor_identity_id=body.identity_id,
         node_id=node.id,
-        node=aiming.word_of(constants, node),
         cell=node.key,
-        biome=(node.properties or {}).get(biome.BIOME),
         complex=scheme,
         known=False,
+        **_told(constants, node),
     )
+    #: A find inside a city's line is the city's from its first minute (D-356):
+    #: the lines that reach its point are asked -- last, as always.
+    await town.cover_near(session, constants, planet, point)
+
+
+def _told(constants: Constants, node: Node) -> dict[str, str]:
+    """What the line of a run says of the node it reached: its biome, named or
+    not -- what was found is part of the record -- and besides it what
+    every line of the journal names a node by (`facet.told_of`: its name, or
+    the keys of its ground, never the vault's word), so that the digest names
+    it in the reader's language."""
+    here = biome.of_node(constants, node)
+    return {**({biome.BIOME: here} if here else {}), **facet.told_of(constants, node)}
 
 
 async def _stand_on(

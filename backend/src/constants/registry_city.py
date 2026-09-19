@@ -49,6 +49,16 @@ CITY_RING_SLOTS_BASE = Num("city.ring_slots_base")
 #: answers both questions about the price of a place: what a plot costs to
 #: buy and what it costs to hold, because they are the same statement.
 LAND_DECAY_PER_NODE = Num("land.decay_per_node")
+#: Where a city ends (D-356): the numbers of the field its outline is traced
+#: in. The map drew with them long before they decided anything; now the
+#: outline is whose land a node is, so the engine (`src.outline`) and the map
+#: (`map/territory.ts`, off `/public/constants`) read the same six.
+CITY_OUTLINE_POWER = Num("city.outline_power")
+CITY_OUTLINE_REACH_SHARE = Num("city.outline_reach_share")
+CITY_OUTLINE_LONE_REACH_M = Num("city.outline_lone_reach_m")
+CITY_OUTLINE_CELLS_PER_STEP = Num("city.outline_cells_per_step")
+CITY_OUTLINE_MAX_CELLS = Num("city.outline_max_cells")
+CITY_OUTLINE_BRIDGE_CELLS = Num("city.outline_bridge_cells")
 
 # --- Polls (D-161) -----------------------------------------------------------
 #: How many hours a citizens' poll runs (D-161). Hours, not minutes: not only

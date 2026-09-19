@@ -90,6 +90,14 @@ GROUND_FLOOR = 1
 #: spelling of it somewhere else is the drift such keys always end in.
 PLOT = "plot"
 
+#: The mark of a plot a city holds only because its outline covers it (D-356):
+#: a find inside the city's line, taken in with nobody's work. It tells the
+#: land that draws the outline -- the frame -- from the land the outline merely
+#: covers: a covered plot nobody holds does not widen the line, and goes back to
+#: the wild when the line draws back. Beside `PLOT` for the same reason: the map
+#: row asks it, the cover asks it, and one key is spelled once.
+COVERED = "covered"
+
 #: The mark of a node aboard a ship (D-201): a property rather than a fifth
 #: planet, because the list of planets drags its own day length and wear
 #: behind it and a property drags nothing. Here beside `PLOT` for the same
@@ -150,6 +158,13 @@ def is_plot(node: Node) -> bool:
     return bool((node.properties or {}).get(PLOT))
 
 
+def only_covered(node: Node) -> bool:
+    """Whether the node is a city's land by its outline alone (D-356): covered,
+    and nobody's title keeps it in the frame. Such a node does not draw the
+    line it lies within, and leaves the city when the line draws back."""
+    return bool((node.properties or {}).get(COVERED)) and node.owner_identity_id is None
+
+
 #: The surface by degrees (D-321): an aim reads a window of the planet round
 #: its point, and the window is a range on each. Spelled as `pg_get_indexdef`
 #: spells it, so that the schema built from the models and the migrated one
@@ -174,6 +189,9 @@ class Node(Base):
         ),
         #: `world.epoch()` is `min(created_at)`, asked by every look.
         Index("ix_node_created", "created_at"),
+        #: A city's land by its title (D-356): every city's line is asked each
+        #: tick, and it reads the frame and the covered plots by the city.
+        Index("ix_node_owner_city", "owner_city_id"),
     )
 
     id: Mapped[uuid.UUID] = uuid_pk()

@@ -57,6 +57,7 @@ from src.constants import Catalog, Constants, current
 from src.constants import registry as R
 from src.engine import biome, events, occupation, stock, travel, works, world
 from src.engine.city import land as city_land
+from src.engine.city import line as city_line
 from src.engine.errors import Refusal
 from src.engine.jobs import enqueue, handler
 from src.models.event import EventKind
@@ -265,10 +266,17 @@ async def finished(session: AsyncSession, job: Job) -> None:
     #: leaves the edge paved -- a mend of a paved way laid before the rule
     #: takes the node in as well; a road is not enough. The crew is the
     #: event's actor: it is told on return that the land it paved to is the
-    #: city's now.
-    if edge.surface is Surface.PAVED:
+    #: city's now. Its ends are locked before the pay below takes the
+    #: accounts, the order a purchase keeps (node, then money); the city's
+    #: line is asked after both, last (`city.cover`).
+    paved = edge.surface is Surface.PAVED
+    if paved:
         await city_land.annex_by_way(
-            session, current(), edge, by=None if worker is None else worker.identity_id
+            session,
+            current(),
+            edge,
+            by=None if worker is None else worker.identity_id,
+            ask_line=False,
         )
     #: A mend with an open state order on this edge collects its pay (D-248):
     #: the engine just verified the work in its own data -- the condition is
@@ -281,6 +289,10 @@ async def finished(session: AsyncSession, job: Job) -> None:
             None if worker is None else worker.identity_id,
             now=job.run_at,
         )
+    if paved:
+        ends = [await session.get(Node, end) for end in (edge.node_a_id, edge.node_b_id)]
+        if all(end is not None for end in ends):
+            await city_line.cover_way(session, current(), *ends)
 
 
 async def decay(session: AsyncSession, constants: Constants) -> int:
