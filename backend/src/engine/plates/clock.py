@@ -200,8 +200,10 @@ async def erupted(session: AsyncSession, job: Job) -> None:
     #: And a batch starting at a machine of a shaken yard takes the stacks it
     #: draws on -- the yard's among them (D-315) -- and only then the machine
     #: (`craft.queue._hold_station`, D-351), while the fire takes the machine
-    #: and the yard's stacks in one id order (M <-> S). `_occupy` crossed it
-    #: the same way before; since D-351 a queued batch does too.
+    #: and the yard's stacks in one id order (M <-> S) -- every start since
+    #: D-351, a queued batch too. The run that follows does not: its take
+    #: passes a machine held right now by instead of waiting on it
+    #: (`craft.queue._take_station`).
     ids = [node.id for node in shaken]
     await session.execute(
         select(Vein).where(Vein.node_id.in_(ids)).order_by(Vein.id).with_for_update()

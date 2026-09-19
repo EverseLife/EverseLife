@@ -13,7 +13,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import ColumnElement, Select, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants, current, current_catalog
@@ -394,6 +394,37 @@ async def _pick_station(
     work is not refused, because the new batch will not run now anyway -- it
     queues behind the running one and takes a free machine when its turn comes
     (D-209). Somebody else's work still refuses.
+
+    A choice, not a hold: nothing here takes the row. A batch that goes to work
+    takes its machine through `craft.queue._take_station`, which asks again of
+    the row itself.
+    """
+    moment = datetime.now(UTC)
+    standing = (await session.execute(await _machines(session, body, name))).scalars().all()
+    if not standing:
+        raise NoStation(key="craft-no-station", station=name)
+
+    own: Item | None = None
+    for machine in standing:
+        #: Taken means taken, including by the same master: one work goes at a
+        #: machine, not as many as the owner managed to order.
+        if not _free(machine, moment):
+            if machine.busy_body_id == body.id and own is None:
+                own = machine
+            continue
+        return machine
+    if own is not None and allow_own:
+        return own
+    raise Busy(key="craft-station-busy", station=name, whose="own" if own is not None else "other")
+
+
+async def _machines(session: AsyncSession, body: Body, name: str) -> Select[tuple[Item]]:
+    """The machines of this name put up in the body's node, best first -- after
+    the refusals that no machine here works at all (D-149, D-231).
+
+    A query rather than the rows, so that the run's take can narrow it to the
+    free ones and lock one (`craft.queue._take_station`). The id breaks ties:
+    the same question gets the same machine.
     """
     from src.engine import utility  # noqa: PLC0415 -- lazy: breaks the import cycle with utility
 
@@ -414,53 +445,34 @@ async def _pick_station(
     #: too (`craft.plan`), and a place with nothing in it has no yard at all --
     #: which is already the answer "no such machine here".
     where = await node_yard(session, node)
-    moment = datetime.now(UTC)
-    standing = (
-        (
-            await session.execute(
-                select(Item)
-                .where(
-                    Item.container_id == where.id,
-                    Item.type_key.in_(station_names(name)),
-                    #: Put up, not lying (D-278): nobody works at cargo.
-                    Item.installed.is_(True),
-                )
-                .order_by(Item.quality.desc())
-            )
-        )
-        .scalars()
-        .all()
-        if where is not None
-        else []
-    )
-    if not standing:
+    if where is None:
         raise NoStation(key="craft-no-station", station=name)
-
-    own: Item | None = None
-    for machine in standing:
-        #: Taken means taken, including by the same master: one work goes at a
-        #: machine, not as many as the owner managed to order. The stamp
-        #: insures against eternal occupancy: the batch could have vanished
-        #: past its job, and the machine need not idle forever because of that.
-        if machine.busy_body_id is not None and (
-            machine.busy_until is None or machine.busy_until > moment
-        ):
-            if machine.busy_body_id == body.id and own is None:
-                own = machine
-            continue
-        return machine
-    if own is not None and allow_own:
-        return own
-    raise Busy(key="craft-station-busy", station=name, whose="own" if own is not None else "other")
+    return (
+        select(Item)
+        .where(
+            Item.container_id == where.id,
+            Item.type_key.in_(station_names(name)),
+            #: Put up, not lying (D-278): nobody works at cargo.
+            Item.installed.is_(True),
+        )
+        .order_by(Item.quality.desc(), Item.id)
+    )
 
 
-async def _occupy(session: AsyncSession, station: Item | None, body: Body, until) -> None:
-    """Occupy the machine for the duration of the work (D-150)."""
-    if station is None:
-        return
-    station.busy_body_id = body.id
-    station.busy_until = until
-    await session.flush()
+def _free(machine: Item, moment: datetime) -> bool:
+    """Whether nobody works at the machine at `moment` (D-150).
+
+    The stamp insures against eternal occupancy: the batch could have vanished
+    past its job, and the machine need not idle forever because of that.
+    """
+    return machine.busy_body_id is None or (
+        machine.busy_until is not None and machine.busy_until <= moment
+    )
+
+
+def _free_at(moment: datetime) -> ColumnElement[bool]:
+    """`_free` asked of the row in SQL -- one rule, kept beside its other form."""
+    return or_(Item.busy_body_id.is_(None), Item.busy_until <= moment)
 
 
 async def _release(session: AsyncSession, station_item_id) -> None:
