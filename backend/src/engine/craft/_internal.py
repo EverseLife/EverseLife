@@ -13,7 +13,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from sqlalchemy import ColumnElement, Select, or_, select
+from sqlalchemy import ColumnElement, Select, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants, current, current_catalog
@@ -475,16 +475,24 @@ def _free_at(moment: datetime) -> ColumnElement[bool]:
     return or_(Item.busy_body_id.is_(None), Item.busy_until <= moment)
 
 
-async def _release(session: AsyncSession, station_item_id) -> None:
-    """Free the machine. Called together with the completion of the work."""
+async def _release(session: AsyncSession, station_item_id, body_id: uuid.UUID) -> None:
+    """Free the machine, if it is still this master's. Called together with
+    the completion of the work.
+
+    Only their own hold: a run whose end comes late -- the worker behind, a
+    job that died on its retries and was swept (D-217) -- finds its machine
+    past `busy_until`, and `_pick_station` has counted that as free and may
+    have given it to somebody else since. Freed unconditionally, that
+    master's machine went to a third. One statement, so that a hold taken
+    while this runs is either seen or not overwritten.
+    """
     if station_item_id is None:
         return
-    station = await session.get(Item, station_item_id)
-    if station is None:  # pragma: no cover -- the machine may have been dismantled
-        return
-    station.busy_body_id = None
-    station.busy_until = None
-    await session.flush()
+    await session.execute(
+        update(Item)
+        .where(Item.id == station_item_id, Item.busy_body_id == body_id)
+        .values(busy_body_id=None, busy_until=None)
+    )
 
 
 async def _tool_items(

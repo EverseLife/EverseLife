@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import NamedTuple
 
 from sqlalchemy import String as SqlString
 from sqlalchemy import case, cast, exists, func, literal, or_, select
@@ -18,11 +19,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import current, current_catalog
 from src.engine import events, goods, travel
 from src.engine import world as world_engine
+from src.engine.craft import payout
 from src.engine.craft._base import Busy, CraftError, CutOff, NoStation
 from src.engine.craft._internal import (
     _free_at,
     _machines,
     _num,
+    _pieces,
     _release,
 )
 from src.engine.craft.wearing import _hours_run, _wear_tools
@@ -35,6 +38,7 @@ from src.models.inventory import Item
 from src.models.job import Job, JobKind, JobState
 from src.models.travel import Travel, TravelState
 from src.models.world import Node
+from src.units import amount
 
 
 async def present(session: AsyncSession, body: Body, node_id: uuid.UUID) -> bool:
@@ -294,7 +298,7 @@ async def freeze(
     batch.ready_at = None
     batch.run_started_at = None
     freed = batch.station_item_id
-    await _release(session, freed)
+    await _release(session, freed, batch.body_id)
     batch.station_item_id = None
     await session.flush()
     await events.record(
@@ -372,7 +376,15 @@ async def wake(
     return None
 
 
-async def sweep_orphans(session: AsyncSession) -> int:
+class Swept(NamedTuple):
+    """What one sweep did (D-217): batches given back and closed, and batches
+    left to the next tick because their master's row was held right then."""
+
+    abandoned: int
+    skipped: int
+
+
+async def sweep_orphans(session: AsyncSession) -> Swept:
     """Cancel batches whose finishing job is gone, and give back what went in (D-217).
 
     A batch is the one work whose end lives entirely in a journal job. While
@@ -388,6 +400,10 @@ async def sweep_orphans(session: AsyncSession) -> int:
     a healthy batch, however long the wait; only an absent, failed or cancelled
     job means nobody is coming. And a `waiting` batch is never an orphan: it has
     no job by design -- it is queued or frozen while the master is away (D-209).
+
+    A batch whose master is busy this very moment is skipped and counted: the
+    count is the step's to say, so that an orphan skipped tick after tick --
+    its master's row held by a step running beside this one -- shows.
     """
     alive = (
         select(Job.dedup_key)
@@ -406,9 +422,14 @@ async def sweep_orphans(session: AsyncSession) -> int:
         .scalars()
         .all()
     )
+    abandoned = skipped = 0
     for batch in orphans:
-        await _abandon(session, batch)
-    return len(orphans)
+        master = await _master(session, batch)
+        if master is None:
+            skipped += 1
+        elif await _abandon(session, batch, master):
+            abandoned += 1
+    return Swept(abandoned, skipped)
 
 
 def _batch_key(batch_id, runs):
@@ -421,44 +442,120 @@ def _batch_key(batch_id, runs):
     return case((runs == 1, plain), else_=plain + literal(":") + cast(runs, SqlString))
 
 
-async def _abandon(session: AsyncSession, batch: CraftBatch) -> None:
-    """Give the batch back to the master and close it as cancelled."""
+async def _master(session: AsyncSession, batch: CraftBatch) -> Body | None:
+    """The batch's master under their row's lock -- `None` while it is held.
 
-    catalog = current_catalog()
-    body = await session.get(Body, batch.body_id)
+    The master's row, and first, as at the batch's own end (`finish`) and at
+    every door into a pair of hands (`storage.hand`): the giveback lands in
+    those hands and is weighed against their limit, and the other doors that
+    close a running batch -- its end, `freeze` -- hold this row too. Read
+    without it, the sweep and a master walking away passed each other:
+    `freeze` read the batch still running, the sweep gave back what went in and
+    cancelled it, and the freeze's write, let through at the sweep's commit,
+    put it back to waiting -- a work on materials already returned, which the
+    master's return then finished. First, because the carry rule takes the
+    row anyway (`overload._fall`), and taken there -- after the stacks in the
+    hands -- it is every command's order reversed.
+
+    Skipped rather than waited for: the orphan has waited since its job died
+    and a tick more costs nothing, while a tick step queueing on one body's
+    row with others' already held is a deadlock waiting for its partner. The
+    same mode as the doors it queues with (`FOR UPDATE`, not `NO KEY`): the
+    carry rule takes `FOR UPDATE` later in this transaction, and a weaker lock
+    here would only move the wait there.
+    """
+    return (
+        await session.execute(
+            select(Body)
+            .where(Body.id == batch.body_id)
+            .with_for_update(skip_locked=True)
+            .execution_options(populate_existing=True)
+        )
+    ).scalar_one_or_none()
+
+
+async def _abandon(session: AsyncSession, batch: CraftBatch, body: Body) -> bool:
+    """Give the batch back to its master, whose row the caller holds, and close
+    it as cancelled. Returns whether it did: a batch that stopped being an
+    orphan before the row was had is left alone.
+    """
+    seen = batch.runs
+    #: The batch read again under the master's row: what the sweep saw came
+    #: before the lock. Frozen meanwhile, it waits and is no orphan (D-209);
+    #: frozen and taken up again, it runs on a new job of its own.
+    await session.refresh(batch)
+    if batch.state is not BatchState.RUNNING or batch.runs != seen:
+        return False
+
+    constants, catalog = current(), current_catalog()
     node = await session.get(Node, batch.node_id)
-    if body is None or node is None:  # pragma: no cover -- a batch into nowhere
+    if node is None:  # pragma: no cover -- a batch into nowhere
         batch.state = BatchState.CANCELLED
         await session.flush()
-        return
+        return True
 
     #: Where the product would have gone (D-209): into the hands of a master
     #: standing at the machine, otherwise beside it. Matter does not travel
     #: after whoever walked away.
     at_bench = body.state is BodyState.ALIVE and body.node_id == batch.node_id
     where = await body_container(session, body) if at_bench else await node_container(session, node)
+    within = await payout.vessels_reach(session, batch, where)
+
+    from src.engine import coin  # noqa: PLC0415 -- lazy: breaks the import cycle with coin
 
     returned: dict[str, float] = {}
+    #: What came back into the hands, for the carry rule below (D-265).
+    arrived: list[Item] = []
     for name, value in (batch.spent or {}).items():
         #: A return is whole pieces, rounded down, like every return (D-212).
         back = goods.whole(name, float(value), catalog=catalog)
         if back <= 0:
             continue
-        await world_engine.grant_item(
-            session,
-            where,
-            name,
-            amount=back,
-            quality=float(batch.quality),
-            origin=f"партия «{batch.output}» отменена: задания не стало",
-        )
+        #: What was written off (D-217) -- exactly so only for a coin, which
+        #: comes back as the coin it was (D-016): the fineness and the
+        #: minter's mark the melt kept, and no quality, which a coin does not
+        #: have -- so it folds back into whatever is left of its stack (D-214)
+        #: instead of lying beside it as money nobody minted. Any other input
+        #: comes back by its amount at the batch's quality: `spent` keeps names
+        #: and amounts, not the stacks they came off, so their marks and shelf
+        #: lives are not there to give back (OQ-194).
+        minted = coin.is_coin(catalog, name)
+        laid: list[Item] = []
+        for piece in _pieces(catalog, name, back):
+            fresh = Item(
+                container_id=where.id,
+                type_key=name,
+                amount=amount(piece),
+                quality=None if minted else batch.quality,
+                fineness=batch.fineness if minted else None,
+                maker_identity_id=batch.mark_identity_id if minted else None,
+                made_at=batch.mark_made_at if minted else None,
+                made_node_id=batch.mark_node_id if minted else None,
+                #: What was spent lay: a standing machine is no material (D-278).
+                installed=False,
+            )
+            session.add(fresh)
+            laid.append(await world_engine.stack_up(session, fresh))
         returned[name] = back
+        #: A liquid comes back poured, as a batch's yield does (D-230): the
+        #: water of a loaf into the vessels within reach, never loose.
+        arrived += await payout.settle(session, catalog, batch, body, laid, within)
+    if arrived:
+        #: Past the carry limit the giveback falls at the machine (D-265), as
+        #: the yield would have: the materials may have come from the yard or
+        #: the convoy (D-315), and the hands may have filled since the start.
+        from src.engine import overload  # noqa: PLC0415 -- lazy: cycle via storage, estate
 
-    await _release(session, batch.station_item_id)
+        await overload.settle_load(session, constants, catalog, body, arrived)
+
+    await _release(session, batch.station_item_id, batch.body_id)
     batch.station_item_id = None
     batch.state = BatchState.CANCELLED
     batch.finished_at = datetime.now(UTC)
     await session.flush()
+    #: The journal's word on the giveback -- the ground of every stack laid
+    #: above, as `craft.started` with its `spent` was the ground of the
+    #: write-off (pillar P1).
     await events.record(
         session,
         EventKind.CRAFT_ABANDONED,
@@ -470,6 +567,7 @@ async def _abandon(session: AsyncSession, batch: CraftBatch) -> None:
     )
     #: The machine came free -- whoever queued behind it moves up (D-217).
     await wake_node(session, node)
+    return True
 
 
 async def wake_node(session: AsyncSession, node: Node, *, now: datetime | None = None) -> None:
