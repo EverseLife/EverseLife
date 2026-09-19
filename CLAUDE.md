@@ -176,10 +176,10 @@ python tools/spdx.py --apply
 
 - **Файл длиннее 800 строк** — перед правкой сказать об этом и предложить
   разрез. Добавлять в такой файл без упоминания нельзя. Список на 2026-09-19
-  (пересчитан при разрезах `rig` и `test_reads`): `engine/bank/loan.py` (848),
-  `constants/catalog.py` (806), `panels/GraphMap.tsx` (1069),
-  `panels/Sidebar.tsx` (820) и тесты `test_explore.py` (1242),
-  `test_races.py` (866), `bands.test.ts` (849), `map.test.ts` (809).
+  (пересчитан при разрезе `GraphMap`): `engine/bank/loan.py` (848),
+  `constants/catalog.py` (806), `panels/Sidebar.tsx` (824) и тесты
+  `test_explore.py` (1242), `test_races.py` (866), `bands.test.ts` (849),
+  `map.test.ts` (809).
   2026-09-01 он был пуст — последние шесть (`bank`, `travel`, `vote`,
   `oxygen`, `net`, `frost`) разрезаны в пакеты той же датой — и за две недели
   набрался снова.
@@ -296,6 +296,15 @@ python tools/spdx.py --apply
   доходит. `tests/test_reads.py` (802) оставил себе сцену, выписку, обзор
   фермы и развёртку `READS`, прогнозы уехали в `test_reads_forecast.py`,
   общее (`_writes_forbidden`, `_forecaster`) — в `reads_kit.py`.
+  2026-09-19 `panels/GraphMap.tsx` (1052) → 739 строк тем же приёмом, каким
+  раньше ушли `useBands`, `useScene` и `useWalker`, — хуки в `panels/map/`:
+  `useWorldMap` (карта с места стояния, корабли в виду, узлы по ключу),
+  `useCamera` (камера, замер поля, её остановка), `useAim` (прицел по
+  причинам, следование за походом и поворот глобуса под точкой — отдаёт
+  `turn` ходоку) и `useNodeBehaviour` (`walkTargets`, `sizes`, `reachable` —
+  чистыми функциями, их держит `mapBehaviour.test.ts`). Каждый хук
+  вызывается на месте вынутого блока, поэтому эффекты идут в прежнем
+  порядке: прицел по-прежнему после руки и до ходока.
 - **Деньги, количества, остатки, выносливость** меняются только под
   блокировкой строки (`with_for_update`) или SQL-выражением
   (`col = col - :x`), и к каждой такой правке — тест-гонка на две сессии.

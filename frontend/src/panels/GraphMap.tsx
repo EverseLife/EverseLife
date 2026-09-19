@@ -37,37 +37,36 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import * as api from "../api";
-import { type Look, type MapNode, type WorldMap } from "../api";
-import { useActions, useBook, useSession, useNames } from "../actions";
-import { createCamera, viewBoxOf, type Camera } from "./map/camera";
+import { type Look, type MapNode } from "../api";
+import { useActions, useBook, useNames } from "../actions";
 import { FLAG, UNFLAG, useKept } from "../kept";
 import { t } from "../locale";
-import { PHONE } from "../narrow";
 import { Inspector } from "./map/Inspector";
 import { NodeMenu } from "./map/NodeMenu";
 import { Edges, Nodes, Outlines, Stubs } from "./map/Nodes";
 import { ScoutLayer, ScoutPanel, ScoutRun } from "./map/ScoutLayer";
 import { useCityOutlines } from "./map/useCityOutlines";
 import { useHand } from "./map/hand";
-import { flatten, oneEach, withCityScene } from "./map/geo";
+import { flatten } from "./map/geo";
 import { placeAt, projectAll } from "./map/globe";
-import { firstOnGlobe, needsTurn } from "./map/follow";
 import { useClimateView } from "./map/useClimateView";
 import { YearClock } from "./map/Year";
-import type { GroundGLHandle } from "./map/GroundGL";
 import { Planet } from "./map/Planet";
 import { Legend } from "./map/Legend";
 import { Probe } from "./map/Probe";
 import { nodeWord } from "./map/words";
 import { useLayers } from "./map/useLayers";
 import { useArcs, useGlobe, radiusOf } from "./map/useGlobe";
-import { factsOf, useBands, useHandOver, type Sphere } from "./map/useBands";
+import { useBands, useHandOver, type Sphere } from "./map/useBands";
 import { SkyBackdrop, SkyClock } from "./map/Sky";
-import { Switcher, Zoom, notchOf, scaleOf } from "./map/Switcher";
+import { Switcher, Zoom, scaleOf } from "./map/Switcher";
+import { useAim } from "./map/useAim";
+import { useCamera } from "./map/useCamera";
+import { useNodeBehaviour } from "./map/useNodeBehaviour";
 import { useScene } from "./map/useScene";
 import { useScout } from "./map/useScout";
 import { useWalker } from "./map/useWalker";
+import { useWorldMap } from "./map/useWorldMap";
 import { useSky } from "./map/useSky";
 import {
   STREET_SCALE,
@@ -81,14 +80,11 @@ import {
   H,
   delegate,
   drawnAt,
-  frameHeight,
-  journeyOf,
   offworld,
-  sceneKey,
   type LayerId,
   type Point,
 } from "./map/model";
-import { STAR, horizon } from "./map/orbits";
+import { horizon } from "./map/orbits";
 
 /**
  * Whether the camera was left tied to the body (D-238; that it survives a
@@ -116,14 +112,6 @@ const CAMERA = "everselife.map.tethered";
 /** Whether the winder of time is out; away by default (owner, 2026-09-12). */
 const WINDER = "everselife.map.winder";
 
-/**
- * How close the frame starts on a phone (brief section 9). Twice: the field
- * there is 375px against a desktop's ~1000, and at 2 a node's name comes out
- * at the size the desktop reads it. Well inside what the hand may zoom to
- * (`map/hand`), so nothing about panning or pinching is special-cased.
- */
-const PHONE_SCALE = 2;
-
 type Props = {
   look: Look;
   busy: boolean;
@@ -142,56 +130,11 @@ export function GraphMap({
   //: setting off, laying a road -- belongs to the
   //: inspector beside it, which keeps its own waiting and its own refusal.
   const { busy, act, trouble } = useActions();
-  //: The map is answered from where the body stands (D-240), so the read
-  //: carries the session's token: without it the server shows the sky alone.
-  const session = useSession();
-
-  const [world, setWorld] = useState<WorldMap | null>(null);
   const here = look.node?.key ?? "";
-  //: The map opens by walking (D-319): what one sees changes with one's own
-  //: node and the set of exits from it, so those are the reasons to reread.
-  //: With their surface: a paving finished from here changes the map's own
-  //: row of the way and -- since D-332 -- whose land the far node is, and
-  //: the outline drawn round it; neither comes with `look`.
-  const exits = (look.exits ?? []).map((path) => `${path.key}:${path.surface}`).join("|");
-  useEffect(() => {
-    //: Shared with the ship's console, which wants the same map from the same
-    //: stand: one walk of the graph, not one per window (`standingMap`).
-    void api.standingMap(session.token, `${here}|${exits}`).then(setWorld);
-    //: The token is read inside and is the session's own for its whole life:
-    //: it is not a reason to reread the map, and the reasons are listed here.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [here, exits]);
   const ongoing = look.travel ?? null;
-  //: Ships are not on the public map at all (D-201): from a distance a ship is
-  //: a single hull on the space layer and nothing more. What is close enough
-  //: to see arrives with `look` -- the ship moored at the pier one stands on,
-  //: or the rooms of the one being stood in -- so a ship appears on walking up
-  //: to it and is gone on walking away.
-  //: Keyed by what the ships **are**, not by the object carrying them: `look`
-  //: arrives anew every few seconds, and merging on its identity rebuilt the
-  //: whole map -- and with it the layout and the simulation -- on every poll.
-  const sighted = (look.ships?.nodes ?? []).map((node) => node.key).join("|");
-  const map = useMemo<WorldMap | null>(() => {
-    const seen = look.ships;
-    if (!world) return world;
-    //: The sighted rows last, so a hull the map has as a point of the sky is
-    //: the pier's point here (`oneEach`).
-    const nodes = oneEach([...world.nodes, ...(seen?.nodes ?? [])]);
-    return {
-      ...world,
-      nodes: withCityScene(nodes),
-      edges: [...world.edges, ...(seen?.edges ?? [])],
-    };
-    //: `look.ships` is read inside and keyed by `sighted` outside: the same
-    //: keys mean the same ships, and the linter cannot be shown that.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [world, sighted]);
-  const byKey = useMemo(() => {
-    const out: Record<string, MapNode> = {};
-    for (const node of map?.nodes ?? []) out[node.key] = node;
-    return out;
-  }, [map]);
+  //: The graph as the body sees it, the ships in sight laid over it
+  //: (`map/useWorldMap`).
+  const { map, byKey } = useWorldMap(look);
 
   /** The node's delegate on the layer: climb the parents up to a node of this layer. */
   const repr = useMemo(
@@ -257,18 +200,9 @@ export function GraphMap({
     () => radiusOf(book, sphereShown),
     [book, sphereShown],
   );
-  //: The frame's own shape, measured off the svg itself. The viewBox used to
-  //: keep a fixed 880 by 540 whatever box it was drawn in, and the browser
-  //: fitted one shape inside the other: empty bands at the edges of a wide
-  //: pane, and the vector layer standing shorter than the ground under it
-  //: (owner, 2026-09-11: the svg did not match the ground). Now the viewBox is
-  //: cut to the box, and there is nothing left to fit.
-  //:
-  //: Not a loop, though the svg is what the viewBox is written onto: the
-  //: element's size is settled by the layout around it -- `flex: 1` in the
-  //: column on a wide pane, a CSS `aspect-ratio` on a narrow one -- and
-  //: never by the viewBox's own proportions. Kept in a ref as well as in
-  //: state: the camera lives outside React and asks on every frame it paints.
+  //: The frame's own shape, measured off the svg itself (`map/useCamera`).
+  //: Kept in a ref as well as in state: the camera lives outside React and
+  //: asks on every frame it paints.
   const [tall, setTall] = useState(H);
   const tallRef = useRef(tall);
   tallRef.current = tall;
@@ -303,91 +237,19 @@ export function GraphMap({
     groups,
   } = scene;
 
-
-
   // --- where everything stands ----------------------------------------------
 
-  const svgRef = useRef<SVGSVGElement | null>(null);
-  const zoomRef = useRef<HTMLInputElement | null>(null);
-  //: The ground the GPU draws under the svg (landscape plan wave 5): asked
-  //: to redraw with every frame the camera paints, off React like the
-  //: viewBox. Without WebGL2 the svg ground stands whole (`map/Planet`).
-  const shadedRef = useRef<GroundGLHandle | null>(null);
-  /**
-   * The camera (`map/camera`): outside React, painted straight onto the
-   * `viewBox`. The render reads the same object, so a render that happens for
-   * its own reasons never puts back a frame the animation has moved on from.
-   */
-  const camera = useRef<Camera | null>(null);
-  //: Where the planets are, read at frame time: the sky lays them out below.
-  const spheres = useRef<() => Sphere[]>(() => []);
-  //: A phone's field is a third of a desktop's width, and the same frame
-  //: over it drew a node's name at five pixels. The frame starts twice as
-  //: close there: the body's neighbourhood, legible, and the rest a pan away.
-  //: Asked once, at creation, not subscribed to: the map is remounted when
-  //: a phone changes section, and a desktop that narrows keeps the frame it
-  //: had -- a hook here would redraw forty nodes for a value read once.
-  if (!camera.current) {
-    camera.current = createCamera({
-      onFrame: (f, inFrame) => {
-        svgRef.current?.setAttribute("viewBox", viewBoxOf(f, tallRef.current));
-        if (inFrame) shadedRef.current?.drawNow();
-        else shadedRef.current?.draw();
-        //: The slider rides with the frame, off React like the viewBox.
-        if (zoomRef.current) {
-          zoomRef.current.value = String(
-            notchOf(f.scale, boundsOf(bandRef.current, surfaceRef.current)),
-          );
-        }
-        //: What the frame decides is React's business only when it flips:
-        //: cities opening, a band's edge reached, a planet under the middle.
-        tell(factsOf(f, surfaceRef.current, spheres.current()));
-      },
-      scale: window.matchMedia(PHONE).matches ? PHONE_SCALE : 1,
-      tall: () => tallRef.current,
-      still: () =>
-        window.matchMedia("(prefers-reduced-motion: reduce)").matches,
-    });
-  }
-  const cam = camera.current;
+  //: The camera and the field it paints (`map/useCamera`): made once, off
+  //: React, and told of the field's height once the scene is settled.
+  const { svgRef, zoomRef, shadedRef, spheres, cam } = useCamera({
+    tallRef,
+    setTall,
+    bandRef,
+    surfaceRef,
+    tell,
+    anyVisible: visible.length > 0,
+  });
 
-  //: Measured after the scene is settled (and below the camera, which the
-  //: measure tells of the change): the svg is not in the tree at all
-  //: while the map has nothing to draw, and an observer set on a mount that
-  //: had no svg would never see the one that follows.
-  const anyVisible = visible.length > 0;
-  useEffect(() => {
-    const field = svgRef.current;
-    if (!field) return;
-    const measure = () => {
-      const next = frameHeight(field.getBoundingClientRect());
-      //: Compared before it is set: a resize that changes nothing -- and the
-      //: observer fires on every layout -- must not redraw the map. Through
-      //: the ref, not a setter's updater: the camera is told of the change
-      //: right here, and an updater may be run twice.
-      const was = tallRef.current;
-      if (Math.abs(was - next) < 0.5) return;
-      //: The frame keeps its middle through the resize, not its corner.
-      cam.reshape(was, next);
-      tallRef.current = next;
-      setTall(next);
-    };
-    measure();
-    const watch = new ResizeObserver(measure);
-    watch.observe(field);
-    return () => watch.disconnect();
-  }, [anyVisible, cam]);
-  //: Nothing of the camera outlives the map.
-  useEffect(() => () => cam.stop(), [cam]);
-
-  /**
-   * The layer's layout, whole and finished before it is drawn.
-   *
-   * Almost all of it is simply read off the nodes: the server gives every one
-   * of them a place when it is created (D-237). What is left over -- a world
-   * caught between the deploy and the catching-up seed -- is settled around
-   * those in one synchronous pass, so the map is never seen crawling.
-   */
   /**
    * The globe (D-319, wave 3): a surface scene is the planet seen from above
    * one point of it -- the eye -- and the hand turns it (`map/useGlobe`).
@@ -499,30 +361,7 @@ export function GraphMap({
 
   // --- node behaviour -------------------------------------------------------
 
-  const walkTargets = useMemo(() => {
-    const out: Record<string, { key: string; seconds: number }> = {};
-    for (const exit of look.exits ?? []) {
-      const p = reprScene(exit.key);
-      if (!p || p === reprScene(here)) continue;
-      const known = out[p];
-      if (!known || exit.seconds < known.seconds) {
-        out[p] = { key: exit.key, seconds: exit.seconds };
-      }
-    }
-    return out;
-  }, [look.exits, reprScene, here]);
-
   const outlines = useCityOutlines(map, radius, sphereShown, book?.constants);
-  /** How many nodes hang under each: a closed city is drawn as large as it
-   *  is, so a town and the capital are told apart from afar. */
-  const sizes = useMemo(() => {
-    const out = new Map<string, number>();
-    for (const node of map?.nodes ?? []) {
-      if (node.parent) out.set(node.parent, (out.get(node.parent) ?? 0) + 1);
-    }
-    return out;
-  }, [map]);
-
   /**
    * Where a key is drawn: the ground for the layers one walks, the clock for
    * the sky. Kept in a ref as well as read directly, because the walker's own
@@ -532,174 +371,27 @@ export function GraphMap({
   where.current = (key: string) =>
     orbiting ? sky.places.current.get(key) : ground.get(key);
 
-  /**
-   * The camera follows the body (D-237): your node is the middle of the frame.
-   *
-   * Re-aimed when you move, when the layer changes and when another city or
-   * planet is opened -- and at no other moment, so a hand that panned or zoomed
-   * keeps what it did until the next step. Standing on no node of this layer at
-   * all -- somebody else's city -- the frame opens on its first node, because a
-   * camera aimed at nothing shows nothing.
-   */
-  const skyPlaces = sky.places;
-  //: Which scene the frame was last aimed at. A different one shares no
-  //: coordinates with this one -- another layer, another city, another
-  //: planet -- so the frame is cut to it rather than flown across nothing.
-  const shownScene = useRef<string | null>(null);
-
-  //: Read through a ref, and deliberately not depended on: the layout is
-  //: rebuilt on every push from the server, and depending on it re-aimed the
-  //: frame every few seconds -- dragging back, unasked, the hand that had
-  //: just panned somewhere to look. The **reasons** to re-aim are below.
-  const groundRef = useRef(ground);
-  groundRef.current = ground;
-  const visibleRef = useRef(visible);
-  visibleRef.current = visible;
-  //: Every node the map knows, not only the drawn ones: a body inside a
-  //: closed city is not itself in the scene, and the tether has to find a
-  //: place to turn to anyway.
-  const byKeyRef = useRef(byKey);
-  byKeyRef.current = byKey;
-  const hereRef = useRef(here);
-  hereRef.current = here;
-  const drawn = Boolean(map);
-  useEffect(() => {
-    const laid = groundRef.current;
-    const middle = orbiting
-      ? (skyPlaces.current.get(myRepr ?? "") ?? STAR)
-      : (laid.get(myRepr ?? "") ?? [...laid.values()][0]);
-    //: On a globe the middle is found by turning the eye (below), not in
-    //: the layout: a scene with nothing laid -- the body on the far side of
-    //: the ball, nothing drawn -- still has a place to turn to (owner,
-    //: 2026-09-13: tied back on with the body round the far side, the
-    //: camera froze; the empty layout sent the tether away right here).
-    if (!middle && !globeScene) return;
-    const scene = sceneKey(band, inside ? locationBase : null, sphereShown);
-    const cut = shownScene.current !== scene;
-    shownScene.current = scene;
-    //: On a globe the eye goes to where the body stands whenever the scene is
-    //: new: the origin of the frame is the eye, so the middle is the origin.
-    if (cut && globeScene) {
-      //: Where the body stands, if this scene shows it; somebody else's city
-      //: opened from outside has no node of yours, and then the scene's first
-      //: place -- a window with no centre would be an empty field.
-      const shown = visibleRef.current;
-      const stand = firstOnGlobe([
-        shown.find((node) => node.key === myRepr)?.place,
-        byKeyRef.current[myRepr ?? ""]?.place,
-        byKeyRef.current[hereRef.current]?.place,
-        shown.find((node) => node.place && "lat" in node.place)?.place,
-      ]);
-      if (stand) {
-        globe.lookAt(stand);
-        cam.cut({ x: 0, y: 0 });
-        return;
-      }
-    }
-    //: A new scene is moved to **whatever else is going on**, walking or not:
-    //: its coordinates are not the old ones, and a frame left in them shows
-    //: an empty field. The walker cannot bring it back either -- on somebody
-    //: else's city the legs of the transit are not drawn at all.
-    if (cut) {
-      if (middle) cam.cut(middle);
-      return;
-    }
-    //: A loose camera moves for nothing but a new scene -- not for a step, not
-    //: for a walk. That is what loose means, and the tether coming back is
-    //: itself a reason to re-aim: the frame glides home the moment it is tied.
-    if (!tethered) return;
-    //: Within one scene, while the walk is being followed, the frame already
-    //: has its aim: the dot.
-    if (cam.following()) return;
-    //: On the globe the body comes to the middle by the globe turning under
-    //: the eye, and the frame stays on the eye: a frame slid to the body's
-    //: projection would leave the planet off centre, and the hand -- which
-    //: turns, and does not slide -- could never bring it back.
-    if (globeScene) {
-      //: Where to turn to, in the order the question is really asked: the
-      //: node the scene shows for the body, then that node wherever the map
-      //: has it, then the body's own node. The first alone left the globe
-      //: still whenever the body's representative was not among the drawn --
-      //: a closed city too small to draw, a scene that shows the city and not
-      //: the flat -- and the tether then slid a frame whose origin is the
-      //: eye, which is no movement at all (owner, 2026-09-08: «планета не
-      //: всегда прокручивается до игрока»).
-      const stand = firstOnGlobe([
-        visibleRef.current.find((node) => node.key === myRepr)?.place,
-        byKeyRef.current[myRepr ?? ""]?.place,
-        byKeyRef.current[hereRef.current]?.place,
-      ]);
-      if (stand) {
-        globe.aimAt(stand);
-        cam.aimAt({ x: 0, y: 0 });
-        return;
-      }
-    }
-    if (middle) cam.aimAt(middle);
-    //: Every reason the frame may move by itself: you moved, the scene
-    //: changed, the tether was tied back on, or the map has just landed and
-    //: there is at last a place to aim at. A push from the server is not one.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [myRepr, band, orbiting, locationBase, sphereShown, drawn, tethered]);
-
-  /**
-   * A journey: the frame follows the dot while it lasts (D-238).
-   *
-   * Told to the camera as one journey, not deduced from the legs: a walk of
-   * five nodes remounts the walker's loop five times, and a hand that took
-   * the frame on the first leg must keep it to the last.
-   *
-   * A loose camera follows nothing: the walk goes on without it, and the dot
-   * leaves the frame if that is where the road goes.
-   */
-  const journey = journeyOf(ongoing);
-  useEffect(() => {
-    //: Letting the tether go stops the frame **where it is**: `follow(false)`
-    //: alone leaves a chase already booked to play out, and the map would
-    //: coast for another half second after the very click that said stop.
-    if (!tethered) return cam.takeFrame();
-    cam.follow(journey !== null);
-  }, [journey, cam, tethered]);
-
-  //: Followed on the globe, the dot is kept in the middle by turning the
-  //: eye -- only once it has strayed half a pixel, so a walk seen from afar
-  //: does not redraw the whole ground at every frame for nothing.
-  //:
-  //: **One correction per eye.** The walker's loop runs every frame and reads
-  //: the dot through `where`, which projects with the eye of the last
-  //: **render**; a turn asked for is a `setEye`, and React lands it a frame or
-  //: two later. Until it does, every frame sees the same stray and asks for
-  //: the same correction again -- and `rotate` sums what it is given, so the
-  //: eye overshot by as many frames as the render took and came back the next
-  //: time round. That beat was the shake the owner saw while walking
-  //: (2026-09-08). Remembering which eye was corrected for makes the second
-  //: ask a no-op without slowing the first.
-  const rotate = globe.rotate;
-  const eyeShown = useRef(globe.eye);
-  eyeShown.current = globe.eye;
-  const corrected = useRef<typeof globe.eye>(null);
-  const turn = useMemo(
-    () =>
-      globeScene && rotate
-        ? (dot: Point) => {
-            if (!cam.following()) return;
-            const eye = eyeShown.current;
-            if (
-              !needsTurn({
-                dot,
-                scale: cam.frame().scale,
-                eye,
-                corrected: corrected.current,
-              })
-            ) {
-              return;
-            }
-            corrected.current = eye;
-            rotate(-dot.x, -dot.y);
-          }
-        : undefined,
-    [globeScene, rotate, cam],
-  );
+  //: The frame aims itself at the body, at a new scene and along a walk
+  //: (`map/useAim`); on a globe it hands the walker the turn that keeps the
+  //: dot in the middle.
+  const turn = useAim({
+    cam,
+    globe,
+    ground,
+    skyPlaces: sky.places,
+    visible,
+    byKey,
+    here,
+    myRepr,
+    band,
+    orbiting,
+    inside,
+    locationBase,
+    sphereShown,
+    drawn: Boolean(map),
+    tethered,
+    ongoing,
+  });
   //: A run of the scout under way (D-327): the body is out on the way, so
   //: the node it left stops wearing the mark and the run draws its own.
   const run = look.scouting ?? null;
@@ -711,6 +403,18 @@ export function GraphMap({
     turn,
     myRepr,
     scouting: run !== null,
+  });
+  //: Where a step towards a node goes, how large a closed city is drawn, and
+  //: whether a step leads to the node at all (`map/useNodeBehaviour`).
+  const { walkTargets, sizes, reachable } = useNodeBehaviour({
+    map,
+    byKey,
+    exits: look.exits,
+    reprScene,
+    here,
+    ongoing,
+    standingAt,
+    groups,
   });
 
   const { descend, enterBand } = useHandOver({
@@ -732,23 +436,6 @@ export function GraphMap({
   }
 
   const at = (key: string) => where.current(key);
-
-  /**
-   * Whether a step leads to the node -- the map's judgement, drawn by `Nodes`.
-   *
-   * To a planet one does not walk at all: it is reached by ship from a
-   * spaceport (D-201) -- a step across the void is not a road the map may draw.
-   * A button the server will refuse anyway is a promise the interface may not
-   * make.
-   */
-  const reachable = (node: MapNode) =>
-    !ongoing &&
-    node.key !== standingAt &&
-    !node.orbit &&
-    //: Another planet's surface is looked at, not walked to (D-201): its nodes
-    //: must not light up as reachable.
-    !offworld(byKey, here, node) &&
-    (groups.has(node.key) ? Boolean(walkTargets[node.key]) : true);
 
   const expand = (node: MapNode) => {
     //: Another planet does not open (D-240): its surface is not in the answer
