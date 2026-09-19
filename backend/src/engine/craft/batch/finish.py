@@ -18,6 +18,7 @@ from src.constants import Catalog, ConstantError, Constants, current, current_ca
 from src.constants import registry as R
 from src.engine import events, gear, goods, liquid, vent
 from src.engine import world as world_engine
+from src.engine.craft import payout
 from src.engine.craft._base import (
     CraftError,
 )
@@ -100,7 +101,7 @@ async def finish(session: AsyncSession, job: Job) -> None:
     #: machine pays per batch, what is carried pays per hour.
     await _wear_tools(session, constants, batch, hours=_hours_run(batch, job.run_at))
     #: The work is over -- the machine is free and waits for the next (D-150).
-    await _release(session, batch.station_item_id)
+    await _release(session, batch.station_item_id, batch.body_id)
 
     batch.state = BatchState.DONE
     batch.finished_at = job.run_at
@@ -194,6 +195,8 @@ async def _finish_make(
     )
     plumbed = await lines.plumbing_of(session, constants, catalog, station_item, batch.output)
 
+    #: Where a liquid yield may be poured (D-230): one answer for the batch.
+    within = await payout.vessels_reach(session, batch, where)
     made: list[float] = []
     #: What arrived in the hands, for the carry rule below (D-265): judged
     #: once for the whole yield, not piece by piece.
@@ -231,31 +234,20 @@ async def _finish_make(
         #: out at exactly the same quality. The spread usually sees to it that
         #: it did not, and then the stacks stay apart, as they should.
         await world_engine.stack_up(session, fresh)
-        #: A liquid is poured, not handed over (D-230): into the vessels in
-        #: the master's hands, then into those at the machine. What fits
-        #: nowhere is spilled -- and said so, because matter that vanished in
-        #: silence is a bug report waiting to happen.
-        within = await _vessels_reach(session, batch, where)
         if plumbed is not None and liquid.is_liquid(catalog, batch.output):
-            #: Into the vessels on the outlet, in line order. The start made
-            #: sure they could take it all; what somebody filled them with
+            #: Aboard, into the vessels on the outlet, in line order. The start
+            #: made sure they could take it all; what somebody filled them with
             #: during the hours is a spill, said as one.
             spilled = await liquid.fill_or_drop(
                 session, catalog, fresh, plumbed.outlets.get(batch.output, [])
             )
+            if spilled > 0:
+                await payout.say_spilled(session, batch, body, batch.output, spilled)
         else:
-            spilled = await liquid.settle(session, catalog, fresh, within)
-        if spilled > 0:
-            await events.record(
-                session,
-                EventKind.STORAGE_SPILLED,
-                actor_identity_id=body.identity_id,
-                node_id=batch.node_id,
-                type_key=batch.output,
-                amount=spilled,
-            )
-        elif len(within) > 1 and not liquid.is_liquid(catalog, batch.output):
-            arrived.append(fresh)
+            #: A liquid is poured, not handed over (D-230): into the vessels
+            #: in the master's hands, then into those at the machine, and
+            #: what fits nowhere is spilled and said so.
+            arrived += await payout.settle(session, catalog, batch, body, [fresh], within)
     shed = catalog.recipes.byproduct_of(batch.output)
     if shed:
         await _shed(session, catalog, batch, body, where, plumbed, shed, moment)
@@ -321,26 +313,7 @@ async def _shed(
                 continue
             left = await liquid.fill_or_drop(session, catalog, extra, vessels)
         if left > 0 and await vent.sink(session, node) is None:
-            await events.record(
-                session,
-                EventKind.STORAGE_SPILLED,
-                actor_identity_id=body.identity_id,
-                node_id=batch.node_id,
-                type_key=name,
-                amount=left,
-            )
-
-
-async def _vessels_reach(
-    session: AsyncSession, batch: CraftBatch, where: Container
-) -> list[Container]:
-    """Where a liquid output may be poured: the hands first when the master is
-    at the machine, then the place itself. Away from the bench the hands are
-    out of reach, and only what stands at the machine takes it."""
-    yard = await node_container(session, await session.get(Node, batch.node_id))
-    if where.id == yard.id:
-        return [yard]
-    return [where, yard]
+            await payout.say_spilled(session, batch, body, name, left)
 
 
 async def _finish_repair(
@@ -400,7 +373,7 @@ async def _finish_recycle(
     returned: list[float] = []
     #: What came back into the hands, for the carry rule below (D-265).
     arrived: list[Item] = []
-    within = await _vessels_reach(session, batch, where)
+    within = await payout.vessels_reach(session, batch, where)
     for name, per_unit in proc.per_unit.items():
         #: What comes back comes back whole (D-212): a fifth of an ingot is not
         #: an ingot, and taking a thing apart cannot mint one out of rounding.
@@ -419,18 +392,7 @@ async def _finish_recycle(
         #: A liquid comes back poured, as a batch's yield does (D-230): the
         #: water of a loaf, the oil of bitumen. What fits in no vessel within
         #: reach is spilled, and said so.
-        spilled = await liquid.settle(session, catalog, back_into, within)
-        if spilled > 0:
-            await events.record(
-                session,
-                EventKind.STORAGE_SPILLED,
-                actor_identity_id=body.identity_id,
-                node_id=batch.node_id,
-                type_key=name,
-                amount=spilled,
-            )
-        elif len(within) > 1 and not liquid.is_liquid(catalog, name):
-            arrived.append(back_into)
+        arrived += await payout.settle(session, catalog, batch, body, [back_into], within)
 
     await events.record(
         session,

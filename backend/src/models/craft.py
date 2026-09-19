@@ -115,10 +115,20 @@ class CraftBatch(Base):
     flavor: Mapped[str | None] = mapped_column(nullable=True)
     roles_filled: Mapped[float | None] = mapped_column(Numeric(4, 2), nullable=True)
 
-    #: For the mint: the fineness minted at (D-016). It also decides how much
-    #: metal melting this batch returns.
+    #: For the mint: the fineness minted at (D-016). For a melt: the fineness
+    #: of the coins melted, which an abandoned melt gives back with them.
 
     fineness: Mapped[float | None] = mapped_column(Numeric(5, 1), nullable=True)
+
+    #: For a coin melt: the mark the melted coins carry -- who minted them,
+    #: when and where (D-058). The melt writes its coins off at the start
+    #: (D-346 p. 5), and a melt swept away with its job dead gives back exactly
+    #: what it took (D-217): the same coins, fineness and mark and all, which
+    #: fold back into whatever is left of their stack (D-214). Without it they
+    #: came back as money nobody minted. Empty for every other batch.
+    mark_identity_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    mark_made_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    mark_node_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
 
     state: Mapped[BatchState] = enum_column(
         BatchState, "craft_batch_state", nullable=False, default=BatchState.RUNNING

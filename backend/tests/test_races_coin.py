@@ -14,12 +14,12 @@ the count it read before the drop, wrote it over the drop's, and the dropped
 coins existed twice; a whole stack dropped meanwhile was melted off the floor.
 
 Neither side takes the body's row. A command does (`api.commands.common._alive`),
-and in the command path that row queues most doors into the same hands -- a
-hand-over, a batch paying out -- though not every one: the orphan sweep returns
-a melt's coins into the pocket without it (`craft.queue._abandon`). A race that
-let the body's row in would pass on the unlocked write-off, leaning on a guard
-it does not name. This pins the stack's own lock, which is what the rule asks
-of every write-off of money, whoever calls it.
+and that row queues the doors into the same hands -- a hand-over, a batch
+paying out, the orphan sweep giving a melt's coins back
+(`craft.queue._abandon`) -- but it is the callers' guard, not the melt's. A race
+that let the body's row in would pass on the unlocked write-off, leaning on a
+guard it does not name. This pins the stack's own lock, which is what the rule
+asks of every write-off of money, whoever calls it.
 
 One side holds the row, and the other is let go only once the database says
 it waits on it (`conftest._until_blocked_by`), so the order is a certainty

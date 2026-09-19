@@ -289,9 +289,9 @@ async def melt(
     #: and a hand dropping part of the stack meanwhile would otherwise be
     #: written over -- the melt subtracting from the count before the drop,
     #: and the dropped coins existing twice. The body's row a command holds
-    #: queues most doors into these hands, but not every one -- the orphan
-    #: sweep returns a melt's coins without it (`craft.queue._abandon`) --
-    #: and it is the caller's guard, not this door's. Taken before the
+    #: queues the doors into these hands -- a hand-over, a batch paying out,
+    #: the orphan sweep giving a melt's coins back (`craft.queue._abandon`)
+    #: -- but it is the caller's guard, not this door's. Taken before the
     #: machine, in the order `craft._work_on` takes a thing it takes apart.
     await world.lock_thing(session, item, gone=CoinError)
     pocket = await body_container(session, body)
@@ -316,6 +316,9 @@ async def melt(
     station = await craft._station_item(session, body, proc)  # noqa: SLF001
 
     fineness = fineness_of(constants) if item.fineness is None else float(item.fineness)
+    #: Read before the stack may go: the mark leaves with the coins and comes
+    #: back with them should the melt be swept away unfinished (D-217).
+    minter, minted_at, minted_in = item.maker_identity_id, item.made_at, item.made_node_id
     if item.amount > qty:
         item.amount -= qty
     else:
@@ -335,6 +338,9 @@ async def melt(
         spread=Decimal(str(scale.min)),
         spent={item.type_key: count},
         fineness=Decimal(str(fineness)),
+        mark_identity_id=minter,
+        mark_made_at=minted_at,
+        mark_node_id=minted_in,
         remaining_seconds=craft._seconds(minutes),  # noqa: SLF001
     )
     return await craft._launch(  # noqa: SLF001

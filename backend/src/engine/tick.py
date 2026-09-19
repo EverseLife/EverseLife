@@ -203,8 +203,11 @@ async def _sky(session: AsyncSession, now: datetime) -> dict[str, Any]:
 async def _orphans(session: AsyncSession, now: datetime) -> dict[str, Any]:
     #: A batch whose job died would otherwise stay "running" for ever, and its
     #: master would count as busy for ever with it (D-211, D-217). The world
-    #: sweeps such work away and gives back what went into it.
-    return {"batches_abandoned": await craft.sweep_orphans(session)}
+    #: sweeps such work away and gives back what went into it. What it had to
+    #: leave to the next tick -- its master's row held right then -- is said
+    #: too: an orphan skipped every tick is a question, not a quiet step.
+    swept = await craft.sweep_orphans(session)
+    return {"batches_abandoned": swept.abandoned, "batches_skipped": swept.skipped}
 
 
 async def _wear(session: AsyncSession, now: datetime) -> dict[str, Any]:

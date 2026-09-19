@@ -665,6 +665,15 @@ source_modules = ["src.engine.craft.batch.copy"]
 forbidden_modules = ["src.engine.craft.batch.work", "src.engine.craft.batch.finish"]
 allow_indirect_imports = "true"
 
+# Where a batch pays out is the floor under both its ends -- the finish and
+# the orphan sweep (`craft.queue`) -- and names neither.
+[[tool.importlinter.contracts]]
+name = "The payout of a batch asks neither the queue nor the bench"
+type = "forbidden"
+source_modules = ["src.engine.craft.payout"]
+forbidden_modules = ["src.engine.craft.queue", "src.engine.craft.batch"]
+allow_indirect_imports = "true"
+
 [[tool.importlinter.contracts]]
 name = "The automat's floor asks nobody"
 type = "forbidden"
