@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Nurlan Urazkulov
 
-"""The city the catch-up founded on a planet's sphere, taken down (D-356, item 10).
+"""The city the catch-up founded on a planet's sphere, taken down (D-356, addendum 2026-09-19).
 
 Since D-330 a city stands on its own printer, so the capital's node is the
 core, and the core hangs on Terra's sphere. The catch-up went on reading the
@@ -20,8 +20,10 @@ here is a rule a player could meet.
 What goes, and why each is safe to take:
 
 * **its land**: `owner_city_id` off every node it holds, and the distance to
-  a printer the tick measured for it (`estate.measure_cities`) -- wild ground
-  carries none, and ground a real city takes later is measured by its tick;
+  a printer the tick measured for it (`estate.measure_cities`) off everything
+  it was measured over -- its land, its own node, and the unowned nodes that
+  hang on it. Wild ground carries none, and ground a real city takes later is
+  measured by that city's tick;
 * **its members**: offices, council seats, grants paid, citizenships and
   requests for one, and the term jobs of its offices. A citizen of it is left
   with no city -- the state the defect took them from; a grant it paid stays
@@ -51,7 +53,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import ColumnElement, and_, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src import seed_once
@@ -105,6 +107,20 @@ async def take_down(session: AsyncSession) -> list[dict[str, Any]] | None:
 
     waiting = False
     for city, home in standing:
+        #: Its ground first, before anything is asked of it: a node given a
+        #: holder between the question and the lock would lose its title with
+        #: the city's mark. In id order -- the order the tick's measuring writes
+        #: the same rows in (the unit of work flushes by primary key), so the
+        #: deploy and a live world's tick queue rather than cross. `NO KEY
+        #: UPDATE`: nothing here touches a key, and the plain `FOR UPDATE` would
+        #: stop every row that points at these nodes -- a body arriving on a
+        #: find -- until the whole seed commits.
+        await session.execute(
+            select(Node.id)
+            .where(_measured(city, home))
+            .order_by(Node.id)
+            .with_for_update(key_share=True)
+        )
         held = (
             (
                 await session.execute(
@@ -142,29 +158,38 @@ async def take_down(session: AsyncSession) -> list[dict[str, Any]] | None:
     return [await _take_down(session, city, home) for city, home in standing]
 
 
+def _measured(city: City, home: Node) -> ColumnElement[bool]:
+    """What the tick measured as this city's: the set `estate.price._owned`
+    names -- the land it holds, its own node, and what hangs on that node
+    while no other city holds it. Written out rather than borrowed: the name
+    is the estate package's own, and this is a reading of what it wrote."""
+    return or_(
+        Node.owner_city_id == city.id,
+        Node.id == home.id,
+        and_(Node.parent_id == home.id, Node.owner_city_id.is_(None)),
+    )
+
+
 async def _take_down(session: AsyncSession, city: City, home: Node) -> dict[str, Any]:
-    """Take one city down; what was taken, for the step's row."""
-    #: The land first, in id order -- the order the tick's measuring writes the
-    #: same rows in (the unit of work flushes updates by primary key), so the
-    #: deploy and a live world's tick queue on them rather than cross.
+    """Take one city down; what was taken, for the step's row. Its ground is
+    already locked (`take_down`)."""
+    #: The distances first, while its land still names it: after the mark is
+    #: gone, land it took by a road no longer hangs on it and would keep them.
     await session.execute(
-        select(Node.id).where(Node.owner_city_id == city.id).order_by(Node.id).with_for_update()
+        update(Node).where(_measured(city, home)).values(center_node_id=None, center_steps=None)
     )
     land = (
         (
             await session.execute(
                 update(Node)
                 .where(Node.owner_city_id == city.id)
-                .values(owner_city_id=None, center_node_id=None, center_steps=None)
+                .values(owner_city_id=None)
                 .returning(Node.key)
             )
         )
         .scalars()
         .all()
     )
-    #: Its own node was measured with its land (`estate.price._owned`).
-    home.center_node_id = None
-    home.center_steps = None
 
     members = {}
     for model in MEMBERS:

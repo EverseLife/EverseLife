@@ -95,11 +95,11 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
     #: planet written to it as its built-up area.
     capital = above if above.layer is Layer.PLANET else core
 
-    #: And the city that reading founded comes down (D-356, item 10), before
-    #: anything below counts cities or hands out land: while it stands, every
-    #: node hanging on the sphere is its built-up area by parent alone. Once
-    #: per world (`seed_once` says why); a run that has to wait for the owner
-    #: is not marked and asks again at the next deploy
+    #: And the city that reading founded comes down (D-356, addendum
+    #: 2026-09-19), before anything below counts cities or hands out land:
+    #: while it stands, every node hanging on the sphere is its built-up area
+    #: by parent alone. Once per world (`seed_once` says why); a run that has
+    #: to wait for the owner is not marked and asks again at the next deploy
     #: (`seed_sphere_city.take_down`).
     if await seed_once.claim(session, seed_once.SPHERE_CITY_TAKEN_DOWN):
         taken = await seed_sphere_city.take_down(session)

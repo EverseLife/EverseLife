@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Nurlan Urazkulov
 
-"""The city the catch-up founded on Terra's sphere comes down (D-356, item 10).
+"""The city the catch-up founded on Terra's sphere comes down (D-356, addendum 2026-09-19).
 
 The catch-up took the core's parent for the capital, and since D-330 that is
 the planet's sphere: the first deploy of a world laid after D-330 founded a
@@ -16,7 +16,9 @@ wrote every unowned node of the planet to it. Checked:
   is touched, the owner hears of it, and the next deploy asks again;
 * a world laid fresh owes no run;
 * the return to `genesis` queues behind a payout from the treasury rather than
-  spending money the payout already took.
+  spending money the payout already took;
+* the ground it holds for the length of the seed does not stop a body from
+  stepping onto it.
 """
 
 from __future__ import annotations
@@ -27,7 +29,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from conftest import _until_blocked_by
@@ -39,6 +41,7 @@ from src.engine import estate, ledger, world
 from src.engine.jobs import enqueue
 from src.models.catchup import CatchUpStep
 from src.models.city import Citizen, City, CityGrant, Office
+from src.models.identity import Body
 from src.models.job import Job, JobKind
 from src.models.ledger import AccountKind, PostingReason
 from src.models.metrics import DailyMetric
@@ -128,6 +131,12 @@ async def test_the_next_deploy_takes_down_the_city_on_the_sphere(
     await session.refresh(find)
     assert find.owner_city_id == city.id
     assert find.center_node_id is not None, "тик мерил землю фантома"
+    #: Found after the last deploy: nobody's yet, but it hangs on the sphere,
+    #: so the tick measured it as the city's all the same.
+    late = await _find(session, sphere)
+    await estate.measure_cities(session)
+    await session.refresh(late)
+    assert late.owner_city_id is None and late.center_node_id is not None
     channel = await session.scalar(select(NetChannel).where(NetChannel.city_id == city.id))
     assert channel is not None
     reader = (await town.offices(session, capital))[0].identity_id
@@ -148,6 +157,8 @@ async def test_the_next_deploy_takes_down_the_city_on_the_sphere(
     await session.refresh(core)
     assert find.owner_city_id is None, "находка снова ничья"
     assert (find.center_node_id, find.center_steps) == (None, None)
+    await session.refresh(late)
+    assert (late.center_node_id, late.center_steps) == (None, None), "мерка фантома снята"
     assert (sphere.center_node_id, sphere.center_steps) == (None, None)
     assert core.owner_city_id == capital.id, "ядро осталось столице"
     #: Let go before the lines are asked (D-356): the field inside the
@@ -307,3 +318,27 @@ async def test_the_return_queues_behind_a_payout_from_the_treasury(
         assert await ledger.balance(db, treasury) == 0
         assert await _balance(db, AccountKind.GENESIS, None) == issued + taken["returned"]
         assert await town.by_node(db, sphere.id) is None
+
+
+async def test_a_body_stepping_onto_its_land_does_not_wait_for_the_deploy(
+    factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The step holds the city's ground until the whole seed commits, and the
+    seed runs beside a live world. Taken `FOR UPDATE`, the rows would stop every
+    row that points at them: a body arriving on a find takes its node's key
+    share and would wait out the deploy. Taken `FOR NO KEY UPDATE`, it walks past."""
+    async with factory() as db, db.begin():
+        core = await _old_world(db, monkeypatch)
+        sphere = await db.get(Node, core.parent_id)
+        assert sphere is not None
+        find = await _find(db, sphere)
+        await _as_the_old_deploy_left_it(db, core)
+        body = await db.scalar(select(Body.id).limit(1))
+
+    async with factory() as deploy, factory() as walker:
+        await deploy.begin()
+        assert await seed_sphere_city.take_down(deploy)
+        async with walker.begin():
+            await walker.execute(text("SET LOCAL lock_timeout = '2s'"))
+            await walker.execute(update(Body).where(Body.id == body).values(node_id=find.id))
+        await deploy.commit()
