@@ -481,10 +481,10 @@ async def _release(session: AsyncSession, station_item_id, body_id: uuid.UUID) -
 
     Only their own hold: a run whose end comes late -- the worker behind, a
     job that died on its retries and was swept (D-217) -- finds its machine
-    past `busy_until`, and `_pick_station` has counted that as free and may
-    have given it to somebody else since. Freed unconditionally, that
-    master's machine went to a third. One statement, so that a hold taken
-    while this runs is either seen or not overwritten.
+    past `busy_until`, which counts as free (`_free`), and another master's
+    run may have taken it since (`craft.queue._take_station`). Freed
+    unconditionally, that master's machine went to a third. One statement,
+    so that a hold taken while this runs is either seen or not overwritten.
     """
     if station_item_id is None:
         return
