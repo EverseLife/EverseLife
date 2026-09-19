@@ -157,6 +157,24 @@ def bound_states(bounds: Sequence[Bound], t: np.ndarray | float) -> tuple[Rows, 
     return r, v
 
 
+def rounded(
+    body: Body, t: float, r: tuple[float, float], v: tuple[float, float]
+) -> tuple[tuple[float, float], float]:
+    """The last burn of an arrival (D-354): the velocity of the circle round
+    `body` through the hull's own place, the way the hull already goes round,
+    and the speed that burn costs. The circle at the height the hull is at,
+    not at the parking radius: the burn changes how the hull moves, never
+    where it is."""
+    p, vp = place(body, t)
+    rel = np.array(r, dtype=float) - p[0]
+    v_rel = np.array(v, dtype=float) - vp[0]
+    gap = float(np.hypot(*rel))
+    sense = 1.0 if astro.cross((rel[0], rel[1]), (v_rel[0], v_rel[1])) >= 0 else -1.0
+    want = np.array([-rel[1], rel[0]]) / gap * sense * float(np.sqrt(body.mu / gap))
+    new = vp[0] + want
+    return (float(new[0]), float(new[1])), float(np.hypot(*(want - v_rel)))
+
+
 def kepler(mu: np.ndarray, r0: Rows, v0: Rows, dt: np.ndarray) -> tuple[Rows, Rows]:
     """Each row `dt` along its closed orbit round a centre of pull `mu`.
 

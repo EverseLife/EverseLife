@@ -34,7 +34,6 @@ from src.units import (
     HOURS_PER_DAY,
     ROUND_DV,
     ROUND_HOURS,
-    ROUND_TRACE,
     SKY_CURVE_MEMO,
     SKY_MEMO_PER_DAY,
 )
@@ -78,12 +77,12 @@ async def offers(
         constants,
         world,
         target,
-        await sim.leaving_of(session, world, ship),
+        sim.leaving_of(world, t, r, v),
         r,
         v,
         t,
         reach=course.reach(constants, thrust_ratio),
-        basis=_basis(ship, r, v),
+        basis=_basis(ship),
     )
     return _waited(world, target, laid, r, v, t)
 
@@ -105,14 +104,14 @@ async def arcs(
         return []
     r, v, t = found
     world = await sim.system(session, constants)
-    leaving = await sim.leaving_of(session, world, ship)
+    leaving = sim.leaving_of(world, t, r, v)
     key = (
         constants.digest,
         tuple(one.key for one in world.bodies),
         target.key,
         None if leaving is None else leaving.key,
         round(t * SKY_MEMO_PER_DAY),
-        _basis(ship, r, v),
+        _basis(ship),
     )
     hit = _PREVIEWS.get(key)
     if hit is None:
@@ -125,21 +124,22 @@ async def arcs(
     return _waited(world, target, hit, r, v, t)
 
 
-def _basis(ship: Ship, r: tuple[float, float], v: tuple[float, float]) -> tuple:
+def _basis(ship: Ship) -> tuple:
     """What a remembered slider from this hull is keyed on besides the sky's
-    bucket (D-341): a moored hull's circle -- the node, the phase and the
-    stamp it was put on it at, which place it on the circle at any moment,
-    so a slider laid a minute ago from this very hull is found again, and an
-    order given after the console read it flies what the console showed --
-    or a coasting hull's state as the wire rounds it. Either way the hull's
-    own: no two hulls share a slider unless they share a state."""
-    if ship.docked_node_id is not None:
-        return (ship.docked_node_id, ship.park_phase, ship.sky_at)
+    bucket (D-341): the hull's stamp -- the moment and the state the tick last
+    wrote, which place it in the sky at any moment of the bucket -- so a
+    slider laid a minute ago from this very hull is found again, and an order
+    given after the console read it flies what the console showed. The hull's
+    own: no two hulls share a slider unless they share a state. The place it
+    is read at moves every second a hull goes round a planet, and was no key
+    for anything since D-354 put every hull at a planet into the sky."""
     return (
-        round(r[0], ROUND_TRACE),
-        round(r[1], ROUND_TRACE),
-        round(v[0], ROUND_DV),
-        round(v[1], ROUND_DV),
+        None if ship.sky_at is None else ship.sky_at.isoformat(),
+        ship.sky_x,
+        ship.sky_y,
+        ship.sky_vx,
+        ship.sky_vy,
+        ship.held_ship_id,
     )
 
 

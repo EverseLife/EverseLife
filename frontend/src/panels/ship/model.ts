@@ -26,11 +26,9 @@ export type Price = {
   reachable: boolean;
 };
 
-/** A leg to or from the ground, priced by the hour: the climb to the orbit
- *  above the pad, aimed at that one node (D-245). */
+/** A leg to or from the ground, priced by the hour: the climb into orbit
+ *  round the pad's planet (D-245) -- a place in the sky, not a node (D-354). */
 export type Leg = Price & {
-  node: string;
-  name: string;
   planet: string;
 };
 
@@ -50,13 +48,11 @@ export type ArcPrice = {
   fuel: number;
 };
 
-/** A destination the console offers: a planet's orbit, and the two ends of
- *  the direct arcs to it as the slider's rule cuts them (D-341) -- the first
+/** A destination the console offers: a planet, and the two ends of the
+ *  direct arcs to it as the slider's rule cuts them (D-341) -- the first
  *  choice and the cheapest of the group offered. The whole slider, flybys
  *  and all, is read on demand (`ship.course`). */
 export type Route = {
-  node: string;
-  name: string;
   planet: string;
   /** Enough thrust to leave the ground at all. Class closes no route. */
   reachable: boolean;
@@ -130,11 +126,15 @@ export type Fate = {
   at: string;
   body: string | null;
   trace: [number, number][];
+  /** The planet a lap goes round (D-354): the trace is then drawn round that
+   *  planet's centre, which the chart puts where the planet is now. */
+  around?: string | null;
 };
 
 /** The hull in the sky (D-289): where it is at `at`, and the coast ahead as
- *  the tick last counted it -- nothing until the first tick since the order.
- *  Nothing at all at a pad, on a climb, or on the circle. */
+ *  the tick last counted it -- nothing until the first tick since the order;
+ *  in orbit, the lap round its planet (D-354). Nothing at all at a pad or on
+ *  a climb. */
 export type Sky = {
   x: number;
   y: number;

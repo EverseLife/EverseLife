@@ -241,9 +241,20 @@ class Drifter:
     #: A lap round a planet rather than a coast: the line is read modulo its
     #: period, and the hull is always somewhere on it.
     loops: bool = False
+    #: The planet a lap goes round (D-354): the line is drawn round its
+    #: centre, and the planet's own place and speed are added at each moment
+    #: -- a lap pinned in the star's frame is left behind as the planet moves.
+    around: Body | None = None
 
     def state(self, t: np.ndarray | float) -> tuple[Rows, Rows]:
         """Where the drifter is and how it moves at `t`, for a batch of times."""
+        r, v = self._on_line(t)
+        if self.around is not None:
+            p, vp = place(self.around, t)
+            r, v = r + p, v + vp
+        return r, v
+
+    def _on_line(self, t: np.ndarray | float) -> tuple[Rows, Rows]:
         tt = np.atleast_1d(np.asarray(t, dtype=float))
         if self.loops and self.t1 > self.t0:
             tt = self.t0 + np.mod(tt - self.t0, self.t1 - self.t0)

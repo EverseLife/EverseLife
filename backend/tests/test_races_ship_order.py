@@ -61,7 +61,7 @@ from ship_kit import (
     _hull,
     _in_orbit,
     _laid,
-    _orbit,
+    _planet,
     _port,
     _shipwright,
 )
@@ -233,7 +233,7 @@ async def test_a_crossing_ordered_onto_a_hull_already_falling_is_refused(
     """
     here = await _port(session)
     await _port(session, name="Порт Авроры", planet=Planet.AURORA)
-    far = await _orbit(session, Planet.AURORA)
+    far = await _planet(session, Planet.AURORA)
     _, owner = await _shipwright(session, here)
     vessel = await _laid(session, constants, owner, here)
     await _flightworthy(session, constants, catalog, vessel)
@@ -243,7 +243,7 @@ async def test_a_crossing_ordered_onto_a_hull_already_falling_is_refused(
     owner.node_id = connector.id
     await session.flush()
     await _in_orbit(session, constants, catalog, owner, vessel)
-    vessel_id, owner_id, far_key = vessel.id, owner.id, far.key
+    vessel_id, owner_id, far_key = vessel.id, owner.id, far.planet.value
     state = {"identity_id": owner.identity_id}
     await session.commit()
 
@@ -262,7 +262,7 @@ async def test_a_crossing_ordered_onto_a_hull_already_falling_is_refused(
     async def ordering() -> dict:
         await held.wait()
         async with factory() as db, db.begin():
-            return await _ship_fly(state, db, {"port": far_key})
+            return await _ship_fly(state, db, {"planet": far_key})
 
     orders.append(asyncio.ensure_future(ordering()))
     dead, ordered = await asyncio.gather(losing(), orders[0], return_exceptions=True)
@@ -341,4 +341,4 @@ async def test_a_turn_back_ordered_as_the_passage_arrives_is_refused(
     assert isinstance(ordered, ShipError) and ordered.key == "ship-not-in-passage", ordered
     async with factory() as db:
         row = await db.get(Ship, vessel_id)
-        assert row is not None and row.docked_node_id is not None, "the climb ended on its circle"
+        assert row is not None and row.sky_at is not None, "the climb ended in orbit"

@@ -70,8 +70,8 @@ class Ship(Base):
         ForeignKey("node.id"), nullable=False, unique=True
     )
 
-    #: The spaceport the connector is coupled to. Empty -- in flight: the
-    #: subgraph has no edge outwards at all.
+    #: The spaceport the connector is coupled to. Empty -- in the sky or on a
+    #: leg: the subgraph has no edge outwards to a pier at all.
     docked_node_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
 
     #: Which berth of that port the ship stands at, counted from one. The
@@ -117,18 +117,17 @@ class Ship(Base):
 
     #: The hull in the sky (D-289): where it is and how it moves, and the
     #: moment that was true. Map units and units a day, the sky's own clock.
-    #: Empty at a spaceport -- there the graph says where the hull is. Moored
-    #: to an orbital node it is the parking circle's state at that moment
-    #: (`park_phase` is the angle round the planet), and the circle is
-    #: analytic from there; under way or adrift it is the integrator's, moved
-    #: by the tick. Never derived from the passage job again: the crossing is
+    #: Empty at a spaceport and on a leg by the hour -- there the graph and
+    #: the job say where the hull is. Everywhere else it is the integrator's,
+    #: moved by the tick -- in orbit round a planet too (D-354): there is no
+    #: node above a planet to moor to, and no circle kept apart from the
+    #: state. Never derived from the passage job again: the crossing is
     #: flown, not tabled.
     sky_at: Mapped[datetime | None] = mapped_column(nullable=True)
     sky_x: Mapped[float | None] = mapped_column(Float, nullable=True)
     sky_y: Mapped[float | None] = mapped_column(Float, nullable=True)
     sky_vx: Mapped[float | None] = mapped_column(Float, nullable=True)
     sky_vy: Mapped[float | None] = mapped_column(Float, nullable=True)
-    park_phase: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     #: The order the autopilot flies (D-289): the target, the planned hour,
     #: the line to draw and the phase the helm is in. Empty -- no order: at a

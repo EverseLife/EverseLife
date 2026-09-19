@@ -88,7 +88,12 @@ export function Landing({
   const cost = vessel.descent;
   const [chosen, setChosen] = useState("");
   const marks = useMemo(() => padsOn(world, vessel.planet, home), [world, vessel.planet, home]);
-  if (home.length === 0 || !cost) {
+  //: In orbit and no price to come down: the orbit is too wide to land from
+  //: (D-354), and the way down starts with a course to this same planet.
+  if (!cost) {
+    return <p className="note">{t("ui-ship-orbit-high")}</p>;
+  }
+  if (home.length === 0) {
     return <p className="note">{t("ui-ship-nowhere-to-land")}</p>;
   }
   const port = home.some((pad) => pad.node === chosen) ? chosen : home[0].node;

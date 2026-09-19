@@ -28,9 +28,9 @@ from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import events, stock
 from src.engine.ship import fate, flyby, hold
-from src.engine.ship._base import orbit_node_of
 from src.engine.ship.physics import (
     _FUEL_EPS,
+    _sphere,
     engine_class,
     fuel_energy,
     fuel_stacks,
@@ -48,8 +48,8 @@ from src.engine.ship.sim import (
     _write_state,
     dv_aboard,
     fuel_for_dv,
+    into_orbit,
     meetable,
-    moor,
     states_at,
     system,
 )
@@ -319,6 +319,17 @@ async def _fly(
         )
         if hit is not None or left:
             outcome = "struck"
+    if outcome == "moored" and isinstance(target, sky.Body):
+        #: The last burn of an arrival (D-354): the helm caught the hull near
+        #: the circle, and rounding its orbit off at the height it is at costs
+        #: the speed the two differ by -- paid like any other burn. The tanks
+        #: short of it, the hull keeps the ellipse it was caught on: the
+        #: capture window made that a closed one, and nothing is set down on a
+        #: circle for free any more.
+        rounded, trim = sky.rounded(target, t, r, v)
+        if trim <= max(budget - spent, 0.0):
+            v = rounded
+            spent += trim
 
     #: **The crew, and then the hull's things** -- the order of the two the
     #: world keeps (`belonging.lock_crew`). A crew member is a pair of hands
@@ -433,22 +444,27 @@ async def _fly(
         await session.flush()
         return "circled", burnt
     if outcome == "moored" and isinstance(target, sky.Body):
-        orbit = await orbit_node_of(session, target_planet(target))
-        if orbit is None:  # pragma: no cover -- the seed lays one per planet
+        sphere = await _sphere(session, target_planet(target))
+        if sphere is None:  # pragma: no cover -- the sky runs only the planets laid
             outcome = "flying"
         else:
-            p, _ = sky.place(target, t)
-            rel = np.array(r) - p[0]
-            await moor(session, ship, orbit, now=stamp, phase=float(math.atan2(rel[1], rel[0])))
+            #: In orbit (D-354): no node to moor to, the order done, the coast
+            #: counted -- a closed orbit, stable by arithmetic.
+            await into_orbit(session, ship, sphere, r=r, v=v, now=stamp)
+            verdict = await fate.book_loss(
+                session, constants, ship, world, now=stamp, t=t, r=r, v=v
+            )
+            _keep_forecast(ship, verdict, now=stamp, t=t)
             await events.record(
                 session,
-                EventKind.SHIP_DOCKED,
+                EventKind.SHIP_IN_ORBIT,
                 actor_identity_id=ship.owner_identity_id,
-                node_id=orbit.id,
+                node_id=ship.connector_node_id,
                 ship_id=str(ship.id),
                 name=ship.name,
-                port=orbit.key,
+                planet=sphere.planet.value,
             )
+            await session.flush()
             return outcome, burnt
     if outcome == "adrift":
         ship.course = None

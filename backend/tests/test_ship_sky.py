@@ -29,14 +29,14 @@ from ship_kit import (
     _fuel,
     _in_orbit,
     _laid,
-    _orbit,
+    _planet,
     _port,
     _shipwright,
 )
 from src import sky
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import jobs, ship
+from src.engine import jobs, oxygen, ship
 from src.engine.ship import fate, helm, sim
 from src.models.event import Event, EventKind
 from src.models.identity import Body
@@ -77,7 +77,7 @@ async def _under_way(
     """
     home = await _port(session, name="Космодром столицы")
     await _port(session, name="Космодром Мерида", planet=Planet.AURORA)
-    aurora = await _orbit(session, Planet.AURORA)
+    aurora = await _planet(session, Planet.AURORA)
     _, owner = await _shipwright(session, home)
     vessel = await _laid(session, constants, owner, home)
     await _flightworthy(session, constants, catalog, vessel)
@@ -186,7 +186,6 @@ async def test_the_loss_job_asks_the_arithmetic_again_before_it_kills(
         speed = float(np.hypot(*vp[0]))
         falling = tuple(-outward * speed)
         doomed.docked_node_id = None
-        doomed.park_phase = None
         sim._write_state(doomed, here, (falling[0], falling[1]), at=now)
         await session.flush()
         verdict = await fate.book_loss(
@@ -234,7 +233,6 @@ async def test_a_drifter_with_an_order_by_the_hour_is_left_alone(
         outward = np.array(here) / np.hypot(*here)
         falling = tuple(-outward * float(np.hypot(*vp[0])))
         vessel.docked_node_id = None
-        vessel.park_phase = None
         sim._write_state(vessel, here, (falling[0], falling[1]), at=now)
         await session.flush()
         await fate.book_loss(session, constants, vessel, world, now=now, t=t, r=here, v=falling)
@@ -242,7 +240,7 @@ async def test_a_drifter_with_an_order_by_the_hour_is_left_alone(
         due, ship_id = booked[0].run_at, vessel.id
         #: An order in the meantime: the tanks were filled and the hull sent
         #: on. The row carries a course, and that is what the job reads.
-        aurora = await _orbit(session, Planet.AURORA)
+        aurora = await _planet(session, Planet.AURORA)
         await ship.fly(
             session, constants, catalog, owner, vessel, aurora, now=now + timedelta(minutes=1)
         )
@@ -256,11 +254,13 @@ async def test_a_drifter_with_an_order_by_the_hour_is_left_alone(
         assert not await _events(session, EventKind.SHIP_LOST)
 
 
-async def test_a_moored_hull_runs_on_its_circle_and_costs_the_tick_nothing(
+async def test_a_hull_in_orbit_is_a_body_in_the_sky_and_burns_nothing(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """The parking circle is arithmetic, not rows (D-289): the state read at
-    any hour is on the circle, and the tick leaves a moored hull alone."""
+    """In orbit is no mooring any more (D-354): the climb leaves the hull in
+    the sky with a place and a speed, no node under it, on the circle round
+    its planet; the tick moves its stamp and burns nothing; the console says
+    it is in orbit and draws its lap round the planet."""
     home = await _port(session, name="Космодром столицы")
     _, owner = await _shipwright(session, home)
     vessel = await _laid(session, constants, owner, home)
@@ -270,12 +270,13 @@ async def test_a_moored_hull_runs_on_its_circle_and_costs_the_tick_nothing(
     owner.node_id = connector.id
     await session.flush()
     await _in_orbit(session, constants, catalog, owner, vessel)
-    assert vessel.sky_at is not None and vessel.park_phase is not None
+    assert vessel.sky_at is not None and vessel.docked_node_id is None
+    assert vessel.berth is None and vessel.course is None
 
     world = await sim.system(session, constants)
     terra = world.body(Planet.TERRA.value)
     park = sky.park_of(world, terra)
-    for hours in (0, 7, 100):
+    for hours in (0, 1, 5):
         at = vessel.sky_at + timedelta(hours=hours)
         found = await sim.state_at(session, constants, vessel, now=at)
         assert found is not None
@@ -287,9 +288,11 @@ async def test_a_moored_hull_runs_on_its_circle_and_costs_the_tick_nothing(
     assert report.get("flown", 0) == 0
     assert await ship.fuel_aboard(session, constants, catalog, vessel) == before
     summary = await ship.profile(session, constants, catalog, vessel)
-    #: No sky for a moored hull: the circle the chart draws by itself, and a
-    #: ninety-day forecast of a circle is arithmetic nobody reads.
-    assert summary["stage"] == "orbit" and summary["sky"] is None
+    assert summary["stage"] == "orbit" and summary["planet"] == "terra"
+    inertia = summary["sky"]["inertia"]
+    assert inertia["kind"] == sky.STABLE and inertia["around"] == "terra"
+    #: And the air is the hull's own: nothing outside to open the hatch onto.
+    assert await oxygen.sealed(session, vessel)
 
 
 async def test_two_ticks_on_one_hull_burn_once(
@@ -479,7 +482,7 @@ async def _coasting_over_terra(
     what every hull at a planet becomes once the orbital node is gone."""
     home = await _port(session, name="Космодром столицы")
     if pyroxis:
-        await _orbit(session, Planet.PYROXIS)
+        await _planet(session, Planet.PYROXIS)
     _, owner = await _shipwright(session, home)
     vessel = await _laid(session, constants, owner, home)
     await _flightworthy(session, constants, catalog, vessel)
@@ -491,7 +494,6 @@ async def _coasting_over_terra(
     found = await sim.state_at(session, constants, vessel, now=vessel.sky_at)
     assert found is not None
     vessel.docked_node_id = None
-    vessel.park_phase = None
     sim._write_state(vessel, found[0], found[1], at=vessel.sky_at)
     await session.flush()
     world = await sim.system(session, constants)

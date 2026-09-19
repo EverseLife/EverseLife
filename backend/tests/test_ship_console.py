@@ -26,17 +26,19 @@ from ship_kit import (
     FUEL,
     LIFE,
     _equip,
+    _events,
     _flightworthy,
     _fuel,
     _laid,
-    _orbit,
     _port,
     _shipwright,
+    orbit_marks,
 )
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import frost, ship, storage, travel, world
 from src.engine.ship.flight import _passage_of
+from src.models.event import EventKind
 from src.models.identity import Body
 from src.models.job import Job, JobKind, JobState
 from src.models.ship import Ship
@@ -394,13 +396,13 @@ async def test_somebody_elses_ground_console_is_refused(
 async def test_an_arrival_that_fires_twice_moors_once(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """A hull is docked by exactly one arrival.
+    """A leg ends by exactly one arrival.
 
-    A retry after a failure, or a job that outlived a turn-back, would otherwise
-    lay a second gangway and moor a ship that is already moored.
+    A retry after a failure, or a job that outlived a turn-back, would
+    otherwise put the hull on a second orbit, or lay a second gangway and moor
+    a ship that is already moored.
     """
     home = await _port(session, name="Космодром столицы")
-    away = await _orbit(session)
     _, owner = await _shipwright(session, home)
     vessel = await _laid(session, constants, owner, home)
     await _flightworthy(session, constants, catalog, vessel)
@@ -410,13 +412,15 @@ async def test_an_arrival_that_fires_twice_moors_once(
     job = await ship.ascend(session, constants, catalog, owner, vessel)
 
     await ship.arrived(session, job)
-    berth, docked = vessel.berth, vessel.docked_node_id
-    assert docked == away.id
+    stamp = (vessel.sky_at, vessel.sky_x, vessel.sky_y)
+    assert vessel.docked_node_id is None and stamp[0] == job.run_at
+    told = len(await _events(session, EventKind.SHIP_IN_ORBIT))
 
     await ship.arrived(session, job)
-    assert vessel.docked_node_id == docked and vessel.berth == berth
-    ways = await travel.exits(session, constants, away)
-    assert [way.node_id for way in ways].count(connector.id) == 1, "трап один"
+    assert (vessel.sky_at, vessel.sky_x, vessel.sky_y) == stamp, "на орбиту выводят один раз"
+    assert len(await _events(session, EventKind.SHIP_IN_ORBIT)) == told
+    for way in await travel.exits(session, constants, connector):
+        assert (await session.get(Node, way.node_id)).layer is not Layer.SPACE, "с орбиты трапа нет"
 
 
 async def test_a_turn_back_to_a_dark_pier_is_refused(
@@ -440,7 +444,7 @@ async def test_a_turn_back_to_a_dark_pier_is_refused(
         area_m2=1,
         planet=Planet.AURORA,
         layer=Layer.SPACE,
-        properties={frost.FROST: True},
+        properties={frost.FROST: True, world.ORBIT: orbit_marks(Planet.AURORA)},
     )
     home = await _port(session, name="Космодром Мерида", planet=Planet.AURORA)
     _, owner = await _shipwright(session, home)

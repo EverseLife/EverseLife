@@ -101,100 +101,10 @@ from src.engine.errors import Refusal
 from src.models.estate import Building
 from src.models.ship import Ship
 from src.models.world import ABOARD as ABOARD
-from src.models.world import Node, Planet
+from src.models.world import Node
 from src.units import (
     AMOUNT_SCALE,
 )
-
-"""The ship: a group of nodes coupled to a spaceport by one edge (D-201, D-202).
-
-A ship is **not a thing standing in a node** and not a layer of its own. Its
-rooms are ordinary nodes of the same graph: with their own area, their own
-chat, their own machines and their own edges. Outwards the group faces through
-exactly one **connector** -- the node laid first -- and docking is one edge
-between that connector and the spaceport.
-
-Hence the whole of space is two operations on one edge:
-
-    docking    = travel.connect(port, connector)
-    undocking  = travel.disconnect(port, connector)
-
-and the flight is the state of having no such edge. A body aboard needs no
-"in flight" flag: there is simply nowhere to step off to.
-
-## Why it is a subgraph and not a vehicle
-
-A vehicle is harnessed to and carries cargo in a hold (`engine.transport`). One
-does not walk inside a vehicle -- while inside a ship people must walk: to the
-bridge, to the hold, to the engine room. Two models of one object would have
-diverged the day somebody asked where a person flying to Aurora actually is.
-As a subgraph the answer is the same as everywhere else: in a node.
-
-## The ship grows by a node at a time
-
-One comes to a spaceport and lays a foundation, giving up an **Основа узла
-корабля**. The first node appears -- the base, the connector and the docking
-point at once. The same action from any node aboard lays one more, joined to
-the one it was laid from. A ship is therefore built the way a city is settled,
-and its shape is somebody's decision rather than a recipe's.
-
-A node aboard is a **building** from the first second: machines take area
-(D-106), so a hull section has `ship.node_area` of it. What the ship can do is
-set by what stands in it -- engines, navigation, life support are machines, not
-lines of a recipe.
-
-## Speed is thrust against mass
-
-    ratio = sum of thrust of the engines / (mass of the nodes + everything aboard)
-    hours = table time * ship.reference_ratio / ratio
-
-Below `ship.min_thrust_ratio` the ship **does not undock at all** -- it does not
-"fly slowly", it does not tear off, and that is known before the attempt rather
-than after. Faster than `ship.route_min_share` of the table it does not go: a
-speed ceiling, otherwise it is enough to hang engines on a single node.
-
-There is no capacity number anywhere. Overload shows itself as a longer passage
-and, in the limit, as a ship that stays in port -- which reads better than
-"capacity exceeded". What a crew member carries in their own hands is not
-weighed: a pocket against a hull is rounding.
-
-## Two things an undocked ship must never become
-
-A ship with no edges cannot be reached: fuel cannot be brought to it and nobody
-aboard can walk off. So casting off is refused without fuel for at least the
-way back into the very port being left -- the cheapest passage there is. A trap
-with no way out is not built in this world (pillar P6), and this is the only
-one a ship could have created.
-
-The other one is a second way in. The connector must stay alone, so
-exploration from aboard is refused as well (`engine.explore`): a find arrives
-with an edge from the node it was made from, and an edge out of a hull would
-quietly weld the ship to a wild node past the inspection at the gangway.
-
-## What the engine keeps no list of
-
-Neither engines nor routes. Thrust and class come by the item's name from
-`ship.thrust` and `ship.engine_class`, passage times from
-the orbits of the two planets and the flight time chosen (D-271), not a table of
-planets -- exactly as a vehicle's capacity comes by its name (D-090). A
-second-class engine appears in the vault and flies without a release.
-
-## A passage costs what the sky costs today
-
-The two vault numbers are the **ends** of a route, not its price: planets go
-round the star at their own periods, so the way between any two of them
-stretches and shrinks by itself. In conjunction Terra and Aurora are ten hours
-apart, in opposition two days -- and everything between is the sky's doing, not
-a setting. Hence the rule the whole of space trade rests on: **a passage is
-planned.** Windows come round every two to five weeks of real time, and setting
-out at the wrong hour costs four to five times over, in hours and in fuel
-alike.
-
-The time is settled once, at casting off, and never recomputed: a sky turning
-under a ship already under way would make the passage longer than the one paid
-for.
-"""
-
 
 #: Thing classes from the vault (D-202, D-215): behaviour binds to a class,
 #: never to an item name -- a second kind of foundation or fuel is data.
@@ -260,60 +170,23 @@ BRIDGE = "bridge"
 GROUND_BRIDGE = "ground_bridge"
 
 
-#: The node property marking a planet's orbital node (D-245). One per planet,
-#: on the space layer, hanging under the planet itself.
-#:
-#: A **node**, not a state of the ship, because the vault has always described
-#: it as one: "у каждой планеты есть орбитальный узел с доками и станциями"
-#: (10-world/06). Docks, stations and the interception points that piracy,
-#: convoys and insurance rest on all want somewhere to stand, and that
-#: somewhere is this node. Until they are built it is a bare node one may only
-#: moor to -- and stepping out onto it is a spacewalk, which the air rule
-#: refuses without a suit (D-233).
-#:
-#: `ORBIT_NODE`, not `ORBIT`: `world.ORBIT` is the planet's orbital elements --
-#: radius, period, phase -- and two constants of one name a module apart is how
-#: one gets read for the other.
-ORBIT_NODE = "orbit_node"
-
-
-def orbit_key(planet: Planet) -> str:
-    """The key of a planet's orbital node. One per planet, and it never moves."""
-    return f"{planet.value}.orbit"
-
-
-def is_orbit(node: Node) -> bool:
-    """Whether this node is a planet's orbit: the void above it, not ground."""
-    return bool((node.properties or {}).get(ORBIT_NODE))
-
-
-async def orbit_node_of(session: AsyncSession, planet: Planet) -> Node | None:
-    """This planet's orbital node, laid by the seed. One per planet (D-245).
-
-    `orbit_node_of`, not `orbit_of`: `world.orbit_of` reads a planet's orbital
-    **elements** off its node, and the two would be read for each other exactly
-    as `ORBIT` and `ORBIT_NODE` would.
-    """
-    return (
-        await session.execute(select(Node).where(Node.key == orbit_key(planet)))
-    ).scalar_one_or_none()
-
-
-#: The three places a hull can be (D-245), as the console is told them. Not a
-#: column: every one of them is already written in the world -- moored to a
-#: spaceport, moored to an orbital node, or moored to nothing -- and a second
-#: place to keep it would be a second opinion about where the ship is.
+#: Where a hull is in its journey, as the console is told it. Not a column:
+#: every one of them is already written in the world -- moored to a pier, on
+#: a leg or under an order, or coasting in the sky -- and a second place to
+#: keep it would be a second opinion about where the ship is. "In orbit" is
+#: not a place since D-354 but a reading of the sky: a coast on a closed
+#: orbit round a planet (`sky.bound_to`); any other coast is adrift.
 AT_PORT = "port"
 IN_ORBIT = "orbit"
 UNDER_WAY = "flight"
-#: And a fourth since D-289: moored to nothing and under no order -- a hull
-#: coasting on whatever inertia it has, for as long as it takes.
 ADRIFT = "adrift"
 LOST = "lost"
 
 
-#: The three legs a journey is made of (D-245). A ship is on the ground, in
-#: orbit, or on one of these; nothing else is a place a hull can be.
+#: The legs by the hour (D-245): the climb from a pier to the orbit above it
+#: and the descent from orbit to a pier -- the atmosphere, which the sky does
+#: not fly (D-289, D-354). A crossing between worlds is an order the helm
+#: flies, not a leg; `PASSAGE` names it in the journal.
 #:
 #: They live here rather than in the flight module because both the journal and
 #: the console read them: the payload of a passage carries the leg, and the

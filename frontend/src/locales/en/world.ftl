@@ -228,7 +228,7 @@ ui-ship-ratio-line = thrust to weight { $ratio } against the { $min } needed
 ui-ship-stuck = does not lift off
 ui-ship-crew = crew { $crew } · fuel { $fuel }
 ui-ship-no-life-support = no life support system
-ui-ship-in-orbit = in planetary orbit · { $planet }
+ui-ship-in-orbit = in orbit · { $planet }
 ui-ship-berthed = at the “{ $port }” shipyard, berth { $berth }
 ui-ship-on-voyage = on a passage to “{ $name }”
 ui-ship-adrift = adrift
@@ -238,7 +238,9 @@ ui-ship-no-bridge = Casting off and a passage are ordered from the control conso
 
 ## The climb: the hull's only move on the ground.
 
-ui-ship-no-orbit = No climbing from here: this planet has no orbital node.
+ui-ship-no-orbit = No climbing from here: this planet has no orbit.
+ui-ship-climb-to = Orbit: { $planet }
+ui-ship-orbit-high = The orbit is too high to land from: set a course for this same planet first — the autopilot brings the ship down to the parking circle.
 ui-ship-no-thrust = no thrust at all: fit an engine
 ui-ship-leg-cost = { $hours } h · { $fuel } fuel
 ui-ship-ascend = Climb to planetary orbit

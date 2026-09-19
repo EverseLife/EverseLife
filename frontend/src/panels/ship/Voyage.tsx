@@ -142,9 +142,39 @@ export function Drift({
       {fate && fate.kind !== "stable" && (
         <Deadline until={fate.at} since={v.sky.at} label={t("ui-ship-fate-label")} />
       )}
-      {/* Two hulls that met (D-289, wave 3): flying as one, and, with both
-          commanders' consent, joined by a gangway the crew walk across with
-          what they carry -- a canister of fuel first of all. */}
+      <Ties v={v} busy={busy} dock={dock} undock={undock} />
+      {/* Out of the drift and onto the circle round the star, if the tanks
+          pay for the burn (D-289, 2026-09-04). */}
+      {v.yours && (
+        <button className="quiet" onClick={orbit} disabled={busy}>
+          {t("ui-ship-star-orbit")}
+        </button>
+      )}
+      {v.yours && <span className="note">{t("ui-ship-star-orbit-hint")}</span>}
+    </div>
+  );
+}
+
+/**
+ * Two hulls that met (D-289, wave 3): flying as one, and, with both
+ * commanders' consent, joined by a gangway the crew walk across with what
+ * they carry -- a canister of fuel first of all. Adrift or in orbit alike:
+ * in orbit round a planet a hull is a body in the sky too, and meets the
+ * others as any hull does (D-354).
+ */
+export function Ties({
+  v,
+  busy,
+  dock,
+  undock,
+}: {
+  v: Vessel;
+  busy: boolean;
+  dock: (other: string) => void;
+  undock: () => void;
+}) {
+  return (
+    <>
       {v.held && (
         <span className="doing-aside">
           {t("ui-ship-held", { name: v.held.name })}
@@ -170,14 +200,6 @@ export function Drift({
           {t("ui-ship-undock")}
         </button>
       )}
-      {/* Out of the drift and onto the circle round the star, if the tanks
-          pay for the burn (D-289, 2026-09-04). */}
-      {v.yours && (
-        <button className="quiet" onClick={orbit} disabled={busy}>
-          {t("ui-ship-star-orbit")}
-        </button>
-      )}
-      {v.yours && <span className="note">{t("ui-ship-star-orbit-hint")}</span>}
-    </div>
+    </>
   );
 }

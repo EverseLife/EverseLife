@@ -42,6 +42,10 @@ class Fate:
     #: or one lap of a bound ellipse -- which `loops`, and is read modulo it.
     span: float
     loops: bool
+    #: The planet a lap goes round (D-354): its `trace` is then drawn round
+    #: that planet's centre, not in the star's frame -- the planet moves on,
+    #: and a lap pinned where it stood at the start would be left behind.
+    around: str | None = None
 
 
 def ground_of(system: System, t: np.ndarray, r: Rows) -> tuple[str | None, bool]:
@@ -159,7 +163,13 @@ def inertia(
     held = bound_to(system, t0, r0, v0)
     if held is not None:
         return Fate(
-            kind=STABLE, at=end, body=None, trace=_lap(held, points), span=held.period, loops=True
+            kind=STABLE,
+            at=end,
+            body=None,
+            trace=_lap(held, points),
+            span=held.period,
+            loops=True,
+            around=held.body.key,
         )
     t = np.array([t0], dtype=float)
     r = np.array([r0], dtype=float)
@@ -204,11 +214,10 @@ def inertia(
 
 
 def _lap(held: Bound, points: int) -> tuple[tuple[float, float], ...]:
-    """One lap of the bound orbit as a line round where its planet stood at
-    the start -- the chart's drawing of it."""
-    centre = place(held.body, held.t0)[0][0]
+    """One lap of the bound orbit, round its planet's centre: the chart and
+    the target line put the planet under it where the planet is (D-354)."""
     lap = astro.trace(held.body.mu, held.rel, held.v_rel, held.period, points)
-    return tuple((float(centre[0]) + x, float(centre[1]) + y) for x, y in lap)
+    return tuple((float(x), float(y)) for x, y in lap)
 
 
 def _resample(

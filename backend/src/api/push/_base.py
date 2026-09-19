@@ -159,6 +159,7 @@ TOUCHES_BY_KIND: dict[str, tuple[str, ...]] = {
     "ship.sighted": ("ships",),
     "ship.held": ("ships",),
     "ship.star_orbit": ("ships",),
+    "ship.in_orbit": ("ships",),
     "ship.dock_asked": ("ships",),
     "ship.docked_ship": ("ships",),
     "ship.undocked_ship": ("ships",),

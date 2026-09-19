@@ -367,15 +367,27 @@ async def moor_to(session: AsyncSession, ship: Ship, port: Node) -> None:
     memory of the shipyard.
 
     The group moves with it: the delegate node hangs under the planet it is at,
-    so the map shows the ship where it is. Here rather than with the legs,
-    because a mooring is reached two ways since D-289 -- at the end of a leg
-    and at the end of a flown passage -- and both are the same mooring.
+    so the map shows the ship where it is.
     """
+    await _settle(session, ship, port.planet, await _planet_root(session, port))
+
+
+async def hang_over(session: AsyncSession, ship: Ship, sphere: Node) -> None:
+    """The ship's nodes take the planet the hull has come into orbit round
+    (D-354): the same rule as a mooring, with the planet itself for the pier.
+
+    The delegate hangs under the planet's own node -- never under nothing: a
+    node of the space layer that hangs on nothing is a planet
+    (`physics._sphere`), and a hull taken for one would join the sky.
+    """
+    await _settle(session, ship, sphere.planet, sphere)
+
+
+async def _settle(session: AsyncSession, ship: Ship, planet: Planet, root: Node | None) -> None:
     delegate = await session.get(Node, ship.node_id)
-    root = await _planet_root(session, port)
     aboard = await nodes_of(session, ship)
     for node in [*aboard, *([delegate] if delegate is not None else [])]:
-        node.planet = port.planet
+        node.planet = planet
     if delegate is not None and root is not None:
         delegate.parent_id = root.id
     await session.flush()

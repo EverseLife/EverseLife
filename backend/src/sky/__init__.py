@@ -7,11 +7,11 @@ Five bodies pull a hull all the way: the star and the four planets on the
 circles the seed laid -- and inside a planet's inner sphere the other three
 pull it as a tide, the way they would pull the planet with it (D-354). A
 hull in space is a state -- a place, a speed, the moment they were true --
-flown by an integrator; a hull moored to a planet's orbital node runs on an
-analytic parking circle, and a hull that burns nothing on a closed orbit
-close round a planet is read by Kepler between the restamps that fly it
-(D-354). The autopilot plans a passage with a Lambert arc and flies it by
-re-solving the arc every step from where the hull actually is; the tanks pay
+flown by an integrator, and a hull that burns nothing on a closed orbit
+close round a planet is read by Kepler between the restamps that fly it:
+"in orbit" is that reading, not a node to moor to (D-354). The autopilot
+plans a passage with a Lambert arc and flies it by re-solving the arc every
+step from where the hull actually is; the tanks pay
 as the engines burn, and when they run dry the hull coasts -- for as long as
 it takes somebody to bring it fuel, or until the coast ends on a body or out
 of the system, which the forecast names to the hour.
@@ -61,7 +61,7 @@ from src.sky._base import (  # noqa: F401
     system_of,
 )
 from src.sky.assist import Leg, Route, correct, steer_pass  # noqa: F401
-from src.sky.bound import Bound, bound_states, bound_to, kepler_reads  # noqa: F401
+from src.sky.bound import Bound, bound_states, bound_to, kepler_reads, rounded  # noqa: F401
 from src.sky.choice import choices  # noqa: F401
 from src.sky.field import advance, pull, sample  # noqa: F401
 from src.sky.forecast import (  # noqa: F401

@@ -31,7 +31,6 @@ from src.engine.ship._base import (
     NotYours,
     ShipError,
     hull_footprint,
-    is_orbit,
 )
 from src.engine.ship.belonging import aboard_of, is_aboard
 from src.engine.ship.physics import _things
@@ -73,14 +72,11 @@ async def _will_take(
     copy of it and sent hulls back to piers whose yard had been carried off
     while they flew (review of D-242).
 
-    An orbit answers yes to all three without being asked (D-245): it is space,
-    and space needs no yard, has no beacon and cannot freeze. What it does need
-    is a way **down** again, and that is not a question about the mooring but
-    about the planet under it -- so `fly` asks it separately (`_landable`), and
-    a turn-back into an orbit is never refused by it.
+    The sky is not asked this (D-354): it is no node, needs no yard, has no
+    beacon and cannot freeze. What a hull bound for a planet's orbit needs is
+    a way **down** again, and that is a question about the planet -- so `fly`
+    asks it separately (`_landable`).
     """
-    if is_orbit(port):
-        return
     if not await world.has_station(session, port, SPACEPORT) and not await lands_anywhere(
         session, port
     ):

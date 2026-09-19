@@ -53,7 +53,7 @@ from ship_kit import (
     _fuel,
     _in_orbit,
     _laid,
-    _orbit,
+    _planet,
     _port,
     _shipwright,
 )
@@ -100,7 +100,7 @@ async def _under_order(
     """
     home = await _port(session, name="Космодром столицы")
     await _port(session, name="Космодром Мерида", planet=Planet.AURORA)
-    aurora = await _orbit(session, Planet.AURORA)
+    aurora = await _planet(session, Planet.AURORA)
     _, owner = await _shipwright(session, home)
     vessel = await _laid(session, constants, owner, home)
     connector = await session.get(Node, vessel.connector_node_id)

@@ -44,7 +44,6 @@ from src.engine import (
     frost,
     justice,
     market,
-    oxygen,
     ruins,
     ship,
     travel,
@@ -313,30 +312,19 @@ def test_the_system_is_keplerian(constants: Constants) -> None:
     assert max(pulls) == pytest.approx(min(pulls), rel=1e-3), "r^3 / T^2 одно у всех планет"
 
 
-async def test_every_open_planet_has_an_orbit_to_hang_over(
-    capital: Node, session: AsyncSession
-) -> None:
-    """One orbital node per playable planet, under the planet itself (D-245).
-
-    The road between worlds goes through it, so a missing one is a planet
-    nothing can leave and nothing can reach. A deferred planet gets none: an
-    orbit is a destination, and a destination for a world that is not open yet
-    would be a way into it.
-    """
-    for key in ("terra", "aurora", "pyroxis"):
+async def test_no_planet_has_a_node_above_it(capital: Node, session: AsyncSession) -> None:
+    """There is no node above a planet (D-354): a hull in orbit is a body in
+    the sky, and every planet -- Aquatica too, drawn and not playable (D-104)
+    -- is in the sky with its year round the star, for a hull to go round."""
+    marked = await session.scalar(
+        select(func.count()).select_from(Node).where(Node.properties.contains({"orbit_node": True}))
+    )
+    assert marked == 0, "узел-орбита не заводится"
+    for key in ("terra", "aurora", "pyroxis", "aquatica"):
         sphere = await session.scalar(select(Node).where(Node.key == key))
-        assert sphere is not None
-        orbit = await session.scalar(select(Node).where(Node.key == f"{key}.orbit"))
-        assert orbit is not None, f"у планеты {key} нет орбитального узла"
-        assert orbit.parent_id == sphere.id, "орбита висит под своей планетой"
-        assert orbit.layer is Layer.SPACE and orbit.planet is sphere.planet
-        assert ship.is_orbit(orbit), "узел помечен орбитой, и по метке его узнают"
-        #: And it is the void: the planet under it changes nothing about that.
-        assert not await oxygen.free_air(session, orbit)
-
-    #: Aquatica is drawn and not playable (D-104): no orbit, no way in.
-    assert await session.scalar(select(Node).where(Node.key == "aquatica.orbit")) is None
-    assert await session.scalar(select(Node).where(Node.key == "aquatica")) is not None
+        assert sphere is not None and sphere.parent_id is None
+        assert world.orbit_of(sphere) is not None, f"у планеты {key} нет года вокруг звезды"
+        assert await session.scalar(select(Node).where(Node.key == f"{key}.orbit")) is None
 
 
 async def test_the_capital_prints_on_the_original(

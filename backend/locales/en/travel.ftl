@@ -133,11 +133,10 @@ ship-no-fuel = { $why ->
        *[land] there is not enough fuel to land
     }: you need { NUMBER($need, minimumFractionDigits: 1, maximumFractionDigits: 1) } “{ NAME($goods) }” counted in rocket-fuel units, and the tanks answer for { NUMBER($have, minimumFractionDigits: 1, maximumFractionDigits: 1) }
 ship-passage-already-queued = the passage is already queued
-ship-already-in-orbit = “{ $ship }” is already in planetary orbit: there is nowhere higher to climb
-ship-planet-has-no-orbit = planet { PLANET($planet) } has no orbital node
-ship-cross-from-orbit = “{ $ship }” stands at a spaceport: planets are crossed between from orbit. Climb to planetary orbit first
-ship-cross-to-orbit = “{ $node }” is not an orbit: a crossing runs from planetary orbit to planetary orbit, and the spaceport is chosen once above the planet
-ship-already-over-planet = “{ $ship }” is already above this planet: from here one lands, one does not cross
+ship-planet-has-no-orbit = planet { PLANET($planet) } has no orbit: there is nowhere to climb to
+ship-cross-from-orbit = “{ $ship }” stands at a spaceport: planets are crossed between from orbit. Climb to orbit first
+ship-cross-to-orbit = “{ $node }” is not a planet: a crossing goes to a planet, and the spaceport is chosen once in its orbit
+ship-already-over-planet = “{ $ship }” is already in this planet's orbit: from here one lands, one does not cross
 ship-nowhere-to-land = there is nowhere to land at { $node }: not one beacon is lit. The ship would go there and stay in orbit
 ship-no-such-route = the world has no route { PLANET($planet_from) } — { PLANET($planet_to) }
 ship-lost = “{ $ship }” is lost: no order and no turn-back reaches it any more
@@ -160,8 +159,9 @@ ship-course-not-turned = a course under the sky is not turned back: it is cancel
 ship-orbit-crosses-planet = the circle round the star from here passes through a planet · { PLANET($body) }
 ship-target-gone-by-then = the target will not be there by the hour of arrival: it comes down or leaves the system before then · { $other }
 ship-already-landed = “{ $ship }” already stands on a planet: there is nowhere to land from
-ship-land-not-into-orbit = “{ $node }” is an orbit, not a spaceport: from orbit one lands on the planet below it
-ship-land-other-planet = “{ $node }” is on another planet: from orbit one lands on what is below, and another planet is reached by a crossing from orbit to orbit
+ship-not-in-orbit = “{ $ship }” is not in a planet's orbit: one lands from orbit, and the ship is passing by
+ship-orbit-too-high = “{ $ship }” is too high in orbit to land: set a course for the planet first — the autopilot brings the ship down to the parking circle
+ship-land-other-planet = “{ $node }” is on another planet: from orbit one lands on the planet one circles, and another is reached by a crossing
 ship-not-in-passage = the ship is going nowhere: there is nothing to turn back
 ship-already-turning-back = “{ $ship }” is already coming back: a turn cannot be turned, wait for the arrival
 ship-no-home-to-turn-to = where “{ $ship }” set out from is unknown: there is nothing to turn back to, and the passage will have to be seen through

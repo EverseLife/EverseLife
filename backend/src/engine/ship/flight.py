@@ -1,24 +1,32 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Nurlan Urazkulov
 
-"""ship: docking, flight, docking.
+"""ship: the legs by the hour -- the climb to orbit, the descent to a pad,
+the turn-back -- and the arrival that ends them (D-245, D-354).
 
 Split out of `engine/ship.py` along its sections (review 2026-08-23, wave 3).
+
+A climb ends in orbit and a descent starts from one, and since D-354 an
+orbit is no node: the climb puts the hull into the sky over the meridian of
+the pad it left, a body with a place and a speed, and the descent is asked
+of a hull the sky says is in orbit round the planet of the pad.
 """
 
 from __future__ import annotations
 
+import math
 import uuid
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src import sky
 from src.constants import Catalog, Constants, current
 from src.constants import registry as R
-from src.engine import estate, events, travel
+from src.engine import climate, estate, events, travel, world
 from src.engine.jobs import enqueue, handler
-from src.engine.ship import course, sim
+from src.engine.ship import course, fate, hold, meet, sim
 from src.engine.ship._base import (
     _EPS,
     CLIMB,
@@ -34,12 +42,11 @@ from src.engine.ship._base import (
     TooFar,
     _free_berth,
     _gangway_seconds,
-    is_orbit,
-    orbit_node_of,
 )
 from src.engine.ship.building import moor_to
 from src.engine.ship.command import _commanded_by, _still_commanded_by, _will_take
 from src.engine.ship.physics import (
+    _sphere,
     burn_checked,
     climb_hours,
     efficiency,
@@ -49,13 +56,14 @@ from src.engine.ship.physics import (
     life_support,
     mass,
     ratio,
+    sky_days,
 )
 from src.engine.ship.view import lands_anywhere
 from src.models.event import EventKind
 from src.models.identity import Body
 from src.models.job import Job, JobKind, JobState
 from src.models.ship import Ship
-from src.models.world import Node, Surface
+from src.models.world import Layer, Node, Planet, Surface
 from src.units import (
     ROUND_HOURS,
     ROUND_MASS,
@@ -129,9 +137,9 @@ async def _fit(session: AsyncSession, constants: Constants, catalog: Catalog, sh
     """Whether the hull can move at all, wherever it is: thrust enough to tear
     off, and a system that breathes. Returns the thrust-to-mass.
 
-    Asked of a moored hull by `_leaving` and of a drifting one by `fly`
-    (D-289): a dry hull that was refuelled lays a course from the void by
-    the same two rules it left the pier by.
+    Asked of a moored hull by `_leaving`, and of one in the sky by `fly` and
+    `land` (D-289, D-354): a hull lays a course or comes down by the same two
+    rules it left the pier by.
     """
     thrust_ratio = await ratio(session, constants, catalog, ship)
     floor = constants[R.SHIP_MIN_THRUST_RATIO]
@@ -233,6 +241,7 @@ async def _launch(
     weight: float,
     thrust_ratio: float,
     at: datetime,
+    over: Node | None = None,
 ) -> Job:
     """Write the leg into the journal and queue its arrival.
 
@@ -243,6 +252,10 @@ async def _launch(
     """
     arrives = at + timedelta(hours=hours)
     payload: dict[str, object] = {"ship": str(ship.id), "to": str(to.id), "leg": leg}
+    #: The pad whose meridian a hull ending in orbit comes out over (D-354):
+    #: the one it lifted from, or the one it was coming down to.
+    if over is not None:
+        payload["over"] = str(over.id)
     event = await events.record(
         session,
         EventKind.SHIP_LAUNCHED,
@@ -281,12 +294,13 @@ async def ascend(
     *,
     now: datetime | None = None,
 ) -> Job:
-    """Climb from a spaceport to the orbit of the planet under it (D-245).
+    """Climb from a spaceport into orbit round the planet under it (D-245,
+    D-354).
 
     The step that used to cost nothing. Casting off was instant and free, while
     coming back down to the very port one had left was priced as a whole
-    passage between worlds -- so leaving a planet was cheaper than returning to
-    it, which is the wrong way round for every world there is.
+    passage between worlds -- so leaving a planet was cheaper than returning
+    to it, which is the wrong way round for every world there is.
 
     Now both ends of a planet cost what its **gravity** says they cost: the
     world's own pull -- `planet.mass` over `planet.radius` squared, D-320 --
@@ -294,8 +308,10 @@ async def ascend(
     leg. Pyroxis is dear to leave and dear to come down onto;
     Aurora is cheap at both ends and closed at one by its dark beacons (D-232).
 
-    Cancellable, and that is the point of making it a leg rather than an
-    instant: `recall` puts the hull back on the very pad it lifted from.
+    The leg ends in the sky, not at a node: on the parking circle, over the
+    meridian of this very pad at the hour of arrival (`arrived`). Cancellable,
+    and that is the point of making it a leg rather than an instant: `recall`
+    puts the hull back on the very pad it lifted from.
     """
     moment = now or datetime.now(UTC)
     await _commanded_by(session, body, ship)
@@ -305,10 +321,11 @@ async def ascend(
     #: unlocked check and burn the tanks twice.
     await session.refresh(ship, with_for_update=True)
     here, connector, thrust_ratio = await _leaving(session, constants, catalog, ship)
-    if is_orbit(here):
-        raise InFlight(key="ship-already-in-orbit", ship=ship.name)
-    orbit = await orbit_node_of(session, here.planet)
-    if orbit is None:  # pragma: no cover -- the seed lays one per planet
+    sphere = await _sphere(session, here.planet)
+    world_sky = await sim.system(session, constants)
+    if sphere is None or here.planet.value not in {one.key for one in world_sky.bodies}:
+        #: A world the sky does not run -- a test world laid without its
+        #: planet -- has no orbit to climb into.
         raise NoPort(key="ship-planet-has-no-orbit", planet=here.planet.value)
 
     climb = climb_hours(constants, here.planet, thrust_ratio)
@@ -320,8 +337,8 @@ async def ascend(
         hours=climb,
         #: Nothing kept back for the way down (D-289): the descent is the
         #: console's warning, not the engine's refusal. A hull that climbs
-        #: dry sits on its circle -- stable, moored, and fetched by fuel --
-        #: which is the trap D-245 refused and D-289 opened.
+        #: dry hangs in orbit -- stable, and fetched by fuel from a hull
+        #: come alongside.
         refusal="climb",
     )
     await _cast_off(session, ship, here, connector)
@@ -331,12 +348,13 @@ async def ascend(
         ship,
         leg=CLIMB,
         frm=here,
-        to=orbit,
+        to=sphere,
         hours=climb,
         fuel=burnt,
         weight=weight,
         thrust_ratio=thrust_ratio,
         at=moment,
+        over=here,
     )
 
 
@@ -350,35 +368,43 @@ async def land(
     *,
     now: datetime | None = None,
 ) -> Job:
-    """Come down from orbit onto a spaceport of the planet below (D-245).
+    """Come down from orbit onto a spaceport of the planet below (D-245,
+    D-354).
 
-    The half of the journey that had no button at all: a hull was aimed at a
-    port from wherever it happened to be and set itself down at the end of one
-    passage. Now the port is chosen **over the planet**, with the hull already
-    hanging above it -- which is the moment a crew actually knows what it is
-    choosing between, and the moment a dark beacon actually matters.
+    The port is chosen **over the planet**, with the hull already hanging
+    above it -- which is the moment a crew actually knows what it is choosing
+    between, and the moment a dark beacon actually matters.
 
+    Asked of a hull the sky says is in orbit round the port's planet
+    (`sim.orbit_of`), and close in: the whole orbit inside the window the
+    helm catches arrivals in (`orbit.capture_radii`). A hull on a wider one
+    is sent to the planet first, and the helm brings it down to the circle.
     Priced by the planet's gravity, like the climb and a little cheaper than
     it: coming down, the weight one climbed against is on the ship's side.
     """
     moment = now or datetime.now(UTC)
     await _commanded_by(session, body, ship)
     await session.refresh(ship, with_for_update=True)
-    here, connector, thrust_ratio = await _leaving(session, constants, catalog, ship)
-    if not is_orbit(here):
+    if ship.docked_node_id is not None:
         raise Docked(key="ship-already-landed", ship=ship.name)
-    #: An orbit is not a pad. `_will_take` says yes to every orbital node --
-    #: space needs no yard and has no beacon -- so without this line a descent
-    #: aimed at the very orbit the hull is moored to passed: the trap was
-    #: unmoored, charged a descent and moored again, one leg's fuel poorer and
-    #: below the reserve that keeps an orbit leavable.
-    if is_orbit(port):
-        raise NoPort(key="ship-land-not-into-orbit", node=port.name)
-    if port.planet is not here.planet:
+    if ship.lost_at is not None:
+        raise ShipError(key="ship-lost", ship=ship.name)
+    if ship.course or await _passage_of(session, ship) is not None:
+        raise InFlight(key="ship-in-flight", ship=ship.name)
+    if ship.held_ship_id is not None:
+        #: On a hold the hull's place is the other hull's: read afresh.
+        await session.get(Ship, ship.held_ship_id, populate_existing=True)
+    held = await sim.orbit_of(session, constants, ship, now=moment)
+    if held is None:
+        raise InFlight(key="ship-not-in-orbit", ship=ship.name)
+    if port.planet.value != held.body.key:
         raise TooFar(key="ship-land-other-planet", node=port.name)
+    if held.far > sky.capture_of(await sim.system(session, constants), held.body):
+        raise TooFar(key="ship-orbit-too-high", ship=ship.name)
     await _will_take(session, constants, ship, port, why="land")
+    thrust_ratio = await _fit(session, constants, catalog, ship)
 
-    fall = fall_hours(constants, here.planet, thrust_ratio)
+    fall = fall_hours(constants, port.planet, thrust_ratio)
     burnt, weight = await _burn(
         session,
         constants,
@@ -387,25 +413,35 @@ async def land(
         hours=fall,
         refusal="land",
     )
-    await _cast_off(session, ship, here, connector)
-    #: Off the parking circle and into the air (D-289): a descent is a leg by
-    #: the hour, and the sky has no state for a hull under one.
+    #: Whoever holds on to this hull is let go of first, from the state they
+    #: shared, and a hold or a docking of its own comes off (D-289, wave 3):
+    #: into the air a hull goes alone.
+    await hold.release_holders(
+        session, constants, await sim.system(session, constants), ship, now=moment
+    )
+    await meet.let_go(session, constants, ship)
+    #: Out of the sky and into the air (D-289): a descent is a leg by the
+    #: hour, and the sky has no state for a hull under one.
     ship.sky_at = None
-    ship.park_phase = None
     ship.sky_x = ship.sky_y = ship.sky_vx = ship.sky_vy = None
+    ship.forecast = None
+    ship.held_ship_id = None
     await session.flush()
+    frm = await _sphere(session, port.planet)
+    assert frm is not None  # the sky ran the planet a moment ago
     return await _launch(
         session,
         body,
         ship,
         leg=DESCENT,
-        frm=here,
+        frm=frm,
         to=port,
         hours=fall,
         fuel=burnt,
         weight=weight,
         thrust_ratio=thrust_ratio,
         at=moment,
+        over=port,
     )
 
 
@@ -435,7 +471,8 @@ async def recall(
 
     Any leg, and the climb most of all (D-245): "подняться на орбиту" is an
     order one may take back, and taking it back sets the hull down on the very
-    pad it lifted from.
+    pad it lifted from. A descent taken back puts the hull into orbit again,
+    over the pad it was coming down to (D-354).
     """
     moment = now or datetime.now(UTC)
     await _commanded_by(session, body, ship)
@@ -461,15 +498,25 @@ async def recall(
     #: anywhere in the sky, instantly and for free.
     if running.payload.get("back"):
         raise InFlight(key="ship-already-turning-back", ship=ship.name)
-    home = None if ship.left_node_id is None else await session.get(Node, ship.left_node_id)
+    over: Node | None = None
+    if running.payload.get("leg") == DESCENT:
+        #: Back up: the orbit it came down from, over the pad it was aiming
+        #: at (D-354). The sky above a planet is no node, so the leg's own
+        #: start -- the planet -- is where it goes back to.
+        home = await session.get(Node, uuid.UUID(str(running.payload["to"])))
+        over = home
+        home = None if home is None else await _sphere(session, home.planet)
+    else:
+        home = None if ship.left_node_id is None else await session.get(Node, ship.left_node_id)
     if home is None:
         raise NoPort(key="ship-no-home-to-turn-to", ship=ship.name)
     #: The **same** question every destination is asked, all of it (D-232): a
     #: hull must not be sent where it will not be taken. A rescue that fails
     #: down a chain is not a rescue -- but a pier with its yard carried off is
     #: not a chain, it is the answer, and the hull flies on to the port it aimed
-    #: at, which was checked when it was aimed at.
-    await _will_take(session, constants, ship, home, why="turn-back")
+    #: at, which was checked when it was aimed at. The sky takes every hull.
+    if over is None:
+        await _will_take(session, constants, ship, home, why="turn-back")
 
     #: How long it has been flying is how long it has to fly back, and nothing
     #: else -- D-242's own words, "новых чисел нет". Counted from the job that
@@ -542,7 +589,13 @@ async def recall(
         #: Marked as the way back: a turn-back counts the hours of the leg it
         #: replaced, and has none of its own to count. The arc goes home with
         #: it, reversed: the map draws the hull back along the way it came.
-        payload={"ship": str(ship.id), "to": str(home.id), "back": True, **home_arc},
+        payload={
+            "ship": str(ship.id),
+            "to": str(home.id),
+            "back": True,
+            **({"over": str(over.id)} if over is not None else {}),
+            **home_arc,
+        },
         dedup_key=f"ship.flight:{ship.id}:{event.id}",
         cause_event_id=event.id,
         body_id=body.id,
@@ -554,16 +607,21 @@ async def recall(
 
 @handler(JobKind.SHIP_FLIGHT)
 async def arrived(session: AsyncSession, job: Job) -> None:
-    """The passage is over: the edge to the port appears, and one may walk aboard again."""
+    """The leg is over: in orbit over the pad's meridian (D-354), or down on a
+    pad with the gangway laid and the way aboard open again."""
 
     ship = await session.get(Ship, uuid.UUID(job.payload["ship"]), with_for_update=True)
     port = await session.get(Node, uuid.UUID(job.payload["to"]))
     if ship is None or port is None:  # pragma: no cover
         raise ShipError(key="ship-passage-nowhere", job=str(job.id))
-    #: Already down. A hull is docked by exactly one arrival, and a second one
-    #: -- a retry after a failure, a job that outlived a turn-back -- would lay
-    #: a second gangway and moor a ship that is already moored.
-    if ship.docked_node_id is not None:
+    #: Already down, or already in the sky. A hull ends a leg by exactly one
+    #: arrival, and a second one -- a retry after a failure, a job that
+    #: outlived a turn-back -- would lay a second gangway or put the hull on a
+    #: second orbit.
+    if ship.docked_node_id is not None or ship.sky_at is not None:
+        return
+    if port.layer is Layer.SPACE:
+        await _into_orbit(session, ship, port, job)
         return
     #: Where the order said, and nowhere else (D-319). A planet one lands
     #: anywhere on used to roll the node at the landing (D-235); now the crew
@@ -579,22 +637,13 @@ async def arrived(session: AsyncSession, job: Job) -> None:
     #: standing, and `estate.free_ground` counts the two in two statements --
     #: an order counting between them would read the hull in neither and give
     #: its place away. The gangway's foreign key used to make this wait by
-    #: accident, while the plot was held `FOR UPDATE`. An orbit has no ground.
-    if not is_orbit(port):
-        await estate.hold_ground(session, port)
+    #: accident, while the plot was held `FOR UPDATE`.
+    await estate.hold_ground(session, port)
 
     #: The berth is taken on arrival, and it is whichever is free **there**:
     #: a ship does not carry its place from the port it left. On bare ground
-    #: there are no berths to queue for (D-233), and in orbit there is no pier
-    #: to queue at (D-245): hulls hang beside one another, and the walk out is
-    #: the same short spacewalk however many are parked. Numbered berths would
-    #: have made the twentieth hull over Terra climb a gangway twenty times the
-    #: first one's, for a pier that does not exist.
-    ship.berth = (
-        1
-        if is_orbit(port) or await lands_anywhere(session, port)
-        else await _free_berth(session, port)
-    )
+    #: there are no berths to queue for (D-233).
+    ship.berth = 1 if await lands_anywhere(session, port) else await _free_berth(session, port)
     await travel.connect(
         session,
         port,
@@ -604,17 +653,11 @@ async def arrived(session: AsyncSession, job: Job) -> None:
     )
     ship.docked_node_id = port.id
     await moor_to(session, ship, port)
-    #: Over the planet the hull runs on the parking circle from this moment
-    #: (D-289): where on it is spun off the hull, and the circle is arithmetic
-    #: from the stamp. Down on a pad there is no circle and no state.
-    if is_orbit(port):
-        ship.sky_at = job.run_at
-        ship.park_phase = sim.bearing_of(ship)
-    else:
-        ship.sky_at = None
-        ship.park_phase = None
+    #: Down on a pad there is no sky and no state.
+    ship.sky_at = None
     ship.sky_x = ship.sky_y = ship.sky_vx = ship.sky_vy = None
     ship.course = None
+    ship.forecast = None
     await session.flush()
 
     await events.record(
@@ -626,3 +669,66 @@ async def arrived(session: AsyncSession, job: Job) -> None:
         name=ship.name,
         port=port.key,
     )
+
+
+async def _into_orbit(session: AsyncSession, ship: Ship, sphere: Node, job: Job) -> None:
+    """A climb, or a descent turned back, has ended in orbit (D-354): the hull
+    is put on the parking circle over the meridian of the pad the leg began
+    or was bound for, at the hour it arrives -- at local noon on the side of
+    the star, at midnight on the far side -- going round the way the planet
+    turns. Not a place spun off the hull's id any more: two hulls that climb
+    from one pad at one hour come out side by side, and a hull already in
+    orbit is met by climbing when it passes overhead."""
+    constants = current()
+    world_sky = await sim.system(session, constants)
+    try:
+        body = world_sky.body(sphere.planet.value)
+    except KeyError:  # pragma: no cover -- `ascend` asked the sky before the climb
+        raise ShipError(key="ship-planet-has-no-orbit", planet=sphere.planet.value) from None
+    over_id = job.payload.get("over")
+    over = None if over_id is None else await session.get(Node, uuid.UUID(str(over_id)))
+    t = await sky_days(session, job.run_at)
+    angle = await meridian(session, constants, body, over, t=t, at=job.run_at)
+    r, v = sky.parking(world_sky, body, t, angle)
+    here = (float(r[0, 0]), float(r[0, 1]))
+    speed = (float(v[0, 0]), float(v[0, 1]))
+    await sim.into_orbit(session, ship, sphere, r=here, v=speed, now=job.run_at)
+    verdict = await fate.book_loss(
+        session, constants, ship, world_sky, now=job.run_at, t=t, r=here, v=speed
+    )
+    sim._keep_forecast(ship, verdict, now=job.run_at, t=t)
+    await events.record(
+        session,
+        EventKind.SHIP_IN_ORBIT,
+        actor_identity_id=ship.owner_identity_id,
+        node_id=ship.connector_node_id,
+        ship_id=str(ship.id),
+        name=ship.name,
+        planet=sphere.planet.value,
+    )
+    await session.flush()
+
+
+async def meridian(
+    session: AsyncSession,
+    constants: Constants,
+    body: sky.Body,
+    over: Node | None,
+    *,
+    t: float,
+    at: datetime,
+) -> float:
+    """Where in the sky, round its planet, the meridian of `over` points at
+    the moment `at`, radians -- the angle a hull climbing from it comes out at
+    (D-354). At the place's noon it points at the star, and it turns with the
+    planet's day (`climate.day_phase`); a place with no longitude is read on
+    the planet's own meridian."""
+    p, _ = sky.place(body, t)
+    toward_star = math.atan2(-float(p[0, 1]), -float(p[0, 0]))
+    planet = Planet(body.key)
+    longitude = 0.0 if over is None else climate.longitude_of(over)
+    phase = climate.day_phase(
+        constants, planet, await world.epoch(session), at, longitude=longitude
+    )
+    #: Half a day off noon is midnight: the angle turns a whole circle a day.
+    return toward_star + math.tau * phase - math.pi

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from sqlalchemy import ColumnElement, or_, select
+from sqlalchemy import ColumnElement, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.base import remember
@@ -99,15 +99,13 @@ async def free_air(session: AsyncSession, node: Node) -> bool:
     Ground: the planet's own air, and Terra and Aurora both have it (D-232 --
     a leaky dome is not a vacuum). Aboard: the air is free while the hull sits
     at a port of a planet that has some, because then the hatch may as well be
-    open. Undocked -- in flight -- there is nothing outside to open onto, and
-    the hull is on its own however Terran the port it left was.
+    open. Undocked -- in orbit or in flight -- there is nothing outside to
+    open onto, and the hull is on its own however Terran the port it left was.
 
-    An orbital node carries the planet it belongs to (D-245) and has none of
-    its air: it is the void with a name on it, and stepping out onto one is a
-    spacewalk whatever hangs below.
+    There is no node outside a hull in the sky to stand on (D-354): the void
+    is where the hulls are, and a body is always in one, on a pad or on the
+    ground.
     """
-    if vessels.is_orbit(node):
-        return False
     airless = await airless_planets(session)
     if not vessels.is_aboard(node):
         return node.planet not in airless
@@ -118,36 +116,28 @@ async def free_air(session: AsyncSession, node: Node) -> bool:
 
 
 def without_air(airless: frozenset[Planet]) -> ColumnElement[bool]:
-    """`free_air`'s "no" for a node outside a hull, as a clause a sweep selects by.
-
-    Both halves of it, and the orbit first: an orbital node carries the planet
-    it circles (D-245), so a place asked by its planet alone reads the void
-    over Terra as Terran air. The tick did exactly that, and a suited body
-    that stepped off a hull moored over Terra or Aurora stood there uncharged
-    and alive for ever -- while `free_air`, the door and the gauge it was shown
-    all called the place the void. Next to `free_air` so that a third place
-    with nothing to breathe is written into both readings or into neither.
+    """`free_air`'s "no" for a node outside a hull, as a clause a sweep selects by:
+    the ground of an airless world. Next to `free_air` so that a second place
+    with nothing to breathe is written into both readings or into neither --
+    the void above a planet was one, an orbital node carrying the planet it
+    circled, until D-354 took the node away.
 
     Aboard is not answered here: a hull's air is the hull's, and a sweep of
     bodies outside leaves the ones aboard out itself.
     """
-    return or_(
-        #: Containment rather than a cast: a mark that is not a boolean does
-        #: not take the whole tick step down with it.
-        Node.properties.contains({vessels.ORBIT_NODE: True}),
-        Node.planet.in_([planet.value for planet in airless]),
-    )
+    return Node.planet.in_([planet.value for planet in airless])
 
 
 async def sealed(session: AsyncSession, ship: Ship) -> bool:
     """Whether this hull has to make its own air.
 
-    Under way, moored in orbit, or down on an airless world: the hatch opens
-    onto something breathable in exactly one case, and this is the other three.
+    In the sky -- in orbit or under way -- or down on an airless world: the
+    hatch opens onto something breathable in exactly one case, and this is
+    the other two.
     """
     if ship.docked_node_id is None:
         return True
     port = await session.get(Node, ship.docked_node_id)
-    if port is None or vessels.is_orbit(port):
+    if port is None:  # pragma: no cover -- a mooring is a pad
         return True
     return port.planet in await airless_planets(session)

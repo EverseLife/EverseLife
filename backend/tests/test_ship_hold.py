@@ -35,7 +35,7 @@ from ship_kit import (
     _hull,
     _joined,
     _met,
-    _orbit,
+    _planet,
     _plunging,
     _port,
 )
@@ -151,7 +151,7 @@ async def test_a_holder_locked_by_another_hand_is_let_go_by_the_next_tick(
         connector = await session.get(Node, drifter.connector_node_id)
         await _fuel(session, connector, 5000)
         ids = (drifter.id, rescuer.id, lost_owner.id, rescuer_owner.id)
-        aurora_id = (await _orbit(session, Planet.AURORA)).id
+        aurora_id = (await _planet(session, Planet.AURORA)).id
 
     holding = asyncio.Event()
     ordered = asyncio.Event()
@@ -390,7 +390,7 @@ async def test_a_target_ordered_away_leaves_the_chaser_adrift(
     await ship.fly(session, constants, catalog, rescuer_owner, rescuer, drifter, now=since)
     assert rescuer.course is not None and rescuer.course["ship"] == str(drifter.id)
     await _fuel(session, await session.get(Node, drifter.connector_node_id), 5000)
-    aurora = await _orbit(session, Planet.AURORA)
+    aurora = await _planet(session, Planet.AURORA)
     await ship.fly(
         session, constants, catalog, lost_owner, drifter, aurora, now=since + timedelta(minutes=1)
     )

@@ -8,8 +8,8 @@ built to the same shape so that two scales do not become two mechanics: a
 property of the **planet** decides whether the question arises at all, and on
 the ground of Terra and Aurora it never does. There is air there, the reading
 is empty, and nothing in this module is ever asked. Their orbits are another
-matter: an orbital node carries the planet it circles (D-245) and none of its
-air.
+matter: a hull in orbit is in the sky, not on the planet, and breathes its
+own air (D-354).
 
 Where there is none -- in flight, in orbit and on Pyroxis -- two things
 breathe, and they breathe from different places:

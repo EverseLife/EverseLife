@@ -18,7 +18,7 @@ from datetime import UTC, datetime
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from ship_kit import ENGINE, _equip, _laid, _orbit, _port, _shipwright
+from ship_kit import ENGINE, _equip, _laid, _on_the_circle, _port, _shipwright
 from src import globe
 from src.constants import Catalog, Constants
 from src.constants import registry as R
@@ -501,11 +501,10 @@ async def test_a_hull_off_its_pier_lends_no_place(
     """In the sky the hull is the sky's: the pier lends nothing to a ship that
     has cast off, and the crew aboard sees its rooms and no surface point.
 
-    Both ways of being off the ground are the same here. A hull under way has
-    no pier at all; a hull on its parking circle is moored to the **orbital**
-    node (`flight.arrived`), which is the sky and has no ground under it -- so
-    a point beside it would be a point on a planet the hull is not standing
-    on, and the sky already draws the hull from the clock (D-289).
+    Both ways of being off the ground are the same here: a hull under way
+    and a hull in orbit round the planet have no pier at all (D-354), and a
+    point beside one would be a point on a planet it is not standing on --
+    the sky already draws the hull from the clock (D-289).
     """
     port = await _port(session)
     _, body = await _shipwright(session, port)
@@ -513,9 +512,10 @@ async def test_a_hull_off_its_pier_lends_no_place(
     connector = await session.get(Node, vessel.connector_node_id)
     delegate = await session.get(Node, vessel.node_id)
 
-    orbit = await _orbit(session)
-    for pier in (None, orbit.id):
-        vessel.docked_node_id = pier
+    for in_orbit in (False, True):
+        vessel.docked_node_id = None
+        if in_orbit:
+            await _on_the_circle(session, constants, vessel, at=datetime.now(UTC))
         await session.flush()
         assert await ship.in_sight(session, constants, port) is None, "у причала никого"
         seen = await ship.in_sight(session, constants, connector)
@@ -530,8 +530,9 @@ async def test_aboard_one_is_told_whether_the_hull_is_off_its_pier(
 ) -> None:
     """The rooms carry no pier and no orbit, and the hull leaves the answer
     once it casts off -- so the answer says it in one word (D-333, D-225):
-    off the pier under way or adrift, moored at a pier or on the circle.
-    From the pier there is no such word: the hull is in sight itself."""
+    under way or adrift, as against moored at a pier or in orbit round a
+    planet -- a reading of the sky, not a mooring (D-354). From the pier
+    there is no such word: the hull is in sight itself."""
     port = await _port(session)
     _, body = await _shipwright(session, port)
     vessel = await _laid(session, constants, body, port)
@@ -544,12 +545,13 @@ async def test_aboard_one_is_told_whether_the_hull_is_off_its_pier(
     from_pier = await ship.in_sight(session, constants, port)
     assert from_pier is not None and "underway" not in from_pier
 
-    orbit = await _orbit(session)
-    for pier, off in ((None, True), (orbit.id, False)):
-        vessel.docked_node_id = pier
-        await session.flush()
-        seen = await ship.in_sight(session, constants, connector)
-        assert seen is not None and seen["underway"] is off, f"pier={pier}"
+    vessel.docked_node_id = None
+    await session.flush()
+    seen = await ship.in_sight(session, constants, connector)
+    assert seen is not None and seen["underway"] is True, "отшвартован — летит"
+    await _on_the_circle(session, constants, vessel, at=datetime.now(UTC))
+    seen = await ship.in_sight(session, constants, connector)
+    assert seen is not None and seen["underway"] is False, "на орбите — не в пути"
 
     vessel.docked_node_id = None
     vessel.lost_at = datetime.now(UTC)

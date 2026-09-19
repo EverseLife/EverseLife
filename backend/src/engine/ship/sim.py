@@ -7,20 +7,20 @@ The floor above `src.sky`, and the one that owns rows: the state on the
 ship's row, the order the autopilot flies, the tick that moves both, the
 coast a dry hull is left on, and the hour that coast ends.
 
-**Three kinds of hull in space.** Moored to an orbital node, a hull runs on
-the parking circle -- analytic, nothing to integrate, `park_phase` and the
-stamp say where on it. Under an order, it is flown by the tick: every step
+**Two kinds of hull in space** (D-354: there is no node above a planet to
+moor to any more). Under an order, a hull is flown by the tick: every step
 the helm re-solves the passage from where the hull actually is and burns
-what the thrust allows, the tanks paying as the engines go. Adrift -- dry,
-with no order -- it coasts: the state is propagated on reading and its stamp
-moved along every `orbit.restamp_hours`, and the forecast's hour for its
-end is a job in the journal. A coast on a closed orbit close round a
-planet is read by Kepler round it between restamps (D-354); every stamp is
-written from the whole sky, so what the star's tide does to an orbit over
-weeks is the integrator's to say.
+what the thrust allows, the tanks paying as the engines go. With no order
+it coasts: the state is propagated on reading and its stamp moved along
+every `orbit.restamp_hours`, and the forecast's hour for its end, if it
+ends, is a job in the journal. A coast on a closed orbit round a planet is
+the hull "in orbit" (`orbiting`); close in, it is read by Kepler round the
+planet between restamps; every stamp is written from the whole sky, so what
+the star's tide does to an orbit over weeks is the integrator's to say.
 
 **What a tick costs.** Only hulls under an order are stepped every minute;
-a coasting hull costs a step every few hours, a moored one nothing. The
+a coasting hull costs a restamp every few hours, and a reading in between
+is arithmetic where Kepler reads it. The
 helm asks the sky one Lambert solution a step -- under a flyby (D-341) only
 while it leaves and arrives: between, it coasts and asks for a correction
 whenever the time left has halved.
@@ -48,10 +48,8 @@ from src.engine.ship._base import (
     InFlight,
     NoArc,
     NoFuel,
-    _gangway_seconds,
-    is_orbit,
 )
-from src.engine.ship.building import moor_to
+from src.engine.ship.building import hang_over
 from src.engine.ship.physics import (
     efficiency,
     engine_class,
@@ -62,13 +60,14 @@ from src.engine.ship.physics import (
     sky_days,
 )
 from src.models.ship import Ship
-from src.models.world import Node, Surface
+from src.models.world import Node
 from src.units import (
     HOURS_PER_DAY,
     KG_PER_TON,
     MINUTES_PER_HOUR,
     ROUND_DV,
     ROUND_HOURS,
+    ROUND_NEAR,
     ROUND_TRACE,
     amount_float,
 )
@@ -112,8 +111,8 @@ async def state_at(
     """The hull's place and speed at `now`, and the sky day of it -- or nothing
     for a hull that is not in the sky at all (at a spaceport, on a climb).
 
-    A read: the circle is arithmetic, the coast is propagated from the
-    stamp, and neither is written back here. A coast on a closed orbit close
+    A read: the coast is propagated from the stamp, and nothing is written
+    back here. A coast on a closed orbit close
     round a planet is read by Kepler round it (`sky.kepler_reads`, D-354):
     between two restamps the tides Kepler leaves out move it by under a
     hundredth of the distance two hulls meet at -- and further, in step with
@@ -121,7 +120,7 @@ async def state_at(
     a stamp from the state -- the restamp, an order, a hold, a loss: it flies
     the whole sky, so no stamp is ever a Kepler reading.
     """
-    if ship.sky_at is None or ship.lost_at is not None:
+    if ship.sky_at is None or ship.lost_at is not None or ship.docked_node_id is not None:
         return None
     #: On the hold (D-289, wave 3) the hull flies as one with the hull it came
     #: to rest beside: its place is that hull's, and only that hull's row is
@@ -132,25 +131,14 @@ async def state_at(
             return await state_at(session, constants, other, now=now, exact=exact)
     world = await system(session, constants)
     t = await sky_days(session, now)
-    if ship.docked_node_id is not None:
-        moored = await session.get(Node, ship.docked_node_id)
-        if moored is None or not is_orbit(moored):  # pragma: no cover -- a stale stamp
-            return None
-        try:
-            body = world.body(moored.planet.value)
-        except KeyError:
-            #: An orbit over a planet the sky does not run: a world laid
-            #: without spheres. No circle to be on.
-            return None
-        t0 = await sky_days(session, ship.sky_at)
-        phase = float(ship.park_phase or 0.0) + sky.circle_rate(body, sky.park_of(world, body)) * (
-            t - t0
-        )
-        r, v = sky.parking(world, body, t, phase)
-        return _row(r), _row(v), t
     r0, v0 = _state_of(ship)
     t0 = await sky_days(session, ship.sky_at)
-    if t <= t0:
+    #: Either way in time: the sky is flown backwards as well as forwards, and
+    #: a lap is a lap -- so a stamp the clock has not reached yet (a leg's
+    #: arrival, stamped at its hour) is read where the hull is now, not where
+    #: it will be. Read as it stood, it put a hull a planet's hours of motion
+    #: off its planet the moment an order was written from it.
+    if t == t0:
         return r0, v0, t0
     held = None if exact else sky.bound_to(world, t0, r0, v0)
     if held is not None and sky.kepler_reads(world, held, _window(constants)):
@@ -186,22 +174,31 @@ async def drifter_of(
     #: read modulo its period. `at` is the verdict's hour and, for a lap,
     #: the horizon -- a line stretched to it aimed the slider at a phantom.
     until = datetime.fromisoformat(str(stored.get("until") or stored["at"]))
+    around = stored.get("around")
+    world = await system(session, constants)
     return sky.Drifter(
         key=f"ship:{other.id}:{stored['since']}",
         t0=await sky_days(session, since),
         t1=await sky_days(session, until),
         trace=tuple((float(x), float(y)) for x, y in stored["trace"]),
         loops=bool(stored.get("loops")),
+        around=None if around is None else _body_or_none(world, str(around)),
     )
+
+
+def _body_or_none(world: sky.System, key: str) -> sky.Body | None:
+    try:
+        return world.body(key)
+    except KeyError:  # pragma: no cover -- a lap is counted round a planet the sky runs
+        return None
 
 
 async def states_at(
     session: AsyncSession, constants: Constants, ships: Sequence[Ship], *, now: datetime
 ) -> dict[uuid.UUID, tuple[tuple[float, float], tuple[float, float]]]:
-    """Where every one of `ships` is at `now`, in one pass: the moored on
-    their circles, the bound on their orbits, the rest of the coasting flown
-    from their stamps as one batch of the integrator, the held at their
-    references. What the sighting and the
+    """Where every one of `ships` is at `now`, in one pass: the hulls close
+    round a planet on their orbits, the rest flown from their stamps as one
+    batch of the integrator, the held at their references. What the sighting and the
     console's list of others read -- one propagation per hull per tick, not
     one per pair.
     """
@@ -210,12 +207,12 @@ async def states_at(
     found: dict[uuid.UUID, tuple[tuple[float, float], tuple[float, float]]] = {}
     coasting: list[Ship] = []
     for one in ships:
-        if one.sky_at is None or one.lost_at is not None or one.held_ship_id is not None:
-            continue
-        if one.docked_node_id is not None:
-            state = await state_at(session, constants, one, now=now)
-            if state is not None:
-                found[one.id] = (state[0], state[1])
+        if (
+            one.sky_at is None
+            or one.lost_at is not None
+            or one.held_ship_id is not None
+            or one.docked_node_id is not None
+        ):
             continue
         coasting.append(one)
     #: On a closed orbit round a planet by Kepler, the rest through the
@@ -225,7 +222,7 @@ async def states_at(
     for one in coasting:
         start = await sky_days(session, one.sky_at)
         r0, v0 = _state_of(one)
-        orbit = sky.bound_to(world, start, r0, v0) if t > start else None
+        orbit = sky.bound_to(world, start, r0, v0)
         if orbit is None or not sky.kepler_reads(world, orbit, _window(constants)):
             free.append((one, start))
         else:
@@ -239,8 +236,8 @@ async def states_at(
         starts = np.array([start for _, start in free])
         r0s = np.array([_state_of(one)[0] for one, _ in free], dtype=float)
         v0s = np.array([_state_of(one)[1] for one, _ in free], dtype=float)
-        #: Never backwards: a stamp ahead of the clock is read as it stands.
-        rr, vv = sky.advance(world, starts, np.maximum(starts, t), r0s, v0s, dt_max=step)
+        #: Either way in time, as `state_at` reads one hull.
+        rr, vv = sky.advance(world, starts, np.full_like(starts, t), r0s, v0s, dt_max=step)
         for (one, _), r, v in zip(free, rr, vv, strict=True):
             found[one.id] = ((float(r[0]), float(r[1])), (float(v[0]), float(v[1])))
     for one in ships:
@@ -273,43 +270,29 @@ def _write_state(
     ship.sky_at = at
 
 
-async def moor(
-    session: AsyncSession, ship: Ship, orbit: Node, *, now: datetime, phase: float
+async def into_orbit(
+    session: AsyncSession,
+    ship: Ship,
+    sphere: Node,
+    *,
+    r: tuple[float, float],
+    v: tuple[float, float],
+    now: datetime,
 ) -> None:
-    """Put the hull on the parking circle of this orbital node (D-289).
-
-    The mooring itself is D-245's: the one edge to the node, the berth, the
-    planet the rooms take. What the sky adds is the circle: the phase the
-    hull sits at and the moment it was put there, from which the circle is
-    arithmetic.
-    """
-    ship.berth = 1
-    await travel.connect(
-        session,
-        orbit,
-        await session.get(Node, ship.connector_node_id),
-        base_seconds=_gangway_seconds(await _constants(session), ship.berth),
-        surface=Surface.PAVED,
-    )
-    ship.docked_node_id = orbit.id
-    await moor_to(session, ship, orbit)
-    ship.park_phase = phase
+    """The hull has come into orbit round `sphere`'s planet (D-354): no order
+    any more, its state the orbit it is on, its rooms under the planet. No
+    node is moored to -- there is none above a planet -- and no edge laid:
+    in orbit a hull is a body in the sky, and the only way in or out of it
+    is a hull come alongside (`meet`). The coast ahead is the caller's to
+    count: it knows the sky it has read."""
+    _write_state(ship, r, v, at=now)
     ship.course = None
-    #: A moored hull carries no coast ahead: its circle the chart draws.
-    ship.forecast = None
-    ship.sky_at = now
-    ship.sky_x = ship.sky_y = ship.sky_vx = ship.sky_vy = None
+    await hang_over(session, ship, sphere)
     await session.flush()
 
 
 async def _constants(session: AsyncSession) -> Constants:
     return current()
-
-
-def bearing_of(ship: Ship) -> float:
-    """Where on the circle a hull arriving from a climb is put: spun off its
-    id, so two hulls over one planet do not sit at one point."""
-    return sky.bearing(ship.id.hex)
 
 
 # --- the order ------------------------------------------------------------------
@@ -328,12 +311,38 @@ def fuel_for_dv(constants: Constants, weight: float, dv: float, klass: int | Non
     return course.fuel_for_speed(constants, weight, dv, efficiency=efficiency(constants, klass))
 
 
-async def leaving_of(session: AsyncSession, world: sky.System, ship: Ship) -> sky.Body | None:
-    """The world whose parking circle the hull is moored on, or nothing."""
-    if ship.docked_node_id is None:
+def leaving_of(
+    world: sky.System, t: float, r: tuple[float, float], v: tuple[float, float]
+) -> sky.Body | None:
+    """The world the hull is in orbit round, from its state, or nothing: what
+    a departure leaves (D-316, D-341, D-354)."""
+    held = sky.bound_to(world, t, r, v)
+    return None if held is None else held.body
+
+
+async def orbit_of(
+    session: AsyncSession, constants: Constants, ship: Ship, *, now: datetime
+) -> sky.Bound | None:
+    """The orbit this hull is on round a planet (D-354), or nothing: a hull
+    that coasts -- no order, no leg, not moored, not lost -- on a closed orbit
+    that keeps (`sky.bound_to`). "In orbit" is this reading, not a place: the
+    console's stage, the descent's leave and the music aboard all ask it. A
+    hull on the hold reads the orbit it flies with its reference."""
+    if ship.course or ship.docked_node_id is not None or ship.lost_at is not None:
         return None
-    moored = await session.get(Node, ship.docked_node_id)
-    return world.body(moored.planet.value) if moored is not None and is_orbit(moored) else None
+    found = await state_at(session, constants, ship, now=now)
+    if found is None:
+        return None
+    r, v, t = found
+    return sky.bound_to(await system(session, constants), t, r, v)
+
+
+async def orbiting(
+    session: AsyncSession, constants: Constants, ship: Ship, *, now: datetime
+) -> sky.Body | None:
+    """The planet this hull is in orbit round, or nothing (`orbit_of`)."""
+    held = await orbit_of(session, constants, ship, now=now)
+    return None if held is None else held.body
 
 
 async def _afford(
@@ -388,7 +397,6 @@ async def circle(
         raise InFlight(key="ship-already-circling", ship=ship.name)
     weight, klass = await _afford(session, constants, catalog, ship, plan.dv, why="orbit")
     _write_state(ship, r, v, at=now)
-    ship.park_phase = None
     ship.held_ship_id = None
     due = _stamp(now + timedelta(hours=plan.hours))
     ship.course = {
@@ -450,13 +458,13 @@ async def depart(
     r, v, t = found
 
     weight, klass = await _afford(session, constants, catalog, ship, plan.dv_out, why="cross")
-    #: The world a flyby's departure leaves (D-341): the one moored at, or the
-    #: one whose hold a drifting hull is in -- the helm's departure lasts while
+    #: The world a flyby's departure leaves (D-341): the one the hull is in
+    #: orbit round, or the one whose hold a drifting hull is in -- the helm's departure lasts while
     #: the hull is still in its grip (`sky.steer_pass`).
     home: str | None = None
     if plan.via is not None:
         assert goal is not None
-        left = await leaving_of(session, world, ship)
+        left = leaving_of(world, t, r, v)
         held = left or sky.holding(world, goal, t, r, spare=plan.via.via)
         home = None if held is None else held.key
 
@@ -465,7 +473,6 @@ async def depart(
     #: state is written here, and the hold it may itself have been on is
     #: over (wave 3).
     _write_state(ship, r, v, at=now)
-    ship.park_phase = None
     ship.held_ship_id = None
     #: The wait for the ejection window, priced into the hour before it is
     #: promised (D-316). The helm holds the burn until the circle turns the
@@ -567,9 +574,8 @@ async def picture(
     session: AsyncSession, constants: Constants, catalog: Catalog, ship: Ship, *, now: datetime
 ) -> dict[str, object] | None:
     """The hull in the sky for the console (D-289): where it is, and where
-    inertia takes it. Nothing for a hull not in the sky -- and nothing for a
-    moored one either: its circle the client draws, and a ninety-day forecast
-    of a circle is arithmetic nobody reads.
+    inertia takes it -- in orbit, the lap round its planet (D-354). Nothing
+    for a hull not in the sky: on a pad, on a leg, or lost.
 
     A read, and a cheap one: the place is propagated from the stamp, and the
     coast ahead is what the tick last wrote onto the row (`forecast`). Flying
@@ -585,8 +591,8 @@ async def picture(
     r, _, _ = found
     stored = await forecast_of(session, ship)
     return {
-        "x": round(r[0], ROUND_TRACE),
-        "y": round(r[1], ROUND_TRACE),
+        "x": round(r[0], ROUND_NEAR),
+        "y": round(r[1], ROUND_NEAR),
         "at": _stamp(now),
         #: The tick's forecast, or nothing while the first tick since the
         #: order is still to come: the chart then draws no coast at all.
@@ -598,6 +604,9 @@ async def picture(
                 "at": stored["at"],
                 "body": stored.get("body"),
                 "trace": stored.get("trace") or [],
+                #: The planet a lap goes round (D-354): the chart draws the
+                #: line round where that planet is now.
+                "around": stored.get("around"),
             }
         ),
     }
@@ -607,16 +616,21 @@ def _keep_forecast(ship: Ship, fate: sky.Fate, *, now: datetime, t: float) -> No
     """Write the coast ahead onto the row: the verdict, its hour, the line to
     draw, and the moment it was counted from -- so the next tick knows when
     it has aged (`_forecast_stale`)."""
+    #: A lap round a planet is drawn at the planet's own scale (D-354).
+    digits = ROUND_NEAR if fate.around else ROUND_TRACE
     ship.forecast = {
         "kind": fate.kind,
         "at": _stamp(now + timedelta(days=fate.at - t)),
         "body": fate.body,
-        "trace": [[round(x, ROUND_TRACE), round(y, ROUND_TRACE)] for x, y in fate.trace],
+        "trace": [[round(x, digits), round(y, digits)] for x, y in fate.trace],
         "since": _stamp(now),
         #: The line's own length, and whether it is a lap read round and
         #: round: what a rendezvous is aimed along (`drifter_of`).
         "until": _stamp(now + timedelta(days=fate.span)),
         "loops": fate.loops,
+        #: The planet a lap goes round, its `trace` drawn round that planet's
+        #: centre (D-354): the reader puts the planet under it.
+        "around": fate.around,
     }
 
 

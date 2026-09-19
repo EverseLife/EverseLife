@@ -13,11 +13,14 @@ the planet's clock in `test_pyroxis_clock.py`.
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from pyroxis_kit import _surface
+from ship_kit import orbit_marks
+from src import sky
 from src.constants import Constants, current_catalog
 from src.engine import estate, ship, world
 from src.models.ship import Ship
@@ -60,26 +63,19 @@ async def test_the_console_shows_the_planet_and_not_every_field_of_it(
     identical rows today, sixty later, in a socket answer sent every time the
     console is opened (D-225).
 
-    Asked of a hull **in orbit** over Pyroxis, because that is where the pad is
-    chosen at all now (D-245): from the ground there is one move and it is the
-    climb, and between worlds one goes orbit to orbit.
+    Asked of a hull **in orbit** round Pyroxis, because that is where the pad
+    is chosen at all now (D-245): from the ground there is one move and it is
+    the climb, and between worlds one goes orbit to orbit -- a place in the
+    sky since D-354, not a node.
     """
     from src.engine.ship.view import profile
 
     plateau, fields = await _surface(session, count=6)
-    #: `_surface` has already laid the planet: the orbit hangs under that one.
+    #: `_surface` has already laid the planet; give it its year round the star
+    #: so the sky runs it, and a hull can be in orbit round it (D-354).
     sphere = await session.get(Node, plateau.parent_id)
     assert sphere is not None
-    orbit = await world.create_node(
-        session,
-        ship.orbit_key(Planet.PYROXIS),
-        "Околопланетная орбита Пироксиса",
-        planet=Planet.PYROXIS,
-        area_m2=1,
-        layer=Layer.SPACE,
-        parent=sphere,
-        properties={ship.ORBIT_NODE: True},
-    )
+    sphere.properties = {**(sphere.properties or {}), world.ORBIT: orbit_marks(Planet.PYROXIS)}
     owner = await world.create_identity(session, f"Капитан-{uuid.uuid4().hex[:6]}")
     hull = await world.create_node(
         session,
@@ -88,6 +84,7 @@ async def test_the_console_shows_the_planet_and_not_every_field_of_it(
         area_m2=1,
         planet=Planet.PYROXIS,
         layer=Layer.SPACE,
+        parent=sphere,
     )
     connector = await world.create_node(
         session,
@@ -104,9 +101,17 @@ async def test_the_console_shows_the_planet_and_not_every_field_of_it(
         owner_identity_id=owner.id,
         node_id=hull.id,
         connector_node_id=connector.id,
-        docked_node_id=orbit.id,
     )
     session.add(hulk)
+    await session.flush()
+    #: On Pyroxis' parking circle: a body in its sky, no node under it.
+    sky_now = await ship.sim.system(session, constants)
+    now = datetime.now(UTC)
+    t = await ship.sky_days(session, now)
+    r, v = sky.parking(sky_now, sky_now.body(Planet.PYROXIS.value), t, 0.0)
+    ship.sim._write_state(
+        hulk, (float(r[0, 0]), float(r[0, 1])), (float(v[0, 0]), float(v[0, 1])), at=now
+    )
     await session.flush()
 
     console = await profile(session, constants, current_catalog(), hulk)

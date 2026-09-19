@@ -3,8 +3,10 @@
 
 """What a hull sees of the others in the sky (D-289, wave 3), and what it may aim at.
 
-One's own hulls always; foreign ones within the sight radius or moored at
-the same planet -- and only what is seen may be the target of an order. The
+One's own hulls always; foreign ones within the sight radius -- and only
+what is seen may be the target of an order. Two hulls in orbit round one
+planet see each other as any two hulls do, by the distance between them:
+there is no node above a planet to share any more (D-354). The
 hold and the docking are read here too, for the console. Reads write
 nothing: the journal is told of a sighting by the tick (`helm._sight`), and
 the consents are written by `meet`.
@@ -19,15 +21,17 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src import sky
 from src.constants import Constants
 from src.db.base import remember
 from src.engine.ship import sim
 from src.engine.ship._base import ShipError, TooFar
+from src.engine.ship.physics import sky_days
 from src.models.ship import Ship
-from src.units import ROUND_TRACE
+from src.units import ROUND_NEAR
 
 #: What a sighted hull is doing, in the console's words.
-MOORED = "orbit"
+IN_ORBIT = "orbit"
 UNDER_WAY = "flight"
 ADRIFT = "adrift"
 HELD = "held"
@@ -37,13 +41,14 @@ async def sightings(
     session: AsyncSession, constants: Constants, ship: Ship, *, now: datetime
 ) -> list[dict[str, object]]:
     """Who else is in the sky near this hull: one's own hulls always, foreign
-    ones within the sight radius of this hull or moored at the same planet.
+    ones within the sight radius of this hull.
 
     Each with where it is, what it is doing, whose it is, and whether it may
     be aimed at -- a drifter with a forecast, on nobody's hold, is a target
     the chart offers the way it offers a planet.
     """
     world = await sim.system(session, constants)
+    t = await sky_days(session, now)
     afloat, table = await _placed(session, constants, now=now)
     mine = table.get(ship.id)
     seen: list[dict[str, object]] = []
@@ -57,16 +62,15 @@ async def sightings(
         near = mine is not None and (
             math.hypot(mine[0][0] - theirs[0][0], mine[0][1] - theirs[0][1]) <= world.sight_radius
         )
-        same_orbit = ship.docked_node_id is not None and other.docked_node_id == ship.docked_node_id
-        if not (own or near or same_orbit):
+        if not (own or near):
             continue
         seen.append(
             {
                 "ship": str(other.id),
                 "name": other.name,
-                "x": round(theirs[0][0], ROUND_TRACE),
-                "y": round(theirs[0][1], ROUND_TRACE),
-                "doing": _doing(other),
+                "x": round(theirs[0][0], ROUND_NEAR),
+                "y": round(theirs[0][1], ROUND_NEAR),
+                "doing": _doing(world, t, other, theirs),
                 "mine": own,
                 #: What the chart may aim this hull at: a drifter with a line
                 #: to be met on, and not one already flying as one with
@@ -101,13 +105,20 @@ async def _placed(
     return await remember(session, ("sky.placed", now), read)
 
 
-def _doing(other: Ship) -> str:
-    if other.docked_node_id is not None:
-        return MOORED
+def _doing(
+    world: sky.System,
+    t: float,
+    other: Ship,
+    state: tuple[tuple[float, float], tuple[float, float]],
+) -> str:
     if other.course:
         return UNDER_WAY
     if other.held_ship_id is not None:
         return HELD
+    #: In orbit is a reading of the sky (D-354): a coast that closes round a
+    #: planet.
+    if sky.bound_to(world, t, state[0], state[1]) is not None:
+        return IN_ORBIT
     return ADRIFT
 
 
@@ -178,9 +189,7 @@ async def _in_sight(
     if mine is None or theirs is None:
         return False
     world = await sim.system(session, constants)
-    if math.hypot(mine[0][0] - theirs[0][0], mine[0][1] - theirs[0][1]) <= world.sight_radius:
-        return True
-    return ship.docked_node_id is not None and other.docked_node_id == ship.docked_node_id
+    return math.hypot(mine[0][0] - theirs[0][0], mine[0][1] - theirs[0][1]) <= world.sight_radius
 
 
 def paired(ship: Ship, other: Ship) -> bool:

@@ -43,8 +43,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from conftest import _until_blocked_by
 from lines_kit import _hull, _seal
+from oxygen_kit import _ground, _sphere
 from pyroxis_kit import _dweller, _surface
-from ship_kit import _orbit
 from src.api.commands.things import _ground_pick, _item_hand
 from src.api.commands.travel import _travel_cancel
 from src.constants import Catalog, Constants
@@ -57,7 +57,7 @@ from src.models.inventory import Container
 from src.models.job import Job, JobKind
 from src.models.ship import Ship
 from src.models.travel import Travel
-from src.models.world import Edge, Node, Surface
+from src.models.world import Edge, Node, Planet, Surface
 from test_oxygen import _cylinder, _suited
 
 ORE = "iron_ore"
@@ -237,11 +237,13 @@ async def test_a_member_stepping_off_while_the_air_runs_out_lives(
 ) -> None:
     """The life support kills whoever is aboard once it holds the rows.
 
-    A suited member walks the gangway out into orbit, and the leg's arrival
-    holds their row just as the tanks run dry. The crew was read before the
-    wait, with the member still in the connector; after it they stand in the
-    void, where the hull's air is not theirs to lack -- the countdown on their
-    own body is the oxygen tick's (`tick_bodies`), not the hull's.
+    A suited member walks the gangway down onto an airless rock, and the
+    leg's arrival holds their row just as the tanks run dry. The crew was read
+    before the wait, with the member still in the connector; after it they
+    stand outside, where the hull's air is not theirs to lack -- the countdown
+    on their own body is the oxygen tick's (`tick_bodies`), not the hull's.
+    Outside was the orbital node until D-354 took it away; the gangway onto
+    Pyroxis' ground is the one road out of a sealed hull left.
 
     `alone`: the member was all the crew there was, and the hull is left with
     nobody to kill and nobody to warn -- no airless word to an empty hull.
@@ -249,18 +251,19 @@ async def test_a_member_stepping_off_while_the_air_runs_out_lives(
     vessel, owner, connector = await _hull(session, constants)
     port = await session.get(Node, vessel.docked_node_id)
     assert port is not None
-    orbit = await _orbit(session)
-    #: Moored in orbit (D-245): the one gangway runs to the orbital node.
+    pyroxis = await _sphere(session, Planet.PYROXIS, airless=True)
+    rock = await _ground(session, Planet.PYROXIS, pyroxis, name="Чёрное поле")
+    #: Set down on the rock: the one gangway runs to ground with no air.
     await travel.disconnect(session, port, connector)
-    await travel.connect(session, orbit, connector, base_seconds=1, surface=Surface.PAVED)
-    vessel.docked_node_id = orbit.id
+    await travel.connect(session, rock, connector, base_seconds=1, surface=Surface.PAVED)
+    vessel.docked_node_id = rock.id
     mate = await world.print_body(
         session, await world.create_identity(session, f"Mate-{uuid.uuid4().hex[:6]}"), connector
     )
     await _suited(session, constants, catalog, mate)
     await _cylinder(session, mate, 1.0)
     await session.flush()
-    await travel.depart(session, constants, mate, orbit)
+    await travel.depart(session, constants, mate, rock)
     leg = (
         await session.execute(
             select(Job.id).where(Job.body_id == mate.id, Job.kind == JobKind.TRAVEL_LEG.value)
@@ -273,7 +276,7 @@ async def test_a_member_stepping_off_while_the_air_runs_out_lives(
     if alone:
         #: The owner stayed on the pier: the member is the whole crew.
         owner.node_id = port.id
-    owner_id, mate_id, orbit_id = owner.id, mate.id, orbit.id
+    owner_id, mate_id, rock_id = owner.id, mate.id, rock.id
     await session.commit()
 
     ticks: list[asyncio.Future[int]] = []
@@ -313,7 +316,7 @@ async def test_a_member_stepping_off_while_the_air_runs_out_lives(
         assert stayed is not None
         assert stayed.state is (BodyState.ALIVE if alone else BodyState.DEAD)
         assert stepped is not None and stepped.state is BodyState.ALIVE
-        assert stepped.node_id == orbit_id
+        assert stepped.node_id == rock_id
         #: Nobody left to breathe it is nobody to warn: the word that the
         #: tanks failed goes to a crew, and this hull has none.
         warned = await db.scalar(select(Event.id).where(Event.kind == EventKind.SHIP_AIRLESS))

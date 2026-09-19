@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src import sky
@@ -27,9 +26,6 @@ from src.engine.ship._base import (
     NoArc,
     ShipError,
     hull_footprint,
-    is_orbit,
-    orbit_key,
-    orbit_node_of,
 )
 from src.engine.ship.belonging import crew_of, nodes_of
 from src.engine.ship.physics import (
@@ -98,20 +94,30 @@ async def profile(
     planet = Planet.TERRA if connector is None else connector.planet
     #: Where the hull is in its journey (D-245, D-289). Five stages, and each
     #: offers a different move: from the ground one only climbs, from orbit
-    #: one crosses or comes down, under way one only turns back, adrift one
-    #: lays a new course from wherever inertia has taken the hull, and lost
-    #: one does nothing -- the hull and its crew are gone. Not
-    #: derivable by the client -- `docked` is a key, and whether that key
-    #: names an orbit is a fact about the world (D-225).
+    #: one crosses, meets or comes down, under way one only turns back,
+    #: adrift one lays a new course from wherever inertia has taken the hull,
+    #: and lost one does nothing -- the hull and its crew are gone. "In orbit"
+    #: is a reading of the sky since D-354, not a mooring: a coast on a closed
+    #: orbit round a planet (`sim.orbit_of`). Not derivable by the client --
+    #: whether a coast closes is the sky's arithmetic (D-225).
     flying = await _flight(session, ship)
+    held = None
     if ship.lost_at is not None:
         stage = LOST
     elif docked is not None:
-        stage = IN_ORBIT if is_orbit(docked) else AT_PORT
+        stage = AT_PORT
     elif flying is not None:
         stage = UNDER_WAY
     else:
-        stage = ADRIFT
+        held = await sim.orbit_of(session, constants, ship, now=moment)
+        stage = IN_ORBIT if held is not None else ADRIFT
+    bodies = await sim.system(session, constants)
+    #: Close enough in to come down from: the whole orbit inside the window
+    #: the helm catches arrivals in (`flight.land`, D-354).
+    low = held is not None and held.far <= sky.capture_of(bodies, held.body)
+    in_the_sky = {one.key for one in bodies.bodies}
+    if held is not None:
+        planet = Planet(held.body.key)
 
     def priced_sample(sample: sky.Sample | None) -> dict[str, object] | None:
         """One point of the slider, priced: what it takes and what it burns (D-271, D-289).
@@ -181,24 +187,16 @@ async def profile(
     #: sentences, and a `climb` dropped to nothing said the second where the
     #: first was true.
     up = None
-    if stage is AT_PORT and docked is not None:
-        orbit = await orbit_node_of(session, docked.planet)
-        if orbit is not None:
-            up = {
-                "node": orbit.key,
-                "name": orbit.name,
-                "planet": orbit.planet.value,
-                **priced(
-                    climb_hours(constants, docked.planet, thrust_ratio)
-                    if thrust_ratio > 0
-                    else None,
-                    reserve=(
-                        fall_hours(constants, docked.planet, thrust_ratio)
-                        if thrust_ratio > 0
-                        else 0.0
-                    ),
+    if stage is AT_PORT and docked is not None and docked.planet.value in in_the_sky:
+        up = {
+            "planet": docked.planet.value,
+            **priced(
+                climb_hours(constants, docked.planet, thrust_ratio) if thrust_ratio > 0 else None,
+                reserve=(
+                    fall_hours(constants, docked.planet, thrust_ratio) if thrust_ratio > 0 else 0.0
                 ),
-            }
+            ),
+        }
 
     #: The crossings, offered from orbit and from nowhere else. One row per
     #: **planet**, not per port: between worlds one goes orbit to orbit, and
@@ -220,21 +218,13 @@ async def profile(
         #: a whole fleet at once (D-242), so a second call here was that walk
         #: again, per hull.
         lit = await lit_ports(session, constants)
-        reachable = {port.planet for port in lit}
-        orbits = {
-            node.planet: node
-            for node in (
-                await session.execute(
-                    select(Node).where(Node.key.in_(sorted(orbit_key(one) for one in reachable)))
-                )
-            )
-            .scalars()
-            .all()
-        }
-        bodies = await sim.system(session, constants)
+        reachable = {port.planet for port in lit if port.planet.value in in_the_sky}
         for target in sorted(reachable, key=lambda one: one.value):
-            orbit = orbits.get(target)
-            if orbit is None or (docked is not None and target is docked.planet):
+            #: Not the planet the hull is already close round: it comes down
+            #: from here, and a crossing to it would be a crossing to itself.
+            #: One on a wider orbit round it is offered it -- the helm brings
+            #: it down to the circle (D-354).
+            if held is not None and target.value == held.body.key and low:
                 continue
             #: From where the hull **is** (D-289): the parking circle it sits
             #: on, or the point inertia has carried it to. The whole slider is
@@ -265,8 +255,6 @@ async def profile(
             cheap = samples[-1] if samples else None
             routes.append(
                 {
-                    "node": orbit.key,
-                    "name": orbit.name,
                     "planet": target.value,
                     "cheap": priced_sample(cheap),
                     "fast": priced_sample(fast),
@@ -283,7 +271,7 @@ async def profile(
                     ),
                 }
             )
-    if stage is IN_ORBIT and docked is not None:
+    if stage is IN_ORBIT and held is not None and low:
         #: The pads under the hull. Every lit one of them, because this is the
         #: moment the choice is actually made (D-245), on the globe under the
         #: hull (D-319): the console stands these rows on the planet where
@@ -293,9 +281,7 @@ async def profile(
         #: Sent once, beside the list, because Aurora has hundreds of piers
         #: (D-230) and a copy of the same five numbers in each of them is
         #: exactly the redundancy D-225 exists against.
-        down = priced(
-            fall_hours(constants, docked.planet, thrust_ratio) if thrust_ratio > 0 else None
-        )
+        down = priced(fall_hours(constants, planet, thrust_ratio) if thrust_ratio > 0 else None)
         #: Every pad of the planet below with its **room**: the free ground
         #: the hull would set down on (`estate.free_ground`, the number the
         #: order is measured against), so the crew picks where it fits and
@@ -305,7 +291,7 @@ async def profile(
         #: the surface, each its own row now that the globe picks among
         #: them; before the picker one row stood in for the planet.
         for port in sorted(lit, key=lambda one: one.key):
-            if port.planet is not docked.planet:
+            if port.planet is not planet:
                 continue
             landings.append(
                 {
@@ -371,7 +357,8 @@ async def profile(
         #: orbit and under way: there is no such move from there.
         "climb": up,
         #: What coming down costs from here -- one price for the whole planet
-        #: (D-245). `None` anywhere but in orbit.
+        #: (D-245). `None` anywhere but in orbit, and on an orbit too wide to
+        #: come down from: that hull is sent to the planet first (D-354).
         "descent": down,
         "footprint": footprint,
         #: Which pads it may come down on: names only, because the price above
@@ -445,9 +432,9 @@ async def profile(
         #: busy yard boards you further from the door (D-201).
         "berth": ship.berth,
         "connector": None if connector is None else connector.key,
-        #: The crossings between worlds, offered from orbit only: one row per
-        #: planet, each aimed at that planet's orbital node.
-        "routes": sorted(routes, key=lambda route: (not route["reachable"], route["name"])),
+        #: The crossings between worlds, offered from the sky only: one row
+        #: per planet, each named by the planet it is bound for (D-354).
+        "routes": sorted(routes, key=lambda route: (not route["reachable"], route["planet"])),
     }
 
 

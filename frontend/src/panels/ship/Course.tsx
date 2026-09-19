@@ -149,7 +149,7 @@ export function Course({
               style={{ background: `var(--planet-${planet})` }}
               aria-hidden="true"
             />
-            <b>{planetName(planet)}</b> · <span className="note">{route.name}</span>
+            <b>{planetName(planet)}</b>
           </>
         ) : (
           <b>{t("ui-ship-course-to-ship", { name: sighted?.name ?? "" })}</b>

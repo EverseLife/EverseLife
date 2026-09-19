@@ -46,6 +46,7 @@ event-transport-broke = повозка разбилась
 # The sky (D-289): the tanks ran dry under way, or the coast ended.
 event-ship-adrift = корабль лёг в дрейф
 event-ship-star_orbit = корабль вышел на орбиту звезды
+event-ship-in_orbit = корабль вышел на орбиту планеты
 event-ship-lost = корабль погиб
 event-ship-sighted = замечен корабль
 event-ship-held = корабль на удержании

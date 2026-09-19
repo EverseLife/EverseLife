@@ -34,7 +34,8 @@ from ship_kit import (
     _fuel,
     _in_orbit,
     _laid,
-    _orbit,
+    _orbiting,
+    _planet,
     _port,
     _shipwright,
 )
@@ -274,7 +275,7 @@ async def test_a_landing_moors_at_the_chosen_pad_and_carries_the_passenger(
 
         fuel_before = await ship.fuel_aboard(session, constants, catalog, vessel)
         await _in_orbit(session, constants, catalog, owner, vessel)
-        assert vessel.docked_node_id == (await _orbit(session)).id, "борт на орбите"
+        assert await _orbiting(session, constants, vessel) == "terra", "борт на орбите"
         flight = await ship.land(session, constants, catalog, owner, vessel, there)
         assert await ship.fuel_aboard(session, constants, catalog, vessel) < fuel_before, (
             "рейс сжёг топливо"
@@ -670,7 +671,7 @@ async def test_the_ground_does_not_cross_and_a_climb_does_not_climb_twice(
 
     #: From the pad one only climbs: between worlds a hull goes orbit to orbit.
     with pytest.raises(ship.Docked):
-        await ship.fly(session, constants, catalog, owner, vessel, await _orbit(session))
+        await ship.fly(session, constants, catalog, owner, vessel, await _planet(session))
     #: And there is nothing to come down from.
     with pytest.raises(ship.Docked):
         await ship.land(session, constants, catalog, owner, vessel, port)
@@ -702,7 +703,7 @@ async def test_summary_names_the_price_before_the_attempt(
     assert summary["docked"] == port.key
     assert summary["stage"] == "port", "борт стоит в космодроме"
     climb = summary["climb"]
-    assert climb["node"] == ship.orbit_key(Planet.TERRA)
+    assert climb["planet"] == Planet.TERRA.value
     assert climb["reachable"] and climb["hours"] > 0 and climb["fuel"] > 0
     #: The descent home is guaranteed but not charged: `needs` is the larger.
     assert climb["needs"] > climb["fuel"]

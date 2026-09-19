@@ -352,9 +352,23 @@ async def _target(db: AsyncSession, message: dict) -> Node:
     return node
 
 
+async def _planet_node(db: AsyncSession, message: dict) -> Node:
+    """The planet an order names, by key -- its own node, which carries its
+    orbit: what a crossing is bound for since D-354 took away the node above
+    it."""
+    try:
+        planet = Planet(str(message.get("planet") or ""))
+    except ValueError as exc:
+        raise Refused(key="cmd-no-such-planet", planet=str(message.get("planet") or "")) from exc
+    sphere = await ship._sphere(db, planet)
+    if sphere is None:
+        raise Refused(key="cmd-no-such-planet", planet=planet.value)
+    return sphere
+
+
 @command("ship.ascend")
 async def _ship_ascend(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Climb to the orbit of the planet under the pad (D-245).
+    """Climb into orbit round the planet under the pad (D-245, D-354).
 
     What used to be `ship.undock`, and what used to be instant and free. It is
     a leg now: it takes hours by the planet's gravity, it burns fuel, and it
@@ -367,7 +381,8 @@ async def _ship_ascend(state: dict, db: AsyncSession, message: dict) -> dict:
 
 @command("ship.fly")
 async def _ship_fly(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Cross to another planet's orbit. Fuel now, arrival by a journal job.
+    """Cross to another planet's orbit, or go to meet another hull. Flown by
+    the helm; the tanks pay as the engines burn (D-289).
 
     `hours` is the flight time off the console's slider (D-271); without it
     the cheapest passage flies. `via` names the planet a flyby bends round
@@ -385,9 +400,11 @@ async def _ship_fly(state: dict, db: AsyncSession, message: dict) -> dict:
             hours = float(hours)
         except (TypeError, ValueError) as exc:
             raise Refused(key="ship-hours-is-a-number") from exc
-    #: A planet's orbit by node key, or another hull by id (wave 3).
+    #: A planet by key (D-354), or another hull by id (wave 3).
     goal: Node | Ship = (
-        await _other_ship(db, message) if message.get("ship_target") else await _target(db, message)
+        await _other_ship(db, message)
+        if message.get("ship_target")
+        else await _planet_node(db, message)
     )
     arrives = await ship.fly(
         db,

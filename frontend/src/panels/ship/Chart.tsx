@@ -46,7 +46,7 @@ import { useBook } from "../../actions";
 import { Glyph } from "../../Glyph";
 import { t } from "../../locale";
 import { planetName } from "../../planets";
-import { along, mooring, term } from "../map/orbits";
+import { along, term } from "../map/orbits";
 import { Bezel, Screen } from "./Glass";
 import { sameTarget, whole, type Route, type Target, type Vessel } from "./model";
 import {
@@ -290,26 +290,19 @@ export function Chart({
     const t1 = new Date(vessel.flight.arrives_at).getTime();
     return Math.min(1, Math.max(0, (Date.now() - t0) / Math.max(1, t1 - t0)));
   })();
-  //: Which side of its planet this hull is moored on. The server knows the
-  //: true phase and does not send it -- a hull on the circle has no `sky` at
-  //: all -- so the side is the steady per-hull one the world map already
-  //: moors by. The **distance** is the sky's own, and that is the half that
-  //: has to be true: it is what the zoom opens up.
-  const berth = mooring(vessel.ship);
   const at: Point | null = (() => {
-    //: Adrift, the state the server read is the place: nothing moves it but
-    //: the next read. Under way the hull is walked along its line by the
+    //: Adrift or in orbit, the state the server read is the place (D-354: in
+    //: orbit a hull is a body in the sky like any other): nothing moves it
+    //: but the next read. Under way the hull is walked along its line by the
     //: clock, as the world map walks it, so it does not stand still between
     //: two rereads of the console.
-    if (vessel.stage === "adrift" && vessel.sky) return { x: vessel.sky.x, y: vessel.sky.y };
+    if ((vessel.stage === "adrift" || vessel.stage === "orbit") && vessel.sky) {
+      return { x: vessel.sky.x, y: vessel.sky.y };
+    }
     if (!home) return null;
     if (!vessel.flight || !goal) {
-      //: On the circle, out on it at its own radius; on the ground, at the
-      //: planet, because that is where it is. At rest both are the same point
-      //: on the glass -- a parking circle is a pixel across when the whole
-      //: system is in frame -- and looking nearer is what tells them apart.
-      const off = vessel.stage === "orbit" ? park : 0;
-      return { x: home.x + Math.cos(berth) * off, y: home.y + Math.sin(berth) * off };
+      //: On the ground, at the planet, because that is where it is.
+      return { x: home.x, y: home.y };
     }
     //: Along the arc the sky gave the passage (D-271), where there is one; a
     //: climb or a descent has none and is drawn straight beside the planet.
@@ -350,11 +343,18 @@ export function Chart({
   }, [vessel.routes]);
 
   //: The lines ahead (D-289). The coast inertia draws is shown whenever the
-  //: hull is in the sky and not on its circle: under way it is what happens
-  //: if the engines fall silent now, adrift it is the whole of the future.
+  //: hull is in the sky: under way it is what happens if the engines fall
+  //: silent now, adrift it is the whole of the future, and in orbit it is the
+  //: lap round the planet -- sent round the planet's centre (D-354), and put
+  //: where the planet stands on this display, since the planet moves on.
+  const lap = vessel.sky?.inertia?.around ? by.get(vessel.sky.inertia.around) : undefined;
   const inertia =
-    vessel.sky?.inertia && vessel.stage !== "orbit" && vessel.sky.inertia.trace.length >= 2
-      ? vessel.sky.inertia.trace
+    vessel.sky?.inertia && vessel.sky.inertia.trace.length >= 2
+      ? vessel.sky.inertia.around
+        ? lap
+          ? vessel.sky.inertia.trace.map(([x, y]): [number, number] => [lap.x + x, lap.y + y])
+          : null
+        : vessel.sky.inertia.trace
       : null;
   const arc =
     vessel.stage === "flight" && vessel.flight?.arc && vessel.flight.arc.length >= 2
@@ -546,12 +546,13 @@ export function Chart({
           );
         })}
 
-        {/* The circle this hull runs on while it is moored, at the radius the
-            sky gives it. Only for the ship being commanded: the others in the
-            sky are drawn below -- D-289 put them back on it -- and this is a
-            hint about **this** one (D-245). At the system's own scale it is
-            less than a pixel and is not drawn at all: that is what a parking
-            orbit is against a system eight hundred units wide. */}
+        {/* The parking circle round this hull's planet, at the radius the
+            sky gives it: where a climb puts a hull and an arrival aims one
+            (D-354). The hull's own lap is the coast line above; this is the
+            circle it is measured against. Only for the ship being commanded,
+            and at the system's own scale it is less than a pixel and is not
+            drawn at all: that is what a parking orbit is against a system
+            eight hundred units wide. */}
         {home && vessel.stage === "orbit" && span(scope, park) >= PARK_SEEN && (
           <circle
             className="chart-parking"

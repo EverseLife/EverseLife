@@ -74,30 +74,25 @@ the orbits of the two planets and the flight time chosen (D-271), not a table of
 planets -- exactly as a vehicle's capacity comes by its name (D-090). A
 second-class engine appears in the vault and flies without a release.
 
-## Three legs, not one (D-245)
+## Legs by the hour, and the sky between them (D-245, D-289, D-354)
 
-Between a pad and another world there is an **orbit**: a node of the same
-graph, one per planet, hanging under the planet itself. So a journey is three
-moves and never fewer --
+A journey from a pad to another world is a climb, a crossing and a descent.
+The climb and the descent are legs by the hour -- the atmosphere, which the
+sky does not fly -- priced by the planet's own pull (`planet.mass` over
+`planet.radius` squared, D-320); the descent is the cheaper of the two,
+because coming down the weight one climbed against is on the ship's side.
+Between them the hull is a body in the sky with its own place and speed:
+there is no node above a planet any more (D-354). "In orbit" is what the sky
+says of a hull that coasts on a closed orbit round a planet; the climb ends
+on such an orbit, over the meridian of the pad it left, and the descent
+starts from one close enough in. The crossing is an order the helm flies.
 
-    космодром на Терре -> орбита Терры -> орбита Авроры -> космодром на Авроре
-
--- and each of them is a leg with its own price. The climb and the descent are
-priced by the planet's own pull (`planet.mass` over `planet.radius` squared,
-D-320), the crossing by the sky; the descent is the cheaper
-of the two vertical ones, because coming down the weight one climbed against is
-on the ship's side.
-
-The reason it is three and not one is that it used to be **less** than one: the
-gangway came off instantly and for nothing, and coming back down onto the very
-pad just left cost a whole passage. Leaving a planet was cheaper than returning
-to it, which is the wrong way round for every world there is. And with one
-number for a whole planet there was nowhere to say that Pyroxis is heavy.
-
-A leg that ends where there is no bunker is refused without the fuel to leave
-again: the climb wants the descent behind it, the crossing wants the descent at
-the far end. An orbit has nothing to walk fuel to, and a hull that reached one
-dry would be the trap the whole fuel rule exists against (pillar P6).
+The reason the legs are priced at all is that they used to be **less** than
+nothing: the gangway came off instantly and for nothing, and coming back
+down onto the very pad just left cost a whole passage. Leaving a planet was
+cheaper than returning to it, which is the wrong way round for every world
+there is. And with one number for a whole planet there was nowhere to say
+that Pyroxis is heavy.
 
 ## A passage costs what the sky costs today
 
@@ -139,7 +134,6 @@ from src.engine.ship._base import (  # noqa: F401
     LIFE_SUPPORT,
     LOST,
     OPEN_LANDING,
-    ORBIT_NODE,
     PASSAGE,
     SPACEPORT,
     TANK,
@@ -160,9 +154,6 @@ from src.engine.ship._base import (  # noqa: F401
     _free_berth,
     _gangway_seconds,
     hull_footprint,
-    is_orbit,
-    orbit_key,
-    orbit_node_of,
 )
 from src.engine.ship.belonging import (  # noqa: F401
     aboard_of,

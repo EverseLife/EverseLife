@@ -228,7 +228,7 @@ ui-ship-ratio-line = тяговооружённость { $ratio } при нуж
 ui-ship-stuck = не отрывается
 ui-ship-crew = экипаж { $crew } · топлива { $fuel }
 ui-ship-no-life-support = без системы жизнеобеспечения
-ui-ship-in-orbit = на околопланетной орбите · { $planet }
+ui-ship-in-orbit = на орбите · { $planet }
 ui-ship-berthed = у верфи «{ $port }», место { $berth }
 ui-ship-on-voyage = в рейсе в «{ $name }»
 ui-ship-adrift = в дрейфе
@@ -238,7 +238,9 @@ ui-ship-no-bridge = Отстыковка и рейс отдаются от ко�
 
 ## Подъём: единственный ход корпуса на земле.
 
-ui-ship-no-orbit = Отсюда не подняться: у этой планеты нет орбитального узла.
+ui-ship-no-orbit = Отсюда не подняться: у этой планеты нет орбиты.
+ui-ship-climb-to = Орбита: { $planet }
+ui-ship-orbit-high = Орбита слишком высока, чтобы садиться: сначала проложите курс к этой же планете — автопилот опустит корабль на круг стоянки.
 ui-ship-no-thrust = тяги нет вовсе: поставьте двигатель
 ui-ship-leg-cost = { $hours } ч · { $fuel } топлива
 ui-ship-ascend = Подняться на околопланетную орбиту

@@ -114,9 +114,12 @@ async def passages(session: AsyncSession) -> dict[uuid.UUID, dict[str, object]]:
             continue
         #: The coast the tick last wrote onto the row (D-289): the map reads,
         #: it does not fly. A drifter the tick has not seen yet has no line;
-        #: a hull on the hold is drawn by the hull it holds on to (wave 3).
+        #: a hull on the hold is drawn by the hull it holds on to (wave 3). A
+        #: hull in orbit round a planet is not drawn at all -- the map never
+        #: drew one on its parking circle, and a lap a quarter of a unit
+        #: across is a point at the map's scale (D-319, D-354).
         stored = await sim.forecast_of(session, ship)
-        if stored is None:
+        if stored is None or stored.get("around"):
             continue
         under_way[ship.node_id] = {
             "to": None,
