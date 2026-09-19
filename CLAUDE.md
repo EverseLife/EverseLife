@@ -296,7 +296,7 @@ python tools/spdx.py --apply
   доходит. `tests/test_reads.py` (802) оставил себе сцену, выписку, обзор
   фермы и развёртку `READS`, прогнозы уехали в `test_reads_forecast.py`,
   общее (`_writes_forbidden`, `_forecaster`) — в `reads_kit.py`.
-  2026-09-19 `panels/GraphMap.tsx` (1052) → 730 строк тем же приёмом, каким
+  2026-09-19 `panels/GraphMap.tsx` (1052) → 726 строк тем же приёмом, каким
   раньше ушли `useBands`, `useScene` и `useWalker`, — хуки в `panels/map/`:
   `useWorldMap` (карта с места стояния, корабли в виду, узлы по ключу),
   `useCamera` (камера, замер поля, её остановка; высота поля — в

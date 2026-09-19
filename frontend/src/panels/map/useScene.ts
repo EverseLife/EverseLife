@@ -64,9 +64,10 @@ export function groundFloorOf(
  * The nodes that open into a layer of their own: those others hang under.
  *
  * Not the ground floor of the inside shown: one is already in it. As a group
- * it was offered only for a step straight into it (`GraphMap.reachable`),
- * so from the third floor up the plot stood on the map with no way down to
- * it -- the stair from the second floor is not an exit of the third.
+ * it was offered only for a step straight into it
+ * (`useNodeBehaviour.reachableFrom`), so from the third floor up the plot
+ * stood on the map with no way down to it -- the stair from the second floor
+ * is not an exit of the third.
  */
 export function groupsOf(
   nodes: readonly MapNode[],
