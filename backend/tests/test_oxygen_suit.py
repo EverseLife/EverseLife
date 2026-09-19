@@ -6,9 +6,11 @@
 Checked is the rule in its two directions:
 
 * the **connection** is a door: where only the suit breathes for a body, it
-  neither comes off nor gives its slot to anything but a suit -- on the rock,
-  in orbit, and on the road to either -- while aboard and under a sky with air
-  it comes off as any gear does;
+  neither comes off nor gives its slot to anything but a suit -- on the rock
+  and on the road to it -- while aboard and under a sky with air it comes off
+  as any gear does. There is no void to step out into above a planet any more
+  (D-354): the road out of a hull into nothing breathable is the gangway down
+  onto an airless world;
 * the **reserve** is a countdown: the tick decides by what the settling found,
   so a bare body chokes however much air lies in its bag, the body is told
   once when the countdown starts, and a worn suit is told of the day before it
@@ -29,7 +31,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from conftest import _slow
-from oxygen_kit import SUIT, _cylinder, _ground, _hull, _orbit, _person, _port, _sphere, _suited
+from oxygen_kit import SUIT, _cylinder, _ground, _hull, _person, _port, _sphere, _suited
 from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import gear, oxygen, travel, wear, world
@@ -37,7 +39,7 @@ from src.engine.oxygen import breath
 from src.models.event import Event, EventKind
 from src.models.identity import Body, BodyState
 from src.models.inventory import Item
-from src.models.world import Node, Planet, Surface
+from src.models.world import Node, Planet
 
 BODY_SLOT = "body"
 COAT = "insulated_suit"
@@ -72,19 +74,15 @@ async def _on_the_rock(
     return rock, body
 
 
-async def _moored_in_orbit(
-    session: AsyncSession, constants: Constants, terra: Node | None = None
-) -> tuple[Node, Body]:
-    """A hull hanging over Terra, its owner aboard: the gangway runs to the void (D-245)."""
-    terra = terra or await _sphere(session, Planet.TERRA, airless=False)
-    port = await _port(session)
-    vessel, body, connector = await _hull(session, constants, port)
-    orbit = await _orbit(session, terra)
-    await travel.disconnect(session, port, connector)
-    await travel.connect(session, orbit, connector, base_seconds=60, surface=Surface.PAVED)
-    vessel.docked_node_id = orbit.id
-    await session.flush()
-    return orbit, body
+async def _landed_on_the_rock(session: AsyncSession, constants: Constants) -> tuple[Node, Body]:
+    """A hull set down on Pyroxis, its owner aboard: the gangway runs down to
+    ground with nothing to breathe (D-233) -- the one road out of a hull into
+    no air, now that the sky above a planet is no node (D-354)."""
+    await _sphere(session, Planet.PYROXIS, airless=True)
+    pad = await _port(session, Planet.PYROXIS)
+    vessel, body, _connector = await _hull(session, constants, pad)
+    assert vessel.docked_node_id == pad.id
+    return pad, body
 
 
 # --- the connection is a door -------------------------------------------------
@@ -133,24 +131,24 @@ async def test_the_suit_comes_off_where_there_is_air(
     await gear.equip(session, constants, catalog, walker, coat)
     assert not await oxygen.suited(session, catalog, walker)
 
-    _, crew = await _moored_in_orbit(session, constants, terra)
+    _, crew = await _landed_on_the_rock(session, constants)
     await _suited(session, constants, catalog, crew)
     assert await gear.unequip(session, constants, catalog, crew, BODY_SLOT) is not None
 
 
-async def test_on_the_road_to_the_void_the_suit_stays_on(
+async def test_on_the_road_to_the_rock_the_suit_stays_on(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
     """The road is outside: a body's node changes only when it arrives.
 
     Stepping off a hull, the body still stands aboard for as long as the leg
     lasts -- and the step checked the suit when it set out. Taken off on the
-    way, it would arrive in the void bare.
+    way, it would arrive on the rock bare.
     """
-    orbit, body = await _moored_in_orbit(session, constants)
+    rock, body = await _landed_on_the_rock(session, constants)
     await _suited(session, constants, catalog, body)
     await _cylinder(session, body, 6)
-    await travel.depart(session, constants, body, orbit)
+    await travel.depart(session, constants, body, rock)
     assert await travel.current(session, body) is not None
 
     with pytest.raises(oxygen.NoAir) as refused:
@@ -158,7 +156,7 @@ async def test_on_the_road_to_the_void_the_suit_stays_on(
     #: Named as the road, not the place: the body still counts aboard, and
     #: "take it off aboard" would read as a contradiction.
     assert refused.value.key == "oxygen-suit-stays-on-road"
-    assert refused.value.params["node"] == orbit.name
+    assert refused.value.params["node"] == rock.name
 
 
 async def test_a_step_out_and_taking_the_suit_off_do_not_both_pass(
@@ -175,10 +173,10 @@ async def test_a_step_out_and_taking_the_suit_off_do_not_both_pass(
     into the void. With it one of the two waits and sees the other's result.
     """
     async with factory() as session, session.begin():
-        orbit, body = await _moored_in_orbit(session, constants)
+        rock, body = await _landed_on_the_rock(session, constants)
         await _suited(session, constants, catalog, body)
         await _cylinder(session, body, 6)
-        body_id, orbit_id = body.id, orbit.id
+        body_id, rock_id = body.id, rock.id
 
     #: The window between the step's reading of the suit and its road.
     _slow(monkeypatch, breath, "suited", delay=0.4)
@@ -186,7 +184,7 @@ async def test_a_step_out_and_taking_the_suit_off_do_not_both_pass(
     async def step() -> None:
         async with factory() as db, db.begin():
             walker = await db.get(Body, body_id)
-            target = await db.get(Node, orbit_id)
+            target = await db.get(Node, rock_id)
             assert walker is not None and target is not None
             await travel.depart(db, constants, walker, target)
 
@@ -226,13 +224,13 @@ async def test_a_change_of_dress_decides_under_the_body_row(
     order they finish in, no body is on that road without a suit.
     """
     async with factory() as session, session.begin():
-        orbit, body = await _moored_in_orbit(session, constants)
+        rock, body = await _landed_on_the_rock(session, constants)
         first_coat = await _held(session, body, COAT)
         await gear.equip(session, constants, catalog, body, first_coat)
         suit = await _held(session, body, SUIT)
         second_coat = await _held(session, body, COAT)
         await _cylinder(session, body, 6)
-        body_id, orbit_id = body.id, orbit.id
+        body_id, rock_id = body.id, rock.id
         suit_id, coat_id = suit.id, second_coat.id
 
     door = oxygen.require_suit_kept
@@ -256,7 +254,7 @@ async def test_a_change_of_dress_decides_under_the_body_row(
         await asyncio.sleep(after)
         async with factory() as db, db.begin():
             walker = await db.get(Body, body_id)
-            target = await db.get(Node, orbit_id)
+            target = await db.get(Node, rock_id)
             assert walker is not None and target is not None
             await travel.depart(db, constants, walker, target)
 

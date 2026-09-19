@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (C) 2026 Nurlan Urazkulov
 
-"""The shipyard the ship tests share: an orbit, a port, a shipwright, a laid
-keel, equipment and fuel aboard, a hull fit to fly. Used by the ship files
+"""The shipyard the ship tests share: a planet in the sky, a port, a
+shipwright, a laid keel, equipment and fuel aboard, a hull fit to fly. Used by the ship files
 (`test_ship*.py`); not collected by pytest.
 """
 
@@ -53,14 +53,13 @@ def orbit_marks(planet: Planet) -> dict:
     }
 
 
-async def _orbit(session: AsyncSession, planet: Planet = Planet.TERRA) -> Node:
-    """The planet's orbital node, and the planet's own node under it (D-245).
+async def _planet(session: AsyncSession, planet: Planet = Planet.TERRA) -> Node:
+    """The planet's own node, with its orbit round the star (D-271): what a
+    crossing is bound for, and what a hull in orbit hangs under (D-354).
 
-    Fetch-or-create, because every port of a planet wants the same one: the
-    orbit is where a hull hangs between the ground and the sky, and there is
-    exactly one of them per world.
+    Fetch-or-create, because every port of a planet wants the same one.
     """
-    sphere = (await select_node(session, planet.value)) or await world.create_node(
+    return (await select_node(session, planet.value)) or await world.create_node(
         session,
         planet.value,
         planet.value.title(),
@@ -71,17 +70,6 @@ async def _orbit(session: AsyncSession, planet: Planet = Planet.TERRA) -> Node:
         #: orbits, and a planet without one is a planet nothing crosses to.
         properties={world.ORBIT: orbit_marks(planet)},
     )
-    key = ship.orbit_key(planet)
-    return (await select_node(session, key)) or await world.create_node(
-        session,
-        key,
-        f"Околопланетная орбита {planet.value}",
-        area_m2=1,
-        planet=planet,
-        layer=Layer.SPACE,
-        parent=sphere,
-        properties={ship.ORBIT_NODE: True},
-    )
 
 
 async def select_node(session: AsyncSession, key: str) -> Node | None:
@@ -89,15 +77,15 @@ async def select_node(session: AsyncSession, key: str) -> Node | None:
 
 
 #: Where on the parking circle a test's hull is put, radians off the planet's
-#: own heading -- rather than the angle its id spins it to (`sim.bearing_of`).
-#: In the game that spin keeps two hulls over one planet off one point; in a
-#: test the id is a fresh `uuid4` every run, so the crossing to Aurora cast off
-#: from a fresh angle each time. That angle decides the run: `_fast_sample`
-#: flies the first `ok` point of the slider, which is by construction the arc
-#: the engines can barely deliver -- for the hull `_flightworthy` fits out its
-#: delta-v comes within two per cent of what the thrust gives over those hours
-#: (the margin is where the slider's ten-per-cent grid falls against
-#: `course.deliverable`, so another hull's is another number).
+#: own heading -- rather than over the meridian of the pad it climbed from at
+#: the hour it arrived (`flight.meridian`, D-354), which is the wall clock's in
+#: a test: the crossing to Aurora would cast off from a fresh angle each run.
+#: That angle decides the run: `_fast_sample` flies the first `ok` point of
+#: the slider, which is by construction the arc the engines can barely
+#: deliver -- for the hull `_flightworthy` fits out its delta-v comes within
+#: two per cent of what the thrust gives over those hours (the margin is where
+#: the slider's ten-per-cent grid falls against `course.deliverable`, so
+#: another hull's is another number).
 #:
 #: What that angle decides, swept against the engine over the whole circle of
 #: it, twenty-four headings, re-measured after D-316 finished the capture: all
@@ -162,9 +150,10 @@ async def _in_orbit(
     *,
     heading: float | None = PARK_HEADING,
 ) -> Ship:
-    """Climb and arrive: the hull hanging over the planet it set out from,
+    """Climb and arrive: the hull in orbit round the planet it set out from,
     `heading` radians off that planet's own heading on the circle -- or, with
-    `heading=None`, wherever the hull's id spins it (see `PARK_HEADING`)."""
+    `heading=None`, over the pad's meridian, where the climb puts it (see
+    `PARK_HEADING`)."""
     job = await ship.ascend(session, constants, catalog, body, vessel)
     await ship.arrived(session, job)
     #: The climb is run by hand here, so close it by hand too: left pending it
@@ -176,14 +165,43 @@ async def _in_orbit(
         #: on a circle is the caller's mistake, and a pin quietly skipped would
         #: hand the angle back to the id -- the lottery, in the one place
         #: nobody would look for it.
-        assert vessel.sky_at is not None and vessel.docked_node_id is not None, (
+        assert vessel.sky_at is not None and vessel.docked_node_id is None, (
             "climb ended off the circle"
         )
-        moored = await session.get(Node, vessel.docked_node_id)
-        assert moored is not None
-        vessel.park_phase = (
-            await _heading_of(session, constants, moored.planet, vessel.sky_at) + heading
-        )
+        await _on_the_circle(session, constants, vessel, at=vessel.sky_at, heading=heading)
+    await session.flush()
+    return vessel
+
+
+async def _on_the_circle(
+    session: AsyncSession,
+    constants: Constants,
+    vessel: Ship,
+    *,
+    at: datetime,
+    heading: float = PARK_HEADING,
+) -> Ship:
+    """The hull put on the parking circle of the planet its pad is on, at
+    `at`, `heading` radians off that planet's own heading -- in orbit, with
+    its forecast kept, whatever it was doing before. No climb, no fuel: for
+    the tests that only need a hull to be up there."""
+    world_ = await ship.sim.system(session, constants)
+    planet = (await session.get(Node, vessel.node_id)).planet
+    t = await ship.sky_days(session, at)
+    r, v = sky.parking(
+        world_,
+        world_.body(planet.value),
+        t,
+        await _heading_of(session, constants, planet, at) + heading,
+    )
+    here = (float(r[0, 0]), float(r[0, 1]))
+    speed = (float(v[0, 0]), float(v[0, 1]))
+    vessel.docked_node_id = None
+    vessel.berth = None
+    sim._write_state(vessel, here, speed, at=at)
+    sim._keep_forecast(
+        vessel, await fate.fate_of(session, constants, world_, t, here, speed), now=at, t=t
+    )
     await session.flush()
     return vessel
 
@@ -191,7 +209,7 @@ async def _in_orbit(
 async def _port(session: AsyncSession, *, name: str = "Космодром", planet=Planet.TERRA):
     """A node with a spaceport: everything a ship starts from."""
     stamp = uuid.uuid4().hex[:8]
-    await _orbit(session, planet)
+    await _planet(session, planet)
     node = await world.create_node(session, f"terra.port.{stamp}", name, area_m2=400, planet=planet)
     #: The yard's roof and no more: the rest of the node is the apron the
     #: hulls set down on (D-319), and a port roofed over would take none.
@@ -217,6 +235,10 @@ async def _laid(
     session: AsyncSession, constants: Constants, body: Body, port: Node, name="Заря"
 ) -> Ship:
     """Lay the foundation and run the work to its end -- a ship in port."""
+    #: The new one is the one that was not there before: `created_at` is the
+    #: transaction's clock, the same for every hull a test lays, and the
+    #: newest by it was a coin toss between them.
+    before = {one.id for one in await ship.ships_of(session, body.identity_id)}
     job = await ship.found(session, constants, body, name)
     await ship.keel_laid(session, job)
     #: The keel job is done by hand here, so close it by hand too: left pending
@@ -226,9 +248,9 @@ async def _laid(
     job.finished_at = job.run_at
     await session.flush()
 
-    mine = await ship.ships_of(session, body.identity_id)
-    assert mine, "закладка кончилась кораблём"
-    return mine[-1]
+    mine = [one for one in await ship.ships_of(session, body.identity_id) if one.id not in before]
+    assert len(mine) == 1, "закладка кончилась кораблём"
+    return mine[0]
 
 
 async def _equip(session: AsyncSession, node: Node, type_key: str, amount: float = 1):
@@ -428,7 +450,7 @@ async def _drifting(
 ) -> datetime:
     """Send the hull to Aurora and let it run dry on the way: adrift near
     Terra, with a forecast on its row. Returns the hour of the last tick."""
-    aurora = await _orbit(session, Planet.AURORA)
+    aurora = await _planet(session, Planet.AURORA)
     moment = datetime.now(UTC)
     forecast = await ship.forecast(session, constants, catalog, vessel, Planet.AURORA, now=moment)
     fast = next(one for one in forecast["samples"] if "via" not in one)
@@ -500,3 +522,12 @@ async def _met(
     assert (await session.execute(hold.orphaned_holds())).all() == []
     assert (await session.execute(hold.half_docks())).all() == []
     return drifter, lost_owner, rescuer, rescuer_owner, at
+
+
+async def _orbiting(session: AsyncSession, constants: Constants, vessel: Ship) -> str | None:
+    """The planet the hull is in orbit round, read at its own stamp (D-354):
+    what the console calls "in orbit" -- there is no node to be moored to."""
+    if vessel.sky_at is None:
+        return None
+    body = await sim.orbiting(session, constants, vessel)
+    return None if body is None else body.key

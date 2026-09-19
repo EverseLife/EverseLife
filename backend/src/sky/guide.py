@@ -37,6 +37,8 @@ from src.sky._base import (
     place_any,
     star_circle,
 )
+from src.sky.bound import bound_to, rounded
+from src.sky.rendezvous import AIM_SHARE, Arc, arc_to, coast_end, corrected
 
 #: The helm starts braking as soon as the way left is what braking at this
 #: thrust needs, with this margin. How many parking radii it matches the
@@ -103,9 +105,12 @@ def steer(
     arrive: float,
     a_max: float,
     dt: float,
+    around: Body | None = None,
 ) -> Helm:
     """The burn for one step of `dt` days, given where the hull is and when
     it means to arrive. `a_max` is the hull's acceleration, units a day squared.
+    `around` is the planet a meeting in orbit goes round, as the order was
+    priced (D-354): the order says it, not the hull's place of the minute.
 
     A crossing to a planet leaves the world it is on before it chases the arc
     (D-316): the burn is kept from carrying the hull inward while it is still
@@ -124,13 +129,19 @@ def steer(
     speed = float(np.hypot(*v_rel))
     if isinstance(target, Drifter):
         #: A hull, not a planet (D-289, wave 3): nothing to circle, only a
-        #: point to come to rest beside -- and the approach profile is the
-        #: whole of the helm from the first minute. An arc round the star
-        #: re-solved every step to a point a few units off, moving with a
-        #: hull rather than a planet, was a helm burning back and forth and,
-        #: once in a while, running away at a thousand units a day; the
-        #: profile asks for speed toward the target and never for more than
-        #: the way left can shed. The order's hour stays the console's word.
+        #: point to come to rest beside. A meeting ordered in orbit round a
+        #: planet is an arc round it to where the other will be at the hour
+        #: (D-354, `_meet_round`). Anywhere else the approach profile is the
+        #: whole of the helm from the first minute: an arc round the star
+        #: re-solved every step to a point a few units off, moving with a hull
+        #: rather than a planet, was a helm burning back and forth and, once
+        #: in a while, running away at a thousand units a day; the profile
+        #: asks for speed toward the target and never for more than the way
+        #: left can shed. The order's hour stays the console's word.
+        if around is not None:
+            return _meet_round(
+                system, around, target, t, r, v, rel, v_rel, arrive=arrive, a_max=a_max, dt=dt
+            )
         return _meet(system, target, t, r, v, rel, v_rel, a_max=a_max, dt=dt)
     park = park_of(system, target)
     if gap <= capture_reach(system, target, speed, a_max):
@@ -520,6 +531,90 @@ def _meet(
         phase=CAPTURE,
         captured=False,
     )
+
+
+def _meet_round(
+    system: System,
+    home: Body,
+    target: Drifter,
+    t: float,
+    r: tuple[float, float],
+    v: tuple[float, float],
+    rel: np.ndarray,
+    v_rel: np.ndarray,
+    *,
+    arrive: float,
+    a_max: float,
+    dt: float,
+) -> Helm:
+    """Come to rest beside a hull in orbit round the same planet (D-354,
+    wave 3): an arc round the planet to where the other will be at the
+    order's hour. Nothing is burnt while coasting on ends within
+    `rendezvous.AIM_SHARE` of the meeting distance from the other; past it,
+    the cheapest of three ways to finish (below); at the hour, the other
+    within the hold's radius, the burn that matches its speed; and then the
+    hold, as anywhere.
+
+    The hour missed -- the other not within reach when it comes -- the helm
+    takes a new hour a late leg on (`orbit.late_leg_days`) and aims at it, a
+    late leg at a time: an hour taken afresh every step ran ahead of the
+    hull for ever, never to be arrived at."""
+    gap = float(np.hypot(*rel))
+    speed = float(np.hypot(*v_rel))
+    if gap <= system.dock_radius and speed <= system.dock_speed:
+        return Helm(thrust=(0.0, 0.0), phase=CAPTURE, captured=True)
+    tof = arrive - t
+    if tof <= dt:
+        if gap <= system.dock_radius:
+            accel = min(a_max, speed / dt)
+            thrust = -v_rel / max(speed, 1e-9) * accel
+            return Helm(thrust=(float(thrust[0]), float(thrust[1])), phase=CAPTURE, captured=False)
+        late = system.late_leg
+        tof = arrive + max(1, math.ceil((t + dt - arrive) / late)) * late - t
+    miss, match = coast_end(home, t, r, v, target, tof)
+    if miss <= AIM_SHARE * system.dock_radius:
+        return Helm(thrust=(0.0, 0.0), phase=COAST, captured=False)
+    #: Three ways to finish, and the one that changes the least speed is
+    #: flown: the coast as it is, if it ends within the meeting distance,
+    #: and the other's speed matched at the hour; the arc the hull is on,
+    #: corrected (`rendezvous.corrected`); or the cheapest arc there is. The
+    #: coast is what keeps a hull minutes from the hour from spending tens of
+    #: units closing a miss the hold forgives, and the arc what the departure
+    #: flies. Lambert alone, asked every minute, hopped between arcs of
+    #: neighbouring lap counts and paid for each hop in full.
+    options: list[tuple[float, Arc | None]] = []
+    if miss <= system.dock_radius:
+        options.append((match, None))
+    for one in (
+        corrected(system, home, t, r, v, target, tof),
+        arc_to(system, home, t, r, v, target, tof),
+    ):
+        if one is not None:
+            options.append((one.dv_out + one.dv_in, one))
+    found = min(options, key=lambda option: option[0])[1] if options else None
+    if found is None:
+        #: Nothing to fly this minute. On an orbit that keeps -- the coast
+        #: past a line through the planet, or an hour gone by -- coasting is
+        #: safe and the next minute asks again. Off one, the orbit is rounded
+        #: where the hull is (`bound.rounded`) until it keeps again: still the
+        #: meeting in orbit the order was priced as, and never the straight
+        #: profile, which aims through the planet.
+        if bound_to(system, t, r, v) is not None:
+            return Helm(thrust=(0.0, 0.0), phase=COAST, captured=False)
+        circle, _ = rounded(home, t, r, v)
+        need = np.array(circle) - np.array(v)
+        size = float(np.hypot(*need))
+        if size < STILL:
+            return Helm(thrust=(0.0, 0.0), phase=COAST, captured=False)
+        thrust = need / size * min(a_max, size / dt)
+        return Helm(thrust=(float(thrust[0]), float(thrust[1])), phase=BURN, captured=False)
+    need = np.array(found.v1) - np.array(v)
+    size = float(np.hypot(*need))
+    if size < STILL:
+        return Helm(thrust=(0.0, 0.0), phase=COAST, captured=False)
+    accel = min(a_max, size / dt)
+    thrust = need / size * accel
+    return Helm(thrust=(float(thrust[0]), float(thrust[1])), phase=BURN, captured=False)
 
 
 def _circle(

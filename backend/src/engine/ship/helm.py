@@ -14,7 +14,6 @@ counted. Who came into sight while a hull moved is told here too.
 from __future__ import annotations
 
 import asyncio
-import math
 import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
@@ -28,9 +27,9 @@ from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import events, stock
 from src.engine.ship import fate, flyby, hold
-from src.engine.ship._base import orbit_node_of
 from src.engine.ship.physics import (
     _FUEL_EPS,
+    _sphere,
     engine_class,
     fuel_energy,
     fuel_stacks,
@@ -46,10 +45,11 @@ from src.engine.ship.sim import (
     _row,
     _state_of,
     _write_state,
+    dense_drifter,
     dv_aboard,
     fuel_for_dv,
+    into_orbit,
     meetable,
-    moor,
     state_at,
     states_at,
     system,
@@ -125,7 +125,9 @@ async def tick_sky(
             held += done == "held"
             circled += done == "circled"
         elif moment - ship.sky_at >= stale:
-            await _restamp(session, constants, world, ship, now=moment)
+            if await _restamp(session, constants, world, ship, now=moment):
+                struck += 1
+                continue
         else:
             continue
         if done != "struck":
@@ -145,8 +147,9 @@ async def tick_sky(
             .all()
         )
         table = await states_at(session, constants, afloat, now=moment)
+        sight = sky.Sight(world, await sky_days(session, moment), table)
         for ship in moved:
-            await _sight(session, world, ship, afloat, table)
+            await _sight(session, sight, ship, afloat, table)
     await session.flush()
     return {
         "flown": flown,
@@ -154,7 +157,8 @@ async def tick_sky(
         "adrift": adrift + released,
         "held": held,
         "circled": circled,
-        #: Hulls the ground took while they were under an order (OQ-120).
+        #: Hulls the ground took under an order (OQ-120) or on a coast
+        #: between two restamps (D-354).
         "struck": struck,
         "fuel": round(fuel, ROUND_MASS),
     }
@@ -198,7 +202,7 @@ async def _fly(
             return "flying", 0.0
         if not meetable(other) or other.id == ship.id:
             return await _void(session, constants, world, ship, now=now, t0=t0, t1=t1)
-        found_goal = await _dense_drifter(session, constants, world, other, t0=t0, t1=t1)
+        found_goal = await dense_drifter(session, constants, world, other, t0=t0, t1=t1)
         if found_goal is None:
             return "flying", 0.0
         target = found_goal
@@ -210,6 +214,8 @@ async def _fly(
         target = world.body(str(order["planet"]))
     #: A flyby (D-341): the order carries the pass, and the helm's place in it.
     route = await _route_of(session, constants, world, order, target, arrive)
+    #: A meeting in orbit (D-354): the planet its arcs go round, as priced.
+    around = world.body(str(order["around"])) if order.get("around") else None
     leg = flyby.leg_of(order.get("leg"))
 
     weight = await mass(session, constants, catalog, ship)
@@ -259,7 +265,9 @@ async def _fly(
     while t < t1 - sky.TIME_EPS:
         dt = min(step, t1 - t)
         if route is None:
-            helm = sky.steer(world, target, t, r, v, arrive=arrive, a_max=a_max, dt=dt)
+            helm = sky.steer(
+                world, target, t, r, v, arrive=arrive, a_max=a_max, dt=dt, around=around
+            )
         else:
             assert isinstance(target, sky.Body)
             helm, leg, want = sky.steer_pass(world, target, route, leg, t, r, v, a_max=a_max, dt=dt)
@@ -317,6 +325,35 @@ async def _fly(
         )
         if hit is not None or left:
             outcome = "struck"
+    if outcome == "moored" and isinstance(target, sky.Body):
+        #: The last burn of an arrival (D-354): the helm caught the hull near
+        #: the circle, and rounding its orbit off at the height it is at costs
+        #: the speed the two differ by -- paid like any other burn. The tanks
+        #: short of it, the hull keeps the ellipse it was caught on: the
+        #: capture window made that a closed one, and nothing is set down on a
+        #: circle for free any more.
+        rounded, trim = sky.rounded(target, t, r, v)
+        if trim <= max(budget - spent, 0.0):
+            v = rounded
+            spent += trim
+    if outcome == "moored" and other is not None:
+        #: The last burn of a meeting (D-354): the hold takes a hull within
+        #: `orbit.dock_speed` of the other, and the chaser sheds what is left
+        #: of the difference with its own engines before it latches on --
+        #: paid like any other burn, as much of it as the tanks hold. Only the
+        #: part they cannot pay is shared by momentum at the hold
+        #: (`hold.begin`): a hull on nobody's order is not pushed off its
+        #: orbit by somebody else's meeting while that somebody has fuel to
+        #: brake with (D-111).
+        found = await state_at(session, constants, other, now=_moment_of(now, t1, t), exact=True)
+        if found is not None:
+            gap_v = np.array(found[1]) - np.array(v)
+            trim = float(np.hypot(*gap_v))
+            pay = min(trim, max(budget - spent, 0.0))
+            if pay > 0.0:
+                moved = np.array(v) + gap_v * (pay / trim)
+                v = (float(moved[0]), float(moved[1]))
+                spent += pay
 
     #: **The crew, and then the hull's things** -- the order of the two the
     #: world keeps (`belonging.lock_crew`). A crew member is a pair of hands
@@ -411,7 +448,7 @@ async def _fly(
             outcome = "flying"
 
     if outcome == "moored" and other is not None:
-        await hold.begin(session, constants, ship, other, r, v, now=stamp)
+        await hold.begin(session, constants, catalog, ship, other, r, v, now=stamp)
         return "held", burnt
     if outcome == "moored" and isinstance(target, sky.Star):
         #: On the circle round the star: no order any more, a coast that is
@@ -431,22 +468,27 @@ async def _fly(
         await session.flush()
         return "circled", burnt
     if outcome == "moored" and isinstance(target, sky.Body):
-        orbit = await orbit_node_of(session, target_planet(target))
-        if orbit is None:  # pragma: no cover -- the seed lays one per planet
+        sphere = await _sphere(session, target_planet(target))
+        if sphere is None:  # pragma: no cover -- the sky runs only the planets laid
             outcome = "flying"
         else:
-            p, _ = sky.place(target, t)
-            rel = np.array(r) - p[0]
-            await moor(session, ship, orbit, now=stamp, phase=float(math.atan2(rel[1], rel[0])))
+            #: In orbit (D-354): no node to moor to, the order done, the coast
+            #: counted -- a closed orbit, stable by arithmetic.
+            await into_orbit(session, ship, sphere, r=r, v=v, now=stamp)
+            verdict = await fate.book_loss(
+                session, constants, ship, world, now=stamp, t=t, r=r, v=v
+            )
+            _keep_forecast(ship, verdict, now=stamp, t=t)
             await events.record(
                 session,
-                EventKind.SHIP_DOCKED,
+                EventKind.SHIP_IN_ORBIT,
                 actor_identity_id=ship.owner_identity_id,
-                node_id=orbit.id,
+                node_id=ship.connector_node_id,
                 ship_id=str(ship.id),
                 name=ship.name,
-                port=orbit.key,
+                planet=sphere.planet.value,
             )
+            await session.flush()
             return outcome, burnt
     if outcome == "adrift":
         ship.course = None
@@ -554,50 +596,6 @@ def target_planet(body: sky.Body) -> Planet:
     return Planet(body.key)
 
 
-async def _dense_drifter(
-    session: AsyncSession,
-    constants: Constants,
-    world: sky.System,
-    other: Ship,
-    *,
-    t0: float,
-    t1: float,
-) -> sky.Drifter | None:
-    """The target hull's line for the stretch being flown, laid densely.
-
-    The forecast on its row is the chart's line -- a couple of dozen points
-    over months, coarse enough to miss a hull by units between two of them
-    -- so the helm is given the same coast propagated afresh **from the
-    hull's own stamp**, a point an hour, to a while past the stretch's end
-    (`_meet` wants the hull's speed as well as its place). From the stamp
-    and not from the stretch's start: the target may have been restamped
-    this very tick, and a state asked for before a stamp is the stamp's --
-    an hour's shift that read as the target jumping a unit.
-    """
-    if other.sky_at is None or other.held_ship_id is not None:
-        return None
-    r, v = _state_of(other)
-    start = await sky_days(session, other.sky_at)
-    step = float(constants[R.ORBIT_PLAN_STEP_MINUTES]) / MINUTES_PER_HOUR / HOURS_PER_DAY
-    horizon = max(t1 - start, step) + max(t1 - t0, step) + step
-    points = int(math.ceil(horizon * HOURS_PER_DAY)) + 1 + 1
-    path = sky.sample(
-        world,
-        start,
-        np.array([r]),
-        np.array([v]),
-        np.array([horizon]),
-        dt_max=step,
-        points=points,
-    )[0]
-    return sky.Drifter(
-        key=f"ship:{other.id}:{start}",
-        t0=start,
-        t1=start + horizon,
-        trace=tuple((float(x), float(y)) for x, y in path),
-    )
-
-
 async def _void(
     session: AsyncSession,
     constants: Constants,
@@ -627,15 +625,16 @@ async def _void(
 
 async def _sight(
     session: AsyncSession,
-    world: sky.System,
+    sight: sky.Sight,
     ship: Ship,
     afloat: Sequence[Ship],
     table: dict[uuid.UUID, tuple[tuple[float, float], tuple[float, float]]],
 ) -> None:
-    """Who is within the sight radius of a hull that just moved (D-289, wave 3):
-    a foreign hull newly in sight is told of to both owners, once, and a hull
-    gone out of sight may be sighted again. `table` is every hull's place
-    this tick (`sim.states_at`).
+    """Who is in sight of a hull that just moved (D-289, wave 3): within the
+    sight radius, or in orbit round the same planet (`sky.Sight`, one for the
+    tick's table). A foreign hull newly in sight is told of to both owners,
+    once, and a hull gone out of sight may be sighted again. `table` is every
+    hull's place this tick (`sim.states_at`).
 
     The memory of a sighting is on the rows of hulls that move: only this
     hull's row is written -- the other's is not locked, and an update to it
@@ -658,7 +657,7 @@ async def _sight(
         theirs = table.get(other.id)
         if theirs is None:
             continue
-        if math.hypot(mine[0][0] - theirs[0][0], mine[0][1] - theirs[0][1]) <= world.sight_radius:
+        if sight.sees(ship.id, other.id):
             seen.append(str(other.id))
     before = set(ship.sightings or [])
     for other in afloat:
@@ -701,13 +700,38 @@ def _moment_of(now: datetime, t1: float, t: float) -> datetime:
 
 async def _restamp(
     session: AsyncSession, constants: Constants, world: sky.System, ship: Ship, *, now: datetime
-) -> None:
-    """Move a coasting hull's stamp along, so a reading never propagates weeks."""
-    found = await state_at(session, constants, ship, now=now)
-    if found is None:  # pragma: no cover -- the tick selected a hull in the sky
-        return
-    r, v, t = found
+) -> bool:
+    """Move a coasting hull's stamp along, so a reading never propagates weeks.
+    Flown under the whole sky, not read by Kepler: the stamp is the truth the
+    readings until the next restamp are drawn from (D-354). Returns whether
+    the coast ended on the way."""
+    t0 = await sky_days(session, ship.sky_at)
+    t1 = await sky_days(session, now)
+    r0, v0 = _state_of(ship)
+    step = float(constants[R.ORBIT_PLAN_STEP_MINUTES]) / MINUTES_PER_HOUR / HOURS_PER_DAY
+    #: Watched like any stretch (OQ-120): a coast that meets the ground
+    #: between two restamps is a hull lost there, not one flown through the
+    #: planet and found on its far side.
+    #: Off the loop, as the forecast is (`fate.fate_of`): hours of steps
+    #: near a planet, with the ground asked at every one of them.
+    r, v, t, hit, left = await asyncio.to_thread(
+        sky.coast_to, world, t0, max(t0, t1), r0, v0, dt_max=step
+    )
+    if hit is not None or left:
+        stamp = _moment_of(now, t1, t)
+        _write_state(ship, r, v, at=stamp)
+        await fate.strike(session, constants, ship, now=stamp, t=t, r=r, body=hit, gone=left)
+        return True
+    was = (ship.forecast or {}).get("kind")
     _write_state(ship, r, v, at=now)
     #: And the coast ahead, from the new stamp: what the console and the map
-    #: read as the drifter's line and verdict.
-    _keep_forecast(ship, await fate.fate_of(session, constants, world, t, r, v), now=now, t=t)
+    #: read as the drifter's line and verdict. A coast that was stable and is
+    #: not any more -- a wide ellipse the star's tide has pumped toward the
+    #: ground -- has its hour booked here; one already booked keeps the job
+    #: it has, which books itself again at its hour if the hour moved
+    #: (`fate.lost`).
+    verdict = await fate.fate_of(session, constants, world, t1, r, v)
+    if verdict.kind != sky.STABLE and was in (None, sky.STABLE):
+        await fate.book_loss(session, constants, ship, world, now=now, t=t1, r=r, v=v, fate=verdict)
+    _keep_forecast(ship, verdict, now=now, t=t1)
+    return False

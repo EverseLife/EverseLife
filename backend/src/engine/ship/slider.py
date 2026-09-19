@@ -20,6 +20,7 @@ from collections import OrderedDict
 from collections.abc import Sequence
 from dataclasses import replace
 from datetime import datetime
+from functools import partial
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,7 +35,6 @@ from src.units import (
     HOURS_PER_DAY,
     ROUND_DV,
     ROUND_HOURS,
-    ROUND_TRACE,
     SKY_CURVE_MEMO,
     SKY_MEMO_PER_DAY,
 )
@@ -69,21 +69,70 @@ async def offers(
     r, v, t = found
     world = await sim.system(session, constants)
     if isinstance(target, sky.Drifter):
-        #: A hull as the target (wave 3): one price, the approach profile's
-        #: own -- the helm flies that profile and no arc, so a slider of
-        #: arcs would quote hours and delta-v nobody flies.
+        #: A hull as the target (wave 3). A hull in orbit is met from orbit
+        #: round the same planet (D-354): arcs round that planet, and a real
+        #: choice between them -- the more laps the hours hold, the less speed
+        #: is changed. Solved in the pool and not remembered: the price moves
+        #: as the two go round, and the order flies the quote of its moment.
         a_max = thrust_ratio * float(constants[R.ORBIT_THRUST_SCALE])
+        home = sky.shared_world(world, t, r, v, target)
+        if home is not None:
+            #: Remembered on everything it is laid from -- the hull's stamp,
+            #: the target's reading of this moment, the moment, the thrust --
+            #: so the order lays it before the hull's row is locked and finds
+            #: it again under the lock (`crossing.fly`), rather than holding
+            #: the row while the pool works through somebody's flyby.
+            key = (
+                constants.digest,
+                _basis(ship),
+                target.key,
+                now.isoformat(),
+                round(a_max, ROUND_DV),
+            )
+            laid = _MEETS.get(key)
+            if laid is None:
+                laid = await flyby.pooled(
+                    partial(
+                        sky.meet_quotes,
+                        world,
+                        home,
+                        t,
+                        r,
+                        v,
+                        target,
+                        course.grid(constants),
+                        a_max,
+                    )
+                )
+                _MEETS[key] = laid
+                while len(_MEETS) > SKY_CURVE_MEMO:
+                    _MEETS.popitem(last=False)
+            return sky.choices(
+                laid,
+                reach=course.reach(constants, thrust_ratio),
+                gap=float(constants[R.ORBIT_ROUTE_GAP]),
+            )
+        if isinstance(target, sky.Orbiter):
+            #: A hull in orbit, and this one not in orbit round its planet:
+            #: first a course to the planet, then the meeting -- as a descent
+            #: is asked of a hull close in. Coming in from outside on the
+            #: straight profile aimed through the planet, and switched to arcs
+            #: round it halfway, half the starts measured went into the ground.
+            raise NoArc(key="ship-meet-from-orbit", planet=target.held.body.key)
+        #: Elsewhere, one price, the approach profile's own -- the helm flies
+        #: that profile and no arc, so a slider of arcs would quote hours and
+        #: delta-v nobody flies.
         return [sky.approach_quote(r, v, t, target, a_max)]
     laid = await flyby.offered(
         constants,
         world,
         target,
-        await sim.leaving_of(session, world, ship),
+        sim.leaving_of(world, t, r, v),
         r,
         v,
         t,
         reach=course.reach(constants, thrust_ratio),
-        basis=_basis(ship, r, v),
+        basis=_basis(ship),
     )
     return _waited(world, target, laid, r, v, t)
 
@@ -105,14 +154,14 @@ async def arcs(
         return []
     r, v, t = found
     world = await sim.system(session, constants)
-    leaving = await sim.leaving_of(session, world, ship)
+    leaving = sim.leaving_of(world, t, r, v)
     key = (
         constants.digest,
         tuple(one.key for one in world.bodies),
         target.key,
         None if leaving is None else leaving.key,
         round(t * SKY_MEMO_PER_DAY),
-        _basis(ship, r, v),
+        _basis(ship),
     )
     hit = _PREVIEWS.get(key)
     if hit is None:
@@ -125,21 +174,22 @@ async def arcs(
     return _waited(world, target, hit, r, v, t)
 
 
-def _basis(ship: Ship, r: tuple[float, float], v: tuple[float, float]) -> tuple:
+def _basis(ship: Ship) -> tuple:
     """What a remembered slider from this hull is keyed on besides the sky's
-    bucket (D-341): a moored hull's circle -- the node, the phase and the
-    stamp it was put on it at, which place it on the circle at any moment,
-    so a slider laid a minute ago from this very hull is found again, and an
-    order given after the console read it flies what the console showed --
-    or a coasting hull's state as the wire rounds it. Either way the hull's
-    own: no two hulls share a slider unless they share a state."""
-    if ship.docked_node_id is not None:
-        return (ship.docked_node_id, ship.park_phase, ship.sky_at)
+    bucket (D-341): the hull's stamp -- the moment and the state the tick last
+    wrote, which place it in the sky at any moment of the bucket -- so a
+    slider laid a minute ago from this very hull is found again, and an order
+    given after the console read it flies what the console showed. The hull's
+    own: no two hulls share a slider unless they share a state. The place it
+    is read at moves every second a hull goes round a planet, and was no key
+    for anything since D-354 put every hull at a planet into the sky."""
     return (
-        round(r[0], ROUND_TRACE),
-        round(r[1], ROUND_TRACE),
-        round(v[0], ROUND_DV),
-        round(v[1], ROUND_DV),
+        None if ship.sky_at is None else ship.sky_at.isoformat(),
+        ship.sky_x,
+        ship.sky_y,
+        ship.sky_vx,
+        ship.sky_vy,
+        ship.held_ship_id,
     )
 
 
@@ -181,10 +231,12 @@ async def point(
     point of `offered` -- the slider as the sky offers this hull at the order's
     moment -- is flown, never a route the console would not offer then.
 
-    To a hull (`target`, wave 3) there is one price and no choice among
-    prices: the quote of the order's own moment, whatever hours the console
-    read minutes ago -- the profile's hours move with the geometry, and it is
-    laid within the thrust by construction.
+    To a hull (`target`, wave 3) in the deep there is one price and no
+    choice among prices: the quote of the order's own moment, whatever hours
+    the console read minutes ago -- the profile's hours move with the
+    geometry, and it is laid within the thrust by construction. To a hull in
+    orbit round the same planet (D-354) the hours are a point of the slider
+    like a planet's, and hours it does not offer are `ship-hours-out-of-range`.
 
     To a planet each refusal says what is true of the hours asked for: a
     flyby not among the points is `ship-no-flyby`, whether the sky turned
@@ -196,13 +248,19 @@ async def point(
     and no cheaper than a faster point, out of the group offered -- is
     `ship-hours-out-of-range`. The console rereads the slider on the answer.
     """
+    named = round(hours, ROUND_HOURS)
     if isinstance(goal, sky.Drifter):
         assert target is not None
-        (quote,) = offered
+        if len(offered) == 1 and offered[0].around is None:
+            (quote,) = offered
+        else:
+            found = [one for one in offered if one.hours in (named, hours)]
+            if not found:
+                raise NoArc(key="ship-hours-out-of-range", hours=named)
+            quote = found[0]
         if sim.gone_by(goal, await sky_days(session, now), quote.hours):
             raise NoArc(key="ship-target-gone-by-then", other=target.name)
         return quote
-    named = round(hours, ROUND_HOURS)
     at = [one for one in offered if one.hours in (named, hours)]
     for one in at:
         if (None if one.via is None else one.via.via) == via:
@@ -232,3 +290,6 @@ async def point(
 
 #: The direct previews remembered across commands (see `arcs`).
 _PREVIEWS: OrderedDict[tuple, list[sky.Sample]] = OrderedDict()
+#: The meetings in orbit laid for a moment (see `offers`): an order's two
+#: readings of one moment, before its lock and under it.
+_MEETS: OrderedDict[tuple, list[sky.Sample]] = OrderedDict()

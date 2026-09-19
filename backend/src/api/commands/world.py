@@ -330,6 +330,7 @@ TOLD = frozenset(
         EventKind.ESTATE_SITE_READY.value,
         EventKind.SHIP_ADRIFT.value,
         EventKind.SHIP_STAR_ORBIT.value,
+        EventKind.SHIP_IN_ORBIT.value,
         EventKind.SHIP_LOST.value,
         EventKind.SHIP_SIGHTED.value,
         EventKind.SHIP_HELD.value,

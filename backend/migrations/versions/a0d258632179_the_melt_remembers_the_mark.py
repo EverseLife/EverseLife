@@ -10,7 +10,7 @@ with its fineness and no quality, but unmarked -- so they still lie beside a
 marked stack rather than in it.
 
 Revision ID: a0d258632179
-Revises: 5ee5645ab457
+Revises: b30bf8fa548c
 Create Date: 2026-09-19 12:00:00.000000
 """
 from __future__ import annotations
@@ -21,7 +21,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = 'a0d258632179'
-down_revision: str | None = '5ee5645ab457'
+down_revision: str | None = 'b30bf8fa548c'
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

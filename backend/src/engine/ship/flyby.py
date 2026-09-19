@@ -93,6 +93,15 @@ async def offered(
     )
 
 
+async def pooled(work: Callable[[], list[sky.Sample]]) -> list[sky.Sample]:
+    """A slider's arithmetic in the pool's processes, not remembered: for a
+    price that moves by the minute (a meeting in orbit, D-354), where a memo
+    would quote the place the hull was at the bucket's first reading. Off the
+    event loop and off its interpreter lock both -- a thread holds the lock
+    through pure Python."""
+    return await asyncio.get_running_loop().run_in_executor(_pool(), work)
+
+
 async def _remembered(key: tuple, work: Callable[[], list[sky.Sample]]) -> list[sky.Sample]:
     """The memo's answer for `key`, computing it in the pool on a miss -- once,
     however many readers miss it together."""

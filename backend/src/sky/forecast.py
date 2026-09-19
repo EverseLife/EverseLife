@@ -16,7 +16,8 @@ from dataclasses import dataclass
 import numpy as np
 
 from src import astro
-from src.sky._base import Body, Rows, System, norms, place
+from src.sky._base import Rows, System, norms, place
+from src.sky.bound import Bound, bound_to
 from src.sky.field import advance
 from src.units import TRACE_POINTS
 
@@ -41,6 +42,10 @@ class Fate:
     #: or one lap of a bound ellipse -- which `loops`, and is read modulo it.
     span: float
     loops: bool
+    #: The planet a lap goes round (D-354): its `trace` is then drawn round
+    #: that planet's centre, not in the star's frame -- the planet moves on,
+    #: and a lap pinned where it stood at the start would be left behind.
+    around: str | None = None
 
 
 def ground_of(system: System, t: np.ndarray, r: Rows) -> tuple[str | None, bool]:
@@ -148,14 +153,24 @@ def inertia(
     """
     end = t0 + horizon
     #: Bound to a planet -- the parking circle, or any ellipse that neither
-    #: grazes the ground nor reaches the edge of the planet's hold -- is
-    #: stable by arithmetic, and ninety days of five-body steps at the pace
-    #: the planet's pull demands were the dearest thing the tick did. One
-    #: lap of the ellipse is the line to draw.
-    bound = _bound_to(system, t0, r0, v0, points)
-    if bound is not None:
-        lap, period = bound
-        return Fate(kind=STABLE, at=end, body=None, trace=lap, span=period, loops=True)
+    #: dips within half a radius of the ground nor reaches past a fifth of
+    #: the planet's Hill radius (`sky.bound`, measured to keep for ninety
+    #: days) -- is stable by
+    #: arithmetic, and ninety days of five-body steps at the pace the
+    #: planet's pull demands were the dearest thing the tick did. One lap of
+    #: the ellipse is the line to draw. A wider ellipse is flown: the star's
+    #: tide can pump it into the ground within days.
+    held = bound_to(system, t0, r0, v0)
+    if held is not None:
+        return Fate(
+            kind=STABLE,
+            at=end,
+            body=None,
+            trace=_lap(held, points),
+            span=held.period,
+            loops=True,
+            around=held.body.key,
+        )
     t = np.array([t0], dtype=float)
     r = np.array([r0], dtype=float)
     v = np.array([v0], dtype=float)
@@ -198,58 +213,11 @@ def inertia(
     )
 
 
-#: How much of a planet's Hill radius a bound ellipse may reach before the
-#: star's tug is no longer a perturbation: the classic third.
-_HOLD_SHARE = 1 / 3
-
-
-def _bound_to(
-    system: System,
-    t0: float,
-    r0: tuple[float, float],
-    v0: tuple[float, float],
-    points: int,
-) -> tuple[tuple[tuple[float, float], ...], float] | None:
-    """One lap of the ellipse round the nearest planet, and its period, if
-    the hull is on one that stays: negative two-body energy, periapsis above
-    the ground, apoapsis well inside the planet's hold. Nothing otherwise."""
-    if not system.bodies or system.mu <= 0:
-        return None
-    body, rel, v_rel = _nearest(system, t0, r0, v0)
-    gap = astro.norm(rel)
-    speed = astro.norm(v_rel)
-    if gap <= 0:
-        return None
-    energy = speed * speed / 2 - body.mu / gap
-    if energy >= 0:
-        return None
-    axis = -body.mu / (2 * energy)
-    momentum = astro.cross(rel, v_rel)
-    excess = 1 + 2 * energy * momentum * momentum / (body.mu * body.mu)
-    eccentricity = float(np.sqrt(max(0.0, excess)))
-    periapsis = axis * (1 - eccentricity)
-    apoapsis = axis * (1 + eccentricity)
-    hill = body.orbit[0] * (body.mu / (3 * system.mu)) ** (1 / 3)
-    if periapsis <= body.radius or apoapsis >= hill * _HOLD_SHARE:
-        return None
-    centre = place(body, t0)[0][0]
-    period = astro.lap(body.mu, axis)
-    lap = astro.trace(body.mu, rel, v_rel, period, points)
-    return tuple((float(centre[0]) + x, float(centre[1]) + y) for x, y in lap), period
-
-
-def _nearest(
-    system: System, t0: float, r0: tuple[float, float], v0: tuple[float, float]
-) -> tuple[Body, tuple[float, float], tuple[float, float]]:
-    """The planet the hull is closest to, and the hull's state relative to it."""
-    best: tuple[Body, tuple[float, float], tuple[float, float]] | None = None
-    for body in system.bodies:
-        p, vp = place(body, t0)
-        rel = (float(r0[0] - p[0, 0]), float(r0[1] - p[0, 1]))
-        if best is None or astro.norm(rel) < astro.norm(best[1]):
-            best = (body, rel, (float(v0[0] - vp[0, 0]), float(v0[1] - vp[0, 1])))
-    assert best is not None
-    return best
+def _lap(held: Bound, points: int) -> tuple[tuple[float, float], ...]:
+    """One lap of the bound orbit, round its planet's centre: the chart and
+    the target line put the planet under it where the planet is (D-354)."""
+    lap = astro.trace(held.body.mu, held.rel, held.v_rel, held.period, points)
+    return tuple((float(x), float(y)) for x, y in lap)
 
 
 def _resample(

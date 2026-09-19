@@ -162,6 +162,10 @@ class EventKind(StrEnum):
     #: On the circle round the star (D-289, 2026-09-04): the order to circle
     #: it is done, and the hull hangs there like a planet.
     SHIP_STAR_ORBIT = "ship.star_orbit"
+    #: In orbit round a planet (D-354): the order to go there is done, the
+    #: last burn has rounded the orbit off, and the hull coasts round the
+    #: planet -- a body in its sky, with no node under it.
+    SHIP_IN_ORBIT = "ship.in_orbit"
     #: The coast ended on a body or out of the system (D-289): the hull and
     #: everybody aboard are lost. Said to the owner and the crew.
     SHIP_LOST = "ship.lost"

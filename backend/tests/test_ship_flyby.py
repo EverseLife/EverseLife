@@ -27,7 +27,8 @@ from ship_kit import (
     _fuel,
     _in_orbit,
     _laid,
-    _orbit,
+    _orbiting,
+    _planet,
     _port,
     _shipwright,
 )
@@ -53,8 +54,8 @@ async def _moored_over_terra(
     and Pyroxis in the sky to bend round."""
     here = await _port(session)
     await _port(session, name="Порт Авроры", planet=Planet.AURORA)
-    far = await _orbit(session, Planet.AURORA)
-    await _orbit(session, Planet.PYROXIS)
+    far = await _planet(session, Planet.AURORA)
+    await _planet(session, Planet.PYROXIS)
     _, owner = await _shipwright(session, here)
     vessel = await _laid(session, constants, owner, here)
     await _flightworthy(session, constants, catalog, vessel)
@@ -115,7 +116,9 @@ async def test_the_console_quotes_a_flyby_and_the_helm_flies_it(
 
     at = await _flown(session, constants, catalog, vessel, since=moment, until=arrives)
     assert vessel.lost_at is None, "корпус не разбился о Пироксис"
-    assert vessel.docked_node_id == far.id, "пролёт кончился на круге Авроры"
+    assert await _orbiting(session, constants, vessel) == far.planet.value, (
+        "пролёт кончился на орбите Авроры"
+    )
     assert at - arrives <= timedelta(hours=LATE_HOURS)
 
 
@@ -147,7 +150,7 @@ async def test_a_flyby_the_sky_does_not_have_is_refused(
             now=moment,
         )
     assert "ship-no-flyby" in str(refused.value)
-    assert vessel.course is None and vessel.docked_node_id is not None
+    assert vessel.course is None and vessel.sky_at is not None, "так и висит на орбите"
 
 
 async def test_an_order_a_minute_after_the_console_flies_what_it_showed(
@@ -214,7 +217,7 @@ async def test_an_order_off_the_slider_is_refused(
         )
     assert refused.value.key == "ship-hours-are-a-flyby"
     assert refused.value.params["planet"] == Planet.PYROXIS.value
-    assert vessel.course is None and vessel.docked_node_id is not None
+    assert vessel.course is None and vessel.sky_at is not None, "так и висит на орбите"
 
 
 async def test_an_hour_of_the_direct_grid_with_no_arc_is_said_so(

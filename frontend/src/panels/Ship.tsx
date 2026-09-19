@@ -41,11 +41,11 @@ import { goodsName } from "../names";
 import { planetName } from "../planets";
 import { Chart } from "./ship/Chart";
 import { Course } from "./ship/Course";
-import { Drift, Passage } from "./ship/Voyage";
+import { Drift, Passage, Ties } from "./ship/Voyage";
 import { Landing } from "./ship/Landing";
 import { Feed } from "./ship/Feed";
 import { Plan } from "./ship/Plan";
-import { autonomy, spelt, wanted, type Target, type Vessel } from "./ship/model";
+import { autonomy, spelt, wanted, type PlanLine, type Target, type Vessel } from "./ship/model";
 import { term } from "./map/orbits";
 
 /**
@@ -199,7 +199,7 @@ function Ascent({
   return (
     <>
       <p>
-        <b>{climb.name}</b> ·{" "}
+        <b>{t("ui-ship-climb-to", { planet: planetName(climb.planet) })}</b> ·{" "}
         {climb.hours == null
           ? t("ui-ship-no-thrust")
           : t("ui-ship-leg-cost", {
@@ -340,7 +340,7 @@ export function Ship({
   const [name, setName] = useState("");
   const [course, setCourse] = useState<Target | null>(null);
   //: The arc under the slider's thumb, for the chart (D-289).
-  const [plan, setPlan] = useState<[number, number][] | null>(null);
+  const [plan, setPlan] = useState<PlanLine | null>(null);
   //: The map read once for the console: the spheres for the chart -- the sky
   //: is answered to everybody (D-240), so this read works in flight, where
   //: the hull has no edges -- and the surface the landing is picked on
@@ -595,14 +595,28 @@ export function Ship({
                       orbit={() => go(() => session.send("ship.orbit", { ship: v.ship }))}
                     />
                   ) : (
-                    <Landing
-                      vessel={v}
-                      busy={busy || mute}
-                      book={book}
-                      clock={look.clock}
-                      world={world}
-                      land={(port) => go(() => session.send("ship.land", { ship: v.ship, port }))}
-                    />
+                    <>
+                      <Landing
+                        vessel={v}
+                        busy={busy || mute}
+                        book={book}
+                        clock={look.clock}
+                        world={world}
+                        land={(port) => go(() => session.send("ship.land", { ship: v.ship, port }))}
+                      />
+                      {/* In orbit a hull meets the others as any hull in the
+                          sky does (D-354): the hold and the docking. */}
+                      <div className="doing">
+                        <Ties
+                          v={v}
+                          busy={busy || mute}
+                          dock={(other) =>
+                            go(() => session.send("ship.dock", { ship: v.ship, ship_target: other }))
+                          }
+                          undock={() => go(() => session.send("ship.undock", { ship: v.ship }))}
+                        />
+                      </div>
+                    </>
                   )}
                   <Course
                     vessel={v}
@@ -615,7 +629,7 @@ export function Ship({
                           "planet" in to
                             ? {
                                 ship: v.ship,
-                                port: v.routes.find((one) => one.planet === to.planet)?.node,
+                                planet: to.planet,
                                 hours,
                                 ...(via ? { via } : {}),
                               }

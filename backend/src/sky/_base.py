@@ -241,9 +241,20 @@ class Drifter:
     #: A lap round a planet rather than a coast: the line is read modulo its
     #: period, and the hull is always somewhere on it.
     loops: bool = False
+    #: The planet a lap goes round (D-354): the line is drawn round its
+    #: centre, and the planet's own place and speed are added at each moment
+    #: -- a lap pinned in the star's frame is left behind as the planet moves.
+    around: Body | None = None
 
     def state(self, t: np.ndarray | float) -> tuple[Rows, Rows]:
         """Where the drifter is and how it moves at `t`, for a batch of times."""
+        r, v = self._on_line(t)
+        if self.around is not None:
+            p, vp = place(self.around, t)
+            r, v = r + p, v + vp
+        return r, v
+
+    def _on_line(self, t: np.ndarray | float) -> tuple[Rows, Rows]:
         tt = np.atleast_1d(np.asarray(t, dtype=float))
         if self.loops and self.t1 > self.t0:
             tt = self.t0 + np.mod(tt - self.t0, self.t1 - self.t0)
@@ -290,12 +301,18 @@ def place_any(target: Target, t: np.ndarray | float) -> tuple[Rows, Rows]:
     return place(target, t)
 
 
+def turned(phase: np.ndarray | float, period: np.ndarray | float, t: np.ndarray) -> np.ndarray:
+    """A world's angle on its circle at `t`, radians, from the phase it started
+    at and its year -- scalars for one world or columns for all of them at
+    once (`sky.field.pull`). The one formula for where a world is, so the
+    integrator's own shortcuts and `place` cannot learn to disagree."""
+    return phase + 2 * np.pi * t / period
+
+
 def angle_of(body: Body, t: np.ndarray | float) -> np.ndarray:
-    """The planet's angle on its circle at `t`, radians, for a batch of times:
-    the one reading of where a world is, so the integrator's own shortcut
-    (`field._offset`) and `place` cannot learn to disagree."""
+    """The planet's angle on its circle at `t`, radians, for a batch of times."""
     _, period, phase = body.orbit
-    return phase + 2 * np.pi * np.atleast_1d(np.asarray(t, dtype=float)) / period
+    return turned(phase, period, np.atleast_1d(np.asarray(t, dtype=float)))
 
 
 def place(body: Body, t: np.ndarray | float) -> tuple[Rows, Rows]:
@@ -333,6 +350,36 @@ def park_of(system: System, body: Body) -> float:
     hull cannot be aimed at one circle and captured on another.
     """
     return system.park_radii * body.radius
+
+
+#: How much of a planet's Hill radius is its **inner sphere**: inside it the
+#: planet's own pull rules and the star's tug is a perturbation -- the
+#: classic third, a bound of orbital stability and not a tuning, which is why
+#: it lives here and not in the vault. Inside it the other worlds act on a
+#: hull as a tide (`sky.field.pull`, D-354).
+INNER_SHARE = 1 / 3
+
+#: The two bounds of an orbit **stable by arithmetic** -- the hull "in orbit",
+#: whose coast is not flown ninety days ahead (`sky.bound`, D-354): the far
+#: point within `STABLE_SHARE` of the Hill radius, the near point no lower
+#: than `GROUND_MARGIN` planet radii from the centre. Measured, not assumed
+#: (2026-09-19, the sky of the vault, ninety days under the whole sky, every
+#: world, eight orientations both ways round): every orbit inside both bounds
+#: kept; the ones that fell reached out a quarter of the Hill radius or more,
+#: or dipped under a fifth of a radius above the ground -- the tides move the
+#: near point by that much, and there the ground is. The inner sphere's
+#: classic third, with no margin over the ground, was the bound before, and
+#: it called those falling ellipses stable.
+STABLE_SHARE = 0.2
+GROUND_MARGIN = 1.5
+
+
+def hill_of(system: System, body: Body) -> float:
+    """The planet's Hill radius, map units: how far out its own pull still
+    beats the star's tide. Nothing for a sky with no star to measure by."""
+    if system.mu <= 0.0:
+        return 0.0
+    return body.orbit[0] * (body.mu / (3 * system.mu)) ** (1 / 3)
 
 
 def capture_of(system: System, body: Body) -> float:

@@ -19,7 +19,7 @@ import { useEdition, useSession } from "../../actions";
 import { refusalText, t } from "../../locale";
 import { planetName } from "../../planets";
 import { term } from "../map/orbits";
-import { whole, type CourseAnswer, type Sample, type Target, type Vessel } from "./model";
+import { whole, type CourseAnswer, type PlanLine, type Sample, type Target, type Vessel } from "./model";
 
 export function Course({
   vessel,
@@ -36,7 +36,7 @@ export function Course({
    *  Settles once the order has been answered, taken or refused. */
   fly: (to: Target, hours: number, via: string | null) => Promise<void>;
   /** The arc of the point the slider stands on, for the chart to draw. */
-  onPlan: (trace: [number, number][] | null) => void;
+  onPlan: (plan: PlanLine | null) => void;
 }) {
   const session = useSession();
   const edition = useEdition("ship.", "transport.");
@@ -44,6 +44,8 @@ export function Course({
   const [reserve, setReserve] = useState(0);
   const [trouble, setTrouble] = useState<string | null>(null);
   const [why, setWhy] = useState<CourseAnswer["why"]>(null);
+  //: The planet the slider's arcs go round, for a meeting in orbit (D-354).
+  const [around, setAround] = useState<string | null>(null);
   const [pick, setPick] = useState<number | null>(null);
   //: Reread after this window's own order is answered (D-341): a flyby gone
   //: by the order's moment is refused, and the slider must show the sky that
@@ -74,6 +76,7 @@ export function Course({
         setSamples(got);
         setReserve(answer.reserve ?? 0);
         setWhy(answer.why ?? null);
+        setAround(answer.around ?? null);
         //: Start at the cheap end, the last point: the default the engine
         //: flies unnamed -- or, rereading after a refusal, at the hours that
         //: were chosen, if the sky still offers them.
@@ -95,11 +98,11 @@ export function Course({
   useEffect(() => {
     const standing = target !== null && samples !== null && pick !== null ? samples[pick] : null;
     if (standing) held.current = standing.hours;
-    onPlan(standing?.trace ?? null);
+    onPlan(standing?.trace ? { trace: standing.trace, around } : null);
     //: And nothing once the slider is gone: a line left behind after the
     //: order would lie on top of the order's own.
     return () => onPlan(null);
-  }, [onPlan, target, samples, pick]);
+  }, [onPlan, target, samples, pick, around]);
 
   if (target === null) {
     return <p className="note">{t("ui-ship-pick-planet")}</p>;
@@ -149,15 +152,17 @@ export function Course({
               style={{ background: `var(--planet-${planet})` }}
               aria-hidden="true"
             />
-            <b>{planetName(planet)}</b> · <span className="note">{route.name}</span>
+            <b>{planetName(planet)}</b>
           </>
         ) : (
           <b>{t("ui-ship-course-to-ship", { name: sighted?.name ?? "" })}</b>
         )}
         {!reachable && ` · ${t("ui-ship-thrust-cut")}`}
       </p>
-      {/* One price to a hull (D-289, wave 3): the approach profile's own,
-          and no slider between two ends that do not exist. */}
+      {/* One price to a hull in the deep (D-289, wave 3): the approach
+          profile's own, and no slider between two ends that do not exist. To
+          a hull in orbit round the same planet the arcs round it are a
+          slider like a planet's (D-354). */}
       {samples.length > 1 && (
       <p className="row">
         <span className="note">{t("ui-ship-end-fast", { term: term(whole(samples[0])) })}</span>

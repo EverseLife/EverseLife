@@ -96,6 +96,11 @@ ROUND_RATIO = 3
 #: the arc it flies, map units: a tenth is finer than the map draws.
 ROUND_DV = 2
 ROUND_TRACE = 1
+#: Places near a planet, map units (D-354): a lap round a planet drawn round
+#: its centre, and a hull's own place on the console's chart and in the
+#: sighting. The parking circle round Terra is a quarter of a unit across,
+#: and a tenth would draw it as a point and two hulls on it as one.
+ROUND_NEAR = 4
 #: How the sky is stored and remembered (D-271), not how it is priced:
 #: points along a drawn arc, the memo's buckets of a day, and how many
 #: curves and calendars a process keeps.

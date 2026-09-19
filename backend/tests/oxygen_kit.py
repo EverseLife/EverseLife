@@ -47,21 +47,6 @@ async def _sphere(session: AsyncSession, planet: Planet, *, airless: bool) -> No
     return node
 
 
-async def _orbit(session: AsyncSession, sphere: Node) -> Node:
-    """The void over a planet, laid under its sphere as the seed lays it (D-245):
-    carrying the planet it circles, and none of its air."""
-    return await world.create_node(
-        session,
-        ship.orbit_key(sphere.planet),
-        f"Орбита {sphere.name}",
-        area_m2=1,
-        planet=sphere.planet,
-        layer=Layer.SPACE,
-        parent=sphere,
-        properties={ship.ORBIT_NODE: True},
-    )
-
-
 async def _ground(session: AsyncSession, planet: Planet, sphere: Node, name="Поле") -> Node:
     node = await world.create_node(
         session,

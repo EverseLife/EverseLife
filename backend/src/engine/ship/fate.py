@@ -147,7 +147,8 @@ async def lost(session: AsyncSession, job: Job) -> None:
     if ship.course or ship.sky_at is None:
         return
     world = await system(session, constants)
-    found = await state_at(session, constants, ship, now=job.run_at)
+    #: Flown, not read: a death is decided on it (D-354).
+    found = await state_at(session, constants, ship, now=job.run_at, exact=True)
     if found is None:  # pragma: no cover -- the checks above are the same question
         return
     r, v, t = found
@@ -175,8 +176,9 @@ async def strike(
     body: str | None,
     gone: bool,
 ) -> None:
-    """A hull under an order that has reached the ground, the corona, or the
-    edge of the system: the order ends the way a coast's end ends (OQ-120).
+    """A hull that has reached the ground, the corona, or the edge of the
+    system in the middle of a stretch -- under an order (OQ-120), or on a
+    coast between two restamps (D-354): it ends the way a booked end ends.
 
     D-289 wrote the deaths of a drift only, and the autopilot flew through
     whatever stood in its way. It is the same death: the same crew, the same

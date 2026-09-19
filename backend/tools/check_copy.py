@@ -94,7 +94,6 @@ KNOWN: dict[str, int] = {
     "src/engine/market/deal.py": 5,
     "src/engine/market/match.py": 1,
     "src/engine/ruins.py": 8,
-    "src/engine/ship/_base.py": 1,
     "src/engine/ship/building.py": 3,
     "src/engine/utility.py": 3,
     "src/engine/vote/_base.py": 8,
@@ -108,7 +107,7 @@ KNOWN: dict[str, int] = {
     "src/i18n/__init__.py": 4,
     "src/seed.py": 8,
     "src/seed_catchup.py": 7,
-    "src/seed_parts.py": 18,
+    "src/seed_parts.py": 13,
     "src/seed_world.py": 10,
     "src/telemetry/metrics.py": 23,
 }

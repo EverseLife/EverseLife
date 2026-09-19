@@ -46,6 +46,7 @@ event-transport-broke = wagon broke apart
 # The sky (D-289): the tanks ran dry under way, or the coast ended.
 event-ship-adrift = ship went adrift
 event-ship-star_orbit = ship entered orbit round the star
+event-ship-in_orbit = ship entered orbit round a planet
 event-ship-lost = ship lost
 event-ship-sighted = ship sighted
 event-ship-held = hull alongside

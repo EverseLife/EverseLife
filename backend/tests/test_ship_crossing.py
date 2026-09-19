@@ -32,7 +32,7 @@ from ship_kit import (
     _fuel,
     _in_orbit,
     _laid,
-    _orbit,
+    _planet,
     _port,
     _shipwright,
 )
@@ -64,7 +64,7 @@ async def test_no_route_is_closed_by_the_class_of_the_engine(
     """
     here = await _port(session)
     await _port(session, name="Порт Авроры", planet=Planet.AURORA)
-    far = await _orbit(session, Planet.AURORA)
+    far = await _planet(session, Planet.AURORA)
     _, owner = await _shipwright(session, here)
     vessel = await _laid(session, constants, owner, here)
     await _flightworthy(session, constants, catalog, vessel)
@@ -75,7 +75,7 @@ async def test_no_route_is_closed_by_the_class_of_the_engine(
 
     await _in_orbit(session, constants, catalog, owner, vessel)
     summary = await ship.profile(session, constants, catalog, vessel)
-    aurora = next(route for route in summary["routes"] if route["node"] == far.key)
+    aurora = next(route for route in summary["routes"] if route["planet"] == far.planet.value)
     assert aurora["reachable"], "класс больше не запирает маршрут"
     assert aurora["cheap"]["hours"] > 0 and aurora["cheap"]["fuel"] > 0
     #: And the wait for the window with it (D-316): the slider prices the whole
@@ -123,7 +123,7 @@ async def test_ship_takes_the_planet_of_the_port_it_stands_at(
     async with factory() as session, session.begin():
         home = await _port(session)
         await _port(session, name="Порт Авроры", planet=Planet.AURORA)
-        far = await _orbit(session, Planet.AURORA)
+        far = await _planet(session, Planet.AURORA)
         _, owner = await _shipwright(session, home)
         vessel = await _laid(session, constants, owner, home)
         connector = await session.get(Node, vessel.connector_node_id)
@@ -150,7 +150,7 @@ async def test_ship_takes_the_planet_of_the_port_it_stands_at(
         #: a leg -- and it is flown, not tabled (D-289).
         assert arrives > moment
         ship_id = vessel.id
-        home_key = ship.orbit_key(Planet.TERRA)
+        home_key = Planet.TERRA.value
 
     async with factory() as session, session.begin():
         vessel = await session.get(Ship, ship_id)
@@ -164,7 +164,7 @@ async def test_ship_takes_the_planet_of_the_port_it_stands_at(
         assert connector.planet is Planet.AURORA, "корабль стоит там, куда прилетел"
 
         summary = await ship.profile(session, constants, catalog, vessel)
-        back = next(route for route in summary["routes"] if route["node"] == home_key)
+        back = next(route for route in summary["routes"] if route["planet"] == home_key)
         #: The way back is an interplanetary passage, not a local hop: the sky
         #: between the two is what it costs, and it is priced in hours and fuel
         #: rather than in a class of engine somebody must own (D-235).
@@ -186,7 +186,7 @@ async def test_the_slider_has_two_ends_and_the_order_names_one(
     """
     here = await _port(session)
     await _port(session, name="Порт Авроры", planet=Planet.AURORA)
-    far = await _orbit(session, Planet.AURORA)
+    far = await _planet(session, Planet.AURORA)
     _, owner = await _shipwright(session, here)
     vessel = await _laid(session, constants, owner, here)
     await _flightworthy(session, constants, catalog, vessel)
@@ -282,7 +282,7 @@ async def test_engines_that_deliver_nothing_the_sky_has_are_refused_by_thrust(
     cheapest arc the sky has."""
     here = await _port(session)
     await _port(session, name="Порт Авроры", planet=Planet.AURORA)
-    far = await _orbit(session, Planet.AURORA)
+    far = await _planet(session, Planet.AURORA)
     _, owner = await _shipwright(session, here)
     vessel = await _laid(session, constants, owner, here)
     await _flightworthy(session, constants, catalog, vessel)
@@ -302,7 +302,7 @@ async def test_engines_that_deliver_nothing_the_sky_has_are_refused_by_thrust(
         await ship.fly(session, constants, catalog, owner, vessel, far)
     assert refused.value.key == "ship-no-arc-fits"
     assert refused.value.params["hours"] > 0 and refused.value.params["need"] > 0
-    assert vessel.course is None and vessel.docked_node_id is not None
+    assert vessel.course is None and vessel.sky_at is not None, "так и висит на орбите"
 
 
 async def test_a_hull_changed_before_the_lock_is_laid_again(
@@ -318,7 +318,7 @@ async def test_a_hull_changed_before_the_lock_is_laid_again(
     async with factory() as session, session.begin():
         here = await _port(session)
         await _port(session, name="Порт Авроры", planet=Planet.AURORA)
-        far = await _orbit(session, Planet.AURORA)
+        far = await _planet(session, Planet.AURORA)
         _, owner = await _shipwright(session, here)
         vessel = await _laid(session, constants, owner, here)
         await _flightworthy(session, constants, catalog, vessel)
@@ -340,7 +340,10 @@ async def test_a_hull_changed_before_the_lock_is_laid_again(
             #: first slider is laid.
             async with factory() as other, other.begin():
                 row = await other.get(Ship, ship_id)
-                row.park_phase = float(row.park_phase or 0.0) + math.pi
+                terra = (await sim.system(other, constants)).body(Planet.TERRA.value)
+                p, vp = sky.place(terra, await ship.sky_days(other, row.sky_at))
+                row.sky_x, row.sky_y = 2 * p[0, 0] - row.sky_x, 2 * p[0, 1] - row.sky_y
+                row.sky_vx, row.sky_vy = 2 * vp[0, 0] - row.sky_vx, 2 * vp[0, 1] - row.sky_vy
         return await laid(
             session, constants, catalog, hull, goal, now=now, thrust_ratio=thrust_ratio
         )
@@ -373,7 +376,7 @@ async def _under_way(
     """
     here = await _port(session)
     await _port(session, name="Порт Авроры", planet=Planet.AURORA)
-    far = await _orbit(session, Planet.AURORA)
+    far = await _planet(session, Planet.AURORA)
     _, owner = await _shipwright(session, here)
     vessel = await _laid(session, constants, owner, here)
     await _flightworthy(session, constants, catalog, vessel)
@@ -515,7 +518,7 @@ async def test_a_crossing_needs_more_fuel_than_the_climb(
     """
     port = await _port(session)
     await _port(session, name="Порт Авроры", planet=Planet.AURORA)
-    far = await _orbit(session, Planet.AURORA)
+    far = await _planet(session, Planet.AURORA)
     _, owner = await _shipwright(session, port)
     vessel = await _laid(session, constants, owner, port)
     connector = await session.get(Node, vessel.connector_node_id)
@@ -570,7 +573,6 @@ async def test_a_circle_through_a_planet_is_refused_before_the_burn(
     p, vp = sky.place(terra, await ship.sky_days(session, now))
     #: Adrift half a unit off Terra, moving with it.
     vessel.docked_node_id = None
-    vessel.park_phase = None
     sim._write_state(
         vessel, (float(p[0, 0]) + 0.5, float(p[0, 1])), (float(vp[0, 0]), float(vp[0, 1])), at=now
     )

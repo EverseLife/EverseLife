@@ -35,15 +35,14 @@ from src.engine.ship._base import (
     NotEnoughThrust,
     ShipError,
     TooFar,
-    is_orbit,
 )
-from src.engine.ship.command import _commanded_by, _landable, _still_commanded_by, _will_take
-from src.engine.ship.flight import _cast_off, _fit, _leaving, _passage_of
+from src.engine.ship.command import _commanded_by, _landable, _still_commanded_by
+from src.engine.ship.flight import _fit, _passage_of
 from src.engine.ship.physics import mass, sky_days
 from src.models.event import EventKind
 from src.models.identity import Body
 from src.models.ship import Ship
-from src.models.world import Node
+from src.models.world import Layer, Node
 from src.units import (
     HOURS_PER_DAY,
     MINUTES_PER_HOUR,
@@ -69,8 +68,9 @@ async def fly(
     """Cross to another planet's orbit -- flown, not tabled (D-289) -- or go
     to meet another hull on its coast (wave 3).
 
-    From the parking circle over one planet to the parking circle over
-    another, or from wherever inertia left a hull that has fuel again. The
+    From an orbit round one planet to the parking circle round another, or
+    from wherever inertia left a hull that has fuel again -- every one of
+    them a place in the sky, not a node (D-354). The
     order is a point of the slider: `hours` one of the points it offers
     this hull (D-341), unnamed its cheap end. The
     sky plans it as D-271 priced it -- a Lambert arc, the burns at both ends
@@ -108,18 +108,18 @@ async def fly(
     #: sky's memory hands the same one back to a hull that has not changed --
     #: its circle or its state, its thrust (`slider._basis`) -- and lays a new
     #: one for a hull that has.
-    _, _, thrust_ratio = await _hull_ready(session, constants, catalog, ship, target)
+    thrust_ratio = await _hull_ready(session, constants, catalog, ship, target, now=moment)
     await _world_ready(session, constants, ship, target, moment)
-    if not isinstance(target, Ship):
-        world = await sim.system(session, constants)
+    early: sky.Target | None
+    if isinstance(target, Ship):
+        #: A meeting in orbit is laid in the pool too (D-354): read here, and
+        #: found again under the lock from the slider's memory of this moment.
+        early = await sim.drifter_of(session, constants, target, now=moment)
+    else:
+        early = (await sim.system(session, constants)).body(target.planet.value)
+    if early is not None:
         await slider.offers(
-            session,
-            constants,
-            catalog,
-            ship,
-            world.body(target.planet.value),
-            now=moment,
-            thrust_ratio=thrust_ratio,
+            session, constants, catalog, ship, early, now=moment, thrust_ratio=thrust_ratio
         )
     await session.refresh(ship, with_for_update=True)
     #: And the captain's row after the hull's, never before it: whoever holds
@@ -131,7 +131,7 @@ async def fly(
     if ship.held_ship_id is not None:
         #: On a hold the hull's place is the other hull's: read afresh too.
         await session.get(Ship, ship.held_ship_id, populate_existing=True)
-    here, connector, thrust_ratio = await _hull_ready(session, constants, catalog, ship, target)
+    thrust_ratio = await _hull_ready(session, constants, catalog, ship, target, now=moment)
 
     world = await sim.system(session, constants)
     goal: sky.Target | None
@@ -140,7 +140,7 @@ async def fly(
             #: A flyby is laid to a planet only (D-341): a hull is met on its
             #: approach profile, which bends round nothing.
             raise NoArc(key="ship-no-flyby-to-ship")
-        goal = await sim.drifter_of(session, constants, target)
+        goal = await sim.drifter_of(session, constants, target, now=moment)
         if goal is None:
             raise NoArc(key="ship-target-unknown")
     else:
@@ -166,11 +166,12 @@ async def fly(
                 need=round(cheapest.dv, ROUND_DV),
                 have=round(can, ROUND_DV),
             )
-        if here is None:
+        over = await sim.orbiting(session, constants, ship)
+        if over is None:
             raise TooFar(key="ship-no-route-adrift", planet_to=target.planet.value)
         raise TooFar(
             key="ship-no-such-route",
-            planet_from=here.planet.value,
+            planet_from=over.key,
             planet_to=target.planet.value,
         )
     if hours is None:
@@ -196,8 +197,7 @@ async def fly(
 
     #: Whoever holds on to this hull is let go of first, from the state
     #: they shared (wave 3); then the plan is written onto the row from the
-    #: parking circle the hull still sits on; the gangway comes off after,
-    #: and casting off leaves the state where the plan put it.
+    #: state the hull is in.
     await hold.release_holders(
         session, constants, await sim.system(session, constants), ship, now=moment
     )
@@ -211,8 +211,6 @@ async def fly(
         thrust_ratio=thrust_ratio,
         now=moment,
     )
-    if here is not None and connector is not None:
-        await _cast_off(session, ship, here, connector)
     #: Off a hold or a docking (wave 3): the edge to the other hull comes off
     #: the way the gangway does, and the pair parts.
     await meet.let_go(session, constants, ship)
@@ -221,7 +219,7 @@ async def fly(
         session,
         EventKind.SHIP_LAUNCHED,
         actor_identity_id=body.identity_id,
-        node_id=ship.connector_node_id if here is None else here.id,
+        node_id=ship.connector_node_id,
         ship_id=str(ship.id),
         name=ship.name,
         leg=PASSAGE,
@@ -247,34 +245,44 @@ async def _hull_ready(
     catalog: Catalog,
     ship: Ship,
     target: Node | Ship,
-) -> tuple[Node | None, Node | None, float]:
-    """Every refusal the hull itself gives an order, and what the rest of the
-    order needs: the node moored at and the connector, or nothing for a hull
-    adrift, and the thrust-to-mass. Only reads -- `fly` asks it before the
-    hull's row is locked, so a refused order lays no slider, and again under
-    the lock, so what is written is decided on the hull as it is."""
+    *,
+    now: datetime,
+) -> float:
+    """Every refusal the hull itself gives an order, and the thrust-to-mass.
+    Only reads -- `fly` asks it before the hull's row is locked, so a refused
+    order lays no slider, and again under the lock, so what is written is
+    decided on the hull as it is.
+
+    An order is laid from the sky and nowhere else (D-354): a hull on a pad
+    climbs first, and there is no node above a planet to lay one from. The
+    target is a planet -- its own node, which carries its orbit -- or a hull.
+    """
     meeting = isinstance(target, Ship)
-    if not meeting and not is_orbit(target):
+    if not meeting and (target.layer is not Layer.SPACE or target.parent_id is not None):
         raise NoPort(key="ship-cross-to-orbit", node=target.name)
-    adrift = ship.docked_node_id is None
-    here = connector = None
-    if adrift:
-        #: Under an order, on a leg, or lost: no new order. Only a hull that
-        #: coasts -- a state and no order -- may be sent somewhere.
-        if ship.lost_at is not None:
-            raise ShipError(key="ship-lost", ship=ship.name)
-        if ship.course or ship.sky_at is None:
-            raise InFlight(key="ship-in-flight", ship=ship.name)
-        if await _passage_of(session, ship) is not None:  # pragma: no cover -- legs have no state
-            raise InFlight(key="ship-in-flight", ship=ship.name)
-        thrust_ratio = await _fit(session, constants, catalog, ship)
-    else:
-        here, connector, thrust_ratio = await _leaving(session, constants, catalog, ship)
-        if not is_orbit(here):
-            raise Docked(key="ship-cross-from-orbit", ship=ship.name)
-        if not meeting and target.planet is here.planet:
+    if ship.docked_node_id is not None:
+        raise Docked(key="ship-cross-from-orbit", ship=ship.name)
+    #: Under an order, on a leg, or lost: no new order. Only a hull that
+    #: coasts -- a state and no order -- may be sent somewhere.
+    if ship.lost_at is not None:
+        raise ShipError(key="ship-lost", ship=ship.name)
+    if ship.course or ship.sky_at is None:
+        raise InFlight(key="ship-in-flight", ship=ship.name)
+    if await _passage_of(session, ship) is not None:  # pragma: no cover -- legs have no state
+        raise InFlight(key="ship-in-flight", ship=ship.name)
+    if not meeting:
+        #: Already where the order would bring it: in orbit round that very
+        #: planet and close enough in to come down from. One on a wider
+        #: orbit round it is sent -- the helm brings it down to the circle.
+        held = await sim.orbit_of(session, constants, ship)
+        world = await sim.system(session, constants)
+        if (
+            held is not None
+            and held.body.key == target.planet.value
+            and held.far <= sky.capture_of(world, held.body)
+        ):
             raise TooFar(key="ship-already-over-planet", ship=ship.name)
-    return here, connector, thrust_ratio
+    return await _fit(session, constants, catalog, ship)
 
 
 async def _world_ready(
@@ -292,13 +300,12 @@ async def _world_ready(
         #: with a forecast to be met on (wave 3).
         await sighting.aimable(session, constants, ship, target, now=moment)
     else:
-        #: Every question a mooring is asked, and one more the others are
-        #: not: a planet whose beacons have all gone out is a planet one may
-        #: reach and never leave the orbit of (D-232) -- so the crossing is
-        #: refused at this end, while there is still a choice to make.
-        await _will_take(session, constants, ship, target, why="dock")
+        #: A planet whose beacons have all gone out is a planet one may reach
+        #: and never leave the orbit of (D-232) -- so the crossing is refused
+        #: at this end, while there is still a choice to make. The sky itself
+        #: takes every hull: there is no node above a planet to refuse one.
         if not await _landable(session, constants, target.planet):
-            raise NoPort(key="ship-nowhere-to-land", node=target.name)
+            raise NoPort(key="ship-nowhere-to-land", planet=target.planet.value)
 
 
 async def cancel(

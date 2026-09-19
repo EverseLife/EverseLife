@@ -119,7 +119,9 @@ _TINY = 1e-12
 _EDGE = 1e-6
 #: Bracketing of Kepler's equation in the universal anomaly.
 _CHI_DOUBLINGS = 200
-#: Full turns round the central body a transfer is ever asked about.
+#: Full turns round the star a transfer between two worlds is asked about
+#: (`max_revs`). A meeting in orbit round a planet asks `lambert` of as many
+#: turns as its hours hold, near the hull's own lap (`sky.rendezvous`).
 MAX_REVS = 3
 
 
@@ -184,7 +186,7 @@ def lambert(
     else:
         lo, hi = (math.tau * revs + _EDGE) ** 2, (math.tau * (revs + 1) - _EDGE) ** 2
     found: list[tuple[Vec, Vec]] = []
-    for z in _roots(f, lo, hi):
+    for z in _roots(f, lo, hi, dip=revs > 0):
         yy = y(z)
         f_l = 1 - yy / n1
         g_l = a_term * math.sqrt(yy / mu)
@@ -197,7 +199,7 @@ def lambert(
     return found
 
 
-def _roots(f, lo: float, hi: float) -> list[float]:
+def _roots(f, lo: float, hi: float, *, dip: bool = False) -> list[float]:
     """The zeros of `f` on `[lo, hi]`: a scan for sign changes, then bisection.
 
     `f` is NaN where the arc does not exist (negative `y`), and at the edge of
@@ -205,6 +207,13 @@ def _roots(f, lo: float, hi: float) -> list[float]:
     and a positive value next to it hides a root. The scan is coarse on
     purpose -- the function is smooth and has at most two zeros on any
     interval the callers hand over.
+
+    With `dip` -- a branch of full turns, where the flight time falls to a
+    least value and rises again -- the lowest point of the scan is found
+    exactly and put into it. Near that least time the branch's two arcs lie
+    between two points of the scan and change no sign there, and the scan
+    lost both: a hull flying one of them round a planet was told, for a
+    minute, that its own arc did not exist (D-354, wave 3).
     """
 
     def below(value: float) -> bool:
@@ -213,8 +222,17 @@ def _roots(f, lo: float, hi: float) -> list[float]:
     step = (hi - lo) / _Z_SCAN
     grid = [lo + step * i for i in range(_Z_SCAN + 1)]
     values = [f(z) for z in grid]
+    if dip:
+        finite = [(value, i) for i, value in enumerate(values) if not math.isnan(value)]
+        if finite:
+            _, i = min(finite)
+            low = _lowest(f, grid[max(i - 1, 0)], grid[min(i + 1, _Z_SCAN)])
+            if grid[0] < low < grid[-1] and low not in grid:
+                at = next(j for j, z in enumerate(grid) if z > low)
+                grid.insert(at, low)
+                values.insert(at, f(low))
     zeros: list[float] = []
-    for i in range(_Z_SCAN):
+    for i in range(len(grid) - 1):
         a, b = values[i], values[i + 1]
         if a == 0:
             zeros.append(grid[i])
@@ -235,6 +253,32 @@ def _roots(f, lo: float, hi: float) -> list[float]:
         if not math.isnan(f(zero)):
             zeros.append(zero)
     return zeros
+
+
+def _lowest(f, lo: float, hi: float) -> float:
+    """Where `f` is least on `[lo, hi]`, by golden section: the flight time of
+    a branch of full turns has one least value, and NaN counts as no bottom."""
+
+    def at(z: float) -> float:
+        value = f(z)
+        return math.inf if math.isnan(value) else value
+
+    ratio = (math.sqrt(5) - 1) / 2
+    a, b = lo, hi
+    c, d = b - ratio * (b - a), a + ratio * (b - a)
+    fc, fd = at(c), at(d)
+    for _ in range(_Z_STEPS):
+        if b - a < _Z_TOL:
+            break
+        if fc < fd:
+            b, d, fd = d, c, fc
+            c = b - ratio * (b - a)
+            fc = at(c)
+        else:
+            a, c, fc = c, d, fd
+            d = a + ratio * (b - a)
+            fd = at(d)
+    return (a + b) / 2
 
 
 def perihelion(mu: float, r: Vec, v: Vec) -> float:

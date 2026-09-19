@@ -22,13 +22,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from src import sky
-from src.constants import Constants
+from src.constants import Catalog, Constants
 from src.constants import registry as R
 from src.engine import events
 from src.engine.ship.belonging import crew_of
-from src.engine.ship.fate import _adrift, _lose, fate_of_row
-from src.engine.ship.physics import sky_days
+from src.engine.ship.fate import _adrift, _lose, book_loss, fate_of_row
+from src.engine.ship.physics import mass, sky_days
 from src.engine.ship.sim import (
+    _DV_EPS,
+    _keep_forecast,
     _row,
     _state_of,
     _write_state,
@@ -46,6 +48,7 @@ from src.units import HOURS_PER_DAY, MINUTES_PER_HOUR
 async def begin(
     session: AsyncSession,
     constants: Constants,
+    catalog: Catalog,
     ship: Ship,
     other: Ship,
     r: tuple[float, float],
@@ -54,17 +57,67 @@ async def begin(
     now: datetime,
 ) -> None:
     """Come to rest beside another hull: from here the two fly as one, and
-    this hull's place is read off the other's row.
+    this hull's place is read off the other's row. The caller holds the
+    other's row (`helm._fly`), which is written here.
 
-    Stamped with the reference's state rather than its own: the two are at
+    Stamped at the reference's place rather than its own: the two are at
     one point from here on (a gangway may open between them), and a coast
     from this stamp -- when the hold is swept rather than released -- is
     the pair's line, not one half a unit off it.
+
+    **Moving as the momentum says** (D-354): the pair's speed is the
+    average of the two by mass -- the reference counting whatever already
+    holds on to it -- not the reference's own. The hold takes a hull within
+    the hold's speed of the other, and that difference used to be taken off
+    for nothing: a free burn of up to `orbit.dock_speed`, and round a planet
+    a twentieth of the orbit's speed. The chaser brakes it off with its own
+    engines first (`helm._fly`, the last burn of a meeting), so what reaches
+    here is only what its tanks could not pay -- and only that moves the
+    other hull, whose coast is then counted afresh and its loss booked if it
+    now comes down.
     """
-    found = await state_at(session, constants, other, now=now)
-    if found is not None:
-        r, v = found[0], found[1]
-    _write_state(ship, r, v, at=now)
+    #: Flown, not read: the pair's stamp is written from it (D-354).
+    found = await state_at(session, constants, other, now=now, exact=True)
+    here, theirs = (r, v) if found is None else (found[0], found[1])
+    mine = await mass(session, constants, catalog, ship)
+    stack = await mass(session, constants, catalog, other)
+    for holder in (
+        await session.execute(select(Ship).where(Ship.held_ship_id == other.id))
+    ).scalars():
+        stack += await mass(session, constants, catalog, holder)
+    whole = mine + stack
+    speed = (
+        theirs
+        if whole <= 0.0
+        else (
+            (mine * v[0] + stack * theirs[0]) / whole,
+            (mine * v[1] + stack * theirs[1]) / whole,
+        )
+    )
+    _write_state(other, here, speed, at=now)
+    world = await system(session, constants)
+    t = await sky_days(session, now)
+    verdict = await book_loss(session, constants, other, world, now=now, t=t, r=here, v=speed)
+    _keep_forecast(other, verdict, now=now, t=t)
+    if float(np.hypot(speed[0] - theirs[0], speed[1] - theirs[1])) > _DV_EPS:
+        #: Whoever already holds on to the other flies at the new speed too:
+        #: its own stamp is what the sweep lets it go from (`sweep`), and a
+        #: stamp off the pair's line released it a speed apart. A row under a
+        #: hand this second is left -- its own order ends its hold.
+        for holder in (
+            (
+                await session.execute(
+                    select(Ship)
+                    .where(Ship.held_ship_id == other.id, Ship.id != ship.id)
+                    .with_for_update(skip_locked=True)
+                    .execution_options(populate_existing=True)
+                )
+            )
+            .scalars()
+            .all()
+        ):
+            _write_state(holder, here, speed, at=now)
+    _write_state(ship, here, speed, at=now)
     ship.course = None
     ship.forecast = None
     ship.held_ship_id = other.id
@@ -112,7 +165,7 @@ async def release_holders(
         .all()
     )
     for holder in holders:
-        found = await state_at(session, constants, holder, now=now)
+        found = await state_at(session, constants, holder, now=now, exact=True)
         holder.held_ship_id = None
         if found is None:  # pragma: no cover -- a hold is a state
             continue

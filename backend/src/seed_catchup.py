@@ -28,7 +28,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src import seed_catchup_land as land_catchup
-from src import seed_once, seed_sphere_city, seed_world
+from src import seed_once, seed_orbits, seed_sphere_city, seed_world
 from src import seed_parts as parts
 from src.constants import current, current_catalog
 from src.constants import registry as R
@@ -110,6 +110,11 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
     #: Terra alone in the sky, and a lone dot is not a system. The other three
     #: planets arrive with their orbits, and Terra learns its own.
     await parts.system(session)
+
+    #: The orbital nodes go (D-354): the hulls moored to them into the sky,
+    #: what stood on them aboard, the nodes out of the world. Before the
+    #: berths, which relay only gangways to piers.
+    await seed_orbits.orbits_gone(session, constants)
 
     #: Berths (D-201): a ship moored before the piers were numbered has a
     #: gangway of whatever length the old rule gave it. The number itself comes
@@ -637,13 +642,7 @@ async def _storeys(session: AsyncSession, constants) -> None:
 
 
 async def _berths(session: AsyncSession, constants) -> None:
-    """Relay the gangway of every moored ship to the length its berth deserves.
-
-    An orbit has no pier to queue at (D-245): hulls hang beside one another,
-    and the walk out is the same short spacewalk however many are parked. Left
-    to the numbering, the twentieth hull over Terra would have climbed a
-    gangway twenty times the first one's, at a pier that does not exist.
-    """
+    """Relay the gangway of every moored ship to the length its berth deserves."""
 
     for vessel in (
         (await session.execute(select(Ship).where(Ship.docked_node_id.is_not(None))))
@@ -654,9 +653,7 @@ async def _berths(session: AsyncSession, constants) -> None:
         connector = await session.get(Node, vessel.connector_node_id)
         if port is None or connector is None:  # pragma: no cover
             continue
-        if ship.is_orbit(port):
-            vessel.berth = 1
-        elif vessel.berth is None:
+        if vessel.berth is None:
             vessel.berth = await ship._free_berth(session, port)
         gangway = await travel._edge_between(session, port.id, connector.id)
         if gangway is not None:

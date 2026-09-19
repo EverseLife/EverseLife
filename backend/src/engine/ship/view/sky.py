@@ -103,6 +103,10 @@ async def passages(session: AsyncSession) -> dict[uuid.UUID, dict[str, object]]:
             continue
         if ship.course:
             order = ship.course
+            if order.get("around"):
+                #: A meeting in orbit (D-354, wave 3): round a planet, and a
+                #: point at the map's scale, as a hull in orbit is.
+                continue
             under_way[ship.node_id] = {
                 "to": targets.get(str(order.get("target"))),
                 "started_at": datetime.fromisoformat(str(order.get("since"))),
@@ -114,9 +118,12 @@ async def passages(session: AsyncSession) -> dict[uuid.UUID, dict[str, object]]:
             continue
         #: The coast the tick last wrote onto the row (D-289): the map reads,
         #: it does not fly. A drifter the tick has not seen yet has no line;
-        #: a hull on the hold is drawn by the hull it holds on to (wave 3).
+        #: a hull on the hold is drawn by the hull it holds on to (wave 3). A
+        #: hull in orbit round a planet is not drawn at all -- the map never
+        #: drew one on its parking circle, and a lap a quarter of a unit
+        #: across is a point at the map's scale (D-319, D-354).
         stored = await sim.forecast_of(session, ship)
-        if stored is None:
+        if stored is None or stored.get("around"):
             continue
         under_way[ship.node_id] = {
             "to": None,
@@ -318,6 +325,9 @@ async def _flight(session: AsyncSession, ship: Ship) -> dict[str, object] | None
                 "arrives_at": str(order.get("due_at") or order.get("arrive_at")),
                 "back": False,
                 "arc": order.get("trace"),
+                #: The planet a meeting in orbit goes round (D-354): the arc is
+                #: round its centre. No key in the deep.
+                **({"around": order["around"]} if order.get("around") else {}),
             }
         if order.get("target") == sky.STAR.key:
             #: Bound for the circle round the star (2026-09-04): no node, no

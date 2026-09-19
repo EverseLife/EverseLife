@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Constants
 from src.engine import places, travel
+from src.engine.ship import sim
 from src.engine.ship.belonging import is_aboard, nodes_of, of_node
 from src.models.ship import Ship
 from src.models.world import Edge, Node
@@ -67,7 +68,7 @@ def berthed_place(constants: Constants, port: Node, ship: Ship) -> dict[str, flo
 
     Not a place in the sense of D-237 -- nothing is written, nothing is
     reserved, and a hull that casts off takes it with it. None where the pier
-    is not ground at all: a hull "moored" to an orbital node hangs in the sky,
+    is not ground at all: a hull in the sky is the sky's to draw,
     and the sky draws it from the clock (D-289).
     """
     spot = places.beside(constants, port, str(ship.id))
@@ -203,12 +204,17 @@ async def _from_aboard(
             for edge in ways
             if edge.node_a_id in keys and edge.node_b_id in keys
         ],
-        #: Whether the hull is off its pier -- under way or adrift -- as
-        #: against moored at a pier or on its parking circle. The rooms carry
-        #: no pier and no orbit, and the hull itself is not in this answer
-        #: once it has cast off, so nothing else here could say it (D-225).
-        #: The music aboard is what asks (D-333).
-        "underway": ship.docked_node_id is None and ship.lost_at is None,
+        #: Whether the hull is under way or adrift, as against moored at a
+        #: pier or in orbit round a planet -- which is a reading of the sky
+        #: since D-354, not a mooring (`sim.orbiting`). The rooms carry no
+        #: pier and no orbit, and the hull itself is not in this answer once
+        #: it has cast off, so nothing else here could say it (D-225). The
+        #: music aboard is what asks (D-333).
+        "underway": (
+            ship.docked_node_id is None
+            and ship.lost_at is None
+            and await sim.orbiting(session, constants, ship) is None
+        ),
     }
 
 
@@ -229,8 +235,8 @@ def _moored_hull(
     (`_from_pier`), sent to those aboard as well, so that the delegate their
     rooms already hang under is a point of the surface with the port beside it.
 
-    Only while moored: a hull in flight or in orbit is the sky's, and the sky
-    draws it from the clock (D-289).
+    Only while moored: a hull in the sky -- under way, adrift or in orbit --
+    is the sky's, and the sky draws it from the clock (D-289, D-354).
     """
     place = None if port is None else berthed_place(constants, port, ship)
     if delegate is None or port is None or place is None:

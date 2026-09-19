@@ -29,13 +29,16 @@ from ship_kit import (
     SECOND_HEADING,
     _drifting,
     _events,
+    _flightworthy,
     _flown,
     _fuel,
     _hull,
     _joined,
+    _laid,
     _met,
-    _orbit,
+    _planet,
     _port,
+    _shipwright,
 )
 from src import sky
 from src.constants import Catalog, Constants
@@ -124,9 +127,20 @@ async def test_docking_is_refused_before_the_hold_and_at_a_pier(
     hull to hull is space only."""
     home = await _port(session, name="Космодром столицы")
     await _port(session, name="Космодром Мерида", planet=Planet.AURORA)
+    #: At the pier: no hull-to-hull docking there, it would be a bridge past
+    #: the inspection (D-289).
+    _, pier_owner = await _shipwright(session, home, foundations=2)
+    moored = await _laid(session, constants, pier_owner, home)
+    beside = await _laid(session, constants, pier_owner, home, name="Вторая")
+    await _flightworthy(session, constants, catalog, moored)
+    pier_owner.node_id = moored.connector_node_id
+    await session.flush()
+    with pytest.raises(ship.Docked):
+        await ship.dock(session, constants, pier_owner, moored, beside)
     one, owner = await _hull(session, constants, catalog, home, fuel=5000, heading=FIRST_HEADING)
     two, other = await _hull(session, constants, catalog, home, fuel=5000, heading=SECOND_HEADING)
-    with pytest.raises(ship.Docked):
+    #: In orbit round one planet, apart: not resting beside each other.
+    with pytest.raises(ship.NoPort):
         await ship.dock(session, constants, owner, one, two)
     with pytest.raises(ship.TooFar):
         await ship.dock(session, constants, owner, one, one)
@@ -147,7 +161,7 @@ async def test_a_new_order_parts_the_pair(
     drifter, lost_owner, rescuer, rescuer_owner, at = await _met(session, constants, catalog)
     assert await ship.dock(session, constants, rescuer_owner, rescuer, drifter) is False
     assert await ship.dock(session, constants, lost_owner, drifter, rescuer)
-    aurora = await _orbit(session, Planet.AURORA)
+    aurora = await _planet(session, Planet.AURORA)
 
     shared = await sim.state_at(session, constants, rescuer, now=at + timedelta(hours=1))
     await ship.fly(
@@ -232,10 +246,12 @@ async def test_a_foreign_hull_is_sighted_within_the_radius_and_told_once(
     stranger, other = await _hull(
         session, constants, catalog, home, fuel=5000, heading=SECOND_HEADING
     )
-    #: Moored at the same orbit: seen, and not a target.
+    #: In orbit round the same planet: seen, by the distance between them as
+    #: any two hulls are, and a target like any hull that coasts -- there is
+    #: no mooring above a planet to keep it out of reach any more (D-354).
     seen = await ship.profile(session, constants, catalog, watcher)
     found = next(one for one in seen["sightings"] if one["ship"] == str(stranger.id))
-    assert found["doing"] == "orbit" and found["mine"] is False and found["target"] is False
+    assert found["doing"] == "orbit" and found["mine"] is False and found["target"] is True
 
     #: Cast into the void by hand, far out: out of sight.
     world = await sim.system(session, constants)
@@ -244,9 +260,9 @@ async def test_a_foreign_hull_is_sighted_within_the_radius_and_told_once(
     t = await ship.sky_days(session, now)
     p, vp = sky.place(terra, t)
     far = (float(p[0, 0]) + 3 * world.sight_radius, float(p[0, 1]))
-    stranger.docked_node_id = None
-    stranger.park_phase = None
     sim._write_state(stranger, far, (float(vp[0, 0]), float(vp[0, 1])), at=now)
+    #: Cast by hand: no coast counted from here yet.
+    stranger.forecast = None
     await session.flush()
     seen = await ship.profile(session, constants, catalog, watcher)
     assert all(one["ship"] != str(stranger.id) for one in seen["sightings"])

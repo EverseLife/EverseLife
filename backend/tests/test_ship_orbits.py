@@ -14,9 +14,12 @@ lives in `test_ship_flight.py`.
 from __future__ import annotations
 
 import asyncio
+import math
 from datetime import timedelta
 
+import numpy as np
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ship_kit import (
@@ -32,14 +35,15 @@ from ship_kit import (
     _fuel,
     _in_orbit,
     _laid,
-    _orbit,
+    _orbiting,
+    _planet,
     _port,
     _shipwright,
 )
 from src import sky
 from src.constants import Catalog, ConstantError, Constants
 from src.constants import registry as R
-from src.engine import frost, jobs, ship, storage, world
+from src.engine import frost, jobs, ship, storage, travel, world
 from src.engine.ship import lines, sim
 from src.models.ship import Ship
 from src.models.world import Layer, Node, Planet
@@ -78,7 +82,7 @@ async def test_the_way_between_worlds_goes_orbit_to_orbit(
         owner.node_id = connector.id
         await session.flush()
 
-        aurora = await _orbit(session, Planet.AURORA)
+        aurora = await _planet(session, Planet.AURORA)
         #: From the pad one may not cross, and one may not land on Aurora.
         with pytest.raises(ship.Docked):
             await ship.fly(session, constants, catalog, owner, vessel, aurora)
@@ -90,7 +94,7 @@ async def test_the_way_between_worlds_goes_orbit_to_orbit(
             await ship.land(session, constants, catalog, owner, vessel, pad)
         #: Nor is there a crossing to the orbit one is already at.
         with pytest.raises(ship.TooFar):
-            await ship.fly(session, constants, catalog, owner, vessel, await _orbit(session))
+            await ship.fly(session, constants, catalog, owner, vessel, await _planet(session))
 
         #: Cast off at the hour the hull moored, not at the wall clock: the
         #: climb here is run by hand rather than by the journal, so the hull's
@@ -103,14 +107,14 @@ async def test_the_way_between_worlds_goes_orbit_to_orbit(
         arrives = await ship.fly(
             session, constants, catalog, owner, vessel, aurora, hours=fast["hours"], now=moment
         )
-        ship_id, aurora_id, pad_id = vessel.id, aurora.id, pad.id
+        ship_id, pad_id = vessel.id, pad.id
 
     async with factory() as session, session.begin():
         vessel = await session.get(Ship, ship_id)
         #: Flown by the tick, hour by hour, until the helm puts the hull on
         #: Aurora's circle (D-289).
         moored = await _flown(session, constants, catalog, vessel, since=moment, until=arrives)
-        assert vessel.docked_node_id == aurora_id, "борт на орбите Авроры"
+        assert await _orbiting(session, constants, vessel) == "aurora", "борт на орбите Авроры"
         #: And moored at the hour the console promised, not merely in the end:
         #: the fast end of the slider closes on time or it is a different
         #: passage (`LATE_HOURS`).
@@ -224,7 +228,7 @@ async def test_a_planet_with_no_lit_beacon_is_not_crossed_to(
     )
     home = await _port(session, name="Космодром столицы")
     await _port(session, name="Космодром Мерида", planet=Planet.AURORA)
-    dark = await _orbit(session, Planet.AURORA)
+    dark = await _planet(session, Planet.AURORA)
     _, owner = await _shipwright(session, home)
     vessel = await _laid(session, constants, owner, home)
     await _flightworthy(session, constants, catalog, vessel)
@@ -243,19 +247,15 @@ async def test_a_planet_with_no_lit_beacon_is_not_crossed_to(
     assert all(route["planet"] != Planet.AURORA.value for route in summary["routes"])
 
 
-async def test_an_orbit_is_the_void_whatever_hangs_below_it(
+async def test_a_hull_in_orbit_makes_its_own_air(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """A hull in orbit makes its own air, and stepping out is a spacewalk (D-233, D-245).
-
-    The orbital node carries the planet it belongs to, so the naive reading --
-    "Terra has air, therefore this node has air" -- would have opened the hatch
-    onto vacuum.
-    """
+    """At a pier of a planet with air the hatch may as well be open; in orbit
+    the hull breathes its own (D-233) -- and there is no node outside it to
+    step out onto, whatever planet it circles (D-354)."""
     from src.engine import oxygen
 
     home = await _port(session, name="Космодром столицы")
-    orbit = await _orbit(session)
     _, owner = await _shipwright(session, home)
     vessel = await _laid(session, constants, owner, home)
     await _flightworthy(session, constants, catalog, vessel)
@@ -267,75 +267,119 @@ async def test_an_orbit_is_the_void_whatever_hangs_below_it(
     assert not await oxygen.sealed(session, vessel), "у причала люк можно и открыть"
 
     await _in_orbit(session, constants, catalog, owner, vessel)
-    assert not await oxygen.free_air(session, orbit), "орбита — пустота"
     assert await oxygen.sealed(session, vessel), "на орбите корпус живёт своим воздухом"
     assert not await oxygen.free_air(session, connector), "и отсек тоже"
+    assert not await travel.exits(session, constants, connector), "шагнуть наружу некуда"
 
 
-async def test_a_descent_is_not_aimed_at_the_orbit_itself(
+async def test_a_descent_is_asked_of_a_hull_in_orbit_close_in(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """An orbit is not a pad (D-245).
+    """A descent starts from orbit round the pad's planet, close enough in
+    (D-354): the whole orbit inside the window the helm catches arrivals in.
 
-    `_will_take` says yes to every orbital node -- space needs no yard and has
-    no beacon -- so a descent aimed at the very orbit the hull is moored to
-    passed every check: the trap came off, a descent was charged, and the hull
-    moored again where it already was, one leg's fuel poorer and below the
-    reserve that keeps an orbit leavable.
+    Refused, and nothing burnt, for a hull coasting past the planet on no
+    closed orbit, for one on an orbit round it too wide to come down from --
+    that one is sent to the planet first -- and for a pad of another world.
     """
     home = await _port(session, name="Космодром столицы")
-    orbit = await _orbit(session)
+    await _port(session, name="Космодром Мерида", planet=Planet.AURORA)
+    elsewhere = await _port(session, name="Второй космодром")
     _, owner = await _shipwright(session, home)
     vessel = await _laid(session, constants, owner, home)
     await _flightworthy(session, constants, catalog, vessel)
     connector = await session.get(Node, vessel.connector_node_id)
     owner.node_id = connector.id
     await session.flush()
-
     await _in_orbit(session, constants, catalog, owner, vessel)
     before = await ship.fuel_aboard(session, constants, catalog, vessel)
-    with pytest.raises(ship.NoPort):
-        await ship.land(session, constants, catalog, owner, vessel, orbit)
-    assert vessel.docked_node_id == orbit.id, "корабль остался там, где стоял"
+
+    world = await sim.system(session, constants)
+    terra = world.body(Planet.TERRA.value)
+    at = vessel.sky_at
+    t = await ship.sky_days(session, at)
+    p, vp = sky.place(terra, t)
+    window = sky.capture_of(world, terra)
+
+    async def moving(gap: float, speed: float) -> None:
+        sim._write_state(
+            vessel,
+            (float(p[0, 0]) + gap, float(p[0, 1])),
+            (float(vp[0, 0]), float(vp[0, 1]) + speed),
+            at=at,
+        )
+        await session.flush()
+
+    #: Past escape speed: going by, on no orbit round Terra.
+    await moving(window / 2, 2 * sky.circle_speed(terra, window / 2))
+    with pytest.raises(ship.InFlight) as refused:
+        await ship.land(session, constants, catalog, owner, vessel, elsewhere, now=at)
+    assert refused.value.key == "ship-not-in-orbit"
+    #: A circle round Terra, but out past the window and still one that keeps
+    #: (inside a fifth of the Hill radius): in orbit, and sent to the planet
+    #: first.
+    wide = (window + sky.STABLE_SHARE * sky.hill_of(world, terra)) / 2
+    assert wide > window
+    await moving(wide, sky.circle_speed(terra, wide))
+    with pytest.raises(ship.TooFar) as refused:
+        await ship.land(session, constants, catalog, owner, vessel, elsewhere, now=at)
+    assert refused.value.key == "ship-orbit-too-high"
+    #: Close in: a pad of another world is not below.
+    await moving(sky.park_of(world, terra), sky.circle_speed(terra, sky.park_of(world, terra)))
+    aurora_pad = (
+        await session.execute(select(Node).where(Node.name == "Космодром Мерида"))
+    ).scalar_one()
+    with pytest.raises(ship.TooFar) as refused:
+        await ship.land(session, constants, catalog, owner, vessel, aurora_pad, now=at)
+    assert refused.value.key == "ship-land-other-planet"
+    assert vessel.docked_node_id is None and vessel.sky_at == at, "корабль остался где был"
     assert await ship.fuel_aboard(session, constants, catalog, vessel) == before, (
-        "отказ не сжёг топлива"
+        "отказы не сожгли топлива"
     )
+    #: And from there, down it goes.
+    descent = await ship.land(session, constants, catalog, owner, vessel, elsewhere, now=at)
+    assert descent.payload["to"] == str(elsewhere.id)
 
 
-async def test_an_orbit_has_no_pier_to_queue_at(
+async def test_a_climb_comes_out_over_the_meridian_of_its_pad(
     session: AsyncSession, constants: Constants, catalog: Catalog
 ) -> None:
-    """Hulls hang beside one another over a planet, and the walk out is the same
-    short spacewalk however many are parked (D-245).
+    """Where a climb comes out (D-354): on the parking circle, over the
+    meridian of the pad it lifted from at the hour it arrives -- at the
+    pad's noon on the side of the star -- going round the way the planet
+    turns; no pier, no berth, no node. Not a place spun off the hull's id any
+    more: two hulls lifting from one pad at one hour come out side by side.
 
-    Numbered berths would have made the twentieth hull over Terra climb a
-    gangway twenty times the first one's, for a pier that does not exist.
-
-    Parked where the engine puts them (`heading=None`) rather than where the
-    kit pins them: hanging beside one another is the point, and this is the one
-    place the layout `sim.bearing_of` spins off the hulls' ids is looked at.
+    Put where the engine puts them (`heading=None`), not where the kit pins
+    them: the placement is the point.
     """
+    from src.engine.ship.flight import meridian
+
     home = await _port(session, name="Космодром столицы")
-    parked = []
-    for number in range(3):
+    climbed = []
+    for number in range(2):
         _, owner = await _shipwright(session, home)
         vessel = await _laid(session, constants, owner, home, name=f"Борт-{number}")
         await _flightworthy(session, constants, catalog, vessel)
         connector = await session.get(Node, vessel.connector_node_id)
         owner.node_id = connector.id
         await session.flush()
-        parked.append(await _in_orbit(session, constants, catalog, owner, vessel, heading=None))
+        climbed.append(await _in_orbit(session, constants, catalog, owner, vessel, heading=None))
 
-    assert [vessel.berth for vessel in parked] == [1, 1, 1], "на орбите причала нет"
-    #: And beside one another, not on top of one another: each hull's place on
-    #: the circle is its own id's, so a hull arriving over a planet never
-    #: inherits the point of the one already there. Asserted against the spin
-    #: itself rather than against "the three differ": the hash has 997 places
-    #: on the circle, and three draws out of them collide once in some three
-    #: hundred runs -- which is a flake, not a check.
-    assert [float(vessel.park_phase) for vessel in parked] == [
-        pytest.approx(sim.bearing_of(vessel)) for vessel in parked
-    ], "каждый борт встал туда, куда развернул его собственный id"
+    world = await sim.system(session, constants)
+    terra = world.body(Planet.TERRA.value)
+    for vessel in climbed:
+        assert vessel.berth is None and vessel.docked_node_id is None, "на орбите причала нет"
+        at = vessel.sky_at
+        t = await ship.sky_days(session, at)
+        p, vp = sky.place(terra, t)
+        rel = np.array([vessel.sky_x, vessel.sky_y]) - p[0]
+        v_rel = np.array([vessel.sky_vx, vessel.sky_vy]) - vp[0]
+        angle = math.atan2(float(rel[1]), float(rel[0]))
+        want = await meridian(session, constants, terra, home, t=t, at=at)
+        assert math.cos(angle - want) == pytest.approx(1.0, abs=1e-9), "над меридианом порта"
+        assert float(np.hypot(*rel)) == pytest.approx(sky.park_of(world, terra), rel=1e-9)
+        assert float(rel[0] * v_rel[1] - rel[1] * v_rel[0]) > 0, "в ту же сторону, что и планета"
 
 
 # --- the kind of fuel (D-252) ------------------------------------------------

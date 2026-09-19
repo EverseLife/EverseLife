@@ -31,7 +31,7 @@ plan is what one pays for, the tick is what one gets.
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 import numpy as np
@@ -54,6 +54,7 @@ from src.sky._base import (
 from src.sky.choice import choices, deliverable, front
 from src.sky.flyby import Candidate, search
 from src.sky.guide import BRAKE_SHARE, eject_wait
+from src.sky.rendezvous import arc_to, flown_as_priced
 from src.sky.shoot import Shot, refine
 from src.units import HOURS_PER_DAY, MINUTES_PER_HOUR, TRACE_POINTS
 
@@ -122,6 +123,12 @@ class Sample:
     #: The pass, for a passage bent round a third world (D-341); nothing for
     #: a direct arc. `dv` then counts the burn at the periapsis as well.
     via: Pass | None = None
+    #: The planet an arc goes round, for a meeting in orbit (D-354, wave 3):
+    #: the trace is then relative to that planet's centre -- one lap of the
+    #: arc's orbit -- and the chart puts it where the planet is. Nothing for
+    #: an arc round the star and for the straight approach to a hull, whose
+    #: one price is its profile's (`approach_quote`).
+    around: str | None = None
 
 
 #: The least an order may promise: a minute. A hull already alongside is
@@ -170,6 +177,50 @@ def approach_quote(
         trace=(tuple(float(x) for x in r0), (float(there[0]), float(there[1]))),
         revs=0,
     )
+
+
+def meet_quotes(
+    system: System,
+    body: Body,
+    t0: float,
+    r0: tuple[float, float],
+    v0: tuple[float, float],
+    target: Drifter,
+    hours: Sequence[float],
+    a_max: float,
+) -> list[Sample]:
+    """The slider to a hull in orbit round the same planet (D-354, wave 3):
+    for every flight time of the grid, the cheapest arc round the planet to
+    where the other hull will be then (`rendezvous.arc_to`), priced at both
+    ends. Unlike the straight approach there is a real choice here -- the
+    more laps the hours hold, the less speed is changed -- so it is a slider
+    like a planet's, and what of it one hull is offered is `choice`'s. An arc
+    whose burns engines of `a_max` cannot fly as instants is left out
+    (`rendezvous.flown_as_priced`): round a planet a long burn falls off it.
+
+    The trace is one lap of the arc's orbit at most, round the planet's
+    centre: the hull's own place is the sky's to draw (`around`)."""
+    samples: list[Sample] = []
+    for one in hours:
+        tof = one / HOURS_PER_DAY
+        found = arc_to(system, body, t0, r0, v0, target, tof)
+        if found is None or not flown_as_priced(system, body, found, tof, a_max):
+            continue
+        samples.append(
+            Sample(
+                hours=one,
+                dv_out=found.dv_out,
+                dv_in=found.dv_in,
+                dv=found.dv_out + found.dv_in,
+                trace=astro.trace(
+                    body.mu, found.rel, found.v_rel, min(tof, found.period), TRACE_POINTS
+                ),
+                revs=found.revs,
+                v1=found.v1,
+                around=body.key,
+            )
+        )
+    return samples
 
 
 def circle_quote(

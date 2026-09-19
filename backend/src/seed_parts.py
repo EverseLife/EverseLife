@@ -78,11 +78,6 @@ class Orbit(NamedTuple):
 
     key: str
     name: str
-    #: The same name in the genitive: the orbital node is named after the
-    #: planet it hangs over (D-245), and Russian declines. Written out rather
-    #: than derived -- four words against a rule that would be wrong on the
-    #: fifth planet somebody adds.
-    genitive: str
     planet: Planet
     #: Drawn, but not playable yet (D-104).
     deferred: bool = False
@@ -102,10 +97,10 @@ class Orbit(NamedTuple):
 #: 2026-09-08, which put three balance numbers in code against D-065 and let
 #: a radius be typed that the third law does not allow.
 SYSTEM = (
-    Orbit("pyroxis", "Пироксис", "Пироксиса", Planet.PYROXIS, climate=frost.HEAT),
-    Orbit("terra", "Терра", "Терры", Planet.TERRA),
-    Orbit("aquatica", "Акватика", "Акватики", Planet.AQUATICA, deferred=True),
-    Orbit("aurora", "Аврора", "Авроры", Planet.AURORA, climate=frost.FROST),
+    Orbit("pyroxis", "Пироксис", Planet.PYROXIS, climate=frost.HEAT),
+    Orbit("terra", "Терра", Planet.TERRA),
+    Orbit("aquatica", "Акватика", Planet.AQUATICA, deferred=True),
+    Orbit("aurora", "Аврора", Planet.AURORA, climate=frost.FROST),
 )
 
 
@@ -118,11 +113,10 @@ async def system(session: AsyncSession) -> Node:
     planets -- and with it the length of the passage between them -- changes by
     itself, without anybody moving a node.
 
-    Each planet also gets an **orbital node** (D-245): the place a ship stands
-    at between the ground and the sky. A node rather than a state of the hull,
-    because the vault has always described it as one -- docks, stations and the
-    interception points piracy and convoys rest on all want somewhere to stand.
-    Today it is bare, and one may only moor to it.
+    There is no node above a planet (D-354, taking back D-245's orbital
+    node): a hull off the pier is a place and a speed in the sky, and "in
+    orbit" is a reading of that state, not somewhere to moor. A world laid
+    before keeps its node until `seed_orbits.orbits_gone` takes it away.
 
     Idempotent, and that is what makes it a catch-up too: an existing planet
     keeps everything it carries and only learns its orbit.
@@ -159,46 +153,7 @@ async def system(session: AsyncSession) -> Node:
             #: row's lock is what keeps a parallel writer's key alive.
             await props.stamp(session, node, marks)
     await session.flush()
-    await _orbits(session)
     return (await session.execute(select(Node).where(Node.key == "terra"))).scalar_one()
-
-
-async def _orbits(session: AsyncSession) -> None:
-    """One orbital node per planet, hanging under the planet itself (D-245).
-
-    A deferred planet gets none: an orbit is a destination, and a destination
-    for a world that is not open yet would be a way into it.
-
-    Area is the one number that means nothing here -- nothing is built in orbit
-    yet -- and it is `ship.node_area` rather than a nought so that the day a
-    dock is laid there, there is something to lay it on.
-    """
-    constants = current()
-    for circle in SYSTEM:
-        if circle.deferred:
-            continue
-        key = ship.orbit_key(circle.planet)
-        if (
-            await session.execute(select(Node.id).where(Node.key == key))
-        ).scalar_one_or_none() is not None:
-            continue
-        sphere = (
-            await session.execute(select(Node).where(Node.key == circle.key))
-        ).scalar_one_or_none()
-        if sphere is None:  # pragma: no cover -- the loop above has just laid it
-            continue
-        await world.create_node(
-            session,
-            key,
-            f"Околопланетная орбита {circle.genitive}",
-            area_m2=constants[R.SHIP_NODE_AREA],
-            planet=circle.planet,
-            layer=Layer.SPACE,
-            parent=sphere,
-            anchor=sphere,
-            properties={ship.ORBIT_NODE: True},
-        )
-    await session.flush()
 
 
 async def original_printer(session: AsyncSession, core: Node) -> None:
