@@ -386,7 +386,9 @@ async def mass_parts(
     not laying it, a machine by taking it down, cargo by unloading -- and a
     single total says nothing about which of the three is the heavy one. The
     three add up to `mass`, so what is inside a chest or a hold is counted
-    here too (D-313), and it is cargo: nobody works at what is in a box.
+    here too (D-313), and it is cargo: nobody works at what is in a box. So
+    is a machine lying on the floor (D-278) -- the console must not call it
+    a station while the engine list, rightly, does not see it.
     """
     nodes = await nodes_of(session, ship)
     aboard = await _outer(session, ship) if outer is None else outer
@@ -394,7 +396,7 @@ async def mass_parts(
     cargo = await gear.inner_mass(session, catalog, aboard)
     for thing in aboard:
         weight = gear.mass_of(catalog, thing.type_key, amount_float(thing.amount))
-        if _placeable(catalog, thing.type_key):
+        if thing.installed and _placeable(catalog, thing.type_key):
             machines += weight
         else:
             cargo += weight
@@ -636,7 +638,7 @@ def efficiency(constants: Constants, klass: int | None) -> float:
     Class is power and **efficiency**, never a licence for a route: a
     first-class engine reaches Pyroxis like any other, it just takes longer to
     get there and burns more doing it. The table is keyed by engine name, and
-    the ship's class is the weakest engine aboard (`engine_class`).
+    the ship's class is the weakest engine standing aboard (`engine_class`).
     """
     if klass is None:
         return 1.0

@@ -176,8 +176,9 @@ async def test_an_engine_taken_down_does_not_lift_the_hull(
 
     (engine,) = await ship.engines_aboard(session, constants, vessel)
     await station.take(session, catalog, body, engine)
-    with pytest.raises(ship.NotEnoughThrust):
+    with pytest.raises(ship.NotEnoughThrust) as refused:
         await ship.ascend(session, constants, catalog, body, vessel)
+    assert refused.value.key == "ship-not-enough-thrust"
     assert vessel.docked_node_id == port.id, "корабль без стоящего двигателя остался в порту"
 
 

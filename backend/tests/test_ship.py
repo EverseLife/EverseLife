@@ -432,6 +432,9 @@ async def test_an_engine_lying_aboard_neither_pushes_nor_sets_the_class(
     assert await ship.mass(session, constants, catalog, vessel) == pytest.approx(
         bare + gear.mass_of(catalog, "chest", 1) + gear.mass_of(catalog, ENGINE, 2)
     ), "груз всё равно весит"
+    #: And the console's split calls it cargo, not a station: the chest stands.
+    parts = await ship.mass_parts(session, constants, catalog, vessel)
+    assert parts["machines"] == pytest.approx(gear.mass_of(catalog, "chest", 1))
 
     #: Stood up again, the same engine pushes and sets the class.
     await station.place(session, catalog, body, engine)
@@ -440,6 +443,10 @@ async def test_an_engine_lying_aboard_neither_pushes_nor_sets_the_class(
     )
     assert await ship.engine_class(session, constants, vessel) == 1
     assert [row["name"] for row in await ship.engines(session, constants, vessel)] == [ENGINE]
+    parts = await ship.mass_parts(session, constants, catalog, vessel)
+    assert parts["machines"] == pytest.approx(
+        gear.mass_of(catalog, "chest", 1) + gear.mass_of(catalog, ENGINE, 1)
+    )
 
 
 async def test_passage_stretches_by_mass_and_has_a_ceiling(constants: Constants) -> None:
