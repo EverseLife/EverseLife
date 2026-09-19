@@ -140,7 +140,7 @@ async def fly(
             #: A flyby is laid to a planet only (D-341): a hull is met on its
             #: approach profile, which bends round nothing.
             raise NoArc(key="ship-no-flyby-to-ship")
-        goal = await sim.drifter_of(session, constants, target)
+        goal = await sim.drifter_of(session, constants, target, now=moment)
         if goal is None:
             raise NoArc(key="ship-target-unknown")
     else:

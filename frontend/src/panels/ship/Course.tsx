@@ -19,7 +19,7 @@ import { useEdition, useSession } from "../../actions";
 import { refusalText, t } from "../../locale";
 import { planetName } from "../../planets";
 import { term } from "../map/orbits";
-import { whole, type CourseAnswer, type Sample, type Target, type Vessel } from "./model";
+import { whole, type CourseAnswer, type PlanLine, type Sample, type Target, type Vessel } from "./model";
 
 export function Course({
   vessel,
@@ -36,7 +36,7 @@ export function Course({
    *  Settles once the order has been answered, taken or refused. */
   fly: (to: Target, hours: number, via: string | null) => Promise<void>;
   /** The arc of the point the slider stands on, for the chart to draw. */
-  onPlan: (trace: [number, number][] | null) => void;
+  onPlan: (plan: PlanLine | null) => void;
 }) {
   const session = useSession();
   const edition = useEdition("ship.", "transport.");
@@ -95,7 +95,7 @@ export function Course({
   useEffect(() => {
     const standing = target !== null && samples !== null && pick !== null ? samples[pick] : null;
     if (standing) held.current = standing.hours;
-    onPlan(standing?.trace ?? null);
+    onPlan(standing?.trace ? { trace: standing.trace, around: standing.around ?? null } : null);
     //: And nothing once the slider is gone: a line left behind after the
     //: order would lie on top of the order's own.
     return () => onPlan(null);
@@ -156,8 +156,10 @@ export function Course({
         )}
         {!reachable && ` · ${t("ui-ship-thrust-cut")}`}
       </p>
-      {/* One price to a hull (D-289, wave 3): the approach profile's own,
-          and no slider between two ends that do not exist. */}
+      {/* One price to a hull in the deep (D-289, wave 3): the approach
+          profile's own, and no slider between two ends that do not exist. To
+          a hull in orbit round the same planet the arcs round it are a
+          slider like a planet's (D-354). */}
       {samples.length > 1 && (
       <p className="row">
         <span className="note">{t("ui-ship-end-fast", { term: term(whole(samples[0])) })}</span>

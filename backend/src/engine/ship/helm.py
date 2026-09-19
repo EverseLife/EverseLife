@@ -424,7 +424,7 @@ async def _fly(
             outcome = "flying"
 
     if outcome == "moored" and other is not None:
-        await hold.begin(session, constants, ship, other, r, v, now=stamp)
+        await hold.begin(session, constants, catalog, ship, other, r, v, now=stamp)
         return "held", burnt
     if outcome == "moored" and isinstance(target, sky.Star):
         #: On the circle round the star: no order any more, a coast that is
@@ -591,12 +591,38 @@ async def _dense_drifter(
     and not from the stretch's start: the target may have been restamped
     this very tick, and a state asked for before a stamp is the stamp's --
     an hour's shift that read as the target jumping a unit.
+
+    A target in orbit round a planet is read by Kepler instead (D-354,
+    wave 3, `sky.Orbiter`): a lap there is hours long, and a line of hourly
+    points is chords across it -- and a meeting in orbit aims at where the
+    other will be at the order's hour, days past any stretch.
     """
     if other.sky_at is None or other.held_ship_id is not None:
         return None
     r, v = _state_of(other)
     start = await sky_days(session, other.sky_at)
     step = float(constants[R.ORBIT_PLAN_STEP_MINUTES]) / MINUTES_PER_HOUR / HOURS_PER_DAY
+    held = sky.bound_to(world, start, r, v)
+    if held is not None:
+        if t0 > start and not sky.kepler_reads(world, held, t0 - start):
+            #: Where Kepler does not read the orbit over the stamp's age --
+            #: Pyroxis -- the target is flown to the stretch's start under the
+            #: whole sky, so that it and the chaser are aimed from one moment.
+            #: Read off a stamp hours old it jumped at every restamp by what
+            #: the tide had done since, and the chaser paid to follow the jumps
+            #: (measured 2026-09-19 round Pyroxis: 1.6 times the price of a
+            #: thirteen-hour meeting, and 1.01 read afresh).
+            rr, vv = await asyncio.to_thread(
+                sky.advance,
+                world,
+                np.array([start]),
+                np.array([t0]),
+                np.array([r]),
+                np.array([v]),
+                dt_max=step,
+            )
+            held = sky.bound_to(world, t0, _row(rr), _row(vv)) or held
+        return sky.orbiter(f"ship:{other.id}:{held.t0}", held)
     horizon = max(t1 - start, step) + max(t1 - t0, step) + step
     points = int(math.ceil(horizon * HOURS_PER_DAY)) + 1 + 1
     path = sky.sample(

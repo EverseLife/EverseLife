@@ -48,7 +48,7 @@ import { t } from "../../locale";
 import { planetName } from "../../planets";
 import { along, term } from "../map/orbits";
 import { Bezel, Screen } from "./Glass";
-import { sameTarget, whole, type Route, type Target, type Vessel } from "./model";
+import { sameTarget, whole, type PlanLine, type Route, type Target, type Vessel } from "./model";
 import {
   CENTER,
   H,
@@ -233,7 +233,7 @@ export function Chart({
   chosen: Target | null;
   onChoose: (target: Target | null) => void;
   /** The arc of the point the slider stands on, while it stands there (D-289). */
-  plan: [number, number][] | null;
+  plan: PlanLine | null;
 }) {
   //: The sky turns while the console is open, and it turns slowly. Not a data
   //: timer (D-226) -- nothing is asked of the server here; this is a clock hand
@@ -299,6 +299,12 @@ export function Chart({
     if ((vessel.stage === "adrift" || vessel.stage === "orbit") && vessel.sky) {
       return { x: vessel.sky.x, y: vessel.sky.y };
     }
+    //: Bound for a hull or for the star's circle there is no planet to walk
+    //: toward, and a meeting in orbit goes laps round its planet that no
+    //: share of the time places on a line: the state the server read.
+    if (vessel.flight && !vessel.flight.planet && vessel.sky) {
+      return { x: vessel.sky.x, y: vessel.sky.y };
+    }
     if (!home) return null;
     if (!vessel.flight || !goal) {
       //: On the ground, at the planet, because that is where it is.
@@ -356,10 +362,22 @@ export function Chart({
           : null
         : vessel.sky.inertia.trace
       : null;
-  const arc =
+  //: A line round a planet's centre (D-354), put where that planet stands on
+  //: this display -- or nothing, if the planet is not drawn.
+  const round = (line: [number, number][], around: string | null | undefined) => {
+    if (!around) return line;
+    const centre = by.get(around);
+    return centre ? line.map(([x, y]): [number, number] => [centre.x + x, centre.y + y]) : null;
+  };
+  const flown =
     vessel.stage === "flight" && vessel.flight?.arc && vessel.flight.arc.length >= 2
-      ? vessel.flight.arc
+      ? round(vessel.flight.arc, vessel.flight.around)
       : null;
+  //: A meeting in orbit draws the arc's orbit whole: the hull goes laps round
+  //: it, and no share of the time says where on it the part ahead begins.
+  const lapped = !!vessel.flight?.around;
+  const arc = flown && !lapped ? flown : null;
+  const planned = plan ? round(plan.trace, plan.around) : null;
   //: Only the part still to be flown. The arc the server drew is the whole
   //: passage, and the half behind the hull is over: a display of where one is
   //: going does not also draw where one has been, and D-289 asks only for the
@@ -452,11 +470,12 @@ export function Chart({
         {ahead && ahead.length >= 2 && (
           <polyline className="chart-course" points={drawn(ahead, scope)} />
         )}
+        {lapped && flown && <polyline className="chart-course" points={drawn(flown, scope)} />}
         {/* The arc being chosen. Only with a destination picked, and only
             once the panel below has actually worked one out: an instrument
             standing idle shows what **is**, not what might be. */}
-        {chosen && plan && plan.length >= 2 && (
-          <polyline className="chart-plan" points={drawn(plan, scope)} />
+        {chosen && planned && planned.length >= 2 && (
+          <polyline className="chart-plan" points={drawn(planned, scope)} />
         )}
 
         {/* The worlds. A name apiece and nothing else: what a passage costs is
@@ -651,8 +670,8 @@ export function Chart({
           zoom={near.zoom}
           sight={!!hull && seesFar >= SIGHT_SEEN}
           inertia={!!inertia}
-          course={!!(ahead && ahead.length >= 2)}
-          plan={!!(chosen && plan && plan.length >= 2)}
+          course={!!(ahead && ahead.length >= 2) || !!(lapped && flown)}
+          plan={!!(chosen && planned && planned.length >= 2)}
         />
       </svg>
 

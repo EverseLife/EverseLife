@@ -23,6 +23,7 @@ and the journal.
     _base     -- the system of bodies and the parking circle
     field     -- the pull and the Runge-Kutta integrator, batched
     bound     -- a hull on a closed orbit round a planet, flown by Kepler
+    rendezvous -- a meeting in orbit: the arc round the planet to another hull
     plan      -- the slider's preview: two-body arcs, priced at both ends
     guide     -- the helm's burn for one step, and the capture
     forecast  -- where inertia leads, and when
@@ -61,7 +62,16 @@ from src.sky._base import (  # noqa: F401
     system_of,
 )
 from src.sky.assist import Leg, Route, correct, steer_pass  # noqa: F401
-from src.sky.bound import Bound, bound_states, bound_to, kepler_reads, rounded  # noqa: F401
+from src.sky.bound import (  # noqa: F401
+    Bound,
+    Orbiter,
+    bound_states,
+    bound_to,
+    closed_orbit,
+    kepler_reads,
+    orbiter,
+    rounded,
+)
 from src.sky.choice import choices  # noqa: F401
 from src.sky.field import advance, pull, sample  # noqa: F401
 from src.sky.forecast import (  # noqa: F401
@@ -90,7 +100,9 @@ from src.sky.plan import (  # noqa: F401
     approach_quote,
     circle_quote,
     escape_dv,
+    meet_quotes,
     preview,
     routes,
     search_days,
 )
+from src.sky.rendezvous import Arc, arc_to, shared_world  # noqa: F401

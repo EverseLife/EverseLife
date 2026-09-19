@@ -68,10 +68,25 @@ async def offers(
     r, v, t = found
     world = await sim.system(session, constants)
     if isinstance(target, sky.Drifter):
-        #: A hull as the target (wave 3): one price, the approach profile's
-        #: own -- the helm flies that profile and no arc, so a slider of
-        #: arcs would quote hours and delta-v nobody flies.
+        #: A hull as the target (wave 3). At a planet both are close in round,
+        #: arcs round that planet, and a real choice between them: the more
+        #: laps the hours hold, the less speed is changed (D-354). Solved off
+        #: the loop and not remembered: the price moves as the two go round,
+        #: and the order flies the quote of its own moment.
         a_max = thrust_ratio * float(constants[R.ORBIT_THRUST_SCALE])
+        home = sky.shared_world(world, t, r, target)
+        if home is not None:
+            laid = await asyncio.to_thread(
+                sky.meet_quotes, world, home, t, r, v, target, course.grid(constants), a_max
+            )
+            return sky.choices(
+                laid,
+                reach=course.reach(constants, thrust_ratio),
+                gap=float(constants[R.ORBIT_ROUTE_GAP]),
+            )
+        #: Elsewhere, one price, the approach profile's own -- the helm flies
+        #: that profile and no arc, so a slider of arcs would quote hours and
+        #: delta-v nobody flies.
         return [sky.approach_quote(r, v, t, target, a_max)]
     laid = await flyby.offered(
         constants,
@@ -181,10 +196,12 @@ async def point(
     point of `offered` -- the slider as the sky offers this hull at the order's
     moment -- is flown, never a route the console would not offer then.
 
-    To a hull (`target`, wave 3) there is one price and no choice among
-    prices: the quote of the order's own moment, whatever hours the console
-    read minutes ago -- the profile's hours move with the geometry, and it is
-    laid within the thrust by construction.
+    To a hull (`target`, wave 3) in the deep there is one price and no
+    choice among prices: the quote of the order's own moment, whatever hours
+    the console read minutes ago -- the profile's hours move with the
+    geometry, and it is laid within the thrust by construction. To a hull in
+    orbit round the same planet (D-354) the hours are a point of the slider
+    like a planet's, and hours it does not offer are `ship-hours-out-of-range`.
 
     To a planet each refusal says what is true of the hours asked for: a
     flyby not among the points is `ship-no-flyby`, whether the sky turned
@@ -196,13 +213,19 @@ async def point(
     and no cheaper than a faster point, out of the group offered -- is
     `ship-hours-out-of-range`. The console rereads the slider on the answer.
     """
+    named = round(hours, ROUND_HOURS)
     if isinstance(goal, sky.Drifter):
         assert target is not None
-        (quote,) = offered
+        if len(offered) == 1 and offered[0].around is None:
+            (quote,) = offered
+        else:
+            found = [one for one in offered if one.hours in (named, hours)]
+            if not found:
+                raise NoArc(key="ship-hours-out-of-range", hours=named)
+            quote = found[0]
         if sim.gone_by(goal, await sky_days(session, now), quote.hours):
             raise NoArc(key="ship-target-gone-by-then", other=target.name)
         return quote
-    named = round(hours, ROUND_HOURS)
     at = [one for one in offered if one.hours in (named, hours)]
     for one in at:
         if (None if one.via is None else one.via.via) == via:

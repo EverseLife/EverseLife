@@ -38,12 +38,21 @@ is as ordinary a case as any ellipse.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
 from src import astro
-from src.sky._base import GROUND_MARGIN, STABLE_SHARE, Body, Rows, System, hill_of, place
+from src.sky._base import (
+    GROUND_MARGIN,
+    STABLE_SHARE,
+    Body,
+    Drifter,
+    Rows,
+    System,
+    hill_of,
+    place,
+)
 
 #: Newton's steps on Kepler's equation. From half a turn the iteration
 #: converges for every ellipse (Charles and Tatum), to the last digit in
@@ -86,6 +95,22 @@ def bound_to(
     if not system.bodies or system.mu <= 0:
         return None
     body, rel, v_rel = nearest(system, t0, r0, v0)
+    kept = closed_orbit(system, body, rel, v_rel)
+    if kept is None:
+        return None
+    axis, far = kept
+    return Bound(body=body, t0=t0, rel=rel, v_rel=v_rel, period=astro.lap(body.mu, axis), far=far)
+
+
+def closed_orbit(
+    system: System, body: Body, rel: tuple[float, float], v_rel: tuple[float, float]
+) -> tuple[float, float] | None:
+    """The semi-major axis and the far point of the orbit round `body` that a
+    hull at `rel`, moving at `v_rel` relative to the planet, is on -- if it is
+    one that keeps: closed, its near point `GROUND_MARGIN` radii or more from
+    the centre, its far point within `STABLE_SHARE` of the Hill radius.
+    Nothing otherwise. What `bound_to` asks of a hull, and a meeting in orbit
+    of every arc it would fly (`sky.rendezvous`)."""
     gap = astro.norm(rel)
     if gap <= 0:
         return None
@@ -102,7 +127,51 @@ def bound_to(
     far = axis * (1 + eccentricity)
     if far >= hill_of(system, body) * STABLE_SHARE:
         return None
-    return Bound(body=body, t0=t0, rel=rel, v_rel=v_rel, period=astro.lap(body.mu, axis), far=far)
+    return axis, far
+
+
+@dataclass(frozen=True, slots=True)
+class Orbiter(Drifter):
+    """A hull in orbit as a target (D-354, wave 3): a drifter whose line is
+    its orbit, read by Kepler round its planet from the stamp it was read at.
+
+    Not its line of points. The forecast is a lap of two dozen of them and the
+    helm's own line of the target a point an hour; round Terra a lap is three
+    and a half hours, so an hourly line is chords across a quarter of the
+    orbit, and a target read off it was up to a third of the orbit away from
+    where it was. Kepler is the sky here to within a hundredth of the meeting
+    distance over a restamp where `kepler_reads` says so; where it does not --
+    Pyroxis -- it is still an aim, re-solved every step from where both hulls
+    are, and the hold is stamped from the whole sky (`hold.begin`).
+    """
+
+    held: Bound = field(kw_only=True)
+
+    def state(self, t: np.ndarray | float) -> tuple[Rows, Rows]:
+        tt = np.atleast_1d(np.asarray(t, dtype=float))
+        n = len(tt)
+        held = self.held
+        r, v = kepler(
+            np.full(n, held.body.mu),
+            np.tile(np.asarray(held.rel, dtype=float), (n, 1)),
+            np.tile(np.asarray(held.v_rel, dtype=float), (n, 1)),
+            tt - held.t0,
+        )
+        p, vp = place(held.body, tt)
+        return r + p, v + vp
+
+
+def orbiter(key: str, held: Bound) -> Orbiter:
+    """A hull on this orbit as a target: a lap without end, round its planet."""
+    return Orbiter(
+        key=key,
+        t0=held.t0,
+        t1=held.t0 + held.period,
+        trace=(),
+        loops=True,
+        around=held.body,
+        held=held,
+    )
 
 
 def kepler_reads(system: System, held: Bound, window: float) -> bool:
@@ -117,12 +186,22 @@ def kepler_reads(system: System, held: Bound, window: float) -> bool:
     true slip came to as much as `_KEPLER_UNDERCOUNT` times the estimate, so
     the estimate is taken that many times over.
     """
-    hill = hill_of(system, held.body)
-    if hill <= 0.0 or held.period <= 0.0:
-        return False
-    tide = (held.far / hill) ** 3
-    slip = _KEPLER_UNDERCOUNT * tide * 2 * np.pi * window / held.period * held.far
+    slip = tide_slip(system, held.body, held.far, held.period, window)
     return slip < KEPLER_SLACK * system.dock_radius
+
+
+def tide_slip(system: System, body: Body, far: float, period: float, window: float) -> float:
+    """How far along an orbit round `body` the other worlds move a hull over
+    `window` days, against Kepler round the planet alone: the star's tide at
+    the far point, `(far / Hill)^3` of the planet's own pull, turned into a
+    slip of that share of the laps flown at the far point's radius -- taken
+    `_KEPLER_UNDERCOUNT` times over, for the other worlds' part. Infinite
+    where there is no orbit to speak of."""
+    hill = hill_of(system, body)
+    if hill <= 0.0 or period <= 0.0:
+        return float("inf")
+    tide = (far / hill) ** 3
+    return _KEPLER_UNDERCOUNT * tide * 2 * np.pi * window / period * far
 
 
 def nearest(

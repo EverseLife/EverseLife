@@ -55,6 +55,7 @@ from src.units import (
     ROUND_DV,
     ROUND_HOURS,
     ROUND_MASS,
+    ROUND_NEAR,
     ROUND_RATIO,
     ROUND_TRACE,
 )
@@ -487,7 +488,7 @@ async def forecast(
             await sighting.aimable(session, constants, ship, target, now=moment)
         except ShipError as refused:
             return _nothing(target, refused)
-        goal = await sim.drifter_of(session, constants, target)
+        goal = await sim.drifter_of(session, constants, target, now=moment)
         if goal is None:
             return _nothing(target, NoArc(key="ship-target-unknown"))
     else:
@@ -515,6 +516,9 @@ async def forecast(
     samples = []
     for sample in offered:
         burn = course.fuel_for_speed(constants, weight, sample.dv, efficiency=share)
+        #: Round a planet an orbit is a quarter of a unit across: a tenth
+        #: would draw it as a point.
+        digits = ROUND_NEAR if sample.around else ROUND_TRACE
         samples.append(
             {
                 "hours": round(sample.hours, ROUND_HOURS),
@@ -528,11 +532,15 @@ async def forecast(
                 #: The arc the chart draws for this point while the slider is
                 #: held on it: the planner's two-body line, not the flown one
                 #: (D-289) -- the flown line is settled at the order.
-                "trace": [[round(x, ROUND_TRACE), round(y, ROUND_TRACE)] for x, y in sample.trace],
+                "trace": [[round(x, digits), round(y, digits)] for x, y in sample.trace],
                 #: The world the passage bends round (D-341), and no key at all
                 #: for a direct arc: the console names it beside the price, and
                 #: the order sends it back so the pass that was quoted is flown.
                 **({} if sample.via is None else {"via": sample.via.via}),
+                #: The planet a meeting in orbit goes round (D-354, wave 3): the
+                #: trace is round its centre, and nothing else on the wire says
+                #: which centre (D-225).
+                **({} if sample.around is None else {"around": sample.around}),
             }
         )
     #: The descent kept back at the far end, once: every sample needs its own

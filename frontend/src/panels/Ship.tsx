@@ -45,7 +45,7 @@ import { Drift, Passage, Ties } from "./ship/Voyage";
 import { Landing } from "./ship/Landing";
 import { Feed } from "./ship/Feed";
 import { Plan } from "./ship/Plan";
-import { autonomy, spelt, wanted, type Target, type Vessel } from "./ship/model";
+import { autonomy, spelt, wanted, type PlanLine, type Target, type Vessel } from "./ship/model";
 import { term } from "./map/orbits";
 
 /**
@@ -340,7 +340,7 @@ export function Ship({
   const [name, setName] = useState("");
   const [course, setCourse] = useState<Target | null>(null);
   //: The arc under the slider's thumb, for the chart (D-289).
-  const [plan, setPlan] = useState<[number, number][] | null>(null);
+  const [plan, setPlan] = useState<PlanLine | null>(null);
   //: The map read once for the console: the spheres for the chart -- the sky
   //: is answered to everybody (D-240), so this read works in flight, where
   //: the hull has no edges -- and the surface the landing is picked on

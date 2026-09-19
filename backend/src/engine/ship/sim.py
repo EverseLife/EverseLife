@@ -162,10 +162,29 @@ async def forecast_of(session: AsyncSession, ship: Ship) -> dict[str, Any] | Non
 
 
 async def drifter_of(
-    session: AsyncSession, constants: Constants, other: Ship
+    session: AsyncSession, constants: Constants, other: Ship, *, now: datetime
 ) -> sky.Drifter | None:
     """Another hull as a target (D-289, wave 3): its forecast as the line a
-    rendezvous is aimed at, or nothing while the tick has not counted one."""
+    rendezvous is aimed at, or nothing while the tick has not counted one.
+
+    A hull in orbit round a planet is its orbit instead (D-354, `sky.Orbiter`)
+    -- the lap of two dozen points the forecast keeps is chords across an
+    orbit hours long -- read by Kepler from where it is at `now`: by Kepler
+    where Kepler reads it, flown from the stamp where it does not (`state_at`),
+    so that a quote round Pyroxis is laid from the same moment as the hull
+    it is laid for."""
+    if (
+        other.sky_at is not None
+        and other.held_ship_id is None
+        and other.docked_node_id is None
+        and not other.course
+    ):
+        found = await state_at(session, constants, other, now=now)
+        if found is not None:
+            r, v, t = found
+            held = sky.bound_to(await system(session, constants), t, r, v)
+            if held is not None:
+                return sky.orbiter(f"ship:{other.id}:{_stamp(now)}", held)
     stored = await forecast_of(session, other)
     if stored is None or len(stored.get("trace") or ()) <= 1:
         return None
@@ -510,7 +529,11 @@ async def depart(
         "dv": round(plan.dv, ROUND_DV),
         "dv_out": round(plan.dv_out, ROUND_DV),
         "dv_in": round(plan.dv_in, ROUND_DV),
-        "trace": [[round(x, ROUND_TRACE), round(y, ROUND_TRACE)] for x, y in plan.trace],
+        "trace": _trace_of(plan),
+        #: The planet a meeting in orbit goes round (D-354, wave 3): the
+        #: trace is round its centre, and the chart puts it where the planet
+        #: stands. No key for an arc round the star.
+        **({} if plan.around is None else {"around": plan.around}),
         "phase": sky.BURN,
         #: What the engines have burnt of it so far, units a day: the console
         #: reads what is left against the tanks (`card.profile`).
@@ -547,6 +570,13 @@ def unmeetable(rows: Any) -> ColumnElement[bool]:
         rows.course.isnot(None),
         rows.held_ship_id.isnot(None),
     )
+
+
+def _trace_of(plan: sky.Sample) -> list[list[float]]:
+    """The plan's line as the order keeps it: to a tenth round the star, and
+    finer round a planet, where an orbit is a quarter of a unit across."""
+    digits = ROUND_NEAR if plan.around else ROUND_TRACE
+    return [[round(x, digits), round(y, digits)] for x, y in plan.trace]
 
 
 def gone_by(target: sky.Drifter, t0: float, hours: float) -> bool:
