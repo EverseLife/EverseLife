@@ -24,12 +24,12 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { Session } from "../api";
-import { useNames } from "../actions";
+import { useBook, useNames } from "../actions";
 import { Deadline } from "../Deadline";
-import { goodsName, lawName, type Names } from "../names";
 import { Rule } from "../Rule";
 import { when } from "../clock";
 import { eventKey, t } from "../locale";
+import { detail, type Happened } from "./happened";
 
 /**
  * A thing that can still be acted on.
@@ -47,8 +47,6 @@ type Needs = {
   since?: string;
   until?: string;
 };
-
-type Happened = { at: string; kind: string; payload: Record<string, unknown> };
 
 export type Digest = { at: string; attention: Needs[]; happened: Happened[] };
 
@@ -123,28 +121,6 @@ const CALLED: Record<Needs["kind"], string> = {
   reservation: "ui-need-reservation",
 };
 
-/** Journal kinds in words. The player reads what happened, not an enum. */
-/** The one detail worth showing beside the line, if the payload has one. */
-function detail(row: Happened, names: Names | null): string | null {
-  const p = row.payload ?? {};
-  //: These four keys carry goods ids (D-251) and go through the names.
-  for (const key of ["output", "goods", "resource", "type_key"]) {
-    const value = p[key];
-    if (typeof value === "string" && value) return goodsName(names, value);
-  }
-  //: A law is an id too, and its own table names it: the line used to read
-  //: «город изменил закон · tax_trade» to the very person who changed it.
-  if (typeof p.law === "string" && p.law) return lawName(names, p.law);
-  //: A node, a person and a hull are already words: all are named by
-  //: whoever made them, and there is no table to look any of them up in.
-  //: `other` is the other hull of a meeting (D-289), `name` the hull itself.
-  for (const key of ["node", "to", "other", "name"]) {
-    const value = p[key];
-    if (typeof value === "string" && value) return value;
-  }
-  return null;
-}
-
 export function Summary({
   digest,
   onClose,
@@ -153,6 +129,7 @@ export function Summary({
   onClose: () => void;
 }) {
   const names = useNames();
+  const book = useBook();
   const needs = digest.attention;
   //: Five lines is the vault's ceiling, and it is a check on our own marking
   //: rather than a display trick: the rest is reachable where it lives.
@@ -201,15 +178,18 @@ export function Summary({
         ) : (
           <table>
             <tbody>
-              {digest.happened.map((row, i) => (
-                <tr key={`${row.at}-${i}`}>
-                  <td>
-                    {t(eventKey(row.kind))}
-                    {detail(row, names) && <span className="note"> · {detail(row, names)}</span>}
-                  </td>
-                  <td className="num">{when(row.at)}</td>
-                </tr>
-              ))}
+              {digest.happened.map((row, i) => {
+                const aside = detail(row, names, book);
+                return (
+                  <tr key={`${row.at}-${i}`}>
+                    <td>
+                      {t(eventKey(row.kind))}
+                      {aside && <span className="note"> · {aside}</span>}
+                    </td>
+                    <td className="num">{when(row.at)}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}

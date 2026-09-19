@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants, current
 from src.constants import registry as R
-from src.engine import biome, energy, estate, events, ground, places, travel, utility, world
+from src.engine import energy, estate, events, facet, ground, places, travel, utility, world
 from src.engine.city._base import CityError, NoCity, NotYours
 from src.engine.city.hall import require_at_hall
 from src.engine.city.law import shown
@@ -124,9 +124,9 @@ async def annex_by_way(
     the node's: the return digest asks for it both ways, by actor and by
     the place one stands in (`world.TOLD_OF_THE_PLACE`), so the one who
     paved and the one who stands on the land it took are both told. The
-    node goes into the payload as the word the refusals call it by
-    (`biome.word_of`): a find has no name (D-321), and the digest's line
-    names its detail off the payload.
+    digest's line names its detail off the payload, and a find has no name
+    (D-321): the node goes in as `facet.told_of` puts it -- its name, or
+    the keys of its ground for the reader's window to name.
     """
     #: `populate_existing`: the lock alone re-selects the row but leaves an
     #: object already in the session as it was read, and `of_node` reads
@@ -161,8 +161,8 @@ async def annex_by_way(
             city_id=str(own.id),
             edge_id=str(edge.id),
             near=near.key,
-            node=biome.word_of(constants, far),
             city=own.name,
+            **facet.told_of(constants, far),
         )
         taken = own, far
         break

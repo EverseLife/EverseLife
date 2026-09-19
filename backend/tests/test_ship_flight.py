@@ -40,7 +40,7 @@ from ship_kit import (
 )
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import estate, jobs, ship, travel, world
+from src.engine import estate, jobs, ship, station, travel, world
 from src.models.identity import Body
 from src.models.job import Job, JobKind
 from src.models.ship import Ship
@@ -160,6 +160,26 @@ async def test_overloaded_ship_does_not_tear_off(
     with pytest.raises(ship.NotEnoughThrust):
         await ship.ascend(session, constants, catalog, body, vessel)
     assert vessel.docked_node_id == port.id, "перегруженный корабль остался в порту"
+
+
+async def test_an_engine_taken_down_does_not_lift_the_hull(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A lying engine is cargo (D-278): the climb reads no thrust from it."""
+    port = await _port(session)
+    _, body = await _shipwright(session, port)
+    vessel = await _laid(session, constants, body, port)
+    await _flightworthy(session, constants, catalog, vessel)
+    connector = await session.get(Node, vessel.connector_node_id)
+    body.node_id = connector.id
+    await session.flush()
+
+    (engine,) = await ship.engines_aboard(session, constants, vessel)
+    await station.take(session, catalog, body, engine)
+    with pytest.raises(ship.NotEnoughThrust) as refused:
+        await ship.ascend(session, constants, catalog, body, vessel)
+    assert refused.value.key == "ship-not-enough-thrust"
+    assert vessel.docked_node_id == port.id, "корабль без стоящего двигателя остался в порту"
 
 
 async def test_crew_beyond_life_support_does_not_fly(

@@ -40,6 +40,7 @@ from pyroxis_kit import _surface
 from src.constants import current, current_catalog
 from src.constants import registry as R
 from src.engine import estate, plates, rig, station, stock, wear, world
+from src.engine.rig import run as rig_run
 from src.models.estate import Building
 from src.models.identity import Body
 from src.models.inventory import Container, Item
@@ -180,7 +181,7 @@ def _after_the_plan(
     The first says the pass got there."""
     planned = asyncio.Event()
     resume = asyncio.Event()
-    count = rig._coal_available
+    count = rig_run._coal_available
 
     async def counted_and_held(db, container_id):
         coal = await count(db, container_id)
@@ -189,7 +190,9 @@ def _after_the_plan(
             await asyncio.wait_for(resume.wait(), timeout=30)
         return coal
 
-    monkeypatch.setattr(rig, "_coal_available", counted_and_held)
+    #: In the room the pass counts it from: `advance` reads the name off its
+    #: own module, and one set on the door alone would never stop the pass.
+    monkeypatch.setattr(rig_run, "_coal_available", counted_and_held)
     return planned, resume
 
 

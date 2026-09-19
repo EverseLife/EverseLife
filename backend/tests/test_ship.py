@@ -22,7 +22,7 @@ from ship_kit import ENGINE, _equip, _laid, _orbit, _port, _shipwright
 from src import globe
 from src.constants import Catalog, Constants
 from src.constants import registry as R
-from src.engine import gear, jobs, occupation, places, rest, ship, storage, travel, world
+from src.engine import gear, jobs, occupation, places, rest, ship, station, storage, travel, world
 from src.engine.ship._base import FOUNDATION
 from src.models.estate import Building
 from src.models.identity import Body
@@ -397,6 +397,56 @@ async def test_thrust_and_class_come_from_the_vault_by_name(
         constants[R.SHIP_THRUST][ENGINE]
     )
     assert await ship.engine_class(session, constants, vessel) == 1
+
+
+async def test_an_engine_lying_aboard_neither_pushes_nor_sets_the_class(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """An engine is a machine that stands (D-202, D-278); one that lies is cargo.
+
+    It weighs and it does not push. Counted, it let a hull carry engines in
+    its hold past the machines its rooms seat (D-106), none of them on a fuel
+    line (D-288): thrust drinking nothing, and a class set by a crate.
+    """
+    port = await _port(session)
+    _, body = await _shipwright(session, port)
+    vessel = await _laid(session, constants, body, port)
+    connector = await session.get(Node, vessel.connector_node_id)
+    body.node_id = connector.id
+    await session.flush()
+    bare = await ship.mass(session, constants, catalog, vessel)
+
+    #: Taken down by the owner's own door: it lies where it stood.
+    engine = await _equip(session, connector, ENGINE)
+    await station.take(session, catalog, body, engine)
+    assert not engine.installed
+    #: And one packed in a chest is cargo of cargo.
+    chest = await _equip(session, connector, "chest")
+    await world.grant_item(
+        session, await storage.inside(session, chest), ENGINE, quality=60, origin="тест"
+    )
+
+    assert await ship.thrust(session, constants, vessel) == 0
+    assert await ship.engine_class(session, constants, vessel) is None
+    assert await ship.engines(session, constants, vessel) == [], "в рубке лежащих двигателей нет"
+    assert await ship.mass(session, constants, catalog, vessel) == pytest.approx(
+        bare + gear.mass_of(catalog, "chest", 1) + gear.mass_of(catalog, ENGINE, 2)
+    ), "груз всё равно весит"
+    #: And the console's split calls it cargo, not a station: the chest stands.
+    parts = await ship.mass_parts(session, constants, catalog, vessel)
+    assert parts["machines"] == pytest.approx(gear.mass_of(catalog, "chest", 1))
+
+    #: Stood up again, the same engine pushes and sets the class.
+    await station.place(session, catalog, body, engine)
+    assert await ship.thrust(session, constants, vessel) == pytest.approx(
+        constants[R.SHIP_THRUST][ENGINE]
+    )
+    assert await ship.engine_class(session, constants, vessel) == 1
+    assert [row["name"] for row in await ship.engines(session, constants, vessel)] == [ENGINE]
+    parts = await ship.mass_parts(session, constants, catalog, vessel)
+    assert parts["machines"] == pytest.approx(
+        gear.mass_of(catalog, "chest", 1) + gear.mass_of(catalog, ENGINE, 1)
+    )
 
 
 async def test_passage_stretches_by_mass_and_has_a_ceiling(constants: Constants) -> None:
