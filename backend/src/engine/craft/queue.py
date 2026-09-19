@@ -116,13 +116,14 @@ async def _take_station(session: AsyncSession, body: Body, name: str, until: dat
     queueing on it; a master's command holding their body and queueing on a
     machine the fire held while it wanted that body; a machine held here while
     the fire, which takes machines by id, held the next one. The price is a
-    wake that crosses the holder and misses the machine: a start whose batch
-    queues behind its master's running one, a take-down refused, a master
-    walking away (`freeze` frees the machine and wakes nobody), and a finish or
-    the sweep freeing it while this master's own command holds their row --
-    `wake_node` skips a held body as this skips a held machine, so each misses
-    the other. The batch then waits at a free machine for the next wake or the
-    master's hand, as `wake_node` already lets a body whose row is held wait.
+    wake that crosses the holder and misses the machine. Where the holder
+    frees it -- a finish or the sweep while this master's own command holds
+    their row (`wake_node` passes the held body by as this passes the held
+    machine), a master walking away (`freeze`) -- the node gets a second
+    chance after that commit, and that one waits for the rows (`_again`).
+    Where the holder frees nothing -- a start whose batch queues behind its
+    master's running one, a take-down refused -- the batch waits at a free
+    machine for the next wake in the node or the master's hand.
     `NO KEY`, because a key-share lock -- another row's foreign key checked
     against this one -- is no hold on the machine and must not hide it.
     """
@@ -532,8 +533,8 @@ async def _again(session: AsyncSession, node_id: uuid.UUID) -> None:
     waiting for one (`wake_node`), or did not try (`freeze`). A hold that
     frees nothing -- a start queuing at the machine (`_hold_station`), a
     take-down refused -- queues none, and a take that passes by a machine
-    another transaction holds leaves its batch to the next wake in the node
-    or to its master's hand.
+    another transaction holds (`_take_station`) leaves its batch to the next
+    wake in the node or to its master's hand.
 
     Queued, not called: the job is a row of this transaction, so no worker
     sees it before the commit, and what this transaction freed is free by
