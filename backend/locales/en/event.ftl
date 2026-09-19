@@ -70,8 +70,8 @@ event-land-reclaimed = the city took its location back
 event-land-annexed = land at the end of the paved way passed to the city
 # A city's land is everything within its border (D-356): a node nobody held
 # that the border came to cover passed to the city; one the border drew back
-# from is nobody's again. The detail after the separator is the node's word off
-# the payload.
+# from is nobody's again. The detail after the separator is the node's name, or
+# for a find the word of its facet or biome in the reader's language.
 event-land-covered = land within the city's border became city land
 event-land-uncovered = the city's border drew back: the land is nobody's again
 event-city-grant_paid = settlement grant paid

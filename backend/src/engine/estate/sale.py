@@ -96,6 +96,10 @@ async def sale_refusal(
     #: became buyable, and the city sold its own centre for coin. The same
     #: rule as the allotment's, and this is the other door into it.
     if not is_plot(node):
+        #: A Forerunner ruin within the line is the city's and not a plot
+        #: (D-356): told as what it is, not as a location of the city's own.
+        if await town.of_the_forerunners(session, node):
+            return NotForSale(key="estate-land-ruin", node=node.name)
         return NotForSale(key="estate-land-not-a-plot", node=node.name)
     if not await is_vacant(session, constants, node, own=buyer):
         return NotForSale(key="estate-land-not-vacant")
@@ -127,10 +131,14 @@ async def buy(
     #: second hand-over took the plot from the first -- whose money stayed in
     #: the treasury. And a line letting a covered plot go in the same second
     #: (`city.cover`) passes over a row held here.
+    #: `FOR NO KEY UPDATE`: nothing here changes the node's key, and a row
+    #: written that points at the node (an event, a deed, a container) takes
+    #: `KEY SHARE` on it -- which the plain `FOR UPDATE` would keep waiting
+    #: for the whole purchase (`estate.hold_ground` holds ground the same way).
     await session.execute(
         select(Node)
         .where(Node.id == node.id)
-        .with_for_update()
+        .with_for_update(key_share=True)
         .execution_options(populate_existing=True)
     )
     refusal = await sale_refusal(session, constants, node, buyer=body.identity_id)

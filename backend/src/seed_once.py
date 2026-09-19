@@ -29,7 +29,7 @@ from src.models.catchup import CatchUpStep
 LINES_DEFAULT_ENDED = "lines_default_ended"
 
 #: The land highways took before D-356 made it a plot:
-#: `seed_catchup._taken_land_is_plots`. Once, because after it the rule is the
+#: `seed_catchup_land.taken_land_is_plots`. Once, because after it the rule is the
 #: engine's own (`city.land.annex_by_way`), and a run at every deploy would
 #: turn any later location of a city that hangs off its node into a plot.
 TAKEN_LAND_IS_PLOTS = "taken_land_is_plots"

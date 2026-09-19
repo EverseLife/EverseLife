@@ -20,7 +20,7 @@ from src.engine import energy, estate, events, facet, ground, places, travel, ut
 from src.engine.city._base import CityError, NoCity, NotYours
 from src.engine.city.hall import require_at_hall
 from src.engine.city.law import shown
-from src.engine.city.line import cover
+from src.engine.city.line import cover, of_the_forerunners
 from src.engine.city.lookup import by_id, of_node, territory
 from src.engine.city.office import offices, require
 from src.engine.city.treasury import treasury_balance
@@ -89,7 +89,12 @@ async def lay_ring(
 
 
 async def annex_by_way(
-    session: AsyncSession, constants: Constants, edge: Edge, *, by: uuid.UUID | None = None
+    session: AsyncSession,
+    constants: Constants,
+    edge: Edge,
+    *,
+    by: uuid.UUID | None = None,
+    ask_line: bool = True,
 ) -> tuple[City, Node] | None:
     """A paved way from a city's land takes the node at its far end into the city (D-332).
 
@@ -150,8 +155,10 @@ async def annex_by_way(
             return None
         far.owner_city_id = own.id
         #: A plot, not a location of the city's own (D-356): the city sells and
-        #: hands out the land its highways take, as it does its rings'.
-        far.properties = {**(far.properties or {}), PLOT: True}
+        #: hands out the land its highways take, as it does its rings' -- all
+        #: but a Forerunner ruin's, which is the city's and nobody's to buy.
+        if not await of_the_forerunners(session, far):
+            far.properties = {**(far.properties or {}), PLOT: True}
         await session.flush()
         await events.record(
             session,
@@ -189,8 +196,12 @@ async def annex_by_way(
     if taken is None and not promoted:
         return None
     await session.flush()
-    #: The frame changed: a disc more, a street more. The line is asked again.
-    await cover(session, constants, city)
+    #: The frame changed: a disc more, a street more. The line is asked again
+    #: -- here, or by a caller with more to lock first (`ask_line=False`,
+    #: `road.finished`), since the line is the last thing a transaction takes
+    #: locks for.
+    if ask_line:
+        await cover(session, constants, city)
     return taken
 
 
@@ -221,11 +232,12 @@ async def allot(
     #: plot in the same second, or the city's line letting a covered plot go
     #: (`cover`), would otherwise be overwritten by the hand-over -- the buyer's
     #: money in the treasury and the plot in somebody else's name, or a wild
-    #: node with a private title that no city gave (D-198).
+    #: node with a private title that no city gave (D-198). `FOR NO KEY
+    #: UPDATE`, as the purchase takes it: no key of the node changes here.
     await session.execute(
         select(Node)
         .where(Node.id == node.id)
-        .with_for_update()
+        .with_for_update(key_share=True)
         .execution_options(populate_existing=True)
     )
     if node.owner_city_id != city.id:
@@ -236,6 +248,8 @@ async def allot(
     #: marked plots as free -- the wire had no such rule, and one command with
     #: another node's key turned the capital's centre into somebody's yard.
     if not is_plot(node):
+        if await of_the_forerunners(session, node):
+            raise CityError(key="city-land-ruin", node=node.name)
         raise CityError(key="city-land-not-a-plot", node=node.name)
     if node.owner_identity_id is not None:
         raise CityError(key="city-land-taken")

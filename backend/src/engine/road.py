@@ -57,6 +57,7 @@ from src.constants import Catalog, Constants, current
 from src.constants import registry as R
 from src.engine import biome, events, occupation, stock, travel, works, world
 from src.engine.city import land as city_land
+from src.engine.city import line as city_line
 from src.engine.errors import Refusal
 from src.engine.jobs import enqueue, handler
 from src.models.event import EventKind
@@ -260,6 +261,23 @@ async def finished(session: AsyncSession, job: Job) -> None:
         mend=bool(job.payload.get("mend")),
         paving=edge.paving,
     )
+    #: A paved way from a city's land takes the node at its far end into the
+    #: city (D-332): the city grows where it paves. Asked whenever the work
+    #: leaves the edge paved -- a mend of a paved way laid before the rule
+    #: takes the node in as well; a road is not enough. The crew is the
+    #: event's actor: it is told on return that the land it paved to is the
+    #: city's now. Its ends are locked before the pay below takes the
+    #: accounts, the order a purchase keeps (node, then money); the city's
+    #: line is asked after both, last (`city.cover`).
+    paved = edge.surface is Surface.PAVED
+    if paved:
+        await city_land.annex_by_way(
+            session,
+            current(),
+            edge,
+            by=None if worker is None else worker.identity_id,
+            ask_line=False,
+        )
     #: A mend with an open state order on this edge collects its pay (D-248):
     #: the engine just verified the work in its own data -- the condition is
     #: back at full. Laying a new tier is a different project, no order pays for it.
@@ -271,17 +289,10 @@ async def finished(session: AsyncSession, job: Job) -> None:
             None if worker is None else worker.identity_id,
             now=job.run_at,
         )
-    #: A paved way from a city's land takes the node at its far end into the
-    #: city (D-332): the city grows where it paves. Asked whenever the work
-    #: leaves the edge paved -- a mend of a paved way laid before the rule
-    #: takes the node in as well; a road is not enough. The crew is the
-    #: event's actor: it is told on return that the land it paved to is the
-    #: city's now. Last, after the pay: it asks the city's line, and the line
-    #: is the last thing a transaction takes locks for (`city.cover`).
-    if edge.surface is Surface.PAVED:
-        await city_land.annex_by_way(
-            session, current(), edge, by=None if worker is None else worker.identity_id
-        )
+    if paved:
+        ends = [await session.get(Node, end) for end in (edge.node_a_id, edge.node_b_id)]
+        if all(end is not None for end in ends):
+            await city_line.cover_way(session, current(), *ends)
 
 
 async def decay(session: AsyncSession, constants: Constants) -> int:

@@ -183,6 +183,10 @@ class Outline:
             )
             if v[corner] < LEVEL
         ]
+        if not corners:
+            #: Every corner is land and the rounding of the blend said a hair
+            #: less: land.
+            return True
         nearest = min(corners, key=lambda one: one[1])[0]
         return not self.open[nearest]
 

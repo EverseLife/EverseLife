@@ -34,14 +34,20 @@ with a house, a machine, a vein, a bed or a begun build on it stays the
 city's when the line draws back, and joins the frame. **Two lines over one
 node** -- the elder city's, asked first (`_elder_first`).
 
-**It never waits for a row.** Every node it takes or lets go is locked with
-`SKIP LOCKED`, in id order, and judged again under the lock: whoever holds a
-node right now -- a purchase, a highway finishing, another city's line -- is
-simply passed over, and the next tick finds it free. So the line can be asked
-from inside any transaction, whatever that transaction already holds. What it
+**It never waits for a node.** Every node it takes or lets go is locked with
+`FOR NO KEY UPDATE SKIP LOCKED`, in id order, and judged again under the lock:
+whoever holds a node right now -- a purchase, a highway finishing, another
+city's line -- is simply passed over, and the next tick finds it free. What it
 has locked it keeps until the commit, and that is why every caller asks it
 last: nothing after it in the same transaction waits on a lock, so nothing
 can wait on the rows it took while holding what the line waits for.
+
+One wait is left, and it is the city's own row: a node taken is written the
+city's id, and the foreign key checks the city under `KEY SHARE`, which
+waits for a transaction holding that city `FOR UPDATE` -- a machine put up,
+a loan, an emission, a credit. None of those waits on a node the line has
+taken while it holds the city (a machine is put up node first), so the wait
+ends when that transaction does.
 """
 
 from __future__ import annotations
@@ -54,7 +60,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src import globe, outline
 from src.constants import Constants
-from src.engine import biome, estate, events, places
+from src.engine import estate, events, facet, places, ruins
 from src.engine.city.lookup import by_id, by_node
 from src.models.city import City
 from src.models.event import EventKind
@@ -143,7 +149,7 @@ async def _locked(session: AsyncSession, ids: Sequence[uuid.UUID]) -> list[Node]
                 select(Node)
                 .where(Node.id.in_(ids))
                 .order_by(Node.id)
-                .with_for_update(skip_locked=True)
+                .with_for_update(skip_locked=True, key_share=True)
                 .execution_options(populate_existing=True)
             )
         )
@@ -202,6 +208,19 @@ async def _held_covered(session: AsyncSession, city: City) -> list[Node]:
     )
 
 
+async def of_the_forerunners(session: AsyncSession, node: Node) -> bool:
+    """Whether the node is a Forerunner ruin's: its root, its pier and hall
+    (marked `precursors`), or a room opened under the root (D-232).
+
+    Within a city's line or at the end of its highway such a node is the
+    city's land -- its laws hold there -- and never a plot (D-356): a ruin is
+    a find of the Forerunners' and not ground to divide, so it is neither
+    sold nor handed out, and it gets no gate (D-282). The rooms carry no
+    mark of their own (`ruins.open_room`), so the root above answers for them.
+    """
+    return ruins.is_precursor(node) or await ruins.city_of(session, node) is not None
+
+
 def _within(line: outline.Outline | None, node: Node) -> bool:
     point = places.geo_of(node)
     return line is not None and point is not None and line.covers(*point)
@@ -209,7 +228,7 @@ def _within(line: outline.Outline | None, node: Node) -> bool:
 
 async def _settled_line(
     session: AsyncSession, constants: Constants, city: City, home: Node
-) -> outline.Outline | None:
+) -> tuple[outline.Outline | None, list[Node]]:
     """The city's line, once the land it would leave with something on it has
     joined the frame.
 
@@ -225,7 +244,8 @@ async def _settled_line(
     while True:
         frame, ways = await frame_of(session, city)
         line = line_of(constants, home.planet, frame, ways)
-        stranded = [node for node in await _held_covered(session, city) if not _within(line, node)]
+        held = await _held_covered(session, city)
+        stranded = [node for node in held if not _within(line, node)]
         kept = [
             node.id for node in stranded if not await estate.is_vacant(session, constants, node)
         ]
@@ -240,7 +260,7 @@ async def _settled_line(
             }
             promoted += 1
         if not promoted:
-            return line
+            return line, held
         await session.flush()
 
 
@@ -265,7 +285,7 @@ async def cover(
         return 0, 0
     if homes is None:
         homes = await _homes(session)
-    line = await _settled_line(session, constants, city, home)
+    line, held = await _settled_line(session, constants, city, home)
 
     inside: list[uuid.UUID] = []
     if line is not None:
@@ -289,7 +309,7 @@ async def cover(
             .all()
         )
         inside = [node.id for node in nearby if _free(node, homes) and _within(line, node)]
-    outside = [node.id for node in await _held_covered(session, city) if not _within(line, node)]
+    outside = [node.id for node in held if not _within(line, node)]
 
     taken = 0
     for node in await _locked(session, inside):
@@ -298,14 +318,20 @@ async def cover(
         if not _free(node, homes):
             continue
         node.owner_city_id = city.id
-        node.properties = {**(node.properties or {}), COVERED: True, PLOT: True}
+        #: A plot to sell and hand out -- unless it is a ruin's (above).
+        marks = (
+            {COVERED: True}
+            if await of_the_forerunners(session, node)
+            else {COVERED: True, PLOT: True}
+        )
+        node.properties = {**(node.properties or {}), **marks}
         taken += 1
         await events.record(
             session,
             EventKind.LAND_COVERED,
             node_id=node.id,
             city_id=str(city.id),
-            node=biome.word_of(constants, node),
+            **facet.told_of(constants, node),
             city=city.name,
         )
     let_go = 0
@@ -332,7 +358,7 @@ async def cover(
             EventKind.LAND_UNCOVERED,
             node_id=node.id,
             city_id=str(city.id),
-            node=biome.word_of(constants, node),
+            **facet.told_of(constants, node),
             city=city.name,
         )
     if taken or let_go:
@@ -343,11 +369,12 @@ async def cover(
 def _elder_first(query):
     """Cities in the order their lines are asked: the elder first (D-356).
 
-    A node two lines cover goes to the first line that asks, so the order is
-    the rule: the city founded earlier -- whose line was there first -- takes
-    it, and the order is the same every time, so land does not change hands
-    back and forth between two neighbours' ticks. The id only breaks a tie of
-    one second.
+    A node goes to the first line that covers it, and what a line took does
+    not move to another (`_free`). Two lines reaching one free node in the
+    same pass -- the tick, a deploy, a scout's find -- are asked elder first:
+    the city founded earlier takes it, and the order is the same every time,
+    so it does not change hands back and forth between two neighbours'
+    ticks. The id only breaks a tie of one second.
     """
     return query.order_by(City.created_at, City.id)
 

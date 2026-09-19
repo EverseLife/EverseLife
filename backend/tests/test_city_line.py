@@ -27,8 +27,8 @@ from city_line_kit import _events, _head, _node, _town
 from estate_kit import _buyer
 from src import globe, seed_once
 from src.constants import Catalog, Constants
-from src.engine import biome, estate, mapshot, places, sight, tick, travel, world
 from src.engine import city as town
+from src.engine import estate, facet, mapshot, places, sight, tick, travel, world
 from src.engine.city import land as city_land
 from src.engine.city import lookup
 from src.models.catchup import CatchUpStep
@@ -56,7 +56,11 @@ async def test_the_land_within_the_line_is_the_city_s(
 
     told = await _events(session, EventKind.LAND_COVERED, inside)
     assert len(told) == 1
-    assert told[0].payload["node"] == biome.word_of(constants, inside)
+    #: A nameless find is told by the keys of its ground, never by the
+    #: vault's word (D-332 item 4): the digest names it in the reader's language.
+    said = facet.told_of(constants, inside)
+    assert {key: told[0].payload.get(key) for key in said} == said
+    assert "node" not in told[0].payload
     assert told[0].payload["city"] == city.name
 
     assert await town.cover(session, constants, city) == (0, 0), "второй раз брать нечего"
@@ -421,3 +425,54 @@ async def test_a_second_deploy_founds_no_city_on_the_planet_s_sphere(
     assert [city.name for city in cities if city.capital] == ["Столица Терры"]
     await session.refresh(find)
     assert find.owner_city_id is None, "находка вдали от столицы ничья"
+
+
+async def test_a_ruin_within_the_line_is_the_city_s_and_never_a_plot(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A Forerunner ruin inside the line or at the end of a highway is the
+    city's land and not ground to divide (D-356, D-232): neither sold nor
+    handed out -- its root, its hall and the rooms under the root alike."""
+    from src.engine.death import PRECURSOR
+
+    city, _, gate, *_ = await _town(session, constants, catalog)
+    ruin = await _node(session, constants, "ruin", 10, 10, properties={PRECURSOR: True})
+    room = await _node(session, constants, "room", -10, 10, parent=ruin)
+    await town.cover(session, constants, city)
+    for node in (ruin, room):
+        assert node.owner_city_id == city.id and node.properties[COVERED] is True, node.key
+        assert PLOT not in node.properties, node.key
+        refusal = await estate.sale_refusal(session, constants, node)
+        assert refusal is not None and refusal.key == "estate-land-ruin", node.key
+
+    hall = await _node(session, constants, "hall", 90, 0, properties={PRECURSOR: True})
+    way = await travel.connect(session, gate, hall, base_seconds=60, surface=Surface.PAVED)
+    await city_land.annex_by_way(session, constants, way)
+    assert hall.owner_city_id == city.id and PLOT not in hall.properties
+
+
+async def test_the_one_off_step_marks_no_land_of_a_city_on_the_sphere(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """In a world the old catch-up hurt, every find of Terra was written to a
+    city founded on the sphere (D-356 item 10). None of it is highway land,
+    and the one-off step makes none of it a plot to sell."""
+    from src.seed import seed
+
+    await seed(session)
+    capital = await session.scalar(select(Node).where(Node.key == "terra.capital.core"))
+    sphere = await session.get(Node, capital.parent_id)
+    hurt = await town.found(session, catalog, sphere, f"Терра-{uuid.uuid4().hex[:6]}")
+    find = await world.create_node(
+        session, f"terra.hurt.{uuid.uuid4().hex[:8]}", "", area_m2=100, layer=Layer.PLANET,
+        parent=sphere,
+    )  # fmt: skip
+    find.owner_city_id = hurt.id
+    await session.execute(
+        delete(CatchUpStep).where(CatchUpStep.step == seed_once.TAKEN_LAND_IS_PLOTS)
+    )
+    await session.flush()
+
+    await seed(session)
+    await session.refresh(find)
+    assert PLOT not in (find.properties or {}), "земля города на сфере — не участок"

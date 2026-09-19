@@ -27,6 +27,7 @@ from decimal import Decimal
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src import seed_catchup_land as land_catchup
 from src import seed_once, seed_world
 from src import seed_parts as parts
 from src.constants import current, current_catalog
@@ -56,7 +57,7 @@ from src.models.event import Event, EventKind
 from src.models.identity import Account, Identity
 from src.models.inventory import Container, ContainerKind, Item
 from src.models.ship import Ship
-from src.models.world import ABOARD, PLOT, Edge, Layer, Node, Planet, built_up
+from src.models.world import PLOT, Edge, Layer, Node, Planet, built_up
 from src.seed_surfaces import surfaces
 
 log = logging.getLogger("everselife.seed")
@@ -313,13 +314,13 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
     #: door is gone from such a node now (`engine.access`), but the title is
     #: not: the holder still pays land tax on the city's core and may build a
     #: house across it. It comes back here.
-    await _return_city_locations(session)
+    await land_catchup.return_city_locations(session)
 
     #: Land a highway took before D-356 is a plot (D-332 left it a location of
     #: the city's own, so the window priced it and the purchase refused it).
     #: Once per world (`seed_once`): from then on `annex_by_way` marks it.
     if await seed_once.claim(session, seed_once.TAKEN_LAND_IS_PLOTS):
-        marked = await _taken_land_is_plots(session)
+        marked = await land_catchup.taken_land_is_plots(session)
         await seed_once.done(session, seed_once.TAKEN_LAND_IS_PLOTS, plots=marked)
 
     #: Floors above the ground as nodes of their own (D-247). A house raised
@@ -407,54 +408,6 @@ async def _accounts_catch_up(session: AsyncSession) -> None:
             accounts.apply_profile(identity, acct["profile"])
         log.info("account assigned in catch-up: %s -> %s", name, acct["email"])
     await session.flush()
-
-
-async def _return_city_locations(session: AsyncSession) -> None:
-    """Give the city back its own locations (D-282).
-
-    Only what is not a plot: an allotted or bought plot is its holder's, door
-    and all, and nothing here touches it. What comes back is the core, the
-    market, the administration -- the places a city works from, which were
-    never anybody's to hold.
-    """
-    taken = await town.reclaim_all(session)
-    for city, node in taken:
-        log.info("city location returned to %s: %s", city.name, node.key)
-    if taken:
-        await session.flush()
-
-
-async def _taken_land_is_plots(session: AsyncSession) -> list[str]:
-    """Mark as plots the finds a highway took before D-356.
-
-    A city's own locations are its node and what hangs on it (D-282); a node
-    the city holds that hangs anywhere else -- on the planet, under a ruin --
-    came to it by a highway (D-332), and since D-356 such land is sold and
-    handed out like a ring's. Returns the keys it marked.
-    """
-    homes = select(City.node_id)
-    nodes = (
-        (
-            await session.execute(
-                select(Node).where(
-                    Node.owner_city_id.is_not(None),
-                    Node.layer == Layer.PLANET,
-                    Node.id.not_in(homes),
-                    Node.parent_id.not_in(homes),
-                    ~Node.properties.has_key(ABOARD),
-                    ~Node.properties.has_key(PLOT),
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
-    for node in nodes:
-        node.properties = {**(node.properties or {}), PLOT: True}
-        log.info("land a highway took is a plot now: %s", node.key)
-    if nodes:
-        await session.flush()
-    return [node.key for node in nodes]
 
 
 async def _aurora_under_snow(session: AsyncSession, constants) -> None:
