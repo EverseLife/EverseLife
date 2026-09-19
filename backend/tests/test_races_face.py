@@ -470,7 +470,7 @@ async def test_a_swing_queued_at_the_vein_does_not_work_a_face_the_ground_took(
         between_the_locks.set()
         #: Each side of this handshake waits for the other, so a failure before
         #: a `set()` would hang the run rather than fail it -- the suite has no
-        #: timeout of its own (`test_reads.py` guards a wait the same way).
+        #: timeout of its own (`test_reads_forecast.py` guards a wait the same way).
         await asyncio.wait_for(closed_the_face.wait(), timeout=5)
         return chill
 

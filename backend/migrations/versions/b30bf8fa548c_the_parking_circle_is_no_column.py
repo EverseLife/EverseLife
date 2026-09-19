@@ -8,7 +8,7 @@ catch-up (`seed_catchup._orbits_gone`), over the meridian of the pier they
 last left: the angle they had is not worth keeping for them.
 
 Revision ID: b30bf8fa548c
-Revises: 5797e1bbb4e6
+Revises: df2137f68672
 Create Date: 2026-09-19 12:00:00.000000
 """
 from __future__ import annotations
@@ -19,7 +19,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = 'b30bf8fa548c'
-down_revision: str | None = '5797e1bbb4e6'
+down_revision: str | None = 'df2137f68672'
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

@@ -684,23 +684,24 @@ async def test_a_worn_pack_is_not_taken_apart(
         await craft.recycle(session, constants, catalog, body, pack)
 
 
-async def test_charging_and_the_tick_do_not_lose_each_other(
+async def test_the_cell_an_exoskeleton_drinks_is_not_charged_in_the_hands(
     session: AsyncSession,
-    factory: async_sessionmaker[AsyncSession],
     constants: Constants,
     catalog: Catalog,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The tick drinks from the cell a player is charging at the counter: both
-    write `charge`, and without the cell's row lock the later write would
-    silently undo the earlier one."""
+    """A worn exoskeleton drinks from a cell carried in the hands, and that
+    cell is not charged there (D-352): a battery is charged where it stands.
+
+    This used to be a race -- the tick drinking and the counter charging the
+    same carried cell, both writing `charge` -- and the cell's row lock in
+    `charge_battery` is what kept one write from undoing the other. With
+    D-352 the counter never writes a carried cell, so the tick is its only
+    writer; the lock stays for the cells that do stand."""
     from decimal import Decimal as D
 
-    from conftest import _slow
     from src.engine import battery, energy, world
     from src.models.world import Layer
 
-    _slow(monkeypatch, battery, "settle_charge")
     stamp = uuid.uuid4().hex[:8]
     city = await world.create_node(
         session, f"terra.cells.{stamp}", "Город", area_m2=1, layer=Layer.PLANET
@@ -718,25 +719,10 @@ async def test_charging_and_the_tick_do_not_lose_each_other(
     exo = await _give(session, body, EXO)
     await gear.equip(session, constants, catalog, body, exo)
     cell = await _charged(session, body, 50)
-    body_id, cell_id = body.id, cell.id
-    await session.commit()
+    await session.flush()
 
-    async def charge() -> None:
-        async with factory() as db, db.begin():
-            me = await db.get(Body, body_id)
-            item = await db.get(Item, cell_id)
-            assert me is not None and item is not None
-            await battery.charge_battery(db, constants, me, item, 10)
-
-    async def drink() -> None:
-        async with factory() as db, db.begin():
-            await gear.wear_exoskeletons(db, constants, catalog, hours=1, now=datetime.now(UTC))
-
-    await asyncio.gather(charge(), drink())
-    async with factory() as db:
-        again = await db.get(Item, cell_id)
-        assert again is not None
-        rate = constants[R.GEAR_EXO_ENERGY_PER_HOUR]
-        assert float(again.charge) == pytest.approx(50 + 10 - rate, abs=0.05), (
-            "и зарядка, и глоток тика остались в ячейке"
-        )
+    with pytest.raises(battery.BatteryError) as refused:
+        await battery.charge_battery(session, constants, body, cell, 10)
+    assert refused.value.key == "battery-charge-in-hands"
+    assert float(cell.charge) == pytest.approx(50)
+    assert float(pool.stored) == pytest.approx(1000)

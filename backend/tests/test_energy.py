@@ -201,6 +201,41 @@ async def test_windmill_unstable_within_vault_bounds(
 # --- battery and tariff ------------------------------------------------------
 
 
+async def test_only_a_standing_battery_is_charged(
+    session: AsyncSession, constants: Constants
+) -> None:
+    """A cell is charged where it stands (D-352): not in the hands, not lying
+    in the yard. Each refusal names the move that fixes it, and neither
+    touches the pool."""
+    capital, yard, identity, body = await _city(session)
+    pool = await energy.pool_of(session, constants, yard)
+    pool.stored = Decimal("400")
+    pool.counted_at = datetime.now(UTC)
+    pool.tariff = Decimal(0)
+    pocket = await world.body_container(session, body)
+    held = await world.grant_item(session, pocket, energy.BATTERY, quality=55, origin="тест")
+    lying = await world.grant_item(
+        session,
+        await world.node_container(session, yard),
+        energy.BATTERY,
+        quality=55,
+        origin="тест",
+        installed=False,
+    )
+    standing = await _place(session, yard, energy.BATTERY, quality=55)
+    await session.flush()
+
+    with pytest.raises(energy.BatteryError) as in_hands:
+        await energy.charge_battery(session, constants, body, held, 50)
+    assert in_hands.value.key == "battery-charge-in-hands"
+    with pytest.raises(energy.BatteryError) as on_floor:
+        await energy.charge_battery(session, constants, body, lying, 50)
+    assert on_floor.value.key == "battery-charge-lying"
+    assert float(pool.stored) == pytest.approx(400), "отказ не трогает пул"
+
+    assert await energy.charge_battery(session, constants, body, standing, 50) == pytest.approx(50)
+
+
 async def test_charging_takes_from_pool_and_pays_treasury(
     session: AsyncSession, constants: Constants
 ) -> None:
@@ -210,8 +245,8 @@ async def test_charging_takes_from_pool_and_pays_treasury(
     pool.stored = Decimal("400")
     pool.counted_at = datetime.now(UTC)
 
-    pocket = await world.body_container(session, body)
-    battery = await world.grant_item(session, pocket, energy.BATTERY, quality=55, origin="тест")
+    #: Charged where it stands (D-352): put up in the yard, not handed over.
+    battery = await _place(session, yard, energy.BATTERY, quality=55)
     account = await ledger.account_for(session, AccountKind.IDENTITY, identity.id)
     genesis = await ledger.account_for(session, AccountKind.GENESIS, None)
     from src.models.ledger import PostingReason
@@ -262,8 +297,7 @@ async def test_a_pour_too_thin_to_write_is_refused_not_served(
     pool = await energy.pool_of(session, constants, yard)
     pool.stored = Decimal("100")
     pool.counted_at = datetime.now(UTC)
-    pocket = await world.body_container(session, body)
-    cell = await world.grant_item(session, pocket, energy.BATTERY, quality=55, origin="тест")
+    cell = await _place(session, yard, energy.BATTERY, quality=55)
     await session.flush()
 
     before = Decimal(pool.stored)
@@ -436,8 +470,7 @@ async def test_the_bill_is_for_what_the_cell_actually_holds(
     pool = await energy.pool_of(session, constants, yard)
     pool.stored = Decimal("400")
     pool.counted_at = datetime.now(UTC)
-    pocket = await world.body_container(session, body)
-    cell = await world.grant_item(session, pocket, energy.BATTERY, quality=55, origin="тест")
+    cell = await _place(session, yard, energy.BATTERY, quality=55)
     cell.charge = Decimal("0")
     cell.charged_at = datetime.now(UTC)
     await session.flush()

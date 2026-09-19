@@ -36,7 +36,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, current
@@ -47,6 +47,7 @@ from src.engine import city as town
 from src.engine import craft, estate, events, storage, travel, world
 from src.engine.errors import Refusal
 from src.models.city import City, Power
+from src.models.craft import BatchState, CraftBatch
 from src.models.event import EventKind
 from src.models.identity import Body, BodyState
 from src.models.inventory import Item
@@ -297,6 +298,60 @@ async def place(session: AsyncSession, catalog: Catalog, body: Body, item: Item)
     return item
 
 
+async def _awaited(session: AsyncSession, node: Node, item: Item) -> bool:
+    """Whether this is the last machine a batch here is waiting for (D-351).
+
+    Asked by the batch's machine **name**, the way the batch itself asks when
+    it resumes (`craft.queue._run`): any standing machine of that name in the
+    node will do for it, so a second forge beside this one frees this one --
+    busy or not, since a queued batch waits its turn anyway. Unfinished is
+    both running and waiting: a running batch is already guarded on its own
+    machine by `busy`, and counted here too so that the rule reads the same
+    whichever state the batch happens to be in.
+
+    Read, not locked: the start that queues a batch takes the machine's row
+    (`craft._hold_station`), which this door already holds, so one of the two
+    waits for the other and the second sees the first.
+    """
+    names = (
+        await session.execute(
+            select(CraftBatch.station)
+            .join(Body, Body.id == CraftBatch.body_id)
+            .where(
+                CraftBatch.node_id == node.id,
+                CraftBatch.state.in_((BatchState.RUNNING, BatchState.WAITING)),
+                CraftBatch.station.is_not(None),
+                #: A live master's (D-351). Death freezes the batch (D-209),
+                #: and a printed body is a new body that never takes it up
+                #: again (`craft.queue.wake` goes by the body): counted, one
+                #: death at work pinned the last machine of its name for ever,
+                #: and with it the whole house (`estate-blocker-equipment`) --
+                #: the very dead end D-308 turned down.
+                Body.state == BodyState.ALIVE,
+            )
+            .distinct()
+        )
+    ).scalars()
+    yard = await world.node_yard(session, node)
+    for name in names:
+        kinds = world.station_names(name)
+        if item.type_key not in kinds or yard is None:
+            continue
+        others = await session.scalar(
+            select(func.count())
+            .select_from(Item)
+            .where(
+                Item.container_id == yard.id,
+                Item.type_key.in_(kinds),
+                Item.installed.is_(True),
+                Item.id != item.id,
+            )
+        )
+        if not others:
+            return True
+    return False
+
+
 async def take(session: AsyncSession, catalog: Catalog, body: Body, item: Item) -> Item:
     """Take a machine or furniture **down**: it stops standing and lies where it stood.
 
@@ -317,7 +372,8 @@ async def take(session: AsyncSession, catalog: Catalog, body: Body, item: Item) 
     What closes the window is standing it up again (`place` takes it off the
     floor) or shutting the door, and whether that is enough is **OQ-131**.
 
-    One busy with work is not given up.
+    One busy with work is not given up, and neither is the last machine a
+    waiting batch here needs (D-351).
     """
     if body.state is not BodyState.ALIVE:
         raise StationError(key="station-dead-takes")
@@ -338,7 +394,7 @@ async def take(session: AsyncSession, catalog: Catalog, body: Body, item: Item) 
     #: through. The hopper is read now and answered below, where the refusal
     #: belongs -- the row is this transaction's from here on, so nothing fills
     #: it in between (D-181, D-314).
-    from src.engine import rig  # noqa: PLC0415 -- lazy: breaks station -> rig -> liquid -> station
+    from src.engine import rig  # noqa: PLC0415 -- lazy: breaks station -> rig.hands -> station
 
     hopper = await rig.hopper_left(session, item)
     #: The thing's own row last -- the order `place` locks in, because the two
@@ -368,6 +424,13 @@ async def take(session: AsyncSession, catalog: Catalog, body: Body, item: Item) 
         raise NotYours(key="station-take-not-yours")
     if item.busy_body_id is not None:
         raise Busy(key="station-busy")
+    #: Nor the last machine a batch here is waiting for (D-351). A waiting
+    #: batch holds no machine of its own -- it takes **a** free one of its
+    #: name when its master is back (D-209) -- so `busy` above cannot see it,
+    #: and taking the last one down left the batch waiting for ever on
+    #: materials already written off (OQ-181).
+    if await _awaited(session, node, item):
+        raise Busy(key="station-batch-waits", goods=item.type_key)
     #: A full chest is not taken down (D-181). The reason moved with D-308:
     #: it is no longer the pocket -- taking down fills no pocket -- but the
     #: pick-up after it, which weighs the chest and not what is in it, so a

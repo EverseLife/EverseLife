@@ -63,9 +63,9 @@ async def _energy_grid(state: dict, db: AsyncSession, message: dict) -> dict:
 async def _energy_charge(state: dict, db: AsyncSession, message: dict) -> dict:
     """Charge a battery from the pool at the tariff. In person and paid (D-085).
 
-    A battery is a machine (D-179): both the one in hand and the one standing
-    here are charged. Whether the thing is reachable is checked by the energy
-    engine itself.
+    A battery is a machine (D-179), and only the one standing here is charged
+    (D-352). Where the thing is, and whether it stands, is checked by the
+    energy engine itself.
     """
     body = await _alive(state, db)
     item = await db.get(Item, uuid.UUID(message["item"]))

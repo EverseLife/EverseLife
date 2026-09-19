@@ -297,6 +297,7 @@ async def start(
         session,
         batch,
         body,
+        station=ready.station,
         now=moment,
         event={
             "output": forecast.output,
@@ -459,6 +460,7 @@ async def cook(
         session,
         batch,
         body,
+        station=station,
         now=moment,
         event={
             "work": "cook",
@@ -634,6 +636,7 @@ async def _work_on(
         session,
         batch,
         body,
+        station=station,
         now=moment,
         event={
             "work": kind.value,

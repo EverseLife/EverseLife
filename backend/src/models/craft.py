@@ -63,6 +63,11 @@ class CraftBatch(Base):
     __table_args__ = (
         Index("ix_craft_batch_body", "body_id", "state"),
         Index("ix_craft_batch_ready", "state", "ready_at"),
+        #: The batches of a place (D-351): whether a machine may come down, and
+        #: which batches a waking or arriving master takes up again, are both
+        #: asked by the node -- read through `ready` they scanned every
+        #: unfinished batch in the world.
+        Index("ix_craft_batch_node", "node_id", "state"),
         CheckConstraint("units > 0", name="units_positive"),
     )
 

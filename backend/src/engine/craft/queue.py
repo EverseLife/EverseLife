@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.constants import current, current_catalog
 from src.engine import events, goods, travel
 from src.engine import world as world_engine
-from src.engine.craft._base import Busy, CutOff, NoStation
+from src.engine.craft._base import Busy, CraftError, CutOff, NoStation
 from src.engine.craft._internal import (
     _num,
     _occupy,
@@ -71,11 +71,33 @@ async def waiting(session: AsyncSession, body: Body) -> list[CraftBatch]:
     return list((await session.execute(stmt)).scalars().all())
 
 
+async def _hold_station(session: AsyncSession, station: Item | None) -> None:
+    """The machine's row, taken before a batch is written at it (D-351).
+
+    The door that takes a machine down asks, under this very row, whether a
+    batch here still needs it (`station._awaited`). A batch queued behind the
+    master's running one holds no machine of its own (D-209), so without this
+    row the two passed each other: the take-down saw no batch yet, the start
+    saw the machine still standing, and both committed -- the batch waiting
+    for ever on materials already written off (OQ-181). Taken here, one of
+    them waits for the other, and whichever comes second sees what the first
+    did. After the stacks and the pool, where `_occupy` has always written it.
+    """
+    if station is None:
+        return
+    await world_engine.lock_thing(session, station, gone=CraftError)
+    #: Taken down while this waited: nothing to queue at. The master asks
+    #: again and gets whatever machine of the name still stands.
+    if not station.installed:
+        raise NoStation(key="craft-no-station", station=station.type_key)
+
+
 async def _launch(
     session: AsyncSession,
     batch: CraftBatch,
     body: Body,
     *,
+    station: Item | None,
     now: datetime,
     event: dict,
 ) -> CraftBatch:
@@ -85,7 +107,13 @@ async def _launch(
     up front like a running one, otherwise the queue would be a way to reserve
     a machine with nothing. The one thing decided here is **whether it moves
     now**: one body works one batch, the rest wait their turn (D-209).
+
+    `station` is the machine the caller chose, and it is **required** rather
+    than optional: its row is taken here for every batch (`_hold_station`,
+    D-351), and a door that could leave it out is a door that one day will --
+    the coin press did, until a review found it.
     """
+    await _hold_station(session, station)
     #: Born waiting; `_run` is the only door into "running", so that a batch
     #: cannot count as under way without a job scheduled for it.
     batch.state = BatchState.WAITING

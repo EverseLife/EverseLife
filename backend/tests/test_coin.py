@@ -269,6 +269,38 @@ async def test_cannot_melt_more_than_have(
         await coin.melt(session, constants, catalog, body, stack, 3)
 
 
+@pytest.mark.parametrize("count", [0.5, 0, -1, float("nan"), float("inf")])
+async def test_only_whole_coins_are_melted(
+    session: AsyncSession, constants: Constants, catalog: Catalog, count: float
+) -> None:
+    """A coin is counted (D-212): half of one is not melted off the stack.
+
+    Nor is a count that is no number at all -- `json` lets `NaN` and
+    `Infinity` through, and the answer is a refusal in words, not the arithmetic
+    failing under it. The stack stays as it was.
+    """
+    _, _, body = await _yard(session)
+    batch = await coin.mint(session, constants, catalog, body, GOLD, 2)
+    await _bring_to(session, batch)
+    (stack,) = await _coins(session, body)
+
+    with pytest.raises(coin.CoinError) as refused:
+        await coin.melt(session, constants, catalog, body, stack, count)
+    assert refused.value.key == "coin-whole-only"
+    assert sum(amount_float(item.amount) for item in await _coins(session, body)) == 2
+
+
+@pytest.mark.parametrize("count", [float("nan"), float("inf")])
+async def test_a_count_that_is_no_number_mints_nothing(
+    session: AsyncSession, constants: Constants, catalog: Catalog, count: float
+) -> None:
+    """The mint asks the same question of the count as the melt."""
+    _, _, body = await _yard(session)
+    with pytest.raises(coin.CoinError) as refused:
+        await coin.mint(session, constants, catalog, body, GOLD, count)
+    assert refused.value.key == "coin-whole-only"
+
+
 # --- one door ----------------------------------------------------------------
 
 
