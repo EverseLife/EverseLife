@@ -21,6 +21,7 @@ from src.api.registry import command
 from src.constants import current
 from src.constants import registry as R
 from src.engine import (
+    facet,
     utility,
     vote,
 )
@@ -240,22 +241,26 @@ async def _world_summary(state: dict, db: AsyncSession, message: dict) -> dict:
     #: «пришли» with no place said nothing: the destination sits on the event
     #: row as a column, not in its payload, and the client cannot turn a node
     #: id into a word -- nodes are not in the renames (D-251), their names come
-    #: from the server wherever they show. Attached to the wire copy only: the
-    #: journal row keeps its shape, the read writes nothing.
+    #: from the server wherever they show. Named as every line of the journal
+    #: names a node (`facet.told_of`): a find, which has no name (D-321), by
+    #: the keys of its ground, for the reader's window to name in the
+    #: reader's language. Attached to the wire copy only: the journal row
+    #: keeps its shape, the read writes nothing.
     where_to = {
         row.node_id
         for row in happened
         if row.kind == EventKind.TRAVEL_ARRIVED.value and row.node_id is not None
     }
-    called: dict[Any, str] = {}
+    called: dict[Any, dict[str, str]] = {}
     if where_to:
-        called = dict(
-            (await db.execute(select(Node.id, Node.name).where(Node.id.in_(where_to)))).all()
-        )
+        called = {
+            node.id: facet.told_of(constants, node)
+            for node in (await db.execute(select(Node).where(Node.id.in_(where_to)))).scalars()
+        }
 
     def _said(row: Event) -> dict:
         if row.kind == EventKind.TRAVEL_ARRIVED.value and row.node_id in called:
-            return {**(row.payload or {}), "node": called[row.node_id]}
+            return {**(row.payload or {}), **called[row.node_id]}
         return row.payload
 
     return {

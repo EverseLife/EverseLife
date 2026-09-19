@@ -233,10 +233,9 @@ async def returned(session: AsyncSession, job: Job) -> None:
             EventKind.EXPLORE_FOUND,
             actor_identity_id=body.identity_id,
             node_id=aim.existing.id,
-            node=aiming.word_of(constants, aim.existing),
             cell=aim.existing.key,
-            biome=biome.of_node(constants, aim.existing),
             known=True,
+            **_told(constants, aim.existing),
         )
         return
     node, scheme = await materialise(
@@ -250,12 +249,21 @@ async def returned(session: AsyncSession, job: Job) -> None:
         EventKind.EXPLORE_FOUND,
         actor_identity_id=body.identity_id,
         node_id=node.id,
-        node=aiming.word_of(constants, node),
         cell=node.key,
-        biome=(node.properties or {}).get(biome.BIOME),
         complex=scheme,
         known=False,
+        **_told(constants, node),
     )
+
+
+def _told(constants: Constants, node: Node) -> dict[str, str]:
+    """What the line of a run says of the node it reached: its biome, named or
+    not -- what was found is part of the record -- and besides it what
+    every line of the journal names a node by (`facet.told_of`: its name, or
+    the keys of its ground, never the vault's word), so that the digest names
+    it in the reader's language."""
+    here = biome.of_node(constants, node)
+    return {**({biome.BIOME: here} if here else {}), **facet.told_of(constants, node)}
 
 
 async def _stand_on(
