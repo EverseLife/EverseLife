@@ -9,7 +9,8 @@ city there, filled its treasury from `genesis`, flagged it the capital, and
 wrote every unowned node of the planet to it. Checked:
 
 * the next deploy takes it down -- land, members, channel, figures, treasury,
-  the row -- leaves the capital as it was, and never runs again;
+  the row -- leaves the capital as it was, lets the capital's line take what
+  lies inside it (D-356), and never runs again;
 * a citizen it enrolled is left with no city, and keeps the grant it paid;
 * land somebody holds from it, or business of its own, stops the step: nothing
   is touched, the owner hears of it, and the next deploy asks again;
@@ -43,11 +44,13 @@ from src.models.ledger import AccountKind, PostingReason
 from src.models.metrics import DailyMetric
 from src.models.net import NetChannel, NetSubscription
 from src.models.vote import Vote, VoteKind
-from src.models.world import Layer, Node
+from src.models.world import COVERED, Layer, Node
 from src.seed import seed
 from src.units import money
 
 STEP = seed_once.SPHERE_CITY_TAKEN_DOWN
+#: Inside the capital's outline and hanging on the sphere (`test_city_line`).
+OILFIELD = "terra.oilfield"
 
 
 async def _marks(session: AsyncSession) -> list[CatchUpStep]:
@@ -113,7 +116,15 @@ async def test_the_next_deploy_takes_down_the_city_on_the_sphere(
     capital = await town.by_node(session, core.id)
     assert capital is not None
 
+    #: Laid before D-356, the world had the field wild: no line took it.
+    oilfield = await session.scalar(select(Node).where(Node.key == OILFIELD))
+    assert oilfield is not None
+    oilfield.owner_city_id = None
+    oilfield.properties = {k: v for k, v in oilfield.properties.items() if k != COVERED}
+    await session.flush()
+
     city, _ = await _as_the_old_deploy_left_it(session, core)
+    assert oilfield.owner_city_id == city.id
     await session.refresh(find)
     assert find.owner_city_id == city.id
     assert find.center_node_id is not None, "тик мерил землю фантома"
@@ -139,6 +150,10 @@ async def test_the_next_deploy_takes_down_the_city_on_the_sphere(
     assert (find.center_node_id, find.center_steps) == (None, None)
     assert (sphere.center_node_id, sphere.center_steps) == (None, None)
     assert core.owner_city_id == capital.id, "ядро осталось столице"
+    #: Let go before the lines are asked (D-356): the field inside the
+    #: capital's outline is its land in the same deploy.
+    await session.refresh(oilfield)
+    assert oilfield.owner_city_id == capital.id and oilfield.properties[COVERED] is True
     assert await session.scalar(select(NetChannel).where(NetChannel.city_id == gone)) is None
     assert await session.scalar(
         select(func.count()).select_from(NetSubscription).where(
