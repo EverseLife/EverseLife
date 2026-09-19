@@ -28,7 +28,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src import seed_catchup_land as land_catchup
-from src import seed_once, seed_orbits, seed_world
+from src import seed_once, seed_orbits, seed_sphere_city, seed_world
 from src import seed_parts as parts
 from src.constants import current, current_catalog
 from src.constants import registry as R
@@ -94,6 +94,17 @@ async def catch_up(session: AsyncSession, core: Node) -> None:
     #: founded on the sphere, flagged the capital, and every find of the
     #: planet written to it as its built-up area.
     capital = above if above.layer is Layer.PLANET else core
+
+    #: And the city that reading founded comes down (D-356, addendum
+    #: 2026-09-19), before anything below counts cities or hands out land:
+    #: while it stands, every node hanging on the sphere is its built-up area
+    #: by parent alone. Once per world (`seed_once` says why); a run that has
+    #: to wait for the owner is not marked and asks again at the next deploy
+    #: (`seed_sphere_city.take_down`).
+    if await seed_once.claim(session, seed_once.SPHERE_CITY_TAKEN_DOWN):
+        taken = await seed_sphere_city.take_down(session)
+        if taken is not None:
+            await seed_once.done(session, seed_once.SPHERE_CITY_TAKEN_DOWN, cities=taken)
 
     #: The rest of the system: a world laid out before the space layer had
     #: Terra alone in the sky, and a lone dot is not a system. The other three

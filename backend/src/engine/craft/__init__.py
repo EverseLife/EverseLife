@@ -103,7 +103,6 @@ from src.engine.craft._internal import (  # noqa: F401
     _knows,
     _material_quality,
     _num,
-    _occupy,
     _pick,
     _pick_station,
     _pieces,
@@ -168,5 +167,6 @@ from src.engine.craft.queue import (  # noqa: F401
     waiting,
     wake,
     wake_node,
+    woken,
 )
 from src.engine.craft.wearing import _wear_station  # noqa: F401

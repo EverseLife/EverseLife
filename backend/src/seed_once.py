@@ -34,9 +34,16 @@ LINES_DEFAULT_ENDED = "lines_default_ended"
 #: turn any later location of a city that hangs off its node into a plot.
 TAKEN_LAND_IS_PLOTS = "taken_land_is_plots"
 
+#: The city the catch-up founded on a planet's sphere after D-330, taken down
+#: (D-356, addendum 2026-09-19): `seed_sphere_city.take_down`. Once, because
+#: what it reads -- a city whose node is not on a surface -- is the defect
+#: today and need not stay one: run at every deploy, it would pull down the
+#: first city a later decision lets stand anywhere but the ground.
+SPHERE_CITY_TAKEN_DOWN = "sphere_city_taken_down"
+
 #: Every one-off step there is. A new one is added here, so a fresh world is
 #: born past it.
-ONCE = (LINES_DEFAULT_ENDED, TAKEN_LAND_IS_PLOTS)
+ONCE = (LINES_DEFAULT_ENDED, TAKEN_LAND_IS_PLOTS, SPHERE_CITY_TAKEN_DOWN)
 
 
 async def claim(session: AsyncSession, step: str) -> bool:
