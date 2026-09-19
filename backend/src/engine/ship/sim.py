@@ -28,6 +28,8 @@ whenever the time left has halved.
 
 from __future__ import annotations
 
+import asyncio
+import math
 import uuid
 from collections.abc import Sequence
 from datetime import datetime, timedelta
@@ -212,6 +214,76 @@ def _body_or_none(world: sky.System, key: str) -> sky.Body | None:
         return None
 
 
+async def dense_drifter(
+    session: AsyncSession,
+    constants: Constants,
+    world: sky.System,
+    other: Ship,
+    *,
+    t0: float,
+    t1: float,
+) -> sky.Drifter | None:
+    """The target hull's line for the stretch being flown, laid densely.
+
+    The forecast on its row is the chart's line -- a couple of dozen points
+    over months, coarse enough to miss a hull by units between two of them
+    -- so the helm is given the same coast propagated afresh **from the
+    hull's own stamp**, a point an hour, to a while past the stretch's end
+    (`_meet` wants the hull's speed as well as its place). From the stamp
+    and not from the stretch's start: the target may have been restamped
+    this very tick, and a state asked for before a stamp is the stamp's --
+    an hour's shift that read as the target jumping a unit.
+
+    A target in orbit round a planet is read by Kepler instead (D-354,
+    wave 3, `sky.Orbiter`): a lap there is hours long, and a line of hourly
+    points is chords across it -- and a meeting in orbit aims at where the
+    other will be at the order's hour, days past any stretch.
+    """
+    if other.sky_at is None or other.held_ship_id is not None:
+        return None
+    r, v = _state_of(other)
+    start = await sky_days(session, other.sky_at)
+    step = float(constants[R.ORBIT_PLAN_STEP_MINUTES]) / MINUTES_PER_HOUR / HOURS_PER_DAY
+    held = sky.bound_to(world, start, r, v)
+    if held is not None:
+        if t0 > start and not sky.kepler_reads(world, held, t0 - start):
+            #: Where Kepler does not read the orbit over the stamp's age --
+            #: Pyroxis -- the target is flown to the stretch's start under the
+            #: whole sky, so that it and the chaser are aimed from one moment.
+            #: Read off a stamp hours old it jumped at every restamp by what
+            #: the tide had done since, and the chaser paid to follow the jumps
+            #: (measured 2026-09-19 round Pyroxis: 1.6 times the price of a
+            #: thirteen-hour meeting, and 1.01 read afresh).
+            rr, vv = await asyncio.to_thread(
+                sky.advance,
+                world,
+                np.array([start]),
+                np.array([t0]),
+                np.array([r]),
+                np.array([v]),
+                dt_max=step,
+            )
+            held = sky.bound_to(world, t0, _row(rr), _row(vv)) or held
+        return sky.orbiter(f"ship:{other.id}:{held.t0}", held)
+    horizon = max(t1 - start, step) + max(t1 - t0, step) + step
+    points = int(math.ceil(horizon * HOURS_PER_DAY)) + 1 + 1
+    path = sky.sample(
+        world,
+        start,
+        np.array([r]),
+        np.array([v]),
+        np.array([horizon]),
+        dt_max=step,
+        points=points,
+    )[0]
+    return sky.Drifter(
+        key=f"ship:{other.id}:{start}",
+        t0=start,
+        t1=start + horizon,
+        trace=tuple((float(x), float(y)) for x, y in path),
+    )
+
+
 async def states_at(
     session: AsyncSession, constants: Constants, ships: Sequence[Ship], *, now: datetime
 ) -> dict[uuid.UUID, tuple[tuple[float, float], tuple[float, float]]]:
@@ -339,28 +411,38 @@ def leaving_of(
     return None if held is None else held.body
 
 
-async def orbit_of(
-    session: AsyncSession, constants: Constants, ship: Ship, *, now: datetime
-) -> sky.Bound | None:
+async def orbit_of(session: AsyncSession, constants: Constants, ship: Ship) -> sky.Bound | None:
     """The orbit this hull is on round a planet (D-354), or nothing: a hull
     that coasts -- no order, no leg, not moored, not lost -- on a closed orbit
     that keeps (`sky.bound_to`). "In orbit" is this reading, not a place: the
     console's stage, the descent's leave and the music aboard all ask it. A
-    hull on the hold reads the orbit it flies with its reference."""
+    hull on the hold reads the orbit it flies with its reference.
+
+    Read off the stamp, not flown to the moment: a coast on an orbit that
+    keeps is on that orbit until the next restamp says otherwise, and what
+    is asked of it -- the planet and the far point -- is the orbit's shape.
+    Flown to the moment it put the integrator in the event loop of every
+    `look`, for an answer that could not differ."""
     if ship.course or ship.docked_node_id is not None or ship.lost_at is not None:
         return None
-    found = await state_at(session, constants, ship, now=now)
-    if found is None:
+    carrier = ship
+    if ship.held_ship_id is not None:
+        other = await session.get(Ship, ship.held_ship_id)
+        if other is not None and other.lost_at is None and other.held_ship_id is None:
+            carrier = other
+    if carrier.sky_at is None or carrier.course:
+        #: A reference under an order of its own is flying, whatever its
+        #: stamp says; its holder is let go by the order or the next sweep.
         return None
-    r, v, t = found
-    return sky.bound_to(await system(session, constants), t, r, v)
+    r, v = _state_of(carrier)
+    return sky.bound_to(
+        await system(session, constants), await sky_days(session, carrier.sky_at), r, v
+    )
 
 
-async def orbiting(
-    session: AsyncSession, constants: Constants, ship: Ship, *, now: datetime
-) -> sky.Body | None:
+async def orbiting(session: AsyncSession, constants: Constants, ship: Ship) -> sky.Body | None:
     """The planet this hull is in orbit round, or nothing (`orbit_of`)."""
-    held = await orbit_of(session, constants, ship, now=now)
+    held = await orbit_of(session, constants, ship)
     return None if held is None else held.body
 
 
@@ -635,8 +717,8 @@ async def picture(
                 "body": stored.get("body"),
                 "trace": stored.get("trace") or [],
                 #: The planet a lap goes round (D-354): the chart draws the
-                #: line round where that planet is now.
-                "around": stored.get("around"),
+                #: line round where that planet is now. No key for a coast.
+                **({"around": stored["around"]} if stored.get("around") else {}),
             }
         ),
     }

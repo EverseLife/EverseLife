@@ -3,18 +3,17 @@
 
 """What a hull sees of the others in the sky (D-289, wave 3), and what it may aim at.
 
-One's own hulls always; foreign ones within the sight radius -- and only
-what is seen may be the target of an order. Two hulls in orbit round one
-planet see each other as any two hulls do, by the distance between them:
-there is no node above a planet to share any more (D-354). The
-hold and the docking are read here too, for the console. Reads write
+One's own hulls always; foreign ones within the sight radius, or in orbit
+round the same planet (`sky.seen_from`) -- and only what is seen may be the
+target of an order. The second is D-289's "on one planet's parking circle",
+kept as a reading of the sky since there is no node above a planet to share
+(D-354). The hold and the docking are read here too, for the console. Reads write
 nothing: the journal is told of a sighting by the tick (`helm._sight`), and
 the consents are written by `meet`.
 """
 
 from __future__ import annotations
 
-import math
 from collections.abc import Sequence
 from datetime import datetime
 
@@ -41,7 +40,7 @@ async def sightings(
     session: AsyncSession, constants: Constants, ship: Ship, *, now: datetime
 ) -> list[dict[str, object]]:
     """Who else is in the sky near this hull: one's own hulls always, foreign
-    ones within the sight radius of this hull.
+    ones within the sight radius of this hull or in orbit round its planet.
 
     Each with where it is, what it is doing, whose it is, and whether it may
     be aimed at -- a drifter with a forecast, on nobody's hold, is a target
@@ -51,6 +50,7 @@ async def sightings(
     t = await sky_days(session, now)
     afloat, table = await _placed(session, constants, now=now)
     mine = table.get(ship.id)
+    sight = sky.Sight(world, t, table)
     seen: list[dict[str, object]] = []
     for other in afloat:
         if other.id == ship.id:
@@ -59,9 +59,7 @@ async def sightings(
         if theirs is None:
             continue
         own = other.owner_identity_id == ship.owner_identity_id
-        near = mine is not None and (
-            math.hypot(mine[0][0] - theirs[0][0], mine[0][1] - theirs[0][1]) <= world.sight_radius
-        )
+        near = mine is not None and sight.sees(ship.id, other.id)
         if not (own or near):
             continue
         seen.append(
@@ -189,7 +187,7 @@ async def _in_sight(
     if mine is None or theirs is None:
         return False
     world = await sim.system(session, constants)
-    return math.hypot(mine[0][0] - theirs[0][0], mine[0][1] - theirs[0][1]) <= world.sight_radius
+    return sky.seen_from(world, await sky_days(session, now), mine, theirs)
 
 
 def paired(ship: Ship, other: Ship) -> bool:

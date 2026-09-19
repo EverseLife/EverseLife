@@ -119,7 +119,9 @@ _TINY = 1e-12
 _EDGE = 1e-6
 #: Bracketing of Kepler's equation in the universal anomaly.
 _CHI_DOUBLINGS = 200
-#: Full turns round the central body a transfer is ever asked about.
+#: Full turns round the star a transfer between two worlds is asked about
+#: (`max_revs`). A meeting in orbit round a planet asks `lambert` of as many
+#: turns as its hours hold, near the hull's own lap (`sky.rendezvous`).
 MAX_REVS = 3
 
 

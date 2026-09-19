@@ -30,6 +30,9 @@ import pytest
 
 from sky_kit import system as _system
 from src import astro, sky
+from src.constants import Constants
+from src.constants import registry as R
+from src.engine.ship import course
 from src.sky import _base, rendezvous
 
 #: A thrust the tests fly at, units a day squared: a middling hull's.
@@ -53,14 +56,24 @@ def _orbiter(world: sky.System, key: str, phase: float) -> sky.Orbiter:
     return sky.orbiter("other", held)
 
 
-def _fly(world, target, r, v, *, arrive: float, a_max: float) -> tuple[bool, float, float, float]:
+def _fly(
+    world,
+    target,
+    r,
+    v,
+    *,
+    arrive: float,
+    a_max: float,
+    key: str = "terra",
+    step: float = STEP,
+) -> tuple[bool, float, float, float]:
     """The helm flown a minute at a time under the whole sky until the hold:
-    whether it came, the speed it burnt, the hour, and how near Terra's
-    centre it passed, in Terra's radii."""
-    terra = world.body("terra")
+    whether it came, the speed it burnt, the hour, and how near the planet's
+    centre it passed, in the planet's radii."""
+    terra = world.body(key)
     t, spent, low = T0, 0.0, math.inf
     while t < arrive + 0.25:
-        helm = sky.steer(world, target, t, r, v, arrive=arrive, a_max=a_max, dt=STEP)
+        helm = sky.steer(world, target, t, r, v, arrive=arrive, a_max=a_max, dt=step, around=terra)
         if helm.captured:
             return True, spent, t, low
         thrust = np.array(helm.thrust)
@@ -97,17 +110,26 @@ def test_a_hull_in_orbit_as_a_target_is_read_by_kepler() -> None:
 
 
 def test_only_a_hull_in_orbit_is_met_round_a_planet() -> None:
+    """A meeting on arcs round a planet is between two hulls in orbit round
+    it: the target an `Orbiter`, and the chaser on an orbit that keeps round
+    the same planet -- not merely near it. One falling past the planet inside
+    its inner sphere, switched to arcs there, found none and went into the
+    ground (review 2026-09-19): it meets from orbit, after a course there."""
     world = _system()
-    here, _ = _circle(world, "terra", 0.0)
+    terra = world.body("terra")
+    here, speed = _circle(world, "terra", 0.0)
     other = _orbiter(world, "terra", math.pi)
-    assert rendezvous.shared_world(world, T0, here, other) is world.body("terra")
+    assert rendezvous.shared_world(world, T0, here, speed, other) is terra
     #: The same place as a line of points -- a hull on no orbit that keeps.
     line = sky.Drifter(key="line", t0=T0, t1=T0 + 1, trace=(other.state(T0)[0][0].tolist(),) * 2)
-    assert rendezvous.shared_world(world, T0, here, line) is None
-    #: And the hull out in the deep, far from Terra's inner sphere.
-    p, _ = sky.place(world.body("terra"), T0)
+    assert rendezvous.shared_world(world, T0, here, speed, line) is None
+    #: Close in, but falling: inside the inner sphere and on no orbit.
+    p, vp = sky.place(terra, T0)
+    falling = (float(vp[0, 0]) - 3 * float(np.hypot(*(np.array(speed) - vp[0]))), float(vp[0, 1]))
+    assert rendezvous.shared_world(world, T0, here, falling, other) is None
+    #: And the hull out in the deep, far from Terra.
     far = (float(p[0, 0]) + 10.0, float(p[0, 1]))
-    assert rendezvous.shared_world(world, T0, far, other) is None
+    assert rendezvous.shared_world(world, T0, far, speed, other) is None
 
 
 def test_half_a_lap_behind_is_met_on_an_arc_round_the_planet() -> None:
@@ -116,7 +138,7 @@ def test_half_a_lap_behind_is_met_on_an_arc_round_the_planet() -> None:
     world = _system()
     r, v = _circle(world, "terra", 0.0)
     other = _orbiter(world, "terra", math.pi)
-    home = rendezvous.shared_world(world, T0, r, other)
+    home = rendezvous.shared_world(world, T0, r, v, other)
     assert home is not None
     grid = [2.0 * 1.1**k for k in range(30)]
     laid = sky.meet_quotes(world, home, T0, r, v, other, grid, THRUST)
@@ -204,3 +226,57 @@ def test_the_same_ray_is_coasted() -> None:
         2 * math.pi * sky.park_of(world, terra) / sky.circle_speed(terra, sky.park_of(world, terra))
     )
     assert rendezvous.arc_to(world, terra, T0, r, v, other, 3 * lap) is None
+
+
+@pytest.mark.parametrize(
+    ("key", "pick"),
+    [("terra", 0), ("pyroxis", -1)],
+    ids=["terra-fastest", "pyroxis-tide-edge"],
+)
+def test_the_edges_of_the_slider_are_flown_as_priced(
+    constants: Constants, key: str, pick: int
+) -> None:
+    """The two cuts are measured, not tuned (`rendezvous.IMPULSE_SHARE`,
+    `TIDE_SHARE`), and these are the points that sit on them: the fastest
+    arc Terra's slider offers, its burns nearest a fortieth of a lap, and
+    the cheapest Pyroxis offers, its tide nearest a fifth of the orbit. Both
+    are flown for their price and clear of the ground; a retune of the sky
+    that moves either point off its price fails here first. The reference
+    hull's thrust, the helm's step, the slider's grid and its gap are the
+    vault's own (the sky's shape is `sky_kit`'s, kept equal to the vault by
+    `test_sky`)."""
+    world = _system()
+    ratio = float(constants[R.SHIP_REFERENCE_RATIO])
+    a_max = ratio * float(constants[R.ORBIT_THRUST_SCALE])
+    step = float(constants[R.ORBIT_STEP_MINUTES]) / (24 * 60)
+    r, v = _circle(world, key, 0.0)
+    other = _orbiter(world, key, math.pi)
+    laid = sky.meet_quotes(world, world.body(key), T0, r, v, other, course.grid(constants), a_max)
+    offered = sky.choices(
+        laid, reach=course.reach(constants, ratio), gap=float(constants[R.ORBIT_ROUTE_GAP])
+    )
+    assert offered, key
+    quote = offered[pick]
+    came, spent, _, low = _fly(
+        world, other, r, v, arrive=T0 + quote.hours / 24, a_max=a_max, key=key, step=step
+    )
+    assert came, key
+    assert spent <= 1.15 * quote.dv, (key, quote.hours, spent, quote.dv)
+    assert low > _base.GROUND_MARGIN * 0.9, key
+
+
+def test_two_hulls_in_orbit_round_one_planet_see_each_other() -> None:
+    """Pyroxis' parking circle is wider across than the sight radius: two
+    hulls on it half a lap apart are out of range for ever, one lap long
+    both, and would never be met -- but both are in orbit round one planet,
+    and D-289 kept that in sight."""
+    world = _system()
+    one = _circle(world, "pyroxis", 0.0)
+    other = _circle(world, "pyroxis", math.pi)
+    gap = math.hypot(one[0][0] - other[0][0], one[0][1] - other[0][1])
+    assert gap > world.sight_radius, "шире радиуса"
+    assert sky.seen_from(world, T0, one, other)
+    #: A hull at another planet at the same distance is not.
+    p, _ = sky.place(world.body("terra"), T0)
+    far = ((float(p[0, 0]) + gap, float(p[0, 1])), one[1])
+    assert not sky.seen_from(world, T0, one, far)

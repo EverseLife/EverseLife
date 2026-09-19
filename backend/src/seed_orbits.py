@@ -9,14 +9,17 @@ a gangway, on an analytic circle. A world laid before keeps those nodes;
 this step takes them away and finds a place for what they held:
 
 * a hull moored there is put into orbit -- a state in the sky -- over the
-  meridian of the pier it last left, as a climb puts one there now;
+  meridian of the pier it last left on this planet, as a climb puts one
+  there now, and over the planet's nought meridian if it came from another;
 * a walk under way across a gangway to or from the node ends at its end
-  aboard;
-* a body standing there goes aboard the first hull that was moored there;
-  with none it dies of the void, as D-245 said a body left there would;
+  aboard, and its arrival job with it;
+* a body standing there goes aboard its own hull moored there, or the
+  first hull moored there; with none it dies of the void, as D-245 said a
+  body left there would;
 * a thing lying there goes aboard with it, or is gone with the node;
-* the journal of walks there and the circles once talked in there go with
-  the node;
+* the journal of walks there, the talk and the circles once talked in
+  there, and the lists of who may enter go with the node; a post written
+  there is remembered as written over the planet;
 * a leg bound there -- a climb, a descent turned back -- is bound for the
   planet instead.
 
@@ -32,7 +35,7 @@ import logging
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src import sky
@@ -45,12 +48,13 @@ from src.engine.ship.flight import meridian
 from src.engine.ship.physics import sky_days
 from src.engine.world.gone import destroy
 from src.engine.world.things import node_container, node_things, node_yard
-from src.models.chat import ChatGroup
+from src.models.chat import ChatGroup, ChatMessage
 from src.models.identity import Body
 from src.models.job import Job, JobKind, JobState
+from src.models.net import NetPost
 from src.models.ship import Ship
 from src.models.travel import Travel, TravelState
-from src.models.world import Edge, Node
+from src.models.world import Edge, Node, NodePass
 
 log = logging.getLogger(__name__)
 
@@ -141,6 +145,24 @@ async def _empty(
         leg.state = TravelState.ARRIVED
         leg.arrived_at = now
         leg.plan = None
+    #: And their arrival jobs: the legs are gone with the node below, and a
+    #: job left for one fails on it (`travel-job-no-leg`) and is retried.
+    if walking:
+        for job in (
+            (
+                await session.execute(
+                    select(Job).where(
+                        Job.kind == JobKind.TRAVEL_LEG.value,
+                        Job.state.in_((JobState.PENDING, JobState.RUNNING)),
+                        Job.payload["travel"].astext.in_([str(leg.id) for leg in walking]),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        ):
+            job.state = JobState.DONE
+            job.finished_at = now
     await session.flush()
 
     #: Bodies standing in the void: aboard the first hull that was there, or
@@ -151,8 +173,13 @@ async def _empty(
         .all()
     )
     for body in standing:
-        if refuge is not None:
-            body.node_id = refuge.id
+        #: Its own hull first: a body out on the node came off one, and the
+        #: one it owns is the likeliest; failing that, the first there --
+        #: aboard a stranger's hull rather than dead of a node taken away.
+        own = next((hull for hull in hulls if hull.owner_identity_id == body.identity_id), None)
+        haven = refuge if own is None else await session.get(Node, own.connector_node_id)
+        if haven is not None:
+            body.node_id = haven.id
             report["aboard"] += body.died_at is None
             continue
         if body.died_at is None:
@@ -195,6 +222,13 @@ async def _empty(
             continue
         body = world_sky.body(sphere.planet.value)
         pier = None if hull.left_node_id is None else await session.get(Node, hull.left_node_id)
+        if pier is not None and (
+            pier.planet != sphere.planet or (pier.properties or {}).get(_ORBIT_MARK)
+        ):
+            #: A hull that came from another world last left a pier there, or
+            #: an orbital node: no meridian of this planet to hang over, so
+            #: its own nought meridian.
+            pier = None
         t = await sky_days(session, now)
         angle = await meridian(session, constants, body, pier, t=t, at=now)
         r, v = sky.parking(world_sky, body, t, angle)
@@ -212,6 +246,12 @@ async def _empty(
         delete(Travel).where(or_(Travel.from_node_id == orbit.id, Travel.to_node_id == orbit.id))
     )
     await session.execute(delete(ChatGroup).where(ChatGroup.node_id == orbit.id))
+    await session.execute(delete(ChatMessage).where(ChatMessage.node_id == orbit.id))
+    await session.execute(delete(NodePass).where(NodePass.node_id == orbit.id))
+    if sphere is not None:
+        await session.execute(
+            update(NetPost).where(NetPost.node_id == orbit.id).values(node_id=sphere.id)
+        )
     await session.execute(
         delete(Edge).where(or_(Edge.node_a_id == orbit.id, Edge.node_b_id == orbit.id))
     )
@@ -242,7 +282,15 @@ async def _legs_bound_there(
         hull = await session.get(Ship, uuid.UUID(str(job.payload["ship"])))
         payload = dict(job.payload)
         payload["to"] = str(orbit.parent_id)
-        if hull is not None and hull.left_node_id is not None and "over" not in payload:
+        if (
+            hull is not None
+            and hull.left_node_id is not None
+            and hull.left_node_id not in gone
+            and "over" not in payload
+        ):
+            #: Over the pier it left; a descent turned back left the orbit
+            #: itself, which is going, and hangs over the planet's own
+            #: nought meridian instead.
             payload["over"] = str(hull.left_node_id)
         job.payload = payload
         report["legs"] += 1

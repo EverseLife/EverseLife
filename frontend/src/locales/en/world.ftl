@@ -165,7 +165,7 @@ ui-ship-yard = Space shipyard
 ui-ship-console = Ship control console
 ui-ship-ground-console = Ground control console
 ui-ship-console-aground = The console stands on the ground and says nothing: it works only in a node of a ship — on a foundation laid at a spaceport out of a “ship node foundation”. For orders from the ground there is another thing — the “Ground control console”.
-ui-ship-rule = A ship is not a thing but a group of map nodes with one way out. Mooring and casting off are one edge appearing and disappearing, and flight is its absence: from aboard there is simply nowhere to step off. Speed follows from thrust against mass, so there is no carrying capacity as a number — an overloaded ship stays in port. The road runs on three legs: the climb to planetary orbit, the crossing from orbit to orbit, the descent to the chosen spaceport. The course is set on the bridge chart: it shows the hours and the fuel of this hull in particular.
+ui-ship-rule = A ship is not a thing but a group of map nodes with one way out. Mooring and casting off are one edge appearing and disappearing, and flight is its absence: from aboard there is simply nowhere to step off. Speed follows from thrust against mass, so there is no carrying capacity as a number — an overloaded ship stays in port. The road runs on three legs: the climb to orbit, the crossing to a planet, the descent to the chosen spaceport. The course is set on the bridge chart: it shows the hours and the fuel of this hull in particular.
 
 ## The hull's card: engines, mass, speed, air.
 
@@ -238,12 +238,12 @@ ui-ship-no-bridge = Casting off and a passage are ordered from the control conso
 
 ## The climb: the hull's only move on the ground.
 
-ui-ship-no-orbit = No climbing from here: this planet has no orbit.
+ui-ship-no-orbit = No climbing from here: there is no orbit round this planet.
 ui-ship-climb-to = Orbit: { $planet }
 ui-ship-orbit-high = The orbit is too high to land from: set a course for this same planet first — the autopilot brings the ship down to the parking circle.
 ui-ship-no-thrust = no thrust at all: fit an engine
 ui-ship-leg-cost = { $hours } h · { $fuel } fuel
-ui-ship-ascend = Climb to planetary orbit
+ui-ship-ascend = Climb to orbit
 ui-ship-ascend-hint = the climb takes time by the planet's gravity and the hull's thrust; it can be turned around
 ui-ship-thrust-short = not enough thrust to lift off: shed mass or add an engine
 ui-ship-ratio-short = Not enough thrust to weight: the ship does not lift off.
@@ -293,7 +293,7 @@ ui-ship-pick-planet = The course is set on the map: pick a planet.
 ui-ship-no-route = There is no way from here to there: either no route is laid in the world, or not one beacon is lit on that planet — the ship would go and stay in orbit.
 ui-ship-thrust-cut = not enough thrust: shed mass
 ui-ship-fly = Fly
-ui-ship-fly-hint = the crossing runs from orbit to orbit; the spaceport is chosen above the planet
+ui-ship-fly-hint = the crossing goes to a planet; the spaceport is chosen in orbit round it
 
 ## The hull's name: the owner's word, the engine derives nothing from it.
 

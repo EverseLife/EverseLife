@@ -20,6 +20,7 @@ from collections import OrderedDict
 from collections.abc import Sequence
 from dataclasses import replace
 from datetime import datetime
+from functools import partial
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -68,22 +69,56 @@ async def offers(
     r, v, t = found
     world = await sim.system(session, constants)
     if isinstance(target, sky.Drifter):
-        #: A hull as the target (wave 3). At a planet both are close in round,
-        #: arcs round that planet, and a real choice between them: the more
-        #: laps the hours hold, the less speed is changed (D-354). Solved off
-        #: the loop and not remembered: the price moves as the two go round,
-        #: and the order flies the quote of its own moment.
+        #: A hull as the target (wave 3). A hull in orbit is met from orbit
+        #: round the same planet (D-354): arcs round that planet, and a real
+        #: choice between them -- the more laps the hours hold, the less speed
+        #: is changed. Solved in the pool and not remembered: the price moves
+        #: as the two go round, and the order flies the quote of its moment.
         a_max = thrust_ratio * float(constants[R.ORBIT_THRUST_SCALE])
-        home = sky.shared_world(world, t, r, target)
+        home = sky.shared_world(world, t, r, v, target)
         if home is not None:
-            laid = await asyncio.to_thread(
-                sky.meet_quotes, world, home, t, r, v, target, course.grid(constants), a_max
+            #: Remembered on everything it is laid from -- the hull's stamp,
+            #: the target's reading of this moment, the moment, the thrust --
+            #: so the order lays it before the hull's row is locked and finds
+            #: it again under the lock (`crossing.fly`), rather than holding
+            #: the row while the pool works through somebody's flyby.
+            key = (
+                constants.digest,
+                _basis(ship),
+                target.key,
+                now.isoformat(),
+                round(a_max, ROUND_DV),
             )
+            laid = _MEETS.get(key)
+            if laid is None:
+                laid = await flyby.pooled(
+                    partial(
+                        sky.meet_quotes,
+                        world,
+                        home,
+                        t,
+                        r,
+                        v,
+                        target,
+                        course.grid(constants),
+                        a_max,
+                    )
+                )
+                _MEETS[key] = laid
+                while len(_MEETS) > SKY_CURVE_MEMO:
+                    _MEETS.popitem(last=False)
             return sky.choices(
                 laid,
                 reach=course.reach(constants, thrust_ratio),
                 gap=float(constants[R.ORBIT_ROUTE_GAP]),
             )
+        if isinstance(target, sky.Orbiter):
+            #: A hull in orbit, and this one not in orbit round its planet:
+            #: first a course to the planet, then the meeting -- as a descent
+            #: is asked of a hull close in. Coming in from outside on the
+            #: straight profile aimed through the planet, and switched to arcs
+            #: round it halfway, half the starts measured went into the ground.
+            raise NoArc(key="ship-meet-from-orbit", planet=target.held.body.key)
         #: Elsewhere, one price, the approach profile's own -- the helm flies
         #: that profile and no arc, so a slider of arcs would quote hours and
         #: delta-v nobody flies.
@@ -255,3 +290,6 @@ async def point(
 
 #: The direct previews remembered across commands (see `arcs`).
 _PREVIEWS: OrderedDict[tuple, list[sky.Sample]] = OrderedDict()
+#: The meetings in orbit laid for a moment (see `offers`): an order's two
+#: readings of one moment, before its lock and under it.
+_MEETS: OrderedDict[tuple, list[sky.Sample]] = OrderedDict()

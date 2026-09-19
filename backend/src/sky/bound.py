@@ -37,7 +37,7 @@ is as ordinary a case as any ellipse.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -172,6 +172,59 @@ def orbiter(key: str, held: Bound) -> Orbiter:
         around=held.body,
         held=held,
     )
+
+
+class Sight:
+    """Who sees whom among the hulls of one table of states at `t` (D-289,
+    wave 3): within the sight radius, or both on closed orbits round one
+    planet, read off the state. The second was D-289's "on one planet's
+    parking circle" while the circle was a node, and D-354 keeps it as a
+    reading of the sky: the parking circle of Pyroxis is wider across than
+    the sight radius, and two hulls on it half a lap apart -- one lap long,
+    so never nearer -- would otherwise never see each other, nor be met.
+
+    Each hull's orbit is read once for the table, when first asked: the
+    tick asks it of every pair of a moved hull and all the others, and
+    reading both of every pair was a hundred microseconds a hull, squared."""
+
+    def __init__(
+        self,
+        system: System,
+        t: float,
+        table: Mapping[object, tuple[tuple[float, float], tuple[float, float]]],
+    ) -> None:
+        self._system = system
+        self._t = t
+        self._table = table
+        self._round: dict[object, str | None] = {}
+
+    def planet_of(self, key: object) -> str | None:
+        """The planet this hull is on a closed orbit round, or nothing."""
+        if key not in self._round:
+            r, v = self._table[key]
+            held = bound_to(self._system, self._t, r, v)
+            self._round[key] = None if held is None else held.body.key
+        return self._round[key]
+
+    def sees(self, one: object, other: object) -> bool:
+        """Whether these two hulls of the table see each other."""
+        mine, theirs = self._table[one], self._table[other]
+        gap = float(np.hypot(mine[0][0] - theirs[0][0], mine[0][1] - theirs[0][1]))
+        if gap <= self._system.sight_radius:
+            return True
+        planet = self.planet_of(one)
+        return planet is not None and planet == self.planet_of(other)
+
+
+def seen_from(
+    system: System,
+    t: float,
+    mine: tuple[tuple[float, float], tuple[float, float]],
+    theirs: tuple[tuple[float, float], tuple[float, float]],
+) -> bool:
+    """Whether two hulls, each a `(place, velocity)` at `t`, see each other
+    (`Sight`), asked of the one pair."""
+    return Sight(system, t, {0: mine, 1: theirs}).sees(0, 1)
 
 
 def kepler_reads(system: System, held: Bound, window: float) -> bool:

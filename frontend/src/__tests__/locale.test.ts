@@ -71,7 +71,7 @@ storage-nothing-to-put = класть нечего
 session-locale-unknown = такого языка нет: { $locale }
 storage-relic = «{ NAME($goods) }» — наследие Предтеч
 estate-unknown-kind = «{ KIND($kind) }» — не тип здания; строят из: { KINDS($kinds) }
-ship-planet-has-no-orbit = у планеты { PLANET($planet) } нет орбитального узла
+ship-planet-has-no-orbit = у планеты { PLANET($planet) } подниматься некуда: вокруг неё нет орбиты
 market-wrong-tier = ступень «{ TIER($tier) }» не та
 gear-wrong-slot = слот «{ SLOT($slot) }» занят
 attention-vote-law = голосование: { LAW($law) }
@@ -160,7 +160,7 @@ describe("NAME()", () => {
 describe("the rest of the message functions", () => {
   it("gives each one its own domain", () => {
     expect(t("ship-planet-has-no-orbit", { planet: "terra" })).toBe(
-      "у планеты Терра нет орбитального узла",
+      "у планеты Терра подниматься некуда: вокруг неё нет орбиты",
     );
     expect(t("market-wrong-tier", { tier: "fine" })).toBe("ступень «отличное» не та");
     expect(t("gear-wrong-slot", { slot: "back" })).toBe("слот «спина» занят");

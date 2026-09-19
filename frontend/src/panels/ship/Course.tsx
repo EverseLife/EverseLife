@@ -44,6 +44,8 @@ export function Course({
   const [reserve, setReserve] = useState(0);
   const [trouble, setTrouble] = useState<string | null>(null);
   const [why, setWhy] = useState<CourseAnswer["why"]>(null);
+  //: The planet the slider's arcs go round, for a meeting in orbit (D-354).
+  const [around, setAround] = useState<string | null>(null);
   const [pick, setPick] = useState<number | null>(null);
   //: Reread after this window's own order is answered (D-341): a flyby gone
   //: by the order's moment is refused, and the slider must show the sky that
@@ -74,6 +76,7 @@ export function Course({
         setSamples(got);
         setReserve(answer.reserve ?? 0);
         setWhy(answer.why ?? null);
+        setAround(answer.around ?? null);
         //: Start at the cheap end, the last point: the default the engine
         //: flies unnamed -- or, rereading after a refusal, at the hours that
         //: were chosen, if the sky still offers them.
@@ -95,11 +98,11 @@ export function Course({
   useEffect(() => {
     const standing = target !== null && samples !== null && pick !== null ? samples[pick] : null;
     if (standing) held.current = standing.hours;
-    onPlan(standing?.trace ? { trace: standing.trace, around: standing.around ?? null } : null);
+    onPlan(standing?.trace ? { trace: standing.trace, around } : null);
     //: And nothing once the slider is gone: a line left behind after the
     //: order would lie on top of the order's own.
     return () => onPlan(null);
-  }, [onPlan, target, samples, pick]);
+  }, [onPlan, target, samples, pick, around]);
 
   if (target === null) {
     return <p className="note">{t("ui-ship-pick-planet")}</p>;

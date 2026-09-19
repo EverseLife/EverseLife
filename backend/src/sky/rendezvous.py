@@ -40,8 +40,8 @@ from dataclasses import dataclass
 import numpy as np
 
 from src import astro
-from src.sky._base import INNER_SHARE, Body, Drifter, System, hill_of, place, place_any
-from src.sky.bound import Orbiter, closed_orbit, tide_slip
+from src.sky._base import Body, Drifter, System, place, place_any
+from src.sky.bound import Orbiter, bound_to, closed_orbit, tide_slip
 
 #: Laps either side of the count the hull's own lap puts in the hours. Two
 #: and three either side found no cheaper arc in the measure of 2026-09-19
@@ -50,14 +50,17 @@ from src.sky.bound import Orbiter, closed_orbit, tide_slip
 #: lap more is four more solutions for every hull that asks.
 LAP_WINDOW = 1
 
-#: Within this of a whole number of turns, radians, the hull and the point it
-#: is aimed at lie on one ray from the planet: the arc's plane is undefined
-#: there, and Lambert's velocity is its radial part plus a sliver that the
-#: rounding of the angle decides. Measured 2026-09-19 on a hull flying a
-#: twenty-lap meeting round Terra: at a thousandth of a radian it was sent
-#: three units a day off its own arc for a minute, at three hundredths it
-#: read its arc to a thousandth. A hull flying an arc passes this once a
-#: lap, and the helm coasts that minute -- the arc goes on under it.
+#: Within this of a whole number of half turns, radians, the hull and the
+#: point it is aimed at lie on one line through the planet: the arc's plane
+#: is undefined there. At a whole turn Lambert's velocity is its radial part
+#: plus a sliver the rounding of the angle decides -- measured 2026-09-19 on
+#: a twenty-lap meeting round Terra: at a thousandth of a radian it sent the
+#: hull three units a day off its own arc for a minute, at three hundredths
+#: it read the arc to a thousandth; at a half turn `astro.lambert` nudges
+#: the angle without moving the goal, and the arc it returns misses the goal
+#: by two parking radii (review 2026-09-19). A hull flying an arc passes
+#: each once a lap, and the helm coasts that minute -- the arc goes on under
+#: it.
 SAME_RAY = 0.01
 
 #: How far coasting on may miss the other hull, as a share of the distance
@@ -128,18 +131,29 @@ class Arc:
     far: float
 
 
-def shared_world(system: System, t: float, r: tuple[float, float], target: Drifter) -> Body | None:
+def shared_world(
+    system: System,
+    t: float,
+    r: tuple[float, float],
+    v: tuple[float, float],
+    target: Drifter,
+) -> Body | None:
     """The planet a meeting with `target` is flown round: the one it is in
-    orbit round (`bound.Orbiter`), if the hull is inside that planet's inner
-    sphere at `t` -- where the other worlds pull only as a tide. Nothing
-    otherwise, and then the approach is the straight profile: a hull coasting
-    away from a planet is met on its line, not on an orbit it is not on."""
+    orbit round (`bound.Orbiter`), if the hull is itself in orbit round it at
+    `t` (`bound_to`). Nothing otherwise.
+
+    The hull's own orbit, not its place: a hull coming in from outside the
+    planet's reach and switched to arcs round it inside the inner sphere
+    found no arc from a line that was no orbit, coasted, and in half the
+    starts measured went into the ground (review 2026-09-19). A hull that is
+    not in orbit round the target's planet meets a hull that is from orbit
+    (`slider`): first a course to the planet, then the meeting."""
     if not isinstance(target, Orbiter):
         return None
-    body = target.held.body
-    p, _ = place(body, t)
-    mine = float(np.hypot(r[0] - p[0, 0], r[1] - p[0, 1]))
-    return body if mine < INNER_SHARE * hill_of(system, body) else None
+    held = bound_to(system, t, r, v)
+    if held is None or held.body.key != target.held.body.key:
+        return None
+    return held.body
 
 
 def arc_to(
@@ -155,8 +169,8 @@ def arc_to(
     will be `tof` days later: the least speed changed at both ends together,
     over the laps near the count the hull's own lap puts in the hours, both
     ways round. Only an arc that is itself an orbit that keeps; nothing if
-    none is, and nothing where the two places are on one ray from the planet
-    (`SAME_RAY`).
+    none is, and nothing where the two places are on one line through the
+    planet (`SAME_RAY`).
 
     Both ends in the sum, and not the departure alone: a hull already on the
     arc it was ordered along leaves on it for nothing, so the arc it flies
@@ -172,7 +186,7 @@ def arc_to(
     goal = (float(q[0, 0] - pe[0, 0]), float(q[0, 1] - pe[0, 1]))
     v_goal = (float(vq[0, 0] - vpe[0, 0]), float(vq[0, 1] - vpe[0, 1]))
     turn = abs(np.arctan2(astro.cross(rel, goal), astro.dot(rel, goal)))
-    if turn < SAME_RAY:
+    if turn < SAME_RAY or abs(turn - np.pi) < SAME_RAY:
         return None
     centre = int(tof / _lap_of(body, rel, v_rel))
     best: Arc | None = None

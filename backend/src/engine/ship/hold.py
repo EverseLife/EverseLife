@@ -29,6 +29,7 @@ from src.engine.ship.belonging import crew_of
 from src.engine.ship.fate import _adrift, _lose, book_loss, fate_of_row
 from src.engine.ship.physics import mass, sky_days
 from src.engine.ship.sim import (
+    _DV_EPS,
     _keep_forecast,
     _row,
     _state_of,
@@ -69,9 +70,11 @@ async def begin(
     holds on to it -- not the reference's own. The hold takes a hull within
     the hold's speed of the other, and that difference used to be taken off
     for nothing: a free burn of up to `orbit.dock_speed`, and round a planet
-    a twentieth of the orbit's speed. So the reference's line changes with
-    the hold, and its coast is counted afresh, its loss booked if it now
-    comes down.
+    a twentieth of the orbit's speed. The chaser brakes it off with its own
+    engines first (`helm._fly`, the last burn of a meeting), so what reaches
+    here is only what its tanks could not pay -- and only that moves the
+    other hull, whose coast is then counted afresh and its loss booked if it
+    now comes down.
     """
     #: Flown, not read: the pair's stamp is written from it (D-354).
     found = await state_at(session, constants, other, now=now, exact=True)
@@ -96,6 +99,24 @@ async def begin(
     t = await sky_days(session, now)
     verdict = await book_loss(session, constants, other, world, now=now, t=t, r=here, v=speed)
     _keep_forecast(other, verdict, now=now, t=t)
+    if float(np.hypot(speed[0] - theirs[0], speed[1] - theirs[1])) > _DV_EPS:
+        #: Whoever already holds on to the other flies at the new speed too:
+        #: its own stamp is what the sweep lets it go from (`sweep`), and a
+        #: stamp off the pair's line released it a speed apart. A row under a
+        #: hand this second is left -- its own order ends its hold.
+        for holder in (
+            (
+                await session.execute(
+                    select(Ship)
+                    .where(Ship.held_ship_id == other.id, Ship.id != ship.id)
+                    .with_for_update(skip_locked=True)
+                    .execution_options(populate_existing=True)
+                )
+            )
+            .scalars()
+            .all()
+        ):
+            _write_state(holder, here, speed, at=now)
     _write_state(ship, here, speed, at=now)
     ship.course = None
     ship.forecast = None

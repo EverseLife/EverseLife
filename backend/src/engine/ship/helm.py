@@ -14,7 +14,6 @@ counted. Who came into sight while a hull moved is told here too.
 from __future__ import annotations
 
 import asyncio
-import math
 import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
@@ -46,10 +45,12 @@ from src.engine.ship.sim import (
     _row,
     _state_of,
     _write_state,
+    dense_drifter,
     dv_aboard,
     fuel_for_dv,
     into_orbit,
     meetable,
+    state_at,
     states_at,
     system,
 )
@@ -146,8 +147,9 @@ async def tick_sky(
             .all()
         )
         table = await states_at(session, constants, afloat, now=moment)
+        sight = sky.Sight(world, await sky_days(session, moment), table)
         for ship in moved:
-            await _sight(session, world, ship, afloat, table)
+            await _sight(session, sight, ship, afloat, table)
     await session.flush()
     return {
         "flown": flown,
@@ -200,7 +202,7 @@ async def _fly(
             return "flying", 0.0
         if not meetable(other) or other.id == ship.id:
             return await _void(session, constants, world, ship, now=now, t0=t0, t1=t1)
-        found_goal = await _dense_drifter(session, constants, world, other, t0=t0, t1=t1)
+        found_goal = await dense_drifter(session, constants, world, other, t0=t0, t1=t1)
         if found_goal is None:
             return "flying", 0.0
         target = found_goal
@@ -212,6 +214,8 @@ async def _fly(
         target = world.body(str(order["planet"]))
     #: A flyby (D-341): the order carries the pass, and the helm's place in it.
     route = await _route_of(session, constants, world, order, target, arrive)
+    #: A meeting in orbit (D-354): the planet its arcs go round, as priced.
+    around = world.body(str(order["around"])) if order.get("around") else None
     leg = flyby.leg_of(order.get("leg"))
 
     weight = await mass(session, constants, catalog, ship)
@@ -261,7 +265,9 @@ async def _fly(
     while t < t1 - sky.TIME_EPS:
         dt = min(step, t1 - t)
         if route is None:
-            helm = sky.steer(world, target, t, r, v, arrive=arrive, a_max=a_max, dt=dt)
+            helm = sky.steer(
+                world, target, t, r, v, arrive=arrive, a_max=a_max, dt=dt, around=around
+            )
         else:
             assert isinstance(target, sky.Body)
             helm, leg, want = sky.steer_pass(world, target, route, leg, t, r, v, a_max=a_max, dt=dt)
@@ -330,6 +336,24 @@ async def _fly(
         if trim <= max(budget - spent, 0.0):
             v = rounded
             spent += trim
+    if outcome == "moored" and other is not None:
+        #: The last burn of a meeting (D-354): the hold takes a hull within
+        #: `orbit.dock_speed` of the other, and the chaser sheds what is left
+        #: of the difference with its own engines before it latches on --
+        #: paid like any other burn, as much of it as the tanks hold. Only the
+        #: part they cannot pay is shared by momentum at the hold
+        #: (`hold.begin`): a hull on nobody's order is not pushed off its
+        #: orbit by somebody else's meeting while that somebody has fuel to
+        #: brake with (D-111).
+        found = await state_at(session, constants, other, now=_moment_of(now, t1, t), exact=True)
+        if found is not None:
+            gap_v = np.array(found[1]) - np.array(v)
+            trim = float(np.hypot(*gap_v))
+            pay = min(trim, max(budget - spent, 0.0))
+            if pay > 0.0:
+                moved = np.array(v) + gap_v * (pay / trim)
+                v = (float(moved[0]), float(moved[1]))
+                spent += pay
 
     #: **The crew, and then the hull's things** -- the order of the two the
     #: world keeps (`belonging.lock_crew`). A crew member is a pair of hands
@@ -572,76 +596,6 @@ def target_planet(body: sky.Body) -> Planet:
     return Planet(body.key)
 
 
-async def _dense_drifter(
-    session: AsyncSession,
-    constants: Constants,
-    world: sky.System,
-    other: Ship,
-    *,
-    t0: float,
-    t1: float,
-) -> sky.Drifter | None:
-    """The target hull's line for the stretch being flown, laid densely.
-
-    The forecast on its row is the chart's line -- a couple of dozen points
-    over months, coarse enough to miss a hull by units between two of them
-    -- so the helm is given the same coast propagated afresh **from the
-    hull's own stamp**, a point an hour, to a while past the stretch's end
-    (`_meet` wants the hull's speed as well as its place). From the stamp
-    and not from the stretch's start: the target may have been restamped
-    this very tick, and a state asked for before a stamp is the stamp's --
-    an hour's shift that read as the target jumping a unit.
-
-    A target in orbit round a planet is read by Kepler instead (D-354,
-    wave 3, `sky.Orbiter`): a lap there is hours long, and a line of hourly
-    points is chords across it -- and a meeting in orbit aims at where the
-    other will be at the order's hour, days past any stretch.
-    """
-    if other.sky_at is None or other.held_ship_id is not None:
-        return None
-    r, v = _state_of(other)
-    start = await sky_days(session, other.sky_at)
-    step = float(constants[R.ORBIT_PLAN_STEP_MINUTES]) / MINUTES_PER_HOUR / HOURS_PER_DAY
-    held = sky.bound_to(world, start, r, v)
-    if held is not None:
-        if t0 > start and not sky.kepler_reads(world, held, t0 - start):
-            #: Where Kepler does not read the orbit over the stamp's age --
-            #: Pyroxis -- the target is flown to the stretch's start under the
-            #: whole sky, so that it and the chaser are aimed from one moment.
-            #: Read off a stamp hours old it jumped at every restamp by what
-            #: the tide had done since, and the chaser paid to follow the jumps
-            #: (measured 2026-09-19 round Pyroxis: 1.6 times the price of a
-            #: thirteen-hour meeting, and 1.01 read afresh).
-            rr, vv = await asyncio.to_thread(
-                sky.advance,
-                world,
-                np.array([start]),
-                np.array([t0]),
-                np.array([r]),
-                np.array([v]),
-                dt_max=step,
-            )
-            held = sky.bound_to(world, t0, _row(rr), _row(vv)) or held
-        return sky.orbiter(f"ship:{other.id}:{held.t0}", held)
-    horizon = max(t1 - start, step) + max(t1 - t0, step) + step
-    points = int(math.ceil(horizon * HOURS_PER_DAY)) + 1 + 1
-    path = sky.sample(
-        world,
-        start,
-        np.array([r]),
-        np.array([v]),
-        np.array([horizon]),
-        dt_max=step,
-        points=points,
-    )[0]
-    return sky.Drifter(
-        key=f"ship:{other.id}:{start}",
-        t0=start,
-        t1=start + horizon,
-        trace=tuple((float(x), float(y)) for x, y in path),
-    )
-
-
 async def _void(
     session: AsyncSession,
     constants: Constants,
@@ -671,15 +625,16 @@ async def _void(
 
 async def _sight(
     session: AsyncSession,
-    world: sky.System,
+    sight: sky.Sight,
     ship: Ship,
     afloat: Sequence[Ship],
     table: dict[uuid.UUID, tuple[tuple[float, float], tuple[float, float]]],
 ) -> None:
-    """Who is within the sight radius of a hull that just moved (D-289, wave 3):
-    a foreign hull newly in sight is told of to both owners, once, and a hull
-    gone out of sight may be sighted again. `table` is every hull's place
-    this tick (`sim.states_at`).
+    """Who is in sight of a hull that just moved (D-289, wave 3): within the
+    sight radius, or in orbit round the same planet (`sky.Sight`, one for the
+    tick's table). A foreign hull newly in sight is told of to both owners,
+    once, and a hull gone out of sight may be sighted again. `table` is every
+    hull's place this tick (`sim.states_at`).
 
     The memory of a sighting is on the rows of hulls that move: only this
     hull's row is written -- the other's is not locked, and an update to it
@@ -702,7 +657,7 @@ async def _sight(
         theirs = table.get(other.id)
         if theirs is None:
             continue
-        if math.hypot(mine[0][0] - theirs[0][0], mine[0][1] - theirs[0][1]) <= world.sight_radius:
+        if sight.sees(ship.id, other.id):
             seen.append(str(other.id))
     before = set(ship.sightings or [])
     for other in afloat:

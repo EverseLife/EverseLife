@@ -299,9 +299,6 @@ export type Sample = {
    *  or nothing for a direct arc. Sent back with the order, so the pass that
    *  was quoted is the one flown. */
   via?: string | null;
-  /** The planet a meeting in orbit goes round (D-354, wave 3): the trace is
-   *  one lap of the arc's orbit round that planet's centre. */
-  around?: string | null;
 };
 
 /** What `ship.course` answers: the samples, and the reserve once beside them.
@@ -314,6 +311,9 @@ export type CourseAnswer = {
   /** With no sample to a hull: the refusal the order would meet, quoted as
    *  the socket quotes one -- the engine's key and its arguments. */
   why?: { code: string; args?: Record<string, unknown> } | null;
+  /** The planet a meeting in orbit goes round (D-354, wave 3), once for the
+   *  slider: every sample's trace is round that planet's centre. */
+  around?: string | null;
 };
 
 /** What the console's course is set for: a planet's orbit, or another hull

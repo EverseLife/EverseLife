@@ -65,12 +65,14 @@ from src.sky.assist import Leg, Route, correct, steer_pass  # noqa: F401
 from src.sky.bound import (  # noqa: F401
     Bound,
     Orbiter,
+    Sight,
     bound_states,
     bound_to,
     closed_orbit,
     kepler_reads,
     orbiter,
     rounded,
+    seen_from,
 )
 from src.sky.choice import choices  # noqa: F401
 from src.sky.field import advance, pull, sample  # noqa: F401

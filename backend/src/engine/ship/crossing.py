@@ -108,18 +108,18 @@ async def fly(
     #: sky's memory hands the same one back to a hull that has not changed --
     #: its circle or its state, its thrust (`slider._basis`) -- and lays a new
     #: one for a hull that has.
-    _, _, thrust_ratio = await _hull_ready(session, constants, catalog, ship, target, now=moment)
+    thrust_ratio = await _hull_ready(session, constants, catalog, ship, target, now=moment)
     await _world_ready(session, constants, ship, target, moment)
-    if not isinstance(target, Ship):
-        world = await sim.system(session, constants)
+    early: sky.Target | None
+    if isinstance(target, Ship):
+        #: A meeting in orbit is laid in the pool too (D-354): read here, and
+        #: found again under the lock from the slider's memory of this moment.
+        early = await sim.drifter_of(session, constants, target, now=moment)
+    else:
+        early = (await sim.system(session, constants)).body(target.planet.value)
+    if early is not None:
         await slider.offers(
-            session,
-            constants,
-            catalog,
-            ship,
-            world.body(target.planet.value),
-            now=moment,
-            thrust_ratio=thrust_ratio,
+            session, constants, catalog, ship, early, now=moment, thrust_ratio=thrust_ratio
         )
     await session.refresh(ship, with_for_update=True)
     #: And the captain's row after the hull's, never before it: whoever holds
@@ -131,7 +131,7 @@ async def fly(
     if ship.held_ship_id is not None:
         #: On a hold the hull's place is the other hull's: read afresh too.
         await session.get(Ship, ship.held_ship_id, populate_existing=True)
-    _, _, thrust_ratio = await _hull_ready(session, constants, catalog, ship, target, now=moment)
+    thrust_ratio = await _hull_ready(session, constants, catalog, ship, target, now=moment)
 
     world = await sim.system(session, constants)
     goal: sky.Target | None
@@ -166,7 +166,7 @@ async def fly(
                 need=round(cheapest.dv, ROUND_DV),
                 have=round(can, ROUND_DV),
             )
-        over = await sim.orbiting(session, constants, ship, now=moment)
+        over = await sim.orbiting(session, constants, ship)
         if over is None:
             raise TooFar(key="ship-no-route-adrift", planet_to=target.planet.value)
         raise TooFar(
@@ -247,7 +247,7 @@ async def _hull_ready(
     target: Node | Ship,
     *,
     now: datetime,
-) -> tuple[None, None, float]:
+) -> float:
     """Every refusal the hull itself gives an order, and the thrust-to-mass.
     Only reads -- `fly` asks it before the hull's row is locked, so a refused
     order lays no slider, and again under the lock, so what is written is
@@ -274,7 +274,7 @@ async def _hull_ready(
         #: Already where the order would bring it: in orbit round that very
         #: planet and close enough in to come down from. One on a wider
         #: orbit round it is sent -- the helm brings it down to the circle.
-        held = await sim.orbit_of(session, constants, ship, now=now)
+        held = await sim.orbit_of(session, constants, ship)
         world = await sim.system(session, constants)
         if (
             held is not None
@@ -282,7 +282,7 @@ async def _hull_ready(
             and held.far <= sky.capture_of(world, held.body)
         ):
             raise TooFar(key="ship-already-over-planet", ship=ship.name)
-    return None, None, await _fit(session, constants, catalog, ship)
+    return await _fit(session, constants, catalog, ship)
 
 
 async def _world_ready(
@@ -305,7 +305,7 @@ async def _world_ready(
         #: at this end, while there is still a choice to make. The sky itself
         #: takes every hull: there is no node above a planet to refuse one.
         if not await _landable(session, constants, target.planet):
-            raise NoPort(key="ship-nowhere-to-land", node=target.name)
+            raise NoPort(key="ship-nowhere-to-land", planet=target.planet.value)
 
 
 async def cancel(

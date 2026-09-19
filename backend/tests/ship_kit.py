@@ -235,6 +235,10 @@ async def _laid(
     session: AsyncSession, constants: Constants, body: Body, port: Node, name="Заря"
 ) -> Ship:
     """Lay the foundation and run the work to its end -- a ship in port."""
+    #: The new one is the one that was not there before: `created_at` is the
+    #: transaction's clock, the same for every hull a test lays, and the
+    #: newest by it was a coin toss between them.
+    before = {one.id for one in await ship.ships_of(session, body.identity_id)}
     job = await ship.found(session, constants, body, name)
     await ship.keel_laid(session, job)
     #: The keel job is done by hand here, so close it by hand too: left pending
@@ -244,9 +248,9 @@ async def _laid(
     job.finished_at = job.run_at
     await session.flush()
 
-    mine = await ship.ships_of(session, body.identity_id)
-    assert mine, "закладка кончилась кораблём"
-    return mine[-1]
+    mine = [one for one in await ship.ships_of(session, body.identity_id) if one.id not in before]
+    assert len(mine) == 1, "закладка кончилась кораблём"
+    return mine[0]
 
 
 async def _equip(session: AsyncSession, node: Node, type_key: str, amount: float = 1):
@@ -525,5 +529,5 @@ async def _orbiting(session: AsyncSession, constants: Constants, vessel: Ship) -
     what the console calls "in orbit" -- there is no node to be moored to."""
     if vessel.sky_at is None:
         return None
-    body = await sim.orbiting(session, constants, vessel, now=vessel.sky_at)
+    body = await sim.orbiting(session, constants, vessel)
     return None if body is None else body.key

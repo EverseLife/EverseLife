@@ -394,7 +394,7 @@ async def land(
     if ship.held_ship_id is not None:
         #: On a hold the hull's place is the other hull's: read afresh.
         await session.get(Ship, ship.held_ship_id, populate_existing=True)
-    held = await sim.orbit_of(session, constants, ship, now=moment)
+    held = await sim.orbit_of(session, constants, ship)
     if held is None:
         raise InFlight(key="ship-not-in-orbit", ship=ship.name)
     if port.planet.value != held.body.key:

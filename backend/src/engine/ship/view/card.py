@@ -110,7 +110,7 @@ async def profile(
     elif flying is not None:
         stage = UNDER_WAY
     else:
-        held = await sim.orbit_of(session, constants, ship, now=moment)
+        held = await sim.orbit_of(session, constants, ship)
         stage = IN_ORBIT if held is not None else ADRIFT
     bodies = await sim.system(session, constants)
     #: Close enough in to come down from: the whole orbit inside the window
@@ -496,9 +496,17 @@ async def forecast(
     #: The slider as offered (D-341): one point a flight time, fastest first,
     #: each cheaper than the one before -- nothing the engines cannot deliver
     #: and nothing that is no choice, so the client draws all of it.
-    offered = await slider.offers(
-        session, constants, catalog, ship, goal, now=moment, thrust_ratio=thrust_ratio
-    )
+    try:
+        offered = await slider.offers(
+            session, constants, catalog, ship, goal, now=moment, thrust_ratio=thrust_ratio
+        )
+    except ShipError as refused:
+        #: A hull in orbit asked of from outside it (D-354): the console says
+        #: why, in the order's own words, rather than draw an empty slider. A
+        #: planet's slider refuses nothing here, and is not caught.
+        if not isinstance(target, Ship):
+            raise
+        return _nothing(target, refused)
     t0 = await sky_days(session, moment)
     if isinstance(goal, sky.Drifter) and any(sim.gone_by(goal, t0, one.hours) for one in offered):
         #: The hull's line ends before the profile gets there: nothing is
@@ -537,17 +545,18 @@ async def forecast(
                 #: for a direct arc: the console names it beside the price, and
                 #: the order sends it back so the pass that was quoted is flown.
                 **({} if sample.via is None else {"via": sample.via.via}),
-                #: The planet a meeting in orbit goes round (D-354, wave 3): the
-                #: trace is round its centre, and nothing else on the wire says
-                #: which centre (D-225).
-                **({} if sample.around is None else {"around": sample.around}),
             }
         )
     #: The descent kept back at the far end, once: every sample needs its own
     #: fuel plus this, and the client adds the two (D-225).
+    #: The planet a meeting in orbit goes round (D-354, wave 3), once for the
+    #: whole slider -- every point of it goes round the same one: the traces
+    #: are round its centre, and nothing else on the wire says which (D-225).
+    around = next((one.around for one in offered if one.around), None)
     return {
         "planet": target.value if isinstance(target, Planet) else None,
         "ship": str(target.id) if isinstance(target, Ship) else None,
         "reserve": round(reserve, ROUND_MASS),
         "samples": samples,
+        **({} if around is None else {"around": around}),
     }

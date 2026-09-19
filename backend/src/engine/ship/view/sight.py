@@ -7,8 +7,6 @@ aboard, with the hull's air in the corner of the eye.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
-
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -215,7 +213,7 @@ async def _from_aboard(
         "underway": (
             ship.docked_node_id is None
             and ship.lost_at is None
-            and await sim.orbiting(session, constants, ship, now=datetime.now(UTC)) is None
+            and await sim.orbiting(session, constants, ship) is None
         ),
     }
 
