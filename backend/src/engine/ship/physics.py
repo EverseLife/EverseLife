@@ -148,6 +148,18 @@ async def _aboard(session: AsyncSession, ship: Ship, things: list[Item] | None) 
     return things if things is not None else await _things(session, ship)
 
 
+def _standing(things: list[Item], table: dict[str, float]) -> list[Item]:
+    """The things aboard the table names that **stand** (D-202, D-278).
+
+    An engine is a machine put in a compartment, not a part of the hull: one
+    lying on a floor or packed in a chest is cargo -- it weighs, and it
+    neither pushes nor sets the class. Counting it let a hull carry more
+    engines than its compartments seat (D-106), with no fuel line to any of
+    them (D-288).
+    """
+    return [thing for thing in things if thing.type_key in table and thing.installed]
+
+
 async def thrust(
     session: AsyncSession, constants: Constants, ship: Ship, *, things: list[Item] | None = None
 ) -> float:
@@ -159,15 +171,14 @@ async def thrust(
     table = constants[R.SHIP_THRUST]
     return sum(
         float(table[thing.type_key]) * amount_float(thing.amount)
-        for thing in await _aboard(session, ship, things)
-        if thing.type_key in table
+        for thing in _standing(await _aboard(session, ship, things), table)
     )
 
 
 async def engine_class(
     session: AsyncSession, constants: Constants, ship: Ship, *, things: list[Item] | None = None
 ) -> int | None:
-    """The ship's class: **the weakest** engine aboard (D-037, D-054).
+    """The ship's class: **the weakest** engine standing aboard (D-037, D-054).
 
     The same weakest-link rule as the quality ceiling: one poor engine in the
     cluster holds the cluster back, and "we got there on three good ones and a
@@ -176,8 +187,7 @@ async def engine_class(
     table = constants[R.SHIP_ENGINE_CLASS]
     classes = [
         int(table[thing.type_key])
-        for thing in await _aboard(session, ship, things)
-        if thing.type_key in table
+        for thing in _standing(await _aboard(session, ship, things), table)
     ]
     return min(classes) if classes else None
 
@@ -205,13 +215,8 @@ async def engines_aboard(
     session: AsyncSession, constants: Constants, ship: Ship, *, things: list[Item] | None = None
 ) -> list[Item]:
     """The engines standing aboard, in id order: what the fuel lines hang on (D-288)."""
-    table = constants[R.SHIP_THRUST]
     return sorted(
-        (
-            thing
-            for thing in await _aboard(session, ship, things)
-            if thing.type_key in table and thing.installed
-        ),
+        _standing(await _aboard(session, ship, things), constants[R.SHIP_THRUST]),
         key=lambda thing: thing.id,
     )
 
@@ -348,14 +353,14 @@ async def engines(
     """What drives the ship, engine by engine: name, count, thrust each, class.
 
     For the console (D-230): the owner reads which engines stand aboard and
-    what each gives, not a single sum they cannot act on.
+    what each gives, not a single sum they cannot act on. The same engines
+    `thrust` sums: a lying one is cargo, listed nowhere here (D-278).
     """
     thrusts = constants[R.SHIP_THRUST]
     classes = constants[R.SHIP_ENGINE_CLASS]
     counts: dict[str, float] = {}
-    for thing in await _aboard(session, ship, things):
-        if thing.type_key in thrusts:
-            counts[thing.type_key] = counts.get(thing.type_key, 0.0) + amount_float(thing.amount)
+    for thing in _standing(await _aboard(session, ship, things), thrusts):
+        counts[thing.type_key] = counts.get(thing.type_key, 0.0) + amount_float(thing.amount)
     return [
         {
             "name": name,
