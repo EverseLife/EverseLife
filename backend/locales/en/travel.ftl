@@ -73,7 +73,7 @@ road-stand-at-an-end = a road is laid standing at one end of the edge
 road-intact = the road is whole: there is nothing to patch
 road-trail-not-mended = trackless ground and a trail have nothing to patch: lay a road first
 road-edge-busy = work is already under way on this edge: wait for the end of it
-road-no-goods = you need { NUMBER($need, maximumFractionDigits: 0) } “{ NAME($goods) }” and your hands hold { NUMBER($have, maximumFractionDigits: 0) }: a road is materials, not intent
+road-no-goods = you need { NUMBER($need, maximumFractionDigits: 0) } “{ NAME($goods) }” and { NUMBER($have, maximumFractionDigits: 0) } is at hand: a road is materials, not intent
 road-already-queued = the work is already queued
 road-job-no-edge = job { $job }: there is no edge
 

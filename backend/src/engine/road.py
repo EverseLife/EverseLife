@@ -11,7 +11,10 @@ was nothing to turn a trail into a road with.
 ## Laying
 
 Whoever stands at one end of the edge spends `road.surface_per_edge` of road
-surface and `road.build_hours` of time, and the surface rises **by a tier**:
+surface and `road.build_hours` of time, and the surface rises **by a tier**.
+The surface is taken from wherever a work's hands reach (D-315) -- the pocket,
+the crew's own convoy, and the place where it is theirs: forty units are a
+wagonload, and a road nobody can lay out of a wagon is a road nobody lays:
 
     offroad -> road -> paved highway
 
@@ -55,7 +58,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.constants import Catalog, Constants, current
 from src.constants import registry as R
-from src.engine import biome, events, occupation, stock, travel, works, world
+from src.engine import biome, craft, events, occupation, stock, travel, works, world
 from src.engine.city import land as city_land
 from src.engine.city import line as city_line
 from src.engine.errors import Refusal
@@ -172,6 +175,10 @@ async def lay(
 
     if body.node_id not in (edge.node_a_id, edge.node_b_id):
         raise NotHere(key="road-stand-at-an-end")
+    #: The edge's row before anything is read off it: two crews at its two ends
+    #: would otherwise both find nobody working, both pay the norm and both
+    #: queue a job. The order is body (the command's), edge, stacks.
+    await session.refresh(edge, with_for_update=True)
     if mend:
         if float(edge.condition) >= SCALE_MAX:
             raise RoadError(key="road-intact")
@@ -188,17 +195,21 @@ async def lay(
     #: before the write-off, because a refusal must eat nothing.
     await occupation.require_free(session, body)
 
-    #: The check comes before the write-off: a refusal must not eat half the surface.
+    #: The check comes before the write-off: a refusal must not eat half the
+    #: surface. And after the lock: the yard and the chests are shared by
+    #: everybody entitled (D-315), so two crews counting one pile before either
+    #: took from it would both find it full.
     need_amount = needed(constants, edge, mend=mend)
-    in_hands = await _surface_at_hand(session, body)
-    if in_hands + _EPS < need_amount:
+    stacks = await _surface_stacks(session, body, lock=True)
+    within_reach = _total(stacks)
+    if within_reach + _EPS < need_amount:
         raise NoSurfaceGoods(
             key="road-no-goods",
             need=need_amount,
             goods=SURFACE_GOODS,
-            have=in_hands,
+            have=within_reach,
         )
-    written_off, paving = await _take_surface(session, constants, body, need_amount)
+    written_off, paving = await _take_surface(session, constants, stacks, need_amount)
 
     ready_ = moment + timedelta(hours=constants[R.ROAD_BUILD_HOURS])
     event = await events.record(
@@ -424,7 +435,7 @@ async def view(session: AsyncSession, constants: Constants, body: Body) -> list[
         .all()
     )
 
-    in_hands = await _surface_at_hand(session, body)
+    within_reach = await _surface_at_hand(session, body)
     result: list[dict] = []
     for edge in edges:
         other = await session.get(
@@ -467,7 +478,7 @@ async def view(session: AsyncSession, constants: Constants, body: Body) -> list[
                 "next": further,
                 "needs": need_amount,
                 "mend_needs": resurface,
-                "at_hand": in_hands,
+                "at_hand": within_reach,
                 "working": await pending(session, edge) is not None,
             }
         )
@@ -480,35 +491,46 @@ async def view(session: AsyncSession, constants: Constants, body: Body) -> list[
 _EPS = 1 / AMOUNT_SCALE
 
 
-async def _surface_at_hand(session: AsyncSession, body: Body) -> float:
-    pocket = await world.body_container(session, body)
-    stacks = (
-        (
-            await session.execute(
-                select(Item).where(
-                    Item.container_id == pocket.id,
-                    Item.type_key.in_(world.station_names(SURFACE_GOODS)),
-                )
-            )
-        )
-        .scalars()
-        .all()
+async def _surface_stacks(session: AsyncSession, body: Body, *, lock: bool = False) -> list[Item]:
+    """The surface a crew's hands reach, worst first (D-315).
+
+    Where it looks is the one door every work gathers through (`craft._stock`):
+    the pocket, the convoy this body is harnessed to, and -- where the body may
+    dispose of the place -- the ground and the chests put up here. What is
+    worn, what holds something and what is under the knife is not material
+    there, and so not here.
+
+    `lock` takes the rows for the transaction; the laying asks for it, the
+    view does not -- it reads (`road.here` is a `readonly` command).
+    """
+    found = await craft._stock(  # noqa: SLF001
+        session, body, world.station_names(SURFACE_GOODS), lock=lock
     )
+    return sorted(
+        (stack for stacks in found.values() for stack in stacks),
+        key=lambda stack: (stack.quality is not None, stack.quality or 0, stack.created_at),
+    )
+
+
+def _total(stacks: list[Item]) -> float:
     return sum(amount_float(stack.amount) for stack in stacks)
 
 
+async def _surface_at_hand(session: AsyncSession, body: Body) -> float:
+    """How much surface the work would find: the number the window shows."""
+    return _total(await _surface_stacks(session, body))
+
+
 async def _take_surface(
-    session: AsyncSession, constants: Constants, body: Body, need_amount: float
+    session: AsyncSession, constants: Constants, stacks: list[Item], need_amount: float
 ) -> tuple[float, str | None]:
-    """Write off surface from the hands. Returns (taken, the dominant kind).
+    """Write off surface from the locked stacks. Returns (taken, the dominant kind).
 
     Kinds may mix in one laying -- the norm is taken off whatever stacks of
-    the class are carried, as before D-252 -- and the edge is marked by the
-    kind that made up most of it. A tie goes to the slower-sagging one: the
+    the class are within reach, as before D-252 -- and the edge is marked by
+    the kind that made up most of it. A tie goes to the slower-sagging one: the
     builder who brought half asphalt gets the benefit of the doubt.
     """
-    pocket = await world.body_container(session, body)
-    stacks = await stock.locked_stacks(session, pocket.id, world.station_names(SURFACE_GOODS))
     before = {stack.id: (stack.type_key, amount_float(stack.amount)) for stack in stacks}
     taken = amount_float(await stock.consume(session, stacks, amount(need_amount)))
     spent: dict[str, float] = {}

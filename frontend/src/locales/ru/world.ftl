@@ -89,12 +89,12 @@ ui-map-surface-trail = тропинка
 ui-map-surface-road = дорога
 ui-map-surface-paved = тракт
 ui-map-road-working = идёт работа
-ui-map-road-need = нужно { $needs } полотна, в руках { $hand }
+ui-map-road-need = нужно { $needs } полотна, под рукой { $hand }
 ui-map-road-lay = Проложить за { $needs }
 ui-map-road-pave = Мостить за { $needs }
 ui-map-road-mend-need = подсыпка: { $needs } полотна
 ui-map-road-mend = Подсыпать за { $needs }
-ui-map-road-at-hand = полотна в руках { $hand }
+ui-map-road-at-hand = полотна под рукой { $hand }
 ui-map-road-rule = Покрытие поднимается на ступень за полотно и время: бездорожье → тропинка → дорога → мощёный тракт. Тропинку протаптывают ноги, и без ходьбы она зарастает; без содержания зарастает и дорога. Ни по бездорожью, ни по тропинке обоз не идёт. Под снегом бездорожье и тропинка дольше; дорогу и тракт расчищают.
 
 ## Небо: прокрутка времени и слой космоса.

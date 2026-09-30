@@ -63,7 +63,7 @@ export type RoadWork = {
   /** How much surface laying a tier takes, and how much resurfacing does. */
   needs?: number;
   mend_needs?: number;
-  /** How much surface is in the hands right now. */
+  /** How much surface the work would find: pocket, own convoy, own place (D-315). */
   at_hand: number;
   working: boolean;
 };

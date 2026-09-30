@@ -39,8 +39,17 @@ export function Roads({
       .then((answer) => setRoads((answer.roads as RoadWork[]) ?? []))
       .catch(() => setRoads([]));
     //: Recomputed on a move and after every action: a step laid changes both
-    //: the surface and what is left of the roadbed in hand.
-  }, [session, look.node?.key, look.inventory]);
+    //: the surface and what is left of the roadbed within reach -- the pocket,
+    //: the hold of one's own convoy, and the place where it is ours (D-315).
+  }, [
+    session,
+    look.node?.key,
+    look.inventory,
+    look.convoy,
+    look.floor,
+    look.ground,
+    look.storages,
+  ]);
 
   //: Laying a surface is an occupation (D-310), and a busy body has no hands
   //: for it. The button goes grey with the reason on it: a refusal collected
@@ -96,7 +105,12 @@ export function Roads({
                 </button>
               )}
               {path.at_hand < Math.min(path.needs ?? Infinity, path.mend_needs ?? Infinity) && (
-                <> · {t("ui-map-road-at-hand", { hand: bulk(path.at_hand) })}</>
+                <>
+                  {" · "}
+                  <span title={t("ui-work-reach")}>
+                    {t("ui-map-road-at-hand", { hand: bulk(path.at_hand) })}
+                  </span>
+                </>
               )}
             </>
           )}

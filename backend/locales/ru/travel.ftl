@@ -73,7 +73,7 @@ road-stand-at-an-end = дорогу кладут стоя в одном из к�
 road-intact = дорога цела: подсыпать нечего
 road-trail-not-mended = по бездорожью и тропинке подсыпать нечего: сначала уложить дорогу
 road-edge-busy = на этом ребре уже идёт работа: дождитесь конца
-road-no-goods = нужно { NUMBER($need, maximumFractionDigits: 0) } «{ NAME($goods) }», а в руках { NUMBER($have, maximumFractionDigits: 0) }: дорога — это материалы, а не намерение
+road-no-goods = нужно { NUMBER($need, maximumFractionDigits: 0) } «{ NAME($goods) }», а под рукой { NUMBER($have, maximumFractionDigits: 0) }: дорога — это материалы, а не намерение
 road-already-queued = работа уже поставлена
 road-job-no-edge = задание { $job }: ребра нет
 
