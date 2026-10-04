@@ -472,6 +472,13 @@ async def view(session: AsyncSession, constants: Constants, body: Body) -> list[
                 "to": biome.word_of(constants, other),
                 "surface": edge.surface.value,
                 "condition": float(edge.condition),
+                #: What the way is covered with (D-252): the kind the edge was
+                #: laid or last mended with, by key -- asphalt sags at half the
+                #: pace, and a crew choosing what to patch with must see what
+                #: is under its feet. Nothing already sent says it (D-225):
+                #: the map's edges carry the surface and not the paving. None
+                #: below the road, and on a way laid by the world itself.
+                "paving": edge.paving,
                 #: The way as laid (D-338): what a road would cut is the
                 #: surface's, and the season's snow is the walk's.
                 "seconds": round(travel.edge_seconds(constants, edge, snow=0.0)),

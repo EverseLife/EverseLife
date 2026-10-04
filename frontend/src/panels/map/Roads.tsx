@@ -4,9 +4,10 @@
 import { useEffect, useState } from "react";
 import { SURFACE, type Look, type RoadWork } from "../../api";
 import { Hint } from "../../Hint";
-import { useSession } from "../../actions";
+import { useNames, useSession } from "../../actions";
 import { busyWith } from "../../busy";
 import { t } from "../../locale";
+import { goodsName } from "../../names";
 import { bulk, nameWord } from "./words";
 
 /** Roads from this node: what is laid, what sagged and what it costs (D-158).
@@ -31,6 +32,7 @@ export function Roads({
   only?: string;
 }) {
   const session = useSession();
+  const names = useNames();
   const [roads, setRoads] = useState<RoadWork[]>([]);
 
   useEffect(() => {
@@ -66,7 +68,11 @@ export function Roads({
       {shown.map((path) => (
         <span key={path.edge} className="note">
           {nameWord(path.to)}: {t(SURFACE[path.surface])}
+          {/* What it is covered with, where a crew laid it (D-252): the
+              difference between the two roadbeds is how fast the way sags,
+              and a tester who had laid one twice asked what the other was for. */}
           {paved(path.surface) && ` ${path.condition.toFixed(0)}%`}
+          {paved(path.surface) && path.paving && ` · ${goodsName(names, path.paving).toLowerCase()}`}
           {path.working ? (
             ` · ${t("ui-map-road-working")}`
           ) : (

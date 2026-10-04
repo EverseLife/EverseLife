@@ -95,7 +95,7 @@ ui-map-road-pave = Pave for { $needs }
 ui-map-road-mend-need = patching: { $needs } roadbed
 ui-map-road-mend = Patch for { $needs }
 ui-map-road-at-hand = roadbed at hand { $hand }
-ui-map-road-rule = The surface rises a step for roadbed and time: trackless ground → trail → road → paved way. A trail is worn in by feet and grows over without walking; without upkeep a road grows over too. No convoy goes over trackless ground or a trail. Under snow, trackless ground and trails take longer; roads and paved ways are kept clear.
+ui-map-road-rule = The surface rises a step for roadbed and time: trackless ground → trail → road → paved way. A trail is worn in by feet and grows over without walking; without upkeep a road grows over too. Either roadbed will do — road surface or asphalt: the step is the same, but asphalt sags at half the pace, and after a patch the road lies on whatever roadbed it was patched with. No convoy goes over trackless ground or a trail. Under snow, trackless ground and trails take longer; roads and paved ways are kept clear.
 
 ## The sky: winding time on and the layer of space.
 

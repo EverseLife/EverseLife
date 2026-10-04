@@ -57,6 +57,10 @@ export type RoadWork = {
   surface: "wild" | "trail" | "road" | "paved";
   /** Surface condition 0..100: overgrows without maintenance. */
   condition: number;
+  /** What the way is covered with, by item key (D-252): asphalt sags at half
+   *  the pace. Null below the road, on a way the world laid, and from older
+   *  servers. */
+  paving?: string | null;
   seconds: number;
   /** The next tier, or empty for a highway. */
   next?: "road" | "paved";
