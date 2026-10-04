@@ -129,7 +129,10 @@ async def _transport_unharness(state: dict, db: AsyncSession, message: dict) -> 
 
 @command("transport.load")
 async def _transport_load(state: dict, db: AsyncSession, message: dict) -> dict:
-    """Load from the hands into the hold. In person: nothing is moved while on the go."""
+    """Load into the hold: from the hands, or straight off the ground here.
+
+    In person: nothing is moved while on the go.
+    """
     body = await _alive(state, db)
     item = await db.get(Item, uuid.UUID(message["item"]))
     if item is None:

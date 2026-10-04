@@ -435,30 +435,24 @@ async def drop(
     return put_down
 
 
-async def pick(
+async def liftable(
     session: AsyncSession,
     constants: Constants,
     catalog: Catalog,
     body: Body,
+    node: Node,
     item: Item,
-    quantity: float | None = None,
-) -> float:
-    """Pick up what lies here. Whoever got in may take it (D-204).
+) -> None:
+    """What the hand may lift off this floor -- the carry limit aside.
 
-    The floor used to be closed to strangers, and that stood in for a door the
-    location did not have. Now the door is real: the holder shuts entry and keeps
-    lists (`engine/access.py`), and what lies inside is taken by anyone they let
-    in. Locked up means behind a shut door or in a chest (D-181), not behind a
-    rule saying "do not take".
+    One door for the hand (`pick`) and for the hold of one's own convoy
+    (`transport.load`): what goes from the ground straight onto the cart is
+    exactly what the hand could have carried there in trips, and the trips
+    guarded nothing (D-315). The carry limit is not asked here: it is the
+    hand's own price, and the hold has a limit of its own.
+
+    Locks the thing (`world.lock_thing`) and leaves it locked.
     """
-
-    if body.state is not BodyState.ALIVE:
-        raise StorageError(key="storage-dead-picks")
-    await travel.require_here(session, body)
-
-    node = await session.get(Node, body.node_id)
-    if node is None:  # pragma: no cover
-        raise StorageError(key="storage-body-off-node")
     #: Either surface: what the hand reaches for is what it can see, and both
     #: lists are on one screen (D-244).
     yard = await world.node_container(session, node)
@@ -509,6 +503,33 @@ async def pick(
     #: hauls (D-248), pour-collect-pick-up turned theft into a money pump.
     if item.type_key in await fuel_plant.off_the_pile(session, constants, node):
         raise StorageError(key="storage-station-fuel", goods=item.type_key)
+
+
+async def pick(
+    session: AsyncSession,
+    constants: Constants,
+    catalog: Catalog,
+    body: Body,
+    item: Item,
+    quantity: float | None = None,
+) -> float:
+    """Pick up what lies here. Whoever got in may take it (D-204).
+
+    The floor used to be closed to strangers, and that stood in for a door the
+    location did not have. Now the door is real: the holder shuts entry and keeps
+    lists (`engine/access.py`), and what lies inside is taken by anyone they let
+    in. Locked up means behind a shut door or in a chest (D-181), not behind a
+    rule saying "do not take".
+    """
+
+    if body.state is not BodyState.ALIVE:
+        raise StorageError(key="storage-dead-picks")
+    await travel.require_here(session, body)
+
+    node = await session.get(Node, body.node_id)
+    if node is None:  # pragma: no cover
+        raise StorageError(key="storage-body-off-node")
+    await liftable(session, constants, catalog, body, node, item)
 
     qty = amount_float(item.amount) if quantity is None else quantity
     if qty <= 0:

@@ -66,10 +66,12 @@ export function Convoy({ look }: Omit<Props, "busy" | "act">) {
               into it; for a keyboard or a finger -- or a narrow screen, where
               the sidebar and the scene are different zones and never on screen
               together -- the same two moves are "Выгрузить" here and "В трюм"
-              in the sidebar's row menu. */}
+              in the sidebar's row menu. The floor and the ground drag in as
+              well, by the same command: the engine loads what lies here
+              straight off the ground, without the trip through the hands. */}
           <DropZone
             zone="hold"
-            accepts={["hands"]}
+            accepts={["hands", "floor", "ground"]}
             disabled={busy}
             hint={t("ui-place-convoy-drop")}
             onMove={(stack, amount) =>

@@ -184,6 +184,7 @@ ui-place-floor-pick = Pick up
 ui-place-floor-install = Install
 ui-place-floor-install-hint = lift it off the floor and put it up in the building: takes a place
 ui-place-floor-pick-hint = pick up into your hands — as much as you can carry; the row can be dragged down too
+ui-place-floor-hold-hint = load into the hold of your convoy, skipping the hands — as much as the hold takes; the row can be dragged onto the convoy too
 ui-place-floor-passing = You are here in passing: another's closed location does not give you its floor.
 ui-place-floor-rule = What lies about takes up area; in a chest it does not. A collapsing house buries whatever lies under its roof.
 ui-place-ground-rule = What lies about takes up yard area — what is left of the plot around the house. If the house falls, this survives.

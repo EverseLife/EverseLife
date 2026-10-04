@@ -35,10 +35,10 @@ import uuid
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from conftest import _until_blocked_by
+from conftest import _hold_the_first, _until_blocked_by
 from gone_kit import _lifting
 from src.constants import current, current_catalog
-from src.engine import world
+from src.engine import transport, world
 from src.models.identity import Body
 from src.models.inventory import Item
 from src.models.world import Layer, Node, Planet
@@ -229,3 +229,56 @@ async def test_the_eruption_does_not_burn_what_was_taken_out_of_a_chest(
         assert left.container_id == pocket.id, "вынесенное из сундука сгорело в руках"
         #: And the chest itself is gone with the field: what stayed in it burned.
         assert await db.get(Item, chest_id) is None
+
+
+async def test_a_load_off_the_ground_and_the_eruption_queue_rather_than_deadlock(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A cart and a canister lie in one yard. The fire takes the yard whole, the
+    vessels first; a load off the ground takes the cart and the canister in
+    that same order (`transport.load`). Taken the other way round -- the cart,
+    then the canister -- the two would hold a row each and wait on the other's.
+
+    The load takes its first row and holds it until the fire provably waits on
+    it (`conftest._hold_the_first` on `world.lock_thing`); then it goes on to
+    its second row. In the fire's order the second row is the cart, which the
+    fire has not reached; in the wrong order it is the canister, which the
+    fire holds -- and Postgres kills one of the two.
+    """
+    from src.engine import plates
+
+    field, body = await _a_field_on_pyroxis(session)
+    yard = await world.node_container(session, field)
+    cart = await world.grant_item(session, yard, "cart", amount=1, origin="тест")
+    canister = await world.grant_item(session, yard, "canister", amount=1, origin="тест")
+    await transport.harness(session, current(), current_catalog(), body, cart)
+    field_id, body_id, canister_id = field.id, body.id, canister.id
+    await session.commit()
+
+    held = _hold_the_first(monkeypatch, factory, world, "lock_thing")
+
+    async def load() -> float:
+        async with factory() as db, db.begin():
+            carter = await db.get(Body, body_id)
+            thing = await db.get(Item, canister_id)
+            assert carter is not None and thing is not None
+            return await transport.load(db, current(), current_catalog(), carter, thing)
+
+    async def erupt() -> int:
+        await asyncio.wait_for(held.wait(), 30)
+        async with factory() as db, db.begin():
+            place = await db.get(Node, field_id)
+            assert place is not None
+            return await plates._burn(db, [place])
+
+    outcome = await asyncio.gather(load(), erupt(), return_exceptions=True)
+    assert not [one for one in outcome if isinstance(one, BaseException)], outcome
+    loaded, burnt = outcome
+    assert loaded == pytest.approx(1)
+    #: The load committed first; the fire then opened the cart and burnt the
+    #: canister in its hold along with it (D-197).
+    assert burnt > 0
+    async with factory() as db:
+        assert await db.get(Item, canister_id) is None, "the canister rode into the fire"

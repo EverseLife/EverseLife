@@ -14,6 +14,7 @@ Checked is what transport was introduced for at all:
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from decimal import Decimal
 
@@ -28,6 +29,7 @@ from src.models.identity import Body
 from src.models.inventory import Item
 from src.models.travel import Harness
 from src.models.world import Node, Surface
+from src.units import amount_float
 
 #: What we haul: bulk ore. A unit of it is not a kilogram (D-228), so the
 #: numbers below are kilograms and `_units` turns them into cargo.
@@ -277,6 +279,122 @@ async def test_a_harnessed_barrow_is_not_pocketed(
 
     await transport.unharness(session, body)
     assert await storage.pick(session, constants, catalog, neighbour, barrow) == pytest.approx(1)
+
+
+# --- loading straight off the ground ------------------------------------------
+
+
+async def _on_the_ground(session: AsyncSession, node: Node, qty: float, goods: str = CARGO) -> Item:
+    """Cargo lying in the node: what a bench left there, or a drop."""
+    yard = await world.node_container(session, node)
+    return await world.grant_item(session, yard, goods, amount=qty, origin="test scenario")
+
+
+async def test_the_hold_is_loaded_straight_off_the_ground(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """A cartload lying in the yard goes onto the cart whole: the carry limit is
+    the hand's price, not the hold's, and the trips through the hands guarded
+    nothing but the player's patience (D-157, D-315)."""
+    here, _, body, cart = await _convoy(session)
+    await transport.harness(session, constants, catalog, body, cart)
+    hands = await gear.capacity(session, constants, catalog, body)
+    pile = await _on_the_ground(session, here, _units(catalog, hands * 3))
+
+    carried = await transport.load(session, constants, catalog, body, pile)
+
+    assert carried == pytest.approx(_units(catalog, hands * 3))
+    assert await transport.cargo_mass(session, catalog, cart) == pytest.approx(hands * 3)
+    assert await gear.load_of(session, constants, catalog, body) == pytest.approx(0)
+    assert not await world.node_things(session, here) or all(
+        thing.id == cart.id for thing in await world.node_things(session, here)
+    ), "nothing but the cart is left lying"
+
+
+async def test_the_hold_takes_off_the_ground_only_what_a_hand_could_lift(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    """The same door as the hand's (`storage.liftable`): what stands is not
+    loaded, and a thing lying somewhere else is not here."""
+    here, there, body, cart = await _convoy(session)
+    await transport.harness(session, constants, catalog, body, cart)
+    yard = await world.node_container(session, here)
+    bench = await world.grant_item(
+        session, yard, "workbench", quality=60, origin="test scenario", installed=True
+    )
+    with pytest.raises(storage.StorageError) as refused:
+        await transport.load(session, constants, catalog, body, bench)
+    assert refused.value.key == "storage-standing"
+
+    elsewhere = await _on_the_ground(session, there, 5)
+    with pytest.raises(transport.TransportError) as far:
+        await transport.load(session, constants, catalog, body, elsewhere)
+    assert far.value.key == "transport-not-in-hands"
+    assert not await transport.cargo_items(session, cart)
+
+
+async def test_the_hold_has_its_own_limit_off_the_ground_too(
+    session: AsyncSession, constants: Constants, catalog: Catalog
+) -> None:
+    here, _, body, cart = await _convoy(session)
+    await transport.harness(session, constants, catalog, body, cart)
+    limit = transport.capacity(constants, CART)
+    pile = await _on_the_ground(session, here, _units(catalog, limit) + 1)
+    with pytest.raises(transport.Overloaded):
+        await transport.load(session, constants, catalog, body, pile)
+
+
+async def test_two_carters_over_one_sack_on_the_ground_load_it_once(
+    session: AsyncSession,
+    factory: async_sessionmaker[AsyncSession],
+    constants: Constants,
+    catalog: Catalog,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Both see the sack lying there; the second, after the wait at its row,
+    finds it in the first one's hold and is refused rather than loading what
+    is no longer on the ground."""
+    from conftest import _slow
+
+    here, _, first, cart = await _convoy(session)
+    await transport.harness(session, constants, catalog, first, cart)
+    second = await world.print_body(
+        session, await world.create_identity(session, f"Carter-{uuid.uuid4().hex[:6]}"), here
+    )
+    yard = await world.node_container(session, here)
+    barrow = await world.grant_item(session, yard, BARROW, amount=1, origin="test scenario")
+    await transport.harness(session, constants, catalog, second, barrow)
+    qty = _units(catalog, 20)
+    sack = await _on_the_ground(session, here, qty)
+    sack_id, cart_id, barrow_id = sack.id, cart.id, barrow.id
+    await session.commit()
+
+    #: The pause goes between the sight of the sack and its lock.
+    _slow(monkeypatch, storage, "_require_inside")
+
+    async def load(body_id: uuid.UUID) -> float:
+        async with factory() as db, db.begin():
+            own = await db.get(Body, body_id)
+            thing = await db.get(Item, sack_id)
+            assert own is not None and thing is not None
+            try:
+                return await transport.load(db, constants, catalog, own, thing)
+            except storage.StorageError as refused:
+                assert refused.key == "storage-not-on-ground", refused.key
+                return 0.0
+
+    loaded = await asyncio.gather(load(first.id), load(second.id))
+
+    assert sorted(loaded) == pytest.approx([0.0, qty]), "one sack is one load"
+    async with factory() as db:
+        holds = [
+            sum(
+                amount_float(thing.amount)
+                for thing in await transport.cargo_items(db, await db.get(Item, vehicle))
+            )
+            for vehicle in (cart_id, barrow_id)
+        ]
+    assert sorted(holds) == pytest.approx([0.0, qty])
 
 
 # --- road (D-107) ------------------------------------------------------------

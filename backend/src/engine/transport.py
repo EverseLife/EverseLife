@@ -370,16 +370,50 @@ async def load(
     item: Item,
     quantity: float | None = None,
 ) -> float:
-    """Load from the hands into the hold. In person: nothing is moved while on the go."""
+    """Load into the hold: from the hands, or straight off the ground here.
+
+    In person: nothing is moved while on the go. Off the ground comes what the
+    hand could lift (`storage.liftable`: the same floor, the same door, the
+    same things that stay), without the carry limit -- that is the hand's own
+    price, and a cartload taken to the cart in handfuls guarded nothing but
+    the player's patience (D-315). The hold's own limit stands.
+    """
+    #: Lazy: storage -> transport (a harnessed barrow), and the load asks back.
+    from src.engine import storage  # noqa: PLC0415
 
     if body.state is not BodyState.ALIVE:
         raise TransportError(key="transport-load-dead")
     await travel.require_here(session, body)
 
-    wagon = await _pulled_here(session, body, key="transport-load-not-harnessed")
+    wagon = await harnessed(session, body)
+    if wagon is None:
+        raise NotHarnessed(key="transport-load-not-harnessed")
     pocket = await world.body_container(session, body)
-    if item.container_id != pocket.id:
-        raise TransportError(key="transport-not-in-hands")
+    off_the_ground = item.container_id != pocket.id
+    node = None
+    if off_the_ground:
+        node = await session.get(Node, body.node_id)
+        if node is None:  # pragma: no cover -- a body always stands in a node
+            raise TransportError(key="transport-body-off-node")
+        if item.container_id != (await world.node_container(session, node)).id:
+            raise TransportError(key="transport-not-in-hands")
+        #: The cart and the thing lie in one yard, and the fire takes a yard
+        #: whole -- its vessels first, the rest in id order (`plates.fire._burn`,
+        #: the order `liquid.lock_gathered` keeps). Both rows are taken here in
+        #: that same order, before either is asked anything, so a load off the
+        #: ground and an eruption over the yard queue rather than deadlock.
+        #: `_pulled_here` and `liftable` take their row again -- the same
+        #: transaction, no wait -- and judge it as it stands after the wait.
+        for thing in sorted(
+            (wagon, item), key=lambda one: (not storage.is_vessel(catalog, one.type_key), one.id)
+        ):
+            await world.lock_thing(
+                session, thing, gone=NotHere if thing is wagon else storage.StorageError
+            )
+    wagon = await _pulled_here(session, body, key="transport-load-not-harnessed")
+    if off_the_ground:
+        assert node is not None
+        await storage.liftable(session, constants, catalog, body, node, item)
 
     qty = amount_float(item.amount) if quantity is None else quantity
     if qty <= 0:
@@ -397,6 +431,18 @@ async def load(
 
     hold = await cargo(session, wagon)
     carried = await _move(session, item, hold, qty)
+    if off_the_ground:
+        #: The room sees **who** took a thing off its floor (`push NAMED_KINDS`
+        #: names `item.picked`, not the hold's own event): the same two lines
+        #: the trips through the hands left in the journal.
+        await events.record(
+            session,
+            EventKind.ITEM_PICKED,
+            actor_identity_id=body.identity_id,
+            node_id=body.node_id,
+            type_key=item.type_key,
+            amount=carried,
+        )
     await events.record(
         session,
         EventKind.TRANSPORT_LOADED,

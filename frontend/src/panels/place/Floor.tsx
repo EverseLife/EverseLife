@@ -155,6 +155,27 @@ export function Floor({ look, busy, act, where = "floor" }: Props & { where?: Su
                         {t("ui-place-floor-pick")}
                       </button>
                     )}
+                    {/* Straight into the hold of one's own convoy, without the
+                        trip through the hands and their limit: what the hand could
+                        lift here, the cart takes (D-157, D-315). The convoy window
+                        accepts the same row by drag. */}
+                    {open && look.convoy && (
+                      <button
+                        className="quiet"
+                        onClick={() =>
+                          act(() =>
+                            session.send("transport.load", {
+                              item: thing.id,
+                              amount: chosen(parts[thing.id] ?? null, thing.amount),
+                            }),
+                          )
+                        }
+                        disabled={busy}
+                        title={t("ui-place-floor-hold-hint")}
+                      >
+                        {t("ui-inventory-hold")}
+                      </button>
+                    )}
                     {standable && isGear(book, thing.goods) && (
                       <button
                         className="quiet"
